@@ -179,7 +179,9 @@ build_bun_binary() {
     shift 4
 
     mkdir -p "$out_dir"
-    (cd "$src_dir" && bun install --frozen-lockfile 2>/dev/null || bun install)
+    if [ "${SKIP_BUN_INSTALL:-}" != "1" ]; then
+        (cd "$src_dir" && bun install --frozen-lockfile 2>/dev/null || bun install)
+    fi
 
     local build_flags=(--compile "$@")
 
@@ -206,11 +208,21 @@ build_bun_binary() {
 
 # ---------------------------------------------------------------------------
 # build_binaries — build all Bun binaries (daemon, CLI, gateway).
+#
+# Installs dependencies once per source directory upfront, then compiles all
+# four binaries in parallel to reduce wall-clock time.
 # ---------------------------------------------------------------------------
 build_binaries() {
     command -v bun &>/dev/null || { echo "ERROR: bun is required but not found"; exit 1; }
 
-    # Daemon
+    # Pre-install dependencies once per source directory so parallel builds
+    # don't race on the same node_modules.
+    echo "Installing dependencies..."
+    (cd "$ASSISTANT_SRC_DIR" && bun install --frozen-lockfile 2>/dev/null || bun install)
+    (cd "$CLI_SRC_DIR" && bun install --frozen-lockfile 2>/dev/null || bun install)
+    (cd "$GATEWAY_SRC_DIR" && bun install --frozen-lockfile 2>/dev/null || bun install)
+
+    # Shared flags for daemon and assistant CLI
     local daemon_flags=("${BUN_EXTERNAL_FLAGS[@]}")
     if [ -n "${DISPLAY_VERSION:-}" ] && [ "$DISPLAY_VERSION" != "0.1.0" ]; then
         daemon_flags+=(--define "process.env.APP_VERSION='$DISPLAY_VERSION'")
@@ -218,27 +230,7 @@ build_binaries() {
     if [ -n "${COMMIT_SHA:-}" ]; then
         daemon_flags+=(--define "process.env.COMMIT_SHA='$COMMIT_SHA'")
     fi
-    build_bun_binary "$ASSISTANT_SRC_DIR" "$ASSISTANT_SRC_DIR/src/daemon/main.ts" \
-        "$SCRIPT_DIR/daemon-bin" "vellum-daemon" "${daemon_flags[@]}"
-    # Copy WASM assets (not bundled by bun --compile)
-    cp "$ASSISTANT_SRC_DIR/node_modules/web-tree-sitter/web-tree-sitter.wasm" "$SCRIPT_DIR/daemon-bin/"
-    cp "$ASSISTANT_SRC_DIR/node_modules/tree-sitter-bash/tree-sitter-bash.wasm" "$SCRIPT_DIR/daemon-bin/"
-    # Embedding runtime (onnxruntime-node + @huggingface/transformers) is no longer
-    # shipped with the app. It's downloaded post-hatch by EmbeddingRuntimeManager
-    # into ~/.vellum/workspace/embedding-models/.
-    rm -rf "$SCRIPT_DIR/daemon-bin/node_modules"
-    # Copy bundled skills
-    rm -rf "$SCRIPT_DIR/daemon-bin/bundled-skills"
-    cp -R "$ASSISTANT_SRC_DIR/src/config/bundled-skills" "$SCRIPT_DIR/daemon-bin/bundled-skills"
-    # Copy non-JS assets not embedded by bun --compile (resolved via resolveBundledDir)
-    rm -rf "$SCRIPT_DIR/daemon-bin/templates"
-    cp -R "$ASSISTANT_SRC_DIR/src/prompts/templates" "$SCRIPT_DIR/daemon-bin/templates"
-    rm -rf "$SCRIPT_DIR/daemon-bin/hook-templates"
-    cp -R "$ASSISTANT_SRC_DIR/hook-templates" "$SCRIPT_DIR/daemon-bin/hook-templates"
-    rm -rf "$SCRIPT_DIR/daemon-bin/brain-graph"
-    mkdir -p "$SCRIPT_DIR/daemon-bin/brain-graph"
-    cp "$ASSISTANT_SRC_DIR/src/runtime/routes/brain-graph/brain-graph.html" "$SCRIPT_DIR/daemon-bin/brain-graph/"
-    # Assistant CLI
+
     local cli_flags=("${BUN_EXTERNAL_FLAGS[@]}")
     if [ -n "${DISPLAY_VERSION:-}" ] && [ "$DISPLAY_VERSION" != "0.1.0" ]; then
         cli_flags+=(--define "process.env.APP_VERSION='$DISPLAY_VERSION'")
@@ -246,16 +238,50 @@ build_binaries() {
     if [ -n "${COMMIT_SHA:-}" ]; then
         cli_flags+=(--define "process.env.COMMIT_SHA='$COMMIT_SHA'")
     fi
-    build_bun_binary "$ASSISTANT_SRC_DIR" "$ASSISTANT_SRC_DIR/src/index.ts" \
-        "$SCRIPT_DIR/assistant-bin" "vellum-assistant" "${cli_flags[@]}"
 
-    # CLI
-    build_bun_binary "$CLI_SRC_DIR" "$CLI_SRC_DIR/src/index.ts" \
-        "$SCRIPT_DIR/cli-bin" "vellum-cli"
+    # Build all four binaries in parallel. Each writes to its own output
+    # directory so there are no filesystem conflicts. SKIP_BUN_INSTALL=1
+    # tells build_bun_binary to skip `bun install` (already done above).
+    echo "Building binaries in parallel..."
+    local pids=() failures=0
 
-    # Gateway
-    build_bun_binary "$GATEWAY_SRC_DIR" "$GATEWAY_SRC_DIR/src/index.ts" \
-        "$SCRIPT_DIR/gateway-bin" "vellum-gateway"
+    SKIP_BUN_INSTALL=1 build_bun_binary "$ASSISTANT_SRC_DIR" "$ASSISTANT_SRC_DIR/src/daemon/main.ts" \
+        "$SCRIPT_DIR/daemon-bin" "vellum-daemon" "${daemon_flags[@]}" &
+    pids+=($!)
+
+    SKIP_BUN_INSTALL=1 build_bun_binary "$ASSISTANT_SRC_DIR" "$ASSISTANT_SRC_DIR/src/index.ts" \
+        "$SCRIPT_DIR/assistant-bin" "vellum-assistant" "${cli_flags[@]}" &
+    pids+=($!)
+
+    SKIP_BUN_INSTALL=1 build_bun_binary "$CLI_SRC_DIR" "$CLI_SRC_DIR/src/index.ts" \
+        "$SCRIPT_DIR/cli-bin" "vellum-cli" &
+    pids+=($!)
+
+    SKIP_BUN_INSTALL=1 build_bun_binary "$GATEWAY_SRC_DIR" "$GATEWAY_SRC_DIR/src/index.ts" \
+        "$SCRIPT_DIR/gateway-bin" "vellum-gateway" &
+    pids+=($!)
+
+    for pid in "${pids[@]}"; do
+        wait "$pid" || failures=$((failures + 1))
+    done
+    if [ "$failures" -gt 0 ]; then
+        echo "ERROR: $failures binary build(s) failed"
+        exit 1
+    fi
+
+    # Post-build: copy assets that bun --compile doesn't embed
+    cp "$ASSISTANT_SRC_DIR/node_modules/web-tree-sitter/web-tree-sitter.wasm" "$SCRIPT_DIR/daemon-bin/"
+    cp "$ASSISTANT_SRC_DIR/node_modules/tree-sitter-bash/tree-sitter-bash.wasm" "$SCRIPT_DIR/daemon-bin/"
+    rm -rf "$SCRIPT_DIR/daemon-bin/node_modules"
+    rm -rf "$SCRIPT_DIR/daemon-bin/bundled-skills"
+    cp -R "$ASSISTANT_SRC_DIR/src/config/bundled-skills" "$SCRIPT_DIR/daemon-bin/bundled-skills"
+    rm -rf "$SCRIPT_DIR/daemon-bin/templates"
+    cp -R "$ASSISTANT_SRC_DIR/src/prompts/templates" "$SCRIPT_DIR/daemon-bin/templates"
+    rm -rf "$SCRIPT_DIR/daemon-bin/hook-templates"
+    cp -R "$ASSISTANT_SRC_DIR/hook-templates" "$SCRIPT_DIR/daemon-bin/hook-templates"
+    rm -rf "$SCRIPT_DIR/daemon-bin/brain-graph"
+    mkdir -p "$SCRIPT_DIR/daemon-bin/brain-graph"
+    cp "$ASSISTANT_SRC_DIR/src/runtime/routes/brain-graph/brain-graph.html" "$SCRIPT_DIR/daemon-bin/brain-graph/"
 }
 
 case "$CMD" in
@@ -616,6 +642,12 @@ fi
 FEATURE_FLAG_REGISTRY="$SCRIPT_DIR/../../meta/feature-flags/feature-flag-registry.json"
 if [ -f "$FEATURE_FLAG_REGISTRY" ]; then
     cp "$FEATURE_FLAG_REGISTRY" "$RESOURCES_DIR/feature-flag-registry.json"
+fi
+# Generate character-components.json for pre-daemon avatar rendering
+CHAR_COMP_SRC="$ASSISTANT_SRC_DIR/src/avatar/character-components.ts"
+if command -v bun &>/dev/null && [ -f "$CHAR_COMP_SRC" ]; then
+    echo "Generating character-components.json..."
+    bun -e "import { getCharacterComponents } from '$CHAR_COMP_SRC'; process.stdout.write(JSON.stringify(getCharacterComponents()))" > "$RESOURCES_DIR/character-components.json"
 fi
 
 # Always check resource bundles (they change independently of binaries)

@@ -271,7 +271,7 @@ describe("Telegram callback seen signals", () => {
       ensureActorScopedHistory: async () => {},
     } as unknown as import("../daemon/conversation.js").Conversation;
     pendingInteractions.register("req-cb-test", {
-      session: mockSession,
+      conversation: mockSession,
       conversationId,
       kind: "confirmation",
       confirmationDetails: {

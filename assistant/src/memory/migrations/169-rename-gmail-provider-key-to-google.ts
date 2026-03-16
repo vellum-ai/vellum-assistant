@@ -25,16 +25,37 @@ export function migrateRenameGmailProviderKeyToGoogle(
 
       raw.exec("PRAGMA foreign_keys = OFF");
       try {
-        // Update child tables first, then the parent.
-        raw.exec(
-          /*sql*/ `UPDATE oauth_connections SET provider_key = 'integration:google' WHERE provider_key = 'integration:gmail'`,
-        );
-        raw.exec(
-          /*sql*/ `UPDATE oauth_apps SET provider_key = 'integration:google' WHERE provider_key = 'integration:gmail'`,
-        );
-        raw.exec(
-          /*sql*/ `UPDATE oauth_providers SET provider_key = 'integration:google' WHERE provider_key = 'integration:gmail'`,
-        );
+        // If `integration:google` already exists (runtime seeded it after the
+        // code rename), the old `integration:gmail` rows are orphaned — just
+        // delete them instead of renaming.
+        const googleExists = raw
+          .prepare(
+            /*sql*/ `SELECT 1 FROM oauth_providers WHERE provider_key = 'integration:google'`,
+          )
+          .get();
+
+        if (googleExists) {
+          raw.exec(
+            /*sql*/ `DELETE FROM oauth_connections WHERE provider_key = 'integration:gmail'`,
+          );
+          raw.exec(
+            /*sql*/ `DELETE FROM oauth_apps WHERE provider_key = 'integration:gmail'`,
+          );
+          raw.exec(
+            /*sql*/ `DELETE FROM oauth_providers WHERE provider_key = 'integration:gmail'`,
+          );
+        } else {
+          // Update child tables first, then the parent.
+          raw.exec(
+            /*sql*/ `UPDATE oauth_connections SET provider_key = 'integration:google' WHERE provider_key = 'integration:gmail'`,
+          );
+          raw.exec(
+            /*sql*/ `UPDATE oauth_apps SET provider_key = 'integration:google' WHERE provider_key = 'integration:gmail'`,
+          );
+          raw.exec(
+            /*sql*/ `UPDATE oauth_providers SET provider_key = 'integration:google' WHERE provider_key = 'integration:gmail'`,
+          );
+        }
       } finally {
         raw.exec("PRAGMA foreign_keys = ON");
       }

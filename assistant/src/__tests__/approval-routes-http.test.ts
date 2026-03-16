@@ -246,14 +246,14 @@ describe("standalone approval endpoints — HTTP layer", () => {
   });
 
   async function startServer(
-    sessionFactory: () => Conversation,
+    conversationFactory: () => Conversation,
   ): Promise<void> {
     port = 20000 + Math.floor(Math.random() * 1000);
     server = new RuntimeHttpServer({
       port,
       bearerToken: TEST_TOKEN,
       sendMessageDeps: {
-        getOrCreateConversation: async () => sessionFactory(),
+        getOrCreateConversation: async () => conversationFactory(),
         assistantEventHub: eventHub,
         resolveAttachments: () => [],
       },
@@ -287,7 +287,7 @@ describe("standalone approval endpoints — HTTP layer", () => {
 
       // Manually register a pending interaction
       pendingInteractions.register("req-abc", {
-        session,
+        conversation: session,
         conversationId: "conv-1",
         kind: "confirmation",
         confirmationDetails: {
@@ -336,7 +336,7 @@ describe("standalone approval endpoints — HTTP layer", () => {
       await startServer(() => session);
 
       pendingInteractions.register("req-once", {
-        session,
+        conversation: session,
         conversationId: "conv-1",
         kind: "confirmation",
       });
@@ -408,7 +408,7 @@ describe("standalone approval endpoints — HTTP layer", () => {
       await startServer(() => session);
 
       pendingInteractions.register("secret-req-1", {
-        session,
+        conversation: session,
         conversationId: "conv-1",
         kind: "secret",
       });
@@ -584,7 +584,7 @@ describe("standalone approval endpoints — HTTP layer", () => {
 
       // Register without confirmationDetails
       pendingInteractions.register("req-no-details", {
-        session,
+        conversation: session,
         conversationId: "conv-1",
         kind: "secret",
       });
@@ -610,7 +610,7 @@ describe("standalone approval endpoints — HTTP layer", () => {
       await startServer(() => session);
 
       pendingInteractions.register("req-no-persist", {
-        session,
+        conversation: session,
         conversationId: "conv-1",
         kind: "confirmation",
         confirmationDetails: {
@@ -646,7 +646,7 @@ describe("standalone approval endpoints — HTTP layer", () => {
       await startServer(() => session);
 
       pendingInteractions.register("req-bad-pattern", {
-        session,
+        conversation: session,
         conversationId: "conv-1",
         kind: "confirmation",
         confirmationDetails: {
@@ -685,7 +685,7 @@ describe("standalone approval endpoints — HTTP layer", () => {
       await startServer(() => session);
 
       pendingInteractions.register("req-bad-scope", {
-        session,
+        conversation: session,
         conversationId: "conv-1",
         kind: "confirmation",
         confirmationDetails: {
@@ -724,7 +724,7 @@ describe("standalone approval endpoints — HTTP layer", () => {
       await startServer(() => session);
 
       pendingInteractions.register("req-keep", {
-        session,
+        conversation: session,
         conversationId: "conv-1",
         kind: "confirmation",
         confirmationDetails: {
@@ -823,17 +823,17 @@ describe("standalone approval endpoints — HTTP layer", () => {
       await startServer(() => session);
 
       pendingInteractions.register("req-a", {
-        session,
+        conversation: session,
         conversationId: "conv-x",
         kind: "confirmation",
       });
       pendingInteractions.register("req-b", {
-        session,
+        conversation: session,
         conversationId: "conv-x",
         kind: "secret",
       });
       pendingInteractions.register("req-c", {
-        session,
+        conversation: session,
         conversationId: "conv-y",
         kind: "confirmation",
       });

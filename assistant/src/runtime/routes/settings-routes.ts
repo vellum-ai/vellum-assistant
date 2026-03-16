@@ -47,7 +47,7 @@ import {
   REASON_SKIP_SET,
 } from "../../tools/schema-transforms.js";
 import { isSideEffectTool } from "../../tools/side-effects.js";
-import { setAvatarTool } from "../../tools/system/avatar-generator.js";
+import { generateAndSaveAvatar } from "../../tools/system/avatar-generator.js";
 import { pathExists } from "../../util/fs.js";
 import { getLogger } from "../../util/logger.js";
 import { getWorkspaceDir } from "../../util/platform.js";
@@ -87,11 +87,7 @@ async function handleGenerateAvatar(description: string): Promise<Response> {
   log.info({ description }, "Generating avatar via HTTP request");
 
   try {
-    const result = await setAvatarTool.execute(
-      { description },
-      // Minimal tool context -- avatar generation needs no session context
-      {} as Parameters<typeof setAvatarTool.execute>[1],
-    );
+    const result = await generateAndSaveAvatar(description);
 
     if (result.isError) {
       return httpError("INTERNAL_ERROR", result.content, 500);

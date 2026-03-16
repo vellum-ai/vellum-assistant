@@ -10,7 +10,7 @@
  *   1. Cached in-memory value (populated on first call)
  *   2. Most recently hatched entry in lockfile assistants array
  *      (sorted by `hatchedAt` descending) → assistantId
- *   3. BASE_DATA_DIR path matching `/assistants/<name>` suffix
+ *   3. BASE_DATA_DIR path matching `/assistants/<name>` or `/instances/<name>` suffix
  *   4. `undefined` — callers must handle the missing value
  *
  * The value is cached in memory after the first successful read.
@@ -31,7 +31,7 @@ let cached: string | null | undefined;
  *   1. Cached in-memory value (populated on first call)
  *   2. Most recently hatched entry in lockfile assistants array
  *      (sorted by `hatchedAt` descending) → assistantId
- *   3. BASE_DATA_DIR path matching `/assistants/<name>` suffix
+ *   3. BASE_DATA_DIR path matching `/assistants/<name>` or `/instances/<name>` suffix
  *   4. `undefined` when resolution fails entirely
  */
 export function getExternalAssistantId(): string | undefined {
@@ -72,7 +72,7 @@ export function getExternalAssistantId(): string | undefined {
   const base = getBaseDataDir();
   if (base && typeof base === "string") {
     const normalized = base.replace(/\\/g, "/").replace(/\/+$/, "");
-    const match = normalized.match(/\/assistants\/([^/]+)$/);
+    const match = normalized.match(/\/(?:assistants|instances)\/([^/]+)$/);
     if (match) {
       cached = match[1];
       log.info(

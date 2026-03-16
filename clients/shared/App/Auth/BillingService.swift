@@ -7,8 +7,8 @@ private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.
 public final class BillingService {
     public static let shared = BillingService()
 
-    /// In-flight bootstrap task to prevent concurrent calls for the same org.
-    private var bootstrapTask: Task<BillingSummaryResponse?, Never>?
+    /// In-flight bootstrap tasks keyed by org ID to prevent concurrent calls per org.
+    private var bootstrapTasks: [String: Task<BillingSummaryResponse?, Never>] = [:]
 
     private init() {}
 
@@ -84,24 +84,28 @@ public final class BillingService {
         // Skip if we've already attempted bootstrap for this org
         guard !UserDefaults.standard.bool(forKey: bootstrapKey(for: orgId)) else { return nil }
 
-        // Deduplicate concurrent bootstrap calls
-        if let existing = bootstrapTask {
+        // Deduplicate concurrent bootstrap calls for the same org
+        if let existing = bootstrapTasks[orgId] {
             return await existing.value
         }
 
         let task = Task<BillingSummaryResponse?, Never> {
-            defer { bootstrapTask = nil }
-            // Mark as attempted before the request so concurrent callers also skip
-            UserDefaults.standard.set(true, forKey: bootstrapKey(for: orgId))
             do {
-                return try await postBootstrapBillingSummary()
+                let result = try await postBootstrapBillingSummary()
+                // Only persist the flag on success so transient failures don't permanently suppress retries
+                UserDefaults.standard.set(true, forKey: bootstrapKey(for: orgId))
+                return result
             } catch {
                 log.error("Billing bootstrap failed: \(error.localizedDescription)")
                 return nil
             }
         }
-        bootstrapTask = task
-        return await task.value
+        bootstrapTasks[orgId] = task
+        let result = await task.value
+        // Safe to clear unconditionally: @MainActor serialization guarantees no concurrent
+        // mutation between the await resumption and this line.
+        bootstrapTasks[orgId] = nil
+        return result
     }
 
     /// POST to the billing summary endpoint to create the BillingAccount with initial credit.

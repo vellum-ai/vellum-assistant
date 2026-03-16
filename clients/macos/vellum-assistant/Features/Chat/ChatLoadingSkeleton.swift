@@ -1,7 +1,7 @@
 import SwiftUI
 import VellumAssistantShared
 
-/// Skeleton placeholder for the chat area while a thread is loading.
+/// Skeleton placeholder for the chat area while a conversation is loading.
 /// Mimics the real `ChatBubble` layout — a short user message followed by a
 /// multi-line assistant response — so the transition to real content feels seamless.
 struct ChatLoadingSkeleton: View {

@@ -14,17 +14,17 @@ private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.
 
 extension ChatViewModel {
 
-    /// Returns true if the given session ID belongs to this chat conversation.
+    /// Returns true if the given conversation ID belongs to this chat conversation.
     /// Messages with a nil conversationId are always accepted; messages whose
-    /// conversationId doesn't match the current session are silently ignored
+    /// conversationId doesn't match the current conversation are silently ignored
     /// to prevent cross-conversation contamination (e.g. from a popover text_qa flow).
-    func belongsToConversation(_ messageSessionId: String?) -> Bool {
-        guard let messageSessionId else { return true }
+    func belongsToConversation(_ messageConversationId: String?) -> Bool {
+        guard let messageConversationId else { return true }
         guard let conversationId else {
             // No conversation established yet — accept all messages
             return true
         }
-        return messageSessionId == conversationId
+        return messageConversationId == conversationId
     }
 
     /// Map daemon confirmation state string to ToolConfirmationState.
@@ -526,7 +526,7 @@ extension ChatViewModel {
         switch message {
         case .conversationInfo(let info):
             // Only claim this conversation_info if:
-            // 1. We don't have a session yet, AND
+            // 1. We don't have a conversation yet, AND
             // 2. The correlation ID matches our bootstrap request.
             if conversationId == nil {
                 guard let expected = bootstrapCorrelationId,
@@ -544,7 +544,7 @@ extension ChatViewModel {
                 refreshGuardianPrompts()
 
                 // Send the queued user message, or finalize a message-less
-                // session create by clearing the bootstrap sending state.
+                // conversation create by clearing the bootstrap sending state.
                 if let pending = pendingUserMessage {
                     let attachments = pendingUserAttachments
                     let automated = pendingUserMessageAutomated
@@ -571,8 +571,8 @@ extension ChatViewModel {
                         errorText = "Failed to send message."
                     }
                 } else {
-                    // Message-less session create (e.g. private thread
-                    // pre-allocation) — session is claimed, reset UI state.
+                    // Message-less conversation create (e.g. private conversation
+                    // pre-allocation) — conversation is claimed, reset UI state.
                     isSending = false
                     isThinking = false
                 }
@@ -1040,7 +1040,7 @@ extension ChatViewModel {
 
         case .error(let err):
             log.error("Server error: \(err.message, privacy: .private)")
-            // Only process errors relevant to this chat session. Generic daemon
+            // Only process errors relevant to this chat conversation. Generic daemon
             // errors (e.g., validation failures from unrelated message types
             // like work_item_delete) should not pollute the chat UI.
             guard isSending || isThinking || isCancelling || currentAssistantMessageId != nil || isWorkspaceRefinementInFlight else {
@@ -1175,8 +1175,8 @@ extension ChatViewModel {
             // Route using conversationId when available (daemon >= v1.x includes
             // the conversationId). Fall back to the timestamp-based heuristic
             // via shouldAcceptConfirmation for older daemons that omit conversationId.
-            if let msgSessionId = msg.conversationId {
-                guard conversationId != nil, belongsToConversation(msgSessionId) else { return }
+            if let msgConversationId = msg.conversationId {
+                guard conversationId != nil, belongsToConversation(msgConversationId) else { return }
             } else {
                 guard conversationId != nil,
                       lastToolUseReceivedAt != nil,
@@ -1718,7 +1718,7 @@ extension ChatViewModel {
             log.error("Session error [\(msg.code.rawValue, privacy: .public)]: \(msg.userMessage, privacy: .private)")
 
             // Per-message send failure: mark the specific user message instead
-            // of showing a session-level error banner.
+            // of showing a conversation-level error banner.
             if let failedContent = msg.failedMessageContent {
                 if let idx = messages.lastIndex(where: { $0.role == .user && $0.text == failedContent && $0.status != .sendFailed }) {
                     messages[idx].status = .sendFailed
@@ -1761,7 +1761,7 @@ extension ChatViewModel {
                 messages[index].isStreaming = false
                 messages[index].streamingCodePreview = nil
                 messages[index].streamingCodeToolName = nil
-                // Mark preview-only tool calls as complete on session error
+                // Mark preview-only tool calls as complete on conversation error
                 for tcIdx in messages[index].toolCalls.indices {
                     let tc = messages[index].toolCalls[tcIdx]
                     if tc.toolUseId != nil && !tc.isComplete && tc.inputRawDict == nil {
@@ -1872,7 +1872,7 @@ extension ChatViewModel {
                 break
             }
             // Stamp confirmation data on the corresponding ToolCallData in the
-            // preceding assistant message so it survives thread switches.
+            // preceding assistant message so it survives conversation switches.
             let decision = mapConfirmationState(msg.state)
             if let toolName = confirmationToolName,
                let state = decision {

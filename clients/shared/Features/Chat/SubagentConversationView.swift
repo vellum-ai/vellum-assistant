@@ -5,7 +5,7 @@ import SwiftUI
 /// Looks like Slack's "3 replies  Last reply 2m ago" bar with:
 /// - A vertical connecting line on the left linking it visually to the parent message
 /// - Subagent icon, label, status, reply preview, and reply count
-/// - Clicking opens the conversation detail in the side panel (like Slack opens thread panel)
+/// - Clicking opens the conversation detail in the side panel (like Slack opens a conversation panel)
 ///
 /// This replaces SubagentStatusChip with richer conversation-style affordances.
 public struct SubagentConversationView: View {

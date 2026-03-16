@@ -1,4 +1,3 @@
-import { createHash } from "node:crypto";
 import { join } from "node:path";
 
 import { config as dotenvConfig } from "dotenv";
@@ -54,7 +53,6 @@ import { syncUpdateBulletinOnStartup } from "../prompts/update-bulletin.js";
 import { buildAssistantEvent } from "../runtime/assistant-event.js";
 import { assistantEventHub } from "../runtime/assistant-event-hub.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../runtime/assistant-scope.js";
-import { mintCredentialPair } from "../runtime/auth/credential-service.js";
 import {
   initAuthSigningKey,
   loadOrCreateSigningKey,
@@ -63,8 +61,6 @@ import {
 import { ensureVellumGuardianBinding } from "../runtime/guardian-vellum-migration.js";
 import { RuntimeHttpServer } from "../runtime/http-server.js";
 import { startScheduler } from "../schedule/scheduler.js";
-import { BOOTSTRAPPED_ACTOR_HTTP_TOKEN } from "../security/credential-key.js";
-import { setSecureKeyAsync } from "../security/secure-keys.js";
 import { UsageTelemetryReporter } from "../telemetry/usage-telemetry-reporter.js";
 import { getLogger, initLogger } from "../util/logger.js";
 import {
@@ -176,13 +172,13 @@ export async function runDaemon(): Promise<void> {
     }
     log.info("Daemon startup: DB initialized");
 
-    // Purge private (temporary) conversations from the previous session.
+    // Purge private (temporary) conversations from the previous daemon run.
     // These are ephemeral by design and should not survive daemon restarts.
     const { count: purgedCount, deletedMemory } = purgePrivateConversations();
     if (purgedCount > 0) {
       log.info(
         { purgedCount },
-        `Purged ${purgedCount} private conversation(s) from previous session`,
+        `Purged ${purgedCount} private conversation(s) from previous daemon run`,
       );
       // Qdrant may not be ready at startup, so enqueue vector cleanup jobs
       // rather than attempting direct deletion.
@@ -226,43 +222,15 @@ export async function runDaemon(): Promise<void> {
       );
     }
 
-    // Ensure a vellum guardian binding exists and mint the CLI edge token
-    // as an actor token bound to the guardian principal.
-    let guardianPrincipalId: string | undefined;
+    // Ensure a vellum guardian binding exists so the identity system works
+    // without requiring a manual bootstrap step.
     try {
-      guardianPrincipalId = ensureVellumGuardianBinding(
-        DAEMON_INTERNAL_ASSISTANT_ID,
-      );
+      ensureVellumGuardianBinding(DAEMON_INTERNAL_ASSISTANT_ID);
     } catch (err) {
       log.warn(
         { err },
         "Vellum guardian binding backfill failed — continuing startup",
       );
-    }
-
-    if (guardianPrincipalId) {
-      const cliDeviceId = "daemon-cli";
-      const hashedDeviceId = createHash("sha256")
-        .update(cliDeviceId)
-        .digest("hex");
-      const credentials = mintCredentialPair({
-        platform: "cli",
-        deviceId: cliDeviceId,
-        guardianPrincipalId,
-        hashedDeviceId,
-      });
-
-      const stored = await setSecureKeyAsync(
-        BOOTSTRAPPED_ACTOR_HTTP_TOKEN,
-        credentials.accessToken,
-      );
-      if (!stored) {
-        log.warn("Failed to persist CLI edge token in credential store");
-      } else {
-        log.info("Daemon startup: CLI edge token written to credential store");
-      }
-    } else {
-      log.warn("No guardian principal available — CLI edge token not written");
     }
 
     try {
@@ -352,7 +320,7 @@ export async function runDaemon(): Promise<void> {
 
     await initializeProvidersAndTools(config);
 
-    // Start the DaemonServer (session manager) before Qdrant so HTTP
+    // Start the DaemonServer (conversation manager) before Qdrant so HTTP
     // routes can begin accepting requests while Qdrant initializes.
     log.info("Daemon startup: starting DaemonServer");
     const server = new DaemonServer();
@@ -664,7 +632,7 @@ export async function runDaemon(): Promise<void> {
       setRelayBroadcast((msg) => server.broadcast(msg));
       setPointerMessageProcessor(
         async (conversationId, instruction, requiredFacts) => {
-          const session =
+          const conversation =
             await server.getConversationForMessages(conversationId);
 
           // Constrain pointer generation to a tool-disabled path so call-
@@ -674,12 +642,12 @@ export async function runDaemon(): Promise<void> {
           // invoking any tools during the pointer agent loop.
           //
           // A depth counter (rather than a boolean) ensures that overlapping
-          // pointer requests on the same session don't clear each other's
+          // pointer requests on the same conversation don't clear each other's
           // constraint — each caller increments on entry and decrements in
           // its own finally block.
-          session.toolsDisabledDepth++;
+          conversation.toolsDisabledDepth++;
           try {
-            const messageId = await session.persistUserMessage(
+            const messageId = await conversation.persistUserMessage(
               instruction,
               [],
               undefined,
@@ -705,7 +673,7 @@ export async function runDaemon(): Promise<void> {
                 }
               }
               try {
-                await session.loadFromDb();
+                await conversation.loadFromDb();
               } catch {
                 /* best effort */
               }
@@ -731,7 +699,7 @@ export async function runDaemon(): Promise<void> {
 
             let agentLoopError: string | undefined;
             let generatedText = "";
-            await session.runAgentLoop(instruction, messageId, (msg) => {
+            await conversation.runAgentLoop(instruction, messageId, (msg) => {
               if (
                 "type" in msg &&
                 msg.type === "assistant_text_delta" &&
@@ -793,7 +761,7 @@ export async function runDaemon(): Promise<void> {
             }
           } finally {
             // Restore tool availability so subsequent turns aren't affected.
-            session.toolsDisabledDepth--;
+            conversation.toolsDisabledDepth--;
           }
         },
       );

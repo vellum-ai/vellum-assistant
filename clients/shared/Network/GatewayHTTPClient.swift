@@ -43,11 +43,13 @@ public enum GatewayHTTPClient {
     ///
     /// - Parameters:
     ///   - path: Path segment after `/v1/` (e.g. `"assistants/{id}/healthz"`).
+    ///   - params: Optional query parameters. Keys and values are percent-encoded
+    ///     using a restricted character set that escapes `&`, `=`, `+`, and `#`.
     ///   - timeout: Request timeout in seconds. Defaults to 30.
     /// - Returns: A `Response` with the raw data and HTTP status code.
     /// - Throws: `ClientError` if the request cannot be constructed, or network errors from `URLSession`.
-    public static func get(path: String, timeout: TimeInterval = 30) async throws -> Response {
-        return try await executeWithRetry(path: path, method: "GET", timeout: timeout)
+    public static func get(path: String, params: [String: String]? = nil, timeout: TimeInterval = 30) async throws -> Response {
+        return try await executeWithRetry(path: path, params: params, method: "GET", timeout: timeout)
     }
 
     /// Performs an authenticated GET request and decodes the JSON response into the given type.
@@ -56,7 +58,9 @@ public enum GatewayHTTPClient {
     /// inspect status codes or error bodies alongside the typed result.
     ///
     /// - Parameters:
-    ///   - path: Path segment after `/v1/` (e.g. `"usage/totals?from=0&to=1"`).
+    ///   - path: Path segment after `/v1/` (e.g. `"usage/totals"`).
+    ///   - params: Optional query parameters. Keys and values are percent-encoded
+    ///     using a restricted character set that escapes `&`, `=`, `+`, and `#`.
     ///   - timeout: Request timeout in seconds. Defaults to 30.
     ///   - configure: Optional closure to customise the `JSONDecoder` before decoding
     ///     (e.g. set `keyDecodingStrategy`).
@@ -66,10 +70,11 @@ public enum GatewayHTTPClient {
     ///   errors from `URLSession`.
     public static func get<T: Decodable>(
         path: String,
+        params: [String: String]? = nil,
         timeout: TimeInterval = 30,
         configure: ((_ decoder: JSONDecoder) -> Void)? = nil
     ) async throws -> (T?, Response) {
-        let response = try await get(path: path, timeout: timeout)
+        let response = try await get(path: path, params: params, timeout: timeout)
         guard response.isSuccess else { return (nil, response) }
         let decoder = JSONDecoder()
         configure?(decoder)
@@ -143,7 +148,7 @@ public enum GatewayHTTPClient {
     /// - Throws: `ClientError` if the request cannot be constructed, or network errors from `URLSession`.
     public static func stream(path: String, timeout: TimeInterval = 30) async throws -> (URLSession.AsyncBytes, URLResponse) {
         let connection = try resolveConnection()
-        var request = try buildRequest(path: path, method: "GET", timeout: timeout, connection: connection)
+        var request = try buildRequest(path: path, params: nil, method: "GET", timeout: timeout, connection: connection)
         request.setValue("text/event-stream", forHTTPHeaderField: "Accept")
         return try await URLSession.shared.bytes(for: request)
     }
@@ -231,16 +236,38 @@ public enum GatewayHTTPClient {
         #endif
     }
 
-    /// Builds an authenticated `URLRequest` from the given connection info.
+    /// A restricted character set for encoding query parameter values.
+    /// `.urlQueryAllowed` permits `&`, `=`, `+`, and `#` which are
+    /// query-string metacharacters. Values containing these characters
+    /// would break parameter parsing, so we exclude them.
+    private static let queryValueAllowed: CharacterSet = {
+        var cs = CharacterSet.urlQueryAllowed
+        cs.remove(charactersIn: "&=+#")
+        return cs
+    }()
+
+    /// Constructs a gateway URL for the given path and query parameters.
     ///
-    /// Replaces `{assistantId}` placeholders in the path with the resolved
-    /// assistant identifier and percent-encodes the resulting path.
-    private static func buildRequest(
+    /// Use this when you need a raw URL (e.g. for media viewers) rather than
+    /// making a full HTTP request via ``get(path:params:timeout:)`` or
+    /// ``post(path:body:timeout:)``.
+    ///
+    /// - Parameters:
+    ///   - path: Path segment after `/v1/` (e.g. `"assistants/{assistantId}/workspace/file/content"`).
+    ///   - params: Optional query parameters.
+    /// - Returns: The fully-qualified URL with `{assistantId}` resolved.
+    /// - Throws: `ClientError` if the connection cannot be resolved or the URL is invalid.
+    public static func buildURL(path: String, params: [String: String]? = nil) throws -> URL {
+        let connection = try resolveConnection()
+        return try constructURL(path: path, params: params, connection: connection)
+    }
+
+    /// Builds the gateway URL from path, query parameters, and connection info.
+    private static func constructURL(
         path: String,
-        method: String,
-        timeout: TimeInterval,
+        params: [String: String]?,
         connection: ConnectionInfo
-    ) throws -> URLRequest {
+    ) throws -> URL {
         let resolvedPath = path.replacingOccurrences(of: "{assistantId}", with: connection.assistantId)
 
         let pathComponent: String
@@ -253,11 +280,35 @@ public enum GatewayHTTPClient {
             queryComponent = ""
         }
 
+        var queryString = queryComponent
+        if let params, !params.isEmpty {
+            let encodedPairs = params.sorted(by: { $0.key < $1.key }).compactMap { key, value -> String? in
+                guard let encodedValue = value.addingPercentEncoding(withAllowedCharacters: Self.queryValueAllowed) else { return nil }
+                return "\(key)=\(encodedValue)"
+            }
+            if !encodedPairs.isEmpty {
+                let joined = encodedPairs.joined(separator: "&")
+                queryString = queryString.isEmpty ? "?\(joined)" : "\(queryString)&\(joined)"
+            }
+        }
+
         let encodedPath = pathComponent.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? pathComponent
         let trailingSlash = encodedPath.hasSuffix("/") ? "" : "/"
-        guard let url = URL(string: "\(connection.baseURL)/v1/\(encodedPath)\(trailingSlash)\(queryComponent)") else {
+        guard let url = URL(string: "\(connection.baseURL)/v1/\(encodedPath)\(trailingSlash)\(queryString)") else {
             throw ClientError.invalidURL
         }
+        return url
+    }
+
+    /// Builds an authenticated `URLRequest` from the given connection info.
+    private static func buildRequest(
+        path: String,
+        params: [String: String]?,
+        method: String,
+        timeout: TimeInterval,
+        connection: ConnectionInfo
+    ) throws -> URLRequest {
+        let url = try constructURL(path: path, params: params, connection: connection)
 
         var request = URLRequest(url: url)
         request.httpMethod = method
@@ -286,12 +337,13 @@ public enum GatewayHTTPClient {
     /// and retries the request once with fresh auth headers.
     private static func executeWithRetry(
         path: String,
+        params: [String: String]? = nil,
         method: String,
         timeout: TimeInterval,
         configure: ((_ request: inout URLRequest) -> Void)? = nil
     ) async throws -> Response {
         let connection = try resolveConnection()
-        var request = try buildRequest(path: path, method: method, timeout: timeout, connection: connection)
+        var request = try buildRequest(path: path, params: params, method: method, timeout: timeout, connection: connection)
         configure?(&request)
         let response = try await execute(request)
 
@@ -305,7 +357,7 @@ public enum GatewayHTTPClient {
 
         // Rebuild with fresh credentials from the Keychain.
         let freshConnection = try resolveConnection()
-        var retryRequest = try buildRequest(path: path, method: method, timeout: timeout, connection: freshConnection)
+        var retryRequest = try buildRequest(path: path, params: params, method: method, timeout: timeout, connection: freshConnection)
         configure?(&retryRequest)
         return try await execute(retryRequest)
     }

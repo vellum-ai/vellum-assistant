@@ -2,7 +2,7 @@ import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { credentialKey } from "../../security/credential-key.js";
-import { getSecureKeyAsync } from "../../security/secure-keys.js";
+import { getProviderKeyAsync, getSecureKeyAsync } from "../../security/secure-keys.js";
 import type { WorkspaceMigration } from "./types.js";
 
 export const servicesConfigMigration: WorkspaceMigration = {
@@ -28,7 +28,7 @@ export const servicesConfigMigration: WorkspaceMigration = {
     // Determine inference mode
     let inferenceMode: "managed" | "your-own" = "your-own";
     try {
-      const userAnthropicKey = await getSecureKeyAsync("anthropic");
+      const userAnthropicKey = await getProviderKeyAsync("anthropic");
       if (!userAnthropicKey) {
         const apiKey = await getSecureKeyAsync(
           credentialKey("vellum", "assistant_api_key"),

@@ -5,15 +5,13 @@ import { join } from "node:path";
 import QRCode from "qrcode";
 
 import { getGatewayPort, getIngressPublicBaseUrl } from "../config/env.js";
-import {
-  API_KEY_PROVIDERS,
-  getConfig,
-  loadRawConfig,
-  saveRawConfig,
-} from "../config/loader.js";
+import { getConfig, loadRawConfig, saveRawConfig } from "../config/loader.js";
 import { setServiceField } from "../config/raw-config-utils.js";
+import {
+  getConfiguredProviders,
+  isProviderAvailable,
+} from "../providers/provider-availability.js";
 import { initializeProviders } from "../providers/registry.js";
-import { getSecureKeyAsync } from "../security/secure-keys.js";
 import { getLocalIPv4 } from "../util/network-info.js";
 import { getWorkspaceDir } from "../util/platform.js";
 import { silentlyWithLog } from "../util/silently.js";
@@ -157,8 +155,8 @@ async function resolveProviderModelCommand(
   const config = getConfig();
   const name = getAssistantName();
 
-  // Check if API key exists for this provider (Ollama doesn't require an API key)
-  if (provider !== "ollama" && !(await getSecureKeyAsync(provider))) {
+  // Check if provider is available (secure key, env var, managed proxy, or no key needed)
+  if (!(await isProviderAvailable(provider))) {
     return {
       kind: "unknown",
       message: `Cannot switch to ${displayName}. No API key configured for ${provider}.\n\nSet it with: \`keys set ${provider} <your-key>\``,
@@ -202,13 +200,8 @@ async function resolveProviderModelCommand(
 async function resolveModelList(): Promise<SlashResolution> {
   const config = getConfig();
 
-  // Build a set of providers that have a configured API key.
-  const configuredProviders = new Set<string>(["ollama"]);
-  for (const p of API_KEY_PROVIDERS) {
-    if (await getSecureKeyAsync(p)) {
-      configuredProviders.add(p);
-    }
-  }
+  // Build a set of providers that are usable (secure key, env var, or managed proxy).
+  const configuredProviders = new Set<string>(await getConfiguredProviders());
 
   const lines = ["Available models:\n"];
 
@@ -292,8 +285,8 @@ async function resolveModelCommand(
     };
   }
 
-  // Validate that Anthropic provider is available
-  if (!(await getSecureKeyAsync("anthropic"))) {
+  // Validate that Anthropic provider is available (secure key, env var, or managed proxy)
+  if (!(await isProviderAvailable("anthropic"))) {
     const displayName = MODEL_DISPLAY_NAMES[matched] ?? matched;
     return {
       kind: "unknown",

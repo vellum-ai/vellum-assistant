@@ -7,6 +7,20 @@ import os
 
 private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "AppDelegate")
 
+// MARK: - Ghost Window Detection
+
+extension NSWindow {
+    /// Returns `true` for SwiftUI-managed windows that macOS may restore
+    /// during activation-policy transitions (e.g. the Settings scene's
+    /// `EmptyView` window). These should be ignored when deciding whether
+    /// any real app windows remain visible.
+    var isSwiftUIGhostWindow: Bool {
+        guard title.contains("Settings") else { return false }
+        let contentClassName = contentView.map { NSStringFromClass(type(of: $0)) } ?? ""
+        return contentClassName.contains("NSHostingView") || contentView?.subviews.isEmpty == true
+    }
+}
+
 // MARK: - Activation Policy
 
 extension NSApplication {
@@ -28,16 +42,8 @@ extension NSApplication {
     /// restored during an activation-policy transition.  The Settings
     /// scene renders `EmptyView` and should never be user-visible.
     func dismissSettingsGhostWindows() {
-        for window in windows where window.title.contains("Settings") {
-            // Only target the SwiftUI-managed Settings window, not any
-            // app-created window that happens to include "Settings".
-            // SwiftUI uses private NSWindow subclasses and generic
-            // NSHostingView specializations, so we match by class name
-            // rather than exact type identity.
-            let contentClassName = window.contentView.map { NSStringFromClass(type(of: $0)) } ?? ""
-            if contentClassName.contains("NSHostingView") || window.contentView?.subviews.isEmpty == true {
-                window.orderOut(nil)
-            }
+        for window in windows where window.isSwiftUIGhostWindow {
+            window.orderOut(nil)
         }
     }
 }
@@ -60,7 +66,7 @@ extension AppDelegate {
             self.surfaceManager.dismissSurface(msg)
         }
 
-        // Reload webviews for surfaces whose app files changed (cross-session broadcast)
+        // Reload webviews for surfaces whose app files changed (cross-conversation broadcast)
         daemonClient.onAppFilesChanged = { [weak self] appId in
             guard let self else { return }
             self.refreshAppsCache()
@@ -149,7 +155,7 @@ extension AppDelegate {
                             requestId: msg.requestId,
                             decision: "allow"
                         )
-                        self.mainWindow?.conversationManager.updateConfirmationStateAcrossThreads(
+                        self.mainWindow?.conversationManager.updateConfirmationStateAcrossConversations(
                             requestId: msg.requestId,
                             decision: "allow"
                         )
@@ -160,15 +166,15 @@ extension AppDelegate {
                 }
 
                 // When the chat window is visible AND the confirmation belongs to the
-                // active thread, the inline ToolConfirmationBubble handles the
+                // active conversation, the inline ToolConfirmationBubble handles the
                 // confirmation UX — skip the native notification to avoid showing a
-                // duplicate prompt.  If the confirmation is for a background thread,
+                // duplicate prompt.  If the confirmation is for a background conversation,
                 // the inline bubble won't be visible, so we must still fire the
                 // native notification.
                 if NSApp.isActive, let mainWindow = self.mainWindow, mainWindow.isVisible {
                     let activeSessionId = mainWindow.conversationManager.activeViewModel?.conversationId
-                    let confirmationIsForActiveThread = msg.conversationId == nil || msg.conversationId == activeSessionId
-                    if confirmationIsForActiveThread {
+                    let confirmationIsForActiveConversation = msg.conversationId == nil || msg.conversationId == activeSessionId
+                    if confirmationIsForActiveConversation {
                         return
                     }
                 }
@@ -185,7 +191,7 @@ extension AppDelegate {
                         decision: decision
                     )
                     // Only sync the inline message state if the send succeeded.
-                    self.mainWindow?.conversationManager.updateConfirmationStateAcrossThreads(
+                    self.mainWindow?.conversationManager.updateConfirmationStateAcrossConversations(
                         requestId: msg.requestId,
                         decision: decision
                     )
@@ -250,6 +256,7 @@ extension AppDelegate {
             win.isVisible
             && win !== closedWindow
             && win !== self.statusItem?.button?.window
+            && !win.isSwiftUIGhostWindow
         }
         if !hasVisibleWindows {
             NSApp.setActivationPolicy(.accessory)
@@ -560,7 +567,7 @@ extension AppDelegate {
         //
         // Use the emitted UUID directly (not activeViewModel) because $activeConversationId
         // fires during willSet — at that point activeConversationId still holds the old value,
-        // so activeViewModel would resolve to the previous thread's view model.
+        // so activeViewModel would resolve to the previous conversation's view model.
         statusIconCancellable = mainWindow?.conversationManager.$activeConversationId
             .compactMap { [weak mainWindow] (id: UUID?) -> ChatViewModel? in
                 guard let id else { return nil }

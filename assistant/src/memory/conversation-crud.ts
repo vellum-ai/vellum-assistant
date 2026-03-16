@@ -55,7 +55,7 @@ export const messageMetadataSchema = z
      * Trust class of the actor at the time this message was persisted.
      * This is a durable snapshot -- it does NOT change if the actor's
      * trust status changes later. Used by the memory write gate (indexer)
-     * and read gate (session history loading) to enforce trust-aware access.
+     * and read gate (conversation history loading) to enforce trust-aware access.
      */
     provenanceTrustClass: z
       .enum(["guardian", "trusted_contact", "unknown"])

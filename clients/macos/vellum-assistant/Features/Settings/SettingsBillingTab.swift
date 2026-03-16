@@ -12,6 +12,7 @@ struct SettingsBillingTab: View {
     @State private var topUpAmount: String = ""
     @State private var isProcessingTopUp: Bool = false
     @State private var topUpError: String?
+    @State private var hostWindow: NSWindow?
 
     var body: some View {
         VStack(alignment: .leading, spacing: VSpacing.lg) {
@@ -23,11 +24,14 @@ struct SettingsBillingTab: View {
         .task {
             await loadSummary()
         }
-        .onReceive(NotificationCenter.default.publisher(for: NSWindow.didBecomeKeyNotification)) { _ in
+        .onReceive(NotificationCenter.default.publisher(for: NSWindow.didBecomeKeyNotification)) { notification in
+            guard let window = notification.object as? NSWindow,
+                  window === hostWindow else { return }
             Task {
                 await loadSummary()
             }
         }
+        .background(WindowReader(window: $hostWindow))
     }
 
     // MARK: - Balance Card
@@ -148,6 +152,22 @@ struct SettingsBillingTab: View {
                         .foregroundColor(VColor.systemNegativeStrong)
                 }
             }
+        }
+    }
+
+    // MARK: - Helpers
+
+    private struct WindowReader: NSViewRepresentable {
+        @Binding var window: NSWindow?
+
+        func makeNSView(context: Context) -> NSView {
+            let view = NSView()
+            DispatchQueue.main.async { self.window = view.window }
+            return view
+        }
+
+        func updateNSView(_ nsView: NSView, context: Context) {
+            DispatchQueue.main.async { self.window = nsView.window }
         }
     }
 

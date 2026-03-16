@@ -117,7 +117,7 @@ Test files in `clients/ios/Tests/`:
 - `AttachmentFlowIOSTests.swift` — attachment limits, send flow, thumbnails
 - `ChatTranscriptFormatterIOSTests.swift` — markdown formatting, plain text extraction
 - `ChatViewModelIOSTests.swift` — message send/receive flow, streaming, error handling
-- `ConversationLifecycleIOSTests.swift` — session creation, backfill, thread isolation
+- `ConversationLifecycleIOSTests.swift` — session creation, backfill, conversation isolation
 - `UsageDashboardViewTests.swift` — usage dashboard state, data loading, formatting
 
 ### Shared Tests
@@ -150,7 +150,7 @@ swift test --filter VellumAssistantSharedTests
 | Device ID | Keychain (device) / UserDefaults (sim), provider `"pairing-device-id"` | — | Stable UUID for pairing identity (survives reinstalls) |
 | Conversation key | UserDefaults `conversation_key` | — | Auto-generated UUID for session identification |
 | Session token | Keychain via `AuthManager` | — | WorkOS session token for cloud login mode |
-| Anthropic API key | Keychain (device) / UserDefaults (sim) | — | Used by TitleGenerator for auto-generating thread titles |
+| Anthropic API key | Keychain (device) / UserDefaults (sim) | — | Used by TitleGenerator for auto-generating conversation titles |
 
 </details>
 

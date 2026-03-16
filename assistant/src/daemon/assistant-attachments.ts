@@ -455,7 +455,7 @@ export type ApproveHostRead = (filePath: string) => Promise<boolean>;
  * Resolve a host directive to a draft attachment.
  *
  * Requires an absolute path. Before reading, calls the `approve` callback
- * so the session layer can gate access via the user-facing permission prompt.
+ * so the conversation layer can gate access via the user-facing permission prompt.
  */
 export async function resolveHostDirective(
   directive: DirectiveRequest,

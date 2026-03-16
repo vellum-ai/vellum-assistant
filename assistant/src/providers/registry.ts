@@ -1,5 +1,5 @@
 import { wrapWithLogfire } from "../logfire.js";
-import { getSecureKeyAsync } from "../security/secure-keys.js";
+import { getProviderKeyAsync } from "../security/secure-keys.js";
 import { ConfigError, ProviderNotConfiguredError } from "../util/errors.js";
 import { AnthropicProvider } from "./anthropic/client.js";
 import { FailoverProvider, type ProviderHealthStatus } from "./failover.js";
@@ -246,14 +246,14 @@ async function resolveProviderCredentials(
       };
     }
     // Managed proxy unavailable for this provider; fall back to user key
-    const userKey = await getSecureKeyAsync(providerName);
+    const userKey = await getProviderKeyAsync(providerName);
     if (userKey) {
       return { apiKey: userKey, source: "user-key" };
     }
     return null;
   }
   // "your-own" mode: check user key first, then try managed proxy fallback
-  const userKey = await getSecureKeyAsync(providerName);
+  const userKey = await getProviderKeyAsync(providerName);
   if (userKey) {
     return { apiKey: userKey, source: "user-key" };
   }
@@ -348,7 +348,7 @@ export async function initializeProviders(
   }
 
   // Ollama (keyless provider — always init when configured or key present)
-  const ollamaKey = await getSecureKeyAsync("ollama");
+  const ollamaKey = await getProviderKeyAsync("ollama");
   if (config.services.inference.provider === "ollama" || ollamaKey) {
     const model = resolveModel(config, "ollama");
     registerProvider(
@@ -366,7 +366,7 @@ export async function initializeProviders(
   }
 
   // Fireworks
-  const fireworksKey = await getSecureKeyAsync("fireworks");
+  const fireworksKey = await getProviderKeyAsync("fireworks");
   if (fireworksKey) {
     const model = resolveModel(config, "fireworks");
     registerProvider(
@@ -383,7 +383,7 @@ export async function initializeProviders(
   }
 
   // OpenRouter
-  const openrouterKey = await getSecureKeyAsync("openrouter");
+  const openrouterKey = await getProviderKeyAsync("openrouter");
   if (openrouterKey) {
     const model = resolveModel(config, "openrouter");
     registerProvider(

@@ -10,6 +10,8 @@
  */
 
 import {
+  getPlatformOrganizationId,
+  getPlatformUserId,
   getTelemetryAppToken,
   getTelemetryPlatformUrl,
 } from "../config/env.js";
@@ -38,7 +40,7 @@ const CHECKPOINT_KEY_TURN_WATERMARK_ID = "telemetry:turns:last_reported_id";
 const REPORT_INTERVAL_MS = 5 * 60 * 1000;
 const BATCH_SIZE = 500;
 const MAX_CONSECUTIVE_BATCHES = 10;
-const TELEMETRY_PATH = "/v1/assistants/self-hosted-local/telemetry/ingest/";
+const TELEMETRY_PATH = "/v1/assistants/telemetry/ingest/";
 
 // ---------------------------------------------------------------------------
 // Reporter
@@ -154,10 +156,14 @@ export class UsageTelemetryReporter {
         ),
       ];
 
-      const assistantId = getExternalAssistantId();
+      const assistantId = getExternalAssistantId() ?? "self";
+      const organizationId = getPlatformOrganizationId() || undefined;
+      const userId = getPlatformUserId() || undefined;
       const payload = {
         installation_id: getDeviceId(),
-        ...(assistantId != null ? { assistant_id: assistantId } : {}),
+        assistant_id: assistantId,
+        ...(organizationId ? { organization_id: organizationId } : {}),
+        ...(userId ? { user_id: userId } : {}),
         events: typedEvents,
       };
 

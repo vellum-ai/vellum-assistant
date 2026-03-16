@@ -54,7 +54,7 @@ final class SecretPromptManager {
         let hostingController = NSHostingController(rootView: view)
         hostingController.sizingOptions = .preferredContentSize
 
-        let panel = NSPanel(
+        let panel = KeyablePanel(
             contentRect: NSRect(x: 0, y: 0, width: panelWidth, height: 300),
             styleMask: [.borderless, .nonactivatingPanel],
             backing: .buffered,
@@ -99,6 +99,7 @@ final class SecretPromptManager {
 
         panels[message.requestId] = panel
         panelPresenter(panel)
+        panel.makeKey()
 
         log.info("Showing secret prompt: requestId=\(message.requestId), service=\(message.service), field=\(message.field)")
     }
@@ -317,4 +318,12 @@ struct SecretPromptView: View {
                 .foregroundColor(VColor.contentTertiary)
         }
     }
+}
+
+// MARK: - KeyablePanel
+
+/// Borderless NSPanel subclass that accepts key window status,
+/// allowing SecureField (and other text inputs) to receive keyboard focus.
+private final class KeyablePanel: NSPanel {
+    override var canBecomeKey: Bool { true }
 }

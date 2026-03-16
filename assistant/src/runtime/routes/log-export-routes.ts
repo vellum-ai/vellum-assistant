@@ -77,19 +77,22 @@ async function handleExport(body: ExportRequestBody): Promise<Response> {
 
     const auditQuery = db.select().from(toolInvocations);
 
-    const auditRows = conversationId
-      ? auditQuery
-          .where(
-            and(
-              eq(toolInvocations.conversationId, conversationId),
-              startTime ? gte(toolInvocations.createdAt, startTime) : undefined,
-              endTime ? lte(toolInvocations.createdAt, endTime) : undefined,
-            ),
-          )
-          .orderBy(desc(toolInvocations.createdAt))
-          .limit(limit)
-          .all()
-      : auditQuery.orderBy(desc(toolInvocations.createdAt)).limit(limit).all();
+    const timeFilters = [
+      ...(conversationId
+        ? [eq(toolInvocations.conversationId, conversationId)]
+        : []),
+      ...(startTime ? [gte(toolInvocations.createdAt, startTime)] : []),
+      ...(endTime ? [lte(toolInvocations.createdAt, endTime)] : []),
+    ];
+
+    const auditRows = (
+      timeFilters.length > 0
+        ? auditQuery.where(and(...timeFilters))
+        : auditQuery
+    )
+      .orderBy(desc(toolInvocations.createdAt))
+      .limit(limit)
+      .all();
 
     writeFileSync(
       join(staging, "audit-data.json"),
@@ -187,11 +190,9 @@ async function handleExport(body: ExportRequestBody): Promise<Response> {
         const stat = statSync(stderrPath);
         if (totalBytes + stat.size <= MAX_LOG_PAYLOAD_BYTES) {
           const content = readFileSync(stderrPath, "utf-8");
-          writeFileSync(
-            join(daemonLogsDir, "daemon-stderr.log"),
-            content,
-            "utf-8",
-          );
+          const dest = join(daemonLogsDir, "daemon-stderr.log");
+          writeFileSync(dest, content, "utf-8");
+          collectedLogFiles.push(dest);
           logFileCount++;
         }
       } catch {
@@ -220,6 +221,17 @@ async function handleExport(body: ExportRequestBody): Promise<Response> {
           matchingLines.join("\n") + "\n",
           "utf-8",
         );
+      }
+
+      // Remove full unfiltered log files — conversation-scoped exports
+      // should only include conversation-filtered.jsonl to avoid leaking
+      // data from unrelated conversations.
+      for (const logFile of collectedLogFiles) {
+        try {
+          rmSync(logFile, { force: true });
+        } catch {
+          // Best-effort removal
+        }
       }
     }
 
@@ -283,6 +295,19 @@ async function handleExport(body: ExportRequestBody): Promise<Response> {
     let archiveBytes = createTarGz(staging);
 
     while (!archiveBytes) {
+      // Conversation-scoped exports have no workspace directory to prune —
+      // if the archive still exceeds the size limit, report a clear error.
+      if (conversationId) {
+        log.error(
+          "Conversation-scoped export exceeds archive size limit with no workspace dirs to prune",
+        );
+        return httpError(
+          "INTERNAL_ERROR",
+          "Conversation export exceeds the maximum archive size",
+          500,
+        );
+      }
+
       // Find the largest top-level directory under workspace/ and remove it
       const wsDir = join(staging, "workspace");
       const largest = findLargestSubdirectory(wsDir);
@@ -545,6 +570,9 @@ function readSanitizedConfig(): Record<string, unknown> | undefined {
   try {
     const raw = readFileSync(configPath, "utf-8");
     const config = JSON.parse(raw) as Record<string, unknown>;
+
+    // Strip legacy apiKeys (removed from schema but may still exist in old config files)
+    delete config.apiKeys;
 
     // Strip ingress webhook secret
     if (config.ingress && typeof config.ingress === "object") {

@@ -1,8 +1,8 @@
 /**
- * Bridge between voice relay and the daemon session pipeline.
+ * Bridge between voice relay and the daemon conversation pipeline.
  *
  * Provides a `startVoiceTurn()` function that manages a voice turn
- * directly through the session, translating agent-loop events into
+ * directly through the conversation, translating agent-loop events into
  * simple callbacks suitable for real-time TTS streaming.
  *
  * Dependency injection follows the same module-level setter pattern used by
@@ -220,9 +220,9 @@ function buildVoiceCallControlPrompt(opts: {
 // ---------------------------------------------------------------------------
 
 /**
- * Execute a single voice turn through the daemon session pipeline.
+ * Execute a single voice turn through the daemon conversation pipeline.
  *
- * Manages the session directly with voice-specific defaults:
+ * Manages the conversation directly with voice-specific defaults:
  *   - sourceChannel: 'phone'
  *   - event sink wired to the provided callbacks
  *   - abort propagated from the returned handle
@@ -267,7 +267,7 @@ export async function startVoiceTurn(
   const forceStrictSideEffects = isGuardian ? undefined : true;
 
   // Replace the [CALL_OPENING] marker with a neutral instruction before
-  // persisting. The marker must not appear as a user message in session
+  // persisting. The marker must not appear as a user message in conversation
   // history — after a barge-in interruption the next turn would replay
   // the stale marker and potentially retrigger opener behavior.
   const persistedContent =
@@ -287,60 +287,60 @@ export async function startVoiceTurn(
     isCallerGuardian,
   });
 
-  // Get or create the session
+  // Get or create the conversation
   const transport = {
     channelId: "phone" as ChannelId,
   };
-  const session = await deps.getOrCreateConversation(
+  const conversation = await deps.getOrCreateConversation(
     opts.conversationId,
     transport,
   );
 
-  if (session.isProcessing()) {
+  if (conversation.isProcessing()) {
     // Voice barge-in can race with turn teardown. Wait briefly for the
     // previous turn to finish aborting before giving up.
     const maxWaitMs = 3000;
     const pollIntervalMs = 50;
     let waited = 0;
-    while (session.isProcessing() && waited < maxWaitMs) {
+    while (conversation.isProcessing() && waited < maxWaitMs) {
       if (opts.signal?.aborted) {
-        throw new Error("Turn aborted while waiting for session");
+        throw new Error("Turn aborted while waiting for conversation");
       }
       await new Promise((resolve) => setTimeout(resolve, pollIntervalMs));
       waited += pollIntervalMs;
     }
     if (opts.signal?.aborted) {
-      throw new Error("Turn aborted while waiting for session");
+      throw new Error("Turn aborted while waiting for conversation");
     }
-    if (session.isProcessing()) {
-      throw new Error("Session is already processing a message");
+    if (conversation.isProcessing()) {
+      throw new Error("Conversation is already processing a message");
     }
   }
 
-  // Configure session for this voice turn
+  // Configure conversation for this voice turn
   const strictSideEffects =
     forceStrictSideEffects ??
     deps.deriveDefaultStrictSideEffects(opts.conversationId);
-  session.memoryPolicy = {
-    ...session.memoryPolicy,
+  conversation.memoryPolicy = {
+    ...conversation.memoryPolicy,
     strictSideEffects,
   };
-  session.setAssistantId(opts.assistantId ?? DAEMON_INTERNAL_ASSISTANT_ID);
-  session.callSessionId = opts.callSessionId;
-  session.setTrustContext(opts.trustContext ?? null);
-  session.setCommandIntent(null);
-  session.setTurnChannelContext({
+  conversation.setAssistantId(opts.assistantId ?? DAEMON_INTERNAL_ASSISTANT_ID);
+  conversation.callSessionId = opts.callSessionId;
+  conversation.setTrustContext(opts.trustContext ?? null);
+  conversation.setCommandIntent(null);
+  conversation.setTurnChannelContext({
     userMessageChannel: "phone",
     assistantMessageChannel: "phone",
   });
-  session.setChannelCapabilities(
+  conversation.setChannelCapabilities(
     resolveChannelCapabilities("phone", undefined),
   );
-  session.setVoiceCallControlPrompt(voiceCallControlPrompt);
+  conversation.setVoiceCallControlPrompt(voiceCallControlPrompt);
 
   const requestId = crypto.randomUUID();
   const turnId = crypto.randomUUID();
-  const messageId = await session.persistUserMessage(
+  const messageId = await conversation.persistUserMessage(
     persistedContent,
     [],
     requestId,
@@ -374,12 +374,12 @@ export async function startVoiceTurn(
     })();
   };
 
-  // Hook into session to intercept confirmation_request and secret_request events.
+  // Hook into conversation to intercept confirmation_request and secret_request events.
   // Voice auto-denies/auto-allows/auto-resolves these since there's no interactive UI.
   const autoDeny = !isGuardian;
   const autoAllow = isGuardian;
   let lastError: string | null = null;
-  session.updateClient(async (msg: ServerMessage) => {
+  conversation.updateClient(async (msg: ServerMessage) => {
     if (msg.type === "confirmation_request") {
       if (autoDeny) {
         // Non-guardian voice callers have no interactive approval UI.
@@ -419,7 +419,7 @@ export async function startVoiceTurn(
               },
               "Consumed scoped grant — allowing non-guardian voice confirmation",
             );
-            session.handleConfirmationResponse(
+            conversation.handleConfirmationResponse(
               msg.requestId,
               "allow",
               undefined,
@@ -440,7 +440,7 @@ export async function startVoiceTurn(
           { turnId, toolName: msg.toolName },
           "Auto-denying confirmation request for non-guardian voice turn (no matching scoped grant)",
         );
-        session.handleConfirmationResponse(
+        conversation.handleConfirmationResponse(
           msg.requestId,
           "deny",
           undefined,
@@ -455,7 +455,7 @@ export async function startVoiceTurn(
           { turnId, toolName: msg.toolName },
           "Auto-approving confirmation request for guardian voice turn",
         );
-        session.handleConfirmationResponse(
+        conversation.handleConfirmationResponse(
           msg.requestId,
           "allow",
           undefined,
@@ -471,7 +471,7 @@ export async function startVoiceTurn(
         { turnId, service: msg.service, field: msg.field },
         "Auto-resolving secret request for voice turn (no secret-entry UI)",
       );
-      session.handleSecretResponse(msg.requestId, undefined, "store");
+      conversation.handleSecretResponse(msg.requestId, undefined, "store");
       publishToHub(msg);
       return;
     }
@@ -482,20 +482,20 @@ export async function startVoiceTurn(
   const cleanup = () => {
     // Reset channel capabilities so a subsequent desktop session on the
     // same conversation is not incorrectly treated as a voice client.
-    session.setChannelCapabilities(null);
-    session.setTrustContext(null);
-    session.setCommandIntent(null);
-    session.setAssistantId("self");
-    session.setVoiceCallControlPrompt(null);
-    session.callSessionId = undefined;
-    // Reset the session's client callback to a no-op so the stale
-    // closure doesn't intercept events from future turns on the same session.
-    session.updateClient(() => {}, true);
+    conversation.setChannelCapabilities(null);
+    conversation.setTrustContext(null);
+    conversation.setCommandIntent(null);
+    conversation.setAssistantId("self");
+    conversation.setVoiceCallControlPrompt(null);
+    conversation.callSessionId = undefined;
+    // Reset the conversation's client callback to a no-op so the stale
+    // closure doesn't intercept events from future turns on the same conversation.
+    conversation.updateClient(() => {}, true);
   };
 
   void (async () => {
     try {
-      await session.runAgentLoop(
+      await conversation.runAgentLoop(
         persistedContent,
         messageId,
         (msg: ServerMessage) => {
@@ -542,8 +542,8 @@ export async function startVoiceTurn(
   })();
 
   const abortFn = () => {
-    if (session.currentRequestId === requestId) {
-      session.abort();
+    if (conversation.currentRequestId === requestId) {
+      conversation.abort();
     }
   };
 

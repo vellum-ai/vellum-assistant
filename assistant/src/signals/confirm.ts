@@ -60,7 +60,7 @@ export function handleConfirmationSignal(): void {
       return;
     }
 
-    interaction.session.handleConfirmationResponse(
+    interaction.conversation.handleConfirmationResponse(
       requestId,
       decision,
       undefined,

@@ -22,7 +22,25 @@ final class AvatarComponentStore {
 
     // MARK: - Init
 
-    private init() {}
+    private init() {
+        loadBundledComponents()
+    }
+
+    /// Pre-populate the store from a bundled JSON file generated at build time.
+    /// Falls back silently if the file is missing (e.g. swift test without bun)
+    /// or cannot be decoded.
+    private func loadBundledComponents() {
+        guard let url = Bundle.main.resourceURL?
+            .appendingPathComponent("character-components.json"),
+              let data = try? Data(contentsOf: url),
+              let response = try? JSONDecoder().decode(
+                  AvatarComponentService.ComponentsResponse.self,
+                  from: data
+              ) else {
+            return
+        }
+        load(response)
+    }
 
     // MARK: - Loading
 

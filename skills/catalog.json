@@ -9,7 +9,8 @@
       "metadata": {
         "emoji": "📬",
         "vellum": {
-          "display-name": "Email CLI Ops"
+          "display-name": "Email CLI Ops",
+          "feature-flag": "email-channel"
         }
       },
       "compatibility": "Designed for Vellum personal assistants"

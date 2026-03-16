@@ -3,8 +3,8 @@ import SwiftUI
 import VellumAssistantShared
 
 /// Manages private (temporary) conversations on iOS, mirroring the macOS private conversation
-/// workflow. Private conversations are backed by daemon sessions with conversationType "private"
-/// so they are excluded from normal session restoration and the main conversation list.
+/// workflow. Private conversations are backed by daemon conversations with conversationType "private"
+/// so they are excluded from normal conversation restoration and the main conversation list.
 struct PrivateConversationsSection: View {
     /// Shared with the main ConversationListView so both views read from and write to the
     /// same in-memory conversation list. This prevents the dual-store data-loss bug where
@@ -21,9 +21,9 @@ struct PrivateConversationsSection: View {
         Form {
             if store.privateConversations.isEmpty {
                 Section {
-                    Text("No private conversations yet.")
+                    Text("No private threads yet.")
                         .foregroundStyle(.secondary)
-                    Text("Private conversations are excluded from your main chat history. Use them for sensitive conversations that you don't want mixed with your regular conversations.")
+                    Text("Private threads are excluded from your main chat history. Use them for sensitive threads that you don't want mixed with your regular threads.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
@@ -54,9 +54,9 @@ struct PrivateConversationsSection: View {
                         }
                     }
                 } header: {
-                    Text("Private Conversations")
+                    Text("Private Threads")
                 } footer: {
-                    Text("These conversations are not included in your regular chat history and are excluded from session restoration.")
+                    Text("These threads are not included in your regular chat history and are excluded from session restoration.")
                 }
             }
 
@@ -65,20 +65,20 @@ struct PrivateConversationsSection: View {
                     newConversationName = ""
                     showingCreateSheet = true
                 } label: {
-                    Label { Text("New Private Conversation") } icon: { VIconView(.shield, size: 14) }
+                    Label { Text("New Private Thread") } icon: { VIconView(.shield, size: 14) }
                 }
             }
         }
-        .navigationTitle("Private Conversations")
+        .navigationTitle("Private Threads")
         .navigationBarTitleDisplayMode(.inline)
         .sheet(isPresented: $showingCreateSheet) {
             createConversationSheet
         }
-        .alert("Rename Conversation", isPresented: Binding(
+        .alert("Rename Thread", isPresented: Binding(
             get: { renamingConversation != nil },
             set: { if !$0 { renamingConversation = nil } }
         )) {
-            TextField("Conversation name", text: $renameText)
+            TextField("Thread name", text: $renameText)
             Button("Cancel", role: .cancel) { renamingConversation = nil }
             Button("Save") {
                 if let conversation = renamingConversation, !renameText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
@@ -87,9 +87,9 @@ struct PrivateConversationsSection: View {
                 renamingConversation = nil
             }
         } message: {
-            Text("Enter a new name for this private conversation.")
+            Text("Enter a new name for this private thread.")
         }
-        .alert("Delete Conversation", isPresented: $showingDeleteConfirmation) {
+        .alert("Delete Thread", isPresented: $showingDeleteConfirmation) {
             Button("Cancel", role: .cancel) { conversationToDelete = nil }
             Button("Delete", role: .destructive) {
                 if let conversation = conversationToDelete {
@@ -139,13 +139,13 @@ struct PrivateConversationsSection: View {
         NavigationStack {
             Form {
                 Section {
-                    TextField("Conversation name", text: $newConversationName)
+                    TextField("Thread name", text: $newConversationName)
                         .autocapitalization(.words)
                 } footer: {
-                    Text("Give this private conversation a name so you can identify it later.")
+                    Text("Give this private thread a name so you can identify it later.")
                 }
             }
-            .navigationTitle("New Private Conversation")
+            .navigationTitle("New Private Thread")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
@@ -156,7 +156,7 @@ struct PrivateConversationsSection: View {
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Create") {
                         let name = newConversationName.trimmingCharacters(in: .whitespacesAndNewlines)
-                        _ = store.newPrivateConversation(name: name.isEmpty ? "Private Conversation" : name)
+                        _ = store.newPrivateConversation(name: name.isEmpty ? "Private Thread" : name)
                         showingCreateSheet = false
                     }
                 }

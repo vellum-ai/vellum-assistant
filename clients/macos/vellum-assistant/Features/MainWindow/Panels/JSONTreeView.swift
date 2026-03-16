@@ -45,13 +45,22 @@ private func parseJSON(_ text: String) -> JSONParseResult {
     }
 }
 
+/// Escapes a JSON key for use in node ID paths, preventing ambiguity when keys
+/// contain path-separator characters like `.`, `[`, or `]`.
+private func escapeKey(_ key: String) -> String {
+    key.replacingOccurrences(of: "\\", with: "\\\\")
+       .replacingOccurrences(of: ".", with: "\\.")
+       .replacingOccurrences(of: "[", with: "\\[")
+       .replacingOccurrences(of: "]", with: "\\]")
+}
+
 /// Recursively converts a Foundation JSON object into a `JSONNode`.
 private func convert(_ value: Any, path: String) -> JSONNode {
     switch value {
     case let dict as NSDictionary:
         let sortedKeys = (dict.allKeys as? [String] ?? []).sorted()
         let entries: [(key: String, value: JSONNode)] = sortedKeys.map { key in
-            let childPath = "\(path).\(key)"
+            let childPath = "\(path).\(escapeKey(key))"
             return (key: key, value: convert(dict[key] as Any, path: childPath))
         }
         return .object(id: path, entries: entries)
@@ -127,8 +136,8 @@ struct JSONTreeView: View {
         .task(id: content) {
             let result = parseJSON(content)
             root = result
+            expandedPaths = []
             if case .success(let node) = result {
-                expandedPaths = []
                 autoExpandInitial(node)
             }
         }
@@ -243,21 +252,21 @@ private struct JSONNodeRow: View {
             primitiveRow {
                 Text("\"\(value)\"")
                     .font(VFont.mono)
-                    .foregroundColor(Color(red: 0.87, green: 0.55, blue: 0.47))
+                    .foregroundColor(VColor.syntaxString)
                     .textSelection(.enabled)
             }
         case .number(_, let value):
             primitiveRow {
                 Text("\(value)")
                     .font(VFont.mono)
-                    .foregroundColor(Color(red: 0.73, green: 0.56, blue: 0.87))
+                    .foregroundColor(VColor.syntaxNumber)
                     .textSelection(.enabled)
             }
         case .bool(_, let value):
             primitiveRow {
                 Text(value ? "true" : "false")
                     .font(VFont.mono)
-                    .foregroundColor(Color(red: 0.73, green: 0.56, blue: 0.87))
+                    .foregroundColor(VColor.syntaxNumber)
                     .bold()
                     .textSelection(.enabled)
             }

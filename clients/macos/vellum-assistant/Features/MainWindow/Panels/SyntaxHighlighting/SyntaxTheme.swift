@@ -1,66 +1,66 @@
-import AppKit
+import SwiftUI
+import VellumAssistantShared
 
-/// Maps syntax token types to styled text attributes for dark backgrounds.
+/// Maps syntax token types to SwiftUI colors and builds syntax-highlighted `AttributedString` values.
 struct SyntaxTheme {
 
-    /// Base text color for unhighlighted content on dark backgrounds.
-    static let baseTextColor = NSColor(red: 0.85, green: 0.85, blue: 0.85, alpha: 1.0)
+    // MARK: - Token Color
 
-    /// Returns attributed string attributes for the given token type.
-    ///
-    /// Colors are chosen for readability against dark backgrounds. Font traits
-    /// (bold, italic) are derived from the provided base font.
-    static func attributes(for tokenType: SyntaxTokenType, baseFont: NSFont) -> [NSAttributedString.Key: Any] {
-        let color: NSColor
-        var font = baseFont
-
+    /// Returns the SwiftUI `Color` for the given syntax token type.
+    static func color(for tokenType: SyntaxTokenType) -> Color {
         switch tokenType {
-        case .keyword:
-            color = NSColor(red: 0.55, green: 0.65, blue: 0.96, alpha: 1.0)
+        case .keyword: return VColor.syntaxKeyword
+        case .string: return VColor.syntaxString
+        case .comment: return VColor.syntaxComment
+        case .number: return VColor.syntaxNumber
+        case .type: return VColor.syntaxType
+        case .property: return VColor.syntaxProperty
+        case .boolean, .null: return VColor.syntaxNumber
+        case .codeSpan: return VColor.syntaxString
+        case .link: return VColor.syntaxLink
+        case .heading, .bold, .italic, .plain: return VColor.contentDefault
+        }
+    }
 
-        case .string:
-            color = NSColor(red: 0.87, green: 0.55, blue: 0.47, alpha: 1.0)
+    // MARK: - Highlighted AttributedString
 
-        case .comment:
-            color = NSColor(red: 0.55, green: 0.60, blue: 0.55, alpha: 1.0)
+    /// Tokenizes `text` for `language` and returns an `AttributedString` with
+    /// syntax-colored foreground colors and appropriate font variants.
+    static func highlight(_ text: String, language: SyntaxLanguage) -> AttributedString {
+        let baseFont = VFont.mono
 
-        case .number:
-            color = NSColor(red: 0.73, green: 0.56, blue: 0.87, alpha: 1.0)
+        var attributedString = AttributedString(text)
+        attributedString.foregroundColor = VColor.contentDefault
+        attributedString.font = baseFont
 
-        case .type:
-            color = NSColor(red: 0.45, green: 0.78, blue: 0.74, alpha: 1.0)
-
-        case .property:
-            color = NSColor(red: 0.68, green: 0.78, blue: 0.88, alpha: 1.0)
-
-        case .boolean, .null:
-            color = NSColor(red: 0.73, green: 0.56, blue: 0.87, alpha: 1.0)
-
-        case .heading:
-            color = baseTextColor
-            font = NSFontManager.shared.convert(baseFont, toHaveTrait: .boldFontMask)
-
-        case .bold:
-            color = baseTextColor
-            font = NSFontManager.shared.convert(baseFont, toHaveTrait: .boldFontMask)
-
-        case .italic:
-            color = baseTextColor
-            font = NSFontManager.shared.convert(baseFont, toHaveTrait: .italicFontMask)
-
-        case .codeSpan:
-            color = NSColor(red: 0.87, green: 0.55, blue: 0.47, alpha: 1.0)
-
-        case .link:
-            color = NSColor(red: 0.30, green: 0.75, blue: 0.55, alpha: 1.0)
-
-        case .plain:
-            color = baseTextColor
+        guard language != .plain else {
+            return attributedString
         }
 
-        return [
-            .foregroundColor: color,
-            .font: font,
-        ]
+        let tokens = SyntaxTokenizer.tokenize(text, language: language)
+
+        for token in tokens {
+            guard let stringRange = Range(token.range, in: text) else { continue }
+
+            guard let lowerBound = AttributedString.Index(stringRange.lowerBound, within: attributedString),
+                  let upperBound = AttributedString.Index(stringRange.upperBound, within: attributedString) else {
+                continue
+            }
+
+            let attrRange = lowerBound..<upperBound
+
+            attributedString[attrRange].foregroundColor = color(for: token.type)
+
+            switch token.type {
+            case .heading, .bold:
+                attributedString[attrRange].font = VFont.mono.bold()
+            case .italic:
+                attributedString[attrRange].font = VFont.mono.italic()
+            default:
+                break
+            }
+        }
+
+        return attributedString
     }
 }

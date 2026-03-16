@@ -104,6 +104,10 @@ struct ChatView: View {
     /// timeout window. Shows a failure screen instead of the loading skeleton.
     var isBootstrapTimedOut: Bool = false
 
+    /// Called when the user taps "Send Logs to Vellum" on the bootstrap
+    /// timeout view.
+    var onBootstrapSendLogs: (() -> Void)?
+
     @State private var isNearBottom = true
     @State private var isDropTargeted = false
     @State private var containerWidth: CGFloat = 0
@@ -141,7 +145,7 @@ struct ChatView: View {
                         .accessibilityLabel("Loading chat history")
                 } else if isEmptyState && isBootstrapping {
                     if isBootstrapTimedOut {
-                        ChatBootstrapTimeoutView()
+                        ChatBootstrapTimeoutView(onSendLogs: onBootstrapSendLogs)
                     } else {
                         ChatBootstrapLoadingView()
                     }
@@ -369,7 +373,7 @@ struct ChatView: View {
             }
         }
         .onReceive(NotificationCenter.default.publisher(for: .activateChatSearch)) { notification in
-            // Scope to the active thread so only the visible ChatView activates.
+            // Scope to the active conversation so only the visible ChatView activates.
             if let targetId = notification.object as? UUID, targetId != conversationId {
                 return
             }
@@ -580,8 +584,10 @@ private struct ChatBootstrapLoadingView: View {
 
 /// Shown during first-launch bootstrap when the daemon fails to connect
 /// within the timeout window. Mirrors the hatch-failure pattern from
-/// onboarding: a centered error message.
+/// onboarding: a centered error message with an option to send logs.
 private struct ChatBootstrapTimeoutView: View {
+    var onSendLogs: (() -> Void)?
+
     @State private var visible = false
 
     var body: some View {
@@ -600,6 +606,12 @@ private struct ChatBootstrapTimeoutView: View {
                     .foregroundColor(VColor.contentSecondary)
                     .multilineTextAlignment(.center)
                     .frame(maxWidth: 320)
+            }
+
+            if let onSendLogs {
+                VButton(label: "Send Logs to Vellum", leftIcon: VIcon.send.rawValue, style: .primary) {
+                    onSendLogs()
+                }
             }
 
             Spacer()

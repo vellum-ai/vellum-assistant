@@ -410,7 +410,7 @@ describe("relay-server", () => {
             _messageId: string,
             onEvent: (event: {
               type: string;
-              sessionId?: string;
+              conversationId?: string;
               text?: string;
             }) => void,
           ) => {
@@ -425,7 +425,7 @@ describe("relay-server", () => {
                 tokens.push(event.text);
                 onEvent({
                   type: "assistant_text_delta",
-                  sessionId: conversationId,
+                  conversationId: conversationId,
                   text: event.text,
                 });
               },
@@ -446,7 +446,10 @@ describe("relay-server", () => {
               );
             }
 
-            onEvent({ type: "message_complete", sessionId: conversationId });
+            onEvent({
+              type: "message_complete",
+              conversationId: conversationId,
+            });
           },
         };
         return session as unknown as import("../daemon/conversation.js").Conversation;

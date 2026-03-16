@@ -32,7 +32,7 @@ struct FileTreeRowLabel: View {
                 .foregroundColor(VColor.contentDefault)
                 .fixedSize(horizontal: true, vertical: false)
         }
-        .padding(.leading, CGFloat(depth) * 16 + VSpacing.sm)
+        .padding(.leading, CGFloat(depth) * VSpacing.lg + VSpacing.sm)
         .padding(.trailing, VSpacing.sm)
         .padding(.vertical, VSpacing.xs)
         .frame(minWidth: minRowWidth, alignment: .leading)

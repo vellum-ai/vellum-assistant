@@ -80,10 +80,8 @@ struct DrawerMenuView: View {
         .onReceive(NotificationCenter.default.publisher(for: .localBootstrapCompleted)) { _ in
             bootstrapGeneration += 1
         }
-        .onAppear {
-            Task {
-                await loadBalance()
-            }
+        .task {
+            await loadBalance()
         }
     }
 

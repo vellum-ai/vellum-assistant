@@ -3,6 +3,19 @@ import Combine
 import VellumAssistantShared
 import SwiftUI
 
+/// Delegate that intercepts the window close button to hide the window
+/// instead of closing it, keeping the app running in the menu bar.
+@MainActor
+private class MainWindowCloseDelegate: NSObject, NSWindowDelegate {
+    func windowShouldClose(_ sender: NSWindow) -> Bool {
+        sender.orderOut(nil)
+        // Switch to accessory policy so the app disappears from the dock
+        // but remains accessible via the menu bar status item.
+        NSApp.setActivationPolicy(.accessory)
+        return false
+    }
+}
+
 /// NSWindow subclass that restores double-click-to-zoom on the title bar.
 /// With `fullSizeContentView` + `titlebarAppearsTransparent`, the system
 /// title bar becomes invisible and stops handling double-clicks. This
@@ -225,6 +238,9 @@ public final class MainWindow {
     let voiceModeManager = VoiceModeManager()
     let updateManager: UpdateManager
 
+    /// Retained delegate that intercepts the close button to hide the window.
+    private let closeDelegate = MainWindowCloseDelegate()
+
     /// Wake-up greeting to auto-send after the "coming alive" transition completes.
     /// Set by AppDelegate on first launch; consumed by MainWindowView.
     var pendingWakeUpMessage: String?
@@ -253,7 +269,7 @@ public final class MainWindow {
         window?.isVisible ?? false
     }
 
-    /// The active ChatViewModel from the current thread, if any.
+    /// The active ChatViewModel from the current conversation, if any.
     var activeViewModel: ChatViewModel? {
         conversationManager.activeViewModel
     }
@@ -289,7 +305,7 @@ public final class MainWindow {
                     if self.hasConnectedOnce {
                         self.traceStore.resetAll()
                     } else {
-                        // First connect: restore panel after thread restoration
+                        // First connect: restore panel after conversation restoration
                         Task { @MainActor in
                             try? await Task.sleep(nanoseconds: 100_000_000) // 100ms delay
                             self.windowState.restoreLastActivePanel()
@@ -404,6 +420,7 @@ public final class MainWindow {
         window.contentMinSize = NSSize(width: 800, height: 600)
         window.setFrame(windowRect, display: false)
         window.setFrameAutosaveName("MainWindow")
+        window.delegate = closeDelegate
 
         configureTrafficLightPadding(window)
         window.observeAppActivation()

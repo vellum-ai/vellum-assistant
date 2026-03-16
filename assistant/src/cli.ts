@@ -40,7 +40,7 @@ import {
 import {
   copyToClipboard,
   extractLastCodeBlock,
-  formatSessionForExport,
+  formatConversationForExport,
 } from "./util/clipboard.js";
 import { formatDiff, formatNewFileDiff } from "./util/diff.js";
 import { getHistoryPath, getSignalsDir } from "./util/platform.js";
@@ -900,7 +900,7 @@ export async function startCli(): Promise<void> {
             process.stdout.write("\n  No messages to copy.\n\n");
           } else {
             try {
-              const formatted = formatSessionForExport(msg.messages);
+              const formatted = formatConversationForExport(msg.messages);
               copyToClipboard(formatted);
               process.stdout.write(
                 `\n  Copied session (${msg.messages.length} messages) to clipboard.\n\n`,
@@ -1077,7 +1077,7 @@ export async function startCli(): Promise<void> {
             };
           });
           try {
-            const formatted = formatSessionForExport(rendered);
+            const formatted = formatConversationForExport(rendered);
             copyToClipboard(formatted);
             process.stdout.write(
               `\n  Copied session (${rawMessages.length} messages) to clipboard.\n\n`,

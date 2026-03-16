@@ -1,6 +1,8 @@
 import {
   setPlatformAssistantId,
   setPlatformBaseUrl,
+  setPlatformOrganizationId,
+  setPlatformUserId,
 } from "../../config/env.js";
 import {
   API_KEY_PROVIDERS,
@@ -8,6 +10,7 @@ import {
   invalidateConfigCache,
 } from "../../config/loader.js";
 import type { CesClient } from "../../credential-execution/client.js";
+import { setSentryOrganizationId } from "../../instrument.js";
 import { initializeProviders } from "../../providers/registry.js";
 import { credentialKey } from "../../security/credential-key.js";
 import {
@@ -153,20 +156,64 @@ export async function handleAddSecret(
       const service = name.slice(0, colonIdx);
       const field = name.slice(colonIdx + 1);
       const key = credentialKey(service, field);
-      const stored = await setSecureKeyAsync(key, value);
-      if (!stored) {
-        return httpError(
-          "INTERNAL_ERROR",
-          "Failed to store credential in secure storage",
-          500,
-        );
-      }
-      upsertCredentialMetadata(service, field, {});
-      if (service === "vellum" && field === "platform_base_url") {
-        setPlatformBaseUrl(value);
-      }
-      if (service === "vellum" && field === "platform_assistant_id") {
-        setPlatformAssistantId(value);
+
+      // For identity fields, trim whitespace before persisting so the
+      // credential store matches the in-memory value.  Whitespace-only
+      // input is treated as a no-op: nothing is stored and in-memory
+      // state is cleared.
+      const TRIMMED_IDENTITY_FIELDS = new Set([
+        "platform_assistant_id",
+        "platform_organization_id",
+        "platform_user_id",
+      ]);
+      const isTrimmedIdentity =
+        service === "vellum" && TRIMMED_IDENTITY_FIELDS.has(field);
+      const effectiveValue = isTrimmedIdentity ? value.trim() : value;
+
+      if (isTrimmedIdentity && effectiveValue === "") {
+        // Whitespace-only → remove stale credential from the secure store,
+        // then clear in-memory state. Delete first so that if it fails we
+        // return 500 without having mutated in-memory identity.
+        const deleteResult = await deleteSecureKeyAsync(key);
+        if (deleteResult === "error") {
+          return httpError(
+            "INTERNAL_ERROR",
+            `Failed to delete stale credential from secure storage: ${service}:${field}`,
+            500,
+          );
+        }
+        if (field === "platform_assistant_id") {
+          setPlatformAssistantId(undefined);
+        } else if (field === "platform_organization_id") {
+          setPlatformOrganizationId(undefined);
+          setSentryOrganizationId(undefined);
+        } else if (field === "platform_user_id") {
+          setPlatformUserId(undefined);
+        }
+        deleteCredentialMetadata(service, field);
+      } else {
+        const stored = await setSecureKeyAsync(key, effectiveValue);
+        if (!stored) {
+          return httpError(
+            "INTERNAL_ERROR",
+            "Failed to store credential in secure storage",
+            500,
+          );
+        }
+        upsertCredentialMetadata(service, field, {});
+        if (service === "vellum" && field === "platform_base_url") {
+          setPlatformBaseUrl(effectiveValue);
+        }
+        if (service === "vellum" && field === "platform_assistant_id") {
+          setPlatformAssistantId(effectiveValue || undefined);
+        }
+        if (service === "vellum" && field === "platform_organization_id") {
+          setPlatformOrganizationId(effectiveValue || undefined);
+          setSentryOrganizationId(effectiveValue || undefined);
+        }
+        if (service === "vellum" && field === "platform_user_id") {
+          setPlatformUserId(effectiveValue || undefined);
+        }
       }
       if (isManagedProxyCredential(service, field)) {
         await initializeProviders(getConfig());
@@ -293,6 +340,13 @@ export async function handleDeleteSecret(req: Request): Promise<Response> {
       }
       if (service === "vellum" && field === "platform_assistant_id") {
         setPlatformAssistantId(undefined);
+      }
+      if (service === "vellum" && field === "platform_organization_id") {
+        setPlatformOrganizationId(undefined);
+        setSentryOrganizationId(undefined);
+      }
+      if (service === "vellum" && field === "platform_user_id") {
+        setPlatformUserId(undefined);
       }
       if (isManagedProxyCredential(service, field)) {
         await initializeProviders(getConfig());

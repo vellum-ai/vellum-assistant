@@ -1,7 +1,7 @@
 import SwiftUI
 
 public struct VButton: View {
-    public enum Style: Hashable { case primary, danger, dangerOutline, outlined, ghost, contrast }
+    public enum Style: Hashable { case primary, danger, dangerOutline, dangerGhost, outlined, ghost, contrast }
     public enum Size: Hashable { case regular, compact, pill }
 
     public let label: String
@@ -91,9 +91,11 @@ public struct VButton: View {
             return VColor.auxWhite
         case .contrast:
             return VColor.contentInset
-        case .ghost, .outlined, .dangerOutline:
+        case .ghost, .outlined:
             if isActive { return VColor.primaryActive }
             return VColor.primaryBase
+        case .dangerOutline, .dangerGhost:
+            return VColor.systemNegativeStrong
         }
     }
 }
@@ -157,7 +159,7 @@ public struct VButtonStyle: ButtonStyle {
     private var borderLineWidth: CGFloat {
         switch style {
         case .outlined, .dangerOutline: return 2
-        case .ghost:
+        case .ghost, .dangerGhost:
             return isEnabled && isFocused ? 1.25 : 1
         default: return 0
         }
@@ -194,6 +196,11 @@ public struct VButtonStyle: ButtonStyle {
                 if isHovered { return VColor.surfaceBase }
                 return .clear
             }
+        case .dangerGhost:
+            guard isEnabled else { return .clear }
+            if isPressed { return VColor.systemNegativeWeak }
+            if isHovered { return VColor.systemNegativeWeak }
+            return .clear
         case .contrast:
             guard isEnabled else { return VColor.primaryDisabled }
             if isPressed { return VColor.contentEmphasized }
@@ -213,6 +220,9 @@ public struct VButtonStyle: ButtonStyle {
         case .ghost:
             if isHovered { return VColor.primaryActive }
             return VColor.primaryBase
+        case .dangerGhost:
+            if isHovered { return VColor.systemNegativeHover }
+            return VColor.systemNegativeStrong
         }
     }
 
@@ -234,6 +244,9 @@ public struct VButtonStyle: ButtonStyle {
         case .ghost:
             guard isEnabled, isFocused else { return .clear }
             return VColor.primaryBase.opacity(0.72)
+        case .dangerGhost:
+            guard isEnabled, isFocused else { return .clear }
+            return VColor.systemNegativeStrong.opacity(0.72)
         default:
             return .clear
         }

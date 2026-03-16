@@ -5,6 +5,7 @@ import VellumAssistantShared
 enum AppsLoader {
     enum LoadError: Error, Equatable {
         case timedOut
+        case fetchFailed
     }
 
     static func load(
@@ -21,6 +22,9 @@ enum AppsLoader {
                         throw CancellationError()
                     }
                     if case .appsListResponse(let response) = message {
+                        guard response.success else {
+                            throw LoadError.fetchFailed
+                        }
                         return response.apps
                     }
                 }

@@ -19,7 +19,7 @@ import type {
 } from "./message-protocol.js";
 import { INTERACTIVE_SURFACE_TYPES } from "./message-protocol.js";
 
-const log = getLogger("session-surfaces");
+const log = getLogger("conversation-surfaces");
 
 const MAX_UNDO_DEPTH = 10;
 const TASK_PROGRESS_TEMPLATE_FIELDS = ["title", "status", "steps"] as const;
@@ -590,7 +590,7 @@ export function handleSurfaceAction(
     if (result.queued) {
       log.info(
         { surfaceId, actionId, requestId },
-        "Relay prompt queued (session busy, history-restored)",
+        "Relay prompt queued (conversation busy, history-restored)",
       );
       return;
     }
@@ -632,7 +632,7 @@ export function handleSurfaceAction(
   }
 
   // content_changed is a non-terminal state update for document auto-save
-  // Save the document content and don't forward to the session
+  // Save the document content and don't forward to the conversation
   if (actionId === "content_changed") {
     handleDocumentContentChanged(ctx, surfaceId, data);
     return;
@@ -745,7 +745,7 @@ export function handleSurfaceAction(
     }
     log.info(
       { surfaceId, actionId, requestId },
-      "Surface action queued (session busy)",
+      "Surface action queued (conversation busy)",
     );
     ctx.traceEmitter.emit(
       "request_queued",
@@ -827,7 +827,7 @@ export function refreshSurfacesForApp(
     };
     stored.data = updatedData;
 
-    // Keep the persisted snapshot in sync so updates survive session restart.
+    // Keep the persisted snapshot in sync so updates survive conversation restart.
     const idx = ctx.currentTurnSurfaces.findIndex(
       (s) => s.surfaceId === surfaceId,
     );
@@ -1147,7 +1147,7 @@ export async function surfaceProxyResolver(
       data: mergedData,
     });
 
-    // Keep the persisted snapshot in sync so updates survive session restart.
+    // Keep the persisted snapshot in sync so updates survive conversation restart.
     const idx = ctx.currentTurnSurfaces.findIndex(
       (s) => s.surfaceId === surfaceId,
     );
@@ -1201,7 +1201,7 @@ export async function surfaceProxyResolver(
     if (!app) return { content: `App not found: ${appId}`, isError: true };
     // Generate a minimal fallback preview from app metadata so that the
     // surface is always rendered as a clickable preview card (not an
-    // un-clickable fallback chip) after session restart.
+    // un-clickable fallback chip) after conversation restart.
     const defaultPreview = { title: app.name, subtitle: app.description };
 
     const storedPreview = getAppPreview(app.id);

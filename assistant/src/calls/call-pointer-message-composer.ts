@@ -2,7 +2,7 @@
  * Deterministic call pointer message templates and instruction builder.
  *
  * Provides fallback templates for untrusted audiences and builds
- * structured instructions for the daemon session to generate pointer
+ * structured instructions for the daemon conversation to generate pointer
  * copy as a natural conversation turn for trusted audiences.
  */
 
@@ -31,7 +31,7 @@ export interface CallPointerMessageContext {
 // ---------------------------------------------------------------------------
 
 /**
- * Build an instruction message to send to the daemon session so the
+ * Build an instruction message to send to the daemon conversation so the
  * assistant generates a natural pointer status update as a conversation turn.
  */
 export function buildPointerInstruction(

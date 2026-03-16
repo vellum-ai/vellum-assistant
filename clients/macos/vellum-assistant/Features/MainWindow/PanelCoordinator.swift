@@ -73,8 +73,7 @@ extension MainWindowView {
                     }
                 },
                 onNewConversation: {
-                    conversationManager.openConversation(message: "What kind of apps can you build?", forceNew: true)
-                    windowState.selection = nil
+                    startNewConversation()
                 }
             )
         case .intelligence:
@@ -115,14 +114,14 @@ extension MainWindowView {
                         enterAppEditing(appId: appId)
                     }
                     // Route relay_prompt actions directly as chat messages so they
-                    // reach the active session instead of being lost when the surface
-                    // was opened outside a session context (e.g. via app_open).
+                    // reach the active conversation instead of being lost when the surface
+                    // was opened outside a conversation context (e.g. via app_open).
                     if actionId == "relay_prompt" || actionId == "agent_prompt",
                        let dataDict = actionData as? [String: Any],
                        let prompt = dataDict["prompt"] as? String,
                        !prompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                        // Ensure a thread exists so the prompt doesn't silently fail
-                        // on fresh app launch before any chat thread is created.
+                        // Ensure a conversation exists so the prompt doesn't silently fail
+                        // on fresh app launch before any chat conversation is created.
                         conversationManager.openConversation(
                             message: prompt.trimmingCharacters(in: .whitespacesAndNewlines)
                         ) { vm in
@@ -272,8 +271,7 @@ extension MainWindowView {
                         }
                     },
                     onNewConversation: {
-                        conversationManager.openConversation(message: "What kind of apps can you build?", forceNew: true)
-                        windowState.selection = nil
+                        startNewConversation()
                     }
                 )
                 .overlay(alignment: .topTrailing) { panelDismissButton }
@@ -318,12 +316,12 @@ extension MainWindowView {
                 fullWindowPanel(panelType)
             }
         case nil:
-            // Default: show chat for active thread
+            // Default: show chat for active conversation
             defaultChatLayout
         }
     }
 
-    /// The default chat layout used when showing a thread or no specific selection.
+    /// The default chat layout used when showing a conversation or no specific selection.
     @ViewBuilder
     var defaultChatLayout: some View {
         let config = windowState.layoutConfig
@@ -444,8 +442,7 @@ extension MainWindowView {
                     }
                 },
                 onNewConversation: {
-                    conversationManager.openConversation(message: "What kind of apps can you build?", forceNew: true)
-                    windowState.dismissOverlay()
+                    startNewConversation()
                 }
             )
             .overlay(alignment: .topTrailing) { panelDismissButton }
@@ -710,55 +707,12 @@ struct ActiveChatViewWrapper: View {
             isLoadingMoreMessages: viewModel.isLoadingMoreMessages,
             loadPreviousMessagePage: { await viewModel.loadPreviousMessagePage() },
             isBootstrapping: isBootstrapping,
-            isBootstrapTimedOut: isBootstrapTimedOut
+            isBootstrapTimedOut: isBootstrapTimedOut,
+            onBootstrapSendLogs: {
+                AppDelegate.shared?.showLogReportWindow(reason: .connectionIssue)
+            }
         )
         .environment(\.cmdEnterToSend, settingsStore.cmdEnterToSend)
-    }
-}
-
-// MARK: - Ghost Button
-
-/// A borderless button with a rounded-rectangle outline, monospace font, and subtle hover fill.
-struct GhostButton: View {
-    let label: String
-    let icon: String?
-    let action: () -> Void
-
-    @State private var isHovered = false
-
-    init(_ label: String, icon: String? = nil, action: @escaping () -> Void) {
-        self.label = label
-        self.icon = icon
-        self.action = action
-    }
-
-    var body: some View {
-        Button(action: action) {
-            HStack(spacing: VSpacing.xs) {
-                if let icon {
-                    VIconView(SFSymbolMapping.icon(forSFSymbol: icon, fallback: .puzzle), size: 11)
-                }
-                if !label.isEmpty {
-                    Text(label)
-                        .font(VFont.monoSmall)
-                }
-            }
-            .foregroundColor(VColor.contentSecondary)
-            .padding(.horizontal, VSpacing.sm)
-            .padding(.vertical, VSpacing.xs)
-            .background(
-                RoundedRectangle(cornerRadius: VRadius.sm)
-                    .fill(isHovered ? VColor.surfaceBase : Color.clear)
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: VRadius.sm)
-                    .stroke(VColor.borderBase, lineWidth: 1)
-            )
-        }
-        .buttonStyle(.plain)
-        .onHover { hovering in
-            isHovered = hovering
-        }
     }
 }
 
@@ -1062,10 +1016,10 @@ private struct ShareDrawer: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            ShareDrawerRow(icon: VIcon.share.rawValue, label: "Share", action: onShare)
+            ShareDrawerRow(icon: .share, label: "Share", action: onShare)
             VColor.borderBase.frame(height: 1)
                 .padding(.horizontal, VSpacing.xs)
-            ShareDrawerRow(icon: VIcon.arrowUpRight.rawValue, label: "Publish to Vercel", action: onPublish)
+            ShareDrawerRow(icon: .arrowUpRight, label: "Publish to Vercel", action: onPublish)
         }
         .padding(.vertical, VSpacing.xs)
         .frame(width: 180)
@@ -1080,7 +1034,7 @@ private struct ShareDrawer: View {
 }
 
 private struct ShareDrawerRow: View {
-    let icon: String
+    let icon: VIcon
     let label: String
     let action: () -> Void
     @State private var isHovered = false
@@ -1088,7 +1042,7 @@ private struct ShareDrawerRow: View {
     var body: some View {
         Button(action: action) {
             HStack(spacing: VSpacing.sm) {
-                VIconView(SFSymbolMapping.icon(forSFSymbol: icon, fallback: .puzzle), size: 12)
+                VIconView(icon, size: 12)
                     .foregroundColor(isHovered ? VColor.contentDefault : VColor.contentSecondary)
                     .frame(width: 18)
                 Text(label)

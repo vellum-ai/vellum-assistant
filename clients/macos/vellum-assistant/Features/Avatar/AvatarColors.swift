@@ -6,7 +6,7 @@ enum AvatarColor: String, CaseIterable, Identifiable {
     var id: String { rawValue }
 
     @MainActor var nsColor: NSColor {
-        guard let def = AvatarComponentStore.shared.color(id: rawValue) else { return .clear }
+        guard let def = AvatarComponentStore.shared.color(id: rawValue) else { return .systemGray }
         return AvatarComponentStore.hexToNSColor(def.hex)
     }
 }

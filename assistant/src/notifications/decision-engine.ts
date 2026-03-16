@@ -20,7 +20,7 @@ import {
   getConfiguredProvider,
   userMessage,
 } from "../providers/provider-send-message.js";
-import type { ModelIntent } from "../providers/types.js";
+import type { ModelIntent, Provider } from "../providers/types.js";
 import { getLogger } from "../util/logger.js";
 import {
   buildConversationCandidates,
@@ -747,6 +747,7 @@ export async function evaluateSignal(
   let decision: NotificationDecision;
   try {
     decision = await classifyWithLLM(
+      provider,
       signal,
       availableChannels,
       resolvedPreferenceContext,
@@ -777,13 +778,13 @@ export async function evaluateSignal(
 // ── LLM classification ────────────────────────────────────────────────
 
 async function classifyWithLLM(
+  provider: Provider,
   signal: NotificationSignal,
   availableChannels: NotificationChannel[],
   preferenceContext: string | undefined,
   modelIntent: ModelIntent,
   candidateSet?: ConversationCandidateSet,
 ): Promise<NotificationDecision> {
-  const provider = (await getConfiguredProvider())!;
   const { signal: abortSignal, cleanup } = createTimeout(DECISION_TIMEOUT_MS);
 
   const candidateContext = candidateSet

@@ -338,11 +338,6 @@ extension AppDelegate {
         restartItem.image = VIcon.refreshCw.nsImage
         menu.addItem(restartItem)
 
-        let logoutItem = NSMenuItem(title: "Sign Out", action: #selector(performLogout), keyEquivalent: "")
-        logoutItem.target = self
-        logoutItem.image = VIcon.logOut.nsImage
-        menu.addItem(logoutItem)
-
         let quitItem = NSMenuItem(title: "Quit", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
         quitItem.image = VIcon.power.nsImage
         menu.addItem(quitItem)
@@ -464,14 +459,16 @@ extension AppDelegate {
             for await message in stream {
                 guard !Task.isCancelled else { return }
                 if case .appsListResponse(let response) = message {
-                    self.cachedApps = response.apps
-                    let daemonItems = response.apps.map {
-                        AppListManager.AppItem_Daemon(
-                            id: $0.id, name: $0.name, description: $0.description,
-                            icon: $0.icon, appType: nil, createdAt: $0.createdAt
-                        )
+                    if response.success {
+                        self.cachedApps = response.apps
+                        let daemonItems = response.apps.map {
+                            AppListManager.AppItem_Daemon(
+                                id: $0.id, name: $0.name, description: $0.description,
+                                icon: $0.icon, appType: nil, createdAt: $0.createdAt
+                            )
+                        }
+                        self.mainWindow?.appListManager.syncFromDaemon(daemonItems)
                     }
-                    self.mainWindow?.appListManager.syncFromDaemon(daemonItems)
                     return
                 }
             }
@@ -487,17 +484,17 @@ extension AppDelegate {
     }
 
     @objc func sendCurrentConversationLogsToSentry() {
-        guard let thread = mainWindow?.conversationManager.activeConversation,
-              let conversationId = thread.conversationId else { return }
+        guard let conversation = mainWindow?.conversationManager.activeConversation,
+              let conversationId = conversation.conversationId else { return }
 
         // Defer window creation until after the status menu finishes dismissing,
         // otherwise macOS can swallow the makeKeyAndOrderFront during menu teardown.
         DispatchQueue.main.async { [weak self] in
-            self?.showLogReportWindow(scope: .conversation(conversationId: conversationId, conversationTitle: thread.title))
+            self?.showLogReportWindow(scope: .conversation(conversationId: conversationId, conversationTitle: conversation.title))
         }
     }
 
-    func showLogReportWindow(scope: LogExportScope = .global) {
+    func showLogReportWindow(scope: LogExportScope = .global, reason: LogReportReason? = nil) {
         // If the window is already showing, just bring it forward.
         if let existing = logReportWindow, existing.isVisible {
             existing.makeKeyAndOrderFront(nil)
@@ -511,6 +508,7 @@ extension AppDelegate {
 
         let view = LogReportFormView(
             authManager: authManager,
+            initialReason: reason,
             onSend: { [weak self] formData in
                 self?.dismissLogReportWindow()
                 var formData = formData

@@ -1,0 +1,79 @@
+{
+  "version": 1,
+  "tools": [
+    {
+      "name": "acp_spawn",
+      "description": "Spawn an external coding agent (e.g. Claude Code, Codex, Gemini CLI) via ACP to work on a task. The agent runs as a subprocess and streams results back. Use this when you want to delegate a coding task to an external agent that has its own tools, file editing, and terminal access. If ACP is not enabled, follow the setup instructions in SKILL.md to install claude-agent-acp and configure it. The command MUST be 'claude-agent-acp' — NEVER use 'claude', 'claude -p', or 'claude --acp'.",
+      "category": "orchestration",
+      "risk": "low",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "agent": {
+            "type": "string",
+            "description": "Which agent to spawn (e.g. 'claude', 'codex', 'gemini'). Defaults to 'claude'."
+          },
+          "task": {
+            "type": "string",
+            "description": "The task to give the agent — what it should accomplish"
+          },
+          "cwd": {
+            "type": "string",
+            "description": "Working directory for the agent. This determines where the agent runs and where its session is stored. Set this to the project/repo root the user wants the agent to work in. Defaults to current session's working directory."
+          },
+          "reason": {
+            "type": "string",
+            "description": "Brief explanation of why this tool is being called"
+          }
+        },
+        "required": ["task"]
+      },
+      "executor": "tools/acp-spawn.ts",
+      "execution_target": "host"
+    },
+    {
+      "name": "acp_status",
+      "description": "Get the status of a specific ACP session or list all ACP sessions. Only use this when the user explicitly asks about ACP session status — do NOT poll automatically, as you will be notified when sessions complete.",
+      "category": "orchestration",
+      "risk": "low",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "acp_session_id": {
+            "type": "string",
+            "description": "Optional ACP session ID to query. If omitted, returns all ACP sessions."
+          },
+          "reason": {
+            "type": "string",
+            "description": "Brief explanation of why this tool is being called"
+          }
+        },
+        "required": []
+      },
+      "executor": "tools/acp-status.ts",
+      "execution_target": "host"
+    },
+    {
+      "name": "acp_abort",
+      "description": "Abort a running ACP session by ID. This kills the agent process and removes the session.",
+      "category": "orchestration",
+      "risk": "low",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "acp_session_id": {
+            "type": "string",
+            "description": "The ID of the ACP session to abort."
+          },
+          "reason": {
+            "type": "string",
+            "description": "Brief explanation of why this tool is being called"
+          }
+        },
+        "required": ["acp_session_id"]
+      },
+      "executor": "tools/acp-abort.ts",
+      "execution_target": "host"
+    }
+  ]
+}

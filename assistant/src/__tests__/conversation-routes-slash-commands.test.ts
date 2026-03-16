@@ -162,7 +162,7 @@ const testAuthContext: AuthContext = {
   policyEpoch: 1,
 };
 
-function makeSession() {
+function makeConversation() {
   const persistUserMessage = mock(
     async (_content: string, _attachments: unknown[], _requestId?: string) =>
       "persisted-user-id",
@@ -178,7 +178,7 @@ function makeSession() {
   const setPreactivatedSkillIds = mock((_ids: string[] | undefined) => {});
   const events: unknown[] = [];
   const messages: unknown[] = [];
-  const session = {
+  const conversation = {
     setTrustContext: () => {},
     updateClient: (_fn: unknown, _b: boolean) => {},
     emitConfirmationStateChanged: () => {},
@@ -209,7 +209,7 @@ function makeSession() {
     },
   } as unknown as import("../daemon/conversation.js").Conversation;
   return {
-    session,
+    conversation,
     persistUserMessage,
     runAgentLoop,
     setPreactivatedSkillIds,
@@ -231,10 +231,12 @@ function makeRequest(content: string) {
   });
 }
 
-function makeDeps(session: import("../daemon/conversation.js").Conversation) {
+function makeDeps(
+  conversation: import("../daemon/conversation.js").Conversation,
+) {
   return {
     sendMessageDeps: {
-      getOrCreateConversation: async () => session,
+      getOrCreateConversation: async () => conversation,
       assistantEventHub: { publish: async () => {} } as any,
       resolveAttachments: () => [],
     },
@@ -253,10 +255,11 @@ describe("handleSendMessage slash command interception", () => {
       message: "Conversation Status\n\nContext: 5%",
     });
 
-    const { session, persistUserMessage, runAgentLoop } = makeSession();
+    const { conversation, persistUserMessage, runAgentLoop } =
+      makeConversation();
     const res = await handleSendMessage(
       makeRequest("/status"),
-      makeDeps(session),
+      makeDeps(conversation),
       testAuthContext,
     );
 
@@ -287,14 +290,14 @@ describe("handleSendMessage slash command interception", () => {
     });
 
     const {
-      session,
+      conversation,
       persistUserMessage,
       runAgentLoop,
       setPreactivatedSkillIds,
-    } = makeSession();
+    } = makeConversation();
     const res = await handleSendMessage(
       makeRequest("hello there"),
-      makeDeps(session),
+      makeDeps(conversation),
       testAuthContext,
     );
 
@@ -319,10 +322,10 @@ describe("handleSendMessage slash command interception", () => {
       content: "test",
     });
 
-    const { session } = makeSession();
+    const { conversation } = makeConversation();
     await handleSendMessage(
       makeRequest("test"),
-      makeDeps(session),
+      makeDeps(conversation),
       testAuthContext,
     );
 

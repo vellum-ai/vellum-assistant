@@ -7,6 +7,11 @@ struct DebugPanel: View {
     let activeSessionId: String?
     var onClose: () -> Void
 
+    private var hasEvents: Bool {
+        guard let conversationId = activeSessionId else { return false }
+        return !(traceStore.eventsByConversation[conversationId] ?? []).isEmpty
+    }
+
     var body: some View {
         VSidePanel(title: "Logs", onClose: onClose, pinnedContent: {
             if let conversationId = activeSessionId {
@@ -15,28 +20,34 @@ struct DebugPanel: View {
 
                 // Render timeline in pinned area so it owns its own ScrollView
                 // without nesting inside VSidePanel's scrollable content slot.
-                let events = traceStore.eventsByConversation[conversationId] ?? []
-                if !events.isEmpty {
+                if hasEvents {
                     TraceTimelineView(traceStore: traceStore, conversationId: conversationId)
                 }
             }
-        }) {
-            if let conversationId = activeSessionId {
-                let events = traceStore.eventsByConversation[conversationId] ?? []
-                if events.isEmpty {
+
+            // Empty states live in the pinned (non-scrollable) area so they
+            // stay centered and the panel doesn't scroll when there's nothing.
+            if !hasEvents {
+                Spacer()
+                if activeSessionId != nil {
                     VEmptyState(
                         title: "No trace events yet",
                         subtitle: "Events will appear as the session runs",
                         icon: "waveform.path"
                     )
+                } else {
+                    VEmptyState(
+                        title: "No session selected",
+                        subtitle: "Start a conversation to see trace events",
+                        icon: "ant"
+                    )
                 }
-            } else {
-                VEmptyState(
-                    title: "No session selected",
-                    subtitle: "Start a conversation to see trace events",
-                    icon: "ant"
-                )
+                Spacer()
             }
+        }) {
+            // Content slot intentionally empty when no events — the empty
+            // state is rendered in pinnedContent above to avoid scrolling.
+            EmptyView()
         }
         .onAppear { traceStore.isObserved = true }
         .onDisappear { traceStore.isObserved = false }

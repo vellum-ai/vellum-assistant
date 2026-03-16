@@ -110,11 +110,11 @@ export class ConfigWatcher {
   }
 
   /**
-   * Start all file watchers. `onSessionEvict` is called when watched
-   * files change and sessions need to be evicted for reload.
+   * Start all file watchers. `onConversationEvict` is called when watched
+   * files change and conversations need to be evicted for reload.
    * `onIdentityChanged` is called when IDENTITY.md changes on disk.
    */
-  start(onSessionEvict: () => void, onIdentityChanged?: () => void): void {
+  start(onConversationEvict: () => void, onIdentityChanged?: () => void): void {
     const workspaceDir = getWorkspaceDir();
     const protectedDir = join(getRootDir(), "protected");
 
@@ -126,7 +126,7 @@ export class ConfigWatcher {
           const prevMcpFingerprint = JSON.stringify(prevConfig.mcp ?? {});
           const changed = await this.refreshConfigFromSources();
           if (changed) {
-            onSessionEvict();
+            onConversationEvict();
             const newConfig = getConfig();
             const newMcpFingerprint = JSON.stringify(newConfig.mcp ?? {});
             if (newMcpFingerprint !== prevMcpFingerprint) {
@@ -140,13 +140,13 @@ export class ConfigWatcher {
           );
         }
       },
-      "SOUL.md": () => onSessionEvict(),
+      "SOUL.md": () => onConversationEvict(),
       "IDENTITY.md": () => {
-        onSessionEvict();
+        onConversationEvict();
         onIdentityChanged?.();
       },
-      "USER.md": () => onSessionEvict(),
-      "UPDATES.md": () => onSessionEvict(),
+      "USER.md": () => onConversationEvict(),
+      "UPDATES.md": () => onConversationEvict(),
     };
 
     const protectedHandlers: Record<string, () => void> = {
@@ -210,7 +210,7 @@ export class ConfigWatcher {
     }
 
     this.startSignalsWatcher();
-    this.startSkillsWatchers(onSessionEvict);
+    this.startSkillsWatchers(onConversationEvict);
   }
 
   stop(): void {
@@ -281,14 +281,14 @@ export class ConfigWatcher {
     }
   }
 
-  private startSkillsWatchers(onSessionEvict: () => void): void {
+  private startSkillsWatchers(onConversationEvict: () => void): void {
     const skillsDir = getWorkspaceSkillsDir();
     if (!existsSync(skillsDir)) return;
 
     const scheduleSkillsReload = (file: string): void => {
       this.debounceTimers.schedule(`skills:${file}`, () => {
         log.info({ file }, "Skill file changed, reloading");
-        onSessionEvict();
+        onConversationEvict();
       });
     };
 

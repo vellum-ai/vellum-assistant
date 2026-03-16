@@ -42,11 +42,11 @@ export interface ChannelCapabilities {
 }
 
 /**
- * Runtime trust context for an inbound actor session.
+ * Runtime trust context for an inbound actor conversation.
  *
  * Carries the resolved trust classification, guardian binding metadata, and
- * requester identity for the current session. This is the canonical trust
- * shape used by sessions, tool execution, memory gating, and channel routing.
+ * requester identity for the current conversation. This is the canonical trust
+ * shape used by conversations, tool execution, memory gating, and channel routing.
  *
  * Produced by {@link resolveActorTrust} -> {@link toTrustContext}, or by
  * the convenience wrapper {@link resolveTrustContext}.
@@ -582,7 +582,7 @@ export function injectActiveSurfaceContext(
 /**
  * Append voice call-control protocol instructions to the last user
  * message so the model knows how to emit control markers during voice
- * turns routed through the session pipeline.
+ * turns routed through the conversation pipeline.
  */
 export function injectVoiceCallControlContext(
   message: Message,
@@ -1138,7 +1138,7 @@ export function applyRuntimeInjections(
   const mode = options.mode ?? "full";
   let result = runMessages;
 
-  // For non-interactive sessions (scheduled jobs, work items), instruct the
+  // For non-interactive conversations (scheduled jobs, work items), instruct the
   // model to never ask for clarification — there is no human present to answer.
   if (options.isNonInteractive) {
     const userTail = result[result.length - 1];

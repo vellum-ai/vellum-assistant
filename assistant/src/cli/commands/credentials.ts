@@ -238,6 +238,7 @@ Examples:
   $ assistant credentials list --search twilio
   $ assistant credentials set --service twilio --field account_sid AC1234567890
   $ assistant credentials inspect --service twilio --field account_sid
+  $ assistant credentials reveal --service twilio --field account_sid
   $ assistant credentials delete --service twilio --field auth_token`,
   );
 

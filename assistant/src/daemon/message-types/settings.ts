@@ -2,7 +2,7 @@
 
 // === Client → Server ===
 
-/** Request from a session or client to change the voice activation key. */
+/** Request from a conversation or client to change the voice activation key. */
 export interface VoiceConfigUpdateRequest {
   type: "voice_config_update";
   /** The desired activation key (enum value or natural-language name). */

@@ -134,7 +134,7 @@ struct SidebarConversationItem: View {
             onSelect?()
         }
         .accessibilityAddTraits(.isButton)
-        .accessibilityLabel("Conversation: \(conversation.title)")
+        .accessibilityLabel("Thread: \(conversation.title)")
         .accessibilityAction(.default) {
             selectConversation()
         }
@@ -198,7 +198,7 @@ struct SidebarConversationItem: View {
                 guard let conversationId = conversation.conversationId else { return }
                 AppDelegate.shared?.showLogReportWindow(scope: .conversation(conversationId: conversationId, conversationTitle: conversation.title))
             } label: {
-                Label { Text("Send Logs for Conversation") } icon: { VIconView(.upload, size: 14) }
+                Label { Text("Send Logs for Thread") } icon: { VIconView(.upload, size: 14) }
             }
             .disabled(conversation.conversationId == nil || LogExporter.isManagedAssistant)
         }

@@ -28,6 +28,11 @@ struct AgentPanelContent: View {
         globalSkillSearchQuery.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
     }
 
+    /// Whether any files in the selected skill are viewable (non-binary with content).
+    private var hasViewableFiles: Bool {
+        skillsManager.selectedSkillFiles?.files.contains { !$0.isBinary && $0.content != nil } ?? false
+    }
+
     private var hasActiveSearch: Bool { !normalizedSkillQuery.isEmpty }
 
     var body: some View {
@@ -361,7 +366,7 @@ struct AgentPanelContent: View {
             }
 
             // Two-pane content: file list + file content viewer
-            HStack(spacing: VSpacing.md) {
+            HStack(alignment: .top, spacing: VSpacing.md) {
                 // Left: file list (always fixed width)
                 skillFilesSection
                     .frame(width: 280, alignment: .topLeading)
@@ -375,14 +380,17 @@ struct AgentPanelContent: View {
                    let content = file.content {
                     skillFileContentPane(file: file, content: content)
                 } else {
-                    // Empty state when no file is selected or loading
-                    FileViewerEmptyState()
-                        .background(VColor.surfaceOverlay)
-                        .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
-                        .overlay(
-                            RoundedRectangle(cornerRadius: VRadius.md)
-                                .stroke(VColor.borderBase, lineWidth: 1)
-                        )
+                    // Empty state when no file is selected or all files are binary
+                    VEmptyState(
+                        title: hasViewableFiles ? "Select a file to view" : "No viewable files",
+                        icon: VIcon.fileText.rawValue
+                    )
+                    .background(VColor.surfaceOverlay)
+                    .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: VRadius.md)
+                            .stroke(VColor.borderBase, lineWidth: 1)
+                    )
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -479,8 +487,12 @@ struct AgentPanelContent: View {
             Divider().background(VColor.borderBase)
 
             // File content
-            ReadOnlyCodeContent(content: content)
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            HighlightedTextView(
+                text: .constant(content),
+                language: SyntaxLanguage.detect(fileName: file.path, mimeType: file.mimeType),
+                isEditable: false
+            )
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .background(VColor.surfaceOverlay)

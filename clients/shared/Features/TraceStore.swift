@@ -49,7 +49,7 @@ public final class TraceStore: ObservableObject {
 
     /// The ID of the most recently ingested event per conversation. Unlike `eventsByConversation[sid]?.count`,
     /// this always changes on ingestion even when the retention cap holds count constant.
-    public private(set) var latestEventIdBySession: [String: String] = [:]
+    public private(set) var latestEventIdByConversation: [String: String] = [:]
 
     /// Set of seen eventIds per conversation for dedup.
     private var seenIds: [String: Set<String>] = [:]
@@ -114,8 +114,8 @@ public final class TraceStore: ObservableObject {
         }
 
         eventsByConversation[sid] = events
-        latestEventIdBySession[sid] = event.id
-        generationBySession[sid, default: 0] += 1
+        latestEventIdByConversation[sid] = event.id
+        generationByConversation[sid, default: 0] += 1
         schedulePublish()
     }
 
@@ -192,7 +192,7 @@ public final class TraceStore: ObservableObject {
     }
 
     /// Generation counter per conversation, incremented on each ingestion.
-    private var generationBySession: [String: Int] = [:]
+    private var generationByConversation: [String: Int] = [:]
 
     /// Cached metrics per conversation, keyed by the generation at which they were computed.
     private var metricsCache: [String: (generation: Int, metrics: ConversationMetrics)] = [:]
@@ -200,7 +200,7 @@ public final class TraceStore: ObservableObject {
     /// Returns cached aggregate metrics for a conversation, recomputing only when
     /// the generation counter has advanced since the last call.
     public func metrics(conversationId: String) -> ConversationMetrics {
-        let currentGen = generationBySession[conversationId] ?? 0
+        let currentGen = generationByConversation[conversationId] ?? 0
         if let cached = metricsCache[conversationId], cached.generation == currentGen {
             return cached.metrics
         }
@@ -286,7 +286,7 @@ public final class TraceStore: ObservableObject {
     /// Used by developer tooling to auto-select a relevant conversation when no
     /// explicit selection context is available (e.g. when opening the debug panel
     /// from the Settings screen rather than from an active conversation).
-    public var mostRecentSessionId: String? {
+    public var mostRecentConversationId: String? {
         eventsByConversation
             .compactMapValues { $0.last?.timestampMs }
             .max(by: { $0.value < $1.value })
@@ -298,9 +298,9 @@ public final class TraceStore: ObservableObject {
     /// Remove all events for a given conversation.
     public func resetConversation(conversationId: String) {
         eventsByConversation.removeValue(forKey: conversationId)
-        latestEventIdBySession.removeValue(forKey: conversationId)
+        latestEventIdByConversation.removeValue(forKey: conversationId)
         seenIds.removeValue(forKey: conversationId)
-        generationBySession.removeValue(forKey: conversationId)
+        generationByConversation.removeValue(forKey: conversationId)
         metricsCache.removeValue(forKey: conversationId)
         schedulePublish()
     }
@@ -308,9 +308,9 @@ public final class TraceStore: ObservableObject {
     /// Remove all events for all conversations.
     public func resetAll() {
         eventsByConversation.removeAll()
-        latestEventIdBySession.removeAll()
+        latestEventIdByConversation.removeAll()
         seenIds.removeAll()
-        generationBySession.removeAll()
+        generationByConversation.removeAll()
         metricsCache.removeAll()
         nextInsertionIndex = 0
         schedulePublish()

@@ -14,7 +14,8 @@ export async function generateAvatar(
   prompt: string,
 ): Promise<{ imageBase64: string; mimeType: string }> {
   const config = getConfig();
-  const geminiKey = await getSecureKeyAsync("gemini");
+  const geminiKey =
+    (await getSecureKeyAsync("gemini")) ?? process.env.GEMINI_API_KEY;
 
   let credentials: ImageGenCredentials | undefined;
   if (geminiKey) {

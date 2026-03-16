@@ -45,7 +45,7 @@ mock.module("node:fs", () => ({
 }));
 
 // Import after mocking
-import { setAvatarTool } from "../tools/system/avatar-generator.js";
+import { generateAndSaveAvatar } from "../tools/system/avatar-generator.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -59,17 +59,14 @@ function successResult() {
 }
 
 function executeAvatar(description: string) {
-  return setAvatarTool.execute(
-    { description },
-    {} as Parameters<typeof setAvatarTool.execute>[1],
-  );
+  return generateAndSaveAvatar(description);
 }
 
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
 
-describe("setAvatarTool", () => {
+describe("generateAndSaveAvatar", () => {
   beforeEach(() => {
     mockRouterResult = successResult();
     mockRouterError = undefined;

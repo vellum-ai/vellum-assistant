@@ -126,10 +126,10 @@ async function handleRunScheduleNow(
               "sendMessageDeps not available for schedule execution",
             );
           }
-          const session =
+          const conversation =
             await sendMessageDeps.getOrCreateConversation(conversationId);
-          session.taskRunId = taskRunId;
-          await session.processMessage(
+          conversation.taskRunId = taskRunId;
+          await conversation.processMessage(
             message,
             [],
             () => {}, // no event callback for HTTP mode
@@ -187,10 +187,10 @@ async function handleRunScheduleNow(
     if (!sendMessageDeps) {
       throw new Error("sendMessageDeps not available for schedule execution");
     }
-    const session = await sendMessageDeps.getOrCreateConversation(
+    const activeConversation = await sendMessageDeps.getOrCreateConversation(
       conversation.id,
     );
-    await session.processMessage(
+    await activeConversation.processMessage(
       schedule.message,
       [],
       () => {}, // no event callback for HTTP mode

@@ -23,7 +23,7 @@ export const CONFIG_RELOAD_DEBOUNCE_MS = 300;
 
 const HISTORY_ATTACHMENT_TEXT_LIMIT = 500;
 
-// Module-level map for non-session secret prompts (e.g. publish_page)
+// Module-level map for non-conversation secret prompts (e.g. publish_page)
 export const pendingStandaloneSecrets = new Map<
   string,
   {
@@ -123,7 +123,7 @@ export interface ConversationCreateOptions {
   transport?: ConversationTransportMetadata;
   assistantId?: string;
   trustContext?: TrustContext;
-  /** Normalized auth context for the session. */
+  /** Normalized auth context for the conversation. */
   authContext?: AuthContext;
   /** Whether this turn can block on interactive approval prompts. */
   isInteractive?: boolean;
@@ -415,7 +415,7 @@ export function renderHistoryContent(content: unknown): RenderedHistoryContent {
 
 /**
  * Send a `secret_request` to the client and wait for the response,
- * outside of a session context (e.g. from handler-level code like publish_page).
+ * outside of a conversation context (e.g. from handler-level code like publish_page).
  */
 export function requestSecretStandalone(
   ctx: HandlerContext,

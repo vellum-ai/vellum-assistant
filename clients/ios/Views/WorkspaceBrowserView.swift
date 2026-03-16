@@ -6,6 +6,7 @@ import VellumAssistantShared
 struct WorkspaceBrowserView: View {
     let client: DaemonClient?
     var initialPath: String = ""
+    private let workspaceClient = WorkspaceClient()
 
     @State private var entries: [WorkspaceTreeEntry] = []
     @State private var isLoading = true
@@ -77,7 +78,7 @@ struct WorkspaceBrowserView: View {
             handleFileImport(result)
         }
         .sheet(item: $selectedFile) { file in
-            WorkspaceFileSheet(filePath: file.path, mimeType: file.mimeType, client: client)
+            WorkspaceFileSheet(filePath: file.path, mimeType: file.mimeType, client: client, workspaceClient: workspaceClient)
         }
         .task { await loadDirectory() }
         .alert("New File", isPresented: $showingNewFileAlert) {
@@ -201,7 +202,7 @@ struct WorkspaceBrowserView: View {
         Button("Create") {
             let path = buildPath(newItemName)
             Task {
-                if let client, await client.writeWorkspaceFile(path: path, content: Data()) {
+                if await workspaceClient.writeWorkspaceFile(path: path, content: Data()) {
                     await reloadDirectory()
                 }
             }
@@ -215,7 +216,7 @@ struct WorkspaceBrowserView: View {
         Button("Create") {
             let path = buildPath(newItemName)
             Task {
-                if let client, await client.createWorkspaceDirectory(path: path) {
+                if await workspaceClient.createWorkspaceDirectory(path: path) {
                     await reloadDirectory()
                 }
             }
@@ -234,7 +235,7 @@ struct WorkspaceBrowserView: View {
                 : ""
             let newPath = parentPath + renameText
             Task {
-                if let client, await client.renameWorkspaceItem(oldPath: oldPath, newPath: newPath) {
+                if await workspaceClient.renameWorkspaceItem(oldPath: oldPath, newPath: newPath) {
                     await reloadDirectory()
                 }
             }
@@ -250,7 +251,7 @@ struct WorkspaceBrowserView: View {
         Button("Delete", role: .destructive) {
             guard let entry = deletingEntry else { return }
             Task {
-                if let client, await client.deleteWorkspaceItem(path: entry.path) {
+                if await workspaceClient.deleteWorkspaceItem(path: entry.path) {
                     await reloadDirectory()
                 }
             }
@@ -321,7 +322,7 @@ struct WorkspaceBrowserView: View {
             let fileName = url.lastPathComponent
             let targetPath = initialPath.isEmpty ? fileName : "\(initialPath)/\(fileName)"
             Task {
-                let success = await client?.writeWorkspaceFile(path: targetPath, content: data) ?? false
+                let success = await workspaceClient.writeWorkspaceFile(path: targetPath, content: data)
                 if success { await reloadDirectory() }
             }
         }
@@ -335,15 +336,14 @@ struct WorkspaceBrowserView: View {
             return
         }
 
-        if let response = await client.fetchWorkspaceTree(path: initialPath) {
+        if let response = await workspaceClient.fetchWorkspaceTree(path: initialPath, showHidden: false) {
             entries = response.entries
         }
         isLoading = false
     }
 
     private func reloadDirectory() async {
-        guard let client else { return }
-        if let response = await client.fetchWorkspaceTree(path: initialPath) {
+        if let response = await workspaceClient.fetchWorkspaceTree(path: initialPath, showHidden: false) {
             entries = response.entries
         }
     }
@@ -370,16 +370,6 @@ struct WorkspaceBrowserView: View {
         if mimeType == "application/json" { return .fileCode }
         if mimeType == "application/pdf" { return .fileText }
         return .file
-    }
-
-    private func formatFileSize(_ bytes: Int) -> String {
-        if bytes < 1024 { return "\(bytes) B" }
-        let kb = Double(bytes) / 1024.0
-        if kb < 1024 { return String(format: "%.1f KB", kb) }
-        let mb = kb / 1024.0
-        if mb < 1024 { return String(format: "%.1f MB", mb) }
-        let gb = mb / 1024.0
-        return String(format: "%.1f GB", gb)
     }
 }
 #endif

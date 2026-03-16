@@ -3,6 +3,8 @@ import { z } from "zod";
 import { getDataDir } from "../util/platform.js";
 
 // Re-export all domain schemas
+export type { AcpAgentConfig, AcpConfig } from "./acp-schema.js";
+export { AcpAgentConfigSchema, AcpConfigSchema } from "./acp-schema.js";
 export type {
   CallerIdentityConfig,
   CallsConfig,
@@ -181,6 +183,7 @@ export type { WorkspaceGitConfig } from "./schemas/workspace-git.js";
 export { WorkspaceGitConfigSchema } from "./schemas/workspace-git.js";
 
 // Imports for AssistantConfigSchema composition
+import { AcpConfigSchema } from "./acp-schema.js";
 import { CallsConfigSchema } from "./schemas/calls.js";
 import {
   SlackConfigSchema,
@@ -237,12 +240,16 @@ export const AssistantConfigSchema = z
           )}`,
         }),
       )
-      .default([]),
+      .default([])
+      .describe(
+        "Fallback order of LLM providers — the assistant tries each in sequence if the previous one fails",
+      ),
     maxTokens: z
       .number({ error: "maxTokens must be a number" })
       .int("maxTokens must be an integer")
       .positive("maxTokens must be a positive integer")
-      .default(16000),
+      .default(16000)
+      .describe("Maximum number of output tokens per LLM response"),
     effort: EffortSchema,
     thinking: ThinkingConfigSchema.default(ThinkingConfigSchema.parse({})),
     contextWindow: ContextWindowConfigSchema.default(
@@ -251,7 +258,8 @@ export const AssistantConfigSchema = z
     memory: MemoryConfigSchema.default(MemoryConfigSchema.parse({})),
     dataDir: z
       .string({ error: "dataDir must be a string" })
-      .default(getDataDir()),
+      .default(getDataDir())
+      .describe("Directory for storing assistant data (database, logs, etc.)"),
     timeouts: TimeoutConfigSchema.default(TimeoutConfigSchema.parse({})),
     sandbox: SandboxConfigSchema.default(SandboxConfigSchema.parse({})),
     rateLimit: RateLimitConfigSchema.default(RateLimitConfigSchema.parse({})),
@@ -265,10 +273,16 @@ export const AssistantConfigSchema = z
     logFile: LogFileConfigSchema.default(
       LogFileConfigSchema.parse({ dir: getDataDir() + "/logs" }),
     ),
-    pricingOverrides: z.array(ModelPricingOverrideSchema).default([]),
+    pricingOverrides: z
+      .array(ModelPricingOverrideSchema)
+      .default([])
+      .describe(
+        "Custom pricing overrides for specific provider/model combinations",
+      ),
     heartbeat: HeartbeatConfigSchema.default(HeartbeatConfigSchema.parse({})),
     swarm: SwarmConfigSchema.default(SwarmConfigSchema.parse({})),
     mcp: McpConfigSchema.default(McpConfigSchema.parse({})),
+    acp: AcpConfigSchema.default(AcpConfigSchema.parse({})),
     skills: SkillsConfigSchema.default(SkillsConfigSchema.parse({})),
     workspaceGit: WorkspaceGitConfigSchema.default(
       WorkspaceGitConfigSchema.parse({}),
@@ -295,9 +309,18 @@ export const AssistantConfigSchema = z
           error: "assistantFeatureFlagValues values must be booleans",
         }),
       )
-      .optional(),
-    collectUsageData: z.boolean().default(true),
-    sendDiagnostics: z.boolean().default(true),
+      .optional()
+      .describe("Feature flag overrides — map of flag names to boolean values"),
+    collectUsageData: z
+      .boolean()
+      .default(true)
+      .describe(
+        "Whether to collect anonymous usage data to help improve the assistant",
+      ),
+    sendDiagnostics: z
+      .boolean()
+      .default(true)
+      .describe("Whether to send diagnostic/crash reports"),
   })
   .superRefine((config, ctx) => {
     if (

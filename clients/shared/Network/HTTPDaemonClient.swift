@@ -183,16 +183,16 @@ public final class HTTPTransport {
 
     /// Maps the daemon's server-side conversationId → client-local conversationId.
     /// Used to remap conversationId in incoming SSE events so ChatViewModel's
-    /// belongsToConversation() filter passes. Supports multiple concurrent threads.
+    /// belongsToConversation() filter passes. Supports multiple concurrent conversations.
     /// Capped at `serverToLocalConversationMapCap` entries to prevent unbounded growth.
     var serverToLocalConversationMap: [String: String] = [:]
     private let serverToLocalConversationMapCap = 500
 
-    /// Session IDs that originated from this client instance.
-    /// Host tool requests are only executed for these session IDs.
+    /// Conversation IDs that originated from this client instance.
+    /// Host tool requests are only executed for these conversation IDs.
     private var locallyOwnedConversationIds: Set<String> = []
-    /// Session IDs that belong to private (temporary) threads.
-    /// Populated when a session_create with conversationType "private" is handled locally.
+    /// Conversation IDs that belong to private (temporary) conversations.
+    /// Populated when a conversation_create with conversationType "private" is handled locally.
     var privateConversationIds: Set<String> = []
 
     let decoder = JSONDecoder()
@@ -288,13 +288,6 @@ public final class HTTPTransport {
         case contactsInvitesCreate
         case contactsInvitesCall(id: String)
         case channelsReadiness
-        case workspaceTree(path: String, showHidden: Bool)
-        case workspaceFile(path: String, showHidden: Bool)
-        case workspaceFileContent(path: String, showHidden: Bool)
-        case workspaceWrite
-        case workspaceMkdir
-        case workspaceRename
-        case workspaceDelete
         // Apps
         case appsList
         case appData(id: String)
@@ -333,7 +326,7 @@ public final class HTTPTransport {
         case subagentDetail(id: String)
         case subagentAbort(id: String)
         case subagentMessage(id: String)
-        // Session management
+        // Conversation management
         case conversationsSwitch
         case conversationRename(id: String)
         case conversationsClear
@@ -345,7 +338,7 @@ public final class HTTPTransport {
         case conversationSearch(query: String, limit: Int?, maxMessagesPerConversation: Int?)
         case messageContent(id: String, conversationId: String?)
         case deleteQueuedMessage(id: String, conversationId: String)
-        case sessionsReorder
+        case conversationsReorder
         // Skill management
         case skillsList
         case skillEnable(id: String)
@@ -554,30 +547,6 @@ public final class HTTPTransport {
             return ("/v1/contacts/invites/\(encoded)/call", nil)
         case .channelsReadiness:
             return ("/v1/channels/readiness", nil)
-        case .workspaceTree(let path, let showHidden):
-            let encoded = path.addingPercentEncoding(withAllowedCharacters: Self.queryValueAllowed) ?? path
-            var params: [String] = []
-            if !path.isEmpty { params.append("path=\(encoded)") }
-            if showHidden { params.append("showHidden=true") }
-            return ("/v1/workspace/tree", params.isEmpty ? nil : params.joined(separator: "&"))
-        case .workspaceFile(let path, let showHidden):
-            let encoded = path.addingPercentEncoding(withAllowedCharacters: Self.queryValueAllowed) ?? path
-            var query = "path=\(encoded)"
-            if showHidden { query += "&showHidden=true" }
-            return ("/v1/workspace/file", query)
-        case .workspaceFileContent(let path, let showHidden):
-            let encoded = path.addingPercentEncoding(withAllowedCharacters: Self.queryValueAllowed) ?? path
-            var query = "path=\(encoded)"
-            if showHidden { query += "&showHidden=true" }
-            return ("/v1/workspace/file/content", query)
-        case .workspaceWrite:
-            return ("/v1/workspace/write", nil)
-        case .workspaceMkdir:
-            return ("/v1/workspace/mkdir", nil)
-        case .workspaceRename:
-            return ("/v1/workspace/rename", nil)
-        case .workspaceDelete:
-            return ("/v1/workspace/delete", nil)
         // Apps
         case .appsList:
             return ("/v1/apps", nil)
@@ -673,7 +642,7 @@ public final class HTTPTransport {
         case .subagentMessage(let id):
             let encoded = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
             return ("/v1/subagents/\(encoded)/message", nil)
-        // Session management
+        // Conversation management
         case .conversationsSwitch:
             return ("/v1/conversations/switch", nil)
         case .conversationRename(let id):
@@ -711,7 +680,7 @@ public final class HTTPTransport {
             let idEncoded = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
             let sEncoded = conversationId.addingPercentEncoding(withAllowedCharacters: Self.queryValueAllowed) ?? conversationId
             return ("/v1/messages/queued/\(idEncoded)", "conversationId=\(sEncoded)")
-        case .sessionsReorder:
+        case .conversationsReorder:
             return ("/v1/conversations/reorder", nil)
         // Skill management
         case .skillsList:
@@ -966,30 +935,6 @@ public final class HTTPTransport {
             return ("\(prefix)/contacts/invites/\(encoded)/call/", nil)
         case .channelsReadiness:
             return ("\(prefix)/channels/readiness/", nil)
-        case .workspaceTree(let path, let showHidden):
-            let encoded = path.addingPercentEncoding(withAllowedCharacters: Self.queryValueAllowed) ?? path
-            var params: [String] = []
-            if !path.isEmpty { params.append("path=\(encoded)") }
-            if showHidden { params.append("showHidden=true") }
-            return ("\(prefix)/workspace/tree/", params.isEmpty ? nil : params.joined(separator: "&"))
-        case .workspaceFile(let path, let showHidden):
-            let encoded = path.addingPercentEncoding(withAllowedCharacters: Self.queryValueAllowed) ?? path
-            var query = "path=\(encoded)"
-            if showHidden { query += "&showHidden=true" }
-            return ("\(prefix)/workspace/file/", query)
-        case .workspaceFileContent(let path, let showHidden):
-            let encoded = path.addingPercentEncoding(withAllowedCharacters: Self.queryValueAllowed) ?? path
-            var query = "path=\(encoded)"
-            if showHidden { query += "&showHidden=true" }
-            return ("\(prefix)/workspace/file/content/", query)
-        case .workspaceWrite:
-            return ("\(prefix)/workspace/write/", nil)
-        case .workspaceMkdir:
-            return ("\(prefix)/workspace/mkdir/", nil)
-        case .workspaceRename:
-            return ("\(prefix)/workspace/rename/", nil)
-        case .workspaceDelete:
-            return ("\(prefix)/workspace/delete/", nil)
         // Apps
         case .appsList:
             return ("\(prefix)/apps/", nil)
@@ -1085,7 +1030,7 @@ public final class HTTPTransport {
         case .subagentMessage(let id):
             let encoded = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
             return ("\(prefix)/subagents/\(encoded)/message/", nil)
-        // Session management
+        // Conversation management
         case .conversationsSwitch:
             return ("\(prefix)/conversations/switch/", nil)
         case .conversationRename(let id):
@@ -1123,7 +1068,7 @@ public final class HTTPTransport {
             let idEncoded = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
             let sEncoded = conversationId.addingPercentEncoding(withAllowedCharacters: Self.queryValueAllowed) ?? conversationId
             return ("\(prefix)/messages/queued/\(idEncoded)/", "conversationId=\(sEncoded)")
-        case .sessionsReorder:
+        case .conversationsReorder:
             return ("\(prefix)/conversations/reorder/", nil)
         // Skill management
         case .skillsList:
@@ -1514,7 +1459,7 @@ public final class HTTPTransport {
 
     private func parseSSEData(_ data: String) {
         var jsonString = data
-        // Remap server conversation IDs to client-local session IDs via O(1) dictionary lookup
+        // Remap server conversation IDs to client-local conversation IDs via O(1) dictionary lookup
         if let conversationId = extractJsonStringValue(from: jsonString, key: "conversationId"),
            let localId = serverToLocalConversationMap[conversationId] {
             jsonString = jsonString.replacingOccurrences(
@@ -1563,15 +1508,15 @@ public final class HTTPTransport {
         switch message {
         case .hostBashRequest(let msg):
             if locallyOwnedConversationIds.contains(msg.conversationId) { return false }
-            log.warning("Ignoring host_bash_request for non-local session \(msg.conversationId, privacy: .public)")
+            log.warning("Ignoring host_bash_request for non-local conversation \(msg.conversationId, privacy: .public)")
             return true
         case .hostFileRequest(let msg):
             if locallyOwnedConversationIds.contains(msg.conversationId) { return false }
-            log.warning("Ignoring host_file_request for non-local session \(msg.conversationId, privacy: .public)")
+            log.warning("Ignoring host_file_request for non-local conversation \(msg.conversationId, privacy: .public)")
             return true
         case .hostCuRequest(let msg):
             if locallyOwnedConversationIds.contains(msg.conversationId) { return false }
-            log.warning("Ignoring host_cu_request for non-local session \(msg.conversationId, privacy: .public)")
+            log.warning("Ignoring host_cu_request for non-local conversation \(msg.conversationId, privacy: .public)")
             return true
         default:
             return false
@@ -1724,10 +1669,10 @@ public final class HTTPTransport {
 
             if http.statusCode == 202 || http.statusCode == 200 {
                 log.info("Message sent successfully")
-                // Learn the server's conversationId for this thread's conversationKey.
-                // For new threads, the conversationId (used as conversationKey) differs from
+                // Learn the server's conversationId for this conversation's conversationKey.
+                // For new conversations, the conversationId (used as conversationKey) differs from
                 // the server's internal conversationId. Store the mapping so parseSSEData
-                // can remap incoming events to the client's local session ID.
+                // can remap incoming events to the client's local conversation ID.
                 if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
                    let serverConvId = json["conversationId"] as? String,
                    serverConvId != conversationId {
@@ -1739,7 +1684,7 @@ public final class HTTPTransport {
                             self.serverToLocalConversationMap.removeValue(forKey: key)
                         }
                     }
-                    log.info("Mapped server conversation \(serverConvId, privacy: .public) → local session \(conversationId, privacy: .public)")
+                    log.info("Mapped server conversation \(serverConvId, privacy: .public) → local conversation \(conversationId, privacy: .public)")
                 }
             } else if http.statusCode == 401 && !isRetry {
                 let refreshResult = await handleAuthenticationFailureAsync(responseData: data)
@@ -2690,7 +2635,7 @@ public final class HTTPTransport {
             "surfaceId": action.surfaceId,
             "actionId": action.actionId,
         ]
-        // Omit conversationId — the server resolves the session via
+        // Omit conversationId — the server resolves the conversation via
         // findSessionBySurfaceId(surfaceId), which is reliable regardless
         // of conversationKey vs conversationId differences.
         if let data = action.data {
@@ -2996,7 +2941,7 @@ public final class HTTPTransport {
                     onMessage?(historyResponse)
                 }
             } catch {
-                log.error("Failed to deserialize history response for session \(conversationId, privacy: .public): \(String(describing: error), privacy: .public)")
+                log.error("Failed to deserialize history response for conversation \(conversationId, privacy: .public): \(String(describing: error), privacy: .public)")
             }
         } catch {
             log.error("Fetch history error: \(error.localizedDescription)")
@@ -3167,202 +3112,9 @@ public final class HTTPTransport {
         }
     }
 
-    // MARK: - Workspace API
-
-    /// Fetch the workspace directory tree from `GET /v1/workspace/tree`.
-    func fetchWorkspaceTree(path: String, showHidden: Bool = false, isRetry: Bool = false) async -> WorkspaceTreeResponse? {
-        guard let url = buildURL(for: .workspaceTree(path: path, showHidden: showHidden)) else { return nil }
-
-        var request = URLRequest(url: url)
-        request.timeoutInterval = 10
-        applyAuth(&request)
-
-        do {
-            let (data, response) = try await URLSession.shared.data(for: request)
-            if let http = response as? HTTPURLResponse {
-                if http.statusCode == 401 && !isRetry {
-                    let refreshResult = await handleAuthenticationFailureAsync(responseData: data)
-                    if case .success = refreshResult {
-                        return await fetchWorkspaceTree(path: path, showHidden: showHidden, isRetry: true)
-                    }
-                    return nil
-                }
-                guard (200...299).contains(http.statusCode) else { return nil }
-            }
-            return try decoder.decode(WorkspaceTreeResponse.self, from: data)
-        } catch {
-            log.error("fetchWorkspaceTree failed: \(error.localizedDescription)")
-            return nil
-        }
-    }
-
-    /// Fetch a single workspace file's metadata from `GET /v1/workspace/file`.
-    func fetchWorkspaceFile(path: String, showHidden: Bool = false, isRetry: Bool = false) async -> WorkspaceFileResponse? {
-        guard let url = buildURL(for: .workspaceFile(path: path, showHidden: showHidden)) else { return nil }
-
-        var request = URLRequest(url: url)
-        request.timeoutInterval = 10
-        applyAuth(&request)
-
-        do {
-            let (data, response) = try await URLSession.shared.data(for: request)
-            if let http = response as? HTTPURLResponse {
-                if http.statusCode == 401 && !isRetry {
-                    let refreshResult = await handleAuthenticationFailureAsync(responseData: data)
-                    if case .success = refreshResult {
-                        return await fetchWorkspaceFile(path: path, showHidden: showHidden, isRetry: true)
-                    }
-                    return nil
-                }
-                guard (200...299).contains(http.statusCode) else { return nil }
-            }
-            return try decoder.decode(WorkspaceFileResponse.self, from: data)
-        } catch {
-            log.error("fetchWorkspaceFile failed: \(error.localizedDescription)")
-            return nil
-        }
-    }
-
-    /// Build a URL for streaming/downloading workspace file content.
-    func workspaceFileContentURL(path: String, showHidden: Bool = false) -> URL? {
-        return buildURL(for: .workspaceFileContent(path: path, showHidden: showHidden))
-    }
-
-    /// Write (create or overwrite) a file in the workspace via `POST /v1/workspace/write`.
-    /// Automatically detects text vs binary content — text is sent as a plain string,
-    /// binary content is base64-encoded with an `encoding` field.
-    func writeWorkspaceFile(path: String, content: Data, isRetry: Bool = false) async -> Bool {
-        guard let url = buildURL(for: .workspaceWrite) else { return false }
-
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        applyAuth(&request)
-
-        var body: [String: Any] = ["path": path]
-        if let text = String(data: content, encoding: .utf8), !content.isEmpty {
-            body["content"] = text
-        } else {
-            body["content"] = content.base64EncodedString()
-            body["encoding"] = "base64"
-        }
-        request.httpBody = try? JSONSerialization.data(withJSONObject: body)
-
-        do {
-            let (data, response) = try await URLSession.shared.data(for: request)
-            if let http = response as? HTTPURLResponse {
-                if http.statusCode == 401 && !isRetry {
-                    let refreshResult = await handleAuthenticationFailureAsync(responseData: data)
-                    if case .success = refreshResult {
-                        return await writeWorkspaceFile(path: path, content: content, isRetry: true)
-                    }
-                    return false
-                }
-                return (200...299).contains(http.statusCode)
-            }
-            return false
-        } catch {
-            log.error("writeWorkspaceFile failed: \(error.localizedDescription)")
-            return false
-        }
-    }
-
-    /// Create a directory in the workspace via `POST /v1/workspace/mkdir`.
-    func createWorkspaceDirectory(path: String, isRetry: Bool = false) async -> Bool {
-        guard let url = buildURL(for: .workspaceMkdir) else { return false }
-
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        applyAuth(&request)
-
-        let body: [String: Any] = ["path": path]
-        request.httpBody = try? JSONSerialization.data(withJSONObject: body)
-
-        do {
-            let (data, response) = try await URLSession.shared.data(for: request)
-            if let http = response as? HTTPURLResponse {
-                if http.statusCode == 401 && !isRetry {
-                    let refreshResult = await handleAuthenticationFailureAsync(responseData: data)
-                    if case .success = refreshResult {
-                        return await createWorkspaceDirectory(path: path, isRetry: true)
-                    }
-                    return false
-                }
-                return (200...299).contains(http.statusCode)
-            }
-            return false
-        } catch {
-            log.error("createWorkspaceDirectory failed: \(error.localizedDescription)")
-            return false
-        }
-    }
-
-    /// Rename or move a file/directory in the workspace via `POST /v1/workspace/rename`.
-    func renameWorkspaceItem(oldPath: String, newPath: String, isRetry: Bool = false) async -> Bool {
-        guard let url = buildURL(for: .workspaceRename) else { return false }
-
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        applyAuth(&request)
-
-        let body: [String: Any] = ["oldPath": oldPath, "newPath": newPath]
-        request.httpBody = try? JSONSerialization.data(withJSONObject: body)
-
-        do {
-            let (data, response) = try await URLSession.shared.data(for: request)
-            if let http = response as? HTTPURLResponse {
-                if http.statusCode == 401 && !isRetry {
-                    let refreshResult = await handleAuthenticationFailureAsync(responseData: data)
-                    if case .success = refreshResult {
-                        return await renameWorkspaceItem(oldPath: oldPath, newPath: newPath, isRetry: true)
-                    }
-                    return false
-                }
-                return (200...299).contains(http.statusCode)
-            }
-            return false
-        } catch {
-            log.error("renameWorkspaceItem failed: \(error.localizedDescription)")
-            return false
-        }
-    }
-
-    /// Delete a file or directory in the workspace via `POST /v1/workspace/delete`.
-    func deleteWorkspaceItem(path: String, isRetry: Bool = false) async -> Bool {
-        guard let url = buildURL(for: .workspaceDelete) else { return false }
-
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        applyAuth(&request)
-
-        let body: [String: Any] = ["path": path]
-        request.httpBody = try? JSONSerialization.data(withJSONObject: body)
-
-        do {
-            let (data, response) = try await URLSession.shared.data(for: request)
-            if let http = response as? HTTPURLResponse {
-                if http.statusCode == 401 && !isRetry {
-                    let refreshResult = await handleAuthenticationFailureAsync(responseData: data)
-                    if case .success = refreshResult {
-                        return await deleteWorkspaceItem(path: path, isRetry: true)
-                    }
-                    return false
-                }
-                return (200...299).contains(http.statusCode)
-            }
-            return false
-        } catch {
-            log.error("deleteWorkspaceItem failed: \(error.localizedDescription)")
-            return false
-        }
-    }
-
     // MARK: - Conversation Management HTTP Handlers
 
-    func switchSession(conversationId: String, isRetry: Bool = false) async {
+    func switchConversation(conversationId: String, isRetry: Bool = false) async {
         guard let url = buildURL(for: .conversationsSwitch) else { return }
 
         var request = URLRequest(url: url)
@@ -3384,7 +3136,7 @@ public final class HTTPTransport {
             } else if http.statusCode == 401 && !isRetry {
                 let refreshResult = await handleAuthenticationFailureAsync(responseData: data)
                 if case .success = refreshResult {
-                    await switchSession(conversationId: conversationId, isRetry: true)
+                    await switchConversation(conversationId: conversationId, isRetry: true)
                 }
             } else {
                 log.error("Conversation switch failed (HTTP \(http.statusCode))")
@@ -3749,7 +3501,7 @@ public final class HTTPTransport {
     }
 
     func reorderConversations(updates: [ReorderConversationsRequestUpdate], isRetry: Bool = false) async {
-        guard let url = buildURL(for: .sessionsReorder) else { return }
+        guard let url = buildURL(for: .conversationsReorder) else { return }
 
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
@@ -3783,10 +3535,10 @@ public final class HTTPTransport {
                     await reorderConversations(updates: updates, isRetry: true)
                 }
             } else {
-                log.error("Reorder threads failed (HTTP \(http.statusCode))")
+                log.error("Reorder conversations failed (HTTP \(http.statusCode))")
             }
         } catch {
-            log.error("Reorder threads error: \(error.localizedDescription)")
+            log.error("Reorder conversations error: \(error.localizedDescription)")
         }
     }
 

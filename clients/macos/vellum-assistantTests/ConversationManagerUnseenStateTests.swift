@@ -469,12 +469,12 @@ final class ConversationManagerUnseenStateTests: XCTestCase {
                 ],
             ]]
         )
-        guard let session = staleResponse.conversations.first else {
-            XCTFail("Expected response session")
+        guard let conversation = staleResponse.conversations.first else {
+            XCTFail("Expected response conversation")
             return
         }
 
-        conversationManager.mergeAssistantAttention(from: session, intoConversationAt: index)
+        conversationManager.mergeAssistantAttention(from: conversation, intoConversationAt: index)
 
         XCTAssertFalse(
             conversationManager.conversations.first(where: { $0.conversationId == "session-refresh-seen" })?.hasUnseenLatestAssistantMessage ?? true

@@ -15,7 +15,7 @@ import type {
   UserMessageAttachment,
 } from "./message-protocol.js";
 
-const log = getLogger("session-queue");
+const log = getLogger("conversation-queue");
 
 export interface QueuedMessage {
   content: string;
@@ -34,9 +34,9 @@ export interface QueuedMessage {
 }
 
 /**
- * Maximum total estimated bytes across all queued messages per session.
+ * Maximum total estimated bytes across all queued messages per conversation.
  * Limits memory consumption when a sender floods messages while the
- * session is busy.  50 MB is well above any legitimate usage.
+ * conversation is busy.  50 MB is well above any legitimate usage.
  */
 export const DEFAULT_MAX_QUEUE_BYTES = 50 * 1024 * 1024; // 50 MB
 

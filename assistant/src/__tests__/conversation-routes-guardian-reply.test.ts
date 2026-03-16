@@ -572,7 +572,7 @@ describe("handleSendMessage canonical guardian reply interception", () => {
     expect(runAgentLoop).toHaveBeenCalledTimes(1);
   });
 
-  test("desktop sessions do not pass approvalConversationGenerator to routeGuardianReply", async () => {
+  test("desktop conversations do not pass approvalConversationGenerator to routeGuardianReply", async () => {
     listPendingByDestinationMock.mockReturnValue([
       { id: "pending-1", kind: "access_request" },
     ]);
@@ -642,7 +642,7 @@ describe("handleSendMessage canonical guardian reply interception", () => {
     expect(routerCall.approvalConversationGenerator).toBeUndefined();
   });
 
-  test("channel sessions pass approvalConversationGenerator to routeGuardianReply", async () => {
+  test("channel conversations pass approvalConversationGenerator to routeGuardianReply", async () => {
     listPendingByDestinationMock.mockReturnValue([
       { id: "pending-1", kind: "access_request" },
     ]);

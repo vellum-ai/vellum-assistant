@@ -228,7 +228,7 @@ extension ChatBubble {
     }
 
     func fileIcon(for mimeType: String) -> VIcon {
-        if mimeType.hasPrefix("video/") { return .film }
+        if mimeType.hasPrefix("video/") { return .video }
         if mimeType.hasPrefix("audio/") { return .audioWaveform }
         if mimeType.hasPrefix("text/") { return .fileText }
         if mimeType == "application/pdf" { return .file }

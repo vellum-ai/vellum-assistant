@@ -2168,6 +2168,7 @@ describe("buildSanitizedEnv — baseline: credential exclusion", () => {
       "GNUPGHOME",
       "INTERNAL_GATEWAY_BASE_URL",
       "VELLUM_DATA_DIR",
+      "VELLUM_WORKSPACE_DIR",
     ];
 
     const env = buildSanitizedEnv();

@@ -1,12 +1,14 @@
 import {
-  API_KEY_PROVIDERS,
   getConfig,
   loadRawConfig,
   saveRawConfig,
 } from "../../config/loader.js";
 import { setServiceField } from "../../config/raw-config-utils.js";
+import {
+  getConfiguredProviders,
+  isProviderAvailable,
+} from "../../providers/provider-availability.js";
 import { initializeProviders } from "../../providers/registry.js";
-import { getSecureKeyAsync } from "../../security/secure-keys.js";
 import { MODEL_TO_PROVIDER } from "../conversation-slash.js";
 import type {
   ImageGenModelSetRequest,
@@ -31,17 +33,10 @@ export interface ModelInfo {
 /** Return current model configuration. */
 export async function getModelInfo(): Promise<ModelInfo> {
   const config = getConfig();
-  const configured: string[] = [];
-  for (const p of API_KEY_PROVIDERS) {
-    if (await getSecureKeyAsync(p)) {
-      configured.push(p);
-    }
-  }
-  if (!configured.includes("ollama")) configured.push("ollama");
   return {
     model: config.services.inference.model,
     provider: config.services.inference.provider,
-    configuredProviders: configured,
+    configuredProviders: await getConfiguredProviders(),
   };
 }
 
@@ -82,13 +77,11 @@ export async function setModel(
     }
   }
 
-  // Validate API key before switching
+  // Validate provider availability (secure key, env var, or managed proxy) before switching
   const provider = MODEL_TO_PROVIDER[modelId];
-  if (provider && provider !== "ollama") {
-    if (!(await getSecureKeyAsync(provider))) {
-      // Return current model_info so the client resyncs its optimistic state
-      return await getModelInfo();
-    }
+  if (provider && !(await isProviderAvailable(provider))) {
+    // Return current model_info so the client resyncs its optimistic state
+    return await getModelInfo();
   }
 
   // Use raw config to avoid persisting env-var API keys to disk
@@ -122,14 +115,14 @@ export async function setModel(
   const config = getConfig();
   await initializeProviders(config);
 
-  // Evict idle sessions immediately; mark busy ones as stale so they
+  // Evict idle conversations immediately; mark busy ones as stale so they
   // get recreated with the new provider once they finish processing.
-  for (const [id, session] of ctx.conversations) {
-    if (!session.isProcessing()) {
-      session.dispose();
+  for (const [id, conversation] of ctx.conversations) {
+    if (!conversation.isProcessing()) {
+      conversation.dispose();
       ctx.conversations.delete(id);
     } else {
-      session.markStale();
+      conversation.markStale();
     }
   }
 
@@ -138,6 +131,7 @@ export async function setModel(
   return {
     model: config.services.inference.model,
     provider: config.services.inference.provider,
+    configuredProviders: await getConfiguredProviders(),
   };
 }
 
