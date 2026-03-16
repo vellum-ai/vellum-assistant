@@ -110,6 +110,7 @@ export { migrateRenameInboxThreadStateTable } from "./165-rename-inbox-thread-st
 export { migrateRenameFollowupsThreadIdColumn } from "./166-rename-followups-thread-id.js";
 export { migrateRenameSequenceEnrollmentsThreadIdColumn } from "./167-rename-sequence-enrollments-thread-id.js";
 export { migrateRenameSequenceStepsReplyKey } from "./168-rename-sequence-steps-reply-key.js";
+export { migrateRenameGmailProviderKeyToGoogle } from "./169-rename-gmail-provider-key-to-google.js";
 export {
   MIGRATION_REGISTRY,
   type MigrationRegistryEntry,
