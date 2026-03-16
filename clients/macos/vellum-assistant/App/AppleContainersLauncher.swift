@@ -218,6 +218,12 @@ final class AppleContainersLauncher: LocalAssistantLauncher {
 
     // MARK: - LocalAssistantLauncher conformance
 
+    /// Stops the active pod, if any.  Called by `AppDelegate.applicationWillTerminate`
+    /// so the VM does not continue running after the app exits.
+    func stop() async {
+        await retireActivePod()
+    }
+
     /// Launch (or re-launch) an apple-containers assistant.
     ///
     /// - Parameters:
