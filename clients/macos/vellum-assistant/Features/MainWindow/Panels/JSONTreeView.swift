@@ -165,16 +165,19 @@ struct JSONTreeView: View {
     private func treeContent(_ node: JSONNode) -> some View {
         VStack(alignment: .leading, spacing: 0) {
             toolbar(node)
-            ScrollView([.vertical, .horizontal]) {
-                LazyVStack(alignment: .leading, spacing: 0) {
-                    JSONNodeRow(
-                        node: node,
-                        key: nil,
-                        depth: 0,
-                        expandedPaths: $expandedPaths
-                    )
+            GeometryReader { proxy in
+                ScrollView([.vertical, .horizontal]) {
+                    LazyVStack(alignment: .leading, spacing: 0) {
+                        JSONNodeRow(
+                            node: node,
+                            key: nil,
+                            depth: 0,
+                            expandedPaths: $expandedPaths
+                        )
+                    }
+                    .padding(VSpacing.md)
+                    .frame(minWidth: proxy.size.width, minHeight: proxy.size.height, alignment: .topLeading)
                 }
-                .padding(VSpacing.md)
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
