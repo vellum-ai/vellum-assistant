@@ -222,6 +222,7 @@ struct ButtonsGallerySection: View {
         case .outlined: return "Outlined"
         case .dangerOutline: return "Danger Outline"
         case .ghost: return "Ghost"
+        case .dangerGhost: return "Danger Ghost"
         case .contrast: return "Contrast"
         }
     }

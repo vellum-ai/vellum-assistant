@@ -4,11 +4,11 @@ import UserNotifications
 import VellumAssistantShared
 import os
 
-private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "AppDelegate+Sessions")
+private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "AppDelegate+Conversations")
 
 extension AppDelegate {
 
-    // MARK: - Session
+    // MARK: - Conversation
 
     /// Sends the user's task as a regular message via POST /v1/messages.
     /// The model decides whether to use computer-use tools; CU execution

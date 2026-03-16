@@ -153,6 +153,16 @@ function isBrowserRelaySocketData(
   );
 }
 
+/** Check whether an IP address is a loopback address (127.0.0.0/8 or ::1). */
+function isLoopbackIp(ip: string): boolean {
+  const v4Mapped = ip.match(/^::ffff:(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})$/i);
+  const normalized = v4Mapped ? v4Mapped[1] : ip;
+  if (normalized.includes(".")) {
+    return normalized.startsWith("127.");
+  }
+  return normalized.toLowerCase() === "::1";
+}
+
 function getClientIp(
   req: Request,
   server: ReturnType<typeof Bun.serve>,
@@ -506,8 +516,17 @@ async function main() {
       path: "/v1/guardian/init",
       method: "POST",
       auth: "none",
-      handler: (req, _params, getClientIp) =>
-        channelVerificationSessionProxy.handleGuardianInit(req, getClientIp()),
+      handler: (req, _params, getClientIp) => {
+        const ip = getClientIp();
+        // Only inject x-forwarded-for for non-localhost clients. The runtime
+        // rejects requests with this header to enforce loopback-only access,
+        // so setting it for localhost would break legitimate local bootstrap.
+        const remoteIp = isLoopbackIp(ip) ? undefined : ip;
+        return channelVerificationSessionProxy.handleGuardianInit(
+          req,
+          remoteIp,
+        );
+      },
     },
     {
       path: "/v1/channel-verification-sessions",
@@ -689,7 +708,7 @@ async function main() {
       path: "/v1/config/privacy",
       method: "PATCH",
       auth: "edge-scoped",
-      scope: "feature_flags.write",
+      scope: "settings.write",
       handler: (req) => handlePrivacyConfigPatch(req),
     },
   ];

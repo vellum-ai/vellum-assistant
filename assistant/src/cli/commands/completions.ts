@@ -35,7 +35,7 @@ Examples:
     )
     .action((shell: string) => {
       const subcommands: Record<string, string[]> = {
-        sessions: ["list", "new", "export", "clear"],
+        conversations: ["list", "new", "export", "clear"],
         config: ["set", "get", "list", "validate-allowlist"],
         keys: ["list", "set", "delete"],
         trust: ["list", "remove", "clear"],
@@ -45,7 +45,7 @@ Examples:
         autonomy: ["get", "set"],
       };
       const topLevel = [
-        "sessions",
+        "conversations",
         "config",
         "keys",
         "trust",
@@ -128,7 +128,7 @@ function generateZshCompletion(
 _assistant() {
     local -a commands
     commands=(
-        'sessions:Manage sessions'
+        'conversations:Manage conversations'
         'config:Manage configuration'
         'keys:Manage API keys in secure storage'
         'trust:Manage trust rules'
@@ -169,7 +169,7 @@ function generateFishCompletion(
   script += `complete -c assistant -f\n`;
 
   const descriptions: Record<string, string> = {
-    sessions: "Manage sessions",
+    conversations: "Manage conversations",
     config: "Manage configuration",
     keys: "Manage API keys in secure storage",
     trust: "Manage trust rules",

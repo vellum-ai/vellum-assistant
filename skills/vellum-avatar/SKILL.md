@@ -80,15 +80,15 @@ The user provides a file path to an image they want to use as their avatar.
 Copy the image to the avatar location:
 
 ```bash
-mkdir -p "$VELLUM_WORKSPACE_DIR/data/avatar"
-cp "<user-provided-path>" "$VELLUM_WORKSPACE_DIR/data/avatar/avatar-image.png"
+mkdir -p "$VELLUM_DATA_DIR/avatar"
+cp "<user-provided-path>" "$VELLUM_DATA_DIR/avatar/avatar-image.png"
 ```
 
 Then remove the native character files, since a custom image overrides the native character:
 
 ```bash
-rm -f "$VELLUM_WORKSPACE_DIR/data/avatar/character-traits.json"
-rm -f "$VELLUM_WORKSPACE_DIR/data/avatar/character-ascii.txt"
+rm -f "$VELLUM_DATA_DIR/avatar/character-traits.json"
+rm -f "$VELLUM_DATA_DIR/avatar/character-ascii.txt"
 ```
 
 Tell the user their avatar has been updated. The client will pick up the new image automatically.
@@ -106,8 +106,8 @@ curl -s -X POST "$INTERNAL_GATEWAY_BASE_URL/v1/settings/avatar/generate" \
 This generates an image using AI and saves it to `data/avatar/avatar-image.png`. After the image is generated, remove the native character files:
 
 ```bash
-rm -f "$VELLUM_WORKSPACE_DIR/data/avatar/character-traits.json"
-rm -f "$VELLUM_WORKSPACE_DIR/data/avatar/character-ascii.txt"
+rm -f "$VELLUM_DATA_DIR/avatar/character-traits.json"
+rm -f "$VELLUM_DATA_DIR/avatar/character-ascii.txt"
 ```
 
 The generated avatar will appear automatically in the client.

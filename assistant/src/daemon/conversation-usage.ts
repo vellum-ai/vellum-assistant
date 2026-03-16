@@ -11,7 +11,7 @@ import { getLogger } from "../util/logger.js";
 import { resolvePricingForUsageWithOverrides } from "../util/pricing.js";
 import type { ServerMessage, UsageStats } from "./message-protocol.js";
 
-const log = getLogger("session-usage");
+const log = getLogger("conversation-usage");
 
 export interface UsageContext {
   conversationId: string;

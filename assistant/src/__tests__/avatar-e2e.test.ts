@@ -95,17 +95,14 @@ mock.module("@google/genai", () => ({
 }));
 
 // Import after all mocks are set up
-import { setAvatarTool } from "../tools/system/avatar-generator.js";
+import { generateAndSaveAvatar } from "../tools/system/avatar-generator.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
 function executeAvatar(description: string) {
-  return setAvatarTool.execute(
-    { description },
-    {} as Parameters<typeof setAvatarTool.execute>[1],
-  );
+  return generateAndSaveAvatar(description);
 }
 
 /** Standard successful Gemini generateContent response. */

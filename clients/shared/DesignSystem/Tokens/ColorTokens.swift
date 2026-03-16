@@ -340,6 +340,37 @@ public enum VColor {
     public static let systemMidStrong = adaptiveColor(light: FigmaRawColor.systemLightMidStrong, dark: FigmaRawColor.systemDarkMidStrong)
     public static let systemMidWeak = adaptiveColor(light: FigmaRawColor.systemLightMidWeak, dark: FigmaRawColor.systemDarkMidWeak)
 
+    // Syntax highlighting — adaptive tokens shared by SyntaxTheme and JSONTreeView.
+    // Light values are high-contrast for light surfaces; dark values are softer pastels.
+    public static let syntaxString = adaptiveColor(
+        light: Color(.sRGB, red: 0.72, green: 0.19, blue: 0.10),
+        dark: Color(.sRGB, red: 0.87, green: 0.55, blue: 0.47)
+    )
+    public static let syntaxNumber = adaptiveColor(
+        light: Color(.sRGB, red: 0.55, green: 0.28, blue: 0.73),
+        dark: Color(.sRGB, red: 0.73, green: 0.56, blue: 0.87)
+    )
+    public static let syntaxKeyword = adaptiveColor(
+        light: Color(.sRGB, red: 0.33, green: 0.25, blue: 0.80),
+        dark: Color(.sRGB, red: 0.55, green: 0.65, blue: 0.96)
+    )
+    public static let syntaxComment = adaptiveColor(
+        light: Color(.sRGB, red: 0.42, green: 0.47, blue: 0.42),
+        dark: Color(.sRGB, red: 0.55, green: 0.60, blue: 0.55)
+    )
+    public static let syntaxType = adaptiveColor(
+        light: Color(.sRGB, red: 0.15, green: 0.55, blue: 0.52),
+        dark: Color(.sRGB, red: 0.45, green: 0.78, blue: 0.74)
+    )
+    public static let syntaxProperty = adaptiveColor(
+        light: Color(.sRGB, red: 0.35, green: 0.50, blue: 0.68),
+        dark: Color(.sRGB, red: 0.68, green: 0.78, blue: 0.88)
+    )
+    public static let syntaxLink = adaptiveColor(
+        light: Color(.sRGB, red: 0.12, green: 0.52, blue: 0.32),
+        dark: Color(.sRGB, red: 0.30, green: 0.75, blue: 0.55)
+    )
+
     // Utility: non-adaptive explicit white/black for overlays, shadows, text-on-filled
     public static let auxWhite = Color(hex: 0xFFFFFF)
     public static let auxBlack = Color(hex: 0x000000)

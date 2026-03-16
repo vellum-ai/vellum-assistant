@@ -550,13 +550,13 @@ export function workItemRouteDefinitions(
           );
         }
 
-        // Abort the session associated with this work item's current run
+        // Abort the conversation associated with this work item's current run
         const conversationId = workItem.lastRunConversationId;
         if (conversationId && deps?.findConversation) {
-          const session = deps.findConversation(conversationId);
-          if (session) {
-            session.headlessLock = false;
-            session.abort();
+          const conversation = deps.findConversation(conversationId);
+          if (conversation) {
+            conversation.headlessLock = false;
+            conversation.abort();
             getSubagentManager().abortAllForParent(conversationId);
           }
         }
@@ -689,7 +689,7 @@ export function workItemRouteDefinitions(
         publishEvent({ type: "tasks_changed" });
 
         // Execute task asynchronously
-        let session: Conversation | null = null;
+        let taskConversation: Conversation | null = null;
         const getOrCreateConversation = deps.getOrCreateConversation;
         const workItemId = params.id;
 
@@ -703,11 +703,12 @@ export function workItemRouteDefinitions(
                 approvedTools,
               },
               async (conversationId, message, taskRunId) => {
-                if (!session) {
+                if (!taskConversation) {
                   updateWorkItem(workItemId, {
                     lastRunConversationId: conversationId,
                   });
-                  session = await getOrCreateConversation(conversationId);
+                  taskConversation =
+                    await getOrCreateConversation(conversationId);
 
                   publishEvent({
                     type: "task_run_conversation_created",
@@ -715,10 +716,10 @@ export function workItemRouteDefinitions(
                     workItemId,
                     title: workItem.title,
                   });
-                  session.taskRunId = taskRunId;
-                  session.headlessLock = true;
+                  taskConversation.taskRunId = taskRunId;
+                  taskConversation.headlessLock = true;
                 }
-                await session.processMessage(
+                await taskConversation.processMessage(
                   message,
                   [],
                   (event) => {
@@ -733,8 +734,9 @@ export function workItemRouteDefinitions(
             );
 
             // Release headless lock
-            if (session) {
-              (session as { headlessLock: boolean }).headlessLock = false;
+            if (taskConversation) {
+              (taskConversation as { headlessLock: boolean }).headlessLock =
+                false;
             }
 
             // Don't overwrite cancelled status
@@ -753,8 +755,9 @@ export function workItemRouteDefinitions(
             broadcastWorkItemStatus(workItemId);
             publishEvent({ type: "tasks_changed" });
           } catch (err) {
-            if (session) {
-              (session as { headlessLock: boolean }).headlessLock = false;
+            if (taskConversation) {
+              (taskConversation as { headlessLock: boolean }).headlessLock =
+                false;
             }
             log.error({ err, workItemId }, "work_item_run_task (HTTP) failed");
             updateWorkItem(workItemId, {

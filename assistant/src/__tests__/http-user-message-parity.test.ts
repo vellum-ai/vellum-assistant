@@ -162,8 +162,8 @@ const testAuthContext: AuthContext = {
   policyEpoch: 1,
 };
 
-// ── Helper: create a minimal mock session ──────────────────────────────────
-function makeSession(overrides: Record<string, unknown> = {}) {
+// ── Helper: create a minimal mock conversation ─────────────────────────────
+function makeConversation(overrides: Record<string, unknown> = {}) {
   return {
     setTrustContext: () => {},
     updateClient: () => {},
@@ -209,14 +209,14 @@ function makeRequest(content: string, extra: Record<string, unknown> = {}) {
 // ── Helper: send a message through handleSendMessage ───────────────────────
 async function sendMessage(
   content: string,
-  session: import("../daemon/conversation.js").Conversation,
+  conversationObj: import("../daemon/conversation.js").Conversation,
   extra: Record<string, unknown> = {},
 ) {
   return handleSendMessage(
     makeRequest(content, extra),
     {
       sendMessageDeps: {
-        getOrCreateConversation: async () => session,
+        getOrCreateConversation: async () => conversationObj,
         assistantEventHub: { publish: async () => {} } as any,
         resolveAttachments: () => [],
       },
@@ -241,9 +241,9 @@ describe("HTTP POST /v1/messages blocks secret ingress", () => {
       "Set up Telegram with my bot token 123456789:ABCDefGHIJklmnopQRSTuvwxyz012345678";
     const persistUserMessage = mock(async () => "persisted-msg-id");
     const runAgentLoop = mock(async () => undefined);
-    const session = makeSession({ persistUserMessage, runAgentLoop });
+    const conversation = makeConversation({ persistUserMessage, runAgentLoop });
 
-    const res = await sendMessage(secretContent, session);
+    const res = await sendMessage(secretContent, conversation);
 
     expect(res.status).toBe(422);
     const body = (await res.json()) as {
@@ -266,9 +266,9 @@ describe("HTTP POST /v1/messages blocks secret ingress", () => {
       "Here is my AWS key AKIAQRSTUVWXYZ123456 and secret wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY";
     const persistUserMessage = mock(async () => "persisted-msg-id");
     const runAgentLoop = mock(async () => undefined);
-    const session = makeSession({ persistUserMessage, runAgentLoop });
+    const conversation = makeConversation({ persistUserMessage, runAgentLoop });
 
-    const res = await sendMessage(secretContent, session);
+    const res = await sendMessage(secretContent, conversation);
 
     expect(res.status).toBe(422);
     const body = (await res.json()) as {
@@ -287,9 +287,9 @@ describe("HTTP POST /v1/messages blocks secret ingress", () => {
     const secretContent = "My Stripe key is sk_live_4eC39HqLyjWDarjtT1zdp7dc";
     const persistUserMessage = mock(async () => "persisted-msg-id");
     const runAgentLoop = mock(async () => undefined);
-    const session = makeSession({ persistUserMessage, runAgentLoop });
+    const conversation = makeConversation({ persistUserMessage, runAgentLoop });
 
-    const res = await sendMessage(secretContent, session);
+    const res = await sendMessage(secretContent, conversation);
 
     expect(res.status).toBe(422);
     const body = (await res.json()) as {
@@ -308,9 +308,9 @@ describe("HTTP POST /v1/messages blocks secret ingress", () => {
     const normalContent = "What is the weather today?";
     const persistUserMessage = mock(async () => "persisted-msg-id");
     const runAgentLoop = mock(async () => undefined);
-    const session = makeSession({ persistUserMessage, runAgentLoop });
+    const conversation = makeConversation({ persistUserMessage, runAgentLoop });
 
-    const res = await sendMessage(normalContent, session);
+    const res = await sendMessage(normalContent, conversation);
 
     expect(res.status).toBe(202);
     const body = (await res.json()) as { accepted: boolean };
@@ -340,9 +340,9 @@ describe("HTTP POST /v1/messages does not intercept recording intents (by design
     // legacy handleUserMessage entry point.
     const persistUserMessage = mock(async () => "persisted-msg-id");
     const runAgentLoop = mock(async () => undefined);
-    const session = makeSession({ persistUserMessage, runAgentLoop });
+    const conversation = makeConversation({ persistUserMessage, runAgentLoop });
 
-    const res = await sendMessage("start recording", session);
+    const res = await sendMessage("start recording", conversation);
 
     expect(res.status).toBe(202);
     expect(persistUserMessage).toHaveBeenCalledTimes(1);
@@ -357,9 +357,9 @@ describe("HTTP POST /v1/messages does not intercept recording intents (by design
     // be caught.
     const persistUserMessage = mock(async () => "persisted-msg-id");
     const runAgentLoop = mock(async () => undefined);
-    const session = makeSession({ persistUserMessage, runAgentLoop });
+    const conversation = makeConversation({ persistUserMessage, runAgentLoop });
 
-    const res = await sendMessage("start screen recording", session, {
+    const res = await sendMessage("start screen recording", conversation, {
       commandIntent: { type: "start_recording", payload: "screen" },
     });
 
@@ -371,9 +371,9 @@ describe("HTTP POST /v1/messages does not intercept recording intents (by design
   test("stop recording commands pass through to the agent loop", async () => {
     const persistUserMessage = mock(async () => "persisted-msg-id");
     const runAgentLoop = mock(async () => undefined);
-    const session = makeSession({ persistUserMessage, runAgentLoop });
+    const conversation = makeConversation({ persistUserMessage, runAgentLoop });
 
-    const res = await sendMessage("stop recording", session);
+    const res = await sendMessage("stop recording", conversation);
 
     expect(res.status).toBe(202);
     expect(persistUserMessage).toHaveBeenCalledTimes(1);

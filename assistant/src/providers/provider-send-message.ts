@@ -31,6 +31,14 @@ const providerSelectionLog = getLogger("provider-selection");
 let fallbackWarningLogged = false;
 
 /**
+ * Cached promise for the lazy initialization path inside
+ * `resolveConfiguredProvider`. When multiple concurrent callers enter before
+ * providers are initialized, they all await the same promise instead of
+ * each triggering a redundant `initializeProviders` call.
+ */
+let lazyInitPromise: Promise<void> | null = null;
+
+/**
  * Resolve the configured provider with full selection metadata.
  * If providers haven't been initialized yet (e.g. non-daemon code paths),
  * performs a one-shot `initializeProviders(getConfig())`.
@@ -44,8 +52,13 @@ export async function resolveConfiguredProvider(): Promise<ConfiguredProviderRes
   const config = getConfig();
 
   if (listProviders().length === 0) {
+    if (!lazyInitPromise) {
+      lazyInitPromise = initializeProviders(config).finally(() => {
+        lazyInitPromise = null;
+      });
+    }
     try {
-      await initializeProviders(config);
+      await lazyInitPromise;
     } catch {
       return null;
     }

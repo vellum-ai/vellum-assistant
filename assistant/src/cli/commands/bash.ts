@@ -133,7 +133,7 @@ Examples:
         cleanupSignalFiles();
 
         if (result.error) {
-          log.error(`Spawn error: ${result.error}`);
+          log.error(result.error);
           process.exitCode = 1;
           return;
         }

@@ -128,6 +128,12 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
     /// Last time we surfaced the denied-notification permission toast.
     var lastNotificationPermissionToastAtMs: Double = 0
 
+    /// Structured error from the most recent daemon startup failure.
+    /// Populated by `setupDaemonClient()` when `hatch()` throws a
+    /// `CLIError.daemonStartupFailed`. Read by the UI (PR 3) to show a
+    /// contextual error view instead of a generic failure message.
+    @Published var daemonStartupError: DaemonStartupError?
+
     /// Whether the current assistant runs remotely (cloud != "local").
     /// When true, local daemon hatching is skipped.
     var isCurrentAssistantRemote = false
@@ -201,7 +207,11 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
         // Gated on sendDiagnostics: if the user has previously disabled diagnostics,
         // Sentry is never initialized. Otherwise, initialize eagerly so crashes
         // before the daemon connects are captured.
+        // Falls back through legacy keys so users who opted out via the old
+        // collectUsageDataEnabled master switch keep Sentry disabled.
         let sendDiagnostics = UserDefaults.standard.object(forKey: "sendDiagnostics") as? Bool
+            ?? UserDefaults.standard.object(forKey: "collectUsageData") as? Bool
+            ?? UserDefaults.standard.object(forKey: "collectUsageDataEnabled") as? Bool
             ?? true
         if sendDiagnostics {
             let appVersion = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "unknown"
@@ -357,6 +367,11 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
         if !isCurrentAssistantManaged {
             ensureActorCredentials()
         }
+
+        // Reset before provisioning so a stale flag from a previous
+        // bootstrap cycle doesn't cause awaitLocalBootstrapCompleted to
+        // skip the wait for the new cycle's credentials.
+        localBootstrapDidComplete = false
 
         // Provision an AssistantAPIKey for local assistants so they can
         // call platform APIs.

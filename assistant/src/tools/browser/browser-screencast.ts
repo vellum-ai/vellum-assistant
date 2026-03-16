@@ -1,73 +1,75 @@
 import type { ServerMessage } from "../../daemon/message-protocol.js";
 import { browserManager } from "./browser-manager.js";
 
-// Track which sessions have an active browser page.
-const activeBrowserSessions = new Set<string>();
+// Track which conversations have an active browser page.
+const activeBrowserConversations = new Set<string>();
 
-// Registry of sendToClient callbacks per session
-const sessionSenders = new Map<string, (msg: ServerMessage) => void>();
+// Registry of sendToClient callbacks per conversation
+const conversationSenders = new Map<string, (msg: ServerMessage) => void>();
 
 /**
- * Register a sendToClient callback for a session.
- * Called from session-tool-setup when the session is created.
+ * Register a sendToClient callback for a conversation.
+ * Called from conversation-tool-setup when the conversation is created.
  */
-export function registerSessionSender(
-  sessionId: string,
+export function registerConversationSender(
+  conversationId: string,
   sendToClient: (msg: ServerMessage) => void,
 ): void {
-  sessionSenders.set(sessionId, sendToClient);
+  conversationSenders.set(conversationId, sendToClient);
 }
 
 /**
- * Unregister the sendToClient callback for a session.
+ * Unregister the sendToClient callback for a conversation.
  */
-export function unregisterSessionSender(sessionId: string): void {
-  sessionSenders.delete(sessionId);
+export function unregisterConversationSender(conversationId: string): void {
+  conversationSenders.delete(conversationId);
 }
 
 function getSender(
-  sessionId: string,
+  conversationId: string,
 ): ((msg: ServerMessage) => void) | undefined {
-  return sessionSenders.get(sessionId);
+  return conversationSenders.get(conversationId);
 }
 
-export async function ensureScreencast(sessionId: string): Promise<void> {
-  if (activeBrowserSessions.has(sessionId)) return;
+export async function ensureScreencast(conversationId: string): Promise<void> {
+  if (activeBrowserConversations.has(conversationId)) return;
 
-  activeBrowserSessions.add(sessionId);
+  activeBrowserConversations.add(conversationId);
 
   try {
     // Ensure the page exists (may trigger browser launch/connect)
-    await browserManager.getOrCreateSessionPage(sessionId);
+    await browserManager.getOrCreateSessionPage(conversationId);
   } catch (err) {
     // Roll back so future calls can retry
-    activeBrowserSessions.delete(sessionId);
+    activeBrowserConversations.delete(conversationId);
     throw err;
   }
 }
 
-export async function stopBrowserScreencast(sessionId: string): Promise<void> {
-  if (!activeBrowserSessions.has(sessionId)) return;
+export async function stopBrowserScreencast(
+  conversationId: string,
+): Promise<void> {
+  if (!activeBrowserConversations.has(conversationId)) return;
 
   // Safe no-op if CDP screencast was never started
-  await browserManager.stopScreencast(sessionId);
+  await browserManager.stopScreencast(conversationId);
 
-  activeBrowserSessions.delete(sessionId);
+  activeBrowserConversations.delete(conversationId);
 }
 
 export async function stopAllScreencasts(): Promise<void> {
-  for (const sessionId of activeBrowserSessions) {
+  for (const conversationId of activeBrowserConversations) {
     try {
-      await browserManager.stopScreencast(sessionId);
+      await browserManager.stopScreencast(conversationId);
     } catch {
       /* best-effort */
     }
   }
-  activeBrowserSessions.clear();
+  activeBrowserConversations.clear();
 }
 
-export function isScreencastActive(sessionId: string): boolean {
-  return activeBrowserSessions.has(sessionId);
+export function isScreencastActive(conversationId: string): boolean {
+  return activeBrowserConversations.has(conversationId);
 }
 
 export { getSender };

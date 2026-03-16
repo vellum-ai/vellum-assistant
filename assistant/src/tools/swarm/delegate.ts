@@ -12,8 +12,8 @@ import type { Tool, ToolContext, ToolExecutionResult } from "../types.js";
 
 const log = getLogger("swarm-delegate");
 
-/** Tracks active swarm sessions to prevent nested invocation per-session. */
-const activeSessions = new Set<string>();
+/** Tracks active swarm conversations to prevent nested invocation per-conversation. */
+const activeConversations = new Set<string>();
 
 export const swarmDelegateTool: Tool = {
   name: "swarm_delegate",
@@ -73,17 +73,17 @@ export const swarmDelegateTool: Tool = {
       return { content: "Cancelled", isError: true };
     }
 
-    // Recursion guard — scoped to session so independent sessions are not blocked
-    const sessionKey = context.conversationId;
-    if (activeSessions.has(sessionKey)) {
+    // Recursion guard — scoped to conversation so independent conversations are not blocked
+    const conversationKey = context.conversationId;
+    if (activeConversations.has(conversationKey)) {
       return {
         content:
-          "Error: A swarm is already executing in this session. Nested swarm invocation is not allowed.",
+          "Error: A swarm is already executing in this conversation. Nested swarm invocation is not allowed.",
         isError: true,
       };
     }
 
-    activeSessions.add(sessionKey);
+    activeConversations.add(conversationKey);
     try {
       const limits = resolveSwarmLimits({
         maxWorkers: maxWorkersOverride ?? config.swarm.maxWorkers,
@@ -194,12 +194,12 @@ export const swarmDelegateTool: Tool = {
         isError: true,
       };
     } finally {
-      activeSessions.delete(sessionKey);
+      activeConversations.delete(conversationKey);
     }
   },
 };
 
-/** Clear all active sessions — only for testing. */
+/** Clear all active conversations — only for testing. */
 export function _resetSwarmActive(): void {
-  activeSessions.clear();
+  activeConversations.clear();
 }

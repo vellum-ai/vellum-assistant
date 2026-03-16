@@ -17,10 +17,6 @@ on:
       - 'packages/**'
       - '.github/workflows/ci-main-macos.yaml'
 
-concurrency:
-  group: ci-main-macos-${{ github.ref }}
-  cancel-in-progress: true
-
 jobs:
   changes:
     name: Detect Path Changes
@@ -219,7 +215,7 @@ jobs:
             SLACK_ID="$GITHUB_USER"
           fi
 
-          if [ "$SLACK_ID" = "$GITHUB_USER" ]; then
+          if [ "$STATUS" = "cancelled" ] || [ "$SLACK_ID" = "$GITHUB_USER" ]; then
             echo "should_tag=false" >> $GITHUB_OUTPUT
           else
             echo "should_tag=true" >> $GITHUB_OUTPUT

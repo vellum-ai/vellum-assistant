@@ -29,35 +29,6 @@ func viewModeLabel(_ mode: FileViewMode) -> String {
     }
 }
 
-/// Formats a byte count into a human-readable size string.
-/// Shows raw bytes for sizes < 1 KB (e.g. "500 B"), then "KB" / "MB" / "GB" with one decimal place.
-func formatFileSize(_ bytes: Int) -> String {
-    if bytes < 1024 { return "\(bytes) B" }
-    let kb = Double(bytes) / 1024.0
-    if kb < 1024 { return String(format: "%.1f KB", kb) }
-    let mb = kb / 1024.0
-    if mb < 1024 { return String(format: "%.1f MB", mb) }
-    let gb = mb / 1024.0
-    return String(format: "%.1f GB", gb)
-}
-
-/// Empty state shown when no file is selected in a file viewer pane.
-struct FileViewerEmptyState: View {
-    var body: some View {
-        VStack {
-            Spacer()
-            VIconView(.fileText, size: 32)
-                .foregroundColor(VColor.contentTertiary)
-                .padding(.bottom, VSpacing.sm)
-            Text("Select a file to view")
-                .font(VFont.body)
-                .foregroundColor(VColor.contentTertiary)
-            Spacer()
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-    }
-}
-
 /// Scrollable read-only monospace text display for file content.
 struct ReadOnlyCodeContent: View {
     let content: String
@@ -102,6 +73,8 @@ struct FileContentHeaderBar<Trailing: View>: View {
             Text(fileName)
                 .font(VFont.captionMedium)
                 .foregroundColor(VColor.contentDefault)
+                .lineLimit(1)
+                .truncationMode(.middle)
             Spacer()
             Text(fileSize)
                 .font(VFont.small)

@@ -60,7 +60,7 @@ extension AppDelegate {
             self.surfaceManager.dismissSurface(msg)
         }
 
-        // Reload webviews for surfaces whose app files changed (cross-session broadcast)
+        // Reload webviews for surfaces whose app files changed (cross-conversation broadcast)
         daemonClient.onAppFilesChanged = { [weak self] appId in
             guard let self else { return }
             self.refreshAppsCache()
@@ -149,7 +149,7 @@ extension AppDelegate {
                             requestId: msg.requestId,
                             decision: "allow"
                         )
-                        self.mainWindow?.conversationManager.updateConfirmationStateAcrossThreads(
+                        self.mainWindow?.conversationManager.updateConfirmationStateAcrossConversations(
                             requestId: msg.requestId,
                             decision: "allow"
                         )
@@ -160,15 +160,15 @@ extension AppDelegate {
                 }
 
                 // When the chat window is visible AND the confirmation belongs to the
-                // active thread, the inline ToolConfirmationBubble handles the
+                // active conversation, the inline ToolConfirmationBubble handles the
                 // confirmation UX — skip the native notification to avoid showing a
-                // duplicate prompt.  If the confirmation is for a background thread,
+                // duplicate prompt.  If the confirmation is for a background conversation,
                 // the inline bubble won't be visible, so we must still fire the
                 // native notification.
                 if NSApp.isActive, let mainWindow = self.mainWindow, mainWindow.isVisible {
                     let activeSessionId = mainWindow.conversationManager.activeViewModel?.conversationId
-                    let confirmationIsForActiveThread = msg.conversationId == nil || msg.conversationId == activeSessionId
-                    if confirmationIsForActiveThread {
+                    let confirmationIsForActiveConversation = msg.conversationId == nil || msg.conversationId == activeSessionId
+                    if confirmationIsForActiveConversation {
                         return
                     }
                 }
@@ -185,7 +185,7 @@ extension AppDelegate {
                         decision: decision
                     )
                     // Only sync the inline message state if the send succeeded.
-                    self.mainWindow?.conversationManager.updateConfirmationStateAcrossThreads(
+                    self.mainWindow?.conversationManager.updateConfirmationStateAcrossConversations(
                         requestId: msg.requestId,
                         decision: decision
                     )
@@ -560,7 +560,7 @@ extension AppDelegate {
         //
         // Use the emitted UUID directly (not activeViewModel) because $activeConversationId
         // fires during willSet — at that point activeConversationId still holds the old value,
-        // so activeViewModel would resolve to the previous thread's view model.
+        // so activeViewModel would resolve to the previous conversation's view model.
         statusIconCancellable = mainWindow?.conversationManager.$activeConversationId
             .compactMap { [weak mainWindow] (id: UUID?) -> ChatViewModel? in
                 guard let id else { return nil }

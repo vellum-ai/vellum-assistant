@@ -859,21 +859,6 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
         return cs
     }()
 
-    /// Fetch the workspace directory tree.
-    /// Delegates to HTTPTransport for remote connections, or calls the local daemon HTTP server.
-    public func fetchWorkspaceTree(path: String = "", showHidden: Bool = false) async -> WorkspaceTreeResponse? {
-        if let httpTransport {
-            return await httpTransport.fetchWorkspaceTree(path: path, showHidden: showHidden)
-        }
-
-        let encoded = path.addingPercentEncoding(withAllowedCharacters: Self.queryValueAllowed) ?? path
-        var params: [String] = []
-        if !path.isEmpty { params.append("path=\(encoded)") }
-        if showHidden { params.append("showHidden=true") }
-        let queryPath = params.isEmpty ? "v1/workspace/tree" : "v1/workspace/tree?\(params.joined(separator: "&"))"
-        return await executeLocalRequest(path: queryPath, timeout: 10)
-    }
-
     /// Fetch a single workspace file's metadata and optional content.
     /// Delegates to HTTPTransport for remote connections, or calls the local daemon HTTP server.
     public func fetchWorkspaceFile(path: String, showHidden: Bool = false) async -> WorkspaceFileResponse? {
@@ -1531,7 +1516,7 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
         try send(IdentityGetRequestMessage())
     }
 
-    /// Request avatar generation via the daemon's set_avatar tool.
+    /// Request avatar generation via the daemon's avatar generation endpoint.
     public func sendGenerateAvatar(description: String) throws {
         try send(GenerateAvatarRequestMessage(description: description))
     }

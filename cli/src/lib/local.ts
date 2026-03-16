@@ -195,7 +195,9 @@ function resolveDaemonMainPath(assistantIndex: string): string {
 async function startDaemonFromSource(
   assistantIndex: string,
   resources: LocalInstanceResources,
+  options?: { foreground?: boolean },
 ): Promise<void> {
+  const foreground = options?.foreground ?? false;
   const daemonMainPath = resolveDaemonMainPath(assistantIndex);
 
   // Ensure the directory containing PID/socket files exists. For named
@@ -271,14 +273,22 @@ async function startDaemonFromSource(
   // detect the in-progress spawn and wait instead of racing.
   writeFileSync(pidFile, "starting", "utf-8");
 
-  const daemonLogFd = openLogFile("hatch.log");
-  const child = spawn("bun", ["run", daemonMainPath], {
-    detached: true,
-    stdio: ["ignore", "pipe", "pipe"],
-    env,
-  });
-  pipeToLogFile(child, daemonLogFd, "daemon");
-  child.unref();
+  const child = foreground
+    ? spawn("bun", ["run", daemonMainPath], {
+        stdio: "inherit",
+        env,
+      })
+    : (() => {
+        const daemonLogFd = openLogFile("hatch.log");
+        const c = spawn("bun", ["run", daemonMainPath], {
+          detached: true,
+          stdio: ["ignore", "pipe", "pipe"],
+          env,
+        });
+        pipeToLogFile(c, daemonLogFd, "daemon");
+        c.unref();
+        return c;
+      })();
 
   if (child.pid) {
     writeFileSync(pidFile, String(child.pid), "utf-8");
@@ -809,7 +819,9 @@ export function isGatewayWatchModeAvailable(): boolean {
 export async function startLocalDaemon(
   watch: boolean = false,
   resources: LocalInstanceResources,
+  options?: { foreground?: boolean },
 ): Promise<void> {
+  const foreground = options?.foreground ?? false;
   // Check for a compiled daemon binary adjacent to the CLI executable.
   // This covers both the desktop app (VELLUM_DESKTOP_APP) and the case where
   // the user runs the compiled CLI directly from the terminal (e.g. via a
@@ -920,6 +932,7 @@ export async function startLocalDaemon(
         "TMPDIR",
         "USER",
         "LANG",
+        "VELLUM_DEBUG",
       ]) {
         if (process.env[key]) {
           daemonEnv[key] = process.env[key]!;
@@ -940,15 +953,24 @@ export async function startLocalDaemon(
       // instead of racing to spawn a duplicate daemon.
       writeFileSync(pidFile, "starting", "utf-8");
 
-      const daemonLogFd = openLogFile("hatch.log");
-      const child = spawn(daemonBinary, [], {
-        cwd: dirname(daemonBinary),
-        detached: true,
-        stdio: ["ignore", "pipe", "pipe"],
-        env: daemonEnv,
-      });
-      pipeToLogFile(child, daemonLogFd, "daemon");
-      child.unref();
+      const child = foreground
+        ? spawn(daemonBinary, [], {
+            cwd: dirname(daemonBinary),
+            stdio: "inherit",
+            env: daemonEnv,
+          })
+        : (() => {
+            const daemonLogFd = openLogFile("hatch.log");
+            const c = spawn(daemonBinary, [], {
+              cwd: dirname(daemonBinary),
+              detached: true,
+              stdio: ["ignore", "pipe", "pipe"],
+              env: daemonEnv,
+            });
+            pipeToLogFile(c, daemonLogFd, "daemon");
+            c.unref();
+            return c;
+          })();
       const daemonPid = child.pid;
 
       // Overwrite sentinel with real PID, or clean up on spawn failure.
@@ -1020,7 +1042,7 @@ export async function startLocalDaemon(
         );
       }
     } else {
-      await startDaemonFromSource(assistantIndex, resources);
+      await startDaemonFromSource(assistantIndex, resources, { foreground });
 
       const daemonReady = await waitForDaemonReady(resources.daemonPort, 60000);
       if (daemonReady) {

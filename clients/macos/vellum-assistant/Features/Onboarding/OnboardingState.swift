@@ -153,9 +153,7 @@ final class OnboardingState {
             currentStep = maxStep
         }
 
-        // Opt in to usage data and performance reports by default for new users.
-        // Previously handled by ImproveExperienceStepView.onAppear; that view was
-        // removed so we set the defaults here to keep the same behavior.
+        // Opt in to usage data and diagnostics by default for new users.
         if UserDefaults.standard.object(forKey: "collectUsageData") == nil {
             UserDefaults.standard.set(true, forKey: "collectUsageData")
         }

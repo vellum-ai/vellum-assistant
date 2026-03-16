@@ -1,26 +1,15 @@
 import {
-  readFileSync,
-  writeFileSync,
-  mkdirSync,
-  existsSync,
-  renameSync,
-} from "node:fs";
-import { join, dirname } from "node:path";
-import { randomBytes } from "node:crypto";
-import { getRootDir } from "../../credential-reader.js";
-import {
   loadFeatureFlagDefaults,
   isFlagDeclared,
 } from "../../feature-flag-defaults.js";
 import { getLogger } from "../../logger.js";
+import {
+  enqueueConfigWrite,
+  readConfigFile,
+  writeConfigFileAtomic,
+} from "./config-file-utils.js";
 
 const log = getLogger("feature-flags");
-
-/**
- * Serializes config writes so concurrent PATCH requests don't race on
- * read-modify-write. Each write awaits the previous one before proceeding.
- */
-let configWriteChain: Promise<void> = Promise.resolve();
 
 /**
  * Only allow keys matching `feature_flags.<flagId>.enabled` for the canonical format.
@@ -28,51 +17,6 @@ let configWriteChain: Promise<void> = Promise.resolve();
  * dots, hyphens, and underscores.
  */
 const ALLOWED_KEY_RE = /^feature_flags\.[a-z0-9][a-z0-9._-]*\.enabled$/;
-
-function getConfigPath(): string {
-  return join(getRootDir(), "workspace", "config.json");
-}
-
-type ConfigReadResult =
-  | { ok: true; data: Record<string, unknown> }
-  | { ok: false; reason: "malformed"; detail: string };
-
-function readConfigFile(): ConfigReadResult {
-  const cfgPath = getConfigPath();
-  if (!existsSync(cfgPath)) {
-    return { ok: true, data: {} };
-  }
-  try {
-    const raw = readFileSync(cfgPath, "utf-8");
-    const parsed = JSON.parse(raw);
-    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
-      return {
-        ok: false,
-        reason: "malformed",
-        detail: "Config file is not a JSON object",
-      };
-    }
-    return { ok: true, data: parsed };
-  } catch (err) {
-    return { ok: false, reason: "malformed", detail: String(err) };
-  }
-}
-
-/**
- * Atomically write the config file: write to a temporary file in the same
- * directory, then rename. This avoids partial-file corruption if the process
- * crashes mid-write.
- */
-function writeConfigFileAtomic(data: Record<string, unknown>): void {
-  const cfgPath = getConfigPath();
-  const dir = dirname(cfgPath);
-  if (!existsSync(dir)) {
-    mkdirSync(dir, { recursive: true });
-  }
-  const tmpPath = join(dir, `.config.${randomBytes(6).toString("hex")}.tmp`);
-  writeFileSync(tmpPath, JSON.stringify(data, null, 2) + "\n", "utf-8");
-  renameSync(tmpPath, cfgPath);
-}
 
 /**
  * Read persisted flag values from the canonical config section.
@@ -193,7 +137,7 @@ export function createFeatureFlagsPatchHandler() {
 
     // Serialize config writes to prevent concurrent read-modify-write races
     const writeResult = new Promise<Response>((resolve) => {
-      configWriteChain = configWriteChain.then(() => {
+      enqueueConfigWrite(() => {
         try {
           const result = readConfigFile();
           if (!result.ok) {

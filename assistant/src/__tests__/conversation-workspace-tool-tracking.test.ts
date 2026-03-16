@@ -220,7 +220,7 @@ mock.module("../memory/canonical-guardian-store.js", () => ({
 
 import { Conversation } from "../daemon/conversation.js";
 
-function makeSession(): Conversation {
+function makeConversation(): Conversation {
   const provider = {
     name: "mock",
     async sendMessage(): Promise<ProviderResponse> {
@@ -252,12 +252,12 @@ describe("Conversation workspace dirty on file mutations", () => {
   });
 
   test("successful file_write marks workspace dirty", async () => {
-    const session = makeSession();
-    await session.loadFromDb();
+    const conversation = makeConversation();
+    await conversation.loadFromDb();
 
     // Prime the cache so dirty=false
-    session.refreshWorkspaceTopLevelContextIfNeeded();
-    expect(session.isWorkspaceTopLevelDirty()).toBe(false);
+    conversation.refreshWorkspaceTopLevelContextIfNeeded();
+    expect(conversation.isWorkspaceTopLevelDirty()).toBe(false);
 
     agentLoopScript = (onEvent) => {
       onEvent({
@@ -274,16 +274,16 @@ describe("Conversation workspace dirty on file mutations", () => {
       });
     };
 
-    await session.processMessage("Write a file", [], () => {});
-    expect(session.isWorkspaceTopLevelDirty()).toBe(true);
+    await conversation.processMessage("Write a file", [], () => {});
+    expect(conversation.isWorkspaceTopLevelDirty()).toBe(true);
   });
 
   test("successful file_edit marks workspace dirty", async () => {
-    const session = makeSession();
-    await session.loadFromDb();
+    const conversation = makeConversation();
+    await conversation.loadFromDb();
 
-    session.refreshWorkspaceTopLevelContextIfNeeded();
-    expect(session.isWorkspaceTopLevelDirty()).toBe(false);
+    conversation.refreshWorkspaceTopLevelContextIfNeeded();
+    expect(conversation.isWorkspaceTopLevelDirty()).toBe(false);
 
     agentLoopScript = (onEvent) => {
       onEvent({
@@ -300,18 +300,18 @@ describe("Conversation workspace dirty on file mutations", () => {
       });
     };
 
-    await session.processMessage("Edit a file", [], () => {});
-    expect(session.isWorkspaceTopLevelDirty()).toBe(true);
+    await conversation.processMessage("Edit a file", [], () => {});
+    expect(conversation.isWorkspaceTopLevelDirty()).toBe(true);
   });
 
   test("file_write with isError still marks workspace dirty (secret-detection block)", async () => {
     // ToolExecutor can physically write the file and then flip isError=true
     // in secret-detection block mode — the filesystem has changed.
-    const session = makeSession();
-    await session.loadFromDb();
+    const conversation = makeConversation();
+    await conversation.loadFromDb();
 
-    session.refreshWorkspaceTopLevelContextIfNeeded();
-    expect(session.isWorkspaceTopLevelDirty()).toBe(false);
+    conversation.refreshWorkspaceTopLevelContextIfNeeded();
+    expect(conversation.isWorkspaceTopLevelDirty()).toBe(false);
 
     agentLoopScript = (onEvent) => {
       onEvent({
@@ -328,16 +328,16 @@ describe("Conversation workspace dirty on file mutations", () => {
       });
     };
 
-    await session.processMessage("Write a file", [], () => {});
-    expect(session.isWorkspaceTopLevelDirty()).toBe(true);
+    await conversation.processMessage("Write a file", [], () => {});
+    expect(conversation.isWorkspaceTopLevelDirty()).toBe(true);
   });
 
   test("successful bash marks workspace dirty", async () => {
-    const session = makeSession();
-    await session.loadFromDb();
+    const conversation = makeConversation();
+    await conversation.loadFromDb();
 
-    session.refreshWorkspaceTopLevelContextIfNeeded();
-    expect(session.isWorkspaceTopLevelDirty()).toBe(false);
+    conversation.refreshWorkspaceTopLevelContextIfNeeded();
+    expect(conversation.isWorkspaceTopLevelDirty()).toBe(false);
 
     agentLoopScript = (onEvent) => {
       onEvent({
@@ -354,16 +354,16 @@ describe("Conversation workspace dirty on file mutations", () => {
       });
     };
 
-    await session.processMessage("Run a command", [], () => {});
-    expect(session.isWorkspaceTopLevelDirty()).toBe(true);
+    await conversation.processMessage("Run a command", [], () => {});
+    expect(conversation.isWorkspaceTopLevelDirty()).toBe(true);
   });
 
   test("failed bash still marks workspace dirty (commands can mutate before failing)", async () => {
-    const session = makeSession();
-    await session.loadFromDb();
+    const conversation = makeConversation();
+    await conversation.loadFromDb();
 
-    session.refreshWorkspaceTopLevelContextIfNeeded();
-    expect(session.isWorkspaceTopLevelDirty()).toBe(false);
+    conversation.refreshWorkspaceTopLevelContextIfNeeded();
+    expect(conversation.isWorkspaceTopLevelDirty()).toBe(false);
 
     agentLoopScript = (onEvent) => {
       onEvent({
@@ -380,16 +380,16 @@ describe("Conversation workspace dirty on file mutations", () => {
       });
     };
 
-    await session.processMessage("Run a command", [], () => {});
-    expect(session.isWorkspaceTopLevelDirty()).toBe(true);
+    await conversation.processMessage("Run a command", [], () => {});
+    expect(conversation.isWorkspaceTopLevelDirty()).toBe(true);
   });
 
   test("non-mutation tools do NOT mark workspace dirty", async () => {
-    const session = makeSession();
-    await session.loadFromDb();
+    const conversation = makeConversation();
+    await conversation.loadFromDb();
 
-    session.refreshWorkspaceTopLevelContextIfNeeded();
-    expect(session.isWorkspaceTopLevelDirty()).toBe(false);
+    conversation.refreshWorkspaceTopLevelContextIfNeeded();
+    expect(conversation.isWorkspaceTopLevelDirty()).toBe(false);
 
     agentLoopScript = (onEvent) => {
       onEvent({
@@ -406,7 +406,7 @@ describe("Conversation workspace dirty on file mutations", () => {
       });
     };
 
-    await session.processMessage("Read a file", [], () => {});
-    expect(session.isWorkspaceTopLevelDirty()).toBe(false);
+    await conversation.processMessage("Read a file", [], () => {});
+    expect(conversation.isWorkspaceTopLevelDirty()).toBe(false);
   });
 });

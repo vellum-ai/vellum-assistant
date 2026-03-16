@@ -3,7 +3,6 @@ import { join } from "node:path";
 import { getCharacterComponents } from "../../avatar/character-components.js";
 import {
   type CharacterTraits,
-  syncTraitsToAvatar,
   writeTraitsAndRenderAvatar,
 } from "../../avatar/traits-png-sync.js";
 import { getLogger } from "../../util/logger.js";
@@ -46,40 +45,34 @@ export function avatarRouteDefinitions(): RouteDefinition[] {
       endpoint: "avatar/render-from-traits",
       method: "POST",
       handler: async ({ req }) => {
-        let success: boolean;
-
-        // If the request includes a JSON body with traits, write the traits
-        // file and render the PNG in one atomic operation.  Otherwise fall
-        // back to reading the existing character-traits.json from disk
-        // (backward-compat path).
-        const contentType = req.headers.get("content-type") ?? "";
-        if (contentType.includes("application/json")) {
-          let body: CharacterTraits;
-          try {
-            body = (await req.json()) as CharacterTraits;
-          } catch {
-            return httpError("BAD_REQUEST", "Invalid JSON body", 400);
-          }
-
-          if (!body.bodyShape || !body.eyeStyle || !body.color) {
-            return httpError(
-              "BAD_REQUEST",
-              "Missing required fields: bodyShape, eyeStyle, color",
-              400,
-            );
-          }
-
-          success = writeTraitsAndRenderAvatar(body);
-        } else {
-          success = syncTraitsToAvatar();
+        let body: CharacterTraits;
+        try {
+          body = (await req.json()) as CharacterTraits;
+        } catch {
+          return httpError("BAD_REQUEST", "Invalid JSON body", 400);
         }
 
-        if (!success) {
+        if (
+          !body ||
+          typeof body !== "object" ||
+          !body.bodyShape ||
+          !body.eyeStyle ||
+          !body.color
+        ) {
           return httpError(
             "BAD_REQUEST",
-            "Failed to render avatar from traits",
+            "Missing required fields: bodyShape, eyeStyle, color",
             400,
           );
+        }
+
+        const result = writeTraitsAndRenderAvatar(body);
+
+        if (!result.ok) {
+          const status = result.reason === "render_error" ? 500 : 400;
+          const code =
+            result.reason === "render_error" ? "INTERNAL_ERROR" : "BAD_REQUEST";
+          return httpError(code, result.message, status);
         }
 
         publishAvatarUpdated();

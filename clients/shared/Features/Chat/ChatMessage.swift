@@ -1609,9 +1609,9 @@ public struct ChatMessage: Identifiable, Equatable {
         && lhs.isStreaming == rhs.isStreaming
         && lhs.status == rhs.status
         && lhs.isError == rhs.isError
-        && lhs.toolCalls.count == rhs.toolCalls.count
+        && lhs.toolCalls == rhs.toolCalls
         && lhs.attachments.count == rhs.attachments.count
-        && lhs.inlineSurfaces.count == rhs.inlineSurfaces.count
+        && lhs.inlineSurfaces == rhs.inlineSurfaces
         && lhs.confirmation?.state == rhs.confirmation?.state
         && lhs.guardianDecision?.state == rhs.guardianDecision?.state
         && lhs.guardianDecision?.isSubmitting == rhs.guardianDecision?.isSubmitting

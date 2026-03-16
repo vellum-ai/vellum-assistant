@@ -12,6 +12,6 @@ import { type DrizzleDb, getSqliteFrom } from "../db-connection.js";
 export function migrateRenameSequenceStepsReplyKey(database: DrizzleDb): void {
   const raw = getSqliteFrom(database);
   raw.exec(
-    /*sql*/ `UPDATE sequences SET steps = REPLACE(steps, '"replyToThread"', '"replyInSameConversation"') WHERE steps LIKE '%"replyToThread"%'`,
+    /*sql*/ `UPDATE sequences SET steps = REPLACE(steps, '"replyToThread":', '"replyInSameConversation":') WHERE steps LIKE '%"replyToThread":%'`,
   );
 }

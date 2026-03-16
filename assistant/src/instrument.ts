@@ -2,7 +2,7 @@ import { arch, hostname, platform, release } from "node:os";
 
 import * as Sentry from "@sentry/node";
 
-import { getSentryDsn } from "./config/env.js";
+import { getPlatformOrganizationId, getSentryDsn } from "./config/env.js";
 import { APP_VERSION, COMMIT_SHA } from "./version.js";
 
 /** Patterns that match sensitive data in Sentry event values. */
@@ -58,6 +58,9 @@ export function initSentry(): void {
         runtime: "bun",
         runtime_version:
           typeof Bun !== "undefined" ? Bun.version : process.version,
+        ...(getPlatformOrganizationId()
+          ? { organization_id: getPlatformOrganizationId() }
+          : {}),
       },
     },
     beforeSend(event) {
@@ -93,6 +96,19 @@ export async function closeSentry(): Promise<void> {
   await Sentry.close();
 }
 
+/**
+ * Set (or clear) the organization_id tag on the global Sentry scope.
+ *
+ * Called after the platform organization ID is rehydrated from the
+ * credential store or updated at runtime so that every subsequent
+ * Sentry event includes the organization context.
+ */
+export function setSentryOrganizationId(
+  organizationId: string | undefined,
+): void {
+  Sentry.setTag("organization_id", organizationId || undefined);
+}
+
 // ── Dynamic conversation-scoped Sentry tags ─────────────────────────
 //
 // These tags change per conversation turn and are set on the current
@@ -105,6 +121,7 @@ export async function closeSentry(): Promise<void> {
 const CONVERSATION_TAG_KEYS = [
   "assistant_id",
   "conversation_id",
+  "session_id",
   "message_count",
   "user_identifier",
 ] as const;
@@ -131,6 +148,9 @@ export function setSentryConversationContext(
 ): void {
   Sentry.setTag("assistant_id", ctx.assistantId);
   Sentry.setTag("conversation_id", ctx.conversationId);
+  // session_id mirrors conversation_id — downstream Sentry dashboards and
+  // alerts may still filter by the legacy tag name.
+  Sentry.setTag("session_id", ctx.conversationId);
   Sentry.setTag("message_count", String(ctx.messageCount));
   if (ctx.userIdentifier) {
     Sentry.setTag("user_identifier", ctx.userIdentifier);

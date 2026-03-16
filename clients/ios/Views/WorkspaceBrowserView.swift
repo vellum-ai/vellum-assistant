@@ -6,6 +6,7 @@ import VellumAssistantShared
 struct WorkspaceBrowserView: View {
     let client: DaemonClient?
     var initialPath: String = ""
+    private let workspaceClient = WorkspaceClient()
 
     @State private var entries: [WorkspaceTreeEntry] = []
     @State private var isLoading = true
@@ -335,15 +336,14 @@ struct WorkspaceBrowserView: View {
             return
         }
 
-        if let response = await client.fetchWorkspaceTree(path: initialPath) {
+        if let response = await workspaceClient.fetchWorkspaceTree(path: initialPath, showHidden: false) {
             entries = response.entries
         }
         isLoading = false
     }
 
     private func reloadDirectory() async {
-        guard let client else { return }
-        if let response = await client.fetchWorkspaceTree(path: initialPath) {
+        if let response = await workspaceClient.fetchWorkspaceTree(path: initialPath, showHidden: false) {
             entries = response.entries
         }
     }
@@ -370,16 +370,6 @@ struct WorkspaceBrowserView: View {
         if mimeType == "application/json" { return .fileCode }
         if mimeType == "application/pdf" { return .fileText }
         return .file
-    }
-
-    private func formatFileSize(_ bytes: Int) -> String {
-        if bytes < 1024 { return "\(bytes) B" }
-        let kb = Double(bytes) / 1024.0
-        if kb < 1024 { return String(format: "%.1f KB", kb) }
-        let mb = kb / 1024.0
-        if mb < 1024 { return String(format: "%.1f MB", mb) }
-        let gb = mb / 1024.0
-        return String(format: "%.1f GB", gb)
     }
 }
 #endif

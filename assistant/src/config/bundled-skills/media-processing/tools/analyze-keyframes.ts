@@ -29,7 +29,8 @@ export async function mapSegmentsForAsset(
   options: MapSegmentsOptions,
   onProgress?: (msg: string) => void,
 ): Promise<MapOutput> {
-  const apiKey = await getSecureKeyAsync("gemini");
+  const apiKey =
+    (await getSecureKeyAsync("gemini")) ?? process.env.GEMINI_API_KEY;
 
   if (!apiKey) {
     throw new Error(
@@ -121,7 +122,8 @@ export async function run(
     let output: MapOutput;
 
     if (mode === "direct_video") {
-      const apiKey = await getSecureKeyAsync("gemini");
+      const apiKey =
+        (await getSecureKeyAsync("gemini")) ?? process.env.GEMINI_API_KEY;
       if (!apiKey) {
         return {
           content:

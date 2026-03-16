@@ -224,7 +224,7 @@ mock.module("../memory/canonical-guardian-store.js", () => ({
 
 import { Conversation } from "../daemon/conversation.js";
 
-function makeSession(): Conversation {
+function makeConversation(): Conversation {
   const provider = {
     name: "mock",
     async sendMessage(): Promise<ProviderResponse> {
@@ -249,10 +249,10 @@ function makeSession(): Conversation {
 describe("abort tool result persistence", () => {
   test("abort after first of multiple tool calls still persists all required tool_result blocks", async () => {
     persistedMessages = [];
-    const session = makeSession();
-    await session.loadFromDb();
+    const conversation = makeConversation();
+    await conversation.loadFromDb();
 
-    await session.processMessage("Run tools", [], () => {});
+    await conversation.processMessage("Run tools", [], () => {});
 
     // Find user messages in persisted data that contain tool_result
     const toolResultUserMessages = persistedMessages.filter((m) => {
@@ -308,13 +308,13 @@ describe("abort tool result persistence", () => {
 
   test("restart/reload after abort does not reproduce provider ordering errors", async () => {
     persistedMessages = [];
-    const session = makeSession();
-    await session.loadFromDb();
+    const conversation = makeConversation();
+    await conversation.loadFromDb();
 
-    await session.processMessage("Run tools", [], () => {});
+    await conversation.processMessage("Run tools", [], () => {});
 
     // Simulate reload: the in-memory messages should be valid after repair
-    const messages = session.getMessages();
+    const messages = conversation.getMessages();
 
     // Every assistant message with tool_use should be immediately followed
     // by a user message with matching tool_result

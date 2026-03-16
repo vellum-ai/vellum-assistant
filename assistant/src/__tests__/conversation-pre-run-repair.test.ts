@@ -181,7 +181,7 @@ mock.module("../memory/canonical-guardian-store.js", () => ({
 
 import { Conversation } from "../daemon/conversation.js";
 
-function makeSession(): Conversation {
+function makeConversation(): Conversation {
   const provider = {
     name: "mock",
     async sendMessage(): Promise<ProviderResponse> {
@@ -232,19 +232,19 @@ describe("pre-run history repair", () => {
       // but we want to verify pre-run repair also works independently
     ];
 
-    const session = makeSession();
-    await session.loadFromDb();
+    const conversation = makeConversation();
+    await conversation.loadFromDb();
 
     // loadFromDb already repaired, but let's corrupt the in-memory state
     // by removing the synthetic user message to simulate a runtime drift
-    const messages = session.getMessages();
+    const messages = conversation.getMessages();
     // After load repair: [user, assistant(tool_use), user(synthetic_tool_result)]
     // Remove the synthetic user to simulate runtime corruption
     messages.pop();
 
     capturedRunMessages = [];
     const events: Array<Record<string, unknown>> = [];
-    await session.processMessage("Next question", [], (msg) =>
+    await conversation.processMessage("Next question", [], (msg) =>
       events.push(msg as unknown as Record<string, unknown>),
     );
 
@@ -284,11 +284,11 @@ describe("pre-run history repair", () => {
     };
     mockDbMessages = [];
 
-    const session = makeSession();
-    await session.loadFromDb();
+    const conversation = makeConversation();
+    await conversation.loadFromDb();
 
     capturedRunMessages = [];
-    await session.processMessage("Hello", [], () => {});
+    await conversation.processMessage("Hello", [], () => {});
 
     // Should have a user message in the captured run messages
     expect(capturedRunMessages.length).toBeGreaterThanOrEqual(1);

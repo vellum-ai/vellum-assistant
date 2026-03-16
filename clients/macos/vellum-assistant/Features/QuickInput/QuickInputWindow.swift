@@ -41,7 +41,7 @@ final class QuickInputWindow {
     /// Callback invoked when the user submits a message to a new chat.
     /// Includes optional image data from a screen capture.
     var onSubmit: ((String, Data?) -> Void)?
-    /// Callback invoked when the user submits a message to an existing thread.
+    /// Callback invoked when the user submits a message to an existing conversation.
     var onSubmitToConversation: ((String, Data?) -> Void)?
     /// Callback invoked when the user taps the microphone button.
     var onMicrophoneToggle: (() -> Void)?

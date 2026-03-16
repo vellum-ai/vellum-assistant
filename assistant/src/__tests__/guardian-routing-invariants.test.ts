@@ -132,7 +132,7 @@ function registerPendingToolApprovalInteraction(
   } as unknown as import("../daemon/conversation.js").Conversation;
 
   pendingInteractions.register(requestId, {
-    session: mockSession,
+    conversation: mockSession,
     conversationId,
     kind: "confirmation",
     confirmationDetails: {

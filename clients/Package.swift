@@ -42,6 +42,7 @@ let package = Package(
                 .copy("Resources/lucide-version.txt"),
             ],
             swiftSettings: [
+                .define("DEBUG", .when(configuration: .debug)),
                 .enableUpcomingFeature("BareSlashRegexLiterals")
             ],
             linkerSettings: [
@@ -75,6 +76,9 @@ let package = Package(
                 .process("Resources/initial-avatar.png"),
                 .process("Resources/vellum-app-icon.png"),
                 .process("Resources/welcome-characters.png")
+            ],
+            swiftSettings: [
+                .define("DEBUG", .when(configuration: .debug)),
             ],
             linkerSettings: [
                 .linkedFramework("ApplicationServices"),

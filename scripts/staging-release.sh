@@ -34,6 +34,12 @@ MAC_MINI_HOST="${MAC_MINI_HOST:?MAC_MINI_HOST is required -- set it in scripts/.
 # SSH user. Only needed if MAC_MINI_HOST doesn't already include a user@ prefix.
 MAC_MINI_USER="${MAC_MINI_USER:-}"
 
+# Password for the Mac mini (optional). When set, sshpass is used automatically.
+MAC_MINI_PASSWORD="${MAC_MINI_PASSWORD:-}"
+
+# Path to an SSH private key for the Mac mini (optional).
+MAC_MINI_SSH_KEY="${MAC_MINI_SSH_KEY:-}"
+
 # ---------------------------------------------------------------------------
 # Derived values
 # ---------------------------------------------------------------------------
@@ -43,6 +49,27 @@ if [ -n "$MAC_MINI_USER" ]; then
 else
   SCP_HOST="${MAC_MINI_HOST}"
 fi
+
+# Build auth-aware wrappers so every scp/ssh call inherits credentials.
+remote_scp() {
+  if [ -n "$MAC_MINI_PASSWORD" ]; then
+    SSHPASS="$MAC_MINI_PASSWORD" sshpass -e scp -o StrictHostKeyChecking=no "$@"
+  elif [ -n "$MAC_MINI_SSH_KEY" ]; then
+    scp -i "$MAC_MINI_SSH_KEY" -o StrictHostKeyChecking=no "$@"
+  else
+    scp "$@"
+  fi
+}
+
+remote_ssh() {
+  if [ -n "$MAC_MINI_PASSWORD" ]; then
+    SSHPASS="$MAC_MINI_PASSWORD" sshpass -e ssh -o StrictHostKeyChecking=no "$@"
+  elif [ -n "$MAC_MINI_SSH_KEY" ]; then
+    ssh -i "$MAC_MINI_SSH_KEY" -o StrictHostKeyChecking=no "$@"
+  else
+    ssh "$@"
+  fi
+}
 
 MACOS_BUILD_DIR="$SCRIPT_DIR/../clients/macos"
 
@@ -137,10 +164,10 @@ rm -rf "$DMG_STAGING"
 REMOTE_DMG="/tmp/vellum-assistant-staging.dmg"
 
 echo "Uploading DMG to ${SCP_HOST}..."
-scp "$DMG_PATH" "${SCP_HOST}:${REMOTE_DMG}"
+remote_scp "$DMG_PATH" "${SCP_HOST}:${REMOTE_DMG}"
 
 echo "Installing into /Applications on ${SCP_HOST}..."
-ssh "${SCP_HOST}" bash -s <<'REMOTE_SCRIPT'
+remote_ssh "${SCP_HOST}" bash -s <<'REMOTE_SCRIPT'
 set -euo pipefail
 DMG="/tmp/vellum-assistant-staging.dmg"
 

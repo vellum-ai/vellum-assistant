@@ -284,7 +284,7 @@ import type { QueueDrainReason, QueuePolicy } from "../daemon/conversation.js";
 import { Conversation } from "../daemon/conversation.js";
 import { MessageQueue } from "../daemon/conversation-queue-manager.js";
 
-type SessionWithWorkspaceDeps = Conversation & {
+type ConversationWithWorkspaceDeps = Conversation & {
   getWorkspaceGitService?: (_workspaceDir: string) => {
     ensureInitialized: () => Promise<void>;
   };
@@ -297,7 +297,7 @@ type SessionWithWorkspaceDeps = Conversation & {
   ) => Promise<void>;
 };
 
-function makeSession(
+function makeConversation(
   sendToClient?: (msg: ServerMessage) => void,
 ): Conversation {
   const provider = {
@@ -311,7 +311,7 @@ function makeSession(
       };
     },
   };
-  const session = new Conversation(
+  const conversationObj = new Conversation(
     "conv-1",
     provider,
     "system prompt",
@@ -319,11 +319,12 @@ function makeSession(
     sendToClient ?? (() => {}),
     "/tmp",
   );
-  const sessionWithWorkspaceDeps = session as SessionWithWorkspaceDeps;
-  sessionWithWorkspaceDeps.getWorkspaceGitService = () => ({
+  const conversationWithWorkspaceDeps =
+    conversationObj as ConversationWithWorkspaceDeps;
+  conversationWithWorkspaceDeps.getWorkspaceGitService = () => ({
     ensureInitialized: async () => {},
   });
-  sessionWithWorkspaceDeps.commitTurnChanges = async (
+  conversationWithWorkspaceDeps.commitTurnChanges = async (
     workspaceDir: string,
     conversationId: string,
     turnNumber: number,
@@ -334,7 +335,7 @@ function makeSession(
       await new Promise<void>(() => {});
     }
   };
-  return session;
+  return conversationObj;
 }
 
 /**
@@ -416,14 +417,14 @@ describe("Conversation message queue", () => {
   });
 
   test("second message is queued when session is busy (does not throw)", async () => {
-    const session = makeSession();
-    await session.loadFromDb();
+    const conversation = makeConversation();
+    await conversation.loadFromDb();
 
     const events1: ServerMessage[] = [];
     const events2: ServerMessage[] = [];
 
     // Start first message — this will block on AgentLoop.run
-    const p1 = session.processMessage(
+    const p1 = conversation.processMessage(
       "msg-1",
       [],
       (e) => events1.push(e),
@@ -434,10 +435,10 @@ describe("Conversation message queue", () => {
     await waitForPendingRun(1);
 
     // Conversation should now be processing
-    expect(session.isProcessing()).toBe(true);
+    expect(conversation.isProcessing()).toBe(true);
 
     // Enqueue second message — should NOT throw
-    const result = session.enqueueMessage(
+    const result = conversation.enqueueMessage(
       "msg-2",
       [],
       (e) => events2.push(e),
@@ -445,7 +446,7 @@ describe("Conversation message queue", () => {
     );
     expect(result.queued).toBe(true);
     expect(result.requestId).toBe("req-2");
-    expect(session.getQueueDepth()).toBe(1);
+    expect(conversation.getQueueDepth()).toBe(1);
 
     // Complete the first message
     resolveRun(0);
@@ -466,8 +467,8 @@ describe("Conversation message queue", () => {
   });
 
   test("[experimental] queued messages are processed in FIFO order", async () => {
-    const session = makeSession();
-    await session.loadFromDb();
+    const conversation = makeConversation();
+    await conversation.loadFromDb();
 
     const processedOrder: string[] = [];
 
@@ -476,7 +477,7 @@ describe("Conversation message queue", () => {
     };
 
     // Start first message
-    const p1 = session.processMessage(
+    const p1 = conversation.processMessage(
       "msg-1",
       [],
       makeHandler("msg-1"),
@@ -485,9 +486,9 @@ describe("Conversation message queue", () => {
     await waitForPendingRun(1);
 
     // Enqueue two more
-    session.enqueueMessage("msg-2", [], makeHandler("msg-2"), "req-2");
-    session.enqueueMessage("msg-3", [], makeHandler("msg-3"), "req-3");
-    expect(session.getQueueDepth()).toBe(2);
+    conversation.enqueueMessage("msg-2", [], makeHandler("msg-2"), "req-2");
+    conversation.enqueueMessage("msg-3", [], makeHandler("msg-3"), "req-3");
+    expect(conversation.getQueueDepth()).toBe(2);
 
     // Complete first → triggers second
     resolveRun(0);
@@ -506,17 +507,17 @@ describe("Conversation message queue", () => {
   });
 
   test("message_queued and message_dequeued events are emitted", async () => {
-    const session = makeSession();
-    await session.loadFromDb();
+    const conversation = makeConversation();
+    await conversation.loadFromDb();
 
     const events2: ServerMessage[] = [];
 
     // Start first message
-    const p1 = session.processMessage("msg-1", [], () => {}, "req-1");
+    const p1 = conversation.processMessage("msg-1", [], () => {}, "req-1");
     await waitForPendingRun(1);
 
     // Enqueue second — simulating what handleUserMessage does
-    const result = session.enqueueMessage(
+    const result = conversation.enqueueMessage(
       "msg-2",
       [],
       (e) => events2.push(e),
@@ -544,26 +545,26 @@ describe("Conversation message queue", () => {
   });
 
   test("abort() clears the queue and sends generation_cancelled for each queued message", async () => {
-    const session = makeSession();
-    await session.loadFromDb();
+    const conversation = makeConversation();
+    await conversation.loadFromDb();
 
     const events2: ServerMessage[] = [];
     const events3: ServerMessage[] = [];
 
     // Start first message
-    session.processMessage("msg-1", [], () => {}, "req-1");
+    conversation.processMessage("msg-1", [], () => {}, "req-1");
     await waitForPendingRun(1);
 
     // Enqueue two more
-    session.enqueueMessage("msg-2", [], (e) => events2.push(e), "req-2");
-    session.enqueueMessage("msg-3", [], (e) => events3.push(e), "req-3");
-    expect(session.getQueueDepth()).toBe(2);
+    conversation.enqueueMessage("msg-2", [], (e) => events2.push(e), "req-2");
+    conversation.enqueueMessage("msg-3", [], (e) => events3.push(e), "req-3");
+    expect(conversation.getQueueDepth()).toBe(2);
 
     // Abort
-    session.abort();
+    conversation.abort();
 
     // Queue should be empty
-    expect(session.getQueueDepth()).toBe(0);
+    expect(conversation.getQueueDepth()).toBe(0);
 
     // Both queued messages should receive session-scoped cancellation events.
     const cancel2 = events2.find((e) => e.type === "generation_cancelled");
@@ -592,13 +593,13 @@ describe("Conversation message queue", () => {
   });
 
   test("conversation-scoped errors emit both conversation_error and generic error", async () => {
-    const session = makeSession();
-    await session.loadFromDb();
+    const conversation = makeConversation();
+    await conversation.loadFromDb();
 
     const events: ServerMessage[] = [];
 
     // Start a message — blocks on AgentLoop.run
-    const p1 = session.processMessage(
+    const p1 = conversation.processMessage(
       "msg-1",
       [],
       (e) => events.push(e),
@@ -621,42 +622,42 @@ describe("Conversation message queue", () => {
   });
 
   test("queue depth is reported correctly as messages are added and drained", async () => {
-    const session = makeSession();
-    await session.loadFromDb();
+    const conversation = makeConversation();
+    await conversation.loadFromDb();
 
     // Start first message
-    const p1 = session.processMessage("msg-1", [], () => {}, "req-1");
+    const p1 = conversation.processMessage("msg-1", [], () => {}, "req-1");
     await waitForPendingRun(1);
 
-    expect(session.getQueueDepth()).toBe(0);
+    expect(conversation.getQueueDepth()).toBe(0);
 
-    session.enqueueMessage("msg-2", [], () => {}, "req-2");
-    expect(session.getQueueDepth()).toBe(1);
+    conversation.enqueueMessage("msg-2", [], () => {}, "req-2");
+    expect(conversation.getQueueDepth()).toBe(1);
 
-    session.enqueueMessage("msg-3", [], () => {}, "req-3");
-    expect(session.getQueueDepth()).toBe(2);
+    conversation.enqueueMessage("msg-3", [], () => {}, "req-3");
+    expect(conversation.getQueueDepth()).toBe(2);
 
-    session.enqueueMessage("msg-4", [], () => {}, "req-4");
-    expect(session.getQueueDepth()).toBe(3);
+    conversation.enqueueMessage("msg-4", [], () => {}, "req-4");
+    expect(conversation.getQueueDepth()).toBe(3);
 
     // Complete first → drains one from queue
     resolveRun(0);
     await p1;
     await waitForPendingRun(2);
 
-    expect(session.getQueueDepth()).toBe(2);
+    expect(conversation.getQueueDepth()).toBe(2);
 
     // Complete second → drains another
     resolveRun(1);
     await waitForPendingRun(3);
 
-    expect(session.getQueueDepth()).toBe(1);
+    expect(conversation.getQueueDepth()).toBe(1);
 
     // Complete third → drains last
     resolveRun(2);
     await waitForPendingRun(4);
 
-    expect(session.getQueueDepth()).toBe(0);
+    expect(conversation.getQueueDepth()).toBe(0);
 
     // Complete fourth (final queued message)
     resolveRun(3);
@@ -664,15 +665,15 @@ describe("Conversation message queue", () => {
   });
 
   test("[experimental] drain continues after a queued message fails to persist", async () => {
-    const session = makeSession();
-    await session.loadFromDb();
+    const conversation = makeConversation();
+    await conversation.loadFromDb();
 
     const events1: ServerMessage[] = [];
     const events2: ServerMessage[] = [];
     const events3: ServerMessage[] = [];
 
     // Start first message — blocks on AgentLoop.run
-    const p1 = session.processMessage(
+    const p1 = conversation.processMessage(
       "msg-1",
       [],
       (e) => events1.push(e),
@@ -681,10 +682,10 @@ describe("Conversation message queue", () => {
     await waitForPendingRun(1);
 
     // Enqueue a message with empty content (will fail persistUserMessage)
-    session.enqueueMessage("", [], (e) => events2.push(e), "req-2");
+    conversation.enqueueMessage("", [], (e) => events2.push(e), "req-2");
     // Enqueue a valid message after the bad one
-    session.enqueueMessage("msg-3", [], (e) => events3.push(e), "req-3");
-    expect(session.getQueueDepth()).toBe(2);
+    conversation.enqueueMessage("msg-3", [], (e) => events3.push(e), "req-3");
+    expect(conversation.getQueueDepth()).toBe(2);
 
     // Complete first message — triggers drain. The empty message should fail
     // to persist, but the drain should continue to msg-3.
@@ -723,22 +724,22 @@ describe("Conversation queue policy helpers", () => {
   });
 
   test("hasQueuedMessages() returns false on a fresh session", async () => {
-    const session = makeSession();
-    await session.loadFromDb();
-    expect(session.hasQueuedMessages()).toBe(false);
+    const conversation = makeConversation();
+    await conversation.loadFromDb();
+    expect(conversation.hasQueuedMessages()).toBe(false);
   });
 
   test("hasQueuedMessages() returns true after enqueuing while processing", async () => {
-    const session = makeSession();
-    await session.loadFromDb();
+    const conversation = makeConversation();
+    await conversation.loadFromDb();
 
     // Start processing to make the session busy
-    session.processMessage("msg-1", [], () => {}, "req-1");
+    conversation.processMessage("msg-1", [], () => {}, "req-1");
     await waitForPendingRun(1);
 
     // Enqueue a message while processing
-    session.enqueueMessage("msg-2", [], () => {}, "req-2");
-    expect(session.hasQueuedMessages()).toBe(true);
+    conversation.enqueueMessage("msg-2", [], () => {}, "req-2");
+    expect(conversation.hasQueuedMessages()).toBe(true);
 
     // Cleanup: resolve the pending run
     resolveRun(0);
@@ -748,24 +749,24 @@ describe("Conversation queue policy helpers", () => {
   });
 
   test("canHandoffAtCheckpoint() returns false when not processing", async () => {
-    const session = makeSession();
-    await session.loadFromDb();
+    const conversation = makeConversation();
+    await conversation.loadFromDb();
 
     // Not processing, no queued messages
-    expect(session.canHandoffAtCheckpoint()).toBe(false);
+    expect(conversation.canHandoffAtCheckpoint()).toBe(false);
   });
 
   test("canHandoffAtCheckpoint() returns false when processing but no queued messages", async () => {
-    const session = makeSession();
-    await session.loadFromDb();
+    const conversation = makeConversation();
+    await conversation.loadFromDb();
 
     // Start processing — but don't enqueue anything
-    session.processMessage("msg-1", [], () => {}, "req-1");
+    conversation.processMessage("msg-1", [], () => {}, "req-1");
     await waitForPendingRun(1);
 
-    expect(session.isProcessing()).toBe(true);
-    expect(session.hasQueuedMessages()).toBe(false);
-    expect(session.canHandoffAtCheckpoint()).toBe(false);
+    expect(conversation.isProcessing()).toBe(true);
+    expect(conversation.hasQueuedMessages()).toBe(false);
+    expect(conversation.canHandoffAtCheckpoint()).toBe(false);
 
     // Cleanup
     resolveRun(0);
@@ -773,19 +774,19 @@ describe("Conversation queue policy helpers", () => {
   });
 
   test("canHandoffAtCheckpoint() returns true when processing and queue has messages", async () => {
-    const session = makeSession();
-    await session.loadFromDb();
+    const conversation = makeConversation();
+    await conversation.loadFromDb();
 
     // Start processing
-    session.processMessage("msg-1", [], () => {}, "req-1");
+    conversation.processMessage("msg-1", [], () => {}, "req-1");
     await waitForPendingRun(1);
 
     // Enqueue a message
-    session.enqueueMessage("msg-2", [], () => {}, "req-2");
+    conversation.enqueueMessage("msg-2", [], () => {}, "req-2");
 
-    expect(session.isProcessing()).toBe(true);
-    expect(session.hasQueuedMessages()).toBe(true);
-    expect(session.canHandoffAtCheckpoint()).toBe(true);
+    expect(conversation.isProcessing()).toBe(true);
+    expect(conversation.hasQueuedMessages()).toBe(true);
+    expect(conversation.canHandoffAtCheckpoint()).toBe(true);
 
     // Cleanup
     resolveRun(0);
@@ -822,13 +823,13 @@ describe("Conversation checkpoint handoff", () => {
   });
 
   test("[experimental] onCheckpoint yields when there is a queued message", async () => {
-    const session = makeSession();
-    await session.loadFromDb();
+    const conversation = makeConversation();
+    await conversation.loadFromDb();
 
     const events1: ServerMessage[] = [];
 
     // Start processing first message
-    const p1 = session.processMessage(
+    const p1 = conversation.processMessage(
       "msg-1",
       [],
       (e) => events1.push(e),
@@ -837,8 +838,8 @@ describe("Conversation checkpoint handoff", () => {
     await waitForPendingRun(1);
 
     // Enqueue a second message while the first is processing
-    session.enqueueMessage("msg-2", [], () => {}, "req-2");
-    expect(session.hasQueuedMessages()).toBe(true);
+    conversation.enqueueMessage("msg-2", [], () => {}, "req-2");
+    expect(conversation.hasQueuedMessages()).toBe(true);
 
     // The pending run should have received an onCheckpoint callback.
     // Simulate the agent loop calling it at a turn boundary.
@@ -875,14 +876,14 @@ describe("Conversation checkpoint handoff", () => {
   });
 
   test("onCheckpoint returns continue when queue is empty", async () => {
-    const session = makeSession();
-    await session.loadFromDb();
+    const conversation = makeConversation();
+    await conversation.loadFromDb();
 
     // Start processing — no enqueued messages
-    const p1 = session.processMessage("msg-1", [], () => {}, "req-1");
+    const p1 = conversation.processMessage("msg-1", [], () => {}, "req-1");
     await waitForPendingRun(1);
 
-    expect(session.hasQueuedMessages()).toBe(false);
+    expect(conversation.hasQueuedMessages()).toBe(false);
 
     // The pending run should have an onCheckpoint callback
     const run = pendingRuns[0];
@@ -903,8 +904,8 @@ describe("Conversation checkpoint handoff", () => {
   });
 
   test("[experimental] FIFO ordering is preserved through checkpoint handoff", async () => {
-    const session = makeSession();
-    await session.loadFromDb();
+    const conversation = makeConversation();
+    await conversation.loadFromDb();
 
     const processedOrder: string[] = [];
 
@@ -914,7 +915,7 @@ describe("Conversation checkpoint handoff", () => {
     };
 
     // Start first message
-    const p1 = session.processMessage(
+    const p1 = conversation.processMessage(
       "msg-1",
       [],
       makeHandler("msg-1"),
@@ -923,9 +924,9 @@ describe("Conversation checkpoint handoff", () => {
     await waitForPendingRun(1);
 
     // Enqueue two messages
-    session.enqueueMessage("msg-2", [], makeHandler("msg-2"), "req-2");
-    session.enqueueMessage("msg-3", [], makeHandler("msg-3"), "req-3");
-    expect(session.getQueueDepth()).toBe(2);
+    conversation.enqueueMessage("msg-2", [], makeHandler("msg-2"), "req-2");
+    conversation.enqueueMessage("msg-3", [], makeHandler("msg-3"), "req-3");
+    expect(conversation.getQueueDepth()).toBe(2);
 
     // Simulate the agent loop yielding at the checkpoint (first run)
     const run0 = pendingRuns[0];
@@ -958,14 +959,14 @@ describe("Conversation checkpoint handoff", () => {
   });
 
   test("[experimental] active run with repeated tool turns + queued message triggers checkpoint handoff", async () => {
-    const session = makeSession();
-    await session.loadFromDb();
+    const conversation = makeConversation();
+    await conversation.loadFromDb();
 
     const events1: ServerMessage[] = [];
     const events2: ServerMessage[] = [];
 
     // Start processing first message
-    const p1 = session.processMessage(
+    const p1 = conversation.processMessage(
       "msg-1",
       [],
       (e) => events1.push(e),
@@ -974,8 +975,8 @@ describe("Conversation checkpoint handoff", () => {
     await waitForPendingRun(1);
 
     // Enqueue a second message while the first is processing
-    session.enqueueMessage("msg-2", [], (e) => events2.push(e), "req-2");
-    expect(session.hasQueuedMessages()).toBe(true);
+    conversation.enqueueMessage("msg-2", [], (e) => events2.push(e), "req-2");
+    expect(conversation.hasQueuedMessages()).toBe(true);
 
     // Simulate tool-use turns: the agent loop calls onCheckpoint at each turn boundary.
     // Because there is a queued message, the callback should return 'yield'.
@@ -1021,8 +1022,8 @@ describe("Conversation checkpoint handoff", () => {
   });
 
   test("queued messages still drain FIFO under multiple handoffs", async () => {
-    const session = makeSession();
-    await session.loadFromDb();
+    const conversation = makeConversation();
+    await conversation.loadFromDb();
 
     const dequeueOrder: string[] = [];
 
@@ -1032,7 +1033,7 @@ describe("Conversation checkpoint handoff", () => {
     };
 
     // Start processing message A
-    const pA = session.processMessage(
+    const pA = conversation.processMessage(
       "msg-A",
       [],
       (e) => eventsA.push(e),
@@ -1041,10 +1042,10 @@ describe("Conversation checkpoint handoff", () => {
     await waitForPendingRun(1);
 
     // Enqueue messages B, C, D
-    session.enqueueMessage("msg-B", [], makeHandler("B"), "req-B");
-    session.enqueueMessage("msg-C", [], makeHandler("C"), "req-C");
-    session.enqueueMessage("msg-D", [], makeHandler("D"), "req-D");
-    expect(session.getQueueDepth()).toBe(3);
+    conversation.enqueueMessage("msg-B", [], makeHandler("B"), "req-B");
+    conversation.enqueueMessage("msg-C", [], makeHandler("C"), "req-C");
+    conversation.enqueueMessage("msg-D", [], makeHandler("D"), "req-D");
+    expect(conversation.getQueueDepth()).toBe(3);
 
     // Handoff from A -> B
     const runA = pendingRuns[0];
@@ -1112,15 +1113,15 @@ describe("Conversation checkpoint handoff", () => {
   });
 
   test("[experimental] queued persistence failure does not strand later messages", async () => {
-    const session = makeSession();
-    await session.loadFromDb();
+    const conversation = makeConversation();
+    await conversation.loadFromDb();
 
     const eventsA: ServerMessage[] = [];
     const eventsB: ServerMessage[] = [];
     const eventsC: ServerMessage[] = [];
 
     // Start processing message A
-    const pA = session.processMessage(
+    const pA = conversation.processMessage(
       "msg-A",
       [],
       (e) => eventsA.push(e),
@@ -1129,9 +1130,9 @@ describe("Conversation checkpoint handoff", () => {
     await waitForPendingRun(1);
 
     // Enqueue B (empty content — will fail to persist) and C (valid)
-    session.enqueueMessage("", [], (e) => eventsB.push(e), "req-B");
-    session.enqueueMessage("msg-C", [], (e) => eventsC.push(e), "req-C");
-    expect(session.getQueueDepth()).toBe(2);
+    conversation.enqueueMessage("", [], (e) => eventsB.push(e), "req-B");
+    conversation.enqueueMessage("msg-C", [], (e) => eventsC.push(e), "req-C");
+    expect(conversation.getQueueDepth()).toBe(2);
 
     // Complete message A — triggers drain. B should fail, C should proceed.
     resolveRun(0);
@@ -1159,11 +1160,11 @@ describe("Conversation checkpoint handoff", () => {
   });
 
   test("onCheckpoint callback is passed to both initial and retry runs", async () => {
-    const session = makeSession();
-    await session.loadFromDb();
+    const conversation = makeConversation();
+    await conversation.loadFromDb();
 
     // Start processing
-    const p1 = session.processMessage("msg-1", [], () => {}, "req-1");
+    const p1 = conversation.processMessage("msg-1", [], () => {}, "req-1");
     await waitForPendingRun(1);
 
     // The first run should have onCheckpoint
@@ -1204,10 +1205,10 @@ describe("Conversation usage requestId correlation", () => {
   });
 
   test("usage events recorded during a request carry that request ID", async () => {
-    const session = makeSession();
-    await session.loadFromDb();
+    const conversation = makeConversation();
+    await conversation.loadFromDb();
 
-    const p1 = session.processMessage("msg-1", [], () => {}, "req-42");
+    const p1 = conversation.processMessage("msg-1", [], () => {}, "req-42");
     await waitForPendingRun(1);
 
     // Complete the run — this triggers recordUsage with the request's ID
@@ -1234,19 +1235,19 @@ describe("Terminal trace events on rejection/failure", () => {
 
   test("queued persist failure emits request_error trace", async () => {
     const traceEvents: ServerMessage[] = [];
-    const session = makeSession((msg) => {
+    const conversation = makeConversation((msg) => {
       if ("type" in msg && msg.type === "trace_event") traceEvents.push(msg);
     });
-    await session.loadFromDb();
+    await conversation.loadFromDb();
 
     // Start first message
-    const p1 = session.processMessage("msg-1", [], () => {}, "req-1");
+    const p1 = conversation.processMessage("msg-1", [], () => {}, "req-1");
     await waitForPendingRun(1);
 
     // Enqueue empty content (will fail persistUserMessage)
-    session.enqueueMessage("", [], () => {}, "req-bad");
+    conversation.enqueueMessage("", [], () => {}, "req-bad");
     // Enqueue valid message so drain continues
-    session.enqueueMessage("msg-3", [], () => {}, "req-3");
+    conversation.enqueueMessage("msg-3", [], () => {}, "req-3");
 
     // Complete first — triggers drain, empty msg fails persist
     resolveRun(0);
@@ -1285,10 +1286,10 @@ describe("Conversation host attachment directives", () => {
     try {
       const clientEvents: ServerMessage[] = [];
       const events: ServerMessage[] = [];
-      const session = makeSession((msg) => clientEvents.push(msg));
-      await session.loadFromDb();
+      const conversation = makeConversation((msg) => clientEvents.push(msg));
+      await conversation.loadFromDb();
 
-      const p1 = session.processMessage(
+      const p1 = conversation.processMessage(
         "msg-1",
         [],
         (e) => events.push(e),
@@ -1323,16 +1324,18 @@ describe("Conversation host attachment directives", () => {
         (e) => e.type === "confirmation_request",
       );
       expect(confirmation).toBeDefined();
-      session.handleConfirmationResponse(
+      conversation.handleConfirmationResponse(
         (confirmation as { requestId: string }).requestId,
         "allow",
       );
 
       await p1;
 
-      expect(session.lastAssistantAttachments).toHaveLength(1);
-      expect(session.lastAssistantAttachments[0].sourceType).toBe("host_file");
-      expect(session.lastAttachmentWarnings).toHaveLength(0);
+      expect(conversation.lastAssistantAttachments).toHaveLength(1);
+      expect(conversation.lastAssistantAttachments[0].sourceType).toBe(
+        "host_file",
+      );
+      expect(conversation.lastAttachmentWarnings).toHaveLength(0);
 
       const completion = events.find((e) => e.type === "message_complete");
       expect(completion).toBeDefined();
@@ -1348,10 +1351,10 @@ describe("Conversation host attachment directives", () => {
     try {
       const clientEvents: ServerMessage[] = [];
       const events: ServerMessage[] = [];
-      const session = makeSession((msg) => clientEvents.push(msg));
-      await session.loadFromDb();
+      const conversation = makeConversation((msg) => clientEvents.push(msg));
+      await conversation.loadFromDb();
 
-      const p1 = session.processMessage(
+      const p1 = conversation.processMessage(
         "msg-1",
         [],
         (e) => events.push(e),
@@ -1386,16 +1389,16 @@ describe("Conversation host attachment directives", () => {
         (e) => e.type === "confirmation_request",
       );
       expect(confirmation).toBeDefined();
-      session.handleConfirmationResponse(
+      conversation.handleConfirmationResponse(
         (confirmation as { requestId: string }).requestId,
         "deny",
       );
 
       await p1;
 
-      expect(session.lastAssistantAttachments).toHaveLength(0);
+      expect(conversation.lastAssistantAttachments).toHaveLength(0);
       expect(
-        session.lastAttachmentWarnings.some((w) =>
+        conversation.lastAttachmentWarnings.some((w) =>
           w.includes("access denied by user"),
         ),
       ).toBe(true);
@@ -1425,10 +1428,10 @@ describe("Conversation attachment event payloads", () => {
 
   test("message_complete includes assistant attachments", async () => {
     const events: ServerMessage[] = [];
-    const session = makeSession();
-    await session.loadFromDb();
+    const conversation = makeConversation();
+    await conversation.loadFromDb();
 
-    const p1 = session.processMessage(
+    const p1 = conversation.processMessage(
       "msg-1",
       [],
       (e) => events.push(e),
@@ -1482,10 +1485,10 @@ describe("Conversation attachment event payloads", () => {
 
   test("generation_handoff includes assistant attachments", async () => {
     const events1: ServerMessage[] = [];
-    const session = makeSession();
-    await session.loadFromDb();
+    const conversation = makeConversation();
+    await conversation.loadFromDb();
 
-    const p1 = session.processMessage(
+    const p1 = conversation.processMessage(
       "msg-1",
       [],
       (e) => events1.push(e),
@@ -1494,7 +1497,7 @@ describe("Conversation attachment event payloads", () => {
     await waitForPendingRun(1);
 
     // Queue a second message so the first run yields via checkpoint handoff.
-    session.enqueueMessage("msg-2", [], () => {}, "req-2");
+    conversation.enqueueMessage("msg-2", [], () => {}, "req-2");
 
     const run = pendingRuns[0];
     expect(run.onCheckpoint).toBeDefined();
@@ -1565,11 +1568,11 @@ describe("Regression: cancel semantics and error channel split", () => {
 
   test("user cancellation emits generation_cancelled, never conversation_error", async () => {
     const msgEvents: ServerMessage[] = [];
-    const session = makeSession();
-    await session.loadFromDb();
+    const conversation = makeConversation();
+    await conversation.loadFromDb();
 
     // Start processing a message — collect events from the per-message callback
-    const p1 = session.processMessage(
+    const p1 = conversation.processMessage(
       "msg-1",
       [],
       (e) => msgEvents.push(e),
@@ -1578,7 +1581,7 @@ describe("Regression: cancel semantics and error channel split", () => {
     await waitForPendingRun(1);
 
     // User cancels — sets the abort signal
-    session.abort();
+    conversation.abort();
 
     // Resolve the pending run so the abort-check path fires
     resolveRun(0);
@@ -1597,11 +1600,11 @@ describe("Regression: cancel semantics and error channel split", () => {
 
   test("post-processing failure still attempts turn-boundary commit", async () => {
     const events: ServerMessage[] = [];
-    const session = makeSession();
-    await session.loadFromDb();
+    const conversation = makeConversation();
+    await conversation.loadFromDb();
     linkAttachmentShouldThrow = true;
 
-    const p1 = session.processMessage(
+    const p1 = conversation.processMessage(
       "msg-1",
       [],
       (e) => events.push(e),
@@ -1648,10 +1651,10 @@ describe("Regression: cancel semantics and error channel split", () => {
 
   test("provider failure during processing emits both conversation_error and generic error", async () => {
     const allEvents: ServerMessage[] = [];
-    const session = makeSession();
-    await session.loadFromDb();
+    const conversation = makeConversation();
+    await conversation.loadFromDb();
 
-    const p1 = session.processMessage(
+    const p1 = conversation.processMessage(
       "msg-1",
       [],
       (e) => allEvents.push(e),
@@ -1673,12 +1676,12 @@ describe("Regression: cancel semantics and error channel split", () => {
   });
 
   test("cancel after queued messages produces no conversation_error for any queued entry", async () => {
-    const session = makeSession();
-    await session.loadFromDb();
+    const conversation = makeConversation();
+    await conversation.loadFromDb();
 
     const eventsPerMsg: ServerMessage[][] = [[], [], []];
 
-    session.processMessage(
+    conversation.processMessage(
       "msg-1",
       [],
       (e) => eventsPerMsg[0].push(e),
@@ -1686,20 +1689,20 @@ describe("Regression: cancel semantics and error channel split", () => {
     );
     await waitForPendingRun(1);
 
-    session.enqueueMessage(
+    conversation.enqueueMessage(
       "msg-2",
       [],
       (e) => eventsPerMsg[1].push(e),
       "req-2",
     );
-    session.enqueueMessage(
+    conversation.enqueueMessage(
       "msg-3",
       [],
       (e) => eventsPerMsg[2].push(e),
       "req-3",
     );
 
-    session.abort();
+    conversation.abort();
 
     // No queued message should have received conversation_error
     for (const events of eventsPerMsg) {
@@ -1709,8 +1712,8 @@ describe("Regression: cancel semantics and error channel split", () => {
   });
 
   test("commitTurnChanges never resolving within budget -> turn still completes and drains queue", async () => {
-    const session = makeSession();
-    await session.loadFromDb();
+    const conversation = makeConversation();
+    await conversation.loadFromDb();
 
     turnCommitHangForever = true;
 
@@ -1719,7 +1722,7 @@ describe("Regression: cancel semantics and error channel split", () => {
       const events2: ServerMessage[] = [];
 
       // Start first message (promise intentionally not awaited — we test queue drain behavior)
-      const _p1 = session.processMessage(
+      const _p1 = conversation.processMessage(
         "msg-1",
         [],
         (e) => events1.push(e),
@@ -1728,7 +1731,7 @@ describe("Regression: cancel semantics and error channel split", () => {
       await waitForPendingRun(1);
 
       // Enqueue a second message while the first is processing
-      session.enqueueMessage("msg-2", [], (e) => events2.push(e), "req-2");
+      conversation.enqueueMessage("msg-2", [], (e) => events2.push(e), "req-2");
 
       // Complete the first agent loop run
       resolveRun(0);

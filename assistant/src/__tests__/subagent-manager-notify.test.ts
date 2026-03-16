@@ -273,7 +273,7 @@ describe("SubagentManager notifyParent (via runSubagent)", () => {
     const state = makeState(subagentId);
     injectFakeSubagent(manager, subagentId, state);
 
-    // Patch the fake session to simulate a successful agent loop.
+    // Patch the fake conversation to simulate a successful agent loop.
     const managed = asInternals(manager).subagents.get(subagentId)!;
     managed.conversation.persistUserMessage = () => "msg-1";
     managed.conversation.runAgentLoop = async () => {};
@@ -306,7 +306,7 @@ describe("SubagentManager notifyParent (via runSubagent)", () => {
     const state = makeState(subagentId);
     injectFakeSubagent(manager, subagentId, state);
 
-    // Patch the fake session to simulate a failure.
+    // Patch the fake conversation to simulate a failure.
     const managed = asInternals(manager).subagents.get(subagentId)!;
 
     managed.conversation.persistUserMessage = () => "msg-1";
@@ -419,7 +419,7 @@ describe("SubagentManager abort race guard", () => {
     const state = makeState(subagentId, { status: "aborted" });
     injectFakeSubagent(manager, subagentId, state);
 
-    // Patch session to simulate successful completion after abort.
+    // Patch conversation to simulate successful completion after abort.
     const managed = asInternals(manager).subagents.get(subagentId)!;
 
     managed.conversation.persistUserMessage = () => "msg-1";

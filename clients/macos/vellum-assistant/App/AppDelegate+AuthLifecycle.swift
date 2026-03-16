@@ -13,6 +13,7 @@ extension AppDelegate {
     func startAuthenticatedFlow() {
         Task {
             await authManager.checkSession()
+            SentryDeviceInfo.updateUserTag(authManager.currentUser?.id)
             let isAuthed = authManager.isAuthenticated
             let hasKey = APIKeyManager.hasAnyKey()
             log.info("[authFlow] isAuthenticated=\(isAuthed) hasAnyKey=\(hasKey)")
@@ -183,7 +184,8 @@ extension AppDelegate {
             // alive with potentially stale state.
             for assistant in LockfileAssistant.loadAll() where !assistant.isRemote && !assistant.isManaged {
                 if assistant.assistantId != connectedAssistantId {
-                    let env: [String: String]? = assistant.instanceDir.map { ["BASE_DATA_DIR": $0] }
+                    guard let instanceDir = assistant.instanceDir else { continue }
+                    let env = ["BASE_DATA_DIR": instanceDir]
                     let pidPath = VellumAssistantShared.resolvePidPath(environment: env)
                     if let data = try? Data(contentsOf: URL(fileURLWithPath: pidPath)),
                        let pidString = String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines),
@@ -315,10 +317,12 @@ extension AppDelegate {
                     log.info("Local assistant API key provisioned: \(id, privacy: .public)")
                 }
                 self.localBootstrapDidComplete = true
+                SentryDeviceInfo.updateOrganizationTag(UserDefaults.standard.string(forKey: "connectedOrganizationId"))
                 NotificationCenter.default.post(name: .localBootstrapCompleted, object: nil)
             } catch {
                 log.error("Failed to provision local assistant API key: \(error.localizedDescription)")
                 self.localBootstrapDidComplete = true
+                SentryDeviceInfo.updateOrganizationTag(UserDefaults.standard.string(forKey: "connectedOrganizationId"))
                 NotificationCenter.default.post(name: .localBootstrapCompleted, object: nil)
                 self.mainWindow?.windowState.showToast(
                     message: "Failed to set up Vellum credentials. You may need to sign out and sign in again.",
@@ -349,7 +353,7 @@ extension AppDelegate {
         daemonClient.disconnect()
         // Reset dock icon to default before loading the new assistant's avatar
         AvatarAppearanceManager.shared.resetForDisconnect()
-        // Close and recreate the main window to reset thread/session state
+        // Close and recreate the main window to reset conversation state
         mainWindow?.close()
         mainWindow = nil
 
@@ -358,6 +362,7 @@ extension AppDelegate {
         SentryDeviceInfo.updateAssistantTag(assistant.assistantId)
         // Clear stale org ID so the next bootstrap re-resolves it for the new assistant
         UserDefaults.standard.removeObject(forKey: "connectedOrganizationId")
+        SentryDeviceInfo.updateOrganizationTag(nil)
         // Clear stale actor token for the previous assistant
         actorTokenBootstrapTask?.cancel()
         actorTokenBootstrapTask = nil
@@ -518,6 +523,8 @@ extension AppDelegate {
         UserDefaults.standard.removeObject(forKey: "connectedAssistantId")
         SentryDeviceInfo.updateAssistantTag(nil)
         UserDefaults.standard.removeObject(forKey: "connectedOrganizationId")
+        SentryDeviceInfo.updateOrganizationTag(nil)
+        SentryDeviceInfo.updateUserTag(nil)
         UserDefaults.standard.removeObject(forKey: "lastActivePanel")
 
         daemonClient.disconnect()

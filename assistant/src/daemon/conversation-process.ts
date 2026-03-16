@@ -15,7 +15,7 @@ import type {
   TurnInterfaceContext,
 } from "../channels/types.js";
 import { parseChannelId, parseInterfaceId } from "../channels/types.js";
-import { API_KEY_PROVIDERS, getConfig } from "../config/loader.js";
+import { getConfig } from "../config/loader.js";
 import { listPendingRequestsByConversationScope } from "../memory/canonical-guardian-store.js";
 import {
   addMessage,
@@ -25,9 +25,9 @@ import {
 } from "../memory/conversation-crud.js";
 import { extractPreferences } from "../notifications/preference-extractor.js";
 import { createPreference } from "../notifications/preferences-store.js";
+import { getConfiguredProviders } from "../providers/provider-availability.js";
 import type { Message } from "../providers/types.js";
 import { routeGuardianReply } from "../runtime/guardian-reply-router.js";
-import { getSecureKeyAsync } from "../security/secure-keys.js";
 import { getLogger } from "../util/logger.js";
 import type { MessageQueue } from "./conversation-queue-manager.js";
 import type { QueueDrainReason } from "./conversation-queue-manager.js";
@@ -45,23 +45,16 @@ import type {
 import type { TraceEmitter } from "./trace-emitter.js";
 import { resolveVerificationSessionIntent } from "./verification-session-intent.js";
 
-const log = getLogger("session-process");
+const log = getLogger("conversation-process");
 
 /** Build a model_info event with fresh config data. */
 export async function buildModelInfoEvent(): Promise<ServerMessage> {
   const config = getConfig();
-  const configured: string[] = ["ollama"];
-  for (const p of API_KEY_PROVIDERS) {
-    if (p === "ollama") continue;
-    if (await getSecureKeyAsync(p)) {
-      configured.push(p);
-    }
-  }
   return {
     type: "model_info",
     model: config.model,
     provider: config.provider,
-    configuredProviders: configured,
+    configuredProviders: await getConfiguredProviders(),
   };
 }
 
@@ -92,7 +85,7 @@ export interface ProcessConversationContext {
   readonly traceEmitter: TraceEmitter;
   currentActiveSurfaceId?: string;
   currentPage?: string;
-  /** Cumulative token usage stats for the session. */
+  /** Cumulative token usage stats for the conversation. */
   readonly usageStats: UsageStats;
   /** Request-scoped skill IDs preactivated via config or programmatic injection. */
   preactivatedSkillIds?: string[];
@@ -198,17 +191,19 @@ function resolveQueuedTurnInterfaceContext(
   return fallback;
 }
 
-/** Build a SlashContext from the current session state and config. */
-function buildSlashContext(session: ProcessConversationContext): SlashContext {
+/** Build a SlashContext from the current conversation state and config. */
+function buildSlashContext(
+  conversation: ProcessConversationContext,
+): SlashContext {
   const config = getConfig();
   return {
-    messageCount: session.messages.length,
-    inputTokens: session.usageStats.inputTokens,
-    outputTokens: session.usageStats.outputTokens,
+    messageCount: conversation.messages.length,
+    inputTokens: conversation.usageStats.inputTokens,
+    outputTokens: conversation.usageStats.outputTokens,
     maxInputTokens: config.contextWindow.maxInputTokens,
     model: config.model,
     provider: config.provider,
-    estimatedCost: session.usageStats.estimatedCost,
+    estimatedCost: conversation.usageStats.estimatedCost,
   };
 }
 
@@ -225,26 +220,26 @@ function buildSlashContext(session: ProcessConversationContext): SlashContext {
  * remaining queued messages would be stranded.
  */
 export async function drainQueue(
-  session: ProcessConversationContext,
+  conversation: ProcessConversationContext,
   reason: QueueDrainReason = "loop_complete",
 ): Promise<void> {
-  const next = session.queue.shift();
+  const next = conversation.queue.shift();
   if (!next) return;
 
   // Reset per-turn preactivation so a prior iteration (e.g. an unknown-slash
   // from a desktop source that skips runAgentLoop) can't leak CU preactivation
   // into the next queued message.
-  session.preactivatedSkillIds = undefined;
+  conversation.preactivatedSkillIds = undefined;
 
   log.info(
     {
-      conversationId: session.conversationId,
+      conversationId: conversation.conversationId,
       requestId: next.requestId,
       reason,
     },
     "Dequeuing message",
   );
-  session.traceEmitter.emit(
+  conversation.traceEmitter.emit(
     "request_dequeued",
     `Message dequeued (${reason})`,
     {
@@ -255,10 +250,10 @@ export async function drainQueue(
   );
   next.onEvent({
     type: "message_dequeued",
-    conversationId: session.conversationId,
+    conversationId: conversation.conversationId,
     requestId: next.requestId,
   });
-  session.emitActivityState(
+  conversation.emitActivityState(
     "thinking",
     "message_dequeued",
     "assistant_turn",
@@ -267,50 +262,52 @@ export async function drainQueue(
 
   const queuedTurnCtx = resolveQueuedTurnContext(
     next,
-    session.getTurnChannelContext(),
+    conversation.getTurnChannelContext(),
   );
   if (queuedTurnCtx) {
-    session.setTurnChannelContext(queuedTurnCtx);
+    conversation.setTurnChannelContext(queuedTurnCtx);
   }
 
   const queuedInterfaceCtx = resolveQueuedTurnInterfaceContext(
     next,
-    session.getTurnInterfaceContext(),
+    conversation.getTurnInterfaceContext(),
   );
   if (queuedInterfaceCtx) {
-    session.setTurnInterfaceContext(queuedInterfaceCtx);
+    conversation.setTurnInterfaceContext(queuedInterfaceCtx);
   }
 
   // Non-interactive queued messages (channel requests) must not execute tools
   // via the desktop host proxy. Clear proxy availability so isAvailable()
   // returns false and tool execution falls back to local.
   if (next.isInteractive === false) {
-    session.clearProxyAvailability();
+    conversation.clearProxyAvailability();
   } else {
     // Restore proxy availability only for desktop-originating turns (macos/ios)
     // in case a prior non-interactive drain disabled it. Non-desktop interactive
     // interfaces (CLI, Vellum) should not re-enable desktop host proxies.
     const interfaceCtx =
-      queuedInterfaceCtx ?? session.getTurnInterfaceContext();
+      queuedInterfaceCtx ?? conversation.getTurnInterfaceContext();
     const sourceInterface = interfaceCtx?.userMessageInterface;
     if (sourceInterface === "macos" || sourceInterface === "ios") {
-      session.restoreProxyAvailability();
-      session.addPreactivatedSkillId("computer-use");
+      conversation.restoreProxyAvailability();
+      conversation.addPreactivatedSkillId("computer-use");
     }
   }
 
   // Resolve slash commands for queued messages
   const slashResult = await resolveSlash(
     next.content,
-    buildSlashContext(session),
+    buildSlashContext(conversation),
   );
 
   // Unknown slash — persist the exchange and continue draining.
-  // Persist each message before pushing to session.messages so that a
+  // Persist each message before pushing to conversation.messages so that a
   // failed write never leaves an unpersisted message in memory.
   if (slashResult.kind === "unknown") {
     try {
-      const drainProvenance = provenanceFromTrustContext(session.trustContext);
+      const drainProvenance = provenanceFromTrustContext(
+        conversation.trustContext,
+      );
       const drainChannelMeta = {
         ...drainProvenance,
         ...(queuedTurnCtx
@@ -338,31 +335,31 @@ export async function drainQueue(
           )
         : JSON.stringify(userMsg.content);
       await addMessage(
-        session.conversationId,
+        conversation.conversationId,
         "user",
         contentToPersist,
         drainChannelMeta,
       );
-      session.messages.push(userMsg);
+      conversation.messages.push(userMsg);
 
       const assistantMsg = createAssistantMessage(slashResult.message);
       await addMessage(
-        session.conversationId,
+        conversation.conversationId,
         "assistant",
         JSON.stringify(assistantMsg.content),
         drainChannelMeta,
       );
-      session.messages.push(assistantMsg);
+      conversation.messages.push(assistantMsg);
 
       if (queuedTurnCtx) {
         setConversationOriginChannelIfUnset(
-          session.conversationId,
+          conversation.conversationId,
           queuedTurnCtx.userMessageChannel,
         );
       }
       if (queuedInterfaceCtx) {
         setConversationOriginInterfaceIfUnset(
-          session.conversationId,
+          conversation.conversationId,
           queuedInterfaceCtx.userMessageInterface,
         );
       }
@@ -376,7 +373,7 @@ export async function drainQueue(
         next.onEvent(await buildModelInfoEvent());
       }
       next.onEvent({ type: "assistant_text_delta", text: slashResult.message });
-      session.traceEmitter.emit(
+      conversation.traceEmitter.emit(
         "message_complete",
         "Unknown slash command handled",
         {
@@ -386,19 +383,19 @@ export async function drainQueue(
       );
       next.onEvent({
         type: "message_complete",
-        conversationId: session.conversationId,
+        conversationId: conversation.conversationId,
       });
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       log.error(
         {
           err,
-          conversationId: session.conversationId,
+          conversationId: conversation.conversationId,
           requestId: next.requestId,
         },
         "Failed to persist unknown-slash exchange",
       );
-      session.traceEmitter.emit(
+      conversation.traceEmitter.emit(
         "request_error",
         `Unknown-slash persist failed: ${message}`,
         {
@@ -410,7 +407,7 @@ export async function drainQueue(
       next.onEvent({ type: "error", message });
     }
     // Continue draining regardless of success/failure
-    await drainQueue(session);
+    await drainQueue(conversation);
     return;
   }
 
@@ -426,13 +423,13 @@ export async function drainQueue(
     if (verificationIntent.kind === "direct_setup") {
       log.info(
         {
-          conversationId: session.conversationId,
+          conversationId: conversation.conversationId,
           channelHint: verificationIntent.channelHint,
         },
         "Verification session intent intercepted in queue — forcing skill flow",
       );
       agentLoopContent = verificationIntent.rewrittenContent;
-      session.preactivatedSkillIds = ["guardian-verify-setup"];
+      conversation.preactivatedSkillIds = ["guardian-verify-setup"];
     }
   }
 
@@ -442,7 +439,7 @@ export async function drainQueue(
   // resolves early (no runAgentLoop call), so we must continue draining.
   let userMessageId: string;
   try {
-    userMessageId = await session.persistUserMessage(
+    userMessageId = await conversation.persistUserMessage(
       resolvedContent,
       next.attachments,
       next.requestId,
@@ -454,12 +451,12 @@ export async function drainQueue(
     log.error(
       {
         err,
-        conversationId: session.conversationId,
+        conversationId: conversation.conversationId,
         requestId: next.requestId,
       },
       "Failed to persist queued message",
     );
-    session.traceEmitter.emit(
+    conversation.traceEmitter.emit(
       "request_error",
       `Queued message persist failed: ${message}`,
       {
@@ -470,19 +467,19 @@ export async function drainQueue(
     );
     next.onEvent({ type: "error", message });
     // runAgentLoop never ran, so its finally block won't clear this
-    session.preactivatedSkillIds = undefined;
+    conversation.preactivatedSkillIds = undefined;
     // Continue draining — don't strand remaining messages
-    await drainQueue(session);
+    await drainQueue(conversation);
     return;
   }
 
   // Set the active surface for the dequeued message so runAgentLoop can inject context
-  session.currentActiveSurfaceId = next.activeSurfaceId;
-  session.currentPage = next.currentPage;
+  conversation.currentActiveSurfaceId = next.activeSurfaceId;
+  conversation.currentPage = next.currentPage;
 
   // Fire-and-forget: detect notification preferences in the queued message
   // and persist any that are found, mirroring the logic in processMessage.
-  if (session.assistantId) {
+  if (conversation.assistantId) {
     extractPreferences(resolvedContent)
       .then((result) => {
         if (!result.detected) return;
@@ -496,7 +493,7 @@ export async function drainQueue(
         log.info(
           {
             count: result.preferences.length,
-            conversationId: session.conversationId,
+            conversationId: conversation.conversationId,
           },
           "Persisted extracted notification preferences (queued)",
         );
@@ -504,13 +501,13 @@ export async function drainQueue(
       .catch((err) => {
         const errMsg = err instanceof Error ? err.message : String(err);
         log.warn(
-          { err: errMsg, conversationId: session.conversationId },
+          { err: errMsg, conversationId: conversation.conversationId },
           "Background preference extraction failed (queued)",
         );
       });
   }
 
-  // Fire-and-forget: persistUserMessage set session.processing = true
+  // Fire-and-forget: persistUserMessage set conversation.processing = true
   // so subsequent messages will still be enqueued.
   // runAgentLoop's finally block will call drainQueue when this run completes.
   const drainLoopOptions: {
@@ -523,7 +520,7 @@ export async function drainQueue(
   if (agentLoopContent !== resolvedContent)
     drainLoopOptions.titleText = resolvedContent;
 
-  session
+  conversation
     .runAgentLoop(
       agentLoopContent,
       userMessageId,
@@ -535,7 +532,7 @@ export async function drainQueue(
       log.error(
         {
           err,
-          conversationId: session.conversationId,
+          conversationId: conversation.conversationId,
           requestId: next.requestId,
         },
         "Error processing queued message",
@@ -554,7 +551,7 @@ export async function drainQueue(
  * in a single call. Used by the message-handler path where blocking is expected.
  */
 export async function processMessage(
-  session: ProcessConversationContext,
+  conversation: ProcessConversationContext,
   content: string,
   attachments: UserMessageAttachment[],
   onEvent: (msg: ServerMessage) => void,
@@ -564,14 +561,14 @@ export async function processMessage(
   options?: { isInteractive?: boolean },
   displayContent?: string,
 ): Promise<string> {
-  await session.ensureActorScopedHistory();
-  session.currentActiveSurfaceId = activeSurfaceId;
-  session.currentPage = currentPage;
+  await conversation.ensureActorScopedHistory();
+  conversation.currentActiveSurfaceId = activeSurfaceId;
+  conversation.currentPage = currentPage;
   const trimmedContent = content.trim();
   const canonicalPendingRequestHintIdsForConversation =
     trimmedContent.length > 0
       ? listPendingRequestsByConversationScope(
-          session.conversationId,
+          conversation.conversationId,
           "vellum",
         ).map((request) => request.id)
       : [];
@@ -580,8 +577,8 @@ export async function processMessage(
       ? canonicalPendingRequestHintIdsForConversation
       : undefined;
 
-  // ── Canonical guardian reply router (desktop/session path) ──
-  // Desktop/session guardian replies are canonical-only. Messages consumed
+  // ── Canonical guardian reply router (desktop/conversation path) ──
+  // Desktop/conversation guardian replies are canonical-only. Messages consumed
   // by the router never hit the general agent loop.
   if (trimmedContent.length > 0) {
     const routerResult = await routeGuardianReply({
@@ -589,13 +586,13 @@ export async function processMessage(
       channel: "vellum",
       actor: {
         actorPrincipalId:
-          session.trustContext?.guardianPrincipalId ?? undefined,
-        actorExternalUserId: session.trustContext?.guardianExternalUserId,
+          conversation.trustContext?.guardianPrincipalId ?? undefined,
+        actorExternalUserId: conversation.trustContext?.guardianExternalUserId,
         channel: "vellum",
         guardianPrincipalId:
-          session.trustContext?.guardianPrincipalId ?? undefined,
+          conversation.trustContext?.guardianPrincipalId ?? undefined,
       },
-      conversationId: session.conversationId,
+      conversationId: conversation.conversationId,
       pendingRequestIds: canonicalPendingRequestIdsForConversation,
       // Desktop path: disable NL classification to avoid consuming non-decision
       // messages while a tool confirmation is pending. Deterministic code-prefix
@@ -604,7 +601,7 @@ export async function processMessage(
     });
 
     if (routerResult.consumed) {
-      const guardianIfCtx = session.getTurnInterfaceContext();
+      const guardianIfCtx = conversation.getTurnInterfaceContext();
       const routerChannelMeta = {
         userMessageChannel: "vellum" as const,
         assistantMessageChannel: "vellum" as const,
@@ -616,12 +613,12 @@ export async function processMessage(
 
       const userMsg = createUserMessage(content, attachments);
       const persisted = await addMessage(
-        session.conversationId,
+        conversation.conversationId,
         "user",
         JSON.stringify(userMsg.content),
         routerChannelMeta,
       );
-      session.messages.push(userMsg);
+      conversation.messages.push(userMsg);
 
       const replyText =
         routerResult.replyText ??
@@ -630,22 +627,22 @@ export async function processMessage(
           : "Request already resolved.");
       const assistantMsg = createAssistantMessage(replyText);
       await addMessage(
-        session.conversationId,
+        conversation.conversationId,
         "assistant",
         JSON.stringify(assistantMsg.content),
         routerChannelMeta,
       );
-      session.messages.push(assistantMsg);
+      conversation.messages.push(assistantMsg);
 
       onEvent({ type: "assistant_text_delta", text: replyText });
       onEvent({
         type: "message_complete",
-        conversationId: session.conversationId,
+        conversationId: conversation.conversationId,
       });
 
       log.info(
         {
-          conversationId: session.conversationId,
+          conversationId: conversation.conversationId,
           routerType: routerResult.type,
           requestId: routerResult.requestId,
         },
@@ -657,15 +654,18 @@ export async function processMessage(
   }
 
   // Resolve slash commands before persistence
-  const slashResult = await resolveSlash(content, buildSlashContext(session));
+  const slashResult = await resolveSlash(
+    content,
+    buildSlashContext(conversation),
+  );
 
   // Unknown slash command — persist the exchange (user + assistant) so the
-  // messageId is real.  Persist each message before pushing to session.messages
+  // messageId is real.  Persist each message before pushing to conversation.messages
   // so that a failed write never leaves an unpersisted message in memory.
   if (slashResult.kind === "unknown") {
-    const pmTurnCtx = session.getTurnChannelContext();
-    const pmInterfaceCtx = session.getTurnInterfaceContext();
-    const pmProvenance = provenanceFromTrustContext(session.trustContext);
+    const pmTurnCtx = conversation.getTurnChannelContext();
+    const pmInterfaceCtx = conversation.getTurnInterfaceContext();
+    const pmProvenance = provenanceFromTrustContext(conversation.trustContext);
     const pmChannelMeta = {
       ...pmProvenance,
       ...(pmTurnCtx
@@ -689,31 +689,31 @@ export async function processMessage(
       ? JSON.stringify(createUserMessage(displayContent, attachments).content)
       : JSON.stringify(userMsg.content);
     const persisted = await addMessage(
-      session.conversationId,
+      conversation.conversationId,
       "user",
       contentToPersist,
       pmChannelMeta,
     );
-    session.messages.push(userMsg);
+    conversation.messages.push(userMsg);
 
     const assistantMsg = createAssistantMessage(slashResult.message);
     await addMessage(
-      session.conversationId,
+      conversation.conversationId,
       "assistant",
       JSON.stringify(assistantMsg.content),
       pmChannelMeta,
     );
-    session.messages.push(assistantMsg);
+    conversation.messages.push(assistantMsg);
 
     if (pmTurnCtx) {
       setConversationOriginChannelIfUnset(
-        session.conversationId,
+        conversation.conversationId,
         pmTurnCtx.userMessageChannel,
       );
     }
     if (pmInterfaceCtx) {
       setConversationOriginInterfaceIfUnset(
-        session.conversationId,
+        conversation.conversationId,
         pmInterfaceCtx.userMessageInterface,
       );
     }
@@ -724,7 +724,7 @@ export async function processMessage(
       onEvent(await buildModelInfoEvent());
     }
     onEvent({ type: "assistant_text_delta", text: slashResult.message });
-    session.traceEmitter.emit(
+    conversation.traceEmitter.emit(
       "message_complete",
       "Unknown slash command handled",
       {
@@ -734,7 +734,7 @@ export async function processMessage(
     );
     onEvent({
       type: "message_complete",
-      conversationId: session.conversationId,
+      conversationId: conversation.conversationId,
     });
     return persisted.id;
   }
@@ -753,19 +753,19 @@ export async function processMessage(
     if (verificationIntent.kind === "direct_setup") {
       log.info(
         {
-          conversationId: session.conversationId,
+          conversationId: conversation.conversationId,
           channelHint: verificationIntent.channelHint,
         },
         "Verification session intent intercepted — forcing skill flow",
       );
       agentLoopContent = verificationIntent.rewrittenContent;
-      session.preactivatedSkillIds = ["guardian-verify-setup"];
+      conversation.preactivatedSkillIds = ["guardian-verify-setup"];
     }
   }
 
   let userMessageId: string;
   try {
-    userMessageId = await session.persistUserMessage(
+    userMessageId = await conversation.persistUserMessage(
       resolvedContent,
       attachments,
       requestId,
@@ -776,14 +776,14 @@ export async function processMessage(
     const message = err instanceof Error ? err.message : String(err);
     onEvent({ type: "error", message });
     // runAgentLoop never ran, so its finally block won't clear this
-    session.preactivatedSkillIds = undefined;
+    conversation.preactivatedSkillIds = undefined;
     return "";
   }
 
   // Fire-and-forget: detect notification preferences in the user message
   // and persist any that are found. Runs in the background so it doesn't
   // block the main conversation flow.
-  if (session.assistantId) {
+  if (conversation.assistantId) {
     extractPreferences(resolvedContent)
       .then((result) => {
         if (!result.detected) return;
@@ -797,7 +797,7 @@ export async function processMessage(
         log.info(
           {
             count: result.preferences.length,
-            conversationId: session.conversationId,
+            conversationId: conversation.conversationId,
           },
           "Persisted extracted notification preferences",
         );
@@ -805,7 +805,7 @@ export async function processMessage(
       .catch((err) => {
         const errMsg = err instanceof Error ? err.message : String(err);
         log.warn(
-          { err: errMsg, conversationId: session.conversationId },
+          { err: errMsg, conversationId: conversation.conversationId },
           "Background preference extraction failed",
         );
       });
@@ -821,7 +821,7 @@ export async function processMessage(
   if (agentLoopContent !== resolvedContent)
     loopOptions.titleText = resolvedContent;
 
-  await session.runAgentLoop(
+  await conversation.runAgentLoop(
     agentLoopContent,
     userMessageId,
     onEvent,

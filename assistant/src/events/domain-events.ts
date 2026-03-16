@@ -74,7 +74,7 @@ export interface DaemonDomainEvents {
     conversationId: string;
     createdAtMs: number;
   };
-  "daemon.session.evicted": {
+  "daemon.conversation.evicted": {
     conversationId: string;
     reason: "idle" | "stale" | "shutdown";
     evictedAtMs: number;

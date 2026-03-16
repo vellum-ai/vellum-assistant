@@ -24,7 +24,7 @@ struct IdentityPanel: View {
 
     /// Whether the BOOTSTRAP.md first-run ritual is still in progress.
     private var isBootstrapActive: Bool {
-        let base = lockfileAssistant?.instanceDir ?? NSHomeDirectory()
+        let base = daemonClient.config.instanceDir ?? NSHomeDirectory()
         return FileManager.default.fileExists(atPath: base + "/.vellum/workspace/BOOTSTRAP.md")
     }
 

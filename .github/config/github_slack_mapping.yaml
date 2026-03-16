@@ -22,7 +22,3 @@ github_to_slack_failure_notifications: # neutral good
 github_to_slack_success_notifications: # chaotic evil
 
 github_to_slack_cancelled_notifications: # chaotic neutral
-  dvargas92495: U05D5EGNNMS
-  clopen-set: U08QQU27M0W
-  m-abboud: U06CMAEKH4L
-  Shaarson: U08EREL8F18

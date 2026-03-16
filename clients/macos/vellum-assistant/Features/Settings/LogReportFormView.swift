@@ -8,6 +8,7 @@ struct LogReportFormView: View {
     enum Field { case email, name, message }
 
     let authManager: AuthManager
+    let initialReason: LogReportReason?
     let onSend: (LogReportFormData) -> Void
     let onCancel: () -> Void
 
@@ -16,6 +17,19 @@ struct LogReportFormView: View {
     @State private var message: String = ""
     @AppStorage("logReportEmail") private var email: String = ""
     @FocusState private var focusedField: Field?
+
+    init(
+        authManager: AuthManager,
+        initialReason: LogReportReason? = nil,
+        onSend: @escaping (LogReportFormData) -> Void,
+        onCancel: @escaping () -> Void
+    ) {
+        self.authManager = authManager
+        self.initialReason = initialReason
+        self.onSend = onSend
+        self.onCancel = onCancel
+        self._selectedReason = State(initialValue: initialReason)
+    }
 
     private var canSend: Bool {
         selectedReason != nil && !email.isEmpty

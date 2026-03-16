@@ -21,7 +21,7 @@ extension MainWindowView {
         if let id = conversationManager.activeConversationId {
             windowState.selection = .conversation(id)
         } else {
-            // Draft mode — clear selection so no sidebar thread is highlighted
+            // Draft mode — clear selection so no sidebar conversation is highlighted
             windowState.selection = nil
             windowState.persistentConversationId = nil
         }
@@ -123,7 +123,7 @@ extension MainWindowView {
         .background(VColor.surfaceOverlay)
         .clipShape(RoundedRectangle(cornerRadius: VRadius.xl))
         .clipped()
-        .alert("Rename Conversation", isPresented: Binding(
+        .alert("Rename Thread", isPresented: Binding(
             get: { sidebar.renamingConversationId != nil },
             set: { if !$0 { sidebar.renamingConversationId = nil } }
         )) {
@@ -201,9 +201,9 @@ extension MainWindowView {
             // Divider between nav items and conversations
             sidebarSectionDivider(isExpanded: true)
 
-            // MARK: Threads (scrollable)
+            // MARK: Conversations (scrollable)
             SidebarConversationsHeader(
-                hasUnseenThreads: conversationManager.unseenVisibleConversationCount > 0,
+                hasUnseenConversations: conversationManager.unseenVisibleConversationCount > 0,
                 isLoading: showDaemonLoading,
                 onMarkAllSeen: {
                     let markedIds = conversationManager.markAllConversationsSeen()

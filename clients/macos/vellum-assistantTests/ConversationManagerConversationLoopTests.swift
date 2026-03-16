@@ -3,7 +3,7 @@ import XCTest
 @testable import VellumAssistantShared
 
 @MainActor
-final class ConversationManagerSessionLoopTests: XCTestCase {
+final class ConversationManagerConversationLoopTests: XCTestCase {
     private var daemonClient: DaemonClient!
     private var conversationManager: ConversationManager!
 

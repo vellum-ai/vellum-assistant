@@ -45,6 +45,7 @@ import {
   stopLocalProcesses,
 } from "../lib/local";
 import { maybeStartNgrokTunnel } from "../lib/ngrok";
+import { httpHealthCheck } from "../lib/http-client";
 import { detectOrphanedProcesses } from "../lib/orphan-detection";
 import { isProcessAlive, stopProcess } from "../lib/process";
 import { generateInstanceName } from "../lib/random-name";
@@ -581,7 +582,9 @@ async function hatchLocal(
   );
 
   // Clean up stale local state: if daemon/gateway processes are running but
-  // the lock file has no entries, stop them before starting fresh.
+  // the lock file has no entries AND the daemon is not healthy, stop them
+  // before starting fresh. A healthy daemon should be reused, not killed —
+  // it may have been started intentionally via `vellum wake`.
   const vellumDir = join(homedir(), ".vellum");
   const existingAssistants = loadAllAssistants();
   const localAssistants = existingAssistants.filter((a) => a.cloud === "local");
@@ -589,10 +592,16 @@ async function hatchLocal(
     const daemonPid = isProcessAlive(join(vellumDir, "vellum.pid"));
     const gatewayPid = isProcessAlive(join(vellumDir, "gateway.pid"));
     if (daemonPid.alive || gatewayPid.alive) {
-      console.log(
-        "🧹 Cleaning up stale local processes (no lock file entry)...\n",
-      );
-      await stopLocalProcesses();
+      // Check if the daemon is actually healthy before killing it.
+      // Default port 7821 is used when there's no lockfile entry.
+      const defaultPort = parseInt(process.env.RUNTIME_HTTP_PORT || "7821", 10);
+      const healthy = await httpHealthCheck(defaultPort);
+      if (!healthy) {
+        console.log(
+          "🧹 Cleaning up stale local processes (no lock file entry)...\n",
+        );
+        await stopLocalProcesses();
+      }
     }
   }
 
@@ -600,17 +609,32 @@ async function hatchLocal(
   // are not tracked by any PID file or lock file entry and kill them before
   // starting new ones. This prevents resource leaks when the desktop app
   // crashes or is force-quit without a clean shutdown.
+  //
+  // Skip orphan cleanup if the daemon is already healthy on the expected port
+  // — those processes are intentional (e.g. started via `vellum wake`) and
+  // startLocalDaemon() will reuse them.
   if (IS_DESKTOP) {
-    const orphans = await detectOrphanedProcesses();
-    if (orphans.length > 0) {
-      desktopLog(
-        `🧹 Found ${orphans.length} orphaned process${orphans.length === 1 ? "" : "es"} — cleaning up...`,
-      );
-      for (const orphan of orphans) {
-        await stopProcess(
-          parseInt(orphan.pid, 10),
-          `${orphan.name} (PID ${orphan.pid})`,
+    const existingResources = findAssistantByName(instanceName);
+    const expectedPort =
+      existingResources?.cloud === "local" && existingResources.resources
+        ? existingResources.resources.daemonPort
+        : undefined;
+    const daemonAlreadyHealthy = expectedPort
+      ? await httpHealthCheck(expectedPort)
+      : false;
+
+    if (!daemonAlreadyHealthy) {
+      const orphans = await detectOrphanedProcesses();
+      if (orphans.length > 0) {
+        desktopLog(
+          `🧹 Found ${orphans.length} orphaned process${orphans.length === 1 ? "" : "es"} — cleaning up...`,
         );
+        for (const orphan of orphans) {
+          await stopProcess(
+            parseInt(orphan.pid, 10),
+            `${orphan.name} (PID ${orphan.pid})`,
+          );
+        }
       }
     }
   }
@@ -630,7 +654,10 @@ async function hatchLocal(
   // to archive it (or a managed-only retire left local data behind). Remove the
   // workspace subtree so the new assistant starts fresh — but preserve the rest
   // of .vellum (e.g. protected/, credentials) which may be shared.
-  if (existingEntry?.cloud !== "local") {
+  if (
+    !existingEntry ||
+    (existingEntry.cloud != null && existingEntry.cloud !== "local")
+  ) {
     const instanceWorkspaceDir = join(
       resources.instanceDir,
       ".vellum",
@@ -638,7 +665,8 @@ async function hatchLocal(
     );
     if (existsSync(instanceWorkspaceDir)) {
       const ownedByOther = loadAllAssistants().some((a) => {
-        if (a.cloud !== "local" || !a.resources) return false;
+        if ((a.cloud != null && a.cloud !== "local") || !a.resources)
+          return false;
         return (
           join(a.resources.instanceDir, ".vellum", "workspace") ===
           instanceWorkspaceDir

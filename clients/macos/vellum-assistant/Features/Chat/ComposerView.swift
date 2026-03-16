@@ -12,6 +12,7 @@ private let composerLog = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com
 struct ComposerView: View {
     private let composerMaxHeight: CGFloat = 200
     private let composerActionButtonSize: CGFloat = 32
+    private let composerTextToButtonsGap: CGFloat = 10
 
     // MARK: - ComposerMode
 
@@ -76,6 +77,7 @@ struct ComposerView: View {
     @State private var avatarSeed: String = "default"
     /// Snapshot of inputText captured when dictation starts, used to restore on cancel.
     @State private var preDictationText: String = ""
+    @State private var showVoiceModeHover: Bool = false
     /// Live amplitude from VoiceInputManager, bypassing ChatViewModel's 100ms coalescing.
     @State private var liveAmplitude: Float = 0
     @State private var isComposerDropTargeted = false
@@ -410,13 +412,13 @@ struct ComposerView: View {
         .padding(.leading, VSpacing.md)
         .padding(.trailing, VSpacing.sm)
         .background(
-            RoundedRectangle(cornerRadius: VRadius.lg)
+            RoundedRectangle(cornerRadius: VRadius.window)
                 .fill(VColor.surfaceOverlay)
         )
-        .clipShape(RoundedRectangle(cornerRadius: VRadius.lg))
+        .clipShape(RoundedRectangle(cornerRadius: VRadius.window))
         .overlay {
             if isComposerDropTargeted {
-                RoundedRectangle(cornerRadius: VRadius.lg)
+                RoundedRectangle(cornerRadius: VRadius.window)
                     .fill(VColor.surfaceActive)
                     .overlay {
                         HStack(spacing: VSpacing.sm) {
@@ -436,7 +438,7 @@ struct ComposerView: View {
     @ViewBuilder
     private var textEntryComposer: some View {
         standardComposerShell {
-            HStack(alignment: isSending ? .center : .bottom, spacing: VSpacing.xs) {
+            HStack(alignment: isSending ? .center : .bottom, spacing: composerTextToButtonsGap) {
                 composerTextField
                     .frame(minHeight: composerActionButtonSize)
                 composerActionButtons
@@ -444,9 +446,32 @@ struct ComposerView: View {
         }
     }
 
+    /// Gap between two ghost (frameless) buttons — small since both have internal icon padding.
+    private let composerGhostGap: CGFloat = 2
+    /// Gap between a ghost button and a filled (primary/contrast) button — larger to visually
+    /// match the ghost-ghost gap, compensating for the filled button having no internal padding.
+    private let composerFilledGap: CGFloat = 12
+
+    /// Explicit width for the action buttons area based on the current state.
+    private var composerButtonsWidth: CGFloat {
+        let s = composerActionButtonSize
+        if isSending && !hasPendingConfirmation {
+            return s
+        } else if canSend {
+            // paperclip(ghost) + filledGap + send(primary)
+            return s + composerFilledGap + s
+        } else if inputText.isEmpty && !hasPendingConfirmation {
+            // paperclip(ghost) + ghostGap + mic(ghost) + filledGap + waveform(contrast)
+            return s + composerGhostGap + s + composerFilledGap + s
+        } else {
+            // paperclip(ghost) + ghostGap + mic(ghost)
+            return s + composerGhostGap + s
+        }
+    }
+
     @ViewBuilder
     private var composerActionButtons: some View {
-        HStack(spacing: 2) {
+        HStack(spacing: 0) {
             if isSending && !hasPendingConfirmation {
                 VButton(
                     label: "Stop generation",
@@ -466,6 +491,7 @@ struct ComposerView: View {
                 .disabled(!hasAPIKey)
 
                 if canSend {
+                    Spacer().frame(width: composerFilledGap)
                     VButton(
                         label: "Send message",
                         iconOnly: VIcon.arrowUp.rawValue,
@@ -475,9 +501,8 @@ struct ComposerView: View {
                         composerFocus = true
                         onSend()
                     }
-                    .transition(.scale.combined(with: .opacity))
                 } else if inputText.isEmpty && !hasPendingConfirmation {
-                    // Empty input: show dictate + voice mode buttons
+                    Spacer().frame(width: composerGhostGap)
                     VButton(
                         label: "Dictate",
                         iconOnly: VIcon.mic.rawValue,
@@ -486,8 +511,8 @@ struct ComposerView: View {
                         action: { (onDictateToggle ?? onMicrophoneToggle)() }
                     )
                     .disabled(!hasAPIKey)
-                    .transition(.scale.combined(with: .opacity))
 
+                    Spacer().frame(width: composerFilledGap)
                     VButton(
                         label: "Voice mode",
                         iconOnly: VIcon.audioWaveform.rawValue,
@@ -496,8 +521,19 @@ struct ComposerView: View {
                         action: { onVoiceModeToggle?() }
                     )
                     .disabled(!hasAPIKey)
-                    .transition(.scale.combined(with: .opacity))
+                    .popover(isPresented: $showVoiceModeHover, arrowEdge: .top) {
+                        Text("Start a live voice conversation with your assistant. Unlike the mic button, this is a real-time back-and-forth voice call.")
+                            .font(VFont.caption)
+                            .multilineTextAlignment(.leading)
+                            .frame(width: 200)
+                            .fixedSize(horizontal: false, vertical: true)
+                            .padding(VSpacing.sm)
+                    }
+                    .onHover { hovering in
+                        showVoiceModeHover = hovering
+                    }
                 } else {
+                    Spacer().frame(width: composerGhostGap)
                     VButton(
                         label: isRecording ? "Stop recording" : "Start voice input",
                         iconOnly: VIcon.mic.rawValue,
@@ -506,11 +542,10 @@ struct ComposerView: View {
                         action: { onMicrophoneToggle() }
                     )
                     .disabled(!hasAPIKey)
-                    .transition(.scale.combined(with: .opacity))
                 }
             }
         }
-        .frame(minWidth: composerActionButtonSize * 3 + 2 * 2)
+        .frame(width: composerButtonsWidth, alignment: .trailing)
     }
 
     // MARK: - Dictation Inline Mode

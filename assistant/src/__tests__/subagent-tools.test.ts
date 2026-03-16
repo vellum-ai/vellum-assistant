@@ -89,7 +89,7 @@ function injectSubagent(
     usage: { inputTokens: 0, outputTokens: 0, estimatedCost: 0 },
     ...overrides,
   };
-  const fakeSession = {
+  const fakeConversation = {
     abort: () => {},
     dispose: () => {},
     messages: [],
@@ -100,7 +100,7 @@ function injectSubagent(
     runAgentLoop: async () => {},
   };
   internals.subagents.set(subagentId, {
-    conversation: fakeSession,
+    conversation: fakeConversation,
     state,
     parentSendToClient: () => {},
   });
@@ -275,61 +275,61 @@ describe("Subagent tool execute validation", () => {
 // ── Ownership validation ────────────────────────────────────────────
 
 describe("Subagent tool ownership validation", () => {
-  const ownerSession = "owner-sess";
-  const otherSession = "other-sess";
+  const ownerConversation = "owner-sess";
+  const otherConversation = "other-sess";
   const subagentId = "owned-sub-1";
 
   const manager = getSubagentManager();
-  injectSubagent(manager, subagentId, ownerSession);
+  injectSubagent(manager, subagentId, ownerConversation);
 
-  test("status rejects non-owner session", async () => {
+  test("status rejects non-owner conversation", async () => {
     const result = await executeSubagentStatus(
       { subagent_id: subagentId },
-      makeContext(otherSession),
+      makeContext(otherConversation),
     );
     expect(result.isError).toBe(true);
     expect(result.content).toContain("No subagent found");
   });
 
-  test("status succeeds for owner session", async () => {
+  test("status succeeds for owner conversation", async () => {
     const result = await executeSubagentStatus(
       { subagent_id: subagentId },
-      makeContext(ownerSession),
+      makeContext(ownerConversation),
     );
     expect(result.isError).toBe(false);
   });
 
-  test("message rejects non-owner session", async () => {
+  test("message rejects non-owner conversation", async () => {
     const result = await executeSubagentMessage(
       { subagent_id: subagentId, content: "hello" },
-      makeContext(otherSession),
+      makeContext(otherConversation),
     );
     expect(result.isError).toBe(true);
     expect(result.content).toContain("Could not send");
   });
 
-  test("read rejects non-owner session", async () => {
+  test("read rejects non-owner conversation", async () => {
     const result = await executeSubagentRead(
       { subagent_id: subagentId },
-      makeContext(otherSession),
+      makeContext(otherConversation),
     );
     expect(result.isError).toBe(true);
     expect(result.content).toContain("No subagent found");
   });
 
-  test("abort rejects non-owner session", async () => {
+  test("abort rejects non-owner conversation", async () => {
     const result = await executeSubagentAbort(
       { subagent_id: subagentId },
-      makeContext(otherSession),
+      makeContext(otherConversation),
     );
     expect(result.isError).toBe(true);
     expect(result.content).toContain("Could not abort");
   });
 
-  test("abort succeeds for owner session", async () => {
+  test("abort succeeds for owner conversation", async () => {
     const result = await executeSubagentAbort(
       { subagent_id: subagentId },
-      makeContext(ownerSession),
+      makeContext(ownerConversation),
     );
     expect(result.isError).toBe(false);
   });
@@ -432,16 +432,16 @@ describe("Subagent spawn success and failure", () => {
 // ── Message success path ────────────────────────────────────────────
 
 describe("Subagent message success path", () => {
-  const ownerSession = "msg-owner-sess";
+  const ownerConversation = "msg-owner-sess";
   const subagentId = "msg-sub-1";
 
-  test("message succeeds for owner session with running subagent", async () => {
+  test("message succeeds for owner conversation with running subagent", async () => {
     const manager = getSubagentManager();
-    injectSubagent(manager, subagentId, ownerSession, "running");
+    injectSubagent(manager, subagentId, ownerConversation, "running");
 
     const result = await executeSubagentMessage(
       { subagent_id: subagentId, content: "Continue working on this" },
-      makeContext(ownerSession),
+      makeContext(ownerConversation),
     );
     expect(result.isError).toBe(false);
     const parsed = JSON.parse(result.content);
@@ -452,11 +452,11 @@ describe("Subagent message success path", () => {
   test("message fails for terminal-state subagent", async () => {
     const manager = getSubagentManager();
     const completedId = "msg-sub-completed";
-    injectSubagent(manager, completedId, ownerSession, "completed");
+    injectSubagent(manager, completedId, ownerConversation, "completed");
 
     const result = await executeSubagentMessage(
       { subagent_id: completedId, content: "Are you there?" },
-      makeContext(ownerSession),
+      makeContext(ownerConversation),
     );
     expect(result.isError).toBe(true);
     expect(result.content).toContain("Could not send");
@@ -466,16 +466,16 @@ describe("Subagent message success path", () => {
 // ── Status detail responses ─────────────────────────────────────────
 
 describe("Subagent status detail responses", () => {
-  const ownerSession = "status-owner-sess";
+  const ownerConversation = "status-owner-sess";
 
   test("individual status returns full detail fields", async () => {
     const manager = getSubagentManager();
     const subagentId = "status-detail-1";
     const now = Date.now();
-    injectSubagent(manager, subagentId, ownerSession, "running", {
+    injectSubagent(manager, subagentId, ownerConversation, "running", {
       config: {
         id: subagentId,
-        parentConversationId: ownerSession,
+        parentConversationId: ownerConversation,
         label: "Detail test",
         objective: "test obj",
       },
@@ -486,7 +486,7 @@ describe("Subagent status detail responses", () => {
 
     const result = await executeSubagentStatus(
       { subagent_id: subagentId },
-      makeContext(ownerSession),
+      makeContext(ownerConversation),
     );
     expect(result.isError).toBe(false);
     const parsed = JSON.parse(result.content);
@@ -501,11 +501,14 @@ describe("Subagent status detail responses", () => {
 
   test("list status returns summary of all children", async () => {
     const manager = getSubagentManager();
-    const listSession = "status-list-sess";
-    injectSubagent(manager, "list-sub-1", listSession, "running");
-    injectSubagent(manager, "list-sub-2", listSession, "completed");
+    const listConversation = "status-list-sess";
+    injectSubagent(manager, "list-sub-1", listConversation, "running");
+    injectSubagent(manager, "list-sub-2", listConversation, "completed");
 
-    const result = await executeSubagentStatus({}, makeContext(listSession));
+    const result = await executeSubagentStatus(
+      {},
+      makeContext(listConversation),
+    );
     expect(result.isError).toBe(false);
     const parsed = JSON.parse(result.content);
     expect(Array.isArray(parsed)).toBe(true);
@@ -518,13 +521,13 @@ describe("Subagent status detail responses", () => {
   test("individual status includes error field for failed subagent", async () => {
     const manager = getSubagentManager();
     const failedId = "status-failed-1";
-    injectSubagent(manager, failedId, ownerSession, "failed", {
+    injectSubagent(manager, failedId, ownerConversation, "failed", {
       error: "Rate limit exceeded",
     });
 
     const result = await executeSubagentStatus(
       { subagent_id: failedId },
-      makeContext(ownerSession),
+      makeContext(ownerConversation),
     );
     expect(result.isError).toBe(false);
     const parsed = JSON.parse(result.content);
@@ -536,16 +539,16 @@ describe("Subagent status detail responses", () => {
 // ── Read tool behavior ──────────────────────────────────────────────
 
 describe("Subagent read tool", () => {
-  const ownerSession = "read-owner-sess";
+  const ownerConversation = "read-owner-sess";
 
   test("read returns wait message for non-terminal subagent", async () => {
     const manager = getSubagentManager();
     const subagentId = "read-running-1";
-    injectSubagent(manager, subagentId, ownerSession, "running");
+    injectSubagent(manager, subagentId, ownerConversation, "running");
 
     const result = await executeSubagentRead(
       { subagent_id: subagentId },
-      makeContext(ownerSession),
+      makeContext(ownerConversation),
     );
     expect(result.isError).toBe(false);
     expect(result.content).toContain("still running");
@@ -555,11 +558,11 @@ describe("Subagent read tool", () => {
   test("read returns wait message for pending subagent", async () => {
     const manager = getSubagentManager();
     const subagentId = "read-pending-1";
-    injectSubagent(manager, subagentId, ownerSession, "pending");
+    injectSubagent(manager, subagentId, ownerConversation, "pending");
 
     const result = await executeSubagentRead(
       { subagent_id: subagentId },
-      makeContext(ownerSession),
+      makeContext(ownerConversation),
     );
     expect(result.isError).toBe(false);
     expect(result.content).toContain("still pending");
@@ -568,7 +571,7 @@ describe("Subagent read tool", () => {
   test("read extracts text from JSON array content blocks", async () => {
     const manager = getSubagentManager();
     const subagentId = "read-json-array-1";
-    injectSubagent(manager, subagentId, ownerSession, "completed");
+    injectSubagent(manager, subagentId, ownerConversation, "completed");
 
     mockGetMessages = (convId: string) => {
       if (convId !== `conv-${subagentId}`) return null;
@@ -590,7 +593,7 @@ describe("Subagent read tool", () => {
     try {
       const result = await executeSubagentRead(
         { subagent_id: subagentId },
-        makeContext(ownerSession),
+        makeContext(ownerConversation),
       );
       expect(result.isError).toBe(false);
       expect(result.content).toContain("Here is the result");
@@ -603,7 +606,7 @@ describe("Subagent read tool", () => {
   test("read handles plain text content", async () => {
     const manager = getSubagentManager();
     const subagentId = "read-plain-1";
-    injectSubagent(manager, subagentId, ownerSession, "completed");
+    injectSubagent(manager, subagentId, ownerConversation, "completed");
 
     mockGetMessages = (convId: string) => {
       if (convId !== `conv-${subagentId}`) return null;
@@ -613,7 +616,7 @@ describe("Subagent read tool", () => {
     try {
       const result = await executeSubagentRead(
         { subagent_id: subagentId },
-        makeContext(ownerSession),
+        makeContext(ownerConversation),
       );
       expect(result.isError).toBe(false);
       expect(result.content).toBe("Plain text response");
@@ -625,7 +628,7 @@ describe("Subagent read tool", () => {
   test("read handles string JSON content", async () => {
     const manager = getSubagentManager();
     const subagentId = "read-str-json-1";
-    injectSubagent(manager, subagentId, ownerSession, "completed");
+    injectSubagent(manager, subagentId, ownerConversation, "completed");
 
     mockGetMessages = (convId: string) => {
       if (convId !== `conv-${subagentId}`) return null;
@@ -637,7 +640,7 @@ describe("Subagent read tool", () => {
     try {
       const result = await executeSubagentRead(
         { subagent_id: subagentId },
-        makeContext(ownerSession),
+        makeContext(ownerConversation),
       );
       expect(result.isError).toBe(false);
       expect(result.content).toBe("A JSON string value");
@@ -649,7 +652,7 @@ describe("Subagent read tool", () => {
   test("read skips non-text content blocks", async () => {
     const manager = getSubagentManager();
     const subagentId = "read-skip-blocks-1";
-    injectSubagent(manager, subagentId, ownerSession, "completed");
+    injectSubagent(manager, subagentId, ownerConversation, "completed");
 
     mockGetMessages = (convId: string) => {
       if (convId !== `conv-${subagentId}`) return null;
@@ -667,7 +670,7 @@ describe("Subagent read tool", () => {
     try {
       const result = await executeSubagentRead(
         { subagent_id: subagentId },
-        makeContext(ownerSession),
+        makeContext(ownerConversation),
       );
       expect(result.isError).toBe(false);
       expect(result.content).toBe("Actual output");
@@ -680,7 +683,7 @@ describe("Subagent read tool", () => {
   test("read returns no-output message when only user/tool messages exist", async () => {
     const manager = getSubagentManager();
     const subagentId = "read-no-output-1";
-    injectSubagent(manager, subagentId, ownerSession, "completed");
+    injectSubagent(manager, subagentId, ownerConversation, "completed");
 
     mockGetMessages = (convId: string) => {
       if (convId !== `conv-${subagentId}`) return null;
@@ -693,7 +696,7 @@ describe("Subagent read tool", () => {
     try {
       const result = await executeSubagentRead(
         { subagent_id: subagentId },
-        makeContext(ownerSession),
+        makeContext(ownerConversation),
       );
       expect(result.isError).toBe(false);
       expect(result.content).toContain("no text output");
@@ -705,14 +708,14 @@ describe("Subagent read tool", () => {
   test("read returns error when no messages in DB", async () => {
     const manager = getSubagentManager();
     const subagentId = "read-empty-db-1";
-    injectSubagent(manager, subagentId, ownerSession, "completed");
+    injectSubagent(manager, subagentId, ownerConversation, "completed");
 
     mockGetMessages = () => [];
 
     try {
       const result = await executeSubagentRead(
         { subagent_id: subagentId },
-        makeContext(ownerSession),
+        makeContext(ownerConversation),
       );
       expect(result.isError).toBe(true);
       expect(result.content).toContain("No messages found");
@@ -724,13 +727,13 @@ describe("Subagent read tool", () => {
   test("read returns error when getMessages returns null", async () => {
     const manager = getSubagentManager();
     const subagentId = "read-null-db-1";
-    injectSubagent(manager, subagentId, ownerSession, "completed");
+    injectSubagent(manager, subagentId, ownerConversation, "completed");
 
     mockGetMessages = () => null;
 
     const result = await executeSubagentRead(
       { subagent_id: subagentId },
-      makeContext(ownerSession),
+      makeContext(ownerConversation),
     );
     expect(result.isError).toBe(true);
     expect(result.content).toContain("No messages found");
@@ -739,7 +742,7 @@ describe("Subagent read tool", () => {
   test("read works for failed subagent (terminal state)", async () => {
     const manager = getSubagentManager();
     const subagentId = "read-failed-1";
-    injectSubagent(manager, subagentId, ownerSession, "failed");
+    injectSubagent(manager, subagentId, ownerConversation, "failed");
 
     mockGetMessages = (convId: string) => {
       if (convId !== `conv-${subagentId}`) return null;
@@ -756,7 +759,7 @@ describe("Subagent read tool", () => {
     try {
       const result = await executeSubagentRead(
         { subagent_id: subagentId },
-        makeContext(ownerSession),
+        makeContext(ownerConversation),
       );
       expect(result.isError).toBe(false);
       expect(result.content).toContain("Partial output before failure");
@@ -768,7 +771,7 @@ describe("Subagent read tool", () => {
   test("read works for aborted subagent (terminal state)", async () => {
     const manager = getSubagentManager();
     const subagentId = "read-aborted-1";
-    injectSubagent(manager, subagentId, ownerSession, "aborted");
+    injectSubagent(manager, subagentId, ownerConversation, "aborted");
 
     mockGetMessages = (convId: string) => {
       if (convId !== `conv-${subagentId}`) return null;
@@ -778,7 +781,7 @@ describe("Subagent read tool", () => {
     try {
       const result = await executeSubagentRead(
         { subagent_id: subagentId },
-        makeContext(ownerSession),
+        makeContext(ownerConversation),
       );
       expect(result.isError).toBe(false);
       expect(result.content).toBe("Output before abort");
@@ -790,7 +793,7 @@ describe("Subagent read tool", () => {
   test("read concatenates multiple assistant messages", async () => {
     const manager = getSubagentManager();
     const subagentId = "read-multi-1";
-    injectSubagent(manager, subagentId, ownerSession, "completed");
+    injectSubagent(manager, subagentId, ownerConversation, "completed");
 
     mockGetMessages = (convId: string) => {
       if (convId !== `conv-${subagentId}`) return null;
@@ -805,7 +808,7 @@ describe("Subagent read tool", () => {
     try {
       const result = await executeSubagentRead(
         { subagent_id: subagentId },
-        makeContext(ownerSession),
+        makeContext(ownerConversation),
       );
       expect(result.isError).toBe(false);
       expect(result.content).toContain("First response");

@@ -131,7 +131,7 @@ declare -a SAFE_LINE_PATTERNS=(
     # Swift: named argument passing a variable for privateKey (e.g. `sshPrivateKey: state.sshPrivateKey,`)
     "[Pp]rivate[Kk]ey:[[:space:]]*[a-zA-Z_][a-zA-Z0-9_.]*[[:space:]]*[,)][[:space:]]*$"
     # Swift/Kotlin: constant declaration whose value is a camelCase identifier
-    # (e.g. `let archivedSessionsKey = "archivedSessionIds"`).
+    # (e.g. `let archivedConversationsKey = "archivedConversationIds"`).
     # These are AppStorage / UserDefaults keys, not secrets.
     # Only match known safe suffixes — NOT apiKey, secretKey, accessKey, tokenKey,
     # authKey, privateKey, encryptionKey, signingKey, or other credential-adjacent names.
@@ -152,7 +152,7 @@ declare -a SAFE_LINE_PATTERNS=(
     # Swift let/var constants used as UserDefaults key names (not secrets).
     # Only whitelist specific known key-name constants — a broad `*Key` pattern
     # would let real credentials like `let apiKey = "sk_live_..."` slip through.
-    "(private[[:space:]]+)?(let|var)[[:space:]]+(archivedSessionsKey)[[:space:]]*[:=][[:space:]]*['\"][a-zA-Z][a-zA-Z0-9_]*['\"]"
+    "(private[[:space:]]+)?(let|var)[[:space:]]+(archivedConversationsKey)[[:space:]]*[:=][[:space:]]*['\"][a-zA-Z][a-zA-Z0-9_]*['\"]"
 )
 
 matches_safe_line_pattern() {
@@ -170,7 +170,7 @@ matches_safe_line_pattern() {
             # Skip the guard for explicitly-allowlisted variable names that contain
             # sensitive substrings but are known UserDefaults/storage key constants.
             if printf '%s\n' "$text" | grep -iE "(let|var|val)[[:space:]]+[a-zA-Z0-9_]*[Kk]ey[[:space:]]*=" >/dev/null 2>&1; then
-                if ! printf '%s\n' "$text" | grep -E "(let|var|val)[[:space:]]+(archivedSessionsKey)[[:space:]]*[:=]" >/dev/null 2>&1; then
+                if ! printf '%s\n' "$text" | grep -E "(let|var|val)[[:space:]]+(archivedConversationsKey)[[:space:]]*[:=]" >/dev/null 2>&1; then
                     if printf '%s\n' "$text" | grep -iE "(let|var|val)[[:space:]]+[a-zA-Z0-9_]*(api|access|private|secret|client|encryption|encrypt|jwt|signing|sign|auth|hmac|master|symmetric|asymmetric|shared|session|verification|verify|decryption|decrypt|service|deploy|registry|webhook|database|db)[a-zA-Z0-9_]*[Kk]ey" >/dev/null 2>&1; then
                         continue
                     fi
@@ -319,7 +319,7 @@ if [ "${1:-}" = "--self-test" ]; then
     # AWS well-known example key (false positive to whitelist)
     SAFE_AWS_EXAMPLE_KEY='const EXAMPLE_KEY = "AKIAIOSFODNN7EXAMPLE";'
     # Swift storage key constant (safe — UserDefaults key, not a secret)
-    SAFE_SWIFT_STORAGE_KEY='let archivedSessionsKey = "archivedSessionIds"'
+    SAFE_SWIFT_STORAGE_KEY='let archivedConversationsKey = "archivedConversationIds"'
     # Swift apiKey constant with alphabetic value (dangerous — must NOT be whitelisted)
     UNSAFE_SWIFT_API_KEY='let apiKey = "abcdefghijklmnopqrstuvwxyz"'
     # Swift compound key with sensitive prefix (dangerous — must NOT be whitelisted)

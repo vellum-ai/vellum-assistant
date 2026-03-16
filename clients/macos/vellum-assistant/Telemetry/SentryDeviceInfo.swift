@@ -38,6 +38,11 @@ enum SentryDeviceInfo {
             } else {
                 scope.removeTag(key: "assistant_id")
             }
+            if let orgId = UserDefaults.standard.string(forKey: "connectedOrganizationId"), !orgId.isEmpty {
+                scope.setTag(value: orgId, key: "organization_id")
+            } else {
+                scope.removeTag(key: "organization_id")
+            }
             scope.setTag(value: ProcessInfo.processInfo.operatingSystemVersionString, key: "os_version")
         }
     }
@@ -50,6 +55,28 @@ enum SentryDeviceInfo {
                 scope.setTag(value: id, key: "assistant_id")
             } else {
                 scope.removeTag(key: "assistant_id")
+            }
+        }
+    }
+
+    /// Updates the `organization_id` Sentry tag when the connected organization changes.
+    static func updateOrganizationTag(_ organizationId: String?) {
+        SentrySDK.configureScope { scope in
+            if let id = organizationId, !id.isEmpty {
+                scope.setTag(value: id, key: "organization_id")
+            } else {
+                scope.removeTag(key: "organization_id")
+            }
+        }
+    }
+
+    /// Updates the `user_id` Sentry tag when the authenticated user changes.
+    static func updateUserTag(_ userId: String?) {
+        SentrySDK.configureScope { scope in
+            if let id = userId, !id.isEmpty {
+                scope.setTag(value: id, key: "user_id")
+            } else {
+                scope.removeTag(key: "user_id")
             }
         }
     }

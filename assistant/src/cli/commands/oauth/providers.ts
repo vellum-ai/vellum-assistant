@@ -24,13 +24,24 @@ function resolveRedirectUri(
   if (transport === "loopback") {
     const behavior = getProviderBehavior(providerKey);
     const port = behavior?.loopbackPort;
-    if (!port) return null;
+    if (!port) {
+      // No fixed port — loopback still works at runtime with an OS-assigned
+      // port, but we can't predict the redirect URI ahead of time.  Return
+      // a sentinel so callers know the transport is loopback-dynamic rather
+      // than unsupported.
+      return "http://localhost:<dynamic>/oauth/callback";
+    }
     return `http://localhost:${port}${LOOPBACK_CALLBACK_PATH}`;
   }
-  // Gateway transport — resolve from public ingress config
+  // Gateway transport — resolve from public ingress config.
+  // Try the explicit publicBaseUrl first, then fall back to platform
+  // callback registration (containerised/managed deployments).
   try {
     return getOAuthCallbackUrl(loadConfig());
   } catch {
+    // publicBaseUrl not configured — not necessarily an error for
+    // platform-managed deployments where the callback URL is resolved
+    // dynamically at connection time via platform route registration.
     return null;
   }
 }
@@ -62,8 +73,8 @@ export function registerProviderCommands(oauth: Command): void {
 Providers define the protocol-level configuration for an OAuth integration:
 authorization URL, token URL, default scopes, and other endpoint details.
 
-They are seeded on startup for built-in integrations (e.g. Gmail, Twitter,
-Slack) but can also be registered dynamically via the "register" subcommand.
+They are seeded on startup for built-in integrations (e.g. Google, Slack,
+GitHub) but can also be registered dynamically via the "register" subcommand.
 
 Each provider is identified by a provider key (e.g. "integration:google").`,
   );
@@ -77,7 +88,7 @@ Each provider is identified by a provider key (e.g. "integration:google").`,
     .description("List all registered OAuth providers")
     .option(
       "--provider-key <key>",
-      'Filter by provider key substring (case-insensitive). Comma-separated values are OR\'d (e.g. "gmail,google")',
+      'Filter by provider key substring (case-insensitive). Comma-separated values are OR\'d (e.g. "google,slack")',
     )
     .addHelpText(
       "after",
@@ -87,8 +98,8 @@ seeded at startup and any dynamically registered via "providers register".
 
 When --provider-key is specified, only providers whose key contains the
 given substring (case-insensitive) are returned. Multiple substrings can
-be OR'd together using commas (e.g. "gmail,google" matches any provider
-whose key contains "gmail" OR "google"). Without the flag, all providers
+be OR'd together using commas (e.g. "google,slack" matches any provider
+whose key contains "google" OR "slack"). Without the flag, all providers
 are listed.
 
 Each provider row includes its key, auth URL, token URL, default scopes,
@@ -96,9 +107,9 @@ and configuration timestamps.
 
 Examples:
   $ assistant oauth providers list
-  $ assistant oauth providers list --provider-key gmail
-  $ assistant oauth providers list --provider-key "gmail,google"
-  $ assistant oauth providers list --provider-key slack --json`,
+  $ assistant oauth providers list --provider-key google
+  $ assistant oauth providers list --provider-key "google,slack"
+  $ assistant oauth providers list --provider-key notion --json`,
     )
     .action((opts: { providerKey?: string }, cmd: Command) => {
       try {

@@ -7,7 +7,7 @@ import { getRuntimeHttpPort } from "../../config/env.js";
 import { loadRawConfig } from "../../config/loader.js";
 import { shouldAutoStartDaemon } from "../../daemon/connection-policy.js";
 import { isHttpHealthy } from "../../daemon/daemon-control.js";
-import { getSecureKeyAsync } from "../../security/secure-keys.js";
+import { getProviderKeyAsync } from "../../security/secure-keys.js";
 import {
   getDbPath,
   getHooksDir,
@@ -75,7 +75,7 @@ Examples:
       const raw = loadRawConfig();
       const provider =
         typeof raw.provider === "string" ? raw.provider : "anthropic";
-      const configKey = await getSecureKeyAsync(provider);
+      const configKey = await getProviderKeyAsync(provider);
 
       if (provider === "ollama") {
         pass("Provider configured (Ollama; API key optional)");

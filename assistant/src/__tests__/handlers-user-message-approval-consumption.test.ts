@@ -145,7 +145,7 @@ mock.module("../util/logger.js", () => ({
 
 import { handleConfirmationResponse } from "../daemon/handlers/conversations.js";
 
-interface TestSession {
+interface TestConversation {
   messages: Array<{ role: string; content: unknown[] }>;
   setChannelCapabilities: (caps: unknown) => void;
   isProcessing: () => boolean;
@@ -173,7 +173,7 @@ interface TestSession {
   processMessage: (...args: unknown[]) => Promise<string>;
 }
 
-function createContext(session: TestSession): {
+function createContext(conversationObj: TestConversation): {
   ctx: HandlerContext;
   sent: ServerMessage[];
 } {
@@ -190,13 +190,15 @@ function createContext(session: TestSession): {
     },
     broadcast: () => {},
     clearAllConversations: () => 0,
-    getOrCreateConversation: async () => session as any,
+    getOrCreateConversation: async () => conversationObj as any,
     touchConversation: () => {},
   };
   return { ctx, sent };
 }
 
-function makeSession(overrides: Partial<TestSession> = {}): TestSession {
+function makeConversation(
+  overrides: Partial<TestConversation> = {},
+): TestConversation {
   return {
     messages: [],
     setChannelCapabilities: () => {},
@@ -237,13 +239,13 @@ describe("handleConfirmationResponse canonical status sync", () => {
   });
 
   test("syncs canonical status to approved for allow decisions", () => {
-    const session = {
+    const conversationObj = {
       hasPendingConfirmation: (requestId: string) =>
         requestId === "req-confirm-allow",
       handleConfirmationResponse: mock(() => {}),
     };
-    const { ctx } = createContext(makeSession());
-    ctx.conversations.set("conv-1", session as any);
+    const { ctx } = createContext(makeConversation());
+    ctx.conversations.set("conv-1", conversationObj as any);
 
     const msg: ConfirmationResponse = {
       type: "confirmation_response",
@@ -253,10 +255,12 @@ describe("handleConfirmationResponse canonical status sync", () => {
 
     handleConfirmationResponse(msg, ctx);
 
-    expect((session.handleConfirmationResponse as any).mock.calls.length).toBe(
-      1,
-    );
-    expect((session.handleConfirmationResponse as any).mock.calls[0]).toEqual([
+    expect(
+      (conversationObj.handleConfirmationResponse as any).mock.calls.length,
+    ).toBe(1);
+    expect(
+      (conversationObj.handleConfirmationResponse as any).mock.calls[0],
+    ).toEqual([
       "req-confirm-allow",
       "always_allow",
       undefined,

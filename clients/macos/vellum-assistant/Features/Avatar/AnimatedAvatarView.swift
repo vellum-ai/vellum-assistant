@@ -77,6 +77,9 @@ class AvatarLayerView: NSView {
     /// Timer that fires random twitches.
     private var twitchTask: Task<Void, Never>?
 
+    /// Task for the delayed start of breathing/blink/twitch after entry animation.
+    private var postEntryTask: Task<Void, Never>?
+
     /// Whether animations are currently active (paused when window is inactive).
     private var animationsActive = true
 
@@ -103,7 +106,9 @@ class AvatarLayerView: NSView {
     required init?(coder: NSCoder) { fatalError() }
 
     override func resetCursorRects() {
-        addCursorRect(bounds, cursor: .pointingHand)
+        if configPokeEnabled {
+            addCursorRect(bounds, cursor: .pointingHand)
+        }
     }
 
     /// Called from SwiftUI's `.onHover` via the representable bridge.
@@ -113,7 +118,7 @@ class AvatarLayerView: NSView {
         isHovered = hovered
 
         if hovered {
-            guard animationsActive else { return }
+            guard animationsActive else { isHovered = false; return }
             guard !eyeLayers.isEmpty,
                   eyeLayers.count == widenedEyePaths.count else { return }
 
@@ -149,6 +154,7 @@ class AvatarLayerView: NSView {
     deinit {
         blinkTask?.cancel()
         twitchTask?.cancel()
+        postEntryTask?.cancel()
         for observer in notificationObservers {
             NotificationCenter.default.removeObserver(observer)
         }
@@ -440,6 +446,7 @@ class AvatarLayerView: NSView {
         animationsActive = false
         blinkTask?.cancel()
         twitchTask?.cancel()
+        postEntryTask?.cancel()
         if configBreathingEnabled {
             let pausedTime = bodyLayer.convertTime(CACurrentMediaTime(), from: nil)
             bodyLayer.speed = 0
@@ -551,11 +558,15 @@ class AvatarLayerView: NSView {
 
         // --- Start other animations after a comfortable pause post-entry ---
         let postEntryDelay: TimeInterval = 1.1  // Entry (0.6s) + breathing pause (0.5s)
-        DispatchQueue.main.asyncAfter(deadline: .now() + postEntryDelay) { [weak self] in
-            guard let self, self.animationsActive else { return }
-            if self.configBlinkEnabled { self.startBlinkTimer() }
-            if self.configBreathingEnabled { self.startBreathing() }
-            self.startTwitchTimer()
+        postEntryTask = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(postEntryDelay))
+            guard !Task.isCancelled else { return }
+            await MainActor.run {
+                guard let self, self.animationsActive else { return }
+                if self.configBlinkEnabled { self.startBlinkTimer() }
+                if self.configBreathingEnabled { self.startBreathing() }
+                self.startTwitchTimer()
+            }
         }
     }
 

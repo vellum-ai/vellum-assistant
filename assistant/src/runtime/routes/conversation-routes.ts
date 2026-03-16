@@ -411,7 +411,7 @@ function makeHubPublisher(
     // Register pending interactions for approval events
     if (msg.type === "confirmation_request") {
       pendingInteractions.register(msg.requestId, {
-        session: conversation,
+        conversation,
         conversationId,
         kind: "confirmation",
         confirmationDetails: {
@@ -467,25 +467,25 @@ function makeHubPublisher(
       }
     } else if (msg.type === "secret_request") {
       pendingInteractions.register(msg.requestId, {
-        session: conversation,
+        conversation,
         conversationId,
         kind: "secret",
       });
     } else if (msg.type === "host_bash_request") {
       pendingInteractions.register(msg.requestId, {
-        session: conversation,
+        conversation,
         conversationId,
         kind: "host_bash",
       });
     } else if (msg.type === "host_file_request") {
       pendingInteractions.register(msg.requestId, {
-        session: conversation,
+        conversation,
         conversationId,
         kind: "host_file",
       });
     } else if (msg.type === "host_cu_request") {
       pendingInteractions.register(msg.requestId, {
-        session: conversation,
+        conversation,
         conversationId,
         kind: "host_cu",
       });
@@ -802,7 +802,7 @@ export async function handleSendMessage(
         mapping.conversationId,
       )) {
         if (
-          interaction.session === conversation &&
+          interaction.conversation === conversation &&
           interaction.kind === "confirmation"
         ) {
           conversation.emitConfirmationStateChanged({
@@ -833,7 +833,7 @@ export async function handleSendMessage(
       mapping.conversationId,
     )) {
       if (
-        interaction.session === conversation &&
+        interaction.conversation === conversation &&
         interaction.kind === "confirmation"
       ) {
         conversation.emitConfirmationStateChanged({

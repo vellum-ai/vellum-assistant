@@ -26,11 +26,11 @@ extension HTTPTransport {
                 Task { await self.sendSecret(requestId: msg.requestId, value: msg.value, delivery: msg.delivery) }
                 return true
             } else if let msg = message as? ConversationCreateMessage {
-                // For HTTP transport, session creation is implicit — the conversationKey
-                // acts as the session. Emit a synthetic session_info so ChatViewModel
-                // records the session ID.
+                // For HTTP transport, conversation creation is implicit — the conversationKey
+                // acts as the conversation. Emit a synthetic conversation_info so ChatViewModel
+                // records the conversation ID.
                 let conversationId = (msg.correlationId.flatMap { $0.isEmpty ? nil : $0 }) ?? UUID().uuidString
-                // Remember private sessions so sendMessage can pass conversationType to the backend.
+                // Remember private conversations so sendMessage can pass conversationType to the backend.
                 if msg.conversationType == "private" {
                     self.privateConversationIds.insert(conversationId)
                 }

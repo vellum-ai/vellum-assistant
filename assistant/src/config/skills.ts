@@ -269,7 +269,7 @@ function parseFrontmatter(
         if (vellum && typeof vellum === "object") {
           emoji = typeof vellum.emoji === "string" ? vellum.emoji : undefined;
         }
-        if (!emoji && parsedMeta?.emoji) {
+        if (!emoji && typeof parsedMeta?.emoji === "string") {
           emoji = parsedMeta.emoji;
         }
       }
@@ -935,15 +935,13 @@ function isEscapingSymlink(filePath: string, rootDir: string): boolean {
 }
 
 /**
- * Scan for a `references/` subdirectory within a skill directory and append
- * the contents of any `.md` files found there to the skill body. Each
- * reference file is labeled with a `--- Reference: <Name> ---` header.
- * Files are appended in alphabetical order for deterministic output.
- * Non-`.md` files are ignored. Symlinks that resolve outside the skill
- * directory are skipped. Errors are logged as warnings and the original body
- * is returned unchanged.
+ * Check for a `references/` subdirectory within a skill directory and return
+ * a formatted listing of available `.md` reference files with full absolute
+ * paths. Returns `null` if no references exist. Files are listed in
+ * alphabetical order. Non-`.md` files are ignored. Symlinks that resolve
+ * outside the skill directory are skipped.
  */
-function appendReferenceFiles(body: string, directoryPath: string): string {
+export function listReferenceFiles(directoryPath: string): string | null {
   try {
     const refsDir = join(directoryPath, "references");
     if (
@@ -951,7 +949,7 @@ function appendReferenceFiles(body: string, directoryPath: string): string {
       isEscapingSymlink(refsDir, directoryPath) ||
       !statSync(refsDir).isDirectory()
     ) {
-      return body;
+      return null;
     }
 
     const entries = readdirSync(refsDir);
@@ -960,23 +958,22 @@ function appendReferenceFiles(body: string, directoryPath: string): string {
       .filter((f) => !isEscapingSymlink(join(refsDir, f), directoryPath))
       .sort((a, b) => a.localeCompare(b));
 
-    if (mdFiles.length === 0) return body;
+    if (mdFiles.length === 0) return null;
 
-    let result = body;
+    const lines = [
+      "## Reference Files",
+      "",
+      "The following reference files are available in this skill's directory. Use `file_read` to load any that are relevant to the current task:",
+      "",
+    ];
     for (const filename of mdFiles) {
-      const fileContents = readFileSync(join(refsDir, filename), "utf-8");
-      const displayName = filename
-        .replace(/\.md$/i, "")
-        .replace(/[-_]/g, " ")
-        .replace(/\b\w/g, (c) => c.toUpperCase())
-        .replace(/\B\w+/g, (w) => w.toLowerCase());
-      result += `\n\n--- Reference: ${displayName} ---\n${fileContents}`;
+      lines.push(`- \`${join(refsDir, filename)}\``);
     }
 
-    return result;
+    return lines.join("\n");
   } catch (err) {
-    log.warn({ err, directoryPath }, "Failed to read reference files");
-    return body;
+    log.warn({ err, directoryPath }, "Failed to list reference files");
+    return null;
   }
 }
 
@@ -1006,8 +1003,6 @@ function loadSkillDefinition(skill: SkillSummary): SkillLookupResult {
   loaded.body = loaded.body.replaceAll("{baseDir}", loaded.directoryPath);
   // Strip feature-gated sections based on assistant feature flags
   loaded.body = applyFeatureGatedSections(loaded.body);
-  // Auto-load reference files from references/ subdirectory
-  loaded.body = appendReferenceFiles(loaded.body, loaded.directoryPath);
   return { skill: loaded };
 }
 

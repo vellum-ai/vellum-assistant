@@ -25,12 +25,16 @@ export async function wake(): Promise<void> {
     console.log("");
     console.log("Options:");
     console.log(
-      "  --watch    Run assistant and gateway in watch mode (hot reload on source changes)",
+      "  --watch        Run assistant and gateway in watch mode (hot reload on source changes)",
+    );
+    console.log(
+      "  --foreground   Run assistant in foreground with logs printed to terminal",
     );
     process.exit(0);
   }
 
   const watch = args.includes("--watch");
+  const foreground = args.includes("--foreground");
   const nameArg = args.find((a) => !a.startsWith("-"));
   const entry = resolveTargetAssistant(nameArg);
 
@@ -86,7 +90,7 @@ export async function wake(): Promise<void> {
   }
 
   if (!daemonRunning) {
-    await startLocalDaemon(watch, resources);
+    await startLocalDaemon(watch, resources, { foreground });
   }
 
   // Start gateway
@@ -132,4 +136,18 @@ export async function wake(): Promise<void> {
   }
 
   console.log("Wake complete.");
+
+  if (foreground) {
+    console.log("Running in foreground (Ctrl+C to stop)...\n");
+    // Block forever — the daemon is running with inherited stdio so its
+    // output streams to this terminal. When the user hits Ctrl+C, SIGINT
+    // propagates to the daemon child and both exit.
+    await new Promise<void>((resolve) => {
+      process.on("SIGINT", () => {
+        console.log("\nShutting down...");
+        resolve();
+      });
+      process.on("SIGTERM", () => resolve());
+    });
+  }
 }

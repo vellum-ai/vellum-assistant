@@ -14,7 +14,6 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
-import { getBaseDataDir } from "../config/env-registry.js";
 import { getLogger } from "./logger.js";
 
 const log = getLogger("device-id");
@@ -37,8 +36,7 @@ export function getDeviceId(): string {
     return cached;
   }
 
-  const base = getBaseDataDir() || homedir();
-  const vellumDir = join(base, ".vellum");
+  const vellumDir = join(homedir(), ".vellum");
   const filePath = join(vellumDir, "device.json");
   const generated = randomUUID();
 
