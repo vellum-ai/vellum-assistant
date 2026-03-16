@@ -31,7 +31,7 @@ private struct ExtractionResponse: Codable {
 // MARK: - ProfileExtractor
 
 /// Extracts a structured user profile from an interview transcript by sending
-/// the conversation to a new daemon session with a profile-extraction system prompt.
+/// the conversation to a new daemon conversation with a profile-extraction system prompt.
 /// Merges `personality` and `userBehavior` into `~/.vellum/workspace/SOUL.md` and stores the
 /// profile in UserDefaults for client-side use.
 ///
@@ -54,7 +54,7 @@ final class ProfileExtractor {
     // MARK: - Extraction
 
     /// Runs profile extraction against the daemon in the background.
-    /// Creates a new session with a profile-extraction system prompt, sends the
+    /// Creates a new conversation with a profile-extraction system prompt, sends the
     /// formatted interview transcript, parses the JSON response, writes SOUL.md,
     /// and stores profile data in UserDefaults.
     func extractProfile(from messages: [InterviewMessage], assistantName: String) async {
@@ -98,21 +98,21 @@ final class ProfileExtractor {
         // Format the transcript.
         let transcript = formatTranscript(messages, assistantName: assistantName)
 
-        // Subscribe to the daemon stream before creating the session
-        // so we don't miss the session_info message.
+        // Subscribe to the daemon stream before creating the conversation
+        // so we don't miss the conversation_info message.
         let stream = daemonClient.subscribe()
 
-        // Create a new extraction session with the system prompt override.
+        // Create a new extraction conversation with the system prompt override.
         try daemonClient.send(ConversationCreateMessage(
             title: "Profile extraction",
             systemPromptOverride: Self.extractionPrompt,
             maxResponseTokens: 1024
         ))
 
-        // Wait for session creation, send the transcript, and accumulate the response.
+        // Wait for conversation creation, send the transcript, and accumulate the response.
         // Filter all streaming events by conversationId so we only process deltas and
-        // completion from our own extraction session, not from unrelated concurrent
-        // sessions (e.g., a chat the user starts while extraction runs).
+        // completion from our own extraction conversation, not from unrelated concurrent
+        // conversations (e.g., a chat the user starts while extraction runs).
         var conversationId: String?
         var accumulated = ""
 

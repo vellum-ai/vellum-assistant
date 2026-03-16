@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// Dismissible banner shown when a non-retryable session error occurs.
+/// Dismissible banner shown when a non-retryable conversation error occurs.
 public struct ChatErrorBanner: View {
     public let message: String
     public var onDismiss: (() -> Void)?
