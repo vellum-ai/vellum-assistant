@@ -66,16 +66,11 @@ struct ImproveExperienceStepView: View {
                         .stroke(VColor.borderBase, lineWidth: 1)
                 )
 
-                // ToS consent checkbox
-                HStack(alignment: .top, spacing: VSpacing.sm) {
-                    Button(action: { tosAccepted.toggle() }) {
-                        Image(systemName: tosAccepted ? "checkmark.square.fill" : "square")
-                            .font(.system(size: 18))
-                            .foregroundColor(tosAccepted ? VColor.primaryBase : VColor.contentTertiary)
-                    }
-                    .buttonStyle(.plain)
-
+                // ToS consent toggle
+                HStack {
                     tosConsentText
+                    Spacer()
+                    VToggle(isOn: $tosAccepted)
                 }
                 .padding(.top, VSpacing.xs)
 
@@ -113,14 +108,16 @@ struct ImproveExperienceStepView: View {
     // MARK: - ToS Consent Text
 
     private var tosConsentText: some View {
-        Text(.init("I agree to the [Terms of Service](https://www.vellum.ai/docs/vellum-terms-of-use) and [Privacy Policy](https://www.vellum.ai/docs/vellum-privacy-policy)."))
-            .font(VFont.caption)
-            .foregroundColor(VColor.contentSecondary)
-            .tint(VColor.primaryBase)
-            .environment(\.openURL, OpenURLAction { url in
-                NSWorkspace.shared.open(url)
-                return .handled
-            })
+        VStack(alignment: .leading, spacing: VSpacing.xs) {
+            Text(.init("I agree to the [Terms of Service](https://www.vellum.ai/docs/vellum-terms-of-use) and [Privacy Policy](https://www.vellum.ai/docs/vellum-privacy-policy)"))
+                .font(VFont.body)
+                .foregroundColor(VColor.contentSecondary)
+                .tint(VColor.primaryBase)
+                .environment(\.openURL, OpenURLAction { url in
+                    NSWorkspace.shared.open(url)
+                    return .handled
+                })
+        }
     }
 
     // MARK: - Actions
