@@ -107,7 +107,7 @@ function mintAccessToken(guardianPrincipalId: string): {
   expiresAt: number;
   issuedAt: number;
 } {
-  const externalAssistantId = getExternalAssistantId();
+  const externalAssistantId = getExternalAssistantId() ?? "self";
   const sub = `actor:${externalAssistantId}:${guardianPrincipalId}`;
 
   const token = mintToken({

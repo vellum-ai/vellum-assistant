@@ -154,9 +154,10 @@ export class UsageTelemetryReporter {
         ),
       ];
 
+      const assistantId = getExternalAssistantId();
       const payload = {
         installation_id: getDeviceId(),
-        assistant_id: getExternalAssistantId(),
+        assistant_id: assistantId,
         events: typedEvents,
       };
 

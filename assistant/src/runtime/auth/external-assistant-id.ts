@@ -1,35 +1,42 @@
 /**
  * External assistant ID resolver.
  *
- * Reads the external assistant ID from the lockfile for use in
- * edge-facing JWT tokens (aud=vellum-gateway). The external ID is
- * needed because the gateway must identify which assistant the token
- * belongs to, while the daemon internally uses 'self'.
- *
- * The value is cached in memory after the first successful read.
- * Falls back to 'self' if the lockfile is unreadable or has no
- * assistant entries.
- */
-
-import { getLogger } from "../../util/logger.js";
-import { readLockfile } from "../../util/platform.js";
-
-const log = getLogger("external-assistant-id");
-
-let cached: string | undefined;
-
-/**
- * Get the external assistant ID from the lockfile.
+ * Resolves the external assistant ID for use in edge-facing JWT tokens
+ * (aud=vellum-gateway). The external ID is needed because the gateway
+ * must identify which assistant the token belongs to, while the daemon
+ * internally uses 'self'.
  *
  * Resolution order:
  *   1. Cached in-memory value (populated on first call)
  *   2. Most recently hatched entry in lockfile assistants array
  *      (sorted by `hatchedAt` descending) → assistantId
- *   3. Fallback: 'self'
+ *   3. BASE_DATA_DIR path matching `/assistants/<name>` suffix
+ *   4. `undefined` — callers must handle the missing value
+ *
+ * The value is cached in memory after the first successful read.
  */
-export function getExternalAssistantId(): string {
+
+import { getBaseDataDir } from "../../config/env-registry.js";
+import { getLogger } from "../../util/logger.js";
+import { readLockfile } from "../../util/platform.js";
+
+const log = getLogger("external-assistant-id");
+
+let cached: string | null | undefined;
+
+/**
+ * Get the external assistant ID.
+ *
+ * Resolution order:
+ *   1. Cached in-memory value (populated on first call)
+ *   2. Most recently hatched entry in lockfile assistants array
+ *      (sorted by `hatchedAt` descending) → assistantId
+ *   3. BASE_DATA_DIR path matching `/assistants/<name>` suffix
+ *   4. `undefined` when resolution fails entirely
+ */
+export function getExternalAssistantId(): string | undefined {
   if (cached !== undefined) {
-    return cached;
+    return cached ?? undefined;
   }
 
   try {
@@ -58,14 +65,26 @@ export function getExternalAssistantId(): string {
       }
     }
   } catch (err) {
-    log.warn(
-      { err },
-      "Failed to read lockfile for external assistant ID — falling back to self",
-    );
+    log.warn({ err }, "Failed to read lockfile for external assistant ID");
   }
 
-  cached = "self";
-  return cached;
+  // Fallback: derive from BASE_DATA_DIR path
+  const base = getBaseDataDir();
+  if (base && typeof base === "string") {
+    const normalized = base.replace(/\\/g, "/").replace(/\/+$/, "");
+    const match = normalized.match(/\/assistants\/([^/]+)$/);
+    if (match) {
+      cached = match[1];
+      log.info(
+        { externalAssistantId: cached },
+        "Resolved external assistant ID from BASE_DATA_DIR",
+      );
+      return cached;
+    }
+  }
+
+  cached = null;
+  return undefined;
 }
 
 /**
