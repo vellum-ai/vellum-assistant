@@ -135,8 +135,23 @@ public final class LocalAssistantBootstrapService {
             }
         } catch let error as PlatformAPIError {
             if case .serverError(let statusCode, _) = error, statusCode == 409 {
-                log.info("Registration returned 409 — will resolve platform assistant ID from reprovision")
-                // platformAssistantId stays nil — will be resolved from the reprovision response
+                // Try to resolve platform assistant ID from cache for key re-sync
+                if let storage = credentialStorage,
+                   let orgId = UserDefaults.standard.string(forKey: "connectedOrganizationId"),
+                   let uid = try? await resolveUserId(),
+                   let cachedId = PlatformAssistantIdResolver.resolve(
+                       lockfileAssistantId: runtimeAssistantId,
+                       isManaged: false,
+                       organizationId: orgId,
+                       userId: uid,
+                       credentialStorage: storage
+                   ) {
+                    platformAssistantId = cachedId
+                    log.info("Registration returned 409 — resolved platform assistant ID from cache: \(cachedId, privacy: .public)")
+                } else {
+                    log.info("Registration returned 409 — no cached platform ID, will resolve from reprovision")
+                    // platformAssistantId stays nil — reprovision will provide it
+                }
             } else {
                 throw mapPlatformError(error, context: .registration)
             }
