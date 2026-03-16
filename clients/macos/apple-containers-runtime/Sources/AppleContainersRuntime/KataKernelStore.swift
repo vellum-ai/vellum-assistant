@@ -122,11 +122,7 @@ public final class KataKernelStore: @unchecked Sendable {
     /// This property checks the `ImageStore` for the cached OCI manifest — it
     /// does **not** perform any network requests.
     public var isCached: Bool {
-        lock.lock()
-        let ready = _imagesReady
-        lock.unlock()
-        if ready { return true }
-        return false
+        lock.withLock { _imagesReady }
     }
 
     /// Ensures the kernel and vminitd OCI images are available in the image
@@ -135,17 +131,13 @@ public final class KataKernelStore: @unchecked Sendable {
     /// This method is idempotent: calling it multiple times when the images
     /// are already present returns immediately without making network requests.
     public func ensureImagesReady() async throws {
-        lock.lock()
-        let ready = _imagesReady
-        lock.unlock()
+        let ready = lock.withLock { _imagesReady }
         if ready { return }
 
         try await pullImageIfNeeded(reference: kernelImageReference)
         try await pullImageIfNeeded(reference: vminitdImageReference)
 
-        lock.lock()
-        _imagesReady = true
-        lock.unlock()
+        lock.withLock { _imagesReady = true }
     }
 
     /// Returns a `Kernel` struct pointing to the cached kernel binary.
@@ -190,9 +182,7 @@ public final class KataKernelStore: @unchecked Sendable {
 
     /// Invalidates the in-memory `_imagesReady` flag.  For testing only.
     public func invalidateCache() {
-        lock.lock()
-        _imagesReady = false
-        lock.unlock()
+        lock.withLock { _imagesReady = false }
     }
 
     // MARK: - Private helpers
@@ -224,7 +214,8 @@ extension ImageStore {
         do {
             let image = try await self.get(reference: reference)
             return KernelImage(image: image)
-        } catch let error as ContainerizationError where error.code == .notFound {
+        } catch {
+            // Image not yet in the local store — pull from the remote registry.
             let image = try await self.pull(reference: reference, auth: auth)
             return KernelImage(image: image)
         }
