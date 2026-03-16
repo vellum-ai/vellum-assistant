@@ -504,9 +504,8 @@ struct AgentPanelContent: View {
                     VSegmentedControl(
                         items: modes.map { (label: viewModeLabel($0), tag: $0) },
                         selection: $skillFileViewMode,
-                        style: .pill
+                        style: .underline
                     )
-                    .frame(width: CGFloat(modes.count) * 60)
                 }
             }
 
