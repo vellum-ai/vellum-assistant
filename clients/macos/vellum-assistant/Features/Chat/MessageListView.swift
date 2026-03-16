@@ -206,14 +206,18 @@ struct MessageListView: View {
         PendingConfirmationFocusSelector.activeRequestId(from: visibleMessages)
     }
 
-    /// Triggers auto-scroll when the last message's text length changes (e.g. during streaming).
-    /// Uses total text length (monotonically increasing) so the trigger never produces the same
-    /// value when a new text segment starts after a tool call — unlike a hash of segment count +
-    /// last segment length, which can collide and miss scroll events.
+    /// Triggers auto-scroll when the last message's content changes (text streaming,
+    /// tool call output, inline surface updates). Combines text byte count, tool call
+    /// count, inline surface count, and tool call partial-output revisions so that any
+    /// content growth — including tool output streaming between text segments — produces
+    /// a new value and fires onChange.
     private var streamingScrollTrigger: Int {
         let last = messages.last(where: { if case .queued = $0.status { return false }; return true })
         let textLen = last?.textSegments.reduce(0) { $0 + $1.utf8.count } ?? 0
-        return textLen + (last?.toolCalls.count ?? 0) + (last?.inlineSurfaces.count ?? 0)
+        let toolCallFingerprint = last?.toolCalls.reduce(0) {
+            $0 + ($1.isComplete ? 1 : 0) + $1.partialOutputRevision + $1.claudeCodeSteps.count
+        } ?? 0
+        return textLen + (last?.toolCalls.count ?? 0) + (last?.inlineSurfaces.count ?? 0) + toolCallFingerprint
     }
 
     /// Computes all expensive derived values once per body evaluation.
@@ -1093,6 +1097,7 @@ struct MessageListView: View {
                 pendingAvatarY = nil
                 avatarLastAppliedAt = nil
                 hasPlayedTailEntryAnimation = false
+                lastTailAnchorY = .infinity
                 restoreScrollToBottom(proxy: proxy)
             }
             .onChange(of: anchorMessageId) {
@@ -1197,15 +1202,12 @@ struct MessageListView: View {
 /// skip re-evaluating the body during LazySubviewPlacements.updateValue.
 private struct MessageCellView: View, Equatable {
     static func == (lhs: MessageCellView, rhs: MessageCellView) -> Bool {
-        lhs.message.id == rhs.message.id
-            && lhs.message.text.count == rhs.message.text.count
-            && lhs.message.isStreaming == rhs.message.isStreaming
-            && lhs.message.toolCalls.count == rhs.message.toolCalls.count
-            && lhs.message.status == rhs.message.status
+        lhs.message == rhs.message
             && lhs.index == rhs.index
             && lhs.showTimestamp == rhs.showTimestamp
             && lhs.activePendingRequestId == rhs.activePendingRequestId
             && lhs.latestAssistantId == rhs.latestAssistantId
+            && lhs.anchoredThinkingIndex == rhs.anchoredThinkingIndex
             && lhs.canInlineProcessing == rhs.canInlineProcessing
             && lhs.shouldShowThinkingIndicator == rhs.shouldShowThinkingIndicator
             && lhs.assistantStatusText == rhs.assistantStatusText
