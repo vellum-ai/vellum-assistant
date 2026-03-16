@@ -773,7 +773,7 @@ export async function handleSendMessage(
         assistantMessageChannel: sourceChannel,
         userMessageInterface: sourceInterface,
         assistantMessageInterface: sourceInterface,
-        ...(body.automated ? { automated: true } : {}),
+        ...(body.automated === true ? { automated: true } : {}),
       },
       { isInteractive },
     );
@@ -877,7 +877,7 @@ export async function handleSendMessage(
         assistantMessageChannel: sourceChannel,
         userMessageInterface: sourceInterface,
         assistantMessageInterface: sourceInterface,
-        ...(body.automated ? { automated: true } : {}),
+        ...(body.automated === true ? { automated: true } : {}),
       };
       const userMsg = createUserMessage(rawContent, attachments);
       const persisted = await addMessage(
@@ -966,7 +966,7 @@ export async function handleSendMessage(
       resolvedContent,
       attachments,
       requestId,
-      body.automated ? { automated: true } : undefined,
+      body.automated === true ? { automated: true } : undefined,
     );
   } catch (err) {
     throw err;
