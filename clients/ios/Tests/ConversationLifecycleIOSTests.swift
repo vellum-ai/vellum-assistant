@@ -165,7 +165,7 @@ final class ConversationLifecycleIOSTests: XCTestCase {
         XCTAssertTrue(vm.isBootstrapping, "Should still be bootstrapping")
     }
 
-    func testOnSessionCreatedCallbackFiresDuringBackfill() {
+    func testOnConversationCreatedCallbackFiresDuringBackfill() {
         let vm = ChatViewModel(daemonClient: mockClient)
         var capturedSessionId: String?
         vm.onConversationCreated = { conversationId in
@@ -198,7 +198,7 @@ final class ConversationLifecycleIOSTests: XCTestCase {
 
     // MARK: - Conversation Lifecycle: Create, Use, Archive Pattern
 
-    func testNewSessionReceivesAndCompletesMessages() {
+    func testNewConversationReceivesAndCompletesMessages() {
         let vm = ChatViewModel(daemonClient: mockClient)
 
         // Step 1: User sends first message (triggers bootstrap)
@@ -243,7 +243,7 @@ final class ConversationLifecycleIOSTests: XCTestCase {
         XCTAssertFalse(vm.messages[1].isStreaming)
     }
 
-    func testMultipleMessagesInSameSession() {
+    func testMultipleMessagesInSameConversation() {
         let vm = ChatViewModel(daemonClient: mockClient)
         vm.conversationId = "existing-sess"
 
@@ -272,7 +272,7 @@ final class ConversationLifecycleIOSTests: XCTestCase {
         XCTAssertEqual(vm.messages[3].text, "Second answer")
     }
 
-    // MARK: - Separate Sessions (Conversation Isolation)
+    // MARK: - Separate Conversations (Isolation)
 
     func testSeparateViewModelsHaveIndependentState() {
         let vm1 = ChatViewModel(daemonClient: mockClient)
@@ -314,7 +314,7 @@ final class ConversationLifecycleIOSTests: XCTestCase {
 
     // MARK: - Error Recovery in Conversation
 
-    func testErrorDuringSessionDoesNotDestroyMessages() {
+    func testErrorDuringConversationDoesNotDestroyMessages() {
         let vm = ChatViewModel(daemonClient: mockClient)
         vm.conversationId = "sess-error"
 
@@ -382,7 +382,7 @@ final class ConversationLifecycleIOSTests: XCTestCase {
         XCTAssertEqual(cachedConversation.lastSeenAssistantMessageAt?.timeIntervalSince1970, 4.0)
     }
 
-    func testConnectedConversationMergeAppliesMetadataWhenMatchedViaViewModelSessionId() {
+    func testConnectedConversationMergeAppliesMetadataWhenMatchedViaViewModelConversationId() {
         let daemonClient = DaemonClient()
         let store = IOSConversationStore(daemonClient: daemonClient)
 
@@ -866,7 +866,7 @@ final class ConversationLifecycleIOSTests: XCTestCase {
         XCTAssertEqual(updatesBySessionId["connected-session-unpinned"]?.isPinned, true)
     }
 
-    func testPinningConnectedConversationSurvivesStaleSessionRefresh() {
+    func testPinningConnectedConversationSurvivesStaleConversationListRefresh() {
         let daemonClient = DaemonClient()
         let store = IOSConversationStore(daemonClient: daemonClient)
         let response = makeConversationListResponse(conversations: [
