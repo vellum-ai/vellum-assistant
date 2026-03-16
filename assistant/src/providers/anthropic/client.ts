@@ -627,9 +627,15 @@ export class AnthropicProvider implements Provider {
         effort?: Anthropic.OutputConfig["effort"];
         output_config?: Record<string, unknown>;
       };
+      // Haiku does not support the effort / output_config parameter.
+      // Determine the effective model (per-call override or provider default)
+      // and strip effort when the model doesn't support it.
+      const effectiveModel =
+        (restConfig as Record<string, unknown>).model?.toString() ?? this.model;
+      const supportsEffort = !effectiveModel.includes("haiku");
       const mergedOutputConfig = {
         ...(output_config ?? {}),
-        ...(effort ? { effort } : {}),
+        ...(effort && supportsEffort ? { effort } : {}),
       };
       const params: Anthropic.MessageStreamParams = {
         model: this.model,
