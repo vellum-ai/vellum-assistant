@@ -166,9 +166,6 @@ struct APIKeyStepView: View {
     }
 
     private var continueButtonTitle: String {
-        if isAuthenticated {
-            return "Hatch"
-        }
         return "Continue"
     }
 

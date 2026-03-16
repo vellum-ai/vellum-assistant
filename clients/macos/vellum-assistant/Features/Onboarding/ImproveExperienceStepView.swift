@@ -4,6 +4,8 @@ import VellumAssistantShared
 @MainActor
 struct ImproveExperienceStepView: View {
     @Bindable var state: OnboardingState
+    /// Whether the user is authenticated (skipped API key entry, came from step 1).
+    var isAuthenticated: Bool = false
 
     @State private var showTitle = false
     @State private var showContent = false
@@ -142,7 +144,8 @@ struct ImproveExperienceStepView: View {
 
     private func goBack() {
         withAnimation(.spring(duration: 0.6, bounce: 0.15)) {
-            state.currentStep -= 1
+            // Authenticated users skipped step 2 (API key), go back to step 1
+            state.currentStep -= isAuthenticated ? 2 : 1
         }
     }
 }

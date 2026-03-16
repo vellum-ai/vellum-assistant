@@ -107,7 +107,7 @@ struct OnboardingFlowView: View {
                             case 2:
                                 APIKeyEntryStepView(state: state)
                             case 3:
-                                ImproveExperienceStepView(state: state)
+                                ImproveExperienceStepView(state: state, isAuthenticated: authManager.isAuthenticated)
                             default:
                                 EmptyView()
                             }
