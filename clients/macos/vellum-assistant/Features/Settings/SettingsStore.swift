@@ -228,6 +228,8 @@ public final class SettingsStore: ObservableObject {
     /// Whether the user has opted in to sending crash reports, error diagnostics, and
     /// performance metrics. Defaults to `true`. Controls Sentry independently from usage analytics.
     @Published var sendDiagnostics: Bool = UserDefaults.standard.object(forKey: "sendDiagnostics") as? Bool
+        ?? UserDefaults.standard.object(forKey: "collectUsageData") as? Bool
+        ?? UserDefaults.standard.object(forKey: "collectUsageDataEnabled") as? Bool
         ?? true
 
     /// Whether the user has opted in to sharing anonymized usage analytics (e.g. token counts,

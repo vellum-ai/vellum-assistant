@@ -450,7 +450,9 @@ extension AppDelegate {
             let hasExplicitCollectUsageData = collectUsageData != nil
 
             let canonicalSendDiagnostics = UserDefaults.standard.object(forKey: "sendDiagnostics") as? Bool
-            let sendDiagnostics = canonicalSendDiagnostics
+            // Fall back to legacy collectUsageData keys so users who opted
+            // out via the old master switch keep Sentry disabled.
+            let sendDiagnostics = canonicalSendDiagnostics ?? collectUsageData
             let hasExplicitSendDiagnostics = sendDiagnostics != nil
 
             // Apply Sentry state based on sendDiagnostics (default true when absent)
