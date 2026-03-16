@@ -74,8 +74,10 @@ export class CredentialWatcher {
         this.metadataDir,
         { persistent: false },
         (_event, filename) => {
-          // Filter to only metadata.json changes (ignore tmp files, etc.)
-          if (filename !== this.metadataFilename) {
+          // Filter to only metadata.json changes (ignore tmp files, etc.).
+          // Accept null filenames — some platforms don't report the name
+          // for rename events; treat them as potential metadata changes.
+          if (filename != null && filename !== this.metadataFilename) {
             return;
           }
           this.scheduleCheck();

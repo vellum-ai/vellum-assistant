@@ -75,7 +75,7 @@ export class ConfigFileWatcher {
         this.configDir,
         { persistent: false },
         (_event, filename) => {
-          if (filename !== CONFIG_FILENAME) {
+          if (filename != null && filename !== CONFIG_FILENAME) {
             return;
           }
           this.scheduleCheck();
