@@ -51,6 +51,26 @@ struct DaemonStartupError {
     let detail: String?
 }
 
+// MARK: - LocalAssistantLauncher
+
+/// A launcher that knows how to start a local assistant instance.
+///
+/// Adopt this protocol to add a new backend (e.g. Apple Containers) without
+/// changing the startup logic in `AppDelegate+DaemonSetup`. The app reads
+/// `LockfileAssistant.runtimeBackend` and dispatches to the appropriate launcher.
+@MainActor
+protocol LocalAssistantLauncher: AnyObject {
+    /// Start (or re-start) the local assistant.
+    ///
+    /// - Parameters:
+    ///   - name: The assistant ID to hatch. Pass `nil` to let the launcher
+    ///     choose the name (e.g. first-launch scenario).
+    ///   - daemonOnly: When `true`, skip any lockfile-entry creation step and
+    ///     only ensure the daemon process is running.
+    ///   - restart: When `true`, stop any running instance before starting.
+    func launch(name: String?, daemonOnly: Bool, restart: Bool) async throws
+}
+
 /// Manages all daemon lifecycle operations through the bundled CLI binary.
 ///
 /// This is the single entry point for hatching, stopping, and retiring the
@@ -102,6 +122,13 @@ final class AssistantCli {
     }
 
     // MARK: - Public API
+
+    // MARK: - LocalAssistantLauncher conformance
+
+    /// `LocalAssistantLauncher` entry point — delegates to `hatch(name:daemonOnly:restart:)`.
+    func launch(name: String?, daemonOnly: Bool, restart: Bool) async throws {
+        try await hatch(name: name, daemonOnly: daemonOnly, restart: restart)
+    }
 
     /// Hatch a new assistant via the CLI. The CLI spawns the daemon binary,
     /// waits for the socket, and registers the assistant entry.
