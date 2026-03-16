@@ -82,7 +82,7 @@ export function makeEventSender(params: {
   return (event: ServerMessage) => {
     if (event.type === "confirmation_request") {
       pendingInteractions.register(event.requestId, {
-        session: conversation,
+        conversation,
         conversationId,
         kind: "confirmation",
         confirmationDetails: {
@@ -119,25 +119,25 @@ export function makeEventSender(params: {
       }
     } else if (event.type === "secret_request") {
       pendingInteractions.register(event.requestId, {
-        session: conversation,
+        conversation,
         conversationId,
         kind: "secret",
       });
     } else if (event.type === "host_bash_request") {
       pendingInteractions.register(event.requestId, {
-        session: conversation,
+        conversation,
         conversationId,
         kind: "host_bash",
       });
     } else if (event.type === "host_file_request") {
       pendingInteractions.register(event.requestId, {
-        session: conversation,
+        conversation,
         conversationId,
         kind: "host_file",
       });
     } else if (event.type === "host_cu_request") {
       pendingInteractions.register(event.requestId, {
-        session: conversation,
+        conversation,
         conversationId,
         kind: "host_cu",
       });

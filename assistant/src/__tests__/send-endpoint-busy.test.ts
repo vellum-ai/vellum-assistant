@@ -429,7 +429,7 @@ describe("POST /v1/messages — queue-if-busy and hub publishing", () => {
     } = makePendingApprovalSession(requestId, false);
 
     pendingInteractions.register(requestId, {
-      session,
+      conversation: session,
       conversationId,
       kind: "confirmation",
     });
@@ -489,7 +489,7 @@ describe("POST /v1/messages — queue-if-busy and hub publishing", () => {
     } = makePendingApprovalSession(requestId, false);
 
     pendingInteractions.register(requestId, {
-      session,
+      conversation: session,
       conversationId,
       kind: "confirmation",
     });
@@ -557,7 +557,7 @@ describe("POST /v1/messages — queue-if-busy and hub publishing", () => {
     } = makePendingApprovalSession(requestId, true);
 
     pendingInteractions.register(requestId, {
-      session,
+      conversation: session,
       conversationId,
       kind: "confirmation",
     });
@@ -617,7 +617,7 @@ describe("POST /v1/messages — queue-if-busy and hub publishing", () => {
     } = makePendingApprovalSession(requestId, true, { queueDepth: 2 });
 
     pendingInteractions.register(requestId, {
-      session,
+      conversation: session,
       conversationId,
       kind: "confirmation",
     });
@@ -677,7 +677,7 @@ describe("POST /v1/messages — queue-if-busy and hub publishing", () => {
     } = makePendingApprovalSession(requestId, false);
 
     pendingInteractions.register(requestId, {
-      session,
+      conversation: session,
       conversationId,
       kind: "confirmation",
     });
@@ -735,7 +735,7 @@ describe("POST /v1/messages — queue-if-busy and hub publishing", () => {
     );
 
     pendingInteractions.register(requestId, {
-      session,
+      conversation: session,
       conversationId,
       kind: "confirmation",
     });
