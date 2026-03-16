@@ -4,7 +4,7 @@ import VellumAssistantShared
 /// Presentation model for the thread title + actions control in the top bar.
 /// Keeps UI logic deterministic and testable.
 @MainActor
-struct ThreadHeaderPresentation {
+struct ConversationHeaderPresentation {
     let displayTitle: String
     let isStarted: Bool
     let showsActionsMenu: Bool
@@ -12,8 +12,8 @@ struct ThreadHeaderPresentation {
     let canCopy: Bool
     let isPinned: Bool
 
-    init(activeThread: ThreadModel?, activeViewModel: ChatViewModel?, isConversationVisible: Bool) {
-        guard isConversationVisible, let thread = activeThread else {
+    init(activeConversation: ConversationModel?, activeViewModel: ChatViewModel?, isConversationVisible: Bool) {
+        guard isConversationVisible, let thread = activeConversation else {
             self.displayTitle = "New thread"
             self.isStarted = false
             self.showsActionsMenu = false
@@ -33,7 +33,7 @@ struct ThreadHeaderPresentation {
         }) ?? false
         self.isStarted = thread.conversationId != nil || hasUserMessage
 
-        // Private threads don't show the full actions menu
+        // Private conversations don't show the full actions menu
         self.showsActionsMenu = isStarted && !isPrivateThread
 
         // Can copy when there's non-empty content

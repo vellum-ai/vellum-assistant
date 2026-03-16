@@ -8,7 +8,7 @@ enum SettingsTab: String {
     case permissionsAndPrivacy = "Permissions & Privacy"
     case contacts = "Contacts"
     case billing = "Billing"
-    case archivedThreads = "Archived Threads"
+    case archivedConversations = "Archived Threads"
     case developer = "Developer"
 
     /// Primary tabs shown in the main nav list (excludes feature-flagged bottom tabs).
@@ -24,7 +24,7 @@ enum SettingsTab: String {
         if billingEnabled {
             tabs.append(.billing)
         }
-        tabs.append(.archivedThreads)
+        tabs.append(.archivedConversations)
         return tabs
     }
 
@@ -44,7 +44,7 @@ struct SettingsPanel: View {
     var onClose: () -> Void
     @ObservedObject var store: SettingsStore
     var daemonClient: DaemonClient?
-    @ObservedObject var threadManager: ThreadManager
+    @ObservedObject var conversationManager: ConversationManager
     var authManager: AuthManager
 
     @State private var apiKeyText: String = ""
@@ -261,7 +261,7 @@ struct SettingsPanel: View {
         if isDeveloperEnabled {
             tabs.append(.developer)
         }
-        // .archivedThreads is already included via primaryTabs()
+        // .archivedConversations is already included via primaryTabs()
         return tabs
     }
 
@@ -309,8 +309,8 @@ struct SettingsPanel: View {
             ContactsContainerView(daemonClient: daemonClient, store: store, isEmailEnabled: isEmailEnabled)
         case .billing:
             SettingsBillingTab(authManager: authManager)
-        case .archivedThreads:
-            SettingsArchivedThreadsTab(threadManager: threadManager)
+        case .archivedConversations:
+            SettingsArchivedThreadsTab(conversationManager: conversationManager)
         case .developer:
             SettingsDeveloperTab(store: store, daemonClient: daemonClient, authManager: authManager, onClose: onClose)
         }

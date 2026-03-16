@@ -2,24 +2,24 @@ import SwiftUI
 import VellumAssistantShared
 
 struct SettingsArchivedThreadsTab: View {
-    @ObservedObject var threadManager: ThreadManager
+    @ObservedObject var conversationManager: ConversationManager
 
     var body: some View {
         VStack(alignment: .leading, spacing: VSpacing.lg) {
-            if threadManager.archivedThreads.isEmpty {
+            if conversationManager.archivedConversations.isEmpty {
                 VEmptyState(
-                    title: "No archived threads",
+                    title: "No archived conversations",
                     subtitle: "Threads you archive will appear here.",
                     icon: VIcon.archive.rawValue
                 )
             } else {
                 VStack(alignment: .leading, spacing: 0) {
-                    ForEach(Array(threadManager.archivedThreads.enumerated()), id: \.element.id) { index, thread in
+                    ForEach(Array(conversationManager.archivedConversations.enumerated()), id: \.element.id) { index, thread in
                         if index > 0 {
                             SettingsDivider()
                         }
                         ArchivedThreadRow(thread: thread) {
-                            threadManager.unarchiveThread(id: thread.id)
+                            conversationManager.unarchiveConversation(id: thread.id)
                         }
                     }
                 }
@@ -32,10 +32,10 @@ struct SettingsArchivedThreadsTab: View {
     }
 }
 
-// MARK: - Archived Thread Row
+// MARK: - Archived Conversation Row
 
 private struct ArchivedThreadRow: View {
-    let thread: ThreadModel
+    let thread: ConversationModel
     let onUnarchive: () -> Void
 
     private static let dateFormatter: DateFormatter = {

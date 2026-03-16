@@ -52,26 +52,26 @@ final class DocumentEditorThreadVisibilityTests: XCTestCase {
         XCTAssertFalse(state.isConversationVisible)
     }
 
-    // MARK: - ThreadHeaderPresentation for document editor
+    // MARK: - ConversationHeaderPresentation for document editor
 
     func testDocumentEditorShowsThreadTitleWhenActiveThreadExists() {
-        let thread = ThreadModel(title: "Doc Session Thread", sessionId: "doc-session-1")
+        let thread = ConversationModel(title: "Doc Session Conversation", conversationId: "doc-session-1")
         let vm = ChatViewModel(daemonClient: DaemonClient())
-        let presentation = ThreadHeaderPresentation(
-            activeThread: thread,
+        let presentation = ConversationHeaderPresentation(
+            activeConversation: thread,
             activeViewModel: vm,
             isConversationVisible: true  // document editor always reports conversation as visible
         )
 
-        XCTAssertEqual(presentation.displayTitle, "Doc Session Thread",
+        XCTAssertEqual(presentation.displayTitle, "Doc Session Conversation",
                         "Document editor should show actual thread title, not 'New thread'")
         XCTAssertTrue(presentation.isStarted)
         XCTAssertTrue(presentation.showsActionsMenu)
     }
 
     func testDocumentEditorShowsNewThreadWhenNoActiveThread() {
-        let presentation = ThreadHeaderPresentation(
-            activeThread: nil,
+        let presentation = ConversationHeaderPresentation(
+            activeConversation: nil,
             activeViewModel: nil,
             isConversationVisible: true
         )

@@ -149,7 +149,7 @@ extension AppDelegate {
                             requestId: msg.requestId,
                             decision: "allow"
                         )
-                        self.mainWindow?.threadManager.updateConfirmationStateAcrossThreads(
+                        self.mainWindow?.conversationManager.updateConfirmationStateAcrossThreads(
                             requestId: msg.requestId,
                             decision: "allow"
                         )
@@ -166,7 +166,7 @@ extension AppDelegate {
                 // the inline bubble won't be visible, so we must still fire the
                 // native notification.
                 if NSApp.isActive, let mainWindow = self.mainWindow, mainWindow.isVisible {
-                    let activeSessionId = mainWindow.threadManager.activeViewModel?.conversationId
+                    let activeSessionId = mainWindow.conversationManager.activeViewModel?.conversationId
                     let confirmationIsForActiveThread = msg.sessionId == nil || msg.sessionId == activeSessionId
                     if confirmationIsForActiveThread {
                         return
@@ -185,7 +185,7 @@ extension AppDelegate {
                         decision: decision
                     )
                     // Only sync the inline message state if the send succeeded.
-                    self.mainWindow?.threadManager.updateConfirmationStateAcrossThreads(
+                    self.mainWindow?.conversationManager.updateConfirmationStateAcrossThreads(
                         requestId: msg.requestId,
                         decision: decision
                     )
@@ -497,7 +497,7 @@ extension AppDelegate {
         main.onMicrophoneToggle = { [weak self] in
             self?.voiceInput?.toggleRecording()
         }
-        main.threadManager.onInlineConfirmationResponse = { [weak self] requestId, decision in
+        main.conversationManager.onInlineConfirmationResponse = { [weak self] requestId, decision in
             guard let self else { return }
             self.toolConfirmationNotificationService.handleInlineResponse(requestId: requestId)
             UNUserNotificationCenter.current().removeDeliveredNotifications(
@@ -506,7 +506,7 @@ extension AppDelegate {
         }
         mainWindow = main
         observeAssistantStatus()
-        observeConversationBadge(main.threadManager)
+        observeConversationBadge(main.conversationManager)
         return main
     }
 
@@ -558,16 +558,16 @@ extension AppDelegate {
         // updates when isThinking or errorText changes, even though SwiftUI
         // views now use ActiveChatViewWrapper for their own observation.
         //
-        // Use the emitted UUID directly (not activeViewModel) because $activeThreadId
-        // fires during willSet — at that point activeThreadId still holds the old value,
+        // Use the emitted UUID directly (not activeViewModel) because $activeConversationId
+        // fires during willSet — at that point activeConversationId still holds the old value,
         // so activeViewModel would resolve to the previous thread's view model.
-        statusIconCancellable = mainWindow?.threadManager.$activeThreadId
+        statusIconCancellable = mainWindow?.conversationManager.$activeConversationId
             .compactMap { [weak mainWindow] (id: UUID?) -> ChatViewModel? in
                 guard let id else { return nil }
-                return mainWindow?.threadManager.chatViewModel(for: id)
+                return mainWindow?.conversationManager.chatViewModel(for: id)
             }
             .handleEvents(receiveOutput: { [weak self] _ in
-                // Update immediately when switching threads
+                // Update immediately when switching conversations
                 self?.updateMenuBarIcon()
             })
             .map { $0.objectWillChange }
@@ -578,13 +578,13 @@ extension AppDelegate {
             }
     }
 
-    func observeConversationBadge(_ threadManager: ThreadManager) {
+    func observeConversationBadge(_ conversationManager: ConversationManager) {
         conversationBadgeCancellable?.cancel()
 
-        applyDockConversationBadge(count: threadManager.unseenVisibleConversationCount)
+        applyDockConversationBadge(count: conversationManager.unseenVisibleConversationCount)
 
-        conversationBadgeCancellable = threadManager.$threads
-            .map { threads in threads.filter { !$0.isArchived && $0.kind != .private && $0.hasUnseenLatestAssistantMessage }.count }
+        conversationBadgeCancellable = conversationManager.$conversations
+            .map { conversations in conversations.filter { !$0.isArchived && $0.kind != .private && $0.hasUnseenLatestAssistantMessage }.count }
             .removeDuplicates()
             .sink { [weak self] count in
                 self?.applyDockConversationBadge(count: count)
@@ -607,7 +607,7 @@ extension AppDelegate {
     }
 
     func refreshDockConversationBadge() {
-        applyDockConversationBadge(count: mainWindow?.threadManager.unseenVisibleConversationCount ?? 0)
+        applyDockConversationBadge(count: mainWindow?.conversationManager.unseenVisibleConversationCount ?? 0)
     }
 }
 

@@ -4,12 +4,12 @@ import VellumAssistantShared
 /// A single thread row in the sidebar, handling hover, pin, archive, rename,
 /// and drag interactions.
 struct SidebarThreadItem: View {
-    let thread: ThreadModel
-    @ObservedObject var threadManager: ThreadManager
+    let thread: ConversationModel
+    @ObservedObject var conversationManager: ConversationManager
     @ObservedObject var windowState: MainWindowState
     var sidebar: SidebarInteractionState
     /// Called when the user taps the thread row (handles selection logic).
-    var selectThread: () -> Void
+    var selectConversation: () -> Void
     /// Optional additional callback after selection (e.g. dismiss a popover).
     var onSelect: (() -> Void)? = nil
 
@@ -28,7 +28,7 @@ struct SidebarThreadItem: View {
     }
 
     private var isHovered: Bool { sidebar.isHoveredThread == thread.id }
-    private var interactionState: ThreadInteractionState { threadManager.interactionState(for: thread.id) }
+    private var interactionState: ConversationInteractionState { conversationManager.interactionState(for: thread.id) }
     // Reserve trailing space when hovered for archive button overlay.
     private var hasTrailingIcon: Bool { isHovered || sidebar.threadPendingDeletion == thread.id }
     private var isPendingDeletion: Bool { sidebar.threadPendingDeletion == thread.id }
@@ -50,9 +50,9 @@ struct SidebarThreadItem: View {
                     Button {
                         withAnimation(VAnimation.standard) {
                             if thread.isPinned {
-                                threadManager.unpinThread(id: thread.id)
+                                conversationManager.unpinThread(id: thread.id)
                             } else {
-                                threadManager.pinThread(id: thread.id)
+                                conversationManager.pinThread(id: thread.id)
                             }
                         }
                     } label: {
@@ -130,18 +130,18 @@ struct SidebarThreadItem: View {
             .animation(VAnimation.fast, value: isHovered)
         }
         .onTapGesture {
-            selectThread()
+            selectConversation()
             onSelect?()
         }
         .accessibilityAddTraits(.isButton)
-        .accessibilityLabel("Thread: \(thread.title)")
+        .accessibilityLabel("Conversation: \(thread.title)")
         .accessibilityAction(.default) {
-            selectThread()
+            selectConversation()
         }
         .overlay(alignment: .trailing) {
             if sidebar.threadPendingDeletion == thread.id {
                 VButton(label: "Confirm", style: .dangerOutline, size: .pill) {
-                    threadManager.archiveThread(id: thread.id)
+                    conversationManager.archiveConversation(id: thread.id)
                     sidebar.threadPendingDeletion = nil
                 }
                 .fixedSize()
@@ -166,9 +166,9 @@ struct SidebarThreadItem: View {
             Button {
                 withAnimation(VAnimation.standard) {
                     if thread.isPinned {
-                        threadManager.unpinThread(id: thread.id)
+                        conversationManager.unpinThread(id: thread.id)
                     } else {
-                        threadManager.pinThread(id: thread.id)
+                        conversationManager.pinThread(id: thread.id)
                     }
                 }
             } label: {
@@ -181,12 +181,12 @@ struct SidebarThreadItem: View {
                 Label { Text("Rename thread") } icon: { VIconView(.pencil, size: 14) }
             }
             Button {
-                threadManager.archiveThread(id: thread.id)
+                conversationManager.archiveConversation(id: thread.id)
             } label: {
                 Label { Text("Archive thread") } icon: { VIconView(.archive, size: 14) }
             }
             Button {
-                threadManager.markConversationUnread(threadId: thread.id)
+                conversationManager.markConversationUnread(threadId: thread.id)
             } label: {
                 Label { Text("Mark as unread") } icon: { VIconView(.circle, size: 14) }
             }
@@ -198,7 +198,7 @@ struct SidebarThreadItem: View {
                 guard let conversationId = thread.conversationId else { return }
                 AppDelegate.shared?.showLogReportWindow(scope: .thread(conversationId: conversationId, threadTitle: thread.title))
             } label: {
-                Label { Text("Send Logs for Thread") } icon: { VIconView(.upload, size: 14) }
+                Label { Text("Send Logs for Conversation") } icon: { VIconView(.upload, size: 14) }
             }
             .disabled(thread.conversationId == nil || LogExporter.isManagedAssistant)
         }

@@ -3,54 +3,54 @@ import XCTest
 @testable import VellumAssistantShared
 
 @MainActor
-final class ThreadManagerSessionLoopTests: XCTestCase {
+final class ConversationManagerSessionLoopTests: XCTestCase {
     private var daemonClient: DaemonClient!
-    private var threadManager: ThreadManager!
+    private var conversationManager: ConversationManager!
 
     override func setUp() {
         super.setUp()
         daemonClient = DaemonClient()
         daemonClient.isConnected = true
         daemonClient.sendOverride = { _ in }
-        threadManager = ThreadManager(daemonClient: daemonClient)
+        conversationManager = ConversationManager(daemonClient: daemonClient)
     }
 
     override func tearDown() {
         daemonClient?.sendOverride = nil
-        threadManager = nil
+        conversationManager = nil
         daemonClient = nil
         super.tearDown()
     }
 
     func testSelectingSessionBackedThreadStartsMessageLoop() {
-        guard let threadId = threadManager.activeThreadId,
-              let vm = threadManager.chatViewModel(for: threadId),
-              let index = threadManager.threads.firstIndex(where: { $0.id == threadId }) else {
-            XCTFail("Expected active thread and view model")
+        guard let threadId = conversationManager.activeConversationId,
+              let vm = conversationManager.chatViewModel(for: threadId),
+              let index = conversationManager.conversations.firstIndex(where: { $0.id == threadId }) else {
+            XCTFail("Expected active conversation and view model")
             return
         }
 
-        threadManager.threads[index].conversationId = "session-active"
+        conversationManager.conversations[index].conversationId = "session-active"
         vm.conversationId = "session-active"
 
         XCTAssertEqual(daemonClient.subscribers.count, 0)
-        threadManager.selectThread(id: threadId)
+        conversationManager.selectConversation(id: threadId)
         XCTAssertEqual(daemonClient.subscribers.count, 1)
     }
 
     func testSelectingSameSessionBackedThreadDoesNotDuplicateMessageLoop() {
-        guard let threadId = threadManager.activeThreadId,
-              let vm = threadManager.chatViewModel(for: threadId),
-              let index = threadManager.threads.firstIndex(where: { $0.id == threadId }) else {
-            XCTFail("Expected active thread and view model")
+        guard let threadId = conversationManager.activeConversationId,
+              let vm = conversationManager.chatViewModel(for: threadId),
+              let index = conversationManager.conversations.firstIndex(where: { $0.id == threadId }) else {
+            XCTFail("Expected active conversation and view model")
             return
         }
 
-        threadManager.threads[index].conversationId = "session-active"
+        conversationManager.conversations[index].conversationId = "session-active"
         vm.conversationId = "session-active"
 
-        threadManager.selectThread(id: threadId)
-        threadManager.selectThread(id: threadId)
+        conversationManager.selectConversation(id: threadId)
+        conversationManager.selectConversation(id: threadId)
 
         XCTAssertEqual(daemonClient.subscribers.count, 1)
     }

@@ -3,8 +3,8 @@ import VellumAssistantShared
 
 /// Top-left thread header above the chat: shows thread title + chevron.
 /// Tapping opens a drawer-style popover with thread actions.
-struct ThreadTitleActionsControl: View {
-    let presentation: ThreadHeaderPresentation
+struct ConversationTitleActionsControl: View {
+    let presentation: ConversationHeaderPresentation
     let onCopy: () -> Void
     let onPin: () -> Void
     let onUnpin: () -> Void
@@ -28,8 +28,8 @@ struct ThreadTitleActionsControl: View {
 }
 
 /// Drawer-style popover for thread actions, matching the preferences drawer pattern.
-struct ThreadActionsDrawer: View {
-    let presentation: ThreadHeaderPresentation
+struct ConversationActionsDrawer: View {
+    let presentation: ConversationHeaderPresentation
     let onCopy: () -> Void
     let onPin: () -> Void
     let onUnpin: () -> Void

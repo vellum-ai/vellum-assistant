@@ -1,15 +1,15 @@
 import Foundation
 
-enum ThreadKind: String, Hashable, Sendable {
+enum ConversationKind: String, Hashable, Sendable {
     case standard
     case `private`
 }
 
-struct ThreadModel: Identifiable, Hashable {
+struct ConversationModel: Identifiable, Hashable {
     let id: UUID
     var title: String
     let createdAt: Date
-    /// Daemon conversation ID for restored threads. Nil for new, unsaved threads.
+    /// Daemon conversation ID for restored conversations. Nil for new, unsaved conversations.
     /// Mutable so it can be backfilled when the daemon assigns a conversation to a new thread.
     var conversationId: String?
     var isArchived: Bool
@@ -19,7 +19,7 @@ struct ThreadModel: Identifiable, Hashable {
     /// nil means no explicit order — thread is sorted by recency.
     var displayOrder: Int?
     var lastInteractedAt: Date
-    var kind: ThreadKind
+    var kind: ConversationKind
     var source: String?
     /// The schedule job ID that created this thread, if any.
     /// Threads sharing the same scheduleJobId belong to the same schedule group.
@@ -28,7 +28,7 @@ struct ThreadModel: Identifiable, Hashable {
     var latestAssistantMessageAt: Date?
     var lastSeenAssistantMessageAt: Date?
 
-    init(id: UUID = UUID(), title: String = "New Conversation", createdAt: Date = Date(), conversationId: String? = nil, isArchived: Bool = false, isPinned: Bool = false, pinnedOrder: Int? = nil, displayOrder: Int? = nil, lastInteractedAt: Date? = nil, kind: ThreadKind = .standard, source: String? = nil, scheduleJobId: String? = nil, hasUnseenLatestAssistantMessage: Bool = false, latestAssistantMessageAt: Date? = nil, lastSeenAssistantMessageAt: Date? = nil) {
+    init(id: UUID = UUID(), title: String = "New Conversation", createdAt: Date = Date(), conversationId: String? = nil, isArchived: Bool = false, isPinned: Bool = false, pinnedOrder: Int? = nil, displayOrder: Int? = nil, lastInteractedAt: Date? = nil, kind: ConversationKind = .standard, source: String? = nil, scheduleJobId: String? = nil, hasUnseenLatestAssistantMessage: Bool = false, latestAssistantMessageAt: Date? = nil, lastSeenAssistantMessageAt: Date? = nil) {
         self.id = id
         self.title = title
         self.createdAt = createdAt
@@ -47,9 +47,9 @@ struct ThreadModel: Identifiable, Hashable {
     }
 
     /// Whether this thread was created by a schedule trigger (including one-shot/reminders).
-    /// Checks for legacy "reminder" source for threads created before unification.
+    /// Checks for legacy "reminder" source for conversations created before unification.
     /// Falls back to title prefix when source is nil (HTTP mode).
-    var isScheduleThread: Bool {
+    var isScheduleConversation: Bool {
         if let source = source {
             return source == "schedule" || source == "reminder"
         }

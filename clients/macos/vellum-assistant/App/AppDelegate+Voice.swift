@@ -83,7 +83,7 @@ extension AppDelegate {
             let mainWindowActive = NSApp.isActive && (self?.mainWindow?.isVisible ?? false)
 
             // Sync recording state: clear on the view model that started recording
-            // to avoid stale isRecording when the user switches threads mid-recording.
+            // to avoid stale isRecording when the user switches conversations mid-recording.
             if isRecording {
                 self?.recordingViewModel = self?.mainWindow?.activeViewModel
             }

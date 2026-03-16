@@ -3,10 +3,10 @@ import XCTest
 @testable import VellumAssistantShared
 
 @MainActor
-final class ThreadManagerPrivateThreadTests: XCTestCase {
+final class ConversationManagerPrivateThreadTests: XCTestCase {
 
     private var daemonClient: DaemonClient!
-    private var threadManager: ThreadManager!
+    private var conversationManager: ConversationManager!
     private var capturedMessages: [Any] = []
 
     override func setUp() {
@@ -18,46 +18,47 @@ final class ThreadManagerPrivateThreadTests: XCTestCase {
             guard let self else { return }
             capturedMessages.append(msg)
         }
-        threadManager = ThreadManager(daemonClient: daemonClient)
+        conversationManager = ConversationManager(daemonClient: daemonClient)
     }
 
     override func tearDown() {
         daemonClient?.sendOverride = nil
-        threadManager = nil
+        conversationManager = nil
         capturedMessages = []
         daemonClient = nil
         super.tearDown()
     }
 
-    // MARK: - createPrivateThread
+    // MARK: - createPrivateConversation
 
     func testCreatePrivateThreadAddsThreadWithPrivateKind() {
-        threadManager.createPrivateThread()
+        conversationManager.createPrivateConversation()
 
-        // init creates a default standard thread, so we expect 2 threads total
-        XCTAssertEqual(threadManager.threads.count, 2)
-        let privateThread = threadManager.threads.first!
+        // init enters draft mode (conversations empty), createPrivateConversation adds one
+        XCTAssertEqual(conversationManager.conversations.count, 1)
+        let privateThread = conversationManager.conversations.first!
         XCTAssertEqual(privateThread.kind, .private, "New thread should have kind .private")
     }
 
     func testCreatePrivateThreadSetsActiveThread() {
-        threadManager.createPrivateThread()
+        conversationManager.createPrivateConversation()
 
-        let privateThread = threadManager.threads.first!
-        XCTAssertEqual(threadManager.activeThreadId, privateThread.id)
+        let privateThread = conversationManager.conversations.first!
+        XCTAssertEqual(conversationManager.activeConversationId, privateThread.id)
     }
 
     func testCreatePrivateThreadCallsCreateSessionIfNeeded() {
-        threadManager.createPrivateThread()
+        conversationManager.createPrivateConversation()
 
-        let vm = threadManager.activeViewModel!
-        XCTAssertTrue(vm.isSending, "Should be in sending state from createConversationIfNeeded bootstrap")
+        let vm = conversationManager.activeViewModel!
+        // Message-less session creates (private thread pre-allocation) don't set isSending.
+        XCTAssertFalse(vm.isSending, "Message-less bootstrap should not set isSending")
         XCTAssertTrue(vm.isBootstrapping, "Should be bootstrapping a session")
         XCTAssertEqual(vm.conversationType, "private", "conversationType should be set to private")
     }
 
     func testCreatePrivateThreadSendsSessionCreate() {
-        threadManager.createPrivateThread()
+        conversationManager.createPrivateConversation()
 
         // Allow the async Task in bootstrapConversation to execute
         let expectation = XCTestExpectation(description: "session_create sent")
@@ -73,22 +74,22 @@ final class ThreadManagerPrivateThreadTests: XCTestCase {
     }
 
     func testCreatePrivateThreadDoesNotReuseEmptyStandardThread() {
-        // init already creates an empty standard thread — createPrivateThread
-        // should NOT reuse it (unlike createThread which skips if active is empty).
-        let standardThreadId = threadManager.activeThreadId
-        threadManager.createPrivateThread()
+        // init enters draft mode (activeConversationId is nil) — createPrivateConversation
+        // should create a new private thread, not reuse the draft.
+        let draftId = conversationManager.activeConversationId
+        conversationManager.createPrivateConversation()
 
-        XCTAssertNotEqual(threadManager.activeThreadId, standardThreadId,
-                          "Should create a new thread, not reuse the empty standard one")
-        XCTAssertEqual(threadManager.threads.count, 2)
+        XCTAssertNotEqual(conversationManager.activeConversationId, draftId,
+                          "Should create a new thread, not reuse the draft")
+        XCTAssertEqual(conversationManager.conversations.count, 1)
     }
 
     // MARK: - Session backfill
 
     func testPrivateThreadSessionBackfill() {
-        threadManager.createPrivateThread()
-        let privateThread = threadManager.threads.first!
-        let vm = threadManager.activeViewModel!
+        conversationManager.createPrivateConversation()
+        let privateThread = conversationManager.conversations.first!
+        let vm = conversationManager.activeViewModel!
         let correlationId = vm.bootstrapCorrelationId!
 
         // Simulate daemon responding with session_info
@@ -96,17 +97,17 @@ final class ThreadManagerPrivateThreadTests: XCTestCase {
         vm.handleServerMessage(.conversationInfo(info))
 
         // The thread's sessionId should be backfilled via onConversationCreated
-        let updatedThread = threadManager.threads.first(where: { $0.id == privateThread.id })!
-        XCTAssertEqual(updatedThread.conversationId, "private-session-42", "Session ID should be backfilled into the ThreadModel")
+        let updatedThread = conversationManager.conversations.first(where: { $0.id == privateThread.id })!
+        XCTAssertEqual(updatedThread.conversationId, "private-session-42", "Session ID should be backfilled into the ConversationModel")
         XCTAssertEqual(vm.conversationId, "private-session-42")
         XCTAssertFalse(vm.isSending, "Should reset isSending after session_info for message-less create")
         XCTAssertFalse(vm.isBootstrapping, "Should no longer be bootstrapping after session_info")
     }
 
     func testPrivateThreadTitleCallbackStillWorks() {
-        threadManager.createPrivateThread()
-        let privateThread = threadManager.threads.first!
-        let vm = threadManager.activeViewModel!
+        conversationManager.createPrivateConversation()
+        let privateThread = conversationManager.conversations.first!
+        let vm = conversationManager.activeViewModel!
         let correlationId = vm.bootstrapCorrelationId!
 
         // Complete the session bootstrap
@@ -118,13 +119,13 @@ final class ThreadManagerPrivateThreadTests: XCTestCase {
         vm.inputText = "Hello private thread"
         vm.sendMessage()
 
-        let updatedThread = threadManager.threads.first(where: { $0.id == privateThread.id })!
+        let updatedThread = conversationManager.conversations.first(where: { $0.id == privateThread.id })!
         XCTAssertEqual(updatedThread.title, "Untitled", "First user message should trigger title update")
     }
 
     func testCreatePrivateThreadSetsOnSessionCreatedCallback() {
-        threadManager.createPrivateThread()
-        let vm = threadManager.activeViewModel!
+        conversationManager.createPrivateConversation()
+        let vm = conversationManager.activeViewModel!
         XCTAssertNotNil(vm.onConversationCreated, "onConversationCreated should be set for session ID backfill")
     }
 }

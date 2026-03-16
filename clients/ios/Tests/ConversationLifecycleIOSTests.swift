@@ -302,7 +302,7 @@ final class ThreadLifecycleIOSTests: XCTestCase {
         vm2.conversationId = "sess-b"
 
         // Delta for conversation A
-        let deltaA = AssistantTextDeltaMessage(text: "For A", conversationId: "sess-a")
+        let deltaA = AssistantTextDeltaMessage(text: "For A", sessionId: "sess-a")
         vm1.handleServerMessage(.assistantTextDelta(deltaA))
         vm1.flushStreamingBuffer()
         vm2.handleServerMessage(.assistantTextDelta(deltaA))

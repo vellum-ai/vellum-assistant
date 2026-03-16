@@ -3,22 +3,22 @@ import XCTest
 @testable import VellumAssistantShared
 
 @MainActor
-final class ThreadManagerBusyStateTests: XCTestCase {
+final class ConversationManagerBusyStateTests: XCTestCase {
 
     private var daemonClient: DaemonClient!
-    private var threadManager: ThreadManager!
+    private var conversationManager: ConversationManager!
 
     override func setUp() {
         super.setUp()
         daemonClient = DaemonClient()
         daemonClient.isConnected = true
         daemonClient.sendOverride = { _ in }
-        threadManager = ThreadManager(daemonClient: daemonClient)
+        conversationManager = ConversationManager(daemonClient: daemonClient)
     }
 
     override func tearDown() {
         daemonClient?.sendOverride = nil
-        threadManager = nil
+        conversationManager = nil
         daemonClient = nil
         super.tearDown()
     }
@@ -26,15 +26,15 @@ final class ThreadManagerBusyStateTests: XCTestCase {
     // MARK: - Busy state derivation
 
     func testBusyFalseByDefault() {
-        // init creates a default thread
-        let threadId = threadManager.activeThreadId!
-        XCTAssertFalse(threadManager.isThreadBusy(threadId), "Thread should not be busy by default")
-        XCTAssertTrue(threadManager.busyThreadIds.isEmpty)
+        // init creates a default conversation
+        let threadId = conversationManager.activeConversationId!
+        XCTAssertFalse(conversationManager.isConversationBusy(threadId), "Conversation should not be busy by default")
+        XCTAssertTrue(conversationManager.busyConversationIds.isEmpty)
     }
 
     func testBusyTrueWhenIsSending() {
-        let threadId = threadManager.activeThreadId!
-        let vm = threadManager.activeViewModel!
+        let threadId = conversationManager.activeConversationId!
+        let vm = conversationManager.activeViewModel!
         vm.isSending = true
 
         // Allow Combine pipeline to deliver
@@ -42,36 +42,36 @@ final class ThreadManagerBusyStateTests: XCTestCase {
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { exp.fulfill() }
         wait(for: [exp], timeout: 1.0)
 
-        XCTAssertTrue(threadManager.isThreadBusy(threadId), "Thread should be busy when isSending is true")
+        XCTAssertTrue(conversationManager.isConversationBusy(threadId), "Conversation should be busy when isSending is true")
     }
 
     func testBusyTrueWhenIsThinking() {
-        let threadId = threadManager.activeThreadId!
-        let vm = threadManager.activeViewModel!
+        let threadId = conversationManager.activeConversationId!
+        let vm = conversationManager.activeViewModel!
         vm.isThinking = true
 
         let exp = expectation(description: "busy state propagates")
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { exp.fulfill() }
         wait(for: [exp], timeout: 1.0)
 
-        XCTAssertTrue(threadManager.isThreadBusy(threadId), "Thread should be busy when isThinking is true")
+        XCTAssertTrue(conversationManager.isConversationBusy(threadId), "Conversation should be busy when isThinking is true")
     }
 
     func testBusyTrueWhenPendingQueuedCountPositive() {
-        let threadId = threadManager.activeThreadId!
-        let vm = threadManager.activeViewModel!
+        let threadId = conversationManager.activeConversationId!
+        let vm = conversationManager.activeViewModel!
         vm.pendingQueuedCount = 3
 
         let exp = expectation(description: "busy state propagates")
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { exp.fulfill() }
         wait(for: [exp], timeout: 1.0)
 
-        XCTAssertTrue(threadManager.isThreadBusy(threadId), "Thread should be busy when pendingQueuedCount > 0")
+        XCTAssertTrue(conversationManager.isConversationBusy(threadId), "Conversation should be busy when pendingQueuedCount > 0")
     }
 
     func testBusyFalseAfterAllReturnToIdle() {
-        let threadId = threadManager.activeThreadId!
-        let vm = threadManager.activeViewModel!
+        let threadId = conversationManager.activeConversationId!
+        let vm = conversationManager.activeViewModel!
 
         // Set busy
         vm.isSending = true
@@ -81,7 +81,7 @@ final class ThreadManagerBusyStateTests: XCTestCase {
         let expBusy = expectation(description: "busy state set")
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { expBusy.fulfill() }
         wait(for: [expBusy], timeout: 1.0)
-        XCTAssertTrue(threadManager.isThreadBusy(threadId))
+        XCTAssertTrue(conversationManager.isConversationBusy(threadId))
 
         // Return to idle
         vm.isSending = false
@@ -92,41 +92,41 @@ final class ThreadManagerBusyStateTests: XCTestCase {
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { expIdle.fulfill() }
         wait(for: [expIdle], timeout: 1.0)
 
-        XCTAssertFalse(threadManager.isThreadBusy(threadId), "Thread should not be busy after all states return to idle")
-        XCTAssertTrue(threadManager.busyThreadIds.isEmpty)
+        XCTAssertFalse(conversationManager.isConversationBusy(threadId), "Conversation should not be busy after all states return to idle")
+        XCTAssertTrue(conversationManager.busyConversationIds.isEmpty)
     }
 
     func testLRUEvictionSkipsBusyBackgroundThread() {
-        guard let originalThreadId = threadManager.activeThreadId else {
-            XCTFail("Expected initial active thread")
+        guard let originalThreadId = conversationManager.activeConversationId else {
+            XCTFail("Expected initial active conversation")
             return
         }
 
         for _ in 0..<9 {
-            threadManager.activeViewModel?.messages.append(ChatMessage(role: .user, text: "seed"))
-            threadManager.createThread()
+            conversationManager.activeViewModel?.messages.append(ChatMessage(role: .user, text: "seed"))
+            conversationManager.createConversation()
         }
 
-        guard let busyVm = threadManager.existingChatViewModel(for: originalThreadId) else {
-            XCTFail("Expected original thread view model")
+        guard let busyVm = conversationManager.existingChatViewModel(for: originalThreadId) else {
+            XCTFail("Expected original conversation view model")
             return
         }
         busyVm.isSending = true
 
-        let expBusy = expectation(description: "busy thread marked")
+        let expBusy = expectation(description: "busy conversation marked")
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { expBusy.fulfill() }
         wait(for: [expBusy], timeout: 1.0)
-        XCTAssertTrue(threadManager.isThreadBusy(originalThreadId))
+        XCTAssertTrue(conversationManager.isConversationBusy(originalThreadId))
 
         // Trigger one more creation to force an LRU eviction pass.
-        threadManager.activeViewModel?.messages.append(ChatMessage(role: .user, text: "seed"))
-        threadManager.createThread()
+        conversationManager.activeViewModel?.messages.append(ChatMessage(role: .user, text: "seed"))
+        conversationManager.createConversation()
 
         let expEvict = expectation(description: "eviction pass complete")
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { expEvict.fulfill() }
         wait(for: [expEvict], timeout: 1.0)
 
-        XCTAssertNotNil(threadManager.existingChatViewModel(for: originalThreadId), "Busy thread should not be evicted")
-        XCTAssertTrue(threadManager.isThreadBusy(originalThreadId), "Busy state should be preserved after eviction pass")
+        XCTAssertNotNil(conversationManager.existingChatViewModel(for: originalThreadId), "Busy conversation should not be evicted")
+        XCTAssertTrue(conversationManager.isConversationBusy(originalThreadId), "Busy state should be preserved after eviction pass")
     }
 }

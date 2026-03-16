@@ -10,7 +10,7 @@ public struct VThreadIcon: View {
     let size: Size
     var isActive: Bool = false
     /// Optional dot color for interaction-state overlay (bottom-right corner).
-    /// Callers map ThreadInteractionState → Color externally to keep the
+    /// Callers map ConversationInteractionState → Color externally to keep the
     /// design system decoupled from feature types.
     var dotColor: Color?
 

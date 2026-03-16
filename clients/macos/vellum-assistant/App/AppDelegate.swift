@@ -429,7 +429,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
 
     public func createNewThread() {
         showMainWindow()
-        mainWindow?.threadManager.createThread()
+        mainWindow?.conversationManager.createConversation()
     }
 
 }
