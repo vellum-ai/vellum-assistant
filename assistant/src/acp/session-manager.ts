@@ -54,7 +54,7 @@ export class AcpSessionManager {
     cwd: string,
     parentSessionId: string,
     sendToVellum: (msg: ServerMessage) => void,
-  ): Promise<string> {
+  ): Promise<{ acpSessionId: string; protocolSessionId: string }> {
     if (this.sessions.size >= this.maxConcurrent) {
       throw new Error(
         `ACP concurrency limit reached (max ${this.maxConcurrent}). ` +
@@ -146,7 +146,7 @@ export class AcpSessionManager {
       task,
     );
 
-    return acpSessionId;
+    return { acpSessionId, protocolSessionId: state.acpSessionId };
   }
 
   /**
@@ -291,7 +291,10 @@ export class AcpSessionManager {
           if (this.onAcpSessionFinished) {
             const agentLabel = current.state.agentId;
             const responseText = current.clientHandler.responseText;
-            const notifyMessage = `[ACP agent "${agentLabel}" completed]\n\n${responseText}`;
+            const sessionId = current.state.acpSessionId;
+            const notifyMessage =
+              `[ACP agent "${agentLabel}" completed (session: ${sessionId})]\n\n${responseText}\n\n` +
+              `To resume this session: claude --resume ${sessionId}`;
             this.onAcpSessionFinished(
               current.parentSessionId,
               notifyMessage,
