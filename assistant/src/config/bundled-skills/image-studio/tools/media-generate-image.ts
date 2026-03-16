@@ -18,7 +18,7 @@ import {
   resolveManagedProxyContext,
 } from "../../../../providers/managed-proxy/context.js";
 import type { ImageContent } from "../../../../providers/types.js";
-import { getSecureKeyAsync } from "../../../../security/secure-keys.js";
+import { getProviderKeyAsync } from "../../../../security/secure-keys.js";
 import { getAttachmentSourceConversations } from "../../../../tools/assets/search.js";
 import type {
   ToolContext,
@@ -55,8 +55,7 @@ export async function run(
   context: ToolContext,
 ): Promise<ToolExecutionResult> {
   const config = getConfig();
-  const apiKey =
-    (await getSecureKeyAsync("gemini")) ?? process.env.GEMINI_API_KEY;
+  const apiKey = await getProviderKeyAsync("gemini");
 
   // Resolve credentials: prefer direct API key, fall back to managed proxy
   let credentials: ImageGenCredentials | undefined;

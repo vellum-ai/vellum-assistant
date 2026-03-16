@@ -1,7 +1,7 @@
 import { getConfig } from "../../config/loader.js";
 import { RiskLevel } from "../../permissions/types.js";
 import type { ToolDefinition } from "../../providers/types.js";
-import { getSecureKeyAsync } from "../../security/secure-keys.js";
+import { getProviderKeyAsync } from "../../security/secure-keys.js";
 import { getLogger } from "../../util/logger.js";
 import {
   DEFAULT_BASE_DELAY_MS,
@@ -54,11 +54,11 @@ async function getApiKey(
   provider: WebSearchProvider,
 ): Promise<string | undefined> {
   if (provider === "brave") {
-    return (await getSecureKeyAsync("brave")) ?? undefined;
+    return (await getProviderKeyAsync("brave")) ?? undefined;
   }
 
   // Perplexity
-  return (await getSecureKeyAsync("perplexity")) ?? undefined;
+  return (await getProviderKeyAsync("perplexity")) ?? undefined;
 }
 
 function formatBraveResults(

@@ -15,7 +15,7 @@ import {
   buildManagedBaseUrl,
   resolveManagedProxyContext,
 } from "../providers/managed-proxy/context.js";
-import { getSecureKeyAsync } from "../security/secure-keys.js";
+import { getProviderKeyAsync } from "../security/secure-keys.js";
 import { getLogger } from "../util/logger.js";
 import {
   generateImage,
@@ -37,8 +37,7 @@ export async function generateAppIcon(
   appDescription?: string,
 ): Promise<void> {
   const config = getConfig();
-  const apiKey =
-    (await getSecureKeyAsync("gemini")) ?? process.env.GEMINI_API_KEY;
+  const apiKey = await getProviderKeyAsync("gemini");
 
   let credentials: ImageGenCredentials | undefined;
   if (apiKey) {
