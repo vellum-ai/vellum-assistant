@@ -1,9 +1,17 @@
 /**
  * Watches config.json for changes to any top-level key.
- * Uses the same fs.watch() + debounce pattern as CredentialWatcher.
+ * Always watches the parent directory (not the file) for the same
+ * atomic-rename resilience reasons as CredentialWatcher — see its
+ * module doc for details.
  */
 
-import { existsSync, readFileSync, watch, type FSWatcher } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  watch,
+  type FSWatcher,
+} from "node:fs";
 import { dirname, join } from "node:path";
 import { getLogger } from "./logger.js";
 import { getRootDir } from "./credential-reader.js";
@@ -43,42 +51,45 @@ function readConfigFile(path: string): Record<string, unknown> {
 
 export class ConfigFileWatcher {
   private watcher: FSWatcher | null = null;
-  private watchingDirectory = false;
   private debounceTimer: ReturnType<typeof setTimeout> | null = null;
   private lastSerialized: Map<string, string> = new Map();
   private callback: ConfigChangeCallback;
   private configPath: string;
+  private configDir: string;
 
   constructor(callback: ConfigChangeCallback) {
     this.callback = callback;
     this.configPath = getConfigPath();
+    this.configDir = dirname(this.configPath);
   }
 
   start(): void {
     this.pollOnce();
 
-    this.watchingDirectory = !existsSync(this.configPath);
-    const watchTarget = this.watchingDirectory
-      ? dirname(this.configPath)
-      : this.configPath;
+    // Always watch the directory — file watches can break on atomic
+    // rename writes (kqueue tracks inodes, not paths).
+    mkdirSync(this.configDir, { recursive: true });
 
     try {
       this.watcher = watch(
-        watchTarget,
+        this.configDir,
         { persistent: false },
         (_event, filename) => {
-          if (this.watchingDirectory && filename !== CONFIG_FILENAME) {
+          if (filename !== CONFIG_FILENAME) {
             return;
           }
           this.scheduleCheck();
         },
       );
 
-      log.info({ path: watchTarget }, "Watching for config file changes");
+      log.info(
+        { path: this.configDir },
+        "Watching directory for config file changes",
+      );
     } catch (err) {
       log.warn(
-        { err, path: watchTarget },
-        "Failed to start config file watcher",
+        { err, path: this.configDir },
+        "Failed to start config directory watcher",
       );
     }
   }
@@ -101,30 +112,7 @@ export class ConfigFileWatcher {
     this.debounceTimer = setTimeout(() => {
       this.debounceTimer = null;
       this.pollOnce();
-
-      if (this.watchingDirectory && existsSync(this.configPath)) {
-        this.upgradeWatcher();
-      }
     }, DEBOUNCE_MS);
-  }
-
-  private upgradeWatcher(): void {
-    if (this.watcher) {
-      this.watcher.close();
-      this.watcher = null;
-    }
-
-    if (!existsSync(this.configPath)) return;
-
-    try {
-      this.watcher = watch(this.configPath, { persistent: false }, () => {
-        this.scheduleCheck();
-      });
-      this.watchingDirectory = false;
-      log.debug("Upgraded watcher to config file");
-    } catch (err) {
-      log.warn({ err }, "Failed to upgrade config file watcher");
-    }
   }
 
   private pollOnce(): void {
