@@ -33,9 +33,6 @@ struct SyntaxTheme {
         case .property:
             color = NSColor(red: 0.68, green: 0.78, blue: 0.88, alpha: 1.0)
 
-        case .punctuation:
-            color = baseTextColor
-
         case .boolean, .null:
             color = NSColor(red: 0.73, green: 0.56, blue: 0.87, alpha: 1.0)
 
