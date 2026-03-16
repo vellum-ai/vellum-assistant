@@ -43,6 +43,10 @@ struct AppsGridView: View {
     /// Maximum width of the centered content area.
     private let maxContentWidth: CGFloat = 1400
 
+    private var isLoading: Bool {
+        !hasFetchedLocalApps || !hasFetchedShared
+    }
+
     var body: some View {
         Group {
             if appListManager.apps.isEmpty && sharedApps.isEmpty && hasFetchedShared && hasFetchedLocalApps {
@@ -57,12 +61,18 @@ struct AppsGridView: View {
                         Spacer()
                     }
                     .padding(.bottom, VSpacing.md)
+                    .padding(.horizontal, VSpacing.xl)
+                    .padding(.top, VSpacing.xl)
 
                     Divider().background(VColor.borderBase)
+                        .padding(.horizontal, VSpacing.xl)
 
-                    mainContent
+                    if isLoading && appListManager.apps.isEmpty && sharedApps.isEmpty {
+                        loadingSkeleton
+                    } else {
+                        mainContent
+                    }
                 }
-                .padding(VSpacing.xl)
             }
         }
         .background(VColor.surfaceBase)
@@ -91,10 +101,15 @@ struct AppsGridView: View {
 
     // MARK: - Main Content
 
+    /// Horizontal inset applied to each child inside the ScrollView so the
+    /// scrollbar indicator stays flush against the trailing edge.
+    private let scrollContentInset = EdgeInsets(top: 0, leading: VSpacing.xl, bottom: 0, trailing: VSpacing.xl)
+
     private var mainContent: some View {
         ScrollView {
             VStack(spacing: VSpacing.xxl) {
                 searchBar
+                    .padding(scrollContentInset)
 
                 let pinned = filteredPinnedApps
                 let recents = filteredRecentApps
@@ -102,14 +117,17 @@ struct AppsGridView: View {
 
                 if !pinned.isEmpty {
                     appSection(title: "Pinned", apps: pinned)
+                        .padding(scrollContentInset)
                 }
 
                 if !recents.isEmpty {
                     appSection(title: "Recents", apps: recents)
+                        .padding(scrollContentInset)
                 }
 
                 if !shared.isEmpty {
                     sharedSection(title: "Shared", apps: shared)
+                        .padding(scrollContentInset)
                 } else if isLoadingShared {
                     ProgressView()
                         .controlSize(.small)
@@ -127,9 +145,62 @@ struct AppsGridView: View {
                     .padding(.top, VSpacing.xxxl)
                 }
             }
-            .frame(maxWidth: maxContentWidth)
             .frame(maxWidth: .infinity)
             .padding(.top, VSpacing.lg)
+            .padding(.bottom, VSpacing.xl)
+        }
+    }
+
+    // MARK: - Loading Skeleton
+
+    private var loadingSkeleton: some View {
+        VStack(spacing: VSpacing.xxl) {
+            // Disabled search bar
+            VSearchBar(placeholder: "Search your library", text: .constant(""))
+                .disabled(true)
+                .opacity(0.5)
+
+            // Skeleton section mimicking "Pinned" / "Recents"
+            skeletonSection
+        }
+        .frame(maxWidth: maxContentWidth)
+        .frame(maxWidth: .infinity)
+        .padding(.top, VSpacing.lg)
+        .padding(.horizontal, VSpacing.xl)
+        .accessibilityHidden(true)
+    }
+
+    private var skeletonSection: some View {
+        VStack(alignment: .leading, spacing: VSpacing.md) {
+            // Section title skeleton
+            VSkeletonBone(width: 80, height: 14)
+
+            // Row of two skeleton app cards
+            HStack(spacing: VSpacing.xl) {
+                skeletonAppCard
+                skeletonAppCard
+                // Spacers to match the 5-column grid — cards only fill first 2 slots
+                Spacer()
+                Spacer()
+                Spacer()
+            }
+        }
+    }
+
+    private var skeletonAppCard: some View {
+        VStack(alignment: .leading, spacing: VSpacing.sm) {
+            // Preview rectangle matching 16:10 aspect ratio
+            RoundedRectangle(cornerRadius: VRadius.lg)
+                .fill(VColor.borderBase.opacity(0.5))
+                .aspectRatio(16.0 / 10.0, contentMode: .fit)
+                .vShimmer()
+
+            // Name and date lines
+            VStack(alignment: .leading, spacing: VSpacing.xs) {
+                VSkeletonBone(width: 120, height: 12)
+                VSkeletonBone(width: 80, height: 10)
+            }
+            .padding(.horizontal, VSpacing.xs)
         }
     }
 
