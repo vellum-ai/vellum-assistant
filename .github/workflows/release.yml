@@ -1747,6 +1747,15 @@ jobs:
             --head "$BRANCH")
           gh pr merge "$PR_URL" --squash --admin --delete-branch
 
+      - name: Update release tag to merged main
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+        run: |
+          VERSION="${{ needs.create-release-branch.outputs.version }}"
+          git fetch origin main
+          git tag -f "v$VERSION" origin/main
+          git push origin "v$VERSION" --force
+
   update-platform:
     needs: [create-release-branch, publish-npm]
     runs-on: ubuntu-latest
