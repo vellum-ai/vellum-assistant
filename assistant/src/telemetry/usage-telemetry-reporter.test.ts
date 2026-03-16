@@ -69,7 +69,9 @@ mock.module("../util/device-id.js", () => ({
   getDeviceId: mockGetDeviceId,
 }));
 
-const mockGetExternalAssistantId = mock(() => "test-assistant-id");
+const mockGetExternalAssistantId = mock<() => string | undefined>(
+  () => "test-assistant-id",
+);
 
 mock.module("../runtime/auth/external-assistant-id.js", () => ({
   getExternalAssistantId: mockGetExternalAssistantId,
@@ -378,6 +380,25 @@ describe("UsageTelemetryReporter", () => {
     expect(e.cache_read_input_tokens).toBe(15);
     expect(e.actor).toBe("context_compactor");
     expect(e.recorded_at).toBe(1700000099000);
+  });
+
+  test("assistant_id is omitted from payload when getExternalAssistantId returns undefined", async () => {
+    mockGetExternalAssistantId.mockReturnValue(undefined);
+    const events = [makeUsageEvent()];
+    mockQueryUnreportedUsageEvents.mockReturnValue(events);
+    mockFetch.mockImplementation(() =>
+      Promise.resolve(new Response('{"accepted":1}', { status: 200 })),
+    );
+
+    const reporter = new UsageTelemetryReporter();
+    await reporter.flush();
+
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+    const body = JSON.parse(
+      (mockFetch.mock.calls[0] as [string, RequestInit])[1].body as string,
+    );
+    expect(body.installation_id).toBe("test-device-id");
+    expect("assistant_id" in body).toBe(false);
   });
 
   test("turn events are included in the events array with type discriminator", async () => {
