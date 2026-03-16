@@ -71,7 +71,7 @@ struct InlineAppCreatedCard: View {
             previewImage = preview.previewImage
             // Fallback request: fires for history-loaded surfaces that didn't go
             // through the eager uiSurfaceShow handler (app restart, reconnect,
-            // thread switch). For live surfaces the eager request in
+            // conversation switch). For live surfaces the eager request in
             // ChatViewModel+MessageHandling may have already fired; the duplicate
             // is harmless since the daemon treats preview requests idempotently.
             if previewImage == nil, let appId = appId {

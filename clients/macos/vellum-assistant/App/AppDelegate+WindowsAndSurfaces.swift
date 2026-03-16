@@ -560,7 +560,7 @@ extension AppDelegate {
         //
         // Use the emitted UUID directly (not activeViewModel) because $activeConversationId
         // fires during willSet — at that point activeConversationId still holds the old value,
-        // so activeViewModel would resolve to the previous thread's view model.
+        // so activeViewModel would resolve to the previous conversation's view model.
         statusIconCancellable = mainWindow?.conversationManager.$activeConversationId
             .compactMap { [weak mainWindow] (id: UUID?) -> ChatViewModel? in
                 guard let id else { return nil }

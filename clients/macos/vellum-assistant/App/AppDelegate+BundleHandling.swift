@@ -50,7 +50,7 @@ extension AppDelegate {
         DeepLinkManager.pendingMessage = message
 
         // Bring the main window to front and consume the pending message
-        // in the active thread's view model.
+        // in the active conversation's view model.
         showMainWindow()
         mainWindow?.conversationManager.activeViewModel?.consumeDeepLinkIfNeeded()
     }

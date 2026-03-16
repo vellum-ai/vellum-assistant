@@ -183,7 +183,7 @@ public final class HTTPTransport {
 
     /// Maps the daemon's server-side conversationId → client-local conversationId.
     /// Used to remap conversationId in incoming SSE events so ChatViewModel's
-    /// belongsToConversation() filter passes. Supports multiple concurrent threads.
+    /// belongsToConversation() filter passes. Supports multiple concurrent conversations.
     /// Capped at `serverToLocalConversationMapCap` entries to prevent unbounded growth.
     var serverToLocalConversationMap: [String: String] = [:]
     private let serverToLocalConversationMapCap = 500
@@ -191,7 +191,7 @@ public final class HTTPTransport {
     /// Session IDs that originated from this client instance.
     /// Host tool requests are only executed for these session IDs.
     private var locallyOwnedConversationIds: Set<String> = []
-    /// Session IDs that belong to private (temporary) threads.
+    /// Session IDs that belong to private (temporary) conversations.
     /// Populated when a session_create with conversationType "private" is handled locally.
     var privateConversationIds: Set<String> = []
 
@@ -1724,8 +1724,8 @@ public final class HTTPTransport {
 
             if http.statusCode == 202 || http.statusCode == 200 {
                 log.info("Message sent successfully")
-                // Learn the server's conversationId for this thread's conversationKey.
-                // For new threads, the conversationId (used as conversationKey) differs from
+                // Learn the server's conversationId for this conversation's conversationKey.
+                // For new conversations, the conversationId (used as conversationKey) differs from
                 // the server's internal conversationId. Store the mapping so parseSSEData
                 // can remap incoming events to the client's local session ID.
                 if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
@@ -3783,10 +3783,10 @@ public final class HTTPTransport {
                     await reorderConversations(updates: updates, isRetry: true)
                 }
             } else {
-                log.error("Reorder threads failed (HTTP \(http.statusCode))")
+                log.error("Reorder conversations failed (HTTP \(http.statusCode))")
             }
         } catch {
-            log.error("Reorder threads error: \(error.localizedDescription)")
+            log.error("Reorder conversations error: \(error.localizedDescription)")
         }
     }
 

@@ -253,7 +253,7 @@ public final class MainWindow {
         window?.isVisible ?? false
     }
 
-    /// The active ChatViewModel from the current thread, if any.
+    /// The active ChatViewModel from the current conversation, if any.
     var activeViewModel: ChatViewModel? {
         conversationManager.activeViewModel
     }
@@ -289,7 +289,7 @@ public final class MainWindow {
                     if self.hasConnectedOnce {
                         self.traceStore.resetAll()
                     } else {
-                        // First connect: restore panel after thread restoration
+                        // First connect: restore panel after conversation restoration
                         Task { @MainActor in
                             try? await Task.sleep(nanoseconds: 100_000_000) // 100ms delay
                             self.windowState.restoreLastActivePanel()

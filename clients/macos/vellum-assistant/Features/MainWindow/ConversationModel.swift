@@ -10,19 +10,19 @@ struct ConversationModel: Identifiable, Hashable {
     var title: String
     let createdAt: Date
     /// Daemon conversation ID for restored conversations. Nil for new, unsaved conversations.
-    /// Mutable so it can be backfilled when the daemon assigns a conversation to a new thread.
+    /// Mutable so it can be backfilled when the daemon assigns a conversation to a new conversation.
     var conversationId: String?
     var isArchived: Bool
     var isPinned: Bool
     var pinnedOrder: Int?
     /// Explicit display order set by the user via drag-and-drop reordering.
-    /// nil means no explicit order — thread is sorted by recency.
+    /// nil means no explicit order — conversation is sorted by recency.
     var displayOrder: Int?
     var lastInteractedAt: Date
     var kind: ConversationKind
     var source: String?
-    /// The schedule job ID that created this thread, if any.
-    /// Threads sharing the same scheduleJobId belong to the same schedule group.
+    /// The schedule job ID that created this conversation, if any.
+    /// Conversations sharing the same scheduleJobId belong to the same schedule group.
     var scheduleJobId: String?
     var hasUnseenLatestAssistantMessage: Bool = false
     var latestAssistantMessageAt: Date?
@@ -46,7 +46,7 @@ struct ConversationModel: Identifiable, Hashable {
         self.lastSeenAssistantMessageAt = lastSeenAssistantMessageAt
     }
 
-    /// Whether this thread was created by a schedule trigger (including one-shot/reminders).
+    /// Whether this conversation was created by a schedule trigger (including one-shot/reminders).
     /// Checks for legacy "reminder" source for conversations created before unification.
     /// Falls back to title prefix when source is nil (HTTP mode).
     var isScheduleConversation: Bool {

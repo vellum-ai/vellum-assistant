@@ -21,7 +21,7 @@ extension MainWindowView {
         if let id = conversationManager.activeConversationId {
             windowState.selection = .conversation(id)
         } else {
-            // Draft mode — clear selection so no sidebar thread is highlighted
+            // Draft mode — clear selection so no sidebar conversation is highlighted
             windowState.selection = nil
             windowState.persistentConversationId = nil
         }

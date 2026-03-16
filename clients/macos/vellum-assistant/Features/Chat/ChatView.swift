@@ -369,7 +369,7 @@ struct ChatView: View {
             }
         }
         .onReceive(NotificationCenter.default.publisher(for: .activateChatSearch)) { notification in
-            // Scope to the active thread so only the visible ChatView activates.
+            // Scope to the active conversation so only the visible ChatView activates.
             if let targetId = notification.object as? UUID, targetId != conversationId {
                 return
             }

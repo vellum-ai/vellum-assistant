@@ -3193,7 +3193,7 @@ public struct SchedulesListResponseSchedule: Codable, Sendable {
     }
 }
 
-/// Server push — broadcast when a schedule creates a conversation, so the client can show it as a chat thread.
+/// Server push — broadcast when a schedule creates a conversation, so the client can show it as a chat conversation.
 public struct ScheduleConversationCreated: Codable, Sendable {
     public let type: String
     public let conversationId: String
@@ -4194,7 +4194,7 @@ public struct SurfaceAction: Codable, Sendable {
     }
 }
 
-/// Server push — broadcast when a task run creates a conversation, so the client can show it as a chat thread.
+/// Server push — broadcast when a task run creates a conversation, so the client can show it as a chat conversation.
 public struct TaskRunConversationCreated: Codable, Sendable {
     public let type: String
     public let conversationId: String

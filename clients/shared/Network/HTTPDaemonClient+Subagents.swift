@@ -30,7 +30,7 @@ extension HTTPTransport {
 
     /// Given a client-local session ID, find the corresponding server conversation ID
     /// by doing a reverse lookup in `serverToLocalConversationMap`. Returns the original ID
-    /// if no mapping exists (the ID is already a server conversation ID, e.g. restored threads).
+    /// if no mapping exists (the ID is already a server conversation ID, e.g. restored conversations).
     func serverSessionId(forLocal localId: String) -> String {
         for (serverId, mappedLocalId) in serverToLocalConversationMap {
             if mappedLocalId == localId {
