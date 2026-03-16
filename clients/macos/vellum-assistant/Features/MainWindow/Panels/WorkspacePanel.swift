@@ -76,7 +76,7 @@ final class WorkspaceBrowserState {
 struct WorkspacePanel: View {
     let daemonClient: DaemonClient
     @State private var state = WorkspaceBrowserState()
-    private let workspaceClient = WorkspaceClient()
+    let workspaceClient = WorkspaceClient()
     @State private var sidebarWidth: CGFloat = 300
     @State private var dragStartWidth: CGFloat?
     @State private var didPushResizeCursor = false
@@ -88,7 +88,7 @@ struct WorkspacePanel: View {
 
     var body: some View {
         HStack(spacing: 0) {
-            WorkspaceTreeSidebar(state: state, daemonClient: daemonClient, workspaceClient: workspaceClient, onToggleHiddenFiles: applyHiddenFilesToggle)
+            WorkspaceTreeSidebar(state: state, workspaceClient: workspaceClient, onToggleHiddenFiles: applyHiddenFilesToggle)
                 .frame(width: sidebarWidth)
 
             // Invisible resize handle
@@ -127,7 +127,7 @@ struct WorkspacePanel: View {
                         }
                 )
 
-            WorkspaceFileViewer(state: state, daemonClient: daemonClient)
+            WorkspaceFileViewer(state: state, daemonClient: daemonClient, workspaceClient: workspaceClient)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .coordinateSpace(name: dragCoordinateSpace)
@@ -246,7 +246,6 @@ struct WorkspacePanel: View {
 
 private struct WorkspaceTreeSidebar: View {
     @Bindable var state: WorkspaceBrowserState
-    let daemonClient: DaemonClient
     let workspaceClient: WorkspaceClient
     let onToggleHiddenFiles: (Bool) -> Void
     @State private var viewportWidth: CGFloat = 0
@@ -321,7 +320,6 @@ private struct WorkspaceTreeSidebar: View {
                                         entry: entry,
                                         depth: 0,
                                         state: state,
-                                        daemonClient: daemonClient,
                                         workspaceClient: workspaceClient,
                                         minRowWidth: viewportWidth
                                     )
@@ -362,7 +360,7 @@ private struct WorkspaceTreeSidebar: View {
             }
         }
         .onDrop(of: [.fileURL], isTargeted: $state.isDropTargeted) { providers in
-            handleDrop(providers: providers, targetDir: "", state: state, daemonClient: daemonClient, workspaceClient: workspaceClient)
+            handleDrop(providers: providers, targetDir: "", state: state, workspaceClient: workspaceClient)
             return true
         }
         .background(VColor.surfaceBase)
@@ -376,7 +374,7 @@ private struct WorkspaceTreeSidebar: View {
                 guard !name.isEmpty else { return }
                 let filePath = parentPath.isEmpty ? name : parentPath + "/" + name
                 Task {
-                    let success = await daemonClient.writeWorkspaceFile(path: filePath, content: Data())
+                    let success = await workspaceClient.writeWorkspaceFile(path: filePath, content: Data())
                     if success {
                         if let response = await workspaceClient.fetchWorkspaceTree(path: parentPath, showHidden: state.showHiddenFiles) {
                             state.directoryCache[parentPath] = response.entries
@@ -397,7 +395,7 @@ private struct WorkspaceTreeSidebar: View {
                 guard !name.isEmpty else { return }
                 let folderPath = parentPath.isEmpty ? name : parentPath + "/" + name
                 Task {
-                    let success = await daemonClient.createWorkspaceDirectory(path: folderPath)
+                    let success = await workspaceClient.createWorkspaceDirectory(path: folderPath)
                     if success {
                         if let response = await workspaceClient.fetchWorkspaceTree(path: parentPath, showHidden: state.showHiddenFiles) {
                             state.directoryCache[parentPath] = response.entries
@@ -414,7 +412,7 @@ private struct WorkspaceTreeSidebar: View {
 
 // MARK: - Drop Handler
 
-private func handleDrop(providers: [NSItemProvider], targetDir: String, state: WorkspaceBrowserState, daemonClient: DaemonClient, workspaceClient: WorkspaceClient) {
+private func handleDrop(providers: [NSItemProvider], targetDir: String, state: WorkspaceBrowserState, workspaceClient: WorkspaceClient) {
     for provider in providers {
         provider.loadItem(forTypeIdentifier: UTType.fileURL.identifier, options: nil) { item, _ in
             guard let url = fileURLFromDropItem(item) else { return }
@@ -423,7 +421,7 @@ private func handleDrop(providers: [NSItemProvider], targetDir: String, state: W
             Task {
                 await MainActor.run { state.uploadingCount += 1 }
                 if let fileData = try? Data(contentsOf: url) {
-                    let success = await daemonClient.writeWorkspaceFile(path: targetPath, content: fileData)
+                    let success = await workspaceClient.writeWorkspaceFile(path: targetPath, content: fileData)
                     if success {
                         await state.refreshDirectory(targetDir, using: workspaceClient)
                     }
@@ -453,7 +451,6 @@ private struct WorkspaceTreeRow: View {
     let entry: WorkspaceTreeEntry
     let depth: Int
     @Bindable var state: WorkspaceBrowserState
-    let daemonClient: DaemonClient
     let workspaceClient: WorkspaceClient
     var minRowWidth: CGFloat = 0
 
@@ -512,7 +509,7 @@ private struct WorkspaceTreeRow: View {
             .buttonStyle(.plain)
             .onDrop(of: entry.isDirectory && !isHiddenPath(entry.path) ? [.fileURL] : [], isTargeted: .none) { providers in
                 guard entry.isDirectory, !isHiddenPath(entry.path) else { return false }
-                handleDrop(providers: providers, targetDir: entry.path, state: state, daemonClient: daemonClient, workspaceClient: workspaceClient)
+                handleDrop(providers: providers, targetDir: entry.path, state: state, workspaceClient: workspaceClient)
                 return true
             }
 
@@ -524,7 +521,6 @@ private struct WorkspaceTreeRow: View {
                             entry: child,
                             depth: depth + 1,
                             state: state,
-                            daemonClient: daemonClient,
                             workspaceClient: workspaceClient,
                             minRowWidth: minRowWidth
                         )
@@ -573,7 +569,7 @@ private struct WorkspaceTreeRow: View {
         let parentPath = parentDirectory(of: oldPath)
         let newPath = parentPath.isEmpty ? state.renamingText : "\(parentPath)/\(state.renamingText)"
         Task {
-            let success = await daemonClient.renameWorkspaceItem(oldPath: oldPath, newPath: newPath)
+            let success = await workspaceClient.renameWorkspaceItem(oldPath: oldPath, newPath: newPath)
             if success {
                 if let response = await workspaceClient.fetchWorkspaceTree(path: parentPath, showHidden: state.showHiddenFiles) {
                     state.directoryCache[parentPath] = response.entries
@@ -673,6 +669,7 @@ private struct WorkspaceTreeRow: View {
 private struct WorkspaceFileViewer: View {
     @Bindable var state: WorkspaceBrowserState
     let daemonClient: DaemonClient
+    let workspaceClient: WorkspaceClient
 
     var body: some View {
         Group {
@@ -831,7 +828,7 @@ private struct WorkspaceFileViewer: View {
         state.isSaving = true
         let snapshot = state.editableContent
         let data = Data(snapshot.utf8)
-        let success = await daemonClient.writeWorkspaceFile(path: path, content: data)
+        let success = await workspaceClient.writeWorkspaceFile(path: path, content: data)
         // Only update editor state if the user is still viewing the file that was saved
         guard state.selectedFilePath == path else {
             state.isSaving = false
@@ -862,7 +859,7 @@ private struct WorkspaceFileViewer: View {
 
     private func imageViewer(_ detail: WorkspaceFileResponse) -> some View {
         Group {
-            if let url = daemonClient.workspaceFileContentURL(path: detail.path, showHidden: state.showHiddenFiles) {
+            if let url = workspaceClient.workspaceFileContentURL(path: detail.path, showHidden: state.showHiddenFiles) {
                 AuthenticatedImageView(url: url, daemonClient: daemonClient)
             } else {
                 Text("Unable to load image URL")
@@ -875,7 +872,7 @@ private struct WorkspaceFileViewer: View {
 
     private func videoViewer(_ detail: WorkspaceFileResponse) -> some View {
         Group {
-            if let url = daemonClient.workspaceFileContentURL(path: detail.path, showHidden: state.showHiddenFiles) {
+            if let url = workspaceClient.workspaceFileContentURL(path: detail.path, showHidden: state.showHiddenFiles) {
                 WorkspaceVideoPlayer(url: url, daemonClient: daemonClient)
             } else {
                 Text("Unable to load video URL")
