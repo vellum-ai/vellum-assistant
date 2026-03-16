@@ -202,7 +202,7 @@ extension MainWindowView {
             sidebarSectionDivider(isExpanded: true)
 
             // MARK: Threads (scrollable)
-            SidebarThreadsHeader(
+            SidebarConversationsHeader(
                 hasUnseenThreads: conversationManager.unseenVisibleConversationCount > 0,
                 isLoading: showDaemonLoading,
                 onMarkAllSeen: {
@@ -230,12 +230,12 @@ extension MainWindowView {
             ScrollView {
                 VStack(spacing: 0) {
                     if showDaemonLoading && displayedConversations.isEmpty {
-                        DaemonLoadingThreadsSkeleton()
+                        DaemonLoadingConversationsSkeleton()
                     }
 
                     ForEach(displayedConversations) { thread in
-                        SidebarThreadItem(
-                            thread: thread,
+                        SidebarConversationItem(
+                            conversation: thread,
                             conversationManager: conversationManager,
                             windowState: windowState,
                             sidebar: sidebar,
@@ -304,8 +304,8 @@ extension MainWindowView {
                         ForEach(displayedScheduleGroups, id: \.key) { group in
                             if group.conversations.count == 1, let thread = group.conversations.first {
                                 // Single-thread group: render inline without a disclosure wrapper
-                                SidebarThreadItem(
-                                    thread: thread,
+                                SidebarConversationItem(
+                                    conversation: thread,
                                     conversationManager: conversationManager,
                                     windowState: windowState,
                                     sidebar: sidebar,
@@ -384,8 +384,8 @@ extension MainWindowView {
                                 // Expanded child rows
                                 if isGroupExpanded {
                                     ForEach(group.conversations) { thread in
-                                        SidebarThreadItem(
-                                            thread: thread,
+                                        SidebarConversationItem(
+                                            conversation: thread,
                                             conversationManager: conversationManager,
                                             windowState: windowState,
                                             sidebar: sidebar,

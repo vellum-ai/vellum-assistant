@@ -407,7 +407,7 @@ extension AppDelegate {
                 .filter { !$0.isArchived }
                 .sorted { $0.lastInteractedAt > $1.lastInteractedAt }
                 .prefix(3)
-                .map { QuickInputThread(id: $0.id, title: $0.title) }
+                .map { QuickInputConversation(id: $0.id, title: $0.title) }
         }
         window.showScreenPermissionPrompt = shouldShowPermissionPrompt
         if aboveDock {
@@ -455,7 +455,7 @@ extension AppDelegate {
                     .filter { !$0.isArchived }
                     .sorted { $0.lastInteractedAt > $1.lastInteractedAt }
                     .prefix(3)
-                    .map { QuickInputThread(id: $0.id, title: $0.title) }
+                    .map { QuickInputConversation(id: $0.id, title: $0.title) }
             }
             window.setAttachment(imageData: imageData)
             window.showNearRect(selectionRect)

@@ -1055,7 +1055,7 @@ private struct PublishedButton: View {
 // MARK: - Share Drawer
 
 /// Popover menu with "Share" and "Publish to Vercel" options.
-/// Styled to match ThreadSwitcherDrawer / DrawerMenuView.
+/// Styled to match ConversationSwitcherDrawer / DrawerMenuView.
 private struct ShareDrawer: View {
     let onShare: () -> Void
     let onPublish: () -> Void

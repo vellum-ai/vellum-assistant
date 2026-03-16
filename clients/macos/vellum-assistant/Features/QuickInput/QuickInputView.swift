@@ -2,7 +2,7 @@ import SwiftUI
 import VellumAssistantShared
 
 /// Lightweight model for recent conversations shown in the quick input dropdown.
-struct QuickInputThread: Identifiable {
+struct QuickInputConversation: Identifiable {
     let id: UUID
     let title: String
 }
@@ -17,7 +17,7 @@ struct QuickInputView: View {
     let onAllowScreenRecording: (() -> Void)?
     let onMicrophoneToggle: (() -> Void)?
     let onNotificationToggle: (() -> Void)?
-    let recentConversations: [QuickInputThread]
+    let recentConversations: [QuickInputConversation]
     let attachedImage: NSImage?
     let showScreenPermissionPrompt: Bool
 
@@ -36,7 +36,7 @@ struct QuickInputView: View {
         onAllowScreenRecording: (() -> Void)? = nil,
         onMicrophoneToggle: (() -> Void)? = nil,
         onNotificationToggle: (() -> Void)? = nil,
-        recentConversations: [QuickInputThread] = [],
+        recentConversations: [QuickInputConversation] = [],
         attachedImage: NSImage? = nil,
         showScreenPermissionPrompt: Bool = false
     ) {
