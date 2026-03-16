@@ -224,6 +224,14 @@
       "label": "Figma Integration",
       "description": "Enable the Figma OAuth setup skill for connecting to Figma",
       "defaultEnabled": false
+    },
+    {
+      "id": "apple-containers",
+      "scope": "macos",
+      "key": "apple_containers_enabled",
+      "label": "Apple Containers",
+      "description": "Enable Apple Containers as a local install option for running the assistant in a Linux container via the Apple Containerization framework",
+      "defaultEnabled": false
     }
   ]
 }
