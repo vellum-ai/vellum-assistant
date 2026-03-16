@@ -1929,7 +1929,7 @@ extension ChatViewModel {
             onWatchCompleteRequest?(msg)
 
         case .subagentSpawned(let msg):
-            guard belongsToConversation(msg.parentSessionId) else { return }
+            guard belongsToConversation(msg.parentConversationId) else { return }
             let info = SubagentInfo(id: msg.subagentId, label: msg.label, status: .running, parentMessageId: currentAssistantMessageId)
             activeSubagents.append(info)
             subagentDetailStore.recordSpawned(subagentId: msg.subagentId, objective: msg.objective)

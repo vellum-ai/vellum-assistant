@@ -61,7 +61,7 @@ const findTool = (name: string) =>
 function injectSubagent(
   manager: SubagentManager,
   subagentId: string,
-  parentSessionId: string,
+  parentConversationId: string,
   status: SubagentState["status"] = "running",
   overrides: Partial<SubagentState> = {},
 ): SubagentState {
@@ -75,7 +75,7 @@ function injectSubagent(
   const state: SubagentState = {
     config: {
       id: subagentId,
-      parentSessionId,
+      parentConversationId,
       label: "Test",
       objective: "test",
     },
@@ -100,10 +100,10 @@ function injectSubagent(
     state,
     parentSendToClient: () => {},
   });
-  if (!internals.parentToChildren.has(parentSessionId)) {
-    internals.parentToChildren.set(parentSessionId, new Set());
+  if (!internals.parentToChildren.has(parentConversationId)) {
+    internals.parentToChildren.set(parentConversationId, new Set());
   }
-  internals.parentToChildren.get(parentSessionId)!.add(subagentId);
+  internals.parentToChildren.get(parentConversationId)!.add(subagentId);
   return state;
 }
 
@@ -398,7 +398,7 @@ describe("Subagent spawn success and failure", () => {
       expect(capturedConfig!.label).toBe("Context test");
       expect(capturedConfig!.objective).toBe("Do it");
       expect(capturedConfig!.context).toBe("Extra info here");
-      expect(capturedConfig!.parentSessionId).toBe("sess-spawn-3");
+      expect(capturedConfig!.parentConversationId).toBe("sess-spawn-3");
     } finally {
       manager.spawn = originalSpawn;
     }
@@ -471,7 +471,7 @@ describe("Subagent status detail responses", () => {
     injectSubagent(manager, subagentId, ownerSession, "running", {
       config: {
         id: subagentId,
-        parentSessionId: ownerSession,
+        parentConversationId: ownerSession,
         label: "Detail test",
         objective: "test obj",
       },

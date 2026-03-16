@@ -86,7 +86,7 @@ extension HTTPTransport {
 
         // The abort endpoint requires a conversationId in the body.
         // Translate client-local session ID → server conversation ID so the
-        // server's ownership check (parentSessionId) passes.
+        // server's ownership check (parentConversationId) passes.
         var body: [String: Any] = [:]
         if let conversationId = conversationId {
             body["conversationId"] = serverSessionId(forLocal: conversationId)
@@ -123,7 +123,7 @@ extension HTTPTransport {
         applyAuth(&request)
 
         // Translate client-local session ID → server conversation ID so the
-        // server's ownership check (parentSessionId) passes.
+        // server's ownership check (parentConversationId) passes.
         var body: [String: Any] = ["content": content]
         if let conversationId = conversationId {
             body["conversationId"] = serverSessionId(forLocal: conversationId)
