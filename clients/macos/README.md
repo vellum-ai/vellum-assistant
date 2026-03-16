@@ -116,11 +116,20 @@ All releases are available at [github.com/vellum-ai/velly/releases](https://gith
 
 ## Requirements
 
-### Local Mode
+### Local Mode (process-based, default)
 - macOS 14.0 (Sonoma) or later
 - Xcode 15+ (for building from source)
 - Anthropic API key
 - Local daemon running (`vellum wake`)
+
+### Local Mode (Apple Containers — feature-flagged, macOS 15+ only)
+- macOS 15.0 (Sequoia) or later (required by Apple's Containerization framework)
+- Xcode 16+ with macOS 15 SDK (`CURRENT_SDK=1` path in `build.sh`)
+- Anthropic API key
+- Apple Silicon Mac (Apple Containerization only supports arm64 Linux VMs)
+- **Feature flag enabled:** `apple_containers_enabled` (default off — see [Apple Containers Runtime](#apple-containers-runtime-optional))
+
+> **Upstream OS support gap:** Apple's `container` and `containerization` READMEs currently document macOS 26 + Xcode 26 as the minimum requirement, while the `containerization` package manifest advertises `.macOS("15")`. The feature is kept behind runtime capability checks and the rollout flag until it is manually verified on the target OS matrix.
 
 ### Managed Mode
 - macOS 14.0 (Sonoma) or later
@@ -456,6 +465,90 @@ Logging/
 ```
 
 </details>
+
+---
+
+## Apple Containers Runtime (Optional)
+
+The macOS app includes an optional local-runtime path that runs the Vellum three-service stack (assistant, gateway, credential-executor) directly in Swift via Apple's [Containerization](https://github.com/apple/containerization) framework instead of shelling out to Docker or the `container` CLI.
+
+### Architecture
+
+The Swift orchestration is split across two modules to keep the main app target at macOS 14:
+
+| Module | Min OS | Role |
+|--------|--------|------|
+| Main app (`VellumAssistantLib`) | macOS 14+ | Availability gating, launcher, onboarding card, settings picker, lockfile write |
+| `AppleContainersRuntime.framework` | macOS 15+ | All `Containerization` API calls, `LinuxPod` lifecycle, Kata kernel/vminitd image store |
+
+The framework is built as a separate nested Swift package (`clients/macos/apple-containers-runtime/`) and loaded via `dlopen` at runtime by `AppleContainersRuntimeLoader`. If the framework is absent (built without macOS 15 SDK) or fails to load, `AppleContainersAvailabilityChecker` returns `.unavailable(.runtimeNotEmbedded)` and the app falls back to the process-based runtime path transparently.
+
+All three OCI workloads share a single `Virtualization.framework` VM (one `LinuxPod`):
+
+```
+One Virtualization.framework VM (arm64)
+┌─────────────────────────────────────────┐
+│  assistant process       (:3001 HTTP)   │
+│  gateway process         (:7830 HTTP) ◄─── host port forwarded
+│  credential-executor     (UDS)          │
+│                                         │
+│  virtiofs /data       ◄── hostDataDir   │
+│  virtiofs /run/ces-bootstrap            │
+└─────────────────────────────────────────┘
+```
+
+The macOS app never invokes `container`, `docker`, or any external tool. All orchestration goes through the `LinuxPod` Swift API.
+
+### Build Details
+
+`build.sh` probes the active SDK version before attempting to build the runtime module:
+
+- **`CURRENT_SDK=1` path (macOS 15+ SDK):** `build_apple_containers_runtime()` builds `apple-containers-runtime/` as a nested Swift package, assembles a `.framework` bundle, codesigns it, and embeds it into `Contents/Frameworks/AppleContainersRuntime.framework`.
+- **macOS 14 SDK (default CI path):** The nested package build is skipped. The app ships without the framework. `AppleContainersRuntimeLoader` returns `.notEmbedded` and the feature degrades gracefully.
+- **Kata kernel bundling:** The `KataKernelStore` pulls the Kata kernel and vminitd OCI images at first launch and caches them locally. No kernel or kernel modules are bundled in the `.app` at build time.
+
+```bash
+# Build with Apple Containers support (macOS 15 SDK required)
+CURRENT_SDK=1 ./build.sh
+
+# Standard build — Apple Containers runtime omitted, feature unavailable at runtime
+./build.sh
+```
+
+### Rollout Gate
+
+The feature is controlled by a macOS-scoped feature flag: `apple_containers_enabled`.
+
+| Property | Value |
+|----------|-------|
+| Flag ID | `apple_containers_enabled` |
+| Scope | `macos` (UserDefaults, per-device) |
+| Default | `false` (off) |
+| Env override | `VELLUM_FLAG_APPLE_CONTAINERS_ENABLED=1` |
+
+`AppleContainersAvailabilityChecker.shared.check()` gates the feature in a three-step chain:
+
+1. **Feature flag** — if `apple_containers_enabled` is off, returns `.unavailable(.featureFlagDisabled)` immediately.
+2. **OS version** — requires macOS 15.0+. Returns `.unavailable(.osTooOld(...))` otherwise.
+3. **Runtime loader** — `AppleContainersRuntimeLoader` attempts `dlopen` on the embedded framework. Returns `.unavailable(.runtimeNotEmbedded)` or `.unavailable(.runtimeLoadFailed(...))` on failure.
+
+All Apple Containers surfaces (onboarding install card, settings backend picker, launcher, restart logic) check `AppleContainersAvailabilityChecker` before activating. The install card is hidden unless all three gates pass.
+
+To enable during development:
+```bash
+# Env override — no UserDefaults write needed
+VELLUM_FLAG_APPLE_CONTAINERS_ENABLED=1 ./build.sh run
+```
+
+Or toggle `apple_containers_enabled` in **Settings → Developer** within the running app.
+
+### Lockfile
+
+Apple Containers instances write a lockfile entry with `runtimeBackend: "apple-containers"`. The CLI `sleep`/`wake`/`retire` commands detect this field and surface a clear error for operations that require the macOS app to manage the pod lifecycle.
+
+### Upstream OS Support Gap
+
+Apple's `container` and `containerization` repository READMEs currently document **macOS 26 + Xcode 26** as the minimum supported configuration. The `containerization` Swift package manifest advertises `.macOS("15")`, but this has not been independently verified on macOS 15. The feature is kept behind runtime capability checks and the `apple_containers_enabled` rollout flag until it is manually tested on the target OS matrix.
 
 ---
 

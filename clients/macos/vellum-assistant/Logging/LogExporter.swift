@@ -24,6 +24,8 @@ private let log = Logger(
 /// - `port-diagnostics.json` — processes listening on assistant-relevant TCP ports
 /// - `config-snapshot.json` — sanitized workspace config (API key values redacted, structure preserved)
 /// - `daemon-logs-fallback/` — when daemon is unreachable: vellum.log, recent hatch-*.log, and XDG hatch.log read directly from disk (10 MB cap)
+/// - `apple-containers-diagnostics/` — when any lockfile entry uses the `apple-containers` runtime backend:
+///   availability state, Apple Containerization image store manifest (metadata only), and per-instance host data directory listings.
 @MainActor
 enum LogExporter {
 
@@ -315,6 +317,14 @@ enum LogExporter {
             writeSanitizedWorkspaceConfig(to: configSnapshotPath)
         }
 
+        // 11. Apple Containers diagnostics — collected only when any lockfile
+        //     entry uses the apple-containers runtime backend.
+        collectAppleContainersDiagnostics(
+            into: tempDir,
+            home: home,
+            fileManager: fileManager
+        )
+
         // Verify we have at least one file to export
         let collected = try fileManager.contentsOfDirectory(
             at: tempDir,
@@ -548,6 +558,153 @@ enum LogExporter {
         }
 
         log.info("Collected \(totalBytes) bytes of fallback daemon logs from filesystem")
+    }
+
+    // MARK: - Apple Containers Diagnostics
+
+    /// Collects Apple Containers runtime state into `directory/apple-containers-diagnostics/`.
+    ///
+    /// Gathered sources:
+    /// - `apple-containers-state.json` — availability check result and per-instance backend info from the lockfile.
+    /// - `image-store-manifest.json` — list of image references present in Apple Containerization's local store
+    ///   (`~/Library/Application Support/com.apple.containerization/`).
+    ///   Only metadata (image names, sizes) is collected — no image blobs.
+    /// - `instance-data-dirs/` — for each apple-containers lockfile entry, includes a listing of the
+    ///   host data directory structure (file paths and sizes, not file contents).
+    ///
+    /// Silently no-ops when no lockfile entry uses the apple-containers backend, so this runs
+    /// unconditionally in `buildArchive` without overhead for non-Apple-Containers setups.
+    private nonisolated static func collectAppleContainersDiagnostics(
+        into directory: URL,
+        home: String,
+        fileManager: FileManager
+    ) {
+        // Check whether any lockfile entry uses the apple-containers backend.
+        let assistants = LockfileAssistant.loadAll()
+        let acAssistants = assistants.filter { $0.runtimeBackend == .appleContainers }
+        guard !acAssistants.isEmpty else { return }
+
+        let diagDir = directory.appendingPathComponent(
+            "apple-containers-diagnostics", isDirectory: true)
+        try? fileManager.createDirectory(at: diagDir, withIntermediateDirectories: true)
+
+        // 1. State summary — availability and per-instance backend metadata.
+        var stateInfo: [String: Any] = [
+            "exportedAt": ISO8601DateFormatter().string(from: Date()),
+            "appleContainersInstanceCount": acAssistants.count,
+        ]
+        stateInfo["instances"] = acAssistants.map { entry -> [String: Any] in
+            var dict: [String: Any] = [
+                "assistantId": entry.assistantId,
+                "runtimeBackend": entry.runtimeBackend.rawValue,
+                "cloud": entry.cloud,
+            ]
+            if let hatchedAt = entry.hatchedAt { dict["hatchedAt"] = hatchedAt }
+            if let daemonPort = entry.daemonPort { dict["daemonPort"] = daemonPort }
+            if let gatewayPort = entry.gatewayPort { dict["gatewayPort"] = gatewayPort }
+            if let instanceDir = entry.instanceDir {
+                dict["instanceDir"] = instanceDir
+                // Check whether the host data directory exists.
+                let hostDataDir = URL(fileURLWithPath: instanceDir)
+                    .appendingPathComponent(".vellum/workspace")
+                dict["workspaceDirExists"] = fileManager.fileExists(atPath: hostDataDir.path)
+            }
+            return dict
+        }
+        if let data = try? JSONSerialization.data(
+            withJSONObject: stateInfo,
+            options: [.prettyPrinted, .sortedKeys]
+        ) {
+            try? data.write(to: diagDir.appendingPathComponent("apple-containers-state.json"))
+        }
+
+        // 2. Apple Containerization image store metadata (names only, no blobs).
+        //    The store lives under ~/Library/Application Support/com.apple.containerization/.
+        let appLibrary = URL(fileURLWithPath: home)
+            .appendingPathComponent("Library/Application Support/com.apple.containerization",
+                                   isDirectory: true)
+        if fileManager.fileExists(atPath: appLibrary.path) {
+            var storeInfo: [String: Any] = [
+                "storePath": appLibrary.path,
+                "storeExists": true,
+            ]
+            // List top-level entries (images/, blobs/, etc.) — no recursive content.
+            if let topLevel = try? fileManager.contentsOfDirectory(
+                at: appLibrary,
+                includingPropertiesForKeys: [.isDirectoryKey, .fileSizeKey],
+                options: [.skipsHiddenFiles]
+            ) {
+                storeInfo["topLevelEntries"] = topLevel.map { url -> [String: Any] in
+                    let isDir = (try? url.resourceValues(forKeys: [.isDirectoryKey]))?.isDirectory ?? false
+                    let size = (try? url.resourceValues(forKeys: [.fileSizeKey]))?.fileSize ?? 0
+                    return ["name": url.lastPathComponent, "isDirectory": isDir, "sizeBytes": size]
+                }
+            }
+            if let data = try? JSONSerialization.data(
+                withJSONObject: storeInfo,
+                options: [.prettyPrinted, .sortedKeys]
+            ) {
+                try? data.write(to: diagDir.appendingPathComponent("image-store-manifest.json"))
+            }
+        }
+
+        // 3. Per-instance directory listings (structure only, no file contents).
+        let instanceListingsDir = diagDir.appendingPathComponent(
+            "instance-data-dirs", isDirectory: true)
+        for acEntry in acAssistants {
+            guard let instanceDir = acEntry.instanceDir else { continue }
+            let hostDataDir = URL(fileURLWithPath: instanceDir)
+                .appendingPathComponent(".vellum", isDirectory: true)
+            guard fileManager.fileExists(atPath: hostDataDir.path) else { continue }
+
+            // Collect a shallow directory listing (depth 2) to capture structure
+            // without pulling in potentially large rootfs block images.
+            var listing: [[String: Any]] = []
+            if let contents = try? fileManager.contentsOfDirectory(
+                at: hostDataDir,
+                includingPropertiesForKeys: [.isDirectoryKey, .fileSizeKey],
+                options: [.skipsHiddenFiles]
+            ) {
+                for item in contents {
+                    let isDir = (try? item.resourceValues(forKeys: [.isDirectoryKey]))?.isDirectory ?? false
+                    let size = (try? item.resourceValues(forKeys: [.fileSizeKey]))?.fileSize ?? 0
+                    var itemEntry: [String: Any] = [
+                        "name": item.lastPathComponent,
+                        "isDirectory": isDir,
+                        "sizeBytes": size,
+                    ]
+                    if isDir, let children = try? fileManager.contentsOfDirectory(
+                        at: item,
+                        includingPropertiesForKeys: [.isDirectoryKey, .fileSizeKey],
+                        options: [.skipsHiddenFiles]
+                    ) {
+                        itemEntry["children"] = children.map { child -> [String: Any] in
+                            let cIsDir = (try? child.resourceValues(forKeys: [.isDirectoryKey]))?.isDirectory ?? false
+                            let cSize = (try? child.resourceValues(forKeys: [.fileSizeKey]))?.fileSize ?? 0
+                            return ["name": child.lastPathComponent, "isDirectory": cIsDir, "sizeBytes": cSize]
+                        }
+                    }
+                    listing.append(itemEntry)
+                }
+            }
+
+            try? fileManager.createDirectory(at: instanceListingsDir, withIntermediateDirectories: true)
+            if let data = try? JSONSerialization.data(
+                withJSONObject: [
+                    "instanceDir": instanceDir,
+                    "hostDataDir": hostDataDir.path,
+                    "listing": listing,
+                ],
+                options: [.prettyPrinted, .sortedKeys]
+            ) {
+                let safeName = acEntry.assistantId
+                    .components(separatedBy: .alphanumerics.inverted).joined(separator: "-")
+                try? data.write(to: instanceListingsDir
+                    .appendingPathComponent("\(safeName)-data-dir.json"))
+            }
+        }
+
+        log.info("Apple Containers diagnostics collected for \(acAssistants.count) instance(s)")
     }
 
     /// Reads the last `bytes` bytes from `source` and writes them to `destination`.
