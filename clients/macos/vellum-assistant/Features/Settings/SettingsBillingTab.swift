@@ -23,7 +23,7 @@ struct SettingsBillingTab: View {
         .task {
             await loadSummary()
         }
-        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+        .onReceive(NotificationCenter.default.publisher(for: NSWindow.didBecomeKeyNotification)) { _ in
             Task {
                 await loadSummary()
             }
