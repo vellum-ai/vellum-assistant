@@ -713,52 +713,6 @@ struct ActiveChatViewWrapper: View {
     }
 }
 
-// MARK: - Ghost Button
-
-/// A borderless button with a rounded-rectangle outline, monospace font, and subtle hover fill.
-struct GhostButton: View {
-    let label: String
-    let icon: String?
-    let action: () -> Void
-
-    @State private var isHovered = false
-
-    init(_ label: String, icon: String? = nil, action: @escaping () -> Void) {
-        self.label = label
-        self.icon = icon
-        self.action = action
-    }
-
-    var body: some View {
-        Button(action: action) {
-            HStack(spacing: VSpacing.xs) {
-                if let icon {
-                    VIconView(SFSymbolMapping.icon(forSFSymbol: icon, fallback: .puzzle), size: 11)
-                }
-                if !label.isEmpty {
-                    Text(label)
-                        .font(VFont.monoSmall)
-                }
-            }
-            .foregroundColor(VColor.contentSecondary)
-            .padding(.horizontal, VSpacing.sm)
-            .padding(.vertical, VSpacing.xs)
-            .background(
-                RoundedRectangle(cornerRadius: VRadius.sm)
-                    .fill(isHovered ? VColor.surfaceBase : Color.clear)
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: VRadius.sm)
-                    .stroke(VColor.borderBase, lineWidth: 1)
-            )
-        }
-        .buttonStyle(.plain)
-        .onHover { hovering in
-            isHovered = hovering
-        }
-    }
-}
-
 /// Observes the active ChatViewModel and renders the dynamic workspace overlays.
 struct DynamicWorkspaceWrapper: View {
     @ObservedObject var viewModel: ChatViewModel
