@@ -143,24 +143,26 @@ extension AppDelegate {
 
             await authManager.logout()
 
-            // Clear managed proxy credentials from the running daemon
-            if let token = actorToken, !token.isEmpty {
-                let assistantId = connectedAssistantId ?? ""
-                let port = LockfileAssistant.loadByName(assistantId)?.daemonPort ?? 7821
-                let daemonBaseURL = "http://localhost:\(port)"
-                let cleared = await LocalAssistantBootstrapService.clearDaemonCredentials(
-                    daemonBaseURL: daemonBaseURL,
-                    daemonToken: token
-                )
-                if !cleared {
-                    log.warning("Credential cleanup incomplete — stopping daemon to prevent stale managed proxy state")
+            // Clear managed proxy credentials from the running daemon (local assistants only)
+            if !isCurrentAssistantManaged && !isCurrentAssistantRemote {
+                if let token = actorToken, !token.isEmpty {
+                    let assistantId = connectedAssistantId ?? ""
+                    let port = LockfileAssistant.loadByName(assistantId)?.daemonPort ?? 7821
+                    let daemonBaseURL = "http://localhost:\(port)"
+                    let cleared = await LocalAssistantBootstrapService.clearDaemonCredentials(
+                        daemonBaseURL: daemonBaseURL,
+                        daemonToken: token
+                    )
+                    if !cleared {
+                        log.warning("Credential cleanup incomplete — stopping daemon to prevent stale managed proxy state")
+                        daemonClient.disconnect()
+                        assistantCli.stop()
+                    }
+                } else {
+                    log.warning("No actor token available during logout — stopping daemon to ensure stale credentials are not retained")
                     daemonClient.disconnect()
                     assistantCli.stop()
                 }
-            } else {
-                log.warning("No actor token available during logout — stopping daemon to ensure stale credentials are not retained")
-                daemonClient.disconnect()
-                assistantCli.stop()
             }
 
             // Clear locally-cached credentials from Keychain for all local assistants
