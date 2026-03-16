@@ -128,6 +128,7 @@ struct JSONTreeView: View {
             let result = parseJSON(content)
             root = result
             if case .success(let node) = result {
+                expandedPaths = []
                 autoExpandInitial(node)
             }
         }

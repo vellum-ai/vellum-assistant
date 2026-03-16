@@ -206,7 +206,7 @@ private func parseInlineSegments(_ text: String) -> [InlineSegment] {
 
     while !remaining.isEmpty {
         let nsRange = NSRange(remaining.startIndex..<remaining.endIndex, in: text)
-        guard let match = regex.firstMatch(in: String(text), range: nsRange) else {
+        guard let match = regex.firstMatch(in: text, range: nsRange) else {
             // No more matches — rest is plain text
             if !remaining.isEmpty {
                 segments.append(.plain(String(remaining)))
@@ -370,6 +370,7 @@ struct MarkdownPreviewView: View {
                 HStack(alignment: .top, spacing: VSpacing.xs) {
                     Text("\u{2022}")
                         .foregroundColor(VColor.contentTertiary)
+                        .accessibilityHidden(true)
                     renderInlineMarkdown(item)
                         .font(VFont.body)
                         .foregroundColor(VColor.contentDefault)
@@ -399,6 +400,7 @@ struct MarkdownPreviewView: View {
             Rectangle()
                 .fill(VColor.primaryBase)
                 .frame(width: 3)
+                .accessibilityHidden(true)
             renderInlineMarkdown(text)
                 .font(VFont.body)
                 .foregroundColor(VColor.contentSecondary)
