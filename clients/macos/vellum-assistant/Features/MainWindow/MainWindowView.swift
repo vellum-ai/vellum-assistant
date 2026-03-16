@@ -214,11 +214,11 @@ struct MainWindowView: View {
         }
     }
 
-    func startRenameActiveThread() {
+    func startRenameActiveConversation() {
         guard let id = conversationManager.activeConversationId,
-              let thread = conversationManager.activeConversation else { return }
+              let conversation = conversationManager.activeConversation else { return }
         sidebar.renamingConversationId = id
-        sidebar.renameText = thread.title
+        sidebar.renameText = conversation.title
     }
 
     var body: some View {
@@ -394,7 +394,7 @@ struct MainWindowView: View {
                         conversationManager.archiveConversation(id: id)
                         dismissConversationDrawer()
                     },
-                    onRename: { startRenameActiveThread(); dismissConversationDrawer() },
+                    onRename: { startRenameActiveConversation(); dismissConversationDrawer() },
                     showDrawer: $showConversationActionsDrawer
                 )
                 .background(GeometryReader { proxy in
@@ -516,7 +516,7 @@ struct MainWindowView: View {
                                 conversationManager.archiveConversation(id: id)
                                 dismissConversationDrawer()
                             },
-                            onRename: { startRenameActiveThread(); dismissConversationDrawer() }
+                            onRename: { startRenameActiveConversation(); dismissConversationDrawer() }
                         )
                         .offset(x: conversationTitleFrame.minX, y: conversationTitleFrame.maxY)
                         .zIndex(10)
@@ -712,7 +712,7 @@ struct MainWindowView: View {
             }
         }
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
-            conversationManager.markActiveThreadSeenIfNeeded()
+            conversationManager.markActiveConversationSeenIfNeeded()
         }
         .onChange(of: selectedConversationId) { _, newId in
             if let newId = newId {

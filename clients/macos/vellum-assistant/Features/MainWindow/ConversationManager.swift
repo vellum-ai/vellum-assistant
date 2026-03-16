@@ -349,14 +349,14 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
     private func promoteDraft(fromUserSend: Bool) {
         guard let viewModel = draftViewModel else { return }
 
-        let thread = ConversationModel(title: "Untitled")
-        let localId = thread.id
-        conversations.insert(thread, at: 0)
-        chatViewModels[thread.id] = viewModel
-        subscribeToBusyState(for: thread.id, viewModel: viewModel)
-        subscribeToAssistantActivity(for: thread.id, viewModel: viewModel)
-        subscribeToInteractionState(for: thread.id, viewModel: viewModel)
-        touchVMAccessOrder(thread.id)
+        let conversation = ConversationModel(title: "Untitled")
+        let localId = conversation.id
+        conversations.insert(conversation, at: 0)
+        chatViewModels[conversation.id] = viewModel
+        subscribeToBusyState(for: conversation.id, viewModel: viewModel)
+        subscribeToAssistantActivity(for: conversation.id, viewModel: viewModel)
+        subscribeToInteractionState(for: conversation.id, viewModel: viewModel)
+        touchVMAccessOrder(conversation.id)
         evictStaleCachedViewModels()
         draftViewModel = nil
 
@@ -383,16 +383,16 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
             self?.updateLastInteracted(conversationId: localId)
         }
 
-        activeConversationId = thread.id
-        updateLastInteracted(conversationId: thread.id)
-        log.info("Promoted draft to conversation \(thread.id)")
+        activeConversationId = conversation.id
+        updateLastInteracted(conversationId: conversation.id)
+        log.info("Promoted draft to conversation \(conversation.id)")
     }
 
     func createPrivateConversation() {
-        let thread = ConversationModel(kind: .private)
+        let conversation = ConversationModel(kind: .private)
         let viewModel = makeViewModel()
         viewModel.isHistoryLoaded = true  // No session yet — nothing to load
-        let localId = thread.id
+        let localId = conversation.id
         viewModel.onFirstUserMessage = { [weak self] _ in
             self?.completedConversationCount += 1
             // Only set "Untitled" if the user hasn't already renamed this conversation.
@@ -401,20 +401,20 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
             }
             self?.updateLastInteracted(conversationId: localId)
         }
-        conversations.insert(thread, at: 0)
-        chatViewModels[thread.id] = viewModel
-        subscribeToBusyState(for: thread.id, viewModel: viewModel)
-        subscribeToAssistantActivity(for: thread.id, viewModel: viewModel)
-        subscribeToInteractionState(for: thread.id, viewModel: viewModel)
-        touchVMAccessOrder(thread.id)
+        conversations.insert(conversation, at: 0)
+        chatViewModels[conversation.id] = viewModel
+        subscribeToBusyState(for: conversation.id, viewModel: viewModel)
+        subscribeToAssistantActivity(for: conversation.id, viewModel: viewModel)
+        subscribeToInteractionState(for: conversation.id, viewModel: viewModel)
+        touchVMAccessOrder(conversation.id)
         evictStaleCachedViewModels()
-        activeConversationId = thread.id
+        activeConversationId = conversation.id
 
         // Immediately create a daemon session so the conversation is persisted
         // before the user sends any messages.
         viewModel.createConversationIfNeeded(conversationType: "private")
 
-        log.info("Created private conversation \(thread.id)")
+        log.info("Created private conversation \(conversation.id)")
     }
 
     /// Remove a private (temporary) conversation and delete its backend conversation.
@@ -709,7 +709,7 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
 
             let isPinned = session.isPinned ?? false
             let effectiveCreatedAt = session.createdAt ?? session.updatedAt
-            let thread = ConversationModel(
+            let conversation = ConversationModel(
                 title: session.title,
                 createdAt: Date(timeIntervalSince1970: TimeInterval(effectiveCreatedAt) / 1000.0),
                 conversationId: session.id,
@@ -732,7 +732,7 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
             if isPinned && session.displayOrder == nil { nextPinnedOrder += 1 }
             // VM creation is lazy — getOrCreateViewModel() will instantiate
             // when the conversation is first accessed (e.g. selected by the user).
-            conversations.append(thread)
+            conversations.append(conversation)
         }
 
         if let hasMore = response.hasMore {
@@ -749,17 +749,17 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
     }
 
     func selectConversation(id: UUID) {
-        guard let thread = conversations.first(where: { $0.id == id }) else { return }
+        guard let conversation = conversations.first(where: { $0.id == id }) else { return }
 
-        removeAbandonedEmptyThread(switching: id)
+        removeAbandonedEmptyConversation(switching: id)
 
         let previousActiveId = activeConversationId
-        trimPreviousThreadIfNeeded(nextThreadId: id)
+        trimPreviousConversationIfNeeded(nextConversationId: id)
 
         // Re-create the ViewModel if it was LRU-evicted.
         if chatViewModels[id] == nil {
             let viewModel = makeViewModel()
-            viewModel.conversationId = thread.conversationId
+            viewModel.conversationId = conversation.conversationId
             chatViewModels[id] = viewModel
             subscribeToBusyState(for: id, viewModel: viewModel)
             subscribeToAssistantActivity(for: id, viewModel: viewModel)
@@ -786,8 +786,8 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
     /// Returns `true` if a matching conversation was found and selected, `false` otherwise.
     @discardableResult
     func selectConversationByConversationId(_ conversationId: String) -> Bool {
-        guard let thread = conversations.first(where: { $0.conversationId == conversationId }) else { return false }
-        selectConversation(id: thread.id)
+        guard let conversation = conversations.first(where: { $0.conversationId == conversationId }) else { return false }
+        selectConversation(id: conversation.id)
         return true
     }
 
@@ -816,7 +816,7 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
         }
 
         let effectiveCreatedAt = session.createdAt ?? session.updatedAt
-        let thread = ConversationModel(
+        let conversation = ConversationModel(
             title: session.title,
             createdAt: Date(timeIntervalSince1970: TimeInterval(effectiveCreatedAt) / 1000.0),
             conversationId: session.id,
@@ -841,15 +841,15 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
         // Leave isHistoryLoaded false so history is fetched when the conversation activates
         viewModel.startMessageLoop()
 
-        conversations.insert(thread, at: 0)
-        chatViewModels[thread.id] = viewModel
-        subscribeToBusyState(for: thread.id, viewModel: viewModel)
-        subscribeToAssistantActivity(for: thread.id, viewModel: viewModel)
-        subscribeToInteractionState(for: thread.id, viewModel: viewModel)
-        touchVMAccessOrder(thread.id)
+        conversations.insert(conversation, at: 0)
+        chatViewModels[conversation.id] = viewModel
+        subscribeToBusyState(for: conversation.id, viewModel: viewModel)
+        subscribeToAssistantActivity(for: conversation.id, viewModel: viewModel)
+        subscribeToInteractionState(for: conversation.id, viewModel: viewModel)
+        touchVMAccessOrder(conversation.id)
         evictStaleCachedViewModels()
 
-        selectConversation(id: thread.id)
+        selectConversation(id: conversation.id)
         return true
     }
 
@@ -877,7 +877,7 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
     /// Update confirmation state across all *existing* chat view models, not just
     /// the active one. Only iterates VMs that are already instantiated — does not
     /// trigger lazy creation for conversations that have never been accessed.
-    func updateConfirmationStateAcrossThreads(requestId: String, decision: String) {
+    func updateConfirmationStateAcrossConversations(requestId: String, decision: String) {
         for viewModel in chatViewModels.values {
             viewModel.updateConfirmationState(requestId: requestId, decision: decision)
         }
@@ -1274,7 +1274,7 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
 
     func activateConversation(_ id: UUID) {
         let previousActiveId = activeConversationId
-        trimPreviousThreadIfNeeded(nextThreadId: id)
+        trimPreviousConversationIfNeeded(nextConversationId: id)
         activeConversationId = id
 
         // Emit explicit seen signal for user-initiated conversation activation.
@@ -1288,7 +1288,7 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
     /// Called when the app becomes active (e.g. user clicks the menu bar icon
     /// or switches back to the app) so that a pre-selected unread conversation is
     /// marked seen without requiring a conversation switch.
-    func markActiveThreadSeenIfNeeded() {
+    func markActiveConversationSeenIfNeeded() {
         guard NSApp.isActive,
               !isRestoringConversations,
               let activeId = activeConversationId,
@@ -1551,13 +1551,13 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
     /// - Parameter switching: The conversation ID being switched to. Pass `nil`
     ///   when called from `createConversation()` (the active conversation is checked
     ///   separately by the reuse guard above).
-    private func removeAbandonedEmptyThread(switching nextId: UUID? = nil) {
+    private func removeAbandonedEmptyConversation(switching nextId: UUID? = nil) {
         guard let previousId = activeConversationId,
               previousId != nextId,
               let vm = chatViewModels[previousId],
               vm.messages.isEmpty else { return }
-        let thread = conversations.first(where: { $0.id == previousId })
-        guard thread?.kind != .private, thread?.conversationId == nil else { return }
+        let conversation = conversations.first(where: { $0.id == previousId })
+        guard conversation?.kind != .private, conversation?.conversationId == nil else { return }
         conversations.removeAll { $0.id == previousId }
         chatViewModels.removeValue(forKey: previousId)
         unsubscribeAllForConversation(id: previousId)
@@ -1568,8 +1568,8 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
     /// Trim the previously active conversation's view model to shed memory before
     /// switching to a different conversation. Skipped when the VM hasn't loaded
     /// history yet or when it has an active generation in progress.
-    private func trimPreviousThreadIfNeeded(nextThreadId: UUID) {
-        guard let previousId = activeConversationId, previousId != nextThreadId,
+    private func trimPreviousConversationIfNeeded(nextConversationId: UUID) {
+        guard let previousId = activeConversationId, previousId != nextConversationId,
               let vm = chatViewModels[previousId],
               vm.isHistoryLoaded,
               !vm.isSending, !vm.isThinking, !vm.isLoadingMoreMessages else { return }
@@ -1686,10 +1686,10 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
             return vm
         }
         // Only create if the conversation exists
-        guard let thread = conversations.first(where: { $0.id == conversationId }) else { return nil }
+        guard let conversation = conversations.first(where: { $0.id == conversationId }) else { return nil }
         let viewModel = makeViewModel()
-        viewModel.conversationId = thread.conversationId
-        if thread.conversationId == nil {
+        viewModel.conversationId = conversation.conversationId
+        if conversation.conversationId == nil {
             viewModel.isHistoryLoaded = true
         }
         chatViewModels[conversationId] = viewModel
@@ -1742,9 +1742,9 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
     func restoreLastActiveConversation() {
         // After restoration finishes, re-run the active-conversation seen check.
         // The didBecomeActive notification may have fired while isRestoringConversations
-        // was true, causing markActiveThreadSeenIfNeeded() to no-op. Deferring
+        // was true, causing markActiveConversationSeenIfNeeded() to no-op. Deferring
         // ensures the check runs once restoration is complete.
-        defer { markActiveThreadSeenIfNeeded() }
+        defer { markActiveConversationSeenIfNeeded() }
 
         guard restoreRecentConversations else {
             // Clear the flag even if restoration is disabled

@@ -487,13 +487,13 @@ extension AppDelegate {
     }
 
     @objc func sendCurrentConversationLogsToSentry() {
-        guard let thread = mainWindow?.conversationManager.activeConversation,
-              let conversationId = thread.conversationId else { return }
+        guard let conversation = mainWindow?.conversationManager.activeConversation,
+              let conversationId = conversation.conversationId else { return }
 
         // Defer window creation until after the status menu finishes dismissing,
         // otherwise macOS can swallow the makeKeyAndOrderFront during menu teardown.
         DispatchQueue.main.async { [weak self] in
-            self?.showLogReportWindow(scope: .conversation(conversationId: conversationId, conversationTitle: thread.title))
+            self?.showLogReportWindow(scope: .conversation(conversationId: conversationId, conversationTitle: conversation.title))
         }
     }
 

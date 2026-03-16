@@ -446,7 +446,7 @@ struct MessageListView: View {
         isAppActive && isConversationContentHovered && !suppressScrollbarDuringConversationSwitch
     }
 
-    private func handleThreadContentHover(_ hovering: Bool) {
+    private func handleConversationContentHover(_ hovering: Bool) {
         if hovering {
             hoverExitDebounceTask?.cancel()
             hoverExitDebounceTask = nil
@@ -769,7 +769,7 @@ struct MessageListView: View {
                 }
             })
             .onHover { hovering in
-                handleThreadContentHover(hovering)
+                handleConversationContentHover(hovering)
             }
             .background {
                 GeometryReader { geo in

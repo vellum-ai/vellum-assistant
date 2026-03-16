@@ -2,7 +2,7 @@ import SwiftUI
 import VellumAssistantShared
 
 struct SidebarConversationsHeader: View {
-    let hasUnseenThreads: Bool
+    let hasUnseenConversations: Bool
     var isLoading: Bool = false
     let onMarkAllSeen: () -> Void
     let onNewConversation: () -> Void
@@ -13,7 +13,7 @@ struct SidebarConversationsHeader: View {
                 .font(.system(size: 13, weight: .medium))
                 .foregroundColor(VColor.contentDefault)
             Spacer()
-            if hasUnseenThreads {
+            if hasUnseenConversations {
                 VButton(
                     label: "Mark all as seen",
                     iconOnly: VIcon.circleCheck.rawValue,
@@ -36,7 +36,7 @@ struct SidebarConversationsHeader: View {
             } label: {
                 Label { Text("Mark All as Seen") } icon: { VIconView(.circleCheck, size: 14) }
             }
-            .disabled(!hasUnseenThreads)
+            .disabled(!hasUnseenConversations)
         }
     }
 }

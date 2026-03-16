@@ -23,13 +23,13 @@ struct ConversationSwitcherDrawer: View {
             VColor.surfaceBase.frame(height: 1)
                 .padding(.horizontal, VSpacing.xs)
 
-            ForEach(regularConversations) { thread in
+            ForEach(regularConversations) { conversation in
                 SidebarConversationItem(
-                    conversation: thread,
+                    conversation: conversation,
                     conversationManager: conversationManager,
                     windowState: windowState,
                     sidebar: sidebar,
-                    selectConversation: { selectConversation(thread) },
+                    selectConversation: { selectConversation(conversation) },
                     onSelect: onDismiss
                 )
             }

@@ -203,7 +203,7 @@ extension MainWindowView {
 
             // MARK: Threads (scrollable)
             SidebarConversationsHeader(
-                hasUnseenThreads: conversationManager.unseenVisibleConversationCount > 0,
+                hasUnseenConversations: conversationManager.unseenVisibleConversationCount > 0,
                 isLoading: showDaemonLoading,
                 onMarkAllSeen: {
                     let markedIds = conversationManager.markAllConversationsSeen()
