@@ -743,36 +743,54 @@ struct ContactDetailView: View {
             }
         } else if let shareableText = result.shareUrl ?? result.token {
             // Fallback: no invite code available, show raw token
-            HStack(spacing: VSpacing.sm) {
-                let truncated = shareableText.count > 20
-                    ? String(shareableText.prefix(20)) + "..."
-                    : shareableText
-                Text(truncated)
-                    .font(VFont.monoSmall)
-                    .foregroundColor(VColor.contentSecondary)
+            VStack(alignment: .leading, spacing: VSpacing.sm) {
+                HStack(spacing: VSpacing.sm) {
+                    let truncated = shareableText.count > 20
+                        ? String(shareableText.prefix(20)) + "..."
+                        : shareableText
+                    Text(truncated)
+                        .font(VFont.monoSmall)
+                        .foregroundColor(VColor.contentSecondary)
 
-                VButton(
-                    label: inviteCopiedType == type ? "Copied!" : "Copy",
-                    icon: VIcon.copy.rawValue,
-                    style: .outlined
-                ) {
-                    NSPasteboard.general.clearContents()
-                    NSPasteboard.general.setString(shareableText, forType: .string)
-                    inviteCopiedType = type
-                    Task {
-                        try? await Task.sleep(nanoseconds: 2_000_000_000)
-                        guard !Task.isCancelled else { return }
-                        if inviteCopiedType == type {
-                            inviteCopiedType = nil
+                    VButton(
+                        label: inviteCopiedType == type ? "Copied!" : "Copy",
+                        icon: VIcon.copy.rawValue,
+                        style: .outlined
+                    ) {
+                        NSPasteboard.general.clearContents()
+                        NSPasteboard.general.setString(shareableText, forType: .string)
+                        inviteCopiedType = type
+                        Task {
+                            try? await Task.sleep(nanoseconds: 2_000_000_000)
+                            guard !Task.isCancelled else { return }
+                            if inviteCopiedType == type {
+                                inviteCopiedType = nil
+                            }
                         }
                     }
+                }
+
+                VButton(label: "Cancel", style: .outlined) {
+                    inviteExpanded.remove(type)
+                    inviteResult = nil
+                    inviteError = nil
+                    inviteErrorChannel = nil
                 }
             }
         } else {
             // Fallback: invite was created but no displayable fields are available
-            Text("Invite created but no details available")
-                .font(VFont.caption)
-                .foregroundColor(VColor.contentSecondary)
+            VStack(alignment: .leading, spacing: VSpacing.sm) {
+                Text("Invite created but no details available")
+                    .font(VFont.caption)
+                    .foregroundColor(VColor.contentSecondary)
+
+                VButton(label: "Cancel", style: .outlined) {
+                    inviteExpanded.remove(type)
+                    inviteResult = nil
+                    inviteError = nil
+                    inviteErrorChannel = nil
+                }
+            }
         }
     }
 
