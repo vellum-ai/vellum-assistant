@@ -176,7 +176,7 @@ describe("CES approval bridge", () => {
 
       const result = await bridgeCesApproval(approval, prompter, cesClient, {
         isInteractive: true,
-        sessionId: "session-1",
+        conversationId: "session-1",
       });
 
       expect(result.outcome).toBe("approved");
@@ -203,7 +203,7 @@ describe("CES approval bridge", () => {
 
       await bridgeCesApproval(approval, prompter, cesClient, {
         isInteractive: true,
-        sessionId: "session-1",
+        conversationId: "session-1",
       });
 
       expect(prompter.promptCalls.length).toBe(1);

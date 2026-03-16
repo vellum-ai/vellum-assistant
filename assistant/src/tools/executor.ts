@@ -259,7 +259,7 @@ export class ToolExecutor {
           context.cesClient,
           {
             isInteractive: context.isInteractive,
-            sessionId: context.conversationId,
+            conversationId: context.conversationId,
             signal: context.signal,
           },
         );

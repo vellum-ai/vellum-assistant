@@ -167,8 +167,8 @@ export async function bridgeCesApproval(
   options?: {
     /** Whether an interactive client is connected. When false, auto-deny. */
     isInteractive?: boolean;
-    /** Session ID for the confirmation prompt. */
-    sessionId?: string;
+    /** Conversation ID for the confirmation prompt. */
+    conversationId?: string;
     /** Abort signal for cooperative cancellation. */
     signal?: AbortSignal;
   },
@@ -221,7 +221,7 @@ export async function bridgeCesApproval(
     [], // No scope options — CES manages scope internally
     undefined, // No file diff
     undefined, // Not sandboxed
-    options?.sessionId,
+    options?.conversationId,
     "host", // CES operations target the host
     false, // Persistent decisions are managed by CES, not trust.json
     options?.signal,
