@@ -111,7 +111,6 @@ import {
 import { seedInterfaceFiles } from "./seed-files.js";
 import { DaemonServer } from "./server.js";
 import { installShutdownHandlers } from "./shutdown-handlers.js";
-import { emitDaemonError } from "./startup-error.js";
 import { handleWatchObservation } from "./watch-handler.js";
 
 // Re-export public API so existing consumers don't need to change imports
@@ -899,9 +898,6 @@ export async function runDaemon(): Promise<void> {
   } catch (err) {
     log.error({ err }, "Daemon startup failed — cleaning up");
     cleanupPidFileIfOwner(process.pid);
-    // Emit a structured error line to stderr so both the bundled daemon
-    // binary and dev-mode daemon produce the same parseable format.
-    emitDaemonError(err);
     throw err;
   }
 }
