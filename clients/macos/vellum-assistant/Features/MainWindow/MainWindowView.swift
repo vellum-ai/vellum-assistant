@@ -89,12 +89,6 @@ struct MainWindowView: View {
     /// but requires complex window geometry inspection.
     let trafficLightPadding: CGFloat = 78
 
-    /// Whether the BOOTSTRAP.md first-run ritual is still in progress.
-    private var isBootstrapOnboardingActive: Bool {
-        let base = daemonClient.config.instanceDir ?? NSHomeDirectory()
-        return FileManager.default.fileExists(atPath: base + "/.vellum/workspace/BOOTSTRAP.md")
-    }
-
     func toggleVoiceMode() {
         if voiceModeManager.state != .off {
             voiceModeManager.deactivate()
