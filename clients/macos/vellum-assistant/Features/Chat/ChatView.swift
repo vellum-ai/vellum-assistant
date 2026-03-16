@@ -68,6 +68,7 @@ struct ChatView: View {
     var onRequestGreeting: (() -> Void)? = nil
     var threadStarters: [ThreadStarter] = []
     var onSelectStarter: ((ThreadStarter) -> Void)? = nil
+    var onFetchThreadStarters: (() -> Void)? = nil
     /// When set, scroll to this message ID and clear the binding.
     @Binding var anchorMessageId: UUID?
     /// Message ID to visually highlight after an anchor scroll completes.
@@ -200,7 +201,8 @@ struct ChatView: View {
                             daemonGreeting: daemonGreeting,
                             onRequestGreeting: onRequestGreeting,
                             threadStarters: threadStarters,
-                            onSelectStarter: onSelectStarter
+                            onSelectStarter: onSelectStarter,
+                            onFetchThreadStarters: onFetchThreadStarters
                         )
                     }
                 } else {

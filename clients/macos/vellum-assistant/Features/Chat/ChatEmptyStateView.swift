@@ -31,6 +31,7 @@ struct ChatEmptyStateView: View {
     var onRequestGreeting: (() -> Void)? = nil
     var threadStarters: [ThreadStarter] = []
     var onSelectStarter: ((ThreadStarter) -> Void)? = nil
+    var onFetchThreadStarters: (() -> Void)? = nil
 
     @State private var visible = false
     @State private var placeholder: String = placeholderTexts.randomElement()!
@@ -143,6 +144,7 @@ struct ChatEmptyStateView: View {
             if soulGreeting == nil {
                 onRequestGreeting?()
             }
+            onFetchThreadStarters?()
             withAnimation(.easeOut(duration: 0.5)) {
                 visible = true
             }

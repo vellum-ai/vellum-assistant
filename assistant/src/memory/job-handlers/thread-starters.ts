@@ -20,14 +20,18 @@ import { truncate } from "../../util/truncate.js";
 import { getDb } from "../db.js";
 import { asString } from "../job-utils.js";
 import type { MemoryJob } from "../jobs-store.js";
-import { rawGet } from "../raw-query.js";
+import { rawAll, rawGet } from "../raw-query.js";
 import { memoryCheckpoints, memoryItems, threadStarters } from "../schema.js";
 
 const log = getLogger("thread-starters-gen");
 
-const CHECKPOINT_ITEM_COUNT = "thread_starters:item_count_at_last_gen";
-const CHECKPOINT_BATCH = "thread_starters:generation_batch";
-const CHECKPOINT_LAST_GEN_AT = "thread_starters:last_gen_at";
+function checkpointKey(base: string, scopeId: string): string {
+  return `${base}:${scopeId}`;
+}
+
+const CK_ITEM_COUNT = "thread_starters:item_count_at_last_gen";
+const CK_BATCH = "thread_starters:generation_batch";
+const CK_LAST_GEN_AT = "thread_starters:last_gen_at";
 
 // ── Rollup construction ───────────────────────────────────────────
 
@@ -72,36 +76,29 @@ function buildNewItemsDiff(scopeId: string): string {
   const checkpoint = db
     .select({ value: memoryCheckpoints.value })
     .from(memoryCheckpoints)
-    .where(eq(memoryCheckpoints.key, CHECKPOINT_LAST_GEN_AT))
+    .where(eq(memoryCheckpoints.key, checkpointKey(CK_LAST_GEN_AT, scopeId)))
     .get();
   const lastGenAt = checkpoint ? parseInt(checkpoint.value, 10) : 0;
 
-  const newItems = db
-    .select({
-      kind: memoryItems.kind,
-      subject: memoryItems.subject,
-      statement: memoryItems.statement,
-    })
-    .from(memoryItems)
-    .where(
-      and(eq(memoryItems.status, "active"), eq(memoryItems.scopeId, scopeId)),
-    )
-    .orderBy(desc(memoryItems.firstSeenAt))
-    .limit(20)
-    .all();
+  if (lastGenAt === 0) return ""; // No previous generation — skip diff
 
-  // Filter to items first seen after last generation
-  // (we can't use SQL for this since firstSeenAt > lastGenAt needs both values)
-  const filtered =
-    lastGenAt > 0
-      ? newItems // For simplicity, include recent items; the LLM prompt highlights them
-      : [];
+  const newItems = rawAll<{
+    kind: string;
+    subject: string;
+    statement: string;
+  }>(
+    `SELECT kind, subject, statement FROM memory_items
+     WHERE status = 'active' AND scope_id = ? AND first_seen_at > ?
+     ORDER BY first_seen_at DESC LIMIT 20`,
+    scopeId,
+    lastGenAt,
+  );
 
-  if (filtered.length === 0) return "";
+  if (newItems.length === 0) return "";
 
   return (
     "## New since last generation\n" +
-    filtered.map((i) => `- (${i.kind}) ${i.subject}: ${i.statement}`).join("\n")
+    newItems.map((i) => `- (${i.kind}) ${i.subject}: ${i.statement}`).join("\n")
   );
 }
 
@@ -263,7 +260,7 @@ export async function generateThreadStartersJob(job: MemoryJob): Promise<void> {
   const batchCheckpoint = db
     .select({ value: memoryCheckpoints.value })
     .from(memoryCheckpoints)
-    .where(eq(memoryCheckpoints.key, CHECKPOINT_BATCH))
+    .where(eq(memoryCheckpoints.key, checkpointKey(CK_BATCH, scopeId)))
     .get();
   const nextBatch = batchCheckpoint
     ? parseInt(batchCheckpoint.value, 10) + 1
@@ -311,9 +308,9 @@ export async function generateThreadStartersJob(job: MemoryJob): Promise<void> {
       .run();
   };
 
-  upsertCheckpoint(CHECKPOINT_ITEM_COUNT, String(totalActive));
-  upsertCheckpoint(CHECKPOINT_BATCH, String(nextBatch));
-  upsertCheckpoint(CHECKPOINT_LAST_GEN_AT, String(now));
+  upsertCheckpoint(checkpointKey(CK_ITEM_COUNT, scopeId), String(totalActive));
+  upsertCheckpoint(checkpointKey(CK_BATCH, scopeId), String(nextBatch));
+  upsertCheckpoint(checkpointKey(CK_LAST_GEN_AT, scopeId), String(now));
 
   log.info(
     { scopeId, batch: nextBatch, count: starters.length },

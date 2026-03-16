@@ -15,8 +15,6 @@ import { memoryCheckpoints, memoryJobs } from "./schema.js";
 
 const log = getLogger("thread-starters-cadence");
 
-const CHECKPOINT_ITEM_COUNT = "thread_starters:item_count_at_last_gen";
-
 /**
  * Check whether enough new memory items have accumulated to justify
  * generating a fresh batch of thread starters.
@@ -32,11 +30,12 @@ export function maybeEnqueueThreadStartersJob(scopeId: string): void {
   const totalActive = countRow?.c ?? 0;
   if (totalActive === 0) return;
 
-  // Read checkpoint: item count at last generation
+  // Read checkpoint: item count at last generation (scoped so each scope tracks independently)
+  const checkpointKey = `thread_starters:item_count_at_last_gen:${scopeId}`;
   const checkpoint = db
     .select({ value: memoryCheckpoints.value })
     .from(memoryCheckpoints)
-    .where(eq(memoryCheckpoints.key, CHECKPOINT_ITEM_COUNT))
+    .where(eq(memoryCheckpoints.key, checkpointKey))
     .get();
   const lastCount = checkpoint ? parseInt(checkpoint.value, 10) : 0;
 

@@ -4,7 +4,7 @@
  * GET /v1/thread-starters — list thread starters for empty conversation chips
  */
 
-import { desc } from "drizzle-orm";
+import { desc, eq } from "drizzle-orm";
 
 import { getDb } from "../../memory/db.js";
 import { rawGet } from "../../memory/raw-query.js";
@@ -21,6 +21,7 @@ function handleListThreadStarters(url: URL): Response {
     20,
   );
   const offsetParam = Math.max(0, Number(url.searchParams.get("offset") ?? 0));
+  const scopeId = url.searchParams.get("scope_id") ?? "default";
 
   const db = getDb();
 
@@ -32,6 +33,7 @@ function handleListThreadStarters(url: URL): Response {
       batch: threadStarters.generationBatch,
     })
     .from(threadStarters)
+    .where(eq(threadStarters.scopeId, scopeId))
     .orderBy(
       desc(threadStarters.generationBatch),
       desc(threadStarters.createdAt),
@@ -41,7 +43,8 @@ function handleListThreadStarters(url: URL): Response {
     .all();
 
   const countRow = rawGet<{ c: number }>(
-    `SELECT COUNT(*) AS c FROM thread_starters`,
+    `SELECT COUNT(*) AS c FROM thread_starters WHERE scope_id = ?`,
+    scopeId,
   );
   const total = countRow?.c ?? 0;
 
