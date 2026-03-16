@@ -170,23 +170,28 @@ public final class LocalAssistantBootstrapService {
         let credentialAccount = Self.credentialAccount(for: runtimeAssistantId)
 
         // Step 2: Check if we already have the key stored locally (only when we have the platform ID)
+        var existingKeyInjected = false
         if let platformId = platformAssistantId,
            let existingKey = credentialStorage?.get(account: credentialAccount), !existingKey.isEmpty {
             do {
                 try await injectKeyIntoDaemon(key: existingKey)
                 log.info("Re-synced existing API key to daemon")
-                try? await injectPlatformAssistantIdIntoDaemon(id: platformId)
-                do {
-                    try await injectPlatformBaseUrlIntoDaemon(url: authService.baseURL)
-                } catch {
-                    log.error("Failed to inject platform base URL into daemon on existing-key path: \(error.localizedDescription)")
-                    throw LocalBootstrapError.daemonInjectionFailed
-                }
-                return .registeredWithExistingKey(assistantId: platformId)
+                existingKeyInjected = true
             } catch {
                 log.warning("Failed to inject existing key into daemon, will reprovision: \(error.localizedDescription)")
                 // Fall through to Step 3 — key may be stale
             }
+        }
+
+        if existingKeyInjected, let platformId = platformAssistantId {
+            try? await injectPlatformAssistantIdIntoDaemon(id: platformId)
+            do {
+                try await injectPlatformBaseUrlIntoDaemon(url: authService.baseURL)
+            } catch {
+                log.error("Failed to inject platform base URL into daemon on existing-key path: \(error.localizedDescription)")
+                throw LocalBootstrapError.daemonInjectionFailed
+            }
+            return .registeredWithExistingKey(assistantId: platformId)
         }
 
         // Step 3: No key stored — reprovision
