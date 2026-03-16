@@ -145,7 +145,7 @@ export function upsertContactChannel(params: {
   policy?: string;
   status?: string;
   inviteId?: string;
-  createdBySessionId?: string;
+  createdByConversationId?: string;
   verifiedAt?: number;
   verifiedVia?: string;
   role?: ContactRole;

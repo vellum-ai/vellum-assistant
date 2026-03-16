@@ -4,9 +4,9 @@
  * The built-in CLI writes JSON to `signals/cancel` instead of making an
  * HTTP POST to `/v1/conversations/:id/cancel`. The daemon's ConfigWatcher
  * detects the file change and invokes {@link handleCancelSignal}, which
- * reads the payload and aborts the target session.
+ * reads the payload and aborts the target conversation.
  *
- * Because the signal handler needs access to the daemon's session map, the
+ * Because the signal handler needs access to the daemon's conversation map, the
  * daemon registers a callback at startup via {@link registerCancelCallback}.
  */
 
@@ -26,7 +26,7 @@ let _cancelGeneration: CancelCallback | null = null;
 
 /**
  * Register the cancel-generation callback. Called once by the daemon
- * server at startup so the signal handler can reach the session map.
+ * server at startup so the signal handler can reach the conversation map.
  */
 export function registerCancelCallback(cb: CancelCallback): void {
   _cancelGeneration = cb;
@@ -35,7 +35,7 @@ export function registerCancelCallback(cb: CancelCallback): void {
 // ── Signal handler ───────────────────────────────────────────────────
 
 /**
- * Read the `signals/cancel` file and abort the target session.
+ * Read the `signals/cancel` file and abort the target conversation.
  * Called by ConfigWatcher when the signal file is written or modified.
  */
 export function handleCancelSignal(): void {

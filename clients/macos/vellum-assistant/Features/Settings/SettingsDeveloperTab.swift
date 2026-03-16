@@ -160,7 +160,7 @@ struct SettingsDeveloperTab: View {
             if lockfileAssistants.count > 1 {
                 Text("This will stop the current assistant and switch to another. The retired assistant's lockfile entry will be removed.")
             } else {
-                Text("This will stop the assistant daemon, remove local data, and return to initial setup. This action cannot be undone.")
+                Text("This will stop the assistant, remove local data, and return to initial setup. This action cannot be undone.")
             }
         }
         .alert("Upgrade Assistant", isPresented: $showingInlineUpgradeConfirmation) {
@@ -207,7 +207,7 @@ struct SettingsDeveloperTab: View {
                 Text("Retiring assistant...")
                     .font(VFont.bodyMedium)
                     .foregroundColor(VColor.contentDefault)
-                Text("Stopping the daemon and removing local data.")
+                Text("Stopping the assistant and removing local data.")
                     .font(VFont.caption)
                     .foregroundColor(VColor.contentTertiary)
             }
@@ -710,7 +710,7 @@ struct SettingsDeveloperTab: View {
             title: "Retire Assistant",
             subtitle: lockfileAssistants.count > 1
                 ? "Stops the current assistant and switches to another."
-                : "Stops the daemon, removes local data, and returns to initial setup."
+                : "Stops the assistant, removes local data, and returns to initial setup."
         ) {
             VButton(label: "Retire", style: .danger) {
                 showingRetireConfirmation = true
@@ -896,7 +896,7 @@ struct SettingsDeveloperTab: View {
     @ViewBuilder
     private var environmentVariablesSection: some View {
         if daemonClient != nil {
-            SettingsCard(title: "Environment Variables", subtitle: "View env vars for both the app and daemon processes") {
+            SettingsCard(title: "Environment Variables", subtitle: "View env vars for both the app and assistant processes") {
                 VButton(label: "View", style: .outlined) {
                         appEnvVars = ProcessInfo.processInfo.environment
                             .sorted(by: { $0.key < $1.key })
@@ -1047,7 +1047,7 @@ private struct DeveloperDaemonStatusRows: View {
 
     var body: some View {
         statusRow(
-            label: "Daemon",
+            label: "Assistant",
             isHealthy: daemonClient.isConnected,
             detail: daemonClient.isConnected
                 ? "Connected" + (daemonClient.daemonVersion.map { " (v\($0))" } ?? "")

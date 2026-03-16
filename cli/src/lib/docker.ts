@@ -308,13 +308,20 @@ function serviceDockerRunArgs(opts: {
   return {
     assistant: () => {
       const args: string[] = [
-        "run", "--init", "-d",
-        "--name", res.assistantContainer,
+        "run",
+        "--init",
+        "-d",
+        "--name",
+        res.assistantContainer,
         `--network=${res.network}`,
-        "-v", `${res.dataVolume}:/data`,
-        "-v", `${res.socketVolume}:/run/ces-bootstrap`,
-        "-e", `VELLUM_ASSISTANT_NAME=${instanceName}`,
-        "-e", "RUNTIME_HTTP_HOST=0.0.0.0",
+        "-v",
+        `${res.dataVolume}:/data`,
+        "-v",
+        `${res.socketVolume}:/run/ces-bootstrap`,
+        "-e",
+        `VELLUM_ASSISTANT_NAME=${instanceName}`,
+        "-e",
+        "RUNTIME_HTTP_HOST=0.0.0.0",
       ];
       for (const envVar of ["ANTHROPIC_API_KEY", "VELLUM_PLATFORM_URL"]) {
         if (process.env[envVar]) {
@@ -325,26 +332,43 @@ function serviceDockerRunArgs(opts: {
       return args;
     },
     gateway: () => [
-      "run", "--init", "-d",
-      "--name", res.gatewayContainer,
+      "run",
+      "--init",
+      "-d",
+      "--name",
+      res.gatewayContainer,
       `--network=${res.network}`,
-      "-p", `${gatewayPort}:${GATEWAY_INTERNAL_PORT}`,
-      "-v", `${res.dataVolume}:/data`,
-      "-e", "BASE_DATA_DIR=/data",
-      "-e", `GATEWAY_PORT=${GATEWAY_INTERNAL_PORT}`,
-      "-e", `ASSISTANT_HOST=${res.assistantContainer}`,
-      "-e", `RUNTIME_HTTP_PORT=${ASSISTANT_INTERNAL_PORT}`,
+      "-p",
+      `${gatewayPort}:${GATEWAY_INTERNAL_PORT}`,
+      "-v",
+      `${res.dataVolume}:/data`,
+      "-e",
+      "BASE_DATA_DIR=/data",
+      "-e",
+      `GATEWAY_PORT=${GATEWAY_INTERNAL_PORT}`,
+      "-e",
+      `ASSISTANT_HOST=${res.assistantContainer}`,
+      "-e",
+      `RUNTIME_HTTP_PORT=${ASSISTANT_INTERNAL_PORT}`,
       imageTags.gateway,
     ],
     "credential-executor": () => [
-      "run", "--init", "-d",
-      "--name", res.cesContainer,
+      "run",
+      "--init",
+      "-d",
+      "--name",
+      res.cesContainer,
       `--network=${res.network}`,
-      "-v", `${res.socketVolume}:/run/ces-bootstrap`,
-      "-v", `${res.dataVolume}:/data:ro`,
-      "-e", "CES_MODE=managed",
-      "-e", "CES_BOOTSTRAP_SOCKET_DIR=/run/ces-bootstrap",
-      "-e", "CES_ASSISTANT_DATA_MOUNT=/data",
+      "-v",
+      `${res.socketVolume}:/run/ces-bootstrap`,
+      "-v",
+      `${res.dataVolume}:/data:ro`,
+      "-e",
+      "CES_MODE=managed",
+      "-e",
+      "CES_BOOTSTRAP_SOCKET_DIR=/run/ces-bootstrap",
+      "-e",
+      "CES_ASSISTANT_DATA_MOUNT=/data",
       imageTags["credential-executor"],
     ],
   };
@@ -438,7 +462,12 @@ function startFileWatcher(opts: {
   let rebuilding = false;
 
   const configs = serviceImageConfigs(repoRoot, imageTags);
-  const runArgs = serviceDockerRunArgs({ gatewayPort, imageTags, instanceName, res });
+  const runArgs = serviceDockerRunArgs({
+    gatewayPort,
+    imageTags,
+    instanceName,
+    res,
+  });
   const containerForService: Record<ServiceName, string> = {
     assistant: res.assistantContainer,
     "credential-executor": res.cesContainer,
@@ -563,7 +592,9 @@ export async function hatchDocker(
     console.log(`   Images (local build):`);
     console.log(`     assistant:            ${imageTags.assistant}`);
     console.log(`     gateway:              ${imageTags.gateway}`);
-    console.log(`     credential-executor:  ${imageTags["credential-executor"]}`);
+    console.log(
+      `     credential-executor:  ${imageTags["credential-executor"]}`,
+    );
     console.log("");
 
     const logFd = openLogFile("hatch.log");
@@ -585,14 +616,17 @@ export async function hatchDocker(
     const versionTag = version ? `v${version}` : "latest";
     imageTags.assistant = `${DOCKERHUB_IMAGES.assistant}:${versionTag}`;
     imageTags.gateway = `${DOCKERHUB_IMAGES.gateway}:${versionTag}`;
-    imageTags["credential-executor"] = `${DOCKERHUB_IMAGES["credential-executor"]}:${versionTag}`;
+    imageTags["credential-executor"] =
+      `${DOCKERHUB_IMAGES["credential-executor"]}:${versionTag}`;
 
     console.log(`🥚 Hatching Docker assistant: ${instanceName}`);
     console.log(`   Species: ${species}`);
     console.log(`   Images:`);
     console.log(`     assistant:            ${imageTags.assistant}`);
     console.log(`     gateway:              ${imageTags.gateway}`);
-    console.log(`     credential-executor:  ${imageTags["credential-executor"]}`);
+    console.log(
+      `     credential-executor:  ${imageTags["credential-executor"]}`,
+    );
     console.log("");
 
     const logFd = openLogFile("hatch.log");

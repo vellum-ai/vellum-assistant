@@ -20,7 +20,7 @@ interface SessionEntry {
   pendingPermissions: Map<string, { resolve: (optionId: string) => void }>;
   sendToVellum: (msg: ServerMessage) => void;
   currentPrompt: Promise<unknown> | null;
-  parentSessionId: string;
+  parentConversationId: string;
   cwd: string;
 }
 
@@ -29,12 +29,12 @@ export class AcpSessionManager {
 
   /**
    * Optional callback to inject a completion/failure message into the parent
-   * session's conversation so the LLM sees the agent's output.
+   * conversation so the LLM sees the agent's output.
    * Wired by DaemonServer at startup.
    */
   onAcpSessionFinished:
     | ((
-        parentSessionId: string,
+        parentConversationId: string,
         message: string,
         sendToClient: (msg: ServerMessage) => void,
       ) => Promise<void>)
@@ -53,7 +53,7 @@ export class AcpSessionManager {
     agentConfig: AcpAgentConfig,
     task: string,
     cwd: string,
-    parentSessionId: string,
+    parentConversationId: string,
     sendToVellum: (msg: ServerMessage) => void,
   ): Promise<{ acpSessionId: string; protocolSessionId: string }> {
     if (this.sessions.size >= this.maxConcurrent) {
@@ -65,7 +65,13 @@ export class AcpSessionManager {
 
     const acpSessionId = randomUUID();
     log.info(
-      { acpSessionId, agentId, task: task.slice(0, 200), cwd, parentSessionId },
+      {
+        acpSessionId,
+        agentId,
+        task: task.slice(0, 200),
+        cwd,
+        parentConversationId,
+      },
       "ACP spawn requested",
     );
 
@@ -103,7 +109,7 @@ export class AcpSessionManager {
       pendingPermissions,
       sendToVellum,
       currentPrompt: null,
-      parentSessionId,
+      parentConversationId,
       cwd,
     };
 
@@ -137,7 +143,7 @@ export class AcpSessionManager {
       type: "acp_session_spawned",
       acpSessionId,
       agent: agentId,
-      parentSessionId,
+      parentConversationId,
     });
 
     // Fire prompt in the background — don't await
@@ -298,7 +304,7 @@ export class AcpSessionManager {
               `[ACP agent "${agentLabel}" completed]\n\n${responseText}\n\n` +
               `To resume: cd ${current.cwd} && claude --resume ${sessionId}`;
             this.onAcpSessionFinished(
-              current.parentSessionId,
+              current.parentConversationId,
               notifyMessage,
               current.sendToVellum,
             ).catch((notifyErr) => {

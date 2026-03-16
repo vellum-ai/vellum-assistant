@@ -21,7 +21,7 @@ const MODEL = "claude-sonnet-4-20250514";
 const describeWithApi = API_KEY ? describe : describe.skip;
 
 // ---------------------------------------------------------------------------
-// Helpers to construct realistic payloads matching a desktop session
+// Helpers to construct realistic payloads matching a desktop conversation
 // ---------------------------------------------------------------------------
 
 /** Generates a system prompt similar to production (~35-40K chars) */
@@ -416,7 +416,7 @@ function makeRuntimeInjectedMessage(): Message {
   };
 }
 
-/** Generates tool definitions matching a realistic desktop session */
+/** Generates tool definitions matching a realistic desktop conversation */
 function makeToolDefinitions(): Array<{
   name: string;
   description: string;

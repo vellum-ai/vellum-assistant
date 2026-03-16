@@ -3,6 +3,7 @@ import {
   loadRawConfig,
   saveRawConfig,
 } from "../../config/loader.js";
+import { setServiceField } from "../../config/raw-config-utils.js";
 import {
   getConfiguredProviders,
   isProviderAvailable,
@@ -33,8 +34,8 @@ export interface ModelInfo {
 export async function getModelInfo(): Promise<ModelInfo> {
   const config = getConfig();
   return {
-    model: config.model,
-    provider: config.provider,
+    model: config.services.inference.model,
+    provider: config.services.inference.provider,
     configuredProviders: await getConfiguredProviders(),
   };
 }
@@ -69,8 +70,9 @@ export async function setModel(
     const current = getConfig();
     const expectedProvider = MODEL_TO_PROVIDER[modelId];
     const providerAligned =
-      !expectedProvider || current.provider === expectedProvider;
-    if (modelId === current.model && providerAligned) {
+      !expectedProvider ||
+      current.services.inference.provider === expectedProvider;
+    if (modelId === current.services.inference.model && providerAligned) {
       return await getModelInfo();
     }
   }
@@ -84,9 +86,11 @@ export async function setModel(
 
   // Use raw config to avoid persisting env-var API keys to disk
   const raw = loadRawConfig();
-  raw.model = modelId;
+  setServiceField(raw, "inference", "model", modelId);
   // Infer provider from model ID to keep provider and model in sync
-  raw.provider = provider ?? raw.provider;
+  if (provider) {
+    setServiceField(raw, "inference", "provider", provider);
+  }
 
   // Suppress the file watcher callback — setModel already does
   // the full reload sequence; a redundant watcher-triggered reload
@@ -125,8 +129,8 @@ export async function setModel(
   ctx.updateConfigFingerprint();
 
   return {
-    model: config.model,
-    provider: config.provider,
+    model: config.services.inference.model,
+    provider: config.services.inference.provider,
     configuredProviders: await getConfiguredProviders(),
   };
 }
@@ -136,7 +140,7 @@ export async function setModel(
  */
 export function setImageGenModel(modelId: string, ctx: ModelSetContext): void {
   const raw = loadRawConfig();
-  raw.imageGenModel = modelId;
+  setServiceField(raw, "image-generation", "model", modelId);
 
   const wasSuppressed = ctx.suppressConfigReload;
   ctx.setSuppressConfigReload(true);

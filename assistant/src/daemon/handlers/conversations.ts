@@ -486,7 +486,7 @@ export async function handleUndo(
 ): Promise<void> {
   const result = await undoLastMessage(msg.conversationId, ctx);
   if (!result) {
-    ctx.send({ type: "error", message: "No active session" });
+    ctx.send({ type: "error", message: "No active conversation" });
     return;
   }
   ctx.send({
@@ -552,7 +552,7 @@ export function handleUsageRequest(
 ): void {
   const conversation = getConversation(msg.conversationId);
   if (!conversation) {
-    ctx.send({ type: "error", message: "No active session" });
+    ctx.send({ type: "error", message: "No active conversation" });
     return;
   }
   const config = getConfig();
@@ -561,7 +561,7 @@ export function handleUsageRequest(
     totalInputTokens: conversation.totalInputTokens,
     totalOutputTokens: conversation.totalOutputTokens,
     estimatedCost: conversation.totalEstimatedCost,
-    model: config.model,
+    model: config.services.inference.model,
   });
 }
 

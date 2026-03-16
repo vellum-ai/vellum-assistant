@@ -9,7 +9,7 @@ struct NavigationGallerySection: View {
     private let segmentItems = ["All", "Active", "Archived", "Drafts"]
     private let tabs = [
         (label: "Dashboard", icon: VIcon.house.rawValue),
-        (label: "Sessions", icon: VIcon.list.rawValue),
+        (label: "Conversations", icon: VIcon.list.rawValue),
         (label: "Settings", icon: VIcon.settings.rawValue),
         (label: "Logs", icon: VIcon.fileText.rawValue),
     ]
@@ -69,6 +69,31 @@ struct NavigationGallerySection: View {
                         style: .pill
                     )
                     .frame(maxWidth: 300)
+                }
+            }
+
+            Divider().background(VColor.borderBase).padding(.vertical, VSpacing.md)
+
+            // MARK: - VSegmentedControl (Compact Pill)
+            GallerySectionHeader(
+                title: "VSegmentedControl (Compact Pill)",
+                description: "Compact pill-style segmented control for inline use in toolbars and headers."
+            )
+
+            VCard(padding: VSpacing.lg) {
+                VStack(alignment: .leading, spacing: VSpacing.md) {
+                    Divider().background(VColor.borderBase)
+
+                    VSegmentedControl(
+                        items: [
+                            (label: "Preview", tag: "preview"),
+                            (label: "Source", tag: "source"),
+                        ],
+                        selection: $pillSelection,
+                        style: .pill,
+                        size: .compact
+                    )
+                    .fixedSize()
                 }
             }
 

@@ -21,8 +21,20 @@ extension AppDelegate {
                 log.info("[authFlow] → proceedToApp()")
                 proceedToApp()
             } else {
-                log.info("[authFlow] → showAuthWindow()")
-                showAuthWindow()
+                // Check if the lockfile has a non-managed assistant we can connect to
+                // without authentication. Local/remote assistants run independently
+                // of the platform auth session, so the app can open in a logged-out
+                // state and the user can sign in from Settings > General.
+                let storedId = UserDefaults.standard.string(forKey: "connectedAssistantId")
+                let assistant = storedId.flatMap { LockfileAssistant.loadByName($0) }
+                    ?? LockfileAssistant.loadLatest()
+                if let assistant, !assistant.isManaged {
+                    log.info("[authFlow] Lockfile has non-managed assistant \(assistant.assistantId) — proceeding to app without auth")
+                    proceedToApp()
+                } else {
+                    log.info("[authFlow] → showAuthWindow()")
+                    showAuthWindow()
+                }
             }
         }
     }
@@ -34,19 +46,34 @@ extension AppDelegate {
             return
         }
 
-        OnboardingState.clearPersistedState()
-        let state = OnboardingState()
-        state.shouldPersist = false
-        let authView = OnboardingFlowView(
-            state: state,
-            daemonClient: daemonClient,
-            authManager: authManager,
-            managedBootstrapEnabled: true,
-            onComplete: { [weak self] in
-                self?.proceedToApp()
-            },
-            onOpenSettings: {}
-        )
+        let hasAssistants = lockfileHasAssistants()
+        let authView: AnyView
+
+        if hasAssistants {
+            // Returning user with existing assistant — show clean sign-in, not full onboarding
+            authView = AnyView(ReauthView(
+                authManager: authManager,
+                onComplete: { [weak self] in
+                    self?.proceedToApp()
+                }
+            ))
+        } else {
+            // No assistants — show full onboarding (shouldn't normally happen via this path,
+            // but included as a safety net)
+            OnboardingState.clearPersistedState()
+            let state = OnboardingState()
+            state.shouldPersist = false
+            authView = AnyView(OnboardingFlowView(
+                state: state,
+                daemonClient: daemonClient,
+                authManager: authManager,
+                managedBootstrapEnabled: true,
+                onComplete: { [weak self] in
+                    self?.proceedToApp()
+                },
+                onOpenSettings: {}
+            ))
+        }
 
         let hostingController = NSHostingController(rootView: authView)
 
@@ -201,59 +228,87 @@ extension AppDelegate {
             // Reset dock icon to default before tearing down UI
             AvatarAppearanceManager.shared.resetForDisconnect()
 
-            let detachedWindow = mainWindow?.detachWindow()
-            mainWindow = nil
-            conversationBadgeCancellable?.cancel()
-            conversationBadgeCancellable = nil
-            NSApp.dockTile.badgeLabel = nil
+            // Capture managed status before it gets reset during teardown
+            let wasManaged = isCurrentAssistantManaged
 
-            if let hotKeyMonitor {
-                NSEvent.removeMonitor(hotKeyMonitor)
-                self.hotKeyMonitor = nil
-            }
-            tearDownHotKeyState()
-            quickInputWindow?.dismiss()
-            quickInputWindow = nil
-            globalHotkeyObserver?.cancel()
-            globalHotkeyObserver = nil
-            if let escapeMonitor {
-                NSEvent.removeMonitor(escapeMonitor)
-                self.escapeMonitor = nil
-            }
-            voiceInput?.stop()
-            voiceInput = nil
-            ambientAgent.teardown()
+            if !wasManaged {
+                // Self-hosted (local or remote): clear auth state but keep the
+                // app running. The user can sign in again from Settings > General.
 
-            if let observer = windowObserver {
-                NotificationCenter.default.removeObserver(observer)
-                windowObserver = nil
-            }
-            statusIconCancellable?.cancel()
-            statusIconCancellable = nil
-            connectionStatusCancellable?.cancel()
-            connectionStatusCancellable = nil
-            pulseTimer?.invalidate()
-            pulseTimer = nil
-
-            if let item = statusItem {
-                NSStatusBar.system.removeStatusItem(item)
-                statusItem = nil
-            }
-
-            if let mainMenu = NSApp.mainMenu {
-                for title in ["File", "View"] {
-                    let idx = mainMenu.indexOfItem(withTitle: title)
-                    if idx >= 0 { mainMenu.removeItem(at: idx) }
+                // Restore connectedAssistantId — authManager.logout() clears it
+                // from UserDefaults, but the app stays running in this path and
+                // subsystems (avatar, gateway resolution, API key sync) need it.
+                if let connectedAssistantId {
+                    UserDefaults.standard.set(connectedAssistantId, forKey: "connectedAssistantId")
                 }
+
+                actorTokenBootstrapTask?.cancel()
+                actorTokenBootstrapTask = nil
+                ActorTokenManager.deleteToken()
+                hasSetupDaemon = false
+
+                AvatarAppearanceManager.shared.reloadAvatar()
+                mainWindow?.windowState.showToast(
+                    message: "Signed out. You can sign in again from Settings.",
+                    style: .success
+                )
+            } else {
+                // Managed (platform): full teardown — close everything and
+                // show the reauth screen.
+                let detachedWindow = mainWindow?.detachWindow()
+                mainWindow = nil
+                conversationBadgeCancellable?.cancel()
+                conversationBadgeCancellable = nil
+                NSApp.dockTile.badgeLabel = nil
+
+                if let hotKeyMonitor {
+                    NSEvent.removeMonitor(hotKeyMonitor)
+                    self.hotKeyMonitor = nil
+                }
+                tearDownHotKeyState()
+                quickInputWindow?.dismiss()
+                quickInputWindow = nil
+                globalHotkeyObserver?.cancel()
+                globalHotkeyObserver = nil
+                if let escapeMonitor {
+                    NSEvent.removeMonitor(escapeMonitor)
+                    self.escapeMonitor = nil
+                }
+                voiceInput?.stop()
+                voiceInput = nil
+                ambientAgent.teardown()
+
+                if let observer = windowObserver {
+                    NotificationCenter.default.removeObserver(observer)
+                    windowObserver = nil
+                }
+                statusIconCancellable?.cancel()
+                statusIconCancellable = nil
+                connectionStatusCancellable?.cancel()
+                connectionStatusCancellable = nil
+                pulseTimer?.invalidate()
+                pulseTimer = nil
+
+                if let item = statusItem {
+                    NSStatusBar.system.removeStatusItem(item)
+                    statusItem = nil
+                }
+
+                if let mainMenu = NSApp.mainMenu {
+                    for title in ["File", "View"] {
+                        let idx = mainMenu.indexOfItem(withTitle: title)
+                        if idx >= 0 { mainMenu.removeItem(at: idx) }
+                    }
+                }
+
+                actorTokenBootstrapTask?.cancel()
+                actorTokenBootstrapTask = nil
+                ActorTokenManager.deleteToken()
+
+                hasSetupApp = false
+                hasSetupDaemon = false
+                showAuthWindow(reusingWindow: detachedWindow)
             }
-
-            actorTokenBootstrapTask?.cancel()
-            actorTokenBootstrapTask = nil
-            ActorTokenManager.deleteToken()
-
-            hasSetupApp = false
-            hasSetupDaemon = false
-            showAuthWindow(reusingWindow: detachedWindow)
         }
     }
 
@@ -316,6 +371,18 @@ extension AppDelegate {
                 case .registeredAndProvisioned(let id):
                     log.info("Local assistant API key provisioned: \(id, privacy: .public)")
                 }
+
+                // After successful managed-proxy bootstrap, set inference mode to "managed".
+                // This overwrites the schema default ("your-own") that the daemon materializes
+                // on first load. If the user later switches mode in settings, setInferenceMode()
+                // will overwrite this value.
+                let existingConfig = WorkspaceConfigIO.read()
+                var services = existingConfig["services"] as? [String: Any] ?? [:]
+                var inference = services["inference"] as? [String: Any] ?? [:]
+                inference["mode"] = "managed"
+                services["inference"] = inference
+                try? WorkspaceConfigIO.merge(["services": services])
+
                 self.localBootstrapDidComplete = true
                 SentryDeviceInfo.updateOrganizationTag(UserDefaults.standard.string(forKey: "connectedOrganizationId"))
                 NotificationCenter.default.post(name: .localBootstrapCompleted, object: nil)
@@ -675,8 +742,8 @@ extension AppDelegate {
         } catch {
             return false
         }
-        guard let data = try? pipe.fileHandleForReading.readDataToEndOfFile(),
-              let command = String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines),
+        let data = pipe.fileHandleForReading.readDataToEndOfFile()
+        guard let command = String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines),
               !command.isEmpty else {
             return false
         }

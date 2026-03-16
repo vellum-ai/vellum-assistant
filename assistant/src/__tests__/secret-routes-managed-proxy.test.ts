@@ -15,8 +15,19 @@ const MANAGED_PROVIDERS = ["anthropic", "gemini"] as const;
 let platformBaseUrlOverride: string | undefined;
 
 const mockConfig = {
-  provider: "anthropic",
-  model: "test-model",
+  services: {
+    inference: {
+      mode: "your-own" as const,
+      provider: "anthropic",
+      model: "test-model",
+    },
+    "image-generation": {
+      mode: "your-own" as const,
+      provider: "gemini",
+      model: "gemini-2.5-flash-image",
+    },
+    "web-search": { mode: "your-own" as const, provider: "anthropic-native" },
+  },
 };
 
 mock.module("@google/genai", () => ({

@@ -107,7 +107,7 @@ export interface ExecuteCommandRequest {
   purpose: string;
   /** Explicit grant ID to consume, if the caller holds one. */
   grantId?: string;
-  /** Conversation ID for thread-scoped temporary grants. */
+  /** Conversation ID for conversation-scoped temporary grants. */
   conversationId?: string;
 }
 

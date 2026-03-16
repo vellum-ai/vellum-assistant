@@ -67,7 +67,7 @@
     },
     {
       "name": "browser_close",
-      "description": "Close the browser page for the current session, or all pages if close_all_pages is true.",
+      "description": "Close the browser page for the current conversation, or all pages if close_all_pages is true.",
       "category": "browser",
       "risk": "low",
       "input_schema": {
@@ -75,7 +75,7 @@
         "properties": {
           "close_all_pages": {
             "type": "boolean",
-            "description": "If true, close all browser pages and the browser context. Default: false (close only the current session page)."
+            "description": "If true, close all browser pages and the browser context. Default: false (close only the current conversation page)."
           },
           "reason": {
             "type": "string",

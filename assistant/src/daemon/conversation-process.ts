@@ -52,8 +52,8 @@ export async function buildModelInfoEvent(): Promise<ServerMessage> {
   const config = getConfig();
   return {
     type: "model_info",
-    model: config.model,
-    provider: config.provider,
+    model: config.services.inference.model,
+    provider: config.services.inference.provider,
     configuredProviders: await getConfiguredProviders(),
   };
 }
@@ -201,8 +201,8 @@ function buildSlashContext(
     inputTokens: conversation.usageStats.inputTokens,
     outputTokens: conversation.usageStats.outputTokens,
     maxInputTokens: config.contextWindow.maxInputTokens,
-    model: config.model,
-    provider: config.provider,
+    model: config.services.inference.model,
+    provider: config.services.inference.provider,
     estimatedCost: conversation.usageStats.estimatedCost,
   };
 }

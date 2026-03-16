@@ -16,30 +16,33 @@ export interface HandoffOptions {
  * the action (detected via URL change) or a 5-minute timeout.
  */
 export async function startHandoff(
-  sessionId: string,
+  conversationId: string,
   options: HandoffOptions,
 ): Promise<void> {
-  log.info({ sessionId, reason: options.reason }, "Starting handoff to user");
+  log.info(
+    { conversationId, reason: options.reason },
+    "Starting handoff to user",
+  );
 
   // Bring Chrome to the front so the user can interact directly.
   if (options.bringToFront) {
     try {
-      const page = await browserManager.getOrCreateSessionPage(sessionId);
+      const page = await browserManager.getOrCreateSessionPage(conversationId);
       await page.bringToFront();
     } catch (err) {
-      log.warn({ err, sessionId }, "Failed to bring browser to front");
+      log.warn({ err, conversationId }, "Failed to bring browser to front");
     }
   }
 
-  if (!isScreencastActive(sessionId)) {
-    log.warn({ sessionId }, "No active browser session for handoff");
+  if (!isScreencastActive(conversationId)) {
+    log.warn({ conversationId }, "No active browser page for handoff");
     return;
   }
 
-  browserManager.setInteractiveMode(sessionId, true);
+  browserManager.setInteractiveMode(conversationId, true);
 
   // Wait for user to hand back control (5 min timeout, or auto-detect URL change)
-  await browserManager.waitForHandoffComplete(sessionId);
+  await browserManager.waitForHandoffComplete(conversationId);
 
-  log.info({ sessionId }, "Handoff complete, agent resuming");
+  log.info({ conversationId }, "Handoff complete, agent resuming");
 }

@@ -13,10 +13,10 @@ func availableViewModes(for fileName: String, mimeType: String) -> [FileViewMode
     let ext = (fileName as NSString).pathExtension.lowercased()
     let mime = mimeType.lowercased()
     if ext == "md" || ext == "markdown" || mime == "text/markdown" {
-        return [.source, .preview]
+        return [.preview, .source]
     }
     if ext == "json" || mime == "application/json" {
-        return [.source, .tree]
+        return [.tree, .source]
     }
     return [.source]
 }
@@ -25,30 +25,7 @@ func viewModeLabel(_ mode: FileViewMode) -> String {
     switch mode {
     case .source: return "Source"
     case .preview: return "Preview"
-    case .tree: return "Tree"
-    }
-}
-
-/// Scrollable read-only monospace text display for file content.
-struct ReadOnlyCodeContent: View {
-    let content: String
-
-    var body: some View {
-        GeometryReader { geometry in
-            ScrollView([.vertical, .horizontal]) {
-                Text(content)
-                    .font(VFont.mono)
-                    .foregroundColor(VColor.contentDefault)
-                    .textSelection(.enabled)
-                    .fixedSize(horizontal: true, vertical: false)
-                    .padding(VSpacing.md)
-                    .frame(
-                        minWidth: geometry.size.width,
-                        minHeight: geometry.size.height,
-                        alignment: .topLeading
-                    )
-            }
-        }
+    case .tree: return "Preview"
     }
 }
 
@@ -79,6 +56,7 @@ struct FileContentHeaderBar<Trailing: View>: View {
             Text(fileSize)
                 .font(VFont.small)
                 .foregroundColor(VColor.contentTertiary)
+                .fixedSize()
             trailing
         }
         .padding(.horizontal, VSpacing.md)

@@ -28,19 +28,23 @@ jobs:
         working-directory: clients
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Select Xcode 26.2
         run: sudo xcode-select -s /Applications/Xcode_26.2.app/Contents/Developer
+
+      - name: Compute cache week
+        id: week
+        run: echo "num=$(date -u +%V)" >> "$GITHUB_OUTPUT"
 
       - name: Cache SPM build artifacts
         uses: actions/cache@v4
         with:
           path: clients/.build
-          key: macos-spm-${{ hashFiles('clients/Package.resolved') }}-${{ hashFiles('clients/**/*.swift') }}
+          key: macos-spm-debug-week${{ steps.week.outputs.num }}-${{ hashFiles('clients/Package.resolved') }}
           restore-keys: |
-            macos-spm-${{ hashFiles('clients/Package.resolved') }}-
-            macos-spm-
+            macos-spm-debug-week${{ steps.week.outputs.num }}-
+            macos-spm-debug-
 
       - name: Lint unused code
         run: bash scripts/periphery-scan.sh --ci
@@ -70,7 +74,7 @@ jobs:
       KEYCHAIN_PASSWORD: temporary-ci-password
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Select Xcode 26.2
         run: sudo xcode-select -s /Applications/Xcode_26.2.app/Contents/Developer
@@ -105,14 +109,18 @@ jobs:
           security find-identity -v -p codesigning | grep -q "Developer ID Application" \
             || { echo "::error::Developer ID Application identity not found in keychain. Check the DEVID_CERTIFICATE_P12 secret."; exit 1; }
 
+      - name: Compute cache week
+        id: week
+        run: echo "num=$(date -u +%V)" >> "$GITHUB_OUTPUT"
+
       - name: Cache SPM build artifacts
         uses: actions/cache@v4
         with:
           path: clients/.build
-          key: macos-spm-${{ hashFiles('clients/Package.resolved') }}-${{ hashFiles('clients/**/*.swift') }}
+          key: macos-spm-release-week${{ steps.week.outputs.num }}-${{ hashFiles('clients/Package.resolved') }}
           restore-keys: |
-            macos-spm-${{ hashFiles('clients/Package.resolved') }}-
-            macos-spm-
+            macos-spm-release-week${{ steps.week.outputs.num }}-
+            macos-spm-release-
 
       - name: Cache Bun dependencies (assistant)
         uses: actions/cache@v4
@@ -156,6 +164,7 @@ jobs:
           BUNDLE_DISPLAY_NAME="$APP_DISPLAY_NAME" \
           SIGN_IDENTITY="Developer ID Application" \
           RELEASE_ARCH_FLAGS="--arch arm64" \
+          SKIP_BUN_REBUILD=1 \
           ./build.sh release
 
           APP_PATH="dist/$APP_DISPLAY_NAME.app"
@@ -182,8 +191,22 @@ jobs:
           mkdir -p build
           swift dmg/generate-background.swift build/dmg-background@2x.png
 
+      - name: Cache Homebrew create-dmg
+        id: cache-create-dmg
+        uses: actions/cache@v4
+        with:
+          path: |
+            /usr/local/Cellar/create-dmg
+            /opt/homebrew/Cellar/create-dmg
+          key: create-dmg-v1-${{ runner.os }}-${{ runner.arch }}
+
       - name: Install create-dmg
+        if: steps.cache-create-dmg.outputs.cache-hit != 'true'
         run: brew install create-dmg
+
+      - name: Link create-dmg
+        if: steps.cache-create-dmg.outputs.cache-hit == 'true'
+        run: brew link create-dmg 2>/dev/null || true
 
       - name: Create DMG
         run: |

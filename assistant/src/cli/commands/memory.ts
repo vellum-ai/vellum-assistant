@@ -149,7 +149,7 @@ Examples:
     .description(
       "Run a memory recall query and print the injected memory payload",
     )
-    .option("-s, --session <id>", "Optional conversation/session ID")
+    .option("-c, --conversation <id>", "Optional conversation ID")
     .addHelpText(
       "after",
       `
@@ -163,17 +163,17 @@ Runs the complete memory recall pipeline and displays hit counts for each
 retrieval strategy, the total injected token count, query latency, and the
 assembled memory text that would be injected into context.
 
-The optional --session flag provides a conversation/session ID for
+The optional --conversation flag provides a conversation ID for
 context-aware recall. If omitted, the most recent conversation is used.
 
 Examples:
   $ assistant memory query "What is the project deadline?"
-  $ assistant memory query "preferred communication style" --session conv_abc123
+  $ assistant memory query "preferred communication style" --conversation conv_abc123
   $ assistant memory query "API rate limits"`,
     )
-    .action(async (text: string, opts?: { session?: string }) => {
+    .action(async (text: string, opts?: { conversation?: string }) => {
       initializeDb();
-      let conversationId = opts?.session;
+      let conversationId = opts?.conversation;
       if (!conversationId) {
         const latest = listConversations(1)[0];
         conversationId = latest?.id ?? "";

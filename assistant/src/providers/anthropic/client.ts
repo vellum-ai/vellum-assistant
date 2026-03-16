@@ -234,6 +234,87 @@ function normalizeFollowingUserContent(
   };
 }
 
+/** Type-guard for server_tool_use blocks. */
+function isServerToolUseBlock(
+  block: unknown,
+): block is { type: "server_tool_use"; id: string; name: string } {
+  return (
+    typeof block === "object" &&
+    block != null &&
+    (block as { type: string }).type === "server_tool_use"
+  );
+}
+
+/** Type-guard for web_search_tool_result blocks. */
+function isWebSearchToolResultBlock(
+  block: unknown,
+): block is { type: "web_search_tool_result"; tool_use_id: string } {
+  return (
+    typeof block === "object" &&
+    block != null &&
+    (block as { type: string }).type === "web_search_tool_result"
+  );
+}
+
+/**
+ * Repair orphaned server_tool_use blocks within assistant messages.
+ * Server-side tools (e.g. web_search) are self-paired: the assistant message
+ * should contain both server_tool_use and its matching web_search_tool_result.
+ * When the stream is interrupted or the API returns a partial response, the
+ * web_search_tool_result may be missing. This function injects a synthetic
+ * error result for any orphaned server_tool_use block.
+ */
+function repairOrphanedServerToolUse(
+  messages: Anthropic.MessageParam[],
+): Anthropic.MessageParam[] {
+  return messages.map((msg) => {
+    if (msg.role !== "assistant") return msg;
+    const content = Array.isArray(msg.content) ? msg.content : [];
+
+    // Collect server_tool_use IDs and web_search_tool_result IDs in this message
+    const serverToolUseIds = new Set<string>();
+    const pairedResultIds = new Set<string>();
+    for (const block of content) {
+      if (isServerToolUseBlock(block)) {
+        serverToolUseIds.add(block.id);
+      }
+      if (isWebSearchToolResultBlock(block)) {
+        pairedResultIds.add(block.tool_use_id);
+      }
+    }
+
+    // Find orphaned server_tool_use blocks (no matching web_search_tool_result)
+    const orphanedIds: string[] = [];
+    for (const id of serverToolUseIds) {
+      if (!pairedResultIds.has(id)) {
+        orphanedIds.push(id);
+      }
+    }
+
+    if (orphanedIds.length === 0) return msg;
+
+    log.warn(
+      { orphanedIds, blockCount: content.length },
+      "Injecting synthetic web_search_tool_result for orphaned server_tool_use blocks",
+    );
+
+    // Insert a synthetic error web_search_tool_result after each orphaned server_tool_use
+    const repairedContent: Anthropic.ContentBlockParam[] = [];
+    for (const block of content) {
+      repairedContent.push(block);
+      if (isServerToolUseBlock(block) && orphanedIds.includes(block.id)) {
+        repairedContent.push({
+          type: "web_search_tool_result",
+          tool_use_id: block.id,
+          content: [],
+        } as unknown as Anthropic.ContentBlockParam);
+      }
+    }
+
+    return { role: msg.role, content: repairedContent };
+  });
+}
+
 /**
  * Last-line-of-defense fix that ensures every assistant message with tool_use
  * blocks has matching tool_result blocks in the immediately following user
@@ -538,7 +619,7 @@ export class AnthropicProvider implements Provider {
         }
       }
 
-      sentMessages = ensureToolPairing(formatted);
+      sentMessages = ensureToolPairing(repairOrphanedServerToolUse(formatted));
       const { effort, output_config, ...restConfig } = (config ?? {}) as Record<
         string,
         unknown
@@ -546,9 +627,15 @@ export class AnthropicProvider implements Provider {
         effort?: Anthropic.OutputConfig["effort"];
         output_config?: Record<string, unknown>;
       };
+      // Haiku does not support the effort / output_config parameter.
+      // Determine the effective model (per-call override or provider default)
+      // and strip effort when the model doesn't support it.
+      const effectiveModel =
+        (restConfig as Record<string, unknown>).model?.toString() ?? this.model;
+      const supportsEffort = !effectiveModel.includes("haiku");
       const mergedOutputConfig = {
         ...(output_config ?? {}),
-        ...(effort ? { effort } : {}),
+        ...(effort && supportsEffort ? { effort } : {}),
       };
       const params: Anthropic.MessageStreamParams = {
         model: this.model,

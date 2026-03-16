@@ -670,9 +670,10 @@ describe("AnthropicProvider — Cache-Control Characterization", () => {
   // ensureToolPairing — server_tool_use / web_search_tool_result pairing
   // -----------------------------------------------------------------------
 
-  test("server_tool_use without web_search_tool_result passes through as-is (no synthetic injection)", async () => {
-    // Server-side tools are self-paired within the assistant message.
-    // ensureToolPairing should NOT inject synthetic results for them.
+  test("orphaned server_tool_use gets synthetic web_search_tool_result injected", async () => {
+    // When stream is interrupted, server_tool_use may be stored without its
+    // paired web_search_tool_result. repairOrphanedServerToolUse should inject
+    // a synthetic empty-content web_search_tool_result after the orphan.
     const messages: Message[] = [
       userMsg("Search for something"),
       {
@@ -699,17 +700,20 @@ describe("AnthropicProvider — Cache-Control Characterization", () => {
       }>;
     }>;
 
-    // server_tool_use stays in the assistant message, no synthetic result injected
+    // server_tool_use stays in the assistant message with synthetic result appended
     expect(sent).toHaveLength(3);
     expect(sent[1].role).toBe("assistant");
     expect(sent[1].content[0].type).toBe("server_tool_use");
+    expect(sent[1].content[1].type).toBe("web_search_tool_result");
+    expect(sent[1].content[1].tool_use_id).toBe("srvtoolu_abc123");
+    expect(sent[1].content[1].content).toEqual([]);
     expect(sent[2].role).toBe("user");
-    expect(sent[2].content[0].type).toBe("text"); // original user text, not a synthetic result
+    expect(sent[2].content[0].type).toBe("text");
   });
 
-  test("server_tool_use at end of messages is not modified (no synthetic append)", async () => {
-    // Server-side tools don't need cross-message pairing, so no synthetic
-    // user message should be appended.
+  test("orphaned server_tool_use at end of messages gets synthetic result (no synthetic user append)", async () => {
+    // Orphaned server_tool_use at the end should get a synthetic
+    // web_search_tool_result but no synthetic user message.
     const messages: Message[] = [
       userMsg("Search something"),
       {
@@ -731,10 +735,12 @@ describe("AnthropicProvider — Cache-Control Characterization", () => {
       content: Array<{ type: string; tool_use_id?: string }>;
     }>;
 
-    // No synthetic user message appended — just the original 2 messages
+    // Original 2 messages, with synthetic result injected in assistant message
     expect(sent).toHaveLength(2);
     expect(sent[1].role).toBe("assistant");
     expect(sent[1].content[0].type).toBe("server_tool_use");
+    expect(sent[1].content[1].type).toBe("web_search_tool_result");
+    expect(sent[1].content[1].tool_use_id).toBe("srvtoolu_end");
   });
 
   test("server_tool_use with matching web_search_tool_result passes through unchanged", async () => {
@@ -907,10 +913,127 @@ describe("AnthropicProvider — Cache-Control Characterization", () => {
       tool_use_id: "tu_a",
     });
 
-    // server_tool_use preserved in a carryover assistant message
+    // server_tool_use preserved in a carryover assistant message with synthetic result
     const carryoverAssistant = sent[3];
     expect(carryoverAssistant.role).toBe("assistant");
     expect(carryoverAssistant.content[0].type).toBe("server_tool_use");
+    expect(carryoverAssistant.content[1].type).toBe("web_search_tool_result");
+    expect(carryoverAssistant.content[1].tool_use_id).toBe("srvtoolu_b");
+  });
+
+  test("orphaned server_tool_use from interrupted stream gets repaired in multi-turn conversation", async () => {
+    // Reproduces the real bug: web_search stream interrupted, server_tool_use
+    // stored without web_search_tool_result, next user message triggers replay
+    // which would cause a 400 error without the repair.
+    const messages: Message[] = [
+      userMsg("fetch this page and search the web"),
+      {
+        role: "assistant",
+        content: [
+          { type: "text", text: "I'll do both." },
+          {
+            type: "tool_use",
+            id: "tu_fetch",
+            name: "web_fetch",
+            input: { url: "https://example.com" },
+          },
+          {
+            type: "server_tool_use",
+            id: "srvtoolu_interrupted",
+            name: "web_search",
+            input: { query: "test" },
+          },
+          // NOTE: no web_search_tool_result — stream was interrupted
+        ],
+      },
+      {
+        role: "user",
+        content: [
+          {
+            type: "tool_result",
+            tool_use_id: "tu_fetch",
+            content: "page content here",
+            is_error: false,
+          },
+        ],
+      },
+      {
+        role: "assistant",
+        content: [
+          { type: "text", text: "The fetch worked but search failed." },
+        ],
+      },
+      userMsg("try again"),
+    ];
+    await provider.sendMessage(messages);
+
+    const sent = lastStreamParams!.messages as Array<{
+      role: string;
+      content: Array<{
+        type: string;
+        id?: string;
+        tool_use_id?: string;
+        content?: unknown;
+      }>;
+    }>;
+
+    // The orphaned server_tool_use should have a synthetic web_search_tool_result
+    // injected in the assistant message, preventing the 400 error.
+    const allBlocks = sent.flatMap((m) => m.content);
+    const syntheticResults = allBlocks.filter(
+      (b) =>
+        b.type === "web_search_tool_result" &&
+        b.tool_use_id === "srvtoolu_interrupted",
+    );
+    expect(syntheticResults).toHaveLength(1);
+    expect(syntheticResults[0].content).toEqual([]);
+  });
+
+  test("paired server_tool_use is not modified by repair", async () => {
+    // When server_tool_use has its matching web_search_tool_result,
+    // repairOrphanedServerToolUse should not inject anything.
+    const messages: Message[] = [
+      userMsg("search"),
+      {
+        role: "assistant",
+        content: [
+          {
+            type: "server_tool_use",
+            id: "srvtoolu_paired",
+            name: "web_search",
+            input: { query: "test" },
+          },
+          {
+            type: "web_search_tool_result",
+            tool_use_id: "srvtoolu_paired",
+            content: [
+              {
+                type: "web_search_result",
+                url: "https://example.com",
+                title: "Example",
+                encrypted_content: "enc",
+              },
+            ],
+          },
+          { type: "text", text: "Found results." },
+        ],
+      },
+      userMsg("thanks"),
+    ];
+    await provider.sendMessage(messages);
+
+    const sent = lastStreamParams!.messages as Array<{
+      role: string;
+      content: Array<{ type: string; tool_use_id?: string }>;
+    }>;
+
+    // Only 1 web_search_tool_result — the original, no synthetic one added
+    const allBlocks = sent.flatMap((m) => m.content);
+    const wsResults = allBlocks.filter(
+      (b) => b.type === "web_search_tool_result",
+    );
+    expect(wsResults).toHaveLength(1);
+    expect(wsResults[0].tool_use_id).toBe("srvtoolu_paired");
   });
 
   test("assistant message with only unknown blocks gets placeholder text", async () => {

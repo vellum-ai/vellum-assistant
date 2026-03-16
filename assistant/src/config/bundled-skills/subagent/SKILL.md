@@ -15,12 +15,12 @@ Subagent orchestration -- spawn background agents to work on tasks in parallel.
 Subagents follow this status flow: `pending` -> `running` -> `completed` / `failed` / `aborted`
 
 - **Spawn**: Use `subagent_spawn` with a label and objective. The subagent runs autonomously.
-- **Auto-notification**: The parent session is automatically notified when a subagent reaches a terminal status. Do NOT poll `subagent_status`.
+- **Auto-notification**: The parent conversation is automatically notified when a subagent reaches a terminal status. Do NOT poll `subagent_status`.
 - **Read output**: Use `subagent_read` only after the subagent reaches a terminal status (completed/failed/aborted).
 
 ## Ownership
 
-Only the parent session that spawned a subagent can interact with it (check status, send messages, abort, or read output).
+Only the parent conversation that spawned a subagent can interact with it (check status, send messages, abort, or read output).
 
 ## Silent Mode
 

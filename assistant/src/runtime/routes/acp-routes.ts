@@ -26,13 +26,13 @@ export function acpRouteDefinitions(): RouteDefinition[] {
         const body = (await req.json()) as {
           agent?: string;
           task?: string;
-          sessionId?: string;
+          conversationId?: string;
           cwd?: string;
         };
-        if (!body.agent || !body.task || !body.sessionId) {
+        if (!body.agent || !body.task || !body.conversationId) {
           return httpError(
             "BAD_REQUEST",
-            "agent, task, and sessionId are required",
+            "agent, task, and conversationId are required",
             400,
           );
         }
@@ -53,7 +53,7 @@ export function acpRouteDefinitions(): RouteDefinition[] {
           {
             agent: body.agent,
             task: body.task?.slice(0, 100),
-            sessionId: body.sessionId,
+            conversationId: body.conversationId,
           },
           "ACP spawn request received",
         );
@@ -65,7 +65,7 @@ export function acpRouteDefinitions(): RouteDefinition[] {
           agentConfig,
           body.task,
           body.cwd ?? process.cwd(),
-          body.sessionId,
+          body.conversationId,
           sendToVellum,
         );
         log.info(

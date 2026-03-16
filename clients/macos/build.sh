@@ -23,6 +23,7 @@ set -euo pipefail
 #   BUILD_VERSION     Override CFBundleVersion (default: 1)
 #   SIGN_IDENTITY     Override code signing identity
 #   VELLUM_PLATFORM_URL  Override managed sign-in platform URL for app launches
+#   SKIP_BUN_REBUILD    Set to 1 to skip Bun binary staleness checks (use pre-built binaries as-is)
 
 # ---------------------------------------------------------------------------
 # swift_with_retry — run a swift command with retries for transient SPM
@@ -405,9 +406,12 @@ if [ ! -f "$MACOS_DIR/$BUNDLE_DISPLAY_NAME" ] || [ "$EXECUTABLE" -nt "$MACOS_DIR
     NEEDS_REBUILD=true
 fi
 
-# Auto-build daemon binary if missing or stale (source changed) and bun is available
+# Auto-build daemon binary if missing or stale (source changed) and bun is available.
+# When SKIP_BUN_REBUILD=1 (set by CI after cross-compiling binaries for a specific
+# target arch), skip staleness checks entirely to avoid overwriting pre-built
+# binaries with host-arch binaries.
 DAEMON_BIN_NEEDS_BUILD=false
-if [ -d "$ASSISTANT_SRC_DIR/src" ] && command -v bun &>/dev/null; then
+if [ "${SKIP_BUN_REBUILD:-}" != "1" ] && [ -d "$ASSISTANT_SRC_DIR/src" ] && command -v bun &>/dev/null; then
     if [ ! -f "$SCRIPT_DIR/daemon-bin/vellum-daemon" ]; then
         DAEMON_BIN_NEEDS_BUILD=true
     elif [ -n "$(find "$ASSISTANT_SRC_DIR/src" \( -name '*.ts' -o -name '*.json' \) -newer "$SCRIPT_DIR/daemon-bin/vellum-daemon" -print -quit 2>/dev/null)" ]; then
@@ -468,7 +472,7 @@ fi
 
 # Auto-build assistant CLI binary if missing or stale (source changed) and bun is available
 ASSISTANT_CLI_BIN_NEEDS_BUILD=false
-if [ -d "$ASSISTANT_SRC_DIR/src" ] && command -v bun &>/dev/null; then
+if [ "${SKIP_BUN_REBUILD:-}" != "1" ] && [ -d "$ASSISTANT_SRC_DIR/src" ] && command -v bun &>/dev/null; then
     if [ ! -f "$SCRIPT_DIR/assistant-bin/vellum-assistant" ]; then
         ASSISTANT_CLI_BIN_NEEDS_BUILD=true
     elif [ -n "$(find "$ASSISTANT_SRC_DIR/src" \( -name '*.ts' -o -name '*.json' \) -newer "$SCRIPT_DIR/assistant-bin/vellum-assistant" -print -quit 2>/dev/null)" ]; then
@@ -494,7 +498,7 @@ fi
 
 # Auto-build CLI binary if missing or stale (source changed) and bun is available
 CLI_BIN_NEEDS_BUILD=false
-if [ -d "$CLI_SRC_DIR/src" ] && command -v bun &>/dev/null; then
+if [ "${SKIP_BUN_REBUILD:-}" != "1" ] && [ -d "$CLI_SRC_DIR/src" ] && command -v bun &>/dev/null; then
     if [ ! -f "$SCRIPT_DIR/cli-bin/vellum-cli" ]; then
         CLI_BIN_NEEDS_BUILD=true
     elif [ -n "$(find "$CLI_SRC_DIR/src" -name '*.ts' -newer "$SCRIPT_DIR/cli-bin/vellum-cli" -print -quit 2>/dev/null)" ]; then
@@ -518,7 +522,7 @@ fi
 
 # Auto-build gateway binary if missing or stale (source changed) and bun is available
 GATEWAY_BIN_NEEDS_BUILD=false
-if [ -d "$GATEWAY_SRC_DIR/src" ] && command -v bun &>/dev/null; then
+if [ "${SKIP_BUN_REBUILD:-}" != "1" ] && [ -d "$GATEWAY_SRC_DIR/src" ] && command -v bun &>/dev/null; then
     if [ ! -f "$SCRIPT_DIR/gateway-bin/vellum-gateway" ]; then
         GATEWAY_BIN_NEEDS_BUILD=true
     elif [ -n "$(find "$GATEWAY_SRC_DIR/src" -name '*.ts' -newer "$SCRIPT_DIR/gateway-bin/vellum-gateway" -print -quit 2>/dev/null)" ]; then
@@ -642,6 +646,12 @@ fi
 FEATURE_FLAG_REGISTRY="$SCRIPT_DIR/../../meta/feature-flags/feature-flag-registry.json"
 if [ -f "$FEATURE_FLAG_REGISTRY" ]; then
     cp "$FEATURE_FLAG_REGISTRY" "$RESOURCES_DIR/feature-flag-registry.json"
+fi
+# Generate character-components.json for pre-daemon avatar rendering
+CHAR_COMP_SRC="$ASSISTANT_SRC_DIR/src/avatar/character-components.ts"
+if command -v bun &>/dev/null && [ -f "$CHAR_COMP_SRC" ]; then
+    echo "Generating character-components.json..."
+    bun -e "import { getCharacterComponents } from '$CHAR_COMP_SRC'; process.stdout.write(JSON.stringify(getCharacterComponents()))" > "$RESOURCES_DIR/character-components.json"
 fi
 
 # Always check resource bundles (they change independently of binaries)

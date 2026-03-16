@@ -107,7 +107,7 @@ describe("Dynamic Skill Authoring Workflow prompt section", () => {
     expect(result).toContain("3 attempts");
   });
 
-  test("workflow section includes session eviction note", () => {
+  test("workflow section includes conversation eviction note", () => {
     writeFileSync(join(TEST_DIR, "IDENTITY.md"), "I am Vellum.");
     const result = buildSystemPrompt();
     expect(result).toContain("recreated session");

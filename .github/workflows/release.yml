@@ -24,7 +24,7 @@ jobs:
     outputs:
       version: ${{ steps.compute.outputs.version }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           fetch-depth: 0
 
@@ -88,7 +88,7 @@ jobs:
           app-id: ${{ secrets.VELLUM_AUTOMATION_GITHUB_APP_ID }}
           private-key: ${{ secrets.VELLUM_AUTOMATION_GITHUB_PRIVATE_KEY }}
 
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           token: ${{ steps.app-token.outputs.token }}
           fetch-depth: 0
@@ -168,7 +168,7 @@ jobs:
     environment: ${{ matrix.environment }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           ref: "v${{ needs.bump-and-tag.outputs.version }}"
 
@@ -246,7 +246,7 @@ jobs:
     environment: ${{ matrix.environment }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           ref: "v${{ needs.bump-and-tag.outputs.version }}"
 
@@ -376,7 +376,7 @@ jobs:
     environment: ${{ matrix.environment }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           ref: "v${{ needs.bump-and-tag.outputs.version }}"
 
@@ -456,7 +456,7 @@ jobs:
     environment: ${{ matrix.environment }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           ref: "v${{ needs.bump-and-tag.outputs.version }}"
 
@@ -531,7 +531,7 @@ jobs:
     environment: ${{ matrix.environment }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           ref: "v${{ needs.bump-and-tag.outputs.version }}"
 
@@ -658,7 +658,7 @@ jobs:
     environment: ${{ matrix.environment }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           ref: "v${{ needs.bump-and-tag.outputs.version }}"
 
@@ -782,7 +782,7 @@ jobs:
     environment: ${{ matrix.environment }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           ref: "v${{ needs.bump-and-tag.outputs.version }}"
 
@@ -927,7 +927,7 @@ jobs:
       matrix:
         package: [assistant, cli, credential-executor, gateway]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           ref: "v${{ needs.bump-and-tag.outputs.version }}"
 
@@ -960,7 +960,7 @@ jobs:
     permissions:
       contents: read
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           ref: "v${{ needs.bump-and-tag.outputs.version }}"
 
@@ -991,7 +991,7 @@ jobs:
       KEYCHAIN_NAME: build.keychain
       KEYCHAIN_PASSWORD: temporary-ci-password
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           ref: "v${{ needs.bump-and-tag.outputs.version }}"
 
@@ -1063,6 +1063,7 @@ jobs:
           SU_PUBLIC_ED_KEY="${{ secrets.SPARKLE_ED_PUBLIC_KEY }}" \
           SIGN_IDENTITY="Developer ID Application" \
           RELEASE_ARCH_FLAGS="--arch arm64" \
+          SKIP_BUN_REBUILD=1 \
           ./build.sh release
 
           APP_PATH="dist/Vellum.app"
@@ -1096,8 +1097,22 @@ jobs:
           mkdir -p build
           swift dmg/generate-background.swift build/dmg-background@2x.png
 
+      - name: Cache Homebrew create-dmg
+        id: cache-create-dmg
+        uses: actions/cache@v4
+        with:
+          path: |
+            /usr/local/Cellar/create-dmg
+            /opt/homebrew/Cellar/create-dmg
+          key: create-dmg-v1-${{ runner.os }}-${{ runner.arch }}
+
       - name: Install create-dmg
+        if: steps.cache-create-dmg.outputs.cache-hit != 'true'
         run: brew install create-dmg
+
+      - name: Link create-dmg
+        if: steps.cache-create-dmg.outputs.cache-hit == 'true'
+        run: brew link create-dmg 2>/dev/null || true
 
       - name: Create DMG
         run: |
@@ -1216,9 +1231,20 @@ jobs:
           echo "Sparkle ZIP created:"
           ls -lh vellum-assistant.zip
 
+      - name: Cache Homebrew Sparkle
+        id: cache-sparkle
+        uses: actions/cache@v4
+        with:
+          path: |
+            /usr/local/Caskroom/sparkle
+            /opt/homebrew/Caskroom/sparkle
+          key: sparkle-v1-${{ runner.os }}-${{ runner.arch }}
+
       - name: Install Sparkle sign_update tool
         run: |
-          brew install sparkle
+          if [ "${{ steps.cache-sparkle.outputs.cache-hit }}" != "true" ]; then
+            brew install sparkle
+          fi
           SPARKLE_BIN=$(find /opt/homebrew/Caskroom/sparkle -name sign_update -type f 2>/dev/null | head -1)
           if [ -z "$SPARKLE_BIN" ]; then
             SPARKLE_BIN=$(find /usr/local/Caskroom/sparkle -name sign_update -type f 2>/dev/null | head -1)
@@ -1300,7 +1326,7 @@ jobs:
       KEYCHAIN_NAME: build-x64.keychain
       KEYCHAIN_PASSWORD: temporary-ci-password
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           ref: "v${{ needs.bump-and-tag.outputs.version }}"
 
@@ -1422,6 +1448,7 @@ jobs:
           SU_PUBLIC_ED_KEY="${{ secrets.SPARKLE_ED_PUBLIC_KEY }}" \
           SIGN_IDENTITY="Developer ID Application" \
           RELEASE_ARCH_FLAGS="--arch x86_64" \
+          SKIP_BUN_REBUILD=1 \
           ./build.sh release
 
           APP_PATH="dist/Vellum.app"
@@ -1431,6 +1458,9 @@ jobs:
 
           echo "Main executable architecture:"
           file "$APP_PATH/Contents/MacOS/Vellum"
+
+          echo "Daemon binary architecture:"
+          file "$APP_PATH/Contents/MacOS/vellum-daemon"
 
       - name: Upload dSYMs to Sentry
         continue-on-error: true
@@ -1453,8 +1483,22 @@ jobs:
           mkdir -p build
           swift dmg/generate-background.swift build/dmg-background@2x.png
 
+      - name: Cache Homebrew create-dmg
+        id: cache-create-dmg-x64
+        uses: actions/cache@v4
+        with:
+          path: |
+            /usr/local/Cellar/create-dmg
+            /opt/homebrew/Cellar/create-dmg
+          key: create-dmg-v1-${{ runner.os }}-${{ runner.arch }}
+
       - name: Install create-dmg
+        if: steps.cache-create-dmg-x64.outputs.cache-hit != 'true'
         run: brew install create-dmg
+
+      - name: Link create-dmg
+        if: steps.cache-create-dmg-x64.outputs.cache-hit == 'true'
+        run: brew link create-dmg 2>/dev/null || true
 
       - name: Create DMG
         run: |
@@ -1596,7 +1640,7 @@ jobs:
           owner: vellum-ai
           repositories: vellum-assistant,velly
 
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           ref: "v${{ needs.bump-and-tag.outputs.version }}"
 
@@ -1697,7 +1741,7 @@ jobs:
           repositories: vellum-assistant-platform
 
       - name: Checkout platform repo
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           repository: vellum-ai/vellum-assistant-platform
           token: ${{ steps.app-token.outputs.token }}
@@ -1744,7 +1788,7 @@ jobs:
     timeout-minutes: 5
     continue-on-error: true
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - uses: oven-sh/setup-bun@v2
         with:
@@ -1782,7 +1826,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - uses: oven-sh/setup-bun@v2
         with:
@@ -1805,7 +1849,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - uses: oven-sh/setup-bun@v2
         with:
@@ -1833,7 +1877,7 @@ jobs:
     timeout-minutes: 10
     continue-on-error: true
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - uses: oven-sh/setup-bun@v2
         with:
@@ -1862,15 +1906,29 @@ jobs:
     runs-on: macos-15
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           ref: "v${{ needs.bump-and-tag.outputs.version }}"
 
       - name: Select Xcode 26.2
         run: sudo xcode-select -s /Applications/Xcode_26.2.app/Contents/Developer
 
+      - name: Cache Homebrew XcodeGen
+        id: cache-xcodegen-build
+        uses: actions/cache@v4
+        with:
+          path: |
+            /usr/local/Cellar/xcodegen
+            /opt/homebrew/Cellar/xcodegen
+          key: xcodegen-v1-${{ runner.os }}-${{ runner.arch }}
+
       - name: Install XcodeGen
+        if: steps.cache-xcodegen-build.outputs.cache-hit != 'true'
         run: brew install xcodegen
+
+      - name: Link XcodeGen
+        if: steps.cache-xcodegen-build.outputs.cache-hit == 'true'
+        run: brew link xcodegen 2>/dev/null || true
 
       - name: Clear stale SPM artifact cache
         run: rm -rf ~/Library/Caches/org.swift.swiftpm/artifacts
@@ -1891,7 +1949,7 @@ jobs:
       KEYCHAIN_NAME: ios-build.keychain
       KEYCHAIN_PASSWORD: temporary-ci-password
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           ref: "v${{ needs.bump-and-tag.outputs.version }}"
 
@@ -1945,8 +2003,22 @@ jobs:
           echo "build_version=$BUILD_VERSION" >> "$GITHUB_OUTPUT"
           echo "Display version: $DISPLAY_VERSION / Build version: $BUILD_VERSION"
 
+      - name: Cache Homebrew XcodeGen
+        id: cache-xcodegen-release
+        uses: actions/cache@v4
+        with:
+          path: |
+            /usr/local/Cellar/xcodegen
+            /opt/homebrew/Cellar/xcodegen
+          key: xcodegen-v1-${{ runner.os }}-${{ runner.arch }}
+
       - name: Install XcodeGen
+        if: steps.cache-xcodegen-release.outputs.cache-hit != 'true'
         run: brew install xcodegen
+
+      - name: Link XcodeGen
+        if: steps.cache-xcodegen-release.outputs.cache-hit == 'true'
+        run: brew link xcodegen 2>/dev/null || true
 
       - name: Clear stale SPM artifact cache
         run: rm -rf ~/Library/Caches/org.swift.swiftpm/artifacts

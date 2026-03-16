@@ -110,7 +110,7 @@ For low-level development (e.g., working on the assistant runtime itself):
 ```bash
 cd assistant
 bun install
-bun run src/index.ts daemon start
+bun run src/index.ts assistant start
 ```
 
 > **Note:** Some dependencies (`agentmail`, `@pydantic/logfire-node`) are optional at runtime but required for full `tsc --noEmit` type-checking to pass. They are installed automatically by `bun install`.
@@ -314,7 +314,7 @@ All three tools require explicit user approval before execution (Risk Level = Hi
 
 - Snippets must export a `default` or `run` function with signature `(input: unknown) => unknown | Promise<unknown>`.
 - If evaluation fails after 3 attempts, the assistant asks for user guidance instead of retrying.
-- After a skill is written or deleted, the file watcher triggers session eviction. The next turn runs in a fresh session.
+- After a skill is written or deleted, the file watcher triggers conversation eviction. The next turn runs in a fresh conversation.
 - Managed skills appear in the macOS Settings UI with Inspect and Delete controls.
 
 ### Child Skill Includes

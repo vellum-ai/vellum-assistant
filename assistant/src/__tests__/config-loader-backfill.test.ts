@@ -230,8 +230,9 @@ describe("config loader backfill", () => {
 
   test("preserves existing user-defined values during backfill", () => {
     writeConfig({
-      provider: "openai",
-      model: "gpt-4",
+      services: {
+        inference: { provider: "openai", model: "gpt-4" },
+      },
       telegram: { botUsername: "mybot", timeoutMs: 30_000 },
       whatsapp: { phoneNumber: "+1234567890" },
     });
@@ -240,8 +241,9 @@ describe("config loader backfill", () => {
 
     const raw = readConfig();
     // User values preserved
-    expect(raw.provider).toBe("openai");
-    expect(raw.model).toBe("gpt-4");
+    const services = raw.services as Record<string, Record<string, unknown>>;
+    expect(services.inference.provider).toBe("openai");
+    expect(services.inference.model).toBe("gpt-4");
     expect((raw.telegram as Record<string, unknown>).botUsername).toBe("mybot");
     expect((raw.telegram as Record<string, unknown>).timeoutMs).toBe(30_000);
     expect((raw.whatsapp as Record<string, unknown>).phoneNumber).toBe(

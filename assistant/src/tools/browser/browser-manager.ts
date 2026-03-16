@@ -375,24 +375,24 @@ class BrowserManager {
     }
   }
 
-  async getOrCreateSessionPage(sessionId: string): Promise<Page> {
+  async getOrCreateSessionPage(conversationId: string): Promise<Page> {
     const context = await this.ensureContext();
 
-    const existing = this.pages.get(sessionId);
+    const existing = this.pages.get(conversationId);
     if (existing && !existing.isClosed()) {
       return existing;
     }
 
     // Clear stale snapshot mappings and CDP state when replacing a closed page
-    this.snapshotMaps.delete(sessionId);
-    await this.stopScreencast(sessionId);
+    this.snapshotMaps.delete(conversationId);
+    await this.stopScreencast(conversationId);
 
     const page = await context.newPage();
-    this.pages.set(sessionId, page);
-    this.rawPages.set(sessionId, page);
+    this.pages.set(conversationId, page);
+    this.rawPages.set(conversationId, page);
 
     // Track downloads for this page
-    this.setupDownloadTracking(sessionId, page);
+    this.setupDownloadTracking(conversationId, page);
 
     // Create a page-level CDP session for window positioning.
     // Browser domain commands (setWindowBounds, getWindowForTarget) are accessible
@@ -413,57 +413,58 @@ class BrowserManager {
     // Position the browser window so the user can watch.
     if (
       this.browserCdpSession &&
-      !this.interactiveModeSessions.has(sessionId)
+      !this.interactiveModeSessions.has(conversationId)
     ) {
       await this.positionWindowSidebar();
     }
 
-    log.debug({ sessionId }, "Session page created");
+    log.debug({ conversationId }, "Conversation page created");
     return page;
   }
 
-  async closeSessionPage(sessionId: string): Promise<void> {
-    await this.stopScreencast(sessionId);
+  async closeSessionPage(conversationId: string): Promise<void> {
+    await this.stopScreencast(conversationId);
     // Clean up any pending handoff for this session
-    this.interactiveModeSessions.delete(sessionId);
-    const handoffResolver = this.handoffResolvers.get(sessionId);
+    this.interactiveModeSessions.delete(conversationId);
+    const handoffResolver = this.handoffResolvers.get(conversationId);
     if (handoffResolver) {
       handoffResolver();
-      this.handoffResolvers.delete(sessionId);
+      this.handoffResolvers.delete(conversationId);
     }
-    const page = this.pages.get(sessionId);
+    const page = this.pages.get(conversationId);
     if (page && !page.isClosed()) {
       await page.close();
     }
-    this.pages.delete(sessionId);
-    this.rawPages.delete(sessionId);
-    this.snapshotMaps.delete(sessionId);
-    this.downloads.delete(sessionId);
+    this.pages.delete(conversationId);
+    this.rawPages.delete(conversationId);
+    this.snapshotMaps.delete(conversationId);
+    this.downloads.delete(conversationId);
     // Reject any pending download waiters
-    const pending = this.pendingDownloads.get(sessionId);
+    const pending = this.pendingDownloads.get(conversationId);
     if (pending) {
-      for (const waiter of pending) waiter.reject(new Error("Session closed"));
-      this.pendingDownloads.delete(sessionId);
+      for (const waiter of pending)
+        waiter.reject(new Error("Browser page closed"));
+      this.pendingDownloads.delete(conversationId);
     }
-    log.debug({ sessionId }, "Session page closed");
+    log.debug({ conversationId }, "Conversation page closed");
   }
 
   async closeAllPages(): Promise<void> {
     // Stop all screencasts first
-    for (const sessionId of this.cdpSessions.keys()) {
+    for (const conversationId of this.cdpSessions.keys()) {
       try {
-        await this.stopScreencast(sessionId);
+        await this.stopScreencast(conversationId);
       } catch (err) {
-        log.warn({ err, sessionId }, "Failed to stop screencast");
+        log.warn({ err, conversationId }, "Failed to stop screencast");
       }
     }
 
-    for (const [sessionId, page] of this.pages) {
+    for (const [conversationId, page] of this.pages) {
       if (!page.isClosed()) {
         try {
           await page.close();
         } catch (err) {
-          log.warn({ err, sessionId }, "Failed to close page");
+          log.warn({ err, conversationId }, "Failed to close page");
         }
       }
     }
@@ -509,8 +510,8 @@ class BrowserManager {
     }
   }
 
-  async stopScreencast(sessionId: string): Promise<void> {
-    const cdp = this.cdpSessions.get(sessionId);
+  async stopScreencast(conversationId: string): Promise<void> {
+    const cdp = this.cdpSessions.get(conversationId);
     if (cdp) {
       try {
         await cdp.send("Page.stopScreencast");
@@ -521,20 +522,23 @@ class BrowserManager {
           "Screencast stop / CDP detach failed during cleanup",
         );
       }
-      this.cdpSessions.delete(sessionId);
+      this.cdpSessions.delete(conversationId);
     }
   }
 
-  storeSnapshotMap(sessionId: string, map: Map<string, string>): void {
-    this.snapshotMaps.set(sessionId, map);
+  storeSnapshotMap(conversationId: string, map: Map<string, string>): void {
+    this.snapshotMaps.set(conversationId, map);
   }
 
-  clearSnapshotMap(sessionId: string): void {
-    this.snapshotMaps.delete(sessionId);
+  clearSnapshotMap(conversationId: string): void {
+    this.snapshotMaps.delete(conversationId);
   }
 
-  resolveSnapshotSelector(sessionId: string, elementId: string): string | null {
-    const map = this.snapshotMaps.get(sessionId);
+  resolveSnapshotSelector(
+    conversationId: string,
+    elementId: string,
+  ): string | null {
+    const map = this.snapshotMaps.get(conversationId);
     if (!map) return null;
     return map.get(elementId) ?? null;
   }
@@ -622,37 +626,37 @@ class BrowserManager {
     }
   }
 
-  isInteractive(sessionId: string): boolean {
-    return this.interactiveModeSessions.has(sessionId);
+  isInteractive(conversationId: string): boolean {
+    return this.interactiveModeSessions.has(conversationId);
   }
 
-  setInteractiveMode(sessionId: string, enabled: boolean): void {
+  setInteractiveMode(conversationId: string, enabled: boolean): void {
     if (enabled) {
-      this.interactiveModeSessions.add(sessionId);
+      this.interactiveModeSessions.add(conversationId);
     } else {
-      this.interactiveModeSessions.delete(sessionId);
-      const resolver = this.handoffResolvers.get(sessionId);
+      this.interactiveModeSessions.delete(conversationId);
+      const resolver = this.handoffResolvers.get(conversationId);
       if (resolver) {
         resolver();
-        this.handoffResolvers.delete(sessionId);
+        this.handoffResolvers.delete(conversationId);
       }
     }
   }
 
   async waitForHandoffComplete(
-    sessionId: string,
+    conversationId: string,
     timeoutMs: number = 300_000,
   ): Promise<void> {
-    if (!this.interactiveModeSessions.has(sessionId)) return;
+    if (!this.interactiveModeSessions.has(conversationId)) return;
 
     // Cancel any existing pending handoff for this session
-    const existing = this.handoffResolvers.get(sessionId);
+    const existing = this.handoffResolvers.get(conversationId);
     if (existing) {
       existing();
     }
 
     // Capture the initial URL so we can auto-detect page changes
-    const page = this.pages.get(sessionId);
+    const page = this.pages.get(conversationId);
     const initialUrl = page && !page.isClosed() ? page.url() : null;
 
     return new Promise<void>((resolve) => {
@@ -661,22 +665,22 @@ class BrowserManager {
       const resolver = () => {
         clearTimeout(timer);
         if (pollTimer) clearInterval(pollTimer);
-        if (this.handoffResolvers.get(sessionId) === resolver) {
-          this.handoffResolvers.delete(sessionId);
+        if (this.handoffResolvers.get(conversationId) === resolver) {
+          this.handoffResolvers.delete(conversationId);
         }
         resolve();
       };
 
       const timer = setTimeout(() => {
         if (pollTimer) clearInterval(pollTimer);
-        if (this.handoffResolvers.get(sessionId) === resolver) {
-          this.handoffResolvers.delete(sessionId);
+        if (this.handoffResolvers.get(conversationId) === resolver) {
+          this.handoffResolvers.delete(conversationId);
         }
-        this.interactiveModeSessions.delete(sessionId);
+        this.interactiveModeSessions.delete(conversationId);
         resolve();
       }, timeoutMs);
 
-      this.handoffResolvers.set(sessionId, resolver);
+      this.handoffResolvers.set(conversationId, resolver);
 
       // Poll for URL changes — auto-resolve when the page navigates
       // (e.g., CAPTCHA solved, login redirect)
@@ -684,22 +688,22 @@ class BrowserManager {
         pollTimer = setInterval(() => {
           try {
             if (page.isClosed()) {
-              this.interactiveModeSessions.delete(sessionId);
+              this.interactiveModeSessions.delete(conversationId);
               resolver();
               return;
             }
             const currentUrl = page.url();
             if (currentUrl !== initialUrl) {
               log.info(
-                { sessionId, from: initialUrl, to: currentUrl },
+                { conversationId, from: initialUrl, to: currentUrl },
                 "Handoff auto-resolved: URL changed",
               );
-              this.interactiveModeSessions.delete(sessionId);
+              this.interactiveModeSessions.delete(conversationId);
               resolver();
             }
           } catch {
             // Page may have been closed — resolve gracefully
-            this.interactiveModeSessions.delete(sessionId);
+            this.interactiveModeSessions.delete(conversationId);
             resolver();
           }
         }, 2000);
@@ -711,8 +715,8 @@ class BrowserManager {
    * Get the raw Playwright page for a session (for CDP session creation).
    * Used by NetworkRecorder to create its own CDP session.
    */
-  getRawPage(sessionId: string): unknown | undefined {
-    return this.rawPages.get(sessionId);
+  getRawPage(conversationId: string): unknown | undefined {
+    return this.rawPages.get(conversationId);
   }
 
   /**
@@ -770,7 +774,7 @@ class BrowserManager {
     }
   }
 
-  private setupDownloadTracking(sessionId: string, page: Page): void {
+  private setupDownloadTracking(conversationId: string, page: Page): void {
     page.on("download", async (download: unknown) => {
       const dl = download as {
         suggestedFilename(): string;
@@ -790,65 +794,71 @@ class BrowserManager {
         const info: DownloadInfo = { path: destPath, filename };
 
         // Resolve a pending waiter if one exists, otherwise store for later retrieval
-        const pending = this.pendingDownloads.get(sessionId);
+        const pending = this.pendingDownloads.get(conversationId);
         if (pending && pending.length > 0) {
           const waiter = pending.shift()!;
           waiter.resolve(info);
-          if (pending.length === 0) this.pendingDownloads.delete(sessionId);
+          if (pending.length === 0)
+            this.pendingDownloads.delete(conversationId);
         } else {
-          const list = this.downloads.get(sessionId) ?? [];
+          const list = this.downloads.get(conversationId) ?? [];
           list.push(info);
-          this.downloads.set(sessionId, list);
+          this.downloads.set(conversationId, list);
         }
 
-        log.info({ sessionId, filename, path: destPath }, "Download completed");
+        log.info(
+          { conversationId, filename, path: destPath },
+          "Download completed",
+        );
       } catch (err) {
         const failure = await withTimeout(
           dl.failure(),
           5_000,
           "Download failure check",
         ).catch(() => null);
-        log.warn({ err, failure, sessionId }, "Download failed");
+        log.warn({ err, failure, conversationId }, "Download failed");
 
         // Reject any pending waiters
-        const pending = this.pendingDownloads.get(sessionId);
+        const pending = this.pendingDownloads.get(conversationId);
         if (pending && pending.length > 0) {
           const waiter = pending.shift()!;
           waiter.reject(
             new Error(`Download failed: ${failure ?? String(err)}`),
           );
-          if (pending.length === 0) this.pendingDownloads.delete(sessionId);
+          if (pending.length === 0)
+            this.pendingDownloads.delete(conversationId);
         }
       }
     });
   }
 
-  getLastDownload(sessionId: string): DownloadInfo | null {
-    const list = this.downloads.get(sessionId);
+  getLastDownload(conversationId: string): DownloadInfo | null {
+    const list = this.downloads.get(conversationId);
     if (!list || list.length === 0) return null;
     return list[list.length - 1];
   }
 
   waitForDownload(
-    sessionId: string,
+    conversationId: string,
     timeoutMs: number = 30_000,
   ): Promise<DownloadInfo> {
     // Check if an unconsumed download already completed for this session
-    const existing = this.downloads.get(sessionId);
+    const existing = this.downloads.get(conversationId);
     if (existing && existing.length > 0) {
       const info = existing.shift()!;
-      if (existing.length === 0) this.downloads.delete(sessionId);
+      if (existing.length === 0) this.downloads.delete(conversationId);
       return Promise.resolve(info);
     }
 
     return new Promise<DownloadInfo>((resolve, reject) => {
       const timer = setTimeout(() => {
         // Remove this waiter from the pending list
-        const pending = this.pendingDownloads.get(sessionId);
+        const pending = this.pendingDownloads.get(conversationId);
         if (pending) {
           const idx = pending.findIndex((w) => w.resolve === wrappedResolve);
           if (idx >= 0) pending.splice(idx, 1);
-          if (pending.length === 0) this.pendingDownloads.delete(sessionId);
+          if (pending.length === 0)
+            this.pendingDownloads.delete(conversationId);
         }
         reject(new Error(`Download timed out after ${timeoutMs}ms`));
       }, timeoutMs);
@@ -862,9 +872,9 @@ class BrowserManager {
         reject(err);
       };
 
-      const pending = this.pendingDownloads.get(sessionId) ?? [];
+      const pending = this.pendingDownloads.get(conversationId) ?? [];
       pending.push({ resolve: wrappedResolve, reject: wrappedReject });
-      this.pendingDownloads.set(sessionId, pending);
+      this.pendingDownloads.set(conversationId, pending);
     });
   }
 

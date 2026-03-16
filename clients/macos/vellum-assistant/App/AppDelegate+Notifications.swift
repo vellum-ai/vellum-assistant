@@ -254,6 +254,7 @@ extension AppDelegate {
             }
         }
         content.userInfo = userInfo
+        content.attachAppIcon()
 
         let notificationId = "notification-intent-\(UUID().uuidString)"
         let request = UNNotificationRequest(

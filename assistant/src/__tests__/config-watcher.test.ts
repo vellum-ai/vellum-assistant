@@ -298,7 +298,7 @@ describe("ConfigWatcher protected directory handlers", () => {
     protectedWatcher!.callback("change", "trust.json");
 
     await new Promise((r) => setTimeout(r, 300));
-    // trust.json should NOT trigger session eviction
+    // trust.json should NOT trigger conversation eviction
     expect(evictCallCount).toBe(0);
     // but clearCache should have been called
     expect(trustClearCacheCallCount).toBe(1);
@@ -311,7 +311,7 @@ describe("ConfigWatcher protected directory handlers", () => {
     protectedWatcher!.callback("change", "secret-allowlist.json");
 
     await new Promise((r) => setTimeout(r, 300));
-    // secret-allowlist.json should NOT trigger session eviction
+    // secret-allowlist.json should NOT trigger conversation eviction
     expect(evictCallCount).toBe(0);
     // but resetAllowlist should have been called
     expect(resetAllowlistCallCount).toBe(1);

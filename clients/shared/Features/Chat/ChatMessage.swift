@@ -1641,7 +1641,7 @@ public struct ChatMessage: Identifiable, Equatable {
     public var streamingCodePreview: String?
     /// Tool name associated with the streaming code preview.
     public var streamingCodeToolName: String?
-    /// When true, this message represents a session error (rate limit, network failure, etc.)
+    /// When true, this message represents a conversation error (rate limit, network failure, etc.)
     /// and should be rendered with distinct error styling (red box) instead of a normal bubble.
     public var isError: Bool
     /// The daemon's persisted message ID, populated from history responses.

@@ -3,7 +3,7 @@
  *   lazy init → turn-boundary commits → heartbeat safety net → commit history verification.
  *
  * This test wires together WorkspaceGitService, commitTurnChanges, and WorkspaceHeartbeatService
- * in the same flow a real daemon session would follow.
+ * in the same flow a real daemon conversation would follow.
  */
 import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";

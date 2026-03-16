@@ -39,7 +39,7 @@ Do NOT delegate when:
 - Claude Code runs in a sandboxed environment with approval flows for destructive actions
 - File writes, edits, and shell commands that modify state require user confirmation (unless auto-approved by trust rules)
 - Read-only operations (file reads, searches, web fetches) are auto-approved
-- The working directory defaults to the current session's working directory but can be overridden
+- The working directory defaults to the current conversation's working directory but can be overridden
 
 ## Worker Profiles
 

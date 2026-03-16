@@ -36,8 +36,8 @@ import {
 import type { TrustContext } from "./conversation-runtime-assembly.js";
 import type { ServerMessage } from "./message-protocol.js";
 import {
-  lastCommentaryBySession,
-  lastSummaryBySession,
+  lastCommentaryByConversation,
+  lastSummaryByConversation,
 } from "./watch-handler.js";
 
 /**
@@ -70,9 +70,9 @@ export function registerConversationNotifiers(
   });
 
   registerWatchCommentaryNotifier(conversationId, (_session: WatchSession) => {
-    const commentary = lastCommentaryBySession.get(conversationId);
+    const commentary = lastCommentaryByConversation.get(conversationId);
     if (commentary) {
-      lastCommentaryBySession.delete(conversationId);
+      lastCommentaryByConversation.delete(conversationId);
       ctx.sendToClient({
         type: "assistant_text_delta",
         text: commentary,
@@ -86,9 +86,9 @@ export function registerConversationNotifiers(
   });
 
   registerWatchCompletionNotifier(conversationId, (_session: WatchSession) => {
-    const summary = lastSummaryBySession.get(conversationId);
+    const summary = lastSummaryByConversation.get(conversationId);
     if (summary) {
-      lastSummaryBySession.delete(conversationId);
+      lastSummaryByConversation.delete(conversationId);
       ctx.sendToClient({
         type: "assistant_text_delta",
         text: summary,

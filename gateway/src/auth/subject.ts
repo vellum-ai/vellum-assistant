@@ -2,7 +2,7 @@
  * Sub (subject) pattern parser for JWT tokens.
  *
  * The sub claim encodes principal type, assistant scope, and optional
- * actor/session identifiers in a colon-delimited string.
+ * actor/conversation identifiers in a colon-delimited string.
  */
 
 import type { PrincipalType } from "./types.js";
@@ -17,7 +17,7 @@ export type ParseSubResult =
       principalType: PrincipalType;
       assistantId: string;
       actorPrincipalId?: string;
-      sessionId?: string;
+      conversationId?: string;
     }
   | { ok: false; reason: string };
 
@@ -32,7 +32,7 @@ export type ParseSubResult =
  *   actor:<assistantId>:<actorPrincipalId>
  *   svc:gateway:<assistantId>
  *   svc:daemon:<identifier>
- *   local:<assistantId>:<sessionId>
+ *   local:<assistantId>:<conversationId>
  */
 export function parseSub(sub: string): ParseSubResult {
   if (!sub || typeof sub !== "string") {
@@ -69,14 +69,14 @@ export function parseSub(sub: string): ParseSubResult {
   }
 
   if (parts[0] === "local" && parts.length === 3) {
-    const [, assistantId, sessionId] = parts;
-    if (!assistantId || !sessionId) {
+    const [, assistantId, conversationId] = parts;
+    if (!assistantId || !conversationId) {
       return {
         ok: false,
-        reason: "local sub has empty assistantId or sessionId",
+        reason: "local sub has empty assistantId or conversationId",
       };
     }
-    return { ok: true, principalType: "local", assistantId, sessionId };
+    return { ok: true, principalType: "local", assistantId, conversationId };
   }
 
   return { ok: false, reason: `unrecognized sub pattern: ${sub}` };

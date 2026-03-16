@@ -16,6 +16,7 @@ struct AgentPanelContent: View {
     @State private var selectedCategory: SkillCategory?
     @State private var globalSkillSearchQuery = ""
     @State private var expandedFilePath: String?
+    @State private var skillFileViewMode: FileViewMode = .source
 
     init(onInvokeSkill: ((SkillInfo) -> Void)? = nil, onSkillsChanged: (() -> Void)? = nil, daemonClient: DaemonClient) {
         self.onInvokeSkill = onInvokeSkill
@@ -404,7 +405,20 @@ struct AgentPanelContent: View {
             if expandedFilePath == nil, let files = skillsManager.selectedSkillFiles?.files {
                 let skillMd = files.first { $0.path == "SKILL.md" && !$0.isBinary && $0.content != nil }
                 let firstText = files.first { !$0.isBinary && $0.content != nil }
-                expandedFilePath = (skillMd ?? firstText)?.path
+                if let selectedFile = skillMd ?? firstText {
+                    expandedFilePath = selectedFile.path
+                    let autoModes = availableViewModes(for: selectedFile.path, mimeType: selectedFile.mimeType)
+                    skillFileViewMode = autoModes.first ?? .source
+                }
+            }
+        }
+        .onChange(of: expandedFilePath) {
+            // Reset view mode when the user selects a different file
+            if let selectedPath = expandedFilePath,
+               let filesResponse = skillsManager.selectedSkillFiles,
+               let file = filesResponse.files.first(where: { $0.path == selectedPath }) {
+                let selectedModes = availableViewModes(for: file.path, mimeType: file.mimeType)
+                skillFileViewMode = selectedModes.first ?? .source
             }
         }
         .onDisappear {
@@ -476,19 +490,44 @@ struct AgentPanelContent: View {
 
     @ViewBuilder
     private func skillFileContentPane(file: SkillFileEntry, content: String) -> some View {
+        let modes = availableViewModes(for: file.path, mimeType: file.mimeType)
+        let effectiveMode = modes.contains(skillFileViewMode) ? skillFileViewMode : (modes.first ?? .source)
+
         VStack(alignment: .leading, spacing: 0) {
             // File header
             FileContentHeaderBar(
                 icon: fileIcon(for: file.mimeType),
                 fileName: file.path,
                 fileSize: formatFileSize(file.size)
-            )
+            ) {
+                if modes.count > 1 {
+                    VSegmentedControl(
+                        items: modes.map { (label: viewModeLabel($0), tag: $0) },
+                        selection: $skillFileViewMode,
+                        style: .pill
+                    )
+                    .fixedSize()
+                }
+            }
 
             Divider().background(VColor.borderBase)
 
             // File content
-            ReadOnlyCodeContent(content: content)
+            switch effectiveMode {
+            case .source:
+                HighlightedTextView(
+                    text: .constant(content),
+                    language: SyntaxLanguage.detect(fileName: file.path, mimeType: file.mimeType),
+                    isEditable: false
+                )
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
+            case .preview:
+                MarkdownPreviewView(content: content)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            case .tree:
+                JSONTreeView(content: content)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .background(VColor.surfaceOverlay)

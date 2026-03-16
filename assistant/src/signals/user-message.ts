@@ -10,7 +10,7 @@
  * Per-request filenames avoid dropped messages when overlapping invocations
  * race on the same signal file.
  *
- * Because the signal handler needs access to the daemon's session map and
+ * Because the signal handler needs access to the daemon's conversation map and
  * event hub, the daemon registers a callback at startup via
  * {@link registerUserMessageCallback}.
  */
@@ -36,7 +36,7 @@ let _sendUserMessage: UserMessageCallback | null = null;
 
 /**
  * Register the user-message callback. Called once by the daemon server at
- * startup so the signal handler can reach the session map and event hub.
+ * startup so the signal handler can reach the conversation map and event hub.
  */
 export function registerUserMessageCallback(cb: UserMessageCallback): void {
   _sendUserMessage = cb;

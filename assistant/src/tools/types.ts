@@ -104,13 +104,13 @@ export interface ToolContext {
   assistantId?: string;
   /** When set, the tool execution is part of a task run. Used to retrieve ephemeral permission rules. */
   taskRunId?: string;
-  /** Per-message request ID for log correlation across session/connection boundaries. */
+  /** Per-message request ID for log correlation across conversation/connection boundaries. */
   requestId?: string;
   /** Optional callback for streaming incremental output to the client. */
   onOutput?: (chunk: string) => void;
   /** Abort signal for cooperative cancellation. Tools should check this periodically. */
   signal?: AbortSignal;
-  /** Per-session sandbox override. When set, takes precedence over the global config. */
+  /** Per-conversation sandbox override. When set, takes precedence over the global config. */
   sandboxOverride?: boolean;
   /** Optional callback for tool lifecycle events (start/prompt/deny/execute/error/secret_detected). */
   onToolLifecycleEvent?: ToolLifecycleEventHandler;
@@ -141,7 +141,7 @@ export interface ToolContext {
   sendToClient?: (msg: { type: string; [key: string]: unknown }) => void;
   /** True when an interactive client is connected (not just a no-op callback). */
   isInteractive?: boolean;
-  /** Memory scope ID from the session's memory policy, so memory tools can target the correct scope. */
+  /** Memory scope ID from the conversation's memory policy, so memory tools can target the correct scope. */
   memoryScopeId?: string;
   /** When true, tools with private side-effects should always prompt for confirmation. */
   forcePromptSideEffects?: boolean;

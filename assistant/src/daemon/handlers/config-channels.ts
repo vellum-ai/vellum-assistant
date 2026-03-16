@@ -78,7 +78,7 @@ export function getReadinessService(): ChannelReadinessService {
 export function createInboundChallenge(
   channel?: ChannelId,
   rebind?: boolean,
-  sessionId?: string,
+  conversationId?: string,
 ): ChannelVerificationSessionResult {
   const resolvedAssistantId = DAEMON_INTERNAL_ASSISTANT_ID;
   const resolvedChannel = channel ?? "telegram";
@@ -97,7 +97,10 @@ export function createInboundChallenge(
     };
   }
 
-  const result = createInboundVerificationSession(resolvedChannel, sessionId);
+  const result = createInboundVerificationSession(
+    resolvedChannel,
+    conversationId,
+  );
 
   return {
     success: true,

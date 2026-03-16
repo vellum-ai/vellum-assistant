@@ -138,6 +138,23 @@ export {
   SecretDetectionConfigSchema,
 } from "./schemas/security.js";
 export type {
+  ImageGenerationService,
+  InferenceService,
+  ServiceMode,
+  Services,
+  WebSearchService,
+} from "./schemas/services.js";
+export {
+  ImageGenerationServiceSchema,
+  InferenceServiceSchema,
+  ServiceModeSchema,
+  ServicesSchema,
+  VALID_IMAGE_GEN_PROVIDERS,
+  VALID_INFERENCE_PROVIDERS,
+  VALID_WEB_SEARCH_PROVIDERS,
+  WebSearchServiceSchema,
+} from "./schemas/services.js";
+export type {
   RemotePolicyConfig,
   RemoteProviderConfig,
   RemoteProvidersConfig,
@@ -200,6 +217,10 @@ import {
   PermissionsConfigSchema,
   SecretDetectionConfigSchema,
 } from "./schemas/security.js";
+import {
+  ServicesSchema,
+  VALID_INFERENCE_PROVIDERS,
+} from "./schemas/services.js";
 import { SkillsConfigSchema } from "./schemas/skills.js";
 import { SwarmConfigSchema } from "./schemas/swarm.js";
 import {
@@ -208,54 +229,27 @@ import {
 } from "./schemas/timeouts.js";
 import { WorkspaceGitConfigSchema } from "./schemas/workspace-git.js";
 
-const VALID_PROVIDERS = [
-  "anthropic",
-  "openai",
-  "gemini",
-  "ollama",
-  "fireworks",
-  "openrouter",
-] as const;
-const VALID_WEB_SEARCH_PROVIDERS = [
-  "perplexity",
-  "brave",
-  "anthropic-native",
-] as const;
-
 export const AssistantConfigSchema = z
   .object({
-    provider: z
-      .enum(VALID_PROVIDERS, {
-        error: `provider must be one of: ${VALID_PROVIDERS.join(", ")}`,
-      })
-      .default("anthropic"),
-    model: z
-      .string({ error: "model must be a string" })
-      .default("claude-opus-4-6"),
-    imageGenModel: z
-      .string({ error: "imageGenModel must be a string" })
-      .default("gemini-2.5-flash-image"),
-    webSearchProvider: z
-      .enum(VALID_WEB_SEARCH_PROVIDERS, {
-        error: `webSearchProvider must be one of: ${VALID_WEB_SEARCH_PROVIDERS.join(
-          ", ",
-        )}`,
-      })
-      .default("anthropic-native"),
+    services: ServicesSchema.default(ServicesSchema.parse({})),
     providerOrder: z
       .array(
-        z.enum(VALID_PROVIDERS, {
-          error: `Each providerOrder entry must be one of: ${VALID_PROVIDERS.join(
+        z.enum(VALID_INFERENCE_PROVIDERS, {
+          error: `Each providerOrder entry must be one of: ${VALID_INFERENCE_PROVIDERS.join(
             ", ",
           )}`,
         }),
       )
-      .default([]),
+      .default([])
+      .describe(
+        "Fallback order of LLM providers — the assistant tries each in sequence if the previous one fails",
+      ),
     maxTokens: z
       .number({ error: "maxTokens must be a number" })
       .int("maxTokens must be an integer")
       .positive("maxTokens must be a positive integer")
-      .default(16000),
+      .default(16000)
+      .describe("Maximum number of output tokens per LLM response"),
     effort: EffortSchema,
     thinking: ThinkingConfigSchema.default(ThinkingConfigSchema.parse({})),
     contextWindow: ContextWindowConfigSchema.default(
@@ -264,7 +258,8 @@ export const AssistantConfigSchema = z
     memory: MemoryConfigSchema.default(MemoryConfigSchema.parse({})),
     dataDir: z
       .string({ error: "dataDir must be a string" })
-      .default(getDataDir()),
+      .default(getDataDir())
+      .describe("Directory for storing assistant data (database, logs, etc.)"),
     timeouts: TimeoutConfigSchema.default(TimeoutConfigSchema.parse({})),
     sandbox: SandboxConfigSchema.default(SandboxConfigSchema.parse({})),
     rateLimit: RateLimitConfigSchema.default(RateLimitConfigSchema.parse({})),
@@ -278,7 +273,12 @@ export const AssistantConfigSchema = z
     logFile: LogFileConfigSchema.default(
       LogFileConfigSchema.parse({ dir: getDataDir() + "/logs" }),
     ),
-    pricingOverrides: z.array(ModelPricingOverrideSchema).default([]),
+    pricingOverrides: z
+      .array(ModelPricingOverrideSchema)
+      .default([])
+      .describe(
+        "Custom pricing overrides for specific provider/model combinations",
+      ),
     heartbeat: HeartbeatConfigSchema.default(HeartbeatConfigSchema.parse({})),
     swarm: SwarmConfigSchema.default(SwarmConfigSchema.parse({})),
     mcp: McpConfigSchema.default(McpConfigSchema.parse({})),
@@ -309,9 +309,18 @@ export const AssistantConfigSchema = z
           error: "assistantFeatureFlagValues values must be booleans",
         }),
       )
-      .optional(),
-    collectUsageData: z.boolean().default(true),
-    sendDiagnostics: z.boolean().default(true),
+      .optional()
+      .describe("Feature flag overrides — map of flag names to boolean values"),
+    collectUsageData: z
+      .boolean()
+      .default(true)
+      .describe(
+        "Whether to collect anonymous usage data to help improve the assistant",
+      ),
+    sendDiagnostics: z
+      .boolean()
+      .default(true)
+      .describe("Whether to send diagnostic/crash reports"),
   })
   .superRefine((config, ctx) => {
     if (

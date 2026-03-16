@@ -398,7 +398,7 @@ export function handleListMessages(
  *
  * Also registers pending interactions when confirmation_request,
  * secret_request, host_bash_request, or host_file_request events flow
- * through, so standalone approval/result endpoints can look up the session
+ * through, so standalone approval/result endpoints can look up the conversation
  * by requestId.
  */
 function makeHubPublisher(
@@ -447,7 +447,7 @@ function makeHubPublisher(
           expiresAt: Date.now() + 5 * 60 * 1000,
         });
 
-        // For trusted-contact sessions, bridge to guardian.question so the
+        // For trusted-contact conversations, bridge to guardian.question so the
         // guardian gets notified and can approve via callback/request-code.
         if (trustContext) {
           bridgeConfirmationRequestToGuardian({
@@ -666,7 +666,7 @@ export async function handleSendMessage(
   );
   const isInteractive = isInteractiveInterface(sourceInterface);
   // Only create the host bash proxy for desktop client interfaces that can
-  // execute commands on the user's machine. Non-desktop sessions (CLI,
+  // execute commands on the user's machine. Non-desktop conversations (CLI,
   // channels, headless) fall back to local execution.
   // Set the proxy BEFORE updateClient so updateClient's call to
   // hostBashProxy.updateSender targets the correct (new) proxy.
@@ -823,9 +823,9 @@ export async function handleSendMessage(
     );
   }
 
-  // Auto-deny pending confirmations for idle sessions. The legacy
+  // Auto-deny pending confirmations for idle conversations. The legacy
   // handleUserMessage called autoDenyPendingConfirmations unconditionally
-  // before dispatching, so an idle session with lingering confirmations
+  // before dispatching, so an idle conversation with lingering confirmations
   // (e.g. the user never responded to a tool-approval prompt) must deny
   // them before starting the new turn.
   if (conversation.hasAnyPendingConfirmation()) {
@@ -868,8 +868,8 @@ export async function handleSendMessage(
     inputTokens: conversation.usageStats.inputTokens,
     outputTokens: conversation.usageStats.outputTokens,
     maxInputTokens: config.contextWindow.maxInputTokens,
-    model: config.model,
-    provider: config.provider,
+    model: config.services.inference.model,
+    provider: config.services.inference.provider,
     estimatedCost: conversation.usageStats.estimatedCost,
   };
   const slashResult = await resolveSlash(rawContent, slashContext);

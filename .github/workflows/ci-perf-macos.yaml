@@ -15,19 +15,23 @@ jobs:
     timeout-minutes: 20
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Select Xcode 26.2
         run: sudo xcode-select -s /Applications/Xcode_26.2.app/Contents/Developer
+
+      - name: Compute cache week
+        id: week
+        run: echo "num=$(date -u +%V)" >> "$GITHUB_OUTPUT"
 
       - name: Cache SPM build artifacts
         uses: actions/cache@v4
         with:
           path: clients/.build
-          key: macos-spm-${{ hashFiles('clients/Package.resolved') }}-${{ hashFiles('clients/**/*.swift') }}
+          key: macos-spm-debug-week${{ steps.week.outputs.num }}-${{ hashFiles('clients/Package.resolved') }}
           restore-keys: |
-            macos-spm-${{ hashFiles('clients/Package.resolved') }}-
-            macos-spm-
+            macos-spm-debug-week${{ steps.week.outputs.num }}-
+            macos-spm-debug-
 
       - name: Download previous baseline artifact
         env:

@@ -273,8 +273,8 @@ mock.module("../calls/call-store.js", () => ({
 }));
 
 mock.module("../daemon/watch-handler.js", () => ({
-  lastCommentaryBySession: new Map(),
-  lastSummaryBySession: new Map(),
+  lastCommentaryByConversation: new Map(),
+  lastSummaryByConversation: new Map(),
 }));
 
 mock.module("../tools/browser/browser-screencast.js", () => ({

@@ -48,16 +48,14 @@ struct IdentityPanel: View {
                 if !isFullscreen {
                     VStack(spacing: 0) {
                         VStack(spacing: 0) {
-                            // Daemon-generated intro heading (nil = loading, shows nothing)
-                            if let introText {
-                                Text(introText)
-                                    .font(.system(size: 22, weight: .regular, design: .rounded))
-                                    .foregroundColor(VColor.contentDefault)
-                                    .multilineTextAlignment(.center)
-                                    .frame(maxWidth: .infinity, alignment: .center)
-                                    .padding(.top, VSpacing.xxl)
-                                    .padding(.horizontal, VSpacing.lg)
-                            }
+                            // Intro heading — show daemon-generated text, fall back to static name
+                            Text(introText ?? "I'm \(assistantDisplayName)!")
+                                .font(.system(size: 22, weight: .regular, design: .rounded))
+                                .foregroundColor(VColor.contentDefault)
+                                .multilineTextAlignment(.center)
+                                .frame(maxWidth: .infinity, alignment: .center)
+                                .padding(.top, VSpacing.xxl)
+                                .padding(.horizontal, VSpacing.lg)
 
                             Spacer()
 

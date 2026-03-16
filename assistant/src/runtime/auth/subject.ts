@@ -2,7 +2,7 @@
  * Sub (subject) pattern parser for JWT tokens.
  *
  * The sub claim encodes principal type, assistant scope, and optional
- * actor/session identifiers in a colon-delimited string.
+ * actor/conversation identifiers in a colon-delimited string.
  */
 
 import type { PrincipalType } from "./types.js";

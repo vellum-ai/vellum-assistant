@@ -19,7 +19,7 @@
           },
           "cwd": {
             "type": "string",
-            "description": "Working directory for the agent. This determines where the agent runs and where its session is stored. Set this to the project/repo root the user wants the agent to work in. Defaults to current session's working directory."
+            "description": "Working directory for the agent. This determines where the agent runs and where its session is stored. Set this to the project/repo root the user wants the agent to work in. Defaults to current conversation's working directory."
           },
           "reason": {
             "type": "string",

@@ -184,6 +184,10 @@ public final class SettingsStore: ObservableObject {
     /// Values: `"user-key"`, `"managed-proxy"`, or absent.
     @Published var providerRoutingSources: [String: String] = [:]
 
+    /// Current inference mode from the daemon debug endpoint.
+    /// Values: `"managed"` or `"your-own"`.
+    @Published var inferenceMode: String = "your-own"
+
     // MARK: - Platform Config State
 
     @Published var platformBaseUrl: String = ""
@@ -260,7 +264,7 @@ public final class SettingsStore: ObservableObject {
     private var routingSourceRefreshTask: Task<Void, Never>?
 
     /// Last model reported by the daemon — used to skip redundant model_set calls
-    /// that would otherwise reinitialize providers and evict idle sessions.
+    /// that would otherwise reinitialize providers and evict idle conversations.
     private var lastDaemonModel: String?
     private var pendingVerificationSessionChannel: String?
     private var verificationSessionTimeoutWorkItem: DispatchWorkItem?
@@ -385,8 +389,8 @@ public final class SettingsStore: ObservableObject {
             }
             .store(in: &cancellables)
 
-        // maxStepsPerSession is read at session startup, so it must be persisted synchronously
-        // to avoid a race where a new session reads a stale value before the debounced write fires.
+        // maxStepsPerSession is read at conversation startup, so it must be persisted synchronously
+        // to avoid a race where a new conversation reads a stale value before the debounced write fires.
         $maxSteps
             .dropFirst()
             .sink { value in UserDefaults.standard.set(value, forKey: "maxStepsPerSession") }
@@ -1830,10 +1834,29 @@ public final class SettingsStore: ObservableObject {
                       let provider = json["provider"] as? [String: Any],
                       let sources = provider["routingSources"] as? [String: String] else { return }
                 self.providerRoutingSources = sources
+                if let mode = provider["inferenceMode"] as? String {
+                    self.inferenceMode = mode
+                }
             } catch {
                 log.error("Failed to load provider routing sources: \(error)")
             }
         }
+    }
+
+    func setInferenceMode(_ mode: String) {
+        inferenceMode = mode
+        guard !isCurrentAssistantRemote else { return }
+        let existingConfig = WorkspaceConfigIO.read(from: configPath)
+        var services = existingConfig["services"] as? [String: Any] ?? [:]
+        var inference = services["inference"] as? [String: Any] ?? [:]
+        inference["mode"] = mode
+        services["inference"] = inference
+        do {
+            try WorkspaceConfigIO.merge(["services": services], into: configPath)
+        } catch {
+            log.error("Failed to merge workspace config for inference mode: \(error)")
+        }
+        scheduleRoutingSourceRefresh()
     }
 
     /// Schedules a delayed refresh of provider routing sources, giving the

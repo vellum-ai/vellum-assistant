@@ -1411,7 +1411,7 @@ public final class ChatViewModel: ObservableObject {
                 self.lastFailedMessageDisplayText = self.pendingUserMessageDisplayText
                 self.lastFailedMessageAttachments = self.pendingUserAttachments
                 self.lastFailedMessageAutomated = self.pendingUserMessageAutomated
-                self.lastFailedSendError = "Failed to create session."
+                self.lastFailedSendError = "Failed to create conversation."
                 self.pendingUserMessage = nil
                 self.pendingUserMessageDisplayText = nil
                 self.pendingUserAttachments = nil
@@ -2100,7 +2100,7 @@ public final class ChatViewModel: ObservableObject {
         var details = """
         Error: \(error.message)
         Category: \(error.category)
-        Session: \(error.conversationId)
+        Conversation: \(error.conversationId)
         Retryable: \(error.isRetryable)
         """
         if let debugDetails = error.debugDetails {
@@ -2376,7 +2376,7 @@ public final class ChatViewModel: ObservableObject {
     public func respondToAlwaysAllow(requestId: String, selectedPattern: String, selectedScope: String, decision: String = "always_allow") {
         guard daemonClient.isConnected else {
             log.warning("Cannot persist always-allow: daemon not connected")
-            errorText = "Cannot send confirmation — daemon is not connected."
+            errorText = "Cannot send confirmation — assistant is not connected."
             return
         }
         do {

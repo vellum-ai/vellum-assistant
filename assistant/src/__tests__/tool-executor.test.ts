@@ -1535,9 +1535,9 @@ describe("ToolExecutor forcePromptSideEffects enforcement", () => {
 
   // ── USER.md security invariant (PR 31) ──────────
 
-  test("file_edit to USER.md forces prompt in private thread even with matching trust rule", async () => {
+  test("file_edit to USER.md forces prompt in private conversation even with matching trust rule", async () => {
     // This is a key security invariant: USER.md contains the user's persistent
-    // memory. In a private thread (forcePromptSideEffects=true), edits to it
+    // memory. In a private conversation (forcePromptSideEffects=true), edits to it
     // must always require explicit approval, even when a trust rule matches.
     checkResultOverride = {
       decision: "allow",
@@ -1560,7 +1560,7 @@ describe("ToolExecutor forcePromptSideEffects enforcement", () => {
     expect(promptCalled).toBe(true);
   });
 
-  test("host_file_edit to USER.md forces prompt in private thread", async () => {
+  test("host_file_edit to USER.md forces prompt in private conversation", async () => {
     checkResultOverride = { decision: "allow", reason: "Matched trust rule" };
 
     const executor = new ToolExecutor(makeTrackingPrompter());
@@ -1580,7 +1580,7 @@ describe("ToolExecutor forcePromptSideEffects enforcement", () => {
 
   // ── Browser action tools as side-effect tools (PR fix2) ──────────
 
-  test("browser_click forces prompt in private thread", async () => {
+  test("browser_click forces prompt in private conversation", async () => {
     checkResultOverride = { decision: "allow", reason: "Matched trust rule" };
 
     const executor = new ToolExecutor(makeTrackingPrompter());
@@ -1594,7 +1594,7 @@ describe("ToolExecutor forcePromptSideEffects enforcement", () => {
     expect(promptCalled).toBe(true);
   });
 
-  test("browser_type forces prompt in private thread", async () => {
+  test("browser_type forces prompt in private conversation", async () => {
     checkResultOverride = { decision: "allow", reason: "Matched trust rule" };
 
     const executor = new ToolExecutor(makeTrackingPrompter());
@@ -1608,7 +1608,7 @@ describe("ToolExecutor forcePromptSideEffects enforcement", () => {
     expect(promptCalled).toBe(true);
   });
 
-  test("browser_snapshot does NOT force prompt in private thread", async () => {
+  test("browser_snapshot does NOT force prompt in private conversation", async () => {
     checkResultOverride = { decision: "allow", reason: "Matched trust rule" };
 
     const executor = new ToolExecutor(makeTrackingPrompter());
@@ -1625,7 +1625,7 @@ describe("ToolExecutor forcePromptSideEffects enforcement", () => {
 
   // ── Always-mutating document tools (PR fix5) ──────────
 
-  test("document_create forces prompt in private thread", async () => {
+  test("document_create forces prompt in private conversation", async () => {
     checkResultOverride = { decision: "allow", reason: "Matched trust rule" };
 
     const executor = new ToolExecutor(makeTrackingPrompter());
@@ -1639,7 +1639,7 @@ describe("ToolExecutor forcePromptSideEffects enforcement", () => {
     expect(promptCalled).toBe(true);
   });
 
-  test("document_update forces prompt in private thread", async () => {
+  test("document_update forces prompt in private conversation", async () => {
     checkResultOverride = { decision: "allow", reason: "Matched trust rule" };
 
     const executor = new ToolExecutor(makeTrackingPrompter());
@@ -1655,7 +1655,7 @@ describe("ToolExecutor forcePromptSideEffects enforcement", () => {
 
   // ── Always-mutating schedule tools (PR fix7) ──────────
 
-  test("schedule_create forces prompt in private thread", async () => {
+  test("schedule_create forces prompt in private conversation", async () => {
     checkResultOverride = { decision: "allow", reason: "Matched trust rule" };
 
     const executor = new ToolExecutor(makeTrackingPrompter());
@@ -1669,7 +1669,7 @@ describe("ToolExecutor forcePromptSideEffects enforcement", () => {
     expect(promptCalled).toBe(true);
   });
 
-  test("schedule_update forces prompt in private thread", async () => {
+  test("schedule_update forces prompt in private conversation", async () => {
     checkResultOverride = { decision: "allow", reason: "Matched trust rule" };
 
     const executor = new ToolExecutor(makeTrackingPrompter());
@@ -1683,7 +1683,7 @@ describe("ToolExecutor forcePromptSideEffects enforcement", () => {
     expect(promptCalled).toBe(true);
   });
 
-  test("schedule_delete forces prompt in private thread", async () => {
+  test("schedule_delete forces prompt in private conversation", async () => {
     checkResultOverride = { decision: "allow", reason: "Matched trust rule" };
 
     const executor = new ToolExecutor(makeTrackingPrompter());
@@ -1699,7 +1699,7 @@ describe("ToolExecutor forcePromptSideEffects enforcement", () => {
 
   // ── Credential store action-aware (PR fix9) ──────────
 
-  test("credential_store store forces prompt in private thread", async () => {
+  test("credential_store store forces prompt in private conversation", async () => {
     checkResultOverride = { decision: "allow", reason: "Matched trust rule" };
 
     const executor = new ToolExecutor(makeTrackingPrompter());
@@ -1713,7 +1713,7 @@ describe("ToolExecutor forcePromptSideEffects enforcement", () => {
     expect(promptCalled).toBe(true);
   });
 
-  test("credential_store delete forces prompt in private thread", async () => {
+  test("credential_store delete forces prompt in private conversation", async () => {
     checkResultOverride = { decision: "allow", reason: "Matched trust rule" };
 
     const executor = new ToolExecutor(makeTrackingPrompter());
@@ -1727,7 +1727,7 @@ describe("ToolExecutor forcePromptSideEffects enforcement", () => {
     expect(promptCalled).toBe(true);
   });
 
-  test("credential_store oauth2_connect forces prompt in private thread", async () => {
+  test("credential_store oauth2_connect forces prompt in private conversation", async () => {
     checkResultOverride = { decision: "allow", reason: "Matched trust rule" };
 
     const executor = new ToolExecutor(makeTrackingPrompter());
@@ -1741,7 +1741,7 @@ describe("ToolExecutor forcePromptSideEffects enforcement", () => {
     expect(promptCalled).toBe(true);
   });
 
-  test("credential_store list does NOT force prompt in private thread", async () => {
+  test("credential_store list does NOT force prompt in private conversation", async () => {
     checkResultOverride = { decision: "allow", reason: "Matched trust rule" };
 
     const executor = new ToolExecutor(makeTrackingPrompter());
@@ -1758,7 +1758,7 @@ describe("ToolExecutor forcePromptSideEffects enforcement", () => {
 
   // ── Workspace mode + forcePromptSideEffects interaction ──────────
 
-  test("workspace mode allow → prompt promotion still works for side-effect tools in private threads", async () => {
+  test("workspace mode allow → prompt promotion still works for side-effect tools in private conversations", async () => {
     // Simulate workspace mode returning 'allow' for a workspace-scoped file_write
     checkResultOverride = {
       decision: "allow",
@@ -1778,7 +1778,7 @@ describe("ToolExecutor forcePromptSideEffects enforcement", () => {
     expect(promptCalled).toBe(true);
   });
 
-  test("schedule_create forces prompt in private thread", async () => {
+  test("schedule_create forces prompt in private conversation", async () => {
     checkResultOverride = { decision: "allow", reason: "Matched trust rule" };
 
     const executor = new ToolExecutor(makeTrackingPrompter());
@@ -1796,7 +1796,7 @@ describe("ToolExecutor forcePromptSideEffects enforcement", () => {
     expect(promptCalled).toBe(true);
   });
 
-  test("schedule_list does NOT force prompt in private thread", async () => {
+  test("schedule_list does NOT force prompt in private conversation", async () => {
     checkResultOverride = { decision: "allow", reason: "Matched trust rule" };
 
     const executor = new ToolExecutor(makeTrackingPrompter());
@@ -1967,7 +1967,7 @@ describe("ToolExecutor persistentDecisionsAllowed contract", () => {
         _scopeOptions: ScopeOption[],
         _diff: unknown,
         _sandboxed: unknown,
-        _sessionId: unknown,
+        _conversationId: unknown,
         _executionTarget: unknown,
         persistentDecisionsAllowed: boolean | undefined,
       ) => {
