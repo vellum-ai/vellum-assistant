@@ -1145,18 +1145,24 @@ private struct MessageCellView: View, Equatable {
         lhs.message.id == rhs.message.id
             && lhs.message.text.count == rhs.message.text.count
             && lhs.message.isStreaming == rhs.message.isStreaming
-            && lhs.message.toolCalls.count == rhs.message.toolCalls.count
+            && lhs.message.toolCalls == rhs.message.toolCalls
             && lhs.message.status == rhs.message.status
+            && lhs.message.confirmation == rhs.message.confirmation
+            && lhs.message.guardianDecision == rhs.message.guardianDecision
+            && lhs.message.inlineSurfaces.count == rhs.message.inlineSurfaces.count
             && lhs.index == rhs.index
             && lhs.showTimestamp == rhs.showTimestamp
             && lhs.activePendingRequestId == rhs.activePendingRequestId
             && lhs.latestAssistantId == rhs.latestAssistantId
+            && lhs.anchoredThinkingIndex == rhs.anchoredThinkingIndex
+            && lhs.subagentsByParent[lhs.message.id]?.count == rhs.subagentsByParent[rhs.message.id]?.count
             && lhs.canInlineProcessing == rhs.canInlineProcessing
             && lhs.shouldShowThinkingIndicator == rhs.shouldShowThinkingIndicator
             && lhs.assistantStatusText == rhs.assistantStatusText
             && lhs.dismissedDocumentSurfaceIds == rhs.dismissedDocumentSurfaceIds
             && lhs.activeSurfaceId == rhs.activeSurfaceId
             && lhs.selectedModel == rhs.selectedModel
+            && lhs.configuredProviders == rhs.configuredProviders
     }
 
     let message: ChatMessage
