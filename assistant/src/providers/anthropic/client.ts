@@ -714,13 +714,17 @@ export class AnthropicProvider implements Provider {
         }
       }
 
-      // Place cache breakpoints on the last two user turns so the
-      // conversation prefix is cached between agent-loop iterations.
+      // Place a cache breakpoint on the last user turn so the conversation
+      // prefix is cached between agent-loop iterations.
+      //
+      // NOTE: We use only 1 user-turn breakpoint (not 2) to stay within
+      // the Anthropic API limit of 4 cache_control blocks total:
+      //   system-static (1) + system-dynamic (2) + last-tool (3) + last-user (4)
       const userIndices: number[] = [];
       for (let i = 0; i < params.messages.length; i++) {
         if (params.messages[i].role === "user") userIndices.push(i);
       }
-      for (const idx of userIndices.slice(-2)) {
+      for (const idx of userIndices.slice(-1)) {
         const content = params.messages[idx].content;
         if (Array.isArray(content) && content.length > 0) {
           (
