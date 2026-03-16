@@ -50,7 +50,7 @@ function buildSubagentSystemPrompt(config: SubagentConfig): string {
 // ── Manager ─────────────────────────────────────────────────────────────
 
 interface ManagedSubagent {
-  session: Conversation;
+  conversation: Conversation;
   state: SubagentState;
   /** Mutable reference to the parent's current sendToClient. Updated on reconnect. */
   parentSendToClient: (msg: ServerMessage) => void;
@@ -121,13 +121,13 @@ export class SubagentManager {
 
     // ── Create conversation ─────────────────────────────────────────
     const subagentId = uuid();
-    const conversation = bootstrapConversation({
+    const conversationRecord = bootstrapConversation({
       conversationType: "background",
       origin: "subagent",
       systemHint: `Subagent: ${config.label}`,
     });
 
-    // ── Build session dependencies ──────────────────────────────────
+    // ── Build conversation dependencies ─────────────────────────────
     const appConfig = getConfig();
     let provider = getFailoverProvider(
       appConfig.provider,
@@ -162,7 +162,7 @@ export class SubagentManager {
     const state: SubagentState = {
       config: { ...config, id: subagentId },
       status: "pending",
-      conversationId: conversation.id,
+      conversationId: conversationRecord.id,
       createdAt: now,
       usage: { inputTokens: 0, outputTokens: 0, estimatedCost: 0 },
     };
@@ -172,7 +172,7 @@ export class SubagentManager {
     const managed: ManagedSubagent = {
       // Placeholder — replaced with the real Conversation a few lines below, before
       // any code reads this field. Using null! avoids the `as unknown as` cast.
-      session: null! as Conversation,
+      conversation: null! as Conversation,
       state,
       parentSendToClient,
     };
@@ -187,8 +187,8 @@ export class SubagentManager {
       } as ServerMessage);
     };
 
-    const session = new Conversation(
-      conversation.id,
+    const conversation = new Conversation(
+      conversationRecord.id,
       provider,
       systemPrompt,
       maxTokens,
@@ -198,11 +198,11 @@ export class SubagentManager {
       memoryPolicy,
     );
 
-    // Mark session as having no direct client — it routes through parent.
+    // Mark conversation as having no direct client — it routes through parent.
     // This ensures interactive prompts (host attachment reads) fail fast.
-    session.updateClient(wrappedSendToClient, true);
+    conversation.updateClient(wrappedSendToClient, true);
 
-    managed.session = session;
+    managed.conversation = conversation;
     this.subagents.set(subagentId, managed);
 
     // Track parent → child relationship.
@@ -252,16 +252,19 @@ export class SubagentManager {
     this.setStatus(subagentId, "running", getSender());
     managed.state.startedAt = Date.now();
 
-    const onEvent = managed.session.sendToClient;
+    const onEvent = managed.conversation.sendToClient;
 
     try {
       // Send the objective as the first user message and process it.
-      const messageId = await managed.session.persistUserMessage(objective, []);
-      await managed.session.runAgentLoop(objective, messageId, onEvent);
+      const messageId = await managed.conversation.persistUserMessage(
+        objective,
+        [],
+      );
+      await managed.conversation.runAgentLoop(objective, messageId, onEvent);
 
       // Agent loop completed successfully.
       // Copy usage stats from the session before sending status (which includes usage).
-      managed.state.usage = { ...managed.session.usageStats };
+      managed.state.usage = { ...managed.conversation.usageStats };
       // Only update state + notify if still non-terminal (guards against abort race).
       if (!TERMINAL_STATUSES.has(managed.state.status)) {
         managed.state.completedAt = Date.now();
@@ -276,7 +279,7 @@ export class SubagentManager {
       const errorMsg = err instanceof Error ? err.message : String(err);
       managed.state.error = errorMsg;
       managed.state.completedAt = Date.now();
-      managed.state.usage = { ...managed.session.usageStats };
+      managed.state.usage = { ...managed.conversation.usageStats };
 
       // Only update status if not already terminal (e.g. aborted).
       if (!TERMINAL_STATUSES.has(managed.state.status)) {
@@ -315,7 +318,7 @@ export class SubagentManager {
       return false;
     }
 
-    managed.session.abort();
+    managed.conversation.abort();
     managed.state.completedAt = Date.now();
     if (parentSendToClient) {
       // Route the status update through the stored parent sender so the
@@ -398,11 +401,11 @@ export class SubagentManager {
     if (!managed) return "not_found";
     if (TERMINAL_STATUSES.has(managed.state.status)) return "terminal";
 
-    const onEvent = managed.session.sendToClient;
+    const onEvent = managed.conversation.sendToClient;
     const requestId = uuid();
 
     // If the session is busy, queue the message; otherwise process immediately.
-    const result = managed.session.enqueueMessage(
+    const result = managed.conversation.enqueueMessage(
       trimmed,
       [],
       onEvent,
@@ -413,10 +416,15 @@ export class SubagentManager {
     }
     if (!result.queued) {
       // Conversation is idle — send directly.  Fire-and-forget so we don't block.
-      const messageId = await managed.session.persistUserMessage(trimmed, []);
-      managed.session.runAgentLoop(trimmed, messageId, onEvent).catch((err) => {
-        log.error({ subagentId, err }, "Subagent message processing failed");
-      });
+      const messageId = await managed.conversation.persistUserMessage(
+        trimmed,
+        [],
+      );
+      managed.conversation
+        .runAgentLoop(trimmed, messageId, onEvent)
+        .catch((err) => {
+          log.error({ subagentId, err }, "Subagent message processing failed");
+        });
     }
     return "sent";
   }
@@ -473,9 +481,9 @@ export class SubagentManager {
     if (!managed) return;
 
     if (!TERMINAL_STATUSES.has(managed.state.status)) {
-      managed.session.abort();
+      managed.conversation.abort();
     }
-    managed.session.dispose();
+    managed.conversation.dispose();
     this.subagents.delete(subagentId);
 
     // Remove from parent tracking.
