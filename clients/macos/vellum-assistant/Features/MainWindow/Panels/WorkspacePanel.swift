@@ -811,12 +811,12 @@ private struct WorkspaceFileViewer: View {
     }
 
     private func previewView(_ detail: WorkspaceFileResponse) -> some View {
-        MarkdownPreviewView(content: detail.content ?? "")
+        MarkdownPreviewView(content: state.editableContent)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     private func treeView(_ detail: WorkspaceFileResponse) -> some View {
-        JSONTreeView(content: detail.content ?? "")
+        JSONTreeView(content: state.editableContent)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
