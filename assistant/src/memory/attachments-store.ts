@@ -300,6 +300,27 @@ export function getFilePathForAttachment(attachmentId: string): string | null {
 }
 
 /**
+ * Batch-fetch file_path values for multiple attachment IDs in a single query.
+ * Returns a Set of attachment IDs that are file-backed (have a non-null file_path).
+ * Uses raw SQL since file_path is added via runtime migration and is not in the Drizzle schema.
+ */
+export function getFileBackedAttachmentIds(
+  attachmentIds: string[],
+): Set<string> {
+  if (attachmentIds.length === 0) return new Set();
+  if (!filePathColumnEnsured) {
+    ensureFilePathColumn();
+    filePathColumnEnsured = true;
+  }
+  const placeholders = attachmentIds.map(() => "?").join(", ");
+  const rows = rawAll<{ id: string }>(
+    `SELECT id FROM attachments WHERE id IN (${placeholders}) AND file_path IS NOT NULL`,
+    ...attachmentIds,
+  );
+  return new Set(rows.map((r) => r.id));
+}
+
+/**
  * Return the raw binary content for an attachment, abstracting over inline
  * (base64-in-DB) vs file-backed (on-disk) storage.
  *

@@ -318,80 +318,44 @@ export function handleListMessages(
   const messages: RuntimeMessagePayload[] = parsed.map((m) => {
     let msgAttachments: RuntimeAttachmentMetadata[] = [];
     if (m.id) {
-      if (m.role === "user") {
-        // Use metadata-only query first to avoid loading large base64
-        // blobs for non-image attachments (documents, audio). Then
-        // selectively fetch full data only for images so the client can
-        // generate thumbnails for inline display on history restore.
-        const linked = attachmentsStore.getAttachmentMetadataForMessage(m.id);
-        if (linked.length > 0) {
-          msgAttachments = linked.map((a) => {
-            const isFileBacked = !!attachmentsStore.getFilePathForAttachment(
-              a.id,
-            );
-            if (a.mimeType.startsWith("image/")) {
-              const full = attachmentsStore.getAttachmentById(a.id);
-              return {
-                id: a.id,
-                filename: a.originalFilename,
-                mimeType: a.mimeType,
-                sizeBytes: a.sizeBytes,
-                kind: a.kind,
-                ...(full?.dataBase64 ? { data: full.dataBase64 } : {}),
-                ...(a.thumbnailBase64
-                  ? { thumbnailData: a.thumbnailBase64 }
-                  : {}),
-                ...(isFileBacked ? { fileBacked: true } : {}),
-              };
-            }
+      // Use metadata-only query first to avoid loading large base64
+      // blobs for non-image attachments (documents, audio). Then
+      // selectively fetch full data only for images so the client can
+      // generate thumbnails for inline display on history restore.
+      const linked = attachmentsStore.getAttachmentMetadataForMessage(m.id);
+      if (linked.length > 0) {
+        // Batch-fetch file-backed status for all attachments in one query
+        // instead of issuing a separate query per attachment.
+        const fileBackedIds = attachmentsStore.getFileBackedAttachmentIds(
+          linked.map((a) => a.id),
+        );
+        msgAttachments = linked.map((a) => {
+          const isFileBacked = fileBackedIds.has(a.id);
+          if (a.mimeType.startsWith("image/")) {
+            const full = attachmentsStore.getAttachmentById(a.id);
             return {
               id: a.id,
               filename: a.originalFilename,
               mimeType: a.mimeType,
               sizeBytes: a.sizeBytes,
               kind: a.kind,
+              ...(full?.dataBase64 ? { data: full.dataBase64 } : {}),
               ...(a.thumbnailBase64
                 ? { thumbnailData: a.thumbnailBase64 }
                 : {}),
               ...(isFileBacked ? { fileBacked: true } : {}),
             };
-          });
-        }
-      } else {
-        const linked = attachmentsStore.getAttachmentMetadataForMessage(m.id);
-        if (linked.length > 0) {
-          msgAttachments = linked.map((a) => {
-            const isFileBacked = !!attachmentsStore.getFilePathForAttachment(
-              a.id,
-            );
-            if (a.mimeType.startsWith("image/")) {
-              const full = attachmentsStore.getAttachmentById(a.id);
-              return {
-                id: a.id,
-                filename: a.originalFilename,
-                mimeType: a.mimeType,
-                sizeBytes: a.sizeBytes,
-                kind: a.kind,
-                ...(full?.dataBase64 ? { data: full.dataBase64 } : {}),
-                ...(a.thumbnailBase64
-                  ? { thumbnailData: a.thumbnailBase64 }
-                  : {}),
-                ...(isFileBacked ? { fileBacked: true } : {}),
-              };
-            }
-            return {
-              id: a.id,
-              filename: a.originalFilename,
-              mimeType: a.mimeType,
-              sizeBytes: a.sizeBytes,
-              kind: a.kind,
-              ...(a.thumbnailBase64
-                ? { thumbnailData: a.thumbnailBase64 }
-                : {}),
-              ...(isFileBacked ? { fileBacked: true } : {}),
-            };
-          });
-        }
+          }
+          return {
+            id: a.id,
+            filename: a.originalFilename,
+            mimeType: a.mimeType,
+            sizeBytes: a.sizeBytes,
+            kind: a.kind,
+            ...(a.thumbnailBase64 ? { thumbnailData: a.thumbnailBase64 } : {}),
+            ...(isFileBacked ? { fileBacked: true } : {}),
+          };
+        });
       }
     }
 
