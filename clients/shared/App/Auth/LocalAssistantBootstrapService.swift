@@ -102,42 +102,62 @@ public final class LocalAssistantBootstrapService {
         }
 
         // Step 1: Ensure registration (idempotent)
-        let registration: EnsureSelfHostedLocalRegistrationResponse
+        let platformAssistantId: String
         do {
-            registration = try await authService.ensureSelfHostedLocalRegistration(
+            let registration = try await authService.ensureSelfHostedLocalRegistration(
                 organizationId: organizationId,
                 clientInstallationId: installId,
                 runtimeAssistantId: runtimeAssistantId,
                 clientPlatform: clientPlatform
             )
-        } catch let error as PlatformAPIError {
-            throw mapPlatformError(error, context: .registration)
-        } catch {
-            throw LocalBootstrapError.registrationFailed(error.localizedDescription)
-        }
+            platformAssistantId = registration.assistant.id
+            log.info("Registered local assistant: \(platformAssistantId, privacy: .public)")
 
-        let platformAssistantId = registration.assistant.id
-        log.info("Registered local assistant: \(platformAssistantId, privacy: .public)")
-
-        // Persist the platform assistant ID mapping so other services can resolve it.
-        if let storage = credentialStorage {
-            let userId = try? await resolveUserId()
-            if let uid = userId {
-                let persisted = PlatformAssistantIdResolver.persist(
-                    platformAssistantId: platformAssistantId,
-                    runtimeAssistantId: runtimeAssistantId,
-                    organizationId: organizationId,
-                    userId: uid,
-                    credentialStorage: storage
-                )
-                if persisted {
-                    log.info("Persisted platform assistant ID mapping for runtime assistant: \(runtimeAssistantId, privacy: .public)")
+            // Persist the platform assistant ID mapping so other services can resolve it.
+            if let storage = credentialStorage {
+                let userId = try? await resolveUserId()
+                if let uid = userId {
+                    let persisted = PlatformAssistantIdResolver.persist(
+                        platformAssistantId: platformAssistantId,
+                        runtimeAssistantId: runtimeAssistantId,
+                        organizationId: organizationId,
+                        userId: uid,
+                        credentialStorage: storage
+                    )
+                    if persisted {
+                        log.info("Persisted platform assistant ID mapping for runtime assistant: \(runtimeAssistantId, privacy: .public)")
+                    } else {
+                        log.warning("Failed to persist platform assistant ID mapping for runtime assistant: \(runtimeAssistantId, privacy: .public)")
+                    }
                 } else {
-                    log.warning("Failed to persist platform assistant ID mapping for runtime assistant: \(runtimeAssistantId, privacy: .public)")
+                    log.warning("Could not resolve user ID — platform assistant ID mapping not persisted")
+                }
+            }
+        } catch let error as PlatformAPIError {
+            if case .serverError(let statusCode, _) = error, statusCode == 409 {
+                // Assistant already registered with an active key — resolve platform ID from cache.
+                // This happens during logout → re-login: the local key cache is cleared but the
+                // platform retains the active API key, so ensure-registration returns 409.
+                if let storage = credentialStorage,
+                   let orgId = UserDefaults.standard.string(forKey: "connectedOrganizationId"),
+                   let uid = try? await resolveUserId(),
+                   let cachedPlatformId = PlatformAssistantIdResolver.resolve(
+                       lockfileAssistantId: runtimeAssistantId,
+                       isManaged: false,
+                       organizationId: orgId,
+                       userId: uid,
+                       credentialStorage: storage
+                   ) {
+                    platformAssistantId = cachedPlatformId
+                    log.info("Registration returned 409 — using cached platform assistant ID: \(cachedPlatformId, privacy: .public)")
+                } else {
+                    throw LocalBootstrapError.registrationFailed("Assistant already registered but no cached platform ID available")
                 }
             } else {
-                log.warning("Could not resolve user ID — platform assistant ID mapping not persisted")
+                throw mapPlatformError(error, context: .registration)
             }
+        } catch {
+            throw LocalBootstrapError.registrationFailed(error.localizedDescription)
         }
 
         let credentialAccount = Self.credentialAccount(for: runtimeAssistantId)
