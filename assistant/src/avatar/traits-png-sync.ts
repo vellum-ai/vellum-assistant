@@ -16,7 +16,7 @@ export interface CharacterTraits {
 }
 
 export type TraitsSyncResult =
-  | { ok: true }
+  | { ok: true; asciiWritten: boolean }
   | {
       ok: false;
       reason: "invalid_traits" | "render_error";
@@ -26,11 +26,13 @@ export type TraitsSyncResult =
 /**
  * Renders avatar-image.png and character-ascii.txt from the given traits,
  * writing each file atomically.  Does NOT touch character-traits.json.
+ *
+ * Returns `true` if the ASCII sidecar was also written successfully.
  */
 function renderAndWriteAvatarFiles(
   traits: CharacterTraits,
   avatarDir: string,
-): void {
+): boolean {
   const pngPath = join(avatarDir, "avatar-image.png");
 
   // Render PNG first — this validates trait IDs (composeSvg throws on
@@ -56,11 +58,13 @@ function renderAndWriteAvatarFiles(
     const asciiTmp = `${asciiPath}.${randomUUID()}.tmp`;
     writeFileSync(asciiTmp, asciiArt);
     renameSync(asciiTmp, asciiPath);
+    return true;
   } catch (asciiErr) {
     log.warn(
       { err: asciiErr },
       "Failed to write ASCII sidecar — primary files still written",
     );
+    return false;
   }
 }
 
@@ -98,7 +102,7 @@ export function writeTraitsAndRenderAvatar(
 
     // Render avatar files first — validates trait IDs before committing
     // the traits file, so we never leave traits and PNG out of sync.
-    renderAndWriteAvatarFiles(traits, avatarDir);
+    const asciiWritten = renderAndWriteAvatarFiles(traits, avatarDir);
 
     // Write traits file atomically (after successful render)
     const traitsJson = JSON.stringify(traits, null, 2);
@@ -112,9 +116,11 @@ export function writeTraitsAndRenderAvatar(
         eyeStyle: traits.eyeStyle,
         color: traits.color,
       },
-      "Wrote character traits, regenerated avatar PNG, and updated ASCII art",
+      asciiWritten
+        ? "Wrote character traits, regenerated avatar PNG, and updated ASCII art"
+        : "Wrote character traits and regenerated avatar PNG",
     );
-    return { ok: true };
+    return { ok: true, asciiWritten };
   } catch (err) {
     log.error({ err }, "Failed to write traits / render avatar");
     return {
