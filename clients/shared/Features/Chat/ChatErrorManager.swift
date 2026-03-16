@@ -21,7 +21,7 @@ public final class ChatErrorManager: ObservableObject {
     /// Human-readable error string shown in the error banner.
     @Published public var errorText: String?
 
-    /// Typed session error, richer than `errorText` and used for structured retry UI.
+    /// Typed conversation error, richer than `errorText` and used for structured retry UI.
     @Published public var conversationError: ConversationError?
 
     /// Supplemental diagnostic hint shown alongside a daemon connection error.

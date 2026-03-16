@@ -1899,7 +1899,7 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
         let errMgr = viewModel.errorManager
 
         // Combine busy-state publishers with error and message publishers.
-        // Error state: errorText or sessionError non-nil.
+        // Error state: errorText or conversationError non-nil.
         // WaitingForInput: hasPendingConfirmation (derived from messages).
         // Processing: isSending || isThinking || pendingQueuedCount > 0.
         Publishers.CombineLatest4(

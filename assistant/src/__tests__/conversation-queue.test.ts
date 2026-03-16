@@ -578,7 +578,7 @@ describe("Conversation message queue", () => {
       conversationId: "conv-1",
     });
 
-    // abort() must NOT emit session_error or generic error for queued discards.
+    // abort() must NOT emit conversation_error or generic error for queued discards.
     const err2 = events2.find((e) => e.type === "error");
     expect(err2).toBeUndefined();
     const err3 = events3.find((e) => e.type === "error");
@@ -591,7 +591,7 @@ describe("Conversation message queue", () => {
     expect(sessionErr3).toBeUndefined();
   });
 
-  test("session-scoped errors emit both session_error and generic error", async () => {
+  test("conversation-scoped errors emit both conversation_error and generic error", async () => {
     const session = makeSession();
     await session.loadFromDb();
 
@@ -611,7 +611,7 @@ describe("Conversation message queue", () => {
     pendingRuns[0].reject(new Error("Provider returned 500"));
     await p1;
 
-    // Should emit session_error (typed, structured)
+    // Should emit conversation_error (typed, structured)
     const sessionErr = events.find((e) => e.type === "conversation_error");
     expect(sessionErr).toBeDefined();
 
@@ -1563,7 +1563,7 @@ describe("Regression: cancel semantics and error channel split", () => {
     pendingRuns = [];
   });
 
-  test("user cancellation emits generation_cancelled, never session_error", async () => {
+  test("user cancellation emits generation_cancelled, never conversation_error", async () => {
     const msgEvents: ServerMessage[] = [];
     const session = makeSession();
     await session.loadFromDb();
@@ -1590,7 +1590,7 @@ describe("Regression: cancel semantics and error channel split", () => {
     );
     expect(cancelEvent).toBeDefined();
 
-    // session_error must never appear on cancel
+    // conversation_error must never appear on cancel
     const sessionErr = msgEvents.find((e) => e.type === "conversation_error");
     expect(sessionErr).toBeUndefined();
   });
@@ -1646,7 +1646,7 @@ describe("Regression: cancel semantics and error channel split", () => {
     expect(err).toBeDefined();
   });
 
-  test("provider failure during processing emits both session_error and generic error", async () => {
+  test("provider failure during processing emits both conversation_error and generic error", async () => {
     const allEvents: ServerMessage[] = [];
     const session = makeSession();
     await session.loadFromDb();
@@ -1663,7 +1663,7 @@ describe("Regression: cancel semantics and error channel split", () => {
     pendingRuns[0].reject(new Error("Connection refused"));
     await p1;
 
-    // Should get session_error (structured)
+    // Should get conversation_error (structured)
     const sessionErr = allEvents.find((e) => e.type === "conversation_error");
     expect(sessionErr).toBeDefined();
 
@@ -1672,7 +1672,7 @@ describe("Regression: cancel semantics and error channel split", () => {
     expect(genericErr).toBeDefined();
   });
 
-  test("cancel after queued messages produces no session_error for any queued entry", async () => {
+  test("cancel after queued messages produces no conversation_error for any queued entry", async () => {
     const session = makeSession();
     await session.loadFromDb();
 
@@ -1701,7 +1701,7 @@ describe("Regression: cancel semantics and error channel split", () => {
 
     session.abort();
 
-    // No queued message should have received session_error
+    // No queued message should have received conversation_error
     for (const events of eventsPerMsg) {
       const sessionErr = events.find((e) => e.type === "conversation_error");
       expect(sessionErr).toBeUndefined();

@@ -26,7 +26,7 @@ public final class ChatViewModel: ObservableObject {
     public let messageManager = ChatMessageManager()
     /// Owns the pending-attachment list and image-processing helpers.
     public let attachmentManager = ChatAttachmentManager()
-    /// Owns errorText, sessionError, and connection-diagnostic properties.
+    /// Owns errorText, conversationError, and connection-diagnostic properties.
     public let errorManager = ChatErrorManager()
 
     private var cancellables: Set<AnyCancellable> = []
