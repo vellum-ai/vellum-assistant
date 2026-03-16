@@ -88,7 +88,7 @@ struct SettingsGeneralTab: View {
                 }
             } else if authManager.currentUser != nil {
                 VButton(label: "Log Out", style: .danger) {
-                    Task { await authManager.logout() }
+                    AppDelegate.shared?.performLogout()
                 }
             } else {
                 VButton(
