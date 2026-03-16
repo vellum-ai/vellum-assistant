@@ -1,7 +1,8 @@
 import { resolveTwilioPhoneNumber } from "../calls/twilio-config.js";
 import { hasTwilioCredentials } from "../calls/twilio-rest.js";
 import { getChannelInvitePolicy } from "../channels/config.js";
-import { loadRawConfig } from "../config/loader.js";
+import { getConfig, loadRawConfig } from "../config/loader.js";
+import { isEmailEnabled } from "../email/feature-gate.js";
 import { getEmailService } from "../email/service.js";
 import { credentialKey } from "../security/credential-key.js";
 import { getSecureKeyAsync } from "../security/secure-keys.js";
@@ -427,7 +428,9 @@ export function createReadinessService(): ChannelReadinessService {
   const service = new ChannelReadinessService();
   service.registerProbe(voiceProbe);
   service.registerProbe(telegramProbe);
-  service.registerProbe(emailProbe);
+  if (isEmailEnabled(getConfig())) {
+    service.registerProbe(emailProbe);
+  }
   service.registerProbe(whatsappProbe);
   service.registerProbe(slackProbe);
   return service;

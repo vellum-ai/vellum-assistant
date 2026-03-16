@@ -85,6 +85,10 @@ export function renderProposal(proposal: GrantProposal): string {
       return renderHttpProposal(proposal);
     case "command":
       return renderCommandProposal(proposal);
+    default: {
+      const _exhaustive: never = proposal;
+      throw new Error(`Unknown proposal type: ${(_exhaustive as GrantProposal).type}`);
+    }
   }
 }
 

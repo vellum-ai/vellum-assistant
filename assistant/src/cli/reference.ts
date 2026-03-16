@@ -23,7 +23,6 @@ Commands:
   doctor                                   Run diagnostic checks
   hooks                                    Manage hooks
   mcp                                      Manage MCP (Model Context Protocol) servers
-  email [options]                          Email operations (provider-agnostic)
   contacts [options]                       Manage and query the contact graph
   channel-verification-sessions [options]  Manage channel verification sessions
   autonomy [options]                       View and configure autonomy tiers

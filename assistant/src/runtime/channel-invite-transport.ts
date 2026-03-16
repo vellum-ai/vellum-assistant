@@ -13,6 +13,13 @@
  */
 
 import type { ChannelId } from "../channels/types.js";
+import { getConfig } from "../config/loader.js";
+import { isEmailEnabled } from "../email/feature-gate.js";
+import { emailInviteAdapter } from "./channel-invite-transports/email.js";
+import { slackInviteAdapter } from "./channel-invite-transports/slack.js";
+import { telegramInviteAdapter } from "./channel-invite-transports/telegram.js";
+import { voiceInviteAdapter } from "./channel-invite-transports/voice.js";
+import { whatsappInviteAdapter } from "./channel-invite-transports/whatsapp.js";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -131,16 +138,12 @@ export async function resolveAdapterHandle(
 // Singleton registry
 // ---------------------------------------------------------------------------
 
-import { emailInviteAdapter } from "./channel-invite-transports/email.js";
-import { slackInviteAdapter } from "./channel-invite-transports/slack.js";
-import { telegramInviteAdapter } from "./channel-invite-transports/telegram.js";
-import { voiceInviteAdapter } from "./channel-invite-transports/voice.js";
-import { whatsappInviteAdapter } from "./channel-invite-transports/whatsapp.js";
-
 /** Create a registry instance with built-in adapters registered. */
 export function createInviteAdapterRegistry(): InviteAdapterRegistry {
   const registry = new InviteAdapterRegistry();
-  registry.register(emailInviteAdapter);
+  if (isEmailEnabled(getConfig())) {
+    registry.register(emailInviteAdapter);
+  }
   registry.register(slackInviteAdapter);
   registry.register(telegramInviteAdapter);
   registry.register(voiceInviteAdapter);

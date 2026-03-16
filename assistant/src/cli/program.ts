@@ -1,5 +1,7 @@
 import { Command } from "commander";
 
+import { getConfig } from "../config/loader.js";
+import { isEmailEnabled } from "../email/feature-gate.js";
 import { registerHooksCommand } from "../hooks/cli.js";
 import { APP_VERSION } from "../version.js";
 import { registerAuditCommand } from "./commands/audit.js";
@@ -51,7 +53,9 @@ export function buildCliProgram(): Command {
   registerDoctorCommand(program);
   registerHooksCommand(program);
   registerMcpCommand(program);
-  registerEmailCommand(program);
+  if (isEmailEnabled(getConfig())) {
+    registerEmailCommand(program);
+  }
   registerContactsCommand(program);
   registerChannelVerificationSessionsCommand(program);
   registerAutonomyCommand(program);
