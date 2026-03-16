@@ -23,13 +23,14 @@ struct ReadOnlyCodeContent: View {
     let content: String
 
     var body: some View {
-        ScrollView(.vertical) {
+        ScrollView([.vertical, .horizontal]) {
             Text(content)
                 .font(VFont.mono)
                 .foregroundColor(VColor.contentDefault)
                 .textSelection(.enabled)
+                .fixedSize(horizontal: true, vertical: false)
                 .padding(VSpacing.md)
-                .frame(maxWidth: .infinity, alignment: .topLeading)
+                .frame(alignment: .topLeading)
         }
     }
 }
