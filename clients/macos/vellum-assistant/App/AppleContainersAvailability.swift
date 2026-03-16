@@ -1,5 +1,6 @@
 import Foundation
 import os
+import VellumAssistantShared
 
 private let log = Logger(subsystem: "com.vellum.vellum-assistant", category: "AppleContainers")
 
