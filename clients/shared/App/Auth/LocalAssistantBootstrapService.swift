@@ -145,12 +145,11 @@ public final class LocalAssistantBootstrapService {
             if case .serverError(let statusCode, _) = error, statusCode == 409 {
                 // Try to resolve platform assistant ID from cache for key re-sync
                 if let storage = credentialStorage,
-                   let orgId = UserDefaults.standard.string(forKey: "connectedOrganizationId"),
                    let uid = try? await resolveUserId(),
                    let cachedId = PlatformAssistantIdResolver.resolve(
                        lockfileAssistantId: runtimeAssistantId,
                        isManaged: false,
-                       organizationId: orgId,
+                       organizationId: organizationId,
                        userId: uid,
                        credentialStorage: storage
                    ) {
