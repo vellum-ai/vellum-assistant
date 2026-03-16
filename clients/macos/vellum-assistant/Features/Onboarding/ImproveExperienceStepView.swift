@@ -169,17 +169,21 @@ private struct VCheckbox: View {
                 if isOn {
                     RoundedRectangle(cornerRadius: cornerRadius)
                         .fill(VColor.primaryBase)
-                        .frame(width: size, height: size)
 
                     Image(systemName: "checkmark")
                         .font(.system(size: 12, weight: .bold))
                         .foregroundColor(.white)
                 } else {
                     RoundedRectangle(cornerRadius: cornerRadius)
-                        .stroke(VColor.borderBase, lineWidth: 1.5)
-                        .frame(width: size, height: size)
+                        .fill(Color.clear)
+                        .overlay(
+                            RoundedRectangle(cornerRadius: cornerRadius)
+                                .stroke(VColor.borderBase, lineWidth: 1.5)
+                        )
                 }
             }
+            .frame(width: size, height: size)
+            .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .animation(VAnimation.fast, value: isOn)
