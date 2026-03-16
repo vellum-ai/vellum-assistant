@@ -403,6 +403,17 @@ extension AppDelegate {
             return
         }
 
+        // For local assistants the actor token may still be bootstrapping
+        // (e.g. after performSwitchAssistant deletes the old token). Wait
+        // for it before calling GatewayHTTPClient which reads it synchronously.
+        let isManaged = LockfileAssistant.loadByName(assistantId)?.isManaged ?? false
+        if !isManaged {
+            guard let _ = await ActorTokenManager.waitForToken(timeout: 30) else {
+                log.warning("syncApiKeysViaGateway: no actor token after 30s, skipping key sync")
+                return
+            }
+        }
+
         for name in APIKeyManager.allSyncableProviders {
             guard let key = APIKeyManager.getKey(for: name), !key.isEmpty else { continue }
             let body: [String: Any] = ["type": "api_key", "name": name, "value": key]
