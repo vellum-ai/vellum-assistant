@@ -107,7 +107,7 @@ struct OnboardingFlowView: View {
                             case 2:
                                 APIKeyEntryStepView(state: state)
                             case 3:
-                                ImproveExperienceStepView(state: state, skippedAPIKeyEntry: APIKeyManager.getKey(for: "anthropic") == nil)
+                                ImproveExperienceStepView(state: state, skippedAPIKeyEntry: state.skippedAPIKeyEntry)
                             default:
                                 EmptyView()
                             }

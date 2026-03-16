@@ -12,7 +12,7 @@ struct ImproveExperienceStepView: View {
     @State private var showContent = false
     @State private var collectUsageData: Bool = UserDefaults.standard.object(forKey: "collectUsageData") as? Bool ?? true
     @State private var sendDiagnostics: Bool = UserDefaults.standard.object(forKey: "sendDiagnostics") as? Bool ?? true
-    @State private var tosAccepted: Bool = false
+    @State private var tosAccepted: Bool = UserDefaults.standard.bool(forKey: "tosAccepted")
 
     var body: some View {
         Text("Help improve Vellum")

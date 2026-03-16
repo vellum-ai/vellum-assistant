@@ -40,6 +40,10 @@ final class OnboardingState {
     /// Whether the user explicitly skipped login during onboarding.
     var skippedAuth: Bool = false
 
+    /// Whether step 2 (API key entry) was skipped during this onboarding run.
+    /// Set when an authenticated user advances directly from step 1 to step 3.
+    var skippedAPIKeyEntry: Bool = false
+
     /// The hosting mode selected in onboarding step 1.
     var selectedHostingMode: HostingMode = .local
 
