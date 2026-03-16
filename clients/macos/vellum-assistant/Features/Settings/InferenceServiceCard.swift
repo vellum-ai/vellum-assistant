@@ -71,6 +71,9 @@ struct InferenceServiceCard: View {
         .vCard(background: VColor.surfaceOverlay)
         .onAppear {
             draftMode = store.inferenceMode
+            if draftMode == "managed" && !authManager.isAuthenticated {
+                draftMode = "your-own"
+            }
             initialModel = store.selectedModel
         }
         .onChange(of: store.inferenceMode) { _, newValue in
