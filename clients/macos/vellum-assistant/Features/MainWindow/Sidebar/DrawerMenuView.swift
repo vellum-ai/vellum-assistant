@@ -82,6 +82,11 @@ struct DrawerMenuView: View {
         .task {
             await loadBalance()
         }
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+            Task {
+                await loadBalance()
+            }
+        }
     }
 
     private func loadBalance() async {
