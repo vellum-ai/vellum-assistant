@@ -228,59 +228,79 @@ extension AppDelegate {
             // Reset dock icon to default before tearing down UI
             AvatarAppearanceManager.shared.resetForDisconnect()
 
-            let detachedWindow = mainWindow?.detachWindow()
-            mainWindow = nil
-            conversationBadgeCancellable?.cancel()
-            conversationBadgeCancellable = nil
-            NSApp.dockTile.badgeLabel = nil
+            // Capture managed status before it gets reset during teardown
+            let wasManaged = isCurrentAssistantManaged
 
-            if let hotKeyMonitor {
-                NSEvent.removeMonitor(hotKeyMonitor)
-                self.hotKeyMonitor = nil
-            }
-            tearDownHotKeyState()
-            quickInputWindow?.dismiss()
-            quickInputWindow = nil
-            globalHotkeyObserver?.cancel()
-            globalHotkeyObserver = nil
-            if let escapeMonitor {
-                NSEvent.removeMonitor(escapeMonitor)
-                self.escapeMonitor = nil
-            }
-            voiceInput?.stop()
-            voiceInput = nil
-            ambientAgent.teardown()
+            if !wasManaged {
+                // Self-hosted (local or remote): clear auth state but keep the
+                // app running. The user can sign in again from Settings > General.
+                actorTokenBootstrapTask?.cancel()
+                actorTokenBootstrapTask = nil
+                ActorTokenManager.deleteToken()
+                hasSetupDaemon = false
 
-            if let observer = windowObserver {
-                NotificationCenter.default.removeObserver(observer)
-                windowObserver = nil
-            }
-            statusIconCancellable?.cancel()
-            statusIconCancellable = nil
-            connectionStatusCancellable?.cancel()
-            connectionStatusCancellable = nil
-            pulseTimer?.invalidate()
-            pulseTimer = nil
+                AvatarAppearanceManager.shared.reloadAvatar()
+                mainWindow?.windowState.showToast(
+                    message: "Signed out. You can sign in again from Settings.",
+                    style: .success
+                )
+            } else {
+                // Managed (platform): full teardown — close everything and
+                // show the reauth screen.
+                let detachedWindow = mainWindow?.detachWindow()
+                mainWindow = nil
+                conversationBadgeCancellable?.cancel()
+                conversationBadgeCancellable = nil
+                NSApp.dockTile.badgeLabel = nil
 
-            if let item = statusItem {
-                NSStatusBar.system.removeStatusItem(item)
-                statusItem = nil
-            }
-
-            if let mainMenu = NSApp.mainMenu {
-                for title in ["File", "View"] {
-                    let idx = mainMenu.indexOfItem(withTitle: title)
-                    if idx >= 0 { mainMenu.removeItem(at: idx) }
+                if let hotKeyMonitor {
+                    NSEvent.removeMonitor(hotKeyMonitor)
+                    self.hotKeyMonitor = nil
                 }
+                tearDownHotKeyState()
+                quickInputWindow?.dismiss()
+                quickInputWindow = nil
+                globalHotkeyObserver?.cancel()
+                globalHotkeyObserver = nil
+                if let escapeMonitor {
+                    NSEvent.removeMonitor(escapeMonitor)
+                    self.escapeMonitor = nil
+                }
+                voiceInput?.stop()
+                voiceInput = nil
+                ambientAgent.teardown()
+
+                if let observer = windowObserver {
+                    NotificationCenter.default.removeObserver(observer)
+                    windowObserver = nil
+                }
+                statusIconCancellable?.cancel()
+                statusIconCancellable = nil
+                connectionStatusCancellable?.cancel()
+                connectionStatusCancellable = nil
+                pulseTimer?.invalidate()
+                pulseTimer = nil
+
+                if let item = statusItem {
+                    NSStatusBar.system.removeStatusItem(item)
+                    statusItem = nil
+                }
+
+                if let mainMenu = NSApp.mainMenu {
+                    for title in ["File", "View"] {
+                        let idx = mainMenu.indexOfItem(withTitle: title)
+                        if idx >= 0 { mainMenu.removeItem(at: idx) }
+                    }
+                }
+
+                actorTokenBootstrapTask?.cancel()
+                actorTokenBootstrapTask = nil
+                ActorTokenManager.deleteToken()
+
+                hasSetupApp = false
+                hasSetupDaemon = false
+                showAuthWindow(reusingWindow: detachedWindow)
             }
-
-            actorTokenBootstrapTask?.cancel()
-            actorTokenBootstrapTask = nil
-            ActorTokenManager.deleteToken()
-
-            hasSetupApp = false
-            hasSetupDaemon = false
-            showAuthWindow(reusingWindow: detachedWindow)
         }
     }
 
