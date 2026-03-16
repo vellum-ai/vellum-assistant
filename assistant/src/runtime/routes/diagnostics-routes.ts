@@ -18,7 +18,7 @@ import { homedir, tmpdir } from "node:os";
 import { basename, join } from "node:path";
 
 import archiver from "archiver";
-import { and, desc, eq, gte, lte } from "drizzle-orm";
+import { and, asc, desc, eq, gte, lte } from "drizzle-orm";
 
 import {
   type ProfileResolution,
@@ -230,32 +230,26 @@ async function handleDiagnosticsExport(body: {
     }
 
     // 2. Compute the export time range.
-    // When an anchor message exists, scope to the preceding user message
-    // through the anchor. When no messages exist at all (empty conversation
-    // or race condition), use the current timestamp so the export still
-    // captures any in-flight usage/tool data.
+    // When an anchor message exists, scope from the earliest message in the
+    // conversation through the anchor so the full conversation context is
+    // captured. When no messages exist at all (empty conversation or race
+    // condition), use the current timestamp so the export still captures any
+    // in-flight usage/tool data.
     const now = Date.now();
     let rangeEnd: number;
     let rangeStart: number;
     let usageRangeEnd: number;
 
     if (anchorMessage) {
-      const precedingUserMessage = db
+      const earliestMessage = db
         .select()
         .from(messages)
-        .where(
-          and(
-            eq(messages.conversationId, conversationId),
-            eq(messages.role, "user"),
-            lte(messages.createdAt, anchorMessage.createdAt),
-          ),
-        )
-        .orderBy(desc(messages.createdAt))
+        .where(eq(messages.conversationId, conversationId))
+        .orderBy(asc(messages.createdAt))
         .limit(1)
         .get();
 
-      rangeStart =
-        precedingUserMessage?.createdAt ?? anchorMessage.createdAt - 2000;
+      rangeStart = earliestMessage?.createdAt ?? anchorMessage.createdAt - 2000;
 
       // When the anchor was selected via the fallback "any message" path
       // (because the assistant reply hasn't been persisted yet), extend the
