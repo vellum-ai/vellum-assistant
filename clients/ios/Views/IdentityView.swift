@@ -57,6 +57,9 @@ final class IdentityViewModel {
     }
 
     func tearDown() {
+        introTask?.cancel()
+        introTask = nil
+        introText = nil
         cancellables.removeAll()
         skillsStore = nil
         contactsStore = nil
@@ -90,6 +93,7 @@ final class IdentityViewModel {
                     guard !Task.isCancelled else { return }
                     result += delta
                 }
+                guard !Task.isCancelled else { return }
                 self.introText = result.isEmpty ? nil : result
             } catch is CancellationError {
                 return
@@ -143,7 +147,7 @@ struct IdentityView: View {
             if let introText = viewModel.introText {
                 Section {
                     Text(introText)
-                        .font(.system(size: 22, weight: .regular, design: .rounded))
+                        .font(VFont.introHeadline)
                         .foregroundColor(VColor.contentDefault)
                         .frame(maxWidth: .infinity, alignment: .center)
                         .listRowBackground(Color.clear)
