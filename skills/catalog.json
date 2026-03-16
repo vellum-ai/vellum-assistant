@@ -346,11 +346,11 @@
     {
       "id": "notion-oauth-setup",
       "name": "notion-oauth-setup",
-      "description": "Set up Notion OAuth credentials for Notion integration using a collaborative guided flow",
+      "description": "Set up Notion integration credentials using a collaborative guided flow (defaults to Internal integration)",
       "metadata": {
         "emoji": "🔑",
         "vellum": {
-          "display-name": "Notion OAuth Setup",
+          "display-name": "Notion Setup",
           "includes": [
             "collaborative-oauth-flow"
           ]
