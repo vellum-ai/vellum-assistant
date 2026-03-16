@@ -11,20 +11,9 @@ struct HighlightedTextView: View {
     let isEditable: Bool
     var onTextChange: ((String) -> Void)?
 
-    private static let editorBackground = adaptiveColor(
-        light: Color(.sRGB, red: 0.98, green: 0.98, blue: 0.97),
-        dark: Color(.sRGB, red: 0.13, green: 0.14, blue: 0.13)
-    )
-
-    private static let gutterBackground = adaptiveColor(
-        light: Color(.sRGB, red: 0.94, green: 0.94, blue: 0.94),
-        dark: Color(.sRGB, red: 0.12, green: 0.12, blue: 0.12)
-    )
-
-    private static let gutterTextColor = adaptiveColor(
-        light: Color(.sRGB, red: 0.55, green: 0.55, blue: 0.55),
-        dark: Color(.sRGB, red: 0.45, green: 0.45, blue: 0.45)
-    )
+    private static let editorBackground = VColor.codeEditorBackground
+    private static let gutterBackground = VColor.codeEditorGutterBackground
+    private static let gutterTextColor = VColor.codeEditorGutterText
 
     var body: some View {
         if isEditable {

@@ -371,6 +371,20 @@ public enum VColor {
         dark: Color(.sRGB, red: 0.30, green: 0.75, blue: 0.55)
     )
 
+    // Code editor surface — background and gutter colors for HighlightedTextView.
+    public static let codeEditorBackground = adaptiveColor(
+        light: Color(.sRGB, red: 0.98, green: 0.98, blue: 0.97),
+        dark: Color(.sRGB, red: 0.13, green: 0.14, blue: 0.13)
+    )
+    public static let codeEditorGutterBackground = adaptiveColor(
+        light: Color(.sRGB, red: 0.94, green: 0.94, blue: 0.94),
+        dark: Color(.sRGB, red: 0.12, green: 0.12, blue: 0.12)
+    )
+    public static let codeEditorGutterText = adaptiveColor(
+        light: Color(.sRGB, red: 0.55, green: 0.55, blue: 0.55),
+        dark: Color(.sRGB, red: 0.45, green: 0.45, blue: 0.45)
+    )
+
     // Utility: non-adaptive explicit white/black for overlays, shadows, text-on-filled
     public static let auxWhite = Color(hex: 0xFFFFFF)
     public static let auxBlack = Color(hex: 0x000000)
