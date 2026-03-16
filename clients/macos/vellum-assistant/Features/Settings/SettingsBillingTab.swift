@@ -158,11 +158,8 @@ struct SettingsBillingTab: View {
         error = nil
         do {
             var result = try await BillingService.shared.getBillingSummary()
-            // Bootstrap billing for pre-billing orgs with all-zero balances
-            if result.effective_balance_usd == "0.00" && result.settled_balance_usd == "0.00" && result.pending_compute_usd == "0.00" {
-                if let bootstrapped = try? await BillingService.shared.bootstrapBillingSummary() {
-                    result = bootstrapped
-                }
+            if let bootstrapped = await BillingService.shared.bootstrapBillingSummaryIfNeeded(summary: result) {
+                result = bootstrapped
             }
             summary = result
         } catch {

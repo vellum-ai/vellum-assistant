@@ -91,11 +91,8 @@ struct DrawerMenuView: View {
         guard authManager.isAuthenticated else { return }
         do {
             var summary = try await BillingService.shared.getBillingSummary()
-            // Bootstrap billing for pre-billing orgs with all-zero balances
-            if summary.effective_balance_usd == "0.00" && summary.settled_balance_usd == "0.00" && summary.pending_compute_usd == "0.00" {
-                if let bootstrapped = try? await BillingService.shared.bootstrapBillingSummary() {
-                    summary = bootstrapped
-                }
+            if let bootstrapped = await BillingService.shared.bootstrapBillingSummaryIfNeeded(summary: summary) {
+                summary = bootstrapped
             }
             let balanceString = summary.effective_balance_usd
             effectiveBalance = balanceString
