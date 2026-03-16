@@ -725,7 +725,7 @@ private struct WorkspaceFileViewer: View {
                             selection: $state.viewMode,
                             style: .pill
                         )
-                        .frame(width: CGFloat(modes.count) * 80)
+                        .frame(width: CGFloat(modes.count) * 60)
                     }
                 }
 
