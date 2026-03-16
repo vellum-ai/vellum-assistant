@@ -60,6 +60,59 @@ public final class BillingService {
         }
     }
 
+    /// Bootstrap billing for organizations that don't have a BillingAccount yet.
+    /// Calling POST on the summary endpoint creates the account with initial credit.
+    public func bootstrapBillingSummary() async throws -> BillingSummaryResponse {
+        let urlString = "\(AuthService.shared.baseURL)/v1/organizations/billing/summary/"
+        guard let url = URL(string: urlString) else {
+            throw PlatformAPIError.invalidURL
+        }
+
+        var urlRequest = URLRequest(url: url)
+        urlRequest.httpMethod = "POST"
+        urlRequest.setValue("application/json", forHTTPHeaderField: "Accept")
+        urlRequest.setValue("application/json", forHTTPHeaderField: "Content-Type")
+
+        if let token = await SessionTokenManager.getTokenAsync() {
+            urlRequest.setValue(token, forHTTPHeaderField: "X-Session-Token")
+        } else {
+            throw PlatformAPIError.authenticationRequired
+        }
+
+        guard let organizationId = UserDefaults.standard.string(forKey: "connectedOrganizationId") else {
+            throw PlatformAPIError.authenticationRequired
+        }
+        urlRequest.setValue(organizationId, forHTTPHeaderField: "Vellum-Organization-Id")
+
+        let data: Data
+        let response: URLResponse
+        do {
+            (data, response) = try await URLSession.shared.data(for: urlRequest)
+        } catch {
+            throw PlatformAPIError.networkError(error.localizedDescription)
+        }
+
+        let httpResponse = response as? HTTPURLResponse
+        let statusCode = httpResponse?.statusCode ?? 0
+
+        log.debug("Platform request POST organizations/billing/summary/ -> \(statusCode)")
+
+        if statusCode == 401 || statusCode == 403 {
+            throw PlatformAPIError.authenticationRequired
+        }
+
+        guard (200..<300).contains(statusCode) else {
+            let detail = String(data: data, encoding: .utf8)
+            throw PlatformAPIError.serverError(statusCode: statusCode, detail: detail)
+        }
+
+        do {
+            return try JSONDecoder().decode(BillingSummaryResponse.self, from: data)
+        } catch {
+            throw PlatformAPIError.decodingError(error.localizedDescription)
+        }
+    }
+
     /// Create a top-up checkout session and return the Stripe checkout URL.
     public func createTopUpCheckout(amountUsd: String) async throws -> URL {
         let urlString = "\(AuthService.shared.baseURL)/v1/organizations/billing/top-ups/checkout-session/"
