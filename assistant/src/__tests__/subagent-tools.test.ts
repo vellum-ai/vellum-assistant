@@ -282,7 +282,7 @@ describe("Subagent tool ownership validation", () => {
   const manager = getSubagentManager();
   injectSubagent(manager, subagentId, ownerSession);
 
-  test("status rejects non-owner session", async () => {
+  test("status rejects non-owner conversation", async () => {
     const result = await executeSubagentStatus(
       { subagent_id: subagentId },
       makeContext(otherSession),
@@ -291,7 +291,7 @@ describe("Subagent tool ownership validation", () => {
     expect(result.content).toContain("No subagent found");
   });
 
-  test("status succeeds for owner session", async () => {
+  test("status succeeds for owner conversation", async () => {
     const result = await executeSubagentStatus(
       { subagent_id: subagentId },
       makeContext(ownerSession),
@@ -299,7 +299,7 @@ describe("Subagent tool ownership validation", () => {
     expect(result.isError).toBe(false);
   });
 
-  test("message rejects non-owner session", async () => {
+  test("message rejects non-owner conversation", async () => {
     const result = await executeSubagentMessage(
       { subagent_id: subagentId, content: "hello" },
       makeContext(otherSession),
@@ -308,7 +308,7 @@ describe("Subagent tool ownership validation", () => {
     expect(result.content).toContain("Could not send");
   });
 
-  test("read rejects non-owner session", async () => {
+  test("read rejects non-owner conversation", async () => {
     const result = await executeSubagentRead(
       { subagent_id: subagentId },
       makeContext(otherSession),
@@ -317,7 +317,7 @@ describe("Subagent tool ownership validation", () => {
     expect(result.content).toContain("No subagent found");
   });
 
-  test("abort rejects non-owner session", async () => {
+  test("abort rejects non-owner conversation", async () => {
     const result = await executeSubagentAbort(
       { subagent_id: subagentId },
       makeContext(otherSession),
@@ -326,7 +326,7 @@ describe("Subagent tool ownership validation", () => {
     expect(result.content).toContain("Could not abort");
   });
 
-  test("abort succeeds for owner session", async () => {
+  test("abort succeeds for owner conversation", async () => {
     const result = await executeSubagentAbort(
       { subagent_id: subagentId },
       makeContext(ownerSession),
@@ -435,7 +435,7 @@ describe("Subagent message success path", () => {
   const ownerSession = "msg-owner-sess";
   const subagentId = "msg-sub-1";
 
-  test("message succeeds for owner session with running subagent", async () => {
+  test("message succeeds for owner conversation with running subagent", async () => {
     const manager = getSubagentManager();
     injectSubagent(manager, subagentId, ownerSession, "running");
 

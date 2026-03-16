@@ -117,23 +117,23 @@ export class ConversationEvictor {
     };
 
     // Phase 1: TTL eviction — remove conversations idle longer than ttlMs.
-    for (const [id, session] of this.conversations) {
+    for (const [id, conversation] of this.conversations) {
       const lastAccessTime = this.lastAccess.get(id) ?? 0;
       if (now - lastAccessTime < this.ttlMs) continue;
-      if (session.isProcessing() || this.shouldProtect?.(id)) {
+      if (conversation.isProcessing() || this.shouldProtect?.(id)) {
         result.skipped++;
         continue;
       }
-      this.evict(id, session);
+      this.evict(id, conversation);
       result.ttlEvicted++;
     }
 
     // Phase 2: LRU eviction — if still over capacity, evict least-recently-used.
     if (this.conversations.size > this.maxConversations) {
       const sorted = this.idleConversationsByLru();
-      for (const [id, session] of sorted) {
+      for (const [id, conversation] of sorted) {
         if (this.conversations.size <= this.maxConversations) break;
-        this.evict(id, session);
+        this.evict(id, conversation);
         result.lruEvicted++;
       }
     }
@@ -153,9 +153,9 @@ export class ConversationEvictor {
           },
           "Memory pressure detected, evicting idle conversations",
         );
-        for (const [id, session] of sorted) {
+        for (const [id, conversation] of sorted) {
           if (process.memoryUsage.rss() <= this.memoryThresholdBytes) break;
-          this.evict(id, session);
+          this.evict(id, conversation);
           result.memoryEvicted++;
         }
       }
@@ -179,8 +179,8 @@ export class ConversationEvictor {
 
   // ── Internals ──────────────────────────────────────────────────────
 
-  private evict(id: string, session: EvictableConversation): void {
-    session.dispose();
+  private evict(id: string, conversation: EvictableConversation): void {
+    conversation.dispose();
     this.conversations.delete(id);
     this.lastAccess.delete(id);
     this.onEvict?.(id);
@@ -193,12 +193,12 @@ export class ConversationEvictor {
    */
   private idleConversationsByLru(): Array<[string, EvictableConversation]> {
     const idle: Array<[string, EvictableConversation, number]> = [];
-    for (const [id, session] of this.conversations) {
-      if (session.isProcessing()) continue;
+    for (const [id, conversation] of this.conversations) {
+      if (conversation.isProcessing()) continue;
       if (this.shouldProtect?.(id)) continue;
-      idle.push([id, session, this.lastAccess.get(id) ?? 0]);
+      idle.push([id, conversation, this.lastAccess.get(id) ?? 0]);
     }
     idle.sort((a, b) => a[2] - b[2]);
-    return idle.map(([id, session]) => [id, session]);
+    return idle.map(([id, conversation]) => [id, conversation]);
   }
 }

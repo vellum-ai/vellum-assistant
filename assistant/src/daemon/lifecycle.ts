@@ -352,7 +352,7 @@ export async function runDaemon(): Promise<void> {
 
     await initializeProvidersAndTools(config);
 
-    // Start the DaemonServer (session manager) before Qdrant so HTTP
+    // Start the DaemonServer (conversation manager) before Qdrant so HTTP
     // routes can begin accepting requests while Qdrant initializes.
     log.info("Daemon startup: starting DaemonServer");
     const server = new DaemonServer();
@@ -664,7 +664,7 @@ export async function runDaemon(): Promise<void> {
       setRelayBroadcast((msg) => server.broadcast(msg));
       setPointerMessageProcessor(
         async (conversationId, instruction, requiredFacts) => {
-          const session =
+          const conversation =
             await server.getConversationForMessages(conversationId);
 
           // Constrain pointer generation to a tool-disabled path so call-
@@ -674,12 +674,12 @@ export async function runDaemon(): Promise<void> {
           // invoking any tools during the pointer agent loop.
           //
           // A depth counter (rather than a boolean) ensures that overlapping
-          // pointer requests on the same session don't clear each other's
+          // pointer requests on the same conversation don't clear each other's
           // constraint — each caller increments on entry and decrements in
           // its own finally block.
-          session.toolsDisabledDepth++;
+          conversation.toolsDisabledDepth++;
           try {
-            const messageId = await session.persistUserMessage(
+            const messageId = await conversation.persistUserMessage(
               instruction,
               [],
               undefined,
@@ -705,7 +705,7 @@ export async function runDaemon(): Promise<void> {
                 }
               }
               try {
-                await session.loadFromDb();
+                await conversation.loadFromDb();
               } catch {
                 /* best effort */
               }
@@ -731,7 +731,7 @@ export async function runDaemon(): Promise<void> {
 
             let agentLoopError: string | undefined;
             let generatedText = "";
-            await session.runAgentLoop(instruction, messageId, (msg) => {
+            await conversation.runAgentLoop(instruction, messageId, (msg) => {
               if (
                 "type" in msg &&
                 msg.type === "assistant_text_delta" &&
@@ -793,7 +793,7 @@ export async function runDaemon(): Promise<void> {
             }
           } finally {
             // Restore tool availability so subsequent turns aren't affected.
-            session.toolsDisabledDepth--;
+            conversation.toolsDisabledDepth--;
           }
         },
       );

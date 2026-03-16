@@ -265,7 +265,7 @@ export interface ConfirmationStateChanged {
 /**
  * Server-side assistant activity lifecycle for thinking indicator placement.
  *
- * `activityVersion` is monotonically increasing per session. Clients must
+ * `activityVersion` is monotonically increasing per conversation. Clients must
  * ignore events with a version older than their current known version.
  */
 export interface AssistantActivityState {
