@@ -50,6 +50,8 @@ export interface AssistantEntry {
   sshUser?: string;
   zone?: string;
   hatchedAt?: string;
+  /** Name of the shared Docker volume backing BASE_DATA_DIR for Docker instances. */
+  dockerDataVolume?: string;
   /** Per-instance resource config. Present for local entries in multi-instance setups. */
   resources?: LocalInstanceResources;
   [key: string]: unknown;
