@@ -67,6 +67,7 @@ public final class ActivityNotificationService: ActivityNotificationServiceProto
         content.categoryIdentifier = "ACTIVITY_COMPLETE"
         content.sound = .default
         content.userInfo = ["conversationId": conversationId, "type": "activity_complete"]
+        content.attachAppIcon()
 
         log.info("Sending notification: \(content.title, privacy: .public)")
 
@@ -104,6 +105,7 @@ public final class ActivityNotificationService: ActivityNotificationServiceProto
         content.body = truncated.isEmpty ? "Response complete" : truncated
         content.sound = .default
         content.userInfo = ["type": "quick_input_complete"]
+        content.attachAppIcon()
 
         let request = UNNotificationRequest(
             identifier: UUID().uuidString,

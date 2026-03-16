@@ -24,10 +24,7 @@ public final class ToolConfirmationNotificationService {
             "type": "tool_confirmation"
         ]
 
-        // Attach app icon
-        if let attachment = createAppIconAttachment() {
-            content.attachments = [attachment]
-        }
+        content.attachAppIcon()
 
         let request = UNNotificationRequest(
             identifier: "tool-confirm-\(message.requestId)",
@@ -129,16 +126,4 @@ public final class ToolConfirmationNotificationService {
         }
     }
 
-    private func createAppIconAttachment() -> UNNotificationAttachment? {
-        // Find the app icon in the bundle resources
-        guard let iconURL = Bundle.main.url(forResource: "AppIcon", withExtension: "icns") else {
-            // Try to find in the resource bundle
-            let resourceBundle = Bundle(identifier: "com.vellum.vellum-assistant")
-            guard let bundleIconURL = resourceBundle?.url(forResource: "AppIcon", withExtension: "icns") else {
-                return nil
-            }
-            return try? UNNotificationAttachment(identifier: "app-icon", url: bundleIconURL, options: nil)
-        }
-        return try? UNNotificationAttachment(identifier: "app-icon", url: iconURL, options: nil)
-    }
 }
