@@ -70,13 +70,18 @@ export async function indexMessageNow(
   const shouldExtract =
     input.role === "user" ||
     (input.role === "assistant" && config.extraction.extractFromAssistant);
-  // Check if the resolved embedding backend supports multimodal input.
-  // Only enqueue embed_attachment jobs when it does (currently Gemini only).
-  const supportsMultimodal =
-    await selectedBackendSupportsMultimodal(getConfig());
-  const mediaBlocks = supportsMultimodal
-    ? extractMediaBlocks(input.content).filter((b) => b.type === "image")
-    : [];
+  // Check if the message has any image blocks before probing the backend.
+  // extractMediaBlocks is synchronous and cheap, while
+  // selectedBackendSupportsMultimodal requires async key resolution that
+  // would add unnecessary latency for text-only messages.
+  const candidateMediaBlocks = extractMediaBlocks(input.content).filter(
+    (b) => b.type === "image",
+  );
+  const mediaBlocks =
+    candidateMediaBlocks.length > 0 &&
+    (await selectedBackendSupportsMultimodal(getConfig()))
+      ? candidateMediaBlocks
+      : [];
 
   // Wrap all segment inserts and job enqueues in a single transaction so they
   // either all succeed or all roll back, preventing partial/orphaned state.

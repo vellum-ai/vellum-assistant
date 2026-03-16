@@ -203,6 +203,15 @@ function getCachedOrCreate<T extends EmbeddingBackend>(
   return instance;
 }
 
+/** Check if a backend instance already exists in the cache. */
+function getCached(
+  provider: string,
+  model: string,
+  extras?: string[],
+): EmbeddingBackend | undefined {
+  return backendCache.get(cacheKey(provider, model, extras));
+}
+
 function geminiCacheExtras(config: AssistantConfig): string[] {
   const extras: string[] = [];
   if (config.memory.embeddings.geminiTaskType) {
@@ -250,6 +259,9 @@ export async function selectEmbeddingBackend(
     };
   }
   if (requested === "ollama") {
+    // Check cache first to avoid unnecessary async key fetch on cache hits
+    const cached = getCached("ollama", config.memory.embeddings.ollamaModel);
+    if (cached) return { backend: cached, reason: null };
     const ollamaKey = (await getProviderKeyAsync("ollama")) ?? undefined;
     return {
       backend: getCachedOrCreate(
@@ -286,6 +298,12 @@ export async function selectEmbeddingBackend(
           reason: null,
         };
       case "openai": {
+        // Check cache first to avoid unnecessary async key fetch on cache hits
+        const cachedOpenai = getCached(
+          "openai",
+          config.memory.embeddings.openaiModel,
+        );
+        if (cachedOpenai) return { backend: cachedOpenai, reason: null };
         const openaiKey = await getProviderKeyAsync("openai");
         if (!openaiKey) continue;
         return {
@@ -302,6 +320,13 @@ export async function selectEmbeddingBackend(
         };
       }
       case "gemini": {
+        // Check cache first to avoid unnecessary async key fetch on cache hits
+        const cachedGemini = getCached(
+          "gemini",
+          config.memory.embeddings.geminiModel,
+          geminiCacheExtras(config),
+        );
+        if (cachedGemini) return { backend: cachedGemini, reason: null };
         const geminiKey = await getProviderKeyAsync("gemini");
         if (!geminiKey) continue;
         return {
@@ -323,6 +348,12 @@ export async function selectEmbeddingBackend(
         };
       }
       case "ollama": {
+        // Check cache first to avoid unnecessary async key fetch on cache hits
+        const cachedOllama = getCached(
+          "ollama",
+          config.memory.embeddings.ollamaModel,
+        );
+        if (cachedOllama) return { backend: cachedOllama, reason: null };
         if (!(await isOllamaConfigured(config))) continue;
         const ollamaKey = (await getProviderKeyAsync("ollama")) ?? undefined;
         return {
@@ -539,6 +570,15 @@ async function selectFallbackBackends(
     if (provider === exclude) continue;
     switch (provider) {
       case "openai": {
+        // Check cache first to avoid unnecessary async key fetch on cache hits
+        const cachedOpenai = getCached(
+          "openai",
+          config.memory.embeddings.openaiModel,
+        );
+        if (cachedOpenai) {
+          backends.push(cachedOpenai);
+          break;
+        }
         const openaiKey = await getProviderKeyAsync("openai");
         if (openaiKey) {
           backends.push(
@@ -556,6 +596,16 @@ async function selectFallbackBackends(
         break;
       }
       case "gemini": {
+        // Check cache first to avoid unnecessary async key fetch on cache hits
+        const cachedGemini = getCached(
+          "gemini",
+          config.memory.embeddings.geminiModel,
+          geminiCacheExtras(config),
+        );
+        if (cachedGemini) {
+          backends.push(cachedGemini);
+          break;
+        }
         const geminiKey = await getProviderKeyAsync("gemini");
         if (geminiKey) {
           backends.push(
@@ -577,7 +627,16 @@ async function selectFallbackBackends(
         }
         break;
       }
-      case "ollama":
+      case "ollama": {
+        // Check cache first to avoid unnecessary async key fetch on cache hits
+        const cachedOllama = getCached(
+          "ollama",
+          config.memory.embeddings.ollamaModel,
+        );
+        if (cachedOllama) {
+          backends.push(cachedOllama);
+          break;
+        }
         if (await isOllamaConfigured(config)) {
           const ollamaKey = (await getProviderKeyAsync("ollama")) ?? undefined;
           backends.push(
@@ -595,6 +654,7 @@ async function selectFallbackBackends(
           );
         }
         break;
+      }
     }
   }
   return backends;
