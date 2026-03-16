@@ -90,11 +90,12 @@ export function categorizeDaemonError(err: unknown): DaemonStartupError {
     };
   }
 
-  // Environment validation errors thrown by validateEnv()
+  // Environment validation errors thrown by validateEnv() or its int() helper
   if (
     message.startsWith("Invalid GATEWAY_PORT") ||
     message.startsWith("Invalid RUNTIME_HTTP_PORT") ||
-    message.startsWith("Invalid ") ||
+    message.startsWith("Invalid integer for GATEWAY_PORT") ||
+    message.startsWith("Invalid integer for RUNTIME_HTTP_PORT") ||
     /\benv\b.*\bvalidat/i.test(message) ||
     /\bvalidat.*\benv\b/i.test(message)
   ) {
