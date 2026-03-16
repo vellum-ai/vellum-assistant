@@ -7,6 +7,7 @@ struct DrawerMenuView: View {
     let onUsage: () -> Void
     let onDebug: () -> Void
     let onLogOut: () -> Void
+    let onSignIn: () -> Void
     let onOpenBilling: () -> Void
 
     @State private var effectiveBalance: String?
@@ -69,7 +70,11 @@ struct DrawerMenuView: View {
 
                 SidebarPrimaryRow(icon: VIcon.scrollText.rawValue, label: String(localized: "Logs"), action: onDebug)
 
-                SidebarPrimaryRow(icon: VIcon.logOut.rawValue, label: String(localized: "Log Out"), action: onLogOut)
+                if authManager.isAuthenticated {
+                    SidebarPrimaryRow(icon: VIcon.logOut.rawValue, label: String(localized: "Log Out"), action: onLogOut)
+                } else {
+                    SidebarPrimaryRow(icon: VIcon.logOut.rawValue, label: String(localized: "Sign In"), action: onSignIn)
+                }
             }
         }
         .padding(VSpacing.sm)

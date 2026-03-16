@@ -577,6 +577,12 @@ struct MainWindowView: View {
                                 sidebar.showPreferencesDrawer = false
                                 AppDelegate.shared?.performLogout()
                             },
+                            onSignIn: {
+                                sidebar.showPreferencesDrawer = false
+                                Task {
+                                    await authManager.startWorkOSLogin()
+                                }
+                            },
                             onOpenBilling: {
                                 sidebar.showPreferencesDrawer = false
                                 settingsStore.pendingSettingsTab = .billing
