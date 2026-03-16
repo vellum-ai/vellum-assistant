@@ -96,7 +96,7 @@ export const swarmDelegateTool: Tool = {
       // Generate plan
       context.onOutput?.("Planning task decomposition...\n");
       const planProvider = getFailoverProvider(
-        config.provider,
+        config.services.inference.provider,
         config.providerOrder,
       );
       const plan = await generatePlan({
@@ -125,7 +125,7 @@ export const swarmDelegateTool: Tool = {
       let synthesisProvider: typeof planProvider | undefined;
       try {
         synthesisProvider = getFailoverProvider(
-          config.provider,
+          config.services.inference.provider,
           config.providerOrder,
         );
       } catch {

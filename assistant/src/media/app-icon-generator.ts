@@ -88,7 +88,7 @@ export async function generateAppIcon(
     const result = await generateImage(credentials, {
       prompt,
       mode: "generate",
-      model: config.imageGenModel,
+      model: config.services["image-generation"].model,
     });
 
     if (result.images.length === 0) {

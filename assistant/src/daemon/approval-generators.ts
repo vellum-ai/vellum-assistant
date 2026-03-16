@@ -91,7 +91,10 @@ export function createApprovalCopyGenerator(): ApprovalCopyGenerator {
     const config = loadConfig();
     let provider;
     try {
-      provider = getFailoverProvider(config.provider, config.providerOrder);
+      provider = getFailoverProvider(
+        config.services.inference.provider,
+        config.providerOrder,
+      );
     } catch {
       return null;
     }
@@ -142,10 +145,13 @@ export function createApprovalCopyGenerator(): ApprovalCopyGenerator {
 export function createApprovalConversationGenerator(): ApprovalConversationGenerator {
   return async (context) => {
     const config = loadConfig();
-    if (!listProviders().includes(config.provider)) {
+    if (!listProviders().includes(config.services.inference.provider)) {
       throw new Error("No provider available for approval conversation");
     }
-    const provider = getFailoverProvider(config.provider, config.providerOrder);
+    const provider = getFailoverProvider(
+      config.services.inference.provider,
+      config.providerOrder,
+    );
 
     const pendingDescription = context.pendingApprovals
       .map((p) => `- Request ${p.requestId}: tool "${p.toolName}"`)

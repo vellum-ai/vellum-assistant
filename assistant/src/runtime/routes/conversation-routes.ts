@@ -860,8 +860,8 @@ export async function handleSendMessage(
     inputTokens: session.usageStats.inputTokens,
     outputTokens: session.usageStats.outputTokens,
     maxInputTokens: config.contextWindow.maxInputTokens,
-    model: config.model,
-    provider: config.provider,
+    model: config.services.inference.model,
+    provider: config.services.inference.provider,
     estimatedCost: session.usageStats.estimatedCost,
   };
   const slashResult = await resolveSlash(rawContent, slashContext);
