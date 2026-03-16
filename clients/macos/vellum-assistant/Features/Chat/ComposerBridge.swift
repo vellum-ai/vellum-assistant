@@ -23,12 +23,8 @@ extension EnvironmentValues {
 /// - Registers a typing-redirect handler with TitleBarZoomableWindow so
 ///   keystrokes auto-focus the composer when nothing else is focused.
 /// - Registers the composer container view for click-away-to-blur detection.
-/// - Passes through zoom shortcuts (Cmd+/-/0) so they are not consumed.
 struct ComposerFocusBridge: NSViewRepresentable {
     let isFocused: Bool
-    let cmdEnterToSend: Bool
-    let onImagePaste: () -> Void
-    let onSend: () -> Void
     let onRedirectKeystroke: (String) -> Void
 
     func makeCoordinator() -> Coordinator {
@@ -37,7 +33,6 @@ struct ComposerFocusBridge: NSViewRepresentable {
 
     func makeNSView(context: Context) -> NSView {
         let view = NSView(frame: .zero)
-        context.coordinator.setupEventMonitor()
         return view
     }
 
@@ -69,7 +64,6 @@ struct ComposerFocusBridge: NSViewRepresentable {
     }
 
     static func dismantleNSView(_ nsView: NSView, coordinator: Coordinator) {
-        coordinator.removeEventMonitor()
         if let window = nsView.window as? TitleBarZoomableWindow {
             window.composerRedirectHandler = nil
         }
@@ -77,35 +71,9 @@ struct ComposerFocusBridge: NSViewRepresentable {
 
     final class Coordinator {
         var parent: ComposerFocusBridge
-        var eventMonitor: Any?
 
         init(parent: ComposerFocusBridge) {
             self.parent = parent
-        }
-
-        func setupEventMonitor() {
-            eventMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
-                guard let self, self.parent.isFocused else { return event }
-
-                let modifiers = event.modifierFlags.intersection([.shift, .command, .control, .option])
-
-                // Let zoom shortcuts propagate instead of being consumed
-                if modifiers == [.command] || modifiers == [.command, .option] {
-                    let key = event.charactersIgnoringModifiers ?? ""
-                    if key == "=" || key == "+" || key == "-" || key == "0" {
-                        return event
-                    }
-                }
-
-                return event
-            }
-        }
-
-        func removeEventMonitor() {
-            if let monitor = eventMonitor {
-                NSEvent.removeMonitor(monitor)
-                eventMonitor = nil
-            }
         }
     }
 }

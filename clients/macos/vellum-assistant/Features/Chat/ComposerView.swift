@@ -224,9 +224,6 @@ struct ComposerView: View {
         .background(
             ComposerFocusBridge(
                 isFocused: composerFocus,
-                cmdEnterToSend: cmdEnterToSend,
-                onImagePaste: onPaste,
-                onSend: { performSendAction() },
                 onRedirectKeystroke: { chars in
                     inputText += chars
                     composerFocus = true
@@ -377,14 +374,6 @@ struct ComposerView: View {
                     && inputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             onAllowPendingConfirmation?()
         }
-    }
-
-    private func handleComposerSubmit() {
-        // On macOS, the bridge consumes all Return variants that should insert
-        // a newline (cmd-enter mode) or trigger a bridge-level send. The only
-        // Return events that reach `.onSubmit` are plain Return in default mode,
-        // which always means "send".
-        performSendAction()
     }
 
     // MARK: - Text Entry Mode
