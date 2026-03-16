@@ -186,7 +186,6 @@ struct ThreadStarterChip: View {
     let action: () -> Void
 
     @State private var isHovered = false
-    @State private var showTooltip = false
 
     var body: some View {
         Button(action: action) {
@@ -198,30 +197,18 @@ struct ThreadStarterChip: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.horizontal, VSpacing.md)
                 .padding(.vertical, VSpacing.sm)
+                .background(
+                    RoundedRectangle(cornerRadius: VRadius.md)
+                        .fill(isHovered ? VColor.surfaceOverlay : VColor.surfaceActive)
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: VRadius.md)
+                        .stroke(VColor.borderBase, lineWidth: 0.5)
+                )
+                .contentShape(RoundedRectangle(cornerRadius: VRadius.md))
         }
         .buttonStyle(.plain)
-        .contentShape(Rectangle())
-        .background(
-            RoundedRectangle(cornerRadius: VRadius.md)
-                .fill(isHovered ? VColor.surfaceOverlay : VColor.surfaceActive)
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: VRadius.md)
-                .stroke(VColor.borderBase, lineWidth: 0.5)
-        )
-        .onHover { hovering in
-            isHovered = hovering
-            showTooltip = hovering
-        }
-        .popover(isPresented: $showTooltip, arrowEdge: .bottom) {
-            Text(fullPrompt)
-                .font(VFont.caption)
-                .foregroundColor(VColor.contentDefault)
-                .padding(VSpacing.sm)
-                .frame(maxWidth: 300)
-                .fixedSize(horizontal: false, vertical: true)
-                .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
-        }
+        .onHover { isHovered = $0 }
     }
 }
 

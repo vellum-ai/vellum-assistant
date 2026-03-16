@@ -695,7 +695,6 @@ struct ActiveChatViewWrapper: View {
             threadStartersLoading: viewModel.threadStartersLoading,
             onSelectStarter: { [weak viewModel] starter in
                 viewModel?.inputText = starter.prompt
-                viewModel?.sendMessage()
             },
             onFetchThreadStarters: { [weak viewModel] in viewModel?.fetchThreadStarters() },
             anchorMessageId: $anchorMessageId,
