@@ -8,6 +8,9 @@ export function createContactsAndTriageTables(database: DrizzleDb): void {
   // — dropped by migration 134 (contacts-notes-column). Omitting them here keeps
   //   the CREATE TABLE idempotent when initializeDb() runs a second time (e.g. the
   //   "daemon restart" tests) after migration 134 has already dropped them.
+  // Index removed: idx_contacts_last_interaction — the last_interaction column is
+  //   dropped by migration 159. Omitting the index avoids re-creating it on fresh
+  //   databases only for migration 159 to immediately drop it.
   database.run(/*sql*/ `
     CREATE TABLE IF NOT EXISTS contacts (
       id TEXT PRIMARY KEY,
@@ -32,9 +35,6 @@ export function createContactsAndTriageTables(database: DrizzleDb): void {
 
   database.run(
     /*sql*/ `CREATE INDEX IF NOT EXISTS idx_contacts_display_name ON contacts(display_name)`,
-  );
-  database.run(
-    /*sql*/ `CREATE INDEX IF NOT EXISTS idx_contacts_last_interaction ON contacts(last_interaction DESC)`,
   );
   database.run(
     /*sql*/ `CREATE INDEX IF NOT EXISTS idx_contact_channels_contact_id ON contact_channels(contact_id)`,
