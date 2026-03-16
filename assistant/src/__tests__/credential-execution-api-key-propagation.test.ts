@@ -1,5 +1,5 @@
 /**
- * Tests for CES API key propagation after hatch.
+ * Tests for CES API key propagation after hatch — **client side**.
  *
  * Validates the fix for the race condition where the assistant API key
  * can permanently miss CES after hatch in managed mode:
@@ -9,9 +9,26 @@
  * 3. CES server invokes the onApiKeyUpdate callback
  * 4. The client convenience method correctly sends the RPC
  *
- * The lazy `ApiKeyRef` pattern used in `managed-main.ts` is tested
- * directly in `credential-executor/src/__tests__/managed-lazy-getters.test.ts`
- * against the production `buildLazyGetters` function.
+ * ## What this file tests (and what it does NOT)
+ *
+ * This file exercises **production code** exclusively:
+ * - `createCesClient` from `credential-execution/client.ts`
+ * - Zod schemas from `@vellumai/ces-contracts` (HandshakeRequestSchema,
+ *   CesRpcSchemas, CesRpcMethod)
+ *
+ * The `createMockTransport` helper is a mock of the **transport layer**
+ * (stdin/stdout or Unix socket), not a reimplementation of any production
+ * logic. The transport interface is intentionally thin (write/onMessage/
+ * isAlive/close) so the mock is trivial and cannot diverge from real
+ * behaviour.
+ *
+ * The **server-side** lazy `ApiKeyRef` pattern used in `managed-main.ts`
+ * is tested directly in
+ * `credential-executor/src/__tests__/managed-lazy-getters.test.ts`
+ * against the production `buildLazyGetters` function. A structural guard
+ * below verifies that `managed-main.ts` imports `buildLazyGetters` from
+ * `managed-lazy-getters.ts`, so these two test files stay coupled to
+ * production code.
  *
  * These tests mock the transport layer (no real processes or sockets)
  * to verify the contract and wiring in isolation.
@@ -256,5 +273,37 @@ describe("CesClient.updateAssistantApiKey()", () => {
     }
 
     client.close();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Structural guard: managed-main.ts uses production buildLazyGetters
+// ---------------------------------------------------------------------------
+
+describe("structural guard: managed-main.ts uses production buildLazyGetters", () => {
+  test("managed-main.ts imports buildLazyGetters from managed-lazy-getters", async () => {
+    // This guard ensures that managed-main.ts exercises the production
+    // buildLazyGetters function (tested in managed-lazy-getters.test.ts),
+    // not a local reimplementation. If the import is removed or the source
+    // module changes, this test will fail and signal that the companion
+    // test coverage may no longer be wired to production code.
+    const { readFileSync } = await import("node:fs");
+    const { join, dirname } = await import("node:path");
+
+    // Resolve from the repo root (three levels up from __tests__/)
+    const repoRoot = join(dirname(import.meta.dir), "..", "..");
+    const managedMainPath = join(
+      repoRoot,
+      "credential-executor",
+      "src",
+      "managed-main.ts",
+    );
+
+    const source = readFileSync(managedMainPath, "utf-8");
+
+    expect(source).toContain('from "./managed-lazy-getters.js"');
+    expect(source).toMatch(
+      /import\s+\{[^}]*buildLazyGetters[^}]*\}\s+from\s+["']\.\/managed-lazy-getters\.js["']/,
+    );
   });
 });
