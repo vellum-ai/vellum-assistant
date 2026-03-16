@@ -641,7 +641,7 @@ Examples:
             // --client-id was explicitly provided but no matching app exists
             writeOutput(cmd, {
               ok: false,
-              error: `No registered app found for "${resolvedServiceKey}" with client ID "${opts.clientId}". Register it first with 'assistant oauth apps upsert --client-id ${opts.clientId}'.`,
+              error: `No registered app found for "${resolvedServiceKey}" with client ID "${opts.clientId}". Register it first with 'assistant oauth apps upsert --provider ${resolvedServiceKey} --client-id ${opts.clientId}'.`,
             });
             process.exitCode = 1;
             return;
