@@ -6,7 +6,7 @@ import VellumAssistantShared
 struct WorkspaceBrowserView: View {
     let client: DaemonClient?
     var initialPath: String = ""
-    private let workspaceClient: any WorkspaceClientProtocol = WorkspaceClient()
+    private let workspaceClient = WorkspaceClient()
 
     @State private var entries: [WorkspaceTreeEntry] = []
     @State private var isLoading = true

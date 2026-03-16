@@ -5,16 +5,16 @@ private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.
 
 /// Focused client for workspace file-system operations routed through the gateway.
 @MainActor
-protocol WorkspaceClientProtocol {
+public protocol WorkspaceClientProtocol {
     func fetchWorkspaceTree(path: String, showHidden: Bool) async -> WorkspaceTreeResponse?
 }
 
 /// Gateway-backed implementation of ``WorkspaceClientProtocol``.
 @MainActor
-struct WorkspaceClient: WorkspaceClientProtocol {
-    nonisolated init() {}
+public struct WorkspaceClient: WorkspaceClientProtocol {
+    nonisolated public init() {}
 
-    func fetchWorkspaceTree(path: String, showHidden: Bool) async -> WorkspaceTreeResponse? {
+    public func fetchWorkspaceTree(path: String, showHidden: Bool) async -> WorkspaceTreeResponse? {
         var params: [String: String] = [:]
         if !path.isEmpty { params["path"] = path }
         if showHidden { params["showHidden"] = "true" }

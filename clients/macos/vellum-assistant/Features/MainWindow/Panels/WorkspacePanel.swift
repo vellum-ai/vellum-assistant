@@ -76,7 +76,7 @@ final class WorkspaceBrowserState {
 struct WorkspacePanel: View {
     let daemonClient: DaemonClient
     @State private var state = WorkspaceBrowserState()
-    private let workspaceClient: any WorkspaceClientProtocol = WorkspaceClient()
+    private let workspaceClient = WorkspaceClient()
     @State private var sidebarWidth: CGFloat = 300
     @State private var dragStartWidth: CGFloat?
     @State private var didPushResizeCursor = false
@@ -247,7 +247,7 @@ struct WorkspacePanel: View {
 private struct WorkspaceTreeSidebar: View {
     @Bindable var state: WorkspaceBrowserState
     let daemonClient: DaemonClient
-    let workspaceClient: any WorkspaceClientProtocol
+    let workspaceClient: WorkspaceClient
     let onToggleHiddenFiles: (Bool) -> Void
     @State private var viewportWidth: CGFloat = 0
 
@@ -378,7 +378,9 @@ private struct WorkspaceTreeSidebar: View {
                 Task {
                     let success = await daemonClient.writeWorkspaceFile(path: filePath, content: Data())
                     if success {
-                        await state.refreshDirectory(parentPath, using: workspaceClient)
+                        if let response = await workspaceClient.fetchWorkspaceTree(path: parentPath, showHidden: state.showHiddenFiles) {
+                            state.directoryCache[parentPath] = response.entries
+                        }
                         if !parentPath.isEmpty {
                             state.expandedDirs.insert(parentPath)
                         }
@@ -397,7 +399,9 @@ private struct WorkspaceTreeSidebar: View {
                 Task {
                     let success = await daemonClient.createWorkspaceDirectory(path: folderPath)
                     if success {
-                        await state.refreshDirectory(parentPath, using: workspaceClient)
+                        if let response = await workspaceClient.fetchWorkspaceTree(path: parentPath, showHidden: state.showHiddenFiles) {
+                            state.directoryCache[parentPath] = response.entries
+                        }
                         if !parentPath.isEmpty {
                             state.expandedDirs.insert(parentPath)
                         }
@@ -410,7 +414,7 @@ private struct WorkspaceTreeSidebar: View {
 
 // MARK: - Drop Handler
 
-private func handleDrop(providers: [NSItemProvider], targetDir: String, state: WorkspaceBrowserState, daemonClient: DaemonClient, workspaceClient: any WorkspaceClientProtocol) {
+private func handleDrop(providers: [NSItemProvider], targetDir: String, state: WorkspaceBrowserState, daemonClient: DaemonClient, workspaceClient: WorkspaceClient) {
     for provider in providers {
         provider.loadItem(forTypeIdentifier: UTType.fileURL.identifier, options: nil) { item, _ in
             guard let url = fileURLFromDropItem(item) else { return }
@@ -450,7 +454,7 @@ private struct WorkspaceTreeRow: View {
     let depth: Int
     @Bindable var state: WorkspaceBrowserState
     let daemonClient: DaemonClient
-    let workspaceClient: any WorkspaceClientProtocol
+    let workspaceClient: WorkspaceClient
     var minRowWidth: CGFloat = 0
 
     private var isExpanded: Bool {
@@ -571,7 +575,9 @@ private struct WorkspaceTreeRow: View {
         Task {
             let success = await daemonClient.renameWorkspaceItem(oldPath: oldPath, newPath: newPath)
             if success {
-                await state.refreshDirectory(parentPath, using: workspaceClient)
+                if let response = await workspaceClient.fetchWorkspaceTree(path: parentPath, showHidden: state.showHiddenFiles) {
+                    state.directoryCache[parentPath] = response.entries
+                }
 
                 // Update selectedFilePath and selectedFileDetail for exact match or descendants
                 if state.selectedFilePath == oldPath {
@@ -618,7 +624,9 @@ private struct WorkspaceTreeRow: View {
                     // Re-fetch contents for directories that remain expanded under the new path
                     let newExpandedDirs = state.expandedDirs.filter { $0 == newPath || $0.hasPrefix(newPath + "/") }
                     for dir in newExpandedDirs {
-                        await state.refreshDirectory(dir, using: workspaceClient)
+                        if let response = await workspaceClient.fetchWorkspaceTree(path: dir, showHidden: state.showHiddenFiles) {
+                            state.directoryCache[dir] = response.entries
+                        }
                     }
                 }
             }
