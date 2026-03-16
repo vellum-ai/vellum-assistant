@@ -465,16 +465,13 @@ extension AppDelegate {
                 guard !Task.isCancelled else { return }
                 if case .appsListResponse(let response) = message {
                     self.cachedApps = response.apps
-                    // Only sync if daemon returned apps — empty response may indicate an error
-                    if !response.apps.isEmpty {
-                        let daemonItems = response.apps.map {
-                            AppListManager.AppItem_Daemon(
-                                id: $0.id, name: $0.name, description: $0.description,
-                                icon: $0.icon, appType: nil, createdAt: $0.createdAt
-                            )
-                        }
-                        self.mainWindow?.appListManager.syncFromDaemon(daemonItems)
+                    let daemonItems = response.apps.map {
+                        AppListManager.AppItem_Daemon(
+                            id: $0.id, name: $0.name, description: $0.description,
+                            icon: $0.icon, appType: nil, createdAt: $0.createdAt
+                        )
                     }
+                    self.mainWindow?.appListManager.syncFromDaemon(daemonItems)
                     return
                 }
             }
