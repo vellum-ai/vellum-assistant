@@ -123,9 +123,7 @@ public final class AppleContainersAvailabilityChecker: @unchecked Sendable {
 
         // 2. OS version check — Apple Containerization requires macOS 15+.
         let current = ProcessInfo.processInfo.operatingSystemVersion
-        guard current.majorVersion > 15
-            || (current.majorVersion == 15 && current.minorVersion >= 0)
-        else {
+        guard current.majorVersion >= 15 else {
             let versionString = "\(current.majorVersion).\(current.minorVersion).\(current.patchVersion)"
             availabilityLog.debug("Apple Containers unavailable: OS version \(versionString) < 15.0")
             return .unavailable(.osTooOld(currentVersion: versionString))

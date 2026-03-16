@@ -253,6 +253,16 @@ async function showAssistantProcesses(entry: AssistantEntry): Promise<void> {
 
   console.log(`Processes for ${entry.assistantId} (${cloud}):\n`);
 
+  // Apple-containers entries are fully managed by the macOS app via the Apple
+  // Containerization framework. They do not use a process-based daemon and have
+  // no instanceDir, so the standard PID/port detection would crash or mislead.
+  if (entry.runtimeBackend === "apple-containers") {
+    console.log(
+      `${entry.assistantId}: managed by Apple Containers (use the macOS app to manage)`,
+    );
+    return;
+  }
+
   if (cloud === "local") {
     const rows = await getLocalProcesses(entry);
     printTable(rows);

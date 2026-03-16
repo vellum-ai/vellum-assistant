@@ -319,10 +319,14 @@ enum LogExporter {
 
         // 11. Apple Containers diagnostics — collected only when any lockfile
         //     entry uses the apple-containers runtime backend.
+        //     Resolve availability on the @MainActor caller so the nonisolated
+        //     helper can include it without a concurrency boundary crossing.
+        let appleContainersAvailability = AppleContainersAvailabilityChecker.shared.check()
         collectAppleContainersDiagnostics(
             into: tempDir,
             home: home,
-            fileManager: fileManager
+            fileManager: fileManager,
+            availabilityExplanation: appleContainersAvailability.explanation
         )
 
         // Verify we have at least one file to export
@@ -577,7 +581,8 @@ enum LogExporter {
     private nonisolated static func collectAppleContainersDiagnostics(
         into directory: URL,
         home: String,
-        fileManager: FileManager
+        fileManager: FileManager,
+        availabilityExplanation: String
     ) {
         // Check whether any lockfile entry uses the apple-containers backend.
         let assistants = LockfileAssistant.loadAll()
@@ -591,6 +596,7 @@ enum LogExporter {
         // 1. State summary — availability and per-instance backend metadata.
         var stateInfo: [String: Any] = [
             "exportedAt": ISO8601DateFormatter().string(from: Date()),
+            "availabilityResult": availabilityExplanation,
             "appleContainersInstanceCount": acAssistants.count,
         ]
         stateInfo["instances"] = acAssistants.map { entry -> [String: Any] in

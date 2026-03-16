@@ -27,5 +27,5 @@ The macOS app now supports an optional **Apple Containers** local runtime path. 
 
 **What does not change:** Inference, memory, skills, integrations, and all chat behavior are identical regardless of which local runtime backend is selected. The assistant, gateway, and CES still run as the same OCI images; only the container runtime changes.
 
-**Diagnostic note:** If Apple Containers fails to start, check `Settings → Developer → Runtime Backend` and the diagnostics export (which now includes Apple Containers logs and state directories). The `AppleContainersAvailabilityChecker` result is included in the debug-state snapshot.
+**Diagnostic note:** If Apple Containers fails to start, check `Settings → Developer → Runtime Backend` and the diagnostics export (which now includes Apple Containers logs and state directories). The `AppleContainersAvailabilityChecker` result is captured in `apple-containers-diagnostics/apple-containers-state.json` under the `availabilityResult` key.
 <!-- /vellum-update-release:apple-containers-beta -->
