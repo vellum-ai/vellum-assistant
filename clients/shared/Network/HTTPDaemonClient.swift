@@ -3168,15 +3168,15 @@ public final class HTTPTransport {
 
         let (_, response) = try await URLSession.shared.data(for: request)
         guard let http = response as? HTTPURLResponse else {
-            throw HTTPTransportError.healthCheckFailed
+            throw HTTPTransportError.requestFailed(statusCode: 0, message: nil)
         }
 
         if http.statusCode == 401 {
-            throw HTTPTransportError.healthCheckFailed
+            throw HTTPTransportError.authenticationFailed(message: "Privacy config PATCH failed: authentication error (401)")
         }
 
         guard (200..<300).contains(http.statusCode) else {
-            throw HTTPTransportError.healthCheckFailed
+            throw HTTPTransportError.requestFailed(statusCode: http.statusCode, message: nil)
         }
     }
 
