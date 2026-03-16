@@ -94,7 +94,7 @@ public final class AppleContainersRuntimeLoader: @unchecked Sendable {
 
         // Use dlopen so we don't link against the framework at build time.
         // RTLD_LAZY | RTLD_LOCAL avoids symbol conflicts with the main binary.
-        guard dlopen(dylib.path, RTLD_LAZY | RTLD_LOCAL) != nil else {
+        guard let handle = dlopen(dylib.path, RTLD_LAZY | RTLD_LOCAL) else {
             let errorString = String(cString: dlerror())
             runtimeLoaderLog.error(
                 "dlopen failed for AppleContainersRuntime: \(errorString, privacy: .public)"
@@ -103,6 +103,20 @@ public final class AppleContainersRuntimeLoader: @unchecked Sendable {
         }
 
         runtimeLoaderLog.info("AppleContainersRuntime loaded successfully.")
+
+        // Call the bridge registration function exported by the runtime module.
+        // This posts a `com.vellum.AppleContainersRuntimeDidLoad` notification
+        // that `AppleContainersLauncher` observes to register the pod factory.
+        let registrationSymbol = "vellum_register_pod_runtime_factory"
+        if let sym = dlsym(handle, registrationSymbol) {
+            typealias RegistrationFn = @convention(c) () -> Void
+            let fn = unsafeBitCast(sym, to: RegistrationFn.self)
+            fn()
+            runtimeLoaderLog.info("AppleContainersRuntime: pod runtime factory registration triggered.")
+        } else {
+            runtimeLoaderLog.warning("AppleContainersRuntime: symbol '\(registrationSymbol, privacy: .public)' not found — pod factory registration skipped (older runtime build?).")
+        }
+
         return .loaded
     }
 
