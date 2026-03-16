@@ -378,14 +378,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
                     // daemon so it can fulfil the first message. Without this the
                     // wake-up greeting races with the detached key sync from onboarding
                     // and may hit "No providers available".
-                    // Skipped for managed assistants — they don't provision a local
-                    // actor token, so waitForToken would stall for 30s.
-                    if !isCurrentAssistantManaged {
-                        let port = self.daemonClient.httpPort
-                            ?? Int(ProcessInfo.processInfo.environment["RUNTIME_HTTP_PORT"] ?? "")
-                            ?? 7821
-                        await self.syncApiKeysToDaemon(port: port)
-                    }
+                    await self.syncApiKeysViaGateway()
 
                     // Daemon connected within timeout — proceed directly
                     // to mandatory wake-up send with retries.
