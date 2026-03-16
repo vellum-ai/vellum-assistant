@@ -90,8 +90,19 @@ function seedMessage(
   );
 }
 
+function seedConversationKey(
+  conversationKey: string,
+  conversationId: string,
+): void {
+  db().run(
+    "INSERT INTO conversation_keys (id, conversation_key, conversation_id, created_at) VALUES (?, ?, ?, ?)",
+    [crypto.randomUUID(), conversationKey, conversationId, Date.now()],
+  );
+}
+
 function cleanDb(): void {
   db().run("DELETE FROM messages");
+  db().run("DELETE FROM conversation_keys");
   db().run("DELETE FROM conversations");
 }
 
@@ -167,6 +178,25 @@ describe("diagnostics export", () => {
     expect(res.status).toBe(200);
     const json = (await res.json()) as { success: boolean; filePath: string };
     expect(json.success).toBe(true);
+    expect(json.filePath).toContain("diagnostics-");
+  });
+
+  test("resolves conversation key to daemon conversation ID", async () => {
+    const daemonConvId = "conv-6-daemon";
+    const clientKey = "AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE";
+    const now = Date.now();
+
+    seedConversation(daemonConvId);
+    seedConversationKey(clientKey, daemonConvId);
+    seedMessage("msg-user-6", daemonConvId, "user", "hello", now - 1000);
+    seedMessage("msg-assistant-6", daemonConvId, "assistant", "world", now);
+
+    // Client sends the conversation key (client-side UUID), not the daemon ID
+    const res = await callExport({ conversationId: clientKey });
+    expect(res.status).toBe(200);
+    const json = (await res.json()) as { success: boolean; filePath: string };
+    expect(json.success).toBe(true);
+    // The export should find the messages via the resolved daemon ID
     expect(json.filePath).toContain("diagnostics-");
   });
 

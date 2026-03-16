@@ -31,6 +31,7 @@ import {
 import { detectDictationModeHeuristic } from "../../daemon/handlers/dictation.js";
 import type { DictationRequest } from "../../daemon/message-types/diagnostics.js";
 import type { DictationContext } from "../../daemon/message-types/shared.js";
+import { resolveConversationId } from "../../memory/conversation-key-store.js";
 import { getDb } from "../../memory/db.js";
 import {
   llmRequestLogs,
@@ -174,7 +175,11 @@ async function handleDiagnosticsExport(body: {
     return httpError("BAD_REQUEST", "conversationId is required", 400);
   }
 
-  const { conversationId, anchorMessageId } = body;
+  // The client may send a conversation key (client-side UUID) rather than
+  // the daemon's internal conversation ID. Resolve to the canonical ID.
+  const conversationId =
+    resolveConversationId(body.conversationId) ?? body.conversationId;
+  const { anchorMessageId } = body;
 
   try {
     const db = getDb();
