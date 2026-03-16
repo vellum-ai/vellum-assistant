@@ -36,7 +36,7 @@ public struct SubagentEventItem: Identifiable {
     }
 }
 
-/// Aggregated usage stats for a subagent session.
+/// Aggregated usage stats for a subagent conversation.
 public struct SubagentUsageStats {
     public var inputTokens: Int
     public var outputTokens: Int
@@ -244,7 +244,7 @@ public final class SubagentDetailStore {
         }
     }
 
-    /// Handle a subagent event (forwarded ServerMessage from the subagent's session).
+    /// Handle a subagent event (forwarded ServerMessage from the subagent's conversation).
     public func handleEvent(subagentId: String, event: ServerMessage) {
         switch event {
         case .assistantTextDelta(let delta):

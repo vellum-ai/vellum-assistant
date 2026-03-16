@@ -264,7 +264,7 @@ public final class SettingsStore: ObservableObject {
     private var routingSourceRefreshTask: Task<Void, Never>?
 
     /// Last model reported by the daemon — used to skip redundant model_set calls
-    /// that would otherwise reinitialize providers and evict idle sessions.
+    /// that would otherwise reinitialize providers and evict idle conversations.
     private var lastDaemonModel: String?
     private var pendingVerificationSessionChannel: String?
     private var verificationSessionTimeoutWorkItem: DispatchWorkItem?
@@ -389,8 +389,8 @@ public final class SettingsStore: ObservableObject {
             }
             .store(in: &cancellables)
 
-        // maxStepsPerSession is read at session startup, so it must be persisted synchronously
-        // to avoid a race where a new session reads a stale value before the debounced write fires.
+        // maxStepsPerSession is read at conversation startup, so it must be persisted synchronously
+        // to avoid a race where a new conversation reads a stale value before the debounced write fires.
         $maxSteps
             .dropFirst()
             .sink { value in UserDefaults.standard.set(value, forKey: "maxStepsPerSession") }

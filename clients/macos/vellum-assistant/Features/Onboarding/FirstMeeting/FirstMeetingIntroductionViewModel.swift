@@ -51,7 +51,7 @@ final class FirstMeetingIntroductionViewModel {
 
     // MARK: - Start Conversation
 
-    /// Kicks off the first meeting conversation by creating a new daemon text session.
+    /// Kicks off the first meeting conversation by creating a new daemon text conversation.
     func startConversation() {
         startTime = Date()
         isThinking = true
@@ -78,7 +78,7 @@ final class FirstMeetingIntroductionViewModel {
                     transportUxBrief: "Onboarding first-meeting conversation after hatch. Follow playbook sequence and update USER.md directly."
                 ))
             } catch {
-                log.error("Failed to send session create: \(error.localizedDescription)")
+                log.error("Failed to send conversation create: \(error.localizedDescription)")
                 self.isThinking = false
                 self.messages.append(InterviewMessage(
                     role: .assistant,
@@ -116,8 +116,8 @@ final class FirstMeetingIntroductionViewModel {
                     }
 
                 case .assistantTextDelta(let delta) where self.conversationId != nil:
-                    // Filter by session to prevent contamination from concurrent sessions.
-                    if let deltaSessionId = delta.conversationId, deltaSessionId != self.conversationId {
+                    // Filter by conversation to prevent contamination from concurrent conversations.
+                    if let deltaConversationId = delta.conversationId, deltaConversationId != self.conversationId {
                         break
                     }
                     accumulated += delta.text
@@ -180,12 +180,12 @@ final class FirstMeetingIntroductionViewModel {
 
     // MARK: - Send Follow-up Message
 
-    /// Sends a follow-up user message within the existing session.
+    /// Sends a follow-up user message within the existing conversation.
     func sendMessage() {
         let text = inputText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty, !isFinished else { return }
         guard let conversationId else {
-            log.warning("Cannot send message — no active session")
+            log.warning("Cannot send message — no active conversation")
             return
         }
 
@@ -231,8 +231,8 @@ final class FirstMeetingIntroductionViewModel {
 
                 switch message {
                 case .assistantTextDelta(let delta):
-                    // Filter by session to prevent contamination from concurrent sessions.
-                    if let deltaSessionId = delta.conversationId, deltaSessionId != conversationId {
+                    // Filter by conversation to prevent contamination from concurrent conversations.
+                    if let deltaConversationId = delta.conversationId, deltaConversationId != conversationId {
                         break
                     }
                     accumulated += delta.text

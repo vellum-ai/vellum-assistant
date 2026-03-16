@@ -47,9 +47,9 @@ final class InterviewViewModel {
 
     // MARK: - Start Interview
 
-    /// Kicks off the interview by creating a new daemon text session in onboarding mode.
+    /// Kicks off the interview by creating a new daemon text conversation in onboarding mode.
     /// The assistant-side playbook/prompt system owns the conversation intelligence.
-    /// Captures the session ID and streams the assistant's opening reply into state.
+    /// Captures the conversation ID and streams the assistant's opening reply into state.
     func startInterview() {
         startTime = Date()
         isThinking = true
@@ -81,7 +81,7 @@ final class InterviewViewModel {
                     transportUxBrief: "Onboarding conversation after hatch. Follow the channel playbook and update USER.md directly."
                 ))
             } catch {
-                log.error("Failed to send session create: \(error.localizedDescription)")
+                log.error("Failed to send conversation create: \(error.localizedDescription)")
                 self.isThinking = false
                 self.messages.append(InterviewMessage(
                     role: .assistant,
@@ -182,14 +182,14 @@ final class InterviewViewModel {
 
     // MARK: - Send Follow-up Message
 
-    /// Sends a follow-up user message within the existing interview session.
+    /// Sends a follow-up user message within the existing interview conversation.
     /// Subscribes to the daemon stream and listens for the assistant's streamed reply
-    /// rather than creating a new session, keeping the conversation context intact.
+    /// rather than creating a new conversation, keeping the conversation context intact.
     func sendMessage() {
         let text = inputText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty, !isFinished else { return }
         guard let conversationId else {
-            log.warning("Cannot send message — no active session")
+            log.warning("Cannot send message — no active conversation")
             return
         }
 
