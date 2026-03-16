@@ -48,7 +48,6 @@ struct MemoriesPanel: View {
     @StateObject private var store: MemoryItemsStore
     @State private var showCreateSheet = false
     @State private var selectedItem: MemoryItemPayload?
-    @State private var selectedKind: MemoryKind?
     @State private var statusFilter: MemoryStatusFilter = .active
     @State private var sortOption: MemorySortOption = .newest
     @State private var searchDebounceTask: Task<Void, Never>?
@@ -62,7 +61,6 @@ struct MemoriesPanel: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             filterBar
-            Divider().background(VColor.borderDisabled)
             contentView
         }
         .task { await store.loadItems() }
@@ -96,84 +94,44 @@ struct MemoriesPanel: View {
 
     @ViewBuilder
     private var filterBar: some View {
-        VStack(spacing: VSpacing.lg) {
-            // Row 1: Search, Status, Sort, New
-            HStack(spacing: VSpacing.sm) {
-                VSearchBar(placeholder: "Search memories...", text: $store.searchText)
-                    .onChange(of: store.searchText) {
-                        searchDebounceTask?.cancel()
-                        searchDebounceTask = Task {
-                            try? await Task.sleep(nanoseconds: 300_000_000)
-                            guard !Task.isCancelled else { return }
-                            await store.loadItems()
-                        }
-                    }
-
-                VDropdown(
-                    placeholder: "Status",
-                    selection: $statusFilter,
-                    options: MemoryStatusFilter.allCases.map { ($0.rawValue, $0) }
-                )
-                .frame(width: 110)
-                .onChange(of: statusFilter) {
-                    store.statusFilter = statusFilter.apiValue
-                    Task { await store.loadItems() }
-                }
-
-                VDropdown(
-                    placeholder: "Sort",
-                    selection: $sortOption,
-                    options: MemorySortOption.allCases.map { ($0.rawValue, $0) }
-                )
-                .frame(width: 120)
-                .onChange(of: sortOption) {
-                    store.sortField = sortOption.sortField
-                    store.sortOrder = sortOption.sortOrder
-                    Task { await store.loadItems() }
-                }
-
-                VButton(label: "New", icon: VIcon.plus.rawValue, style: .primary) {
-                    showCreateSheet = true
-                }
-                .accessibilityLabel("Create new memory")
-            }
-
-            // Row 2: Topic chips
-            HStack(spacing: VSpacing.sm) {
-                Text("Topic:")
-                    .font(VFont.body)
-                    .foregroundColor(VColor.contentTertiary)
-
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: VSpacing.xs) {
-                        VButton(
-                            label: "All",
-                            style: selectedKind == nil ? .primary : .outlined,
-                            size: .pill
-                        ) {
-                            selectedKind = nil
-                            store.kindFilter = nil
-                            Task { await store.loadItems() }
-                        }
-                        .accessibilityLabel("All filter")
-                        .accessibilityAddTraits(selectedKind == nil ? .isSelected : [])
-
-                        ForEach(MemoryKind.allCases) { kind in
-                            VButton(
-                                label: kind.label,
-                                style: selectedKind == kind ? .primary : .outlined,
-                                size: .pill
-                            ) {
-                                selectedKind = kind
-                                store.kindFilter = kind.rawValue
-                                Task { await store.loadItems() }
-                            }
-                            .accessibilityLabel("\(kind.label) filter")
-                            .accessibilityAddTraits(selectedKind == kind ? .isSelected : [])
-                        }
+        HStack(spacing: VSpacing.sm) {
+            VSearchBar(placeholder: "Search Memories", text: $store.searchText)
+                .onChange(of: store.searchText) {
+                    searchDebounceTask?.cancel()
+                    searchDebounceTask = Task {
+                        try? await Task.sleep(nanoseconds: 300_000_000)
+                        guard !Task.isCancelled else { return }
+                        await store.loadItems()
                     }
                 }
+
+            VDropdown(
+                placeholder: "Status",
+                selection: $statusFilter,
+                options: MemoryStatusFilter.allCases.map { ($0.rawValue, $0) }
+            )
+            .frame(width: 110)
+            .onChange(of: statusFilter) {
+                store.statusFilter = statusFilter.apiValue
+                Task { await store.loadItems() }
             }
+
+            VDropdown(
+                placeholder: "Sort",
+                selection: $sortOption,
+                options: MemorySortOption.allCases.map { ($0.rawValue, $0) }
+            )
+            .frame(width: 120)
+            .onChange(of: sortOption) {
+                store.sortField = sortOption.sortField
+                store.sortOrder = sortOption.sortOrder
+                Task { await store.loadItems() }
+            }
+
+            VButton(label: "New", icon: VIcon.plus.rawValue, style: .primary) {
+                showCreateSheet = true
+            }
+            .accessibilityLabel("Create new memory")
         }
         .padding(.horizontal, VSpacing.md)
         .padding(.top, VSpacing.sm)
