@@ -534,6 +534,16 @@ export async function handleSendMessage(
   };
 
   const { conversationKey, content, attachmentIds } = body;
+  log.info(
+    {
+      conversationKey,
+      sourceChannel: body.sourceChannel,
+      interface: body.interface,
+      contentLength: typeof content === "string" ? content.length : 0,
+      hasAttachments: Array.isArray(attachmentIds) && attachmentIds.length > 0,
+    },
+    "Received message via POST /v1/messages",
+  );
   if (!body.sourceChannel || typeof body.sourceChannel !== "string") {
     return httpError("BAD_REQUEST", "sourceChannel is required", 400);
   }
