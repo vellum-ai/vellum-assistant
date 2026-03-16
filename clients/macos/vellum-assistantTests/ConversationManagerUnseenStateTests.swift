@@ -44,17 +44,17 @@ final class ConversationManagerUnseenStateTests: XCTestCase {
     }
 
     func testInactiveStandardThreadMarkedUnseenWhenAssistantReplies() {
-        guard let initialThreadId = conversationManager.activeConversationId else {
+        guard let initialConversationId = conversationManager.activeConversationId else {
             XCTFail("Expected an initial active conversation")
             return
         }
-        conversationManager.chatViewModel(for: initialThreadId)?.messages.append(ChatMessage(role: .user, text: "Seed"))
+        conversationManager.chatViewModel(for: initialConversationId)?.messages.append(ChatMessage(role: .user, text: "Seed"))
 
         conversationManager.createConversation()
         let activeConversationId = conversationManager.activeConversationId
-        XCTAssertNotEqual(initialThreadId, activeConversationId)
+        XCTAssertNotEqual(initialConversationId, activeConversationId)
 
-        guard let vm = conversationManager.chatViewModel(for: initialThreadId) else {
+        guard let vm = conversationManager.chatViewModel(for: initialConversationId) else {
             XCTFail("Expected ChatViewModel for inactive conversation")
             return
         }
@@ -64,7 +64,7 @@ final class ConversationManagerUnseenStateTests: XCTestCase {
 
         waitForPropagation()
 
-        guard let updated = conversationManager.conversations.first(where: { $0.id == initialThreadId }) else {
+        guard let updated = conversationManager.conversations.first(where: { $0.id == initialConversationId }) else {
             XCTFail("Expected conversation to exist")
             return
         }
@@ -74,9 +74,9 @@ final class ConversationManagerUnseenStateTests: XCTestCase {
     }
 
     func testInactiveThreadMarkedUnseenWhenAssistantContinuesSameMessageAfterSwitch() {
-        guard let initialThreadId = conversationManager.activeConversationId,
-              let initialVm = conversationManager.chatViewModel(for: initialThreadId),
-              let initialIndex = conversationManager.conversations.firstIndex(where: { $0.id == initialThreadId }) else {
+        guard let initialConversationId = conversationManager.activeConversationId,
+              let initialVm = conversationManager.chatViewModel(for: initialConversationId),
+              let initialIndex = conversationManager.conversations.firstIndex(where: { $0.id == initialConversationId }) else {
             XCTFail("Expected an initial active conversation and VM")
             return
         }
@@ -92,16 +92,16 @@ final class ConversationManagerUnseenStateTests: XCTestCase {
         XCTAssertFalse(conversationManager.conversations[initialIndex].hasUnseenLatestAssistantMessage)
 
         conversationManager.createConversation()
-        guard let secondaryThreadId = conversationManager.activeConversationId,
-              let secondaryIndex = conversationManager.conversations.firstIndex(where: { $0.id == secondaryThreadId }),
-              let secondaryVm = conversationManager.chatViewModel(for: secondaryThreadId) else {
+        guard let secondaryConversationId = conversationManager.activeConversationId,
+              let secondaryIndex = conversationManager.conversations.firstIndex(where: { $0.id == secondaryConversationId }),
+              let secondaryVm = conversationManager.chatViewModel(for: secondaryConversationId) else {
             XCTFail("Expected a secondary active conversation and VM")
             return
         }
 
         conversationManager.conversations[secondaryIndex].conversationId = "session-secondary"
         secondaryVm.conversationId = "session-secondary"
-        conversationManager.selectConversation(id: secondaryThreadId)
+        conversationManager.selectConversation(id: secondaryConversationId)
 
         initialVm.handleServerMessage(.assistantTextDelta(
             AssistantTextDeltaMessage(text: " + second chunk", conversationId: "session-initial")
@@ -112,7 +112,7 @@ final class ConversationManagerUnseenStateTests: XCTestCase {
 
         waitForPropagation()
 
-        guard let updated = conversationManager.conversations.first(where: { $0.id == initialThreadId }) else {
+        guard let updated = conversationManager.conversations.first(where: { $0.id == initialConversationId }) else {
             XCTFail("Expected conversation to exist")
             return
         }
@@ -120,9 +120,9 @@ final class ConversationManagerUnseenStateTests: XCTestCase {
     }
 
     func testActiveThreadEmitsSeenSignalOnNewMessageAndStreamCompletion() {
-        guard let threadId = conversationManager.activeConversationId,
-              let index = conversationManager.conversations.firstIndex(where: { $0.id == threadId }),
-              let vm = conversationManager.chatViewModel(for: threadId) else {
+        guard let conversationId = conversationManager.activeConversationId,
+              let index = conversationManager.conversations.firstIndex(where: { $0.id == conversationId }),
+              let vm = conversationManager.chatViewModel(for: conversationId) else {
             XCTFail("Expected active conversation and view model")
             return
         }
@@ -145,27 +145,27 @@ final class ConversationManagerUnseenStateTests: XCTestCase {
 
     func testUnseenVisibleConversationCountExcludesArchivedThreads() {
         // Start with the initial conversation created by setUp
-        guard let threadId = conversationManager.activeConversationId,
-              conversationManager.conversations.firstIndex(where: { $0.id == threadId }) != nil else {
+        guard let conversationId = conversationManager.activeConversationId,
+              conversationManager.conversations.firstIndex(where: { $0.id == conversationId }) != nil else {
             XCTFail("Expected an initial active conversation")
             return
         }
 
         // Seed a user message so createConversation doesn't skip
-        conversationManager.chatViewModel(for: threadId)?.messages.append(ChatMessage(role: .user, text: "Seed"))
+        conversationManager.chatViewModel(for: conversationId)?.messages.append(ChatMessage(role: .user, text: "Seed"))
 
         // Switch away so the initial conversation becomes inactive
         conversationManager.createConversation()
-        XCTAssertNotEqual(conversationManager.activeConversationId, threadId)
+        XCTAssertNotEqual(conversationManager.activeConversationId, conversationId)
 
         // Mark the initial conversation as unseen
-        if let idx = conversationManager.conversations.firstIndex(where: { $0.id == threadId }) {
+        if let idx = conversationManager.conversations.firstIndex(where: { $0.id == conversationId }) {
             conversationManager.conversations[idx].hasUnseenLatestAssistantMessage = true
         }
         XCTAssertEqual(conversationManager.unseenVisibleConversationCount, 1)
 
         // Archive it — count should drop to 0
-        conversationManager.archiveConversation(id: threadId)
+        conversationManager.archiveConversation(id: conversationId)
         XCTAssertEqual(conversationManager.unseenVisibleConversationCount, 0)
     }
 
@@ -257,8 +257,8 @@ final class ConversationManagerUnseenStateTests: XCTestCase {
     }
 
     func testMarkConversationSeenEmitsSignalAndClearsFlag() {
-        guard let threadId = conversationManager.activeConversationId,
-              let index = conversationManager.conversations.firstIndex(where: { $0.id == threadId }) else {
+        guard let conversationId = conversationManager.activeConversationId,
+              let index = conversationManager.conversations.firstIndex(where: { $0.id == conversationId }) else {
             XCTFail("Expected an initial active conversation")
             return
         }
@@ -269,7 +269,7 @@ final class ConversationManagerUnseenStateTests: XCTestCase {
 
         sentMessages.removeAll()
 
-        conversationManager.markConversationSeen(conversationId: threadId)
+        conversationManager.markConversationSeen(conversationId: conversationId)
 
         XCTAssertFalse(conversationManager.conversations[index].hasUnseenLatestAssistantMessage,
                        "markConversationSeen should clear the unseen flag")
@@ -281,8 +281,8 @@ final class ConversationManagerUnseenStateTests: XCTestCase {
     }
 
     func testMarkConversationUnreadEmitsSignalAndSetsFlag() {
-        guard let threadId = conversationManager.activeConversationId,
-              let index = conversationManager.conversations.firstIndex(where: { $0.id == threadId }) else {
+        guard let conversationId = conversationManager.activeConversationId,
+              let index = conversationManager.conversations.firstIndex(where: { $0.id == conversationId }) else {
             XCTFail("Expected an initial active conversation")
             return
         }
@@ -293,7 +293,7 @@ final class ConversationManagerUnseenStateTests: XCTestCase {
 
         sentMessages.removeAll()
 
-        conversationManager.markConversationUnread(conversationId: threadId)
+        conversationManager.markConversationUnread(conversationId: conversationId)
         waitForPropagation()
 
         XCTAssertTrue(conversationManager.conversations[index].hasUnseenLatestAssistantMessage,
@@ -305,8 +305,8 @@ final class ConversationManagerUnseenStateTests: XCTestCase {
     }
 
     func testMarkConversationUnreadDoesNotEmitDuplicateSignalForUnreadThread() {
-        guard let threadId = conversationManager.activeConversationId,
-              let index = conversationManager.conversations.firstIndex(where: { $0.id == threadId }) else {
+        guard let conversationId = conversationManager.activeConversationId,
+              let index = conversationManager.conversations.firstIndex(where: { $0.id == conversationId }) else {
             XCTFail("Expected an initial active conversation")
             return
         }
@@ -317,7 +317,7 @@ final class ConversationManagerUnseenStateTests: XCTestCase {
 
         sentMessages.removeAll()
 
-        conversationManager.markConversationUnread(conversationId: threadId)
+        conversationManager.markConversationUnread(conversationId: conversationId)
 
         let unreadSignals = sentMessages.compactMap { $0 as? ConversationUnreadSignal }
         XCTAssertTrue(unreadSignals.isEmpty, "Already-unread conversations should not emit duplicate unread signals")
@@ -325,9 +325,9 @@ final class ConversationManagerUnseenStateTests: XCTestCase {
     }
 
     func testMarkConversationUnreadAllowsLiveAssistantReplyWithoutHydratedTimestamp() {
-        guard let threadId = conversationManager.activeConversationId,
-              let index = conversationManager.conversations.firstIndex(where: { $0.id == threadId }),
-              let vm = conversationManager.chatViewModel(for: threadId) else {
+        guard let conversationId = conversationManager.activeConversationId,
+              let index = conversationManager.conversations.firstIndex(where: { $0.id == conversationId }),
+              let vm = conversationManager.chatViewModel(for: conversationId) else {
             XCTFail("Expected an initial active conversation and view model")
             return
         }
@@ -345,7 +345,7 @@ final class ConversationManagerUnseenStateTests: XCTestCase {
         conversationManager.conversations[index].latestAssistantMessageAt = nil
         sentMessages.removeAll()
 
-        conversationManager.markConversationUnread(conversationId: threadId)
+        conversationManager.markConversationUnread(conversationId: conversationId)
         waitForPropagation()
 
         XCTAssertTrue(conversationManager.conversations[index].hasUnseenLatestAssistantMessage,
@@ -357,8 +357,8 @@ final class ConversationManagerUnseenStateTests: XCTestCase {
     }
 
     func testMarkConversationUnreadRollsBackWhenSendFails() {
-        guard let threadId = conversationManager.activeConversationId,
-              let index = conversationManager.conversations.firstIndex(where: { $0.id == threadId }) else {
+        guard let conversationId = conversationManager.activeConversationId,
+              let index = conversationManager.conversations.firstIndex(where: { $0.id == conversationId }) else {
             XCTFail("Expected an initial active conversation")
             return
         }
@@ -374,7 +374,7 @@ final class ConversationManagerUnseenStateTests: XCTestCase {
         conversationManager.conversations[index].latestAssistantMessageAt = Date(timeIntervalSince1970: 9)
         conversationManager.conversations[index].lastSeenAssistantMessageAt = Date(timeIntervalSince1970: 9)
 
-        conversationManager.markConversationUnread(conversationId: threadId)
+        conversationManager.markConversationUnread(conversationId: conversationId)
         waitForPropagation()
 
         XCTAssertFalse(conversationManager.conversations[index].hasUnseenLatestAssistantMessage)
@@ -385,8 +385,8 @@ final class ConversationManagerUnseenStateTests: XCTestCase {
     }
 
     func testUnreadRollbackRequeuesDeferredSeenSignal() {
-        guard let threadId = conversationManager.activeConversationId,
-              let index = conversationManager.conversations.firstIndex(where: { $0.id == threadId }) else {
+        guard let conversationId = conversationManager.activeConversationId,
+              let index = conversationManager.conversations.firstIndex(where: { $0.id == conversationId }) else {
             XCTFail("Expected an initial active conversation")
             return
         }
@@ -411,7 +411,7 @@ final class ConversationManagerUnseenStateTests: XCTestCase {
 
         sentMessages.removeAll()
 
-        conversationManager.markConversationUnread(conversationId: threadId)
+        conversationManager.markConversationUnread(conversationId: conversationId)
         waitForPropagation()
 
         // After rollback the deferred seen signal should be re-queued,
@@ -423,8 +423,8 @@ final class ConversationManagerUnseenStateTests: XCTestCase {
     }
 
     func testMarkConversationUnreadIgnoresThreadsWithoutAssistantReply() {
-        guard let threadId = conversationManager.activeConversationId,
-              let index = conversationManager.conversations.firstIndex(where: { $0.id == threadId }) else {
+        guard let conversationId = conversationManager.activeConversationId,
+              let index = conversationManager.conversations.firstIndex(where: { $0.id == conversationId }) else {
             XCTFail("Expected an initial active conversation")
             return
         }
@@ -435,7 +435,7 @@ final class ConversationManagerUnseenStateTests: XCTestCase {
 
         sentMessages.removeAll()
 
-        conversationManager.markConversationUnread(conversationId: threadId)
+        conversationManager.markConversationUnread(conversationId: conversationId)
 
         let unreadSignals = sentMessages.compactMap { $0 as? ConversationUnreadSignal }
         XCTAssertTrue(unreadSignals.isEmpty, "Threads without assistant replies should not emit unread signals")
@@ -443,8 +443,8 @@ final class ConversationManagerUnseenStateTests: XCTestCase {
     }
 
     func testAttentionMergePreservesLocalSeenUntilDaemonAcknowledgesIt() {
-        guard let threadId = conversationManager.activeConversationId,
-              let index = conversationManager.conversations.firstIndex(where: { $0.id == threadId }) else {
+        guard let conversationId = conversationManager.activeConversationId,
+              let index = conversationManager.conversations.firstIndex(where: { $0.id == conversationId }) else {
             XCTFail("Expected an initial active conversation")
             return
         }
@@ -454,7 +454,7 @@ final class ConversationManagerUnseenStateTests: XCTestCase {
         conversationManager.conversations[index].latestAssistantMessageAt = Date(timeIntervalSince1970: 9)
         conversationManager.conversations[index].lastSeenAssistantMessageAt = Date(timeIntervalSince1970: 8)
 
-        conversationManager.markConversationSeen(conversationId: threadId)
+        conversationManager.markConversationSeen(conversationId: conversationId)
 
         let staleResponse = makeConversationListResponse(
             conversations: [[
@@ -482,8 +482,8 @@ final class ConversationManagerUnseenStateTests: XCTestCase {
     }
 
     func testAppendThreadsPreservesLocalUnreadUntilDaemonAcknowledgesIt() {
-        guard let threadId = conversationManager.activeConversationId,
-              let index = conversationManager.conversations.firstIndex(where: { $0.id == threadId }) else {
+        guard let conversationId = conversationManager.activeConversationId,
+              let index = conversationManager.conversations.firstIndex(where: { $0.id == conversationId }) else {
             XCTFail("Expected an initial active conversation")
             return
         }
@@ -493,7 +493,7 @@ final class ConversationManagerUnseenStateTests: XCTestCase {
         conversationManager.conversations[index].latestAssistantMessageAt = Date(timeIntervalSince1970: 9)
         conversationManager.conversations[index].lastSeenAssistantMessageAt = Date(timeIntervalSince1970: 9)
 
-        conversationManager.markConversationUnread(conversationId: threadId)
+        conversationManager.markConversationUnread(conversationId: conversationId)
 
         let staleResponse = makeConversationListResponse(
             conversations: [[
@@ -517,8 +517,8 @@ final class ConversationManagerUnseenStateTests: XCTestCase {
     }
 
     func testMarkConversationUnreadRemovesPendingSeenSignalForSameSession() {
-        guard let firstThreadId = conversationManager.activeConversationId,
-              let firstIndex = conversationManager.conversations.firstIndex(where: { $0.id == firstThreadId }) else {
+        guard let firstConversationId = conversationManager.activeConversationId,
+              let firstIndex = conversationManager.conversations.firstIndex(where: { $0.id == firstConversationId }) else {
             XCTFail("Expected an initial active conversation")
             return
         }
@@ -526,12 +526,12 @@ final class ConversationManagerUnseenStateTests: XCTestCase {
         conversationManager.conversations[firstIndex].conversationId = "session-first"
         conversationManager.conversations[firstIndex].hasUnseenLatestAssistantMessage = true
         conversationManager.conversations[firstIndex].latestAssistantMessageAt = Date(timeIntervalSince1970: 1)
-        conversationManager.chatViewModel(for: firstThreadId)?.messages.append(ChatMessage(role: .user, text: "Seed"))
+        conversationManager.chatViewModel(for: firstConversationId)?.messages.append(ChatMessage(role: .user, text: "Seed"))
 
         conversationManager.createConversation()
 
-        guard let secondThreadId = conversationManager.activeConversationId,
-              let secondIndex = conversationManager.conversations.firstIndex(where: { $0.id == secondThreadId }) else {
+        guard let secondConversationId = conversationManager.activeConversationId,
+              let secondIndex = conversationManager.conversations.firstIndex(where: { $0.id == secondConversationId }) else {
             XCTFail("Expected a second active conversation")
             return
         }
@@ -543,9 +543,9 @@ final class ConversationManagerUnseenStateTests: XCTestCase {
         sentMessages.removeAll()
 
         let markedIds = Set(conversationManager.markAllConversationsSeen())
-        XCTAssertEqual(markedIds, Set([firstThreadId, secondThreadId]))
+        XCTAssertEqual(markedIds, Set([firstConversationId, secondConversationId]))
 
-        conversationManager.markConversationUnread(conversationId: firstThreadId)
+        conversationManager.markConversationUnread(conversationId: firstConversationId)
         conversationManager.commitPendingSeenSignals()
         waitForPropagation()
 
@@ -556,17 +556,17 @@ final class ConversationManagerUnseenStateTests: XCTestCase {
         XCTAssertEqual(seenSignals.map(\.conversationId), ["session-second"])
 
         XCTAssertTrue(conversationManager.conversations.contains(where: {
-            $0.id == firstThreadId && $0.hasUnseenLatestAssistantMessage
+            $0.id == firstConversationId && $0.hasUnseenLatestAssistantMessage
         }))
         XCTAssertTrue(conversationManager.conversations.contains(where: {
-            $0.id == secondThreadId && !$0.hasUnseenLatestAssistantMessage
+            $0.id == secondConversationId && !$0.hasUnseenLatestAssistantMessage
         }))
     }
 
     func testActiveThreadDoesNotEmitSeenSignalOnEveryStreamingDelta() {
-        guard let threadId = conversationManager.activeConversationId,
-              let index = conversationManager.conversations.firstIndex(where: { $0.id == threadId }),
-              let vm = conversationManager.chatViewModel(for: threadId) else {
+        guard let conversationId = conversationManager.activeConversationId,
+              let index = conversationManager.conversations.firstIndex(where: { $0.id == conversationId }),
+              let vm = conversationManager.chatViewModel(for: conversationId) else {
             XCTFail("Expected active conversation and view model")
             return
         }
@@ -605,9 +605,9 @@ final class ConversationManagerUnseenStateTests: XCTestCase {
     }
 
     func testActiveThreadAssistantReplyClearsUnseenAndEmitsSeenSignal() {
-        guard let threadId = conversationManager.activeConversationId,
-              let index = conversationManager.conversations.firstIndex(where: { $0.id == threadId }),
-              let vm = conversationManager.chatViewModel(for: threadId) else {
+        guard let conversationId = conversationManager.activeConversationId,
+              let index = conversationManager.conversations.firstIndex(where: { $0.id == conversationId }),
+              let vm = conversationManager.chatViewModel(for: conversationId) else {
             XCTFail("Expected active conversation and view model")
             return
         }

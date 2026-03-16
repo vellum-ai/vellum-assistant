@@ -22,10 +22,10 @@ final class ConversationManagerSessionLoopTests: XCTestCase {
         super.tearDown()
     }
 
-    func testSelectingSessionBackedThreadStartsMessageLoop() {
-        guard let threadId = conversationManager.activeConversationId,
-              let vm = conversationManager.chatViewModel(for: threadId),
-              let index = conversationManager.conversations.firstIndex(where: { $0.id == threadId }) else {
+    func testSelectingSessionBackedConversationStartsMessageLoop() {
+        guard let conversationId = conversationManager.activeConversationId,
+              let vm = conversationManager.chatViewModel(for: conversationId),
+              let index = conversationManager.conversations.firstIndex(where: { $0.id == conversationId }) else {
             XCTFail("Expected active conversation and view model")
             return
         }
@@ -34,14 +34,14 @@ final class ConversationManagerSessionLoopTests: XCTestCase {
         vm.conversationId = "session-active"
 
         XCTAssertEqual(daemonClient.subscribers.count, 0)
-        conversationManager.selectConversation(id: threadId)
+        conversationManager.selectConversation(id: conversationId)
         XCTAssertEqual(daemonClient.subscribers.count, 1)
     }
 
-    func testSelectingSameSessionBackedThreadDoesNotDuplicateMessageLoop() {
-        guard let threadId = conversationManager.activeConversationId,
-              let vm = conversationManager.chatViewModel(for: threadId),
-              let index = conversationManager.conversations.firstIndex(where: { $0.id == threadId }) else {
+    func testSelectingSameSessionBackedConversationDoesNotDuplicateMessageLoop() {
+        guard let conversationId = conversationManager.activeConversationId,
+              let vm = conversationManager.chatViewModel(for: conversationId),
+              let index = conversationManager.conversations.firstIndex(where: { $0.id == conversationId }) else {
             XCTFail("Expected active conversation and view model")
             return
         }
@@ -49,8 +49,8 @@ final class ConversationManagerSessionLoopTests: XCTestCase {
         conversationManager.conversations[index].conversationId = "session-active"
         vm.conversationId = "session-active"
 
-        conversationManager.selectConversation(id: threadId)
-        conversationManager.selectConversation(id: threadId)
+        conversationManager.selectConversation(id: conversationId)
+        conversationManager.selectConversation(id: conversationId)
 
         XCTAssertEqual(daemonClient.subscribers.count, 1)
     }
