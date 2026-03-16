@@ -170,16 +170,6 @@ struct WorkspaceFileSheet: View {
 
     // MARK: - Helpers
 
-    private func formatFileSize(_ bytes: Int) -> String {
-        if bytes < 1024 { return "\(bytes) B" }
-        let kb = Double(bytes) / 1024.0
-        if kb < 1024 { return String(format: "%.1f KB", kb) }
-        let mb = kb / 1024.0
-        if mb < 1024 { return String(format: "%.1f MB", mb) }
-        let gb = mb / 1024.0
-        return String(format: "%.1f GB", gb)
-    }
-
     private func formatDate(_ isoString: String) -> String {
         let formatter = ISO8601DateFormatter()
         formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
