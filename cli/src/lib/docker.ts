@@ -1,7 +1,9 @@
 import { spawn as nodeSpawn } from "child_process";
 import { existsSync } from "fs";
-import { createRequire } from "module";
 import { dirname, join } from "path";
+
+// Direct import — bun embeds this at compile time so it works in compiled binaries.
+import cliPkg from "../../package.json";
 
 import { saveAssistantEntry, setActiveAssistant } from "./assistant-config";
 import type { AssistantEntry } from "./assistant-config";
@@ -17,7 +19,7 @@ import {
   writeToLogFile,
 } from "./xdg-log";
 
-const _require = createRequire(import.meta.url);
+const DOCKERHUB_IMAGE = "vellumai/vellum";
 
 /**
  * Checks whether the `docker` CLI and daemon are available on the system.
@@ -123,27 +125,20 @@ interface DockerRoot {
 }
 
 /**
- * Locate the directory containing the Dockerfile. In the source tree the
- * Dockerfiles live under `meta/`, but when installed as an npm package they
- * are at the package root.
+ * Locate the repo root containing the Dockerfiles for watch mode.
+ * In the source tree the Dockerfiles live under `meta/`.
  */
-function findDockerRoot(developmentMode: boolean = false): DockerRoot {
+function findDockerRoot(): DockerRoot {
   // Source tree: cli/src/lib/ -> repo root (Dockerfiles in meta/)
   const sourceTreeRoot = join(import.meta.dir, "..", "..", "..");
-  if (existsSync(join(sourceTreeRoot, "meta", "Dockerfile"))) {
+  if (existsSync(join(sourceTreeRoot, "meta", "Dockerfile.development"))) {
     return { root: sourceTreeRoot, dockerfileDir: "meta" };
   }
 
-  // bunx layout: @vellumai/cli/src/lib/ -> ../../../.. -> node_modules -> vellum/
-  const bunxRoot = join(import.meta.dir, "..", "..", "..", "..", "vellum");
-  if (existsSync(join(bunxRoot, "Dockerfile"))) {
-    return { root: bunxRoot, dockerfileDir: "." };
-  }
-
-  // Walk up from cwd looking for meta/Dockerfile (source checkout)
+  // Walk up from cwd looking for meta/Dockerfile.development (source checkout)
   let dir = process.cwd();
   while (true) {
-    if (existsSync(join(dir, "meta", "Dockerfile"))) {
+    if (existsSync(join(dir, "meta", "Dockerfile.development"))) {
       return { root: dir, dockerfileDir: "meta" };
     }
     const parent = dirname(dir);
@@ -151,41 +146,22 @@ function findDockerRoot(developmentMode: boolean = false): DockerRoot {
     dir = parent;
   }
 
-  // In development mode, walk up from the executable path to find the repo
-  // root. This handles the macOS app bundle case where the binary lives inside
-  // the repo at e.g. clients/macos/dist/Vellum.app/Contents/MacOS/.
-  if (developmentMode) {
-    let execDir = dirname(process.execPath);
-    while (true) {
-      if (existsSync(join(execDir, "meta", "Dockerfile.development"))) {
-        return { root: execDir, dockerfileDir: "meta" };
-      }
-      const parent = dirname(execDir);
-      if (parent === execDir) break;
-      execDir = parent;
+  // Walk up from the executable path to find the repo root. This handles the
+  // macOS app bundle case where the binary lives inside the repo at e.g.
+  // clients/macos/dist/Vellum.app/Contents/MacOS/.
+  let execDir = dirname(process.execPath);
+  while (true) {
+    if (existsSync(join(execDir, "meta", "Dockerfile.development"))) {
+      return { root: execDir, dockerfileDir: "meta" };
     }
-  }
-
-  // macOS app bundle: Contents/MacOS/vellum-cli -> Contents/Resources/Dockerfile
-  const appResourcesDir = join(dirname(process.execPath), "..", "Resources");
-  if (existsSync(join(appResourcesDir, "Dockerfile"))) {
-    return { root: appResourcesDir, dockerfileDir: "." };
-  }
-
-  // Fall back to Node module resolution for the `vellum` package
-  try {
-    const vellumPkgPath = _require.resolve("vellum/package.json");
-    const vellumDir = dirname(vellumPkgPath);
-    if (existsSync(join(vellumDir, "Dockerfile"))) {
-      return { root: vellumDir, dockerfileDir: "." };
-    }
-  } catch {
-    // resolution failed
+    const parent = dirname(execDir);
+    if (parent === execDir) break;
+    execDir = parent;
   }
 
   throw new Error(
-    "Could not find Dockerfile. Run this command from within the " +
-      "vellum-assistant repository, or ensure the vellum package is installed.",
+    "Could not find Dockerfile.development. Run this command from within the " +
+      "vellum-assistant repository.",
   );
 }
 
@@ -251,65 +227,91 @@ export async function hatchDocker(
 
   await ensureDockerInstalled();
 
-  let repoRoot: string;
-  let dockerfileDir: string;
-  try {
-    ({ root: repoRoot, dockerfileDir } = findDockerRoot(watch));
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    const logFd = openLogFile("hatch.log");
-    writeToLogFile(
-      logFd,
-      `[docker-hatch] ${new Date().toISOString()} ERROR\n${message}\n`,
-    );
-    closeLogFile(logFd);
-    console.error(message);
-    throw err;
-  }
-
   const instanceName = generateInstanceName(species, name);
-  const dockerfileName = watch ? "Dockerfile.development" : "Dockerfile";
-  const dockerfile = join(dockerfileDir, dockerfileName);
-  const dockerfilePath = join(repoRoot, dockerfile);
+  let imageTag: string;
+  let repoRoot: string | undefined;
 
-  if (!existsSync(dockerfilePath)) {
-    const message = `Error: ${dockerfile} not found at ${dockerfilePath}`;
-    const logFd = openLogFile("hatch.log");
-    writeToLogFile(
-      logFd,
-      `[docker-hatch] ${new Date().toISOString()} ERROR\n${message}\n`,
-    );
-    closeLogFile(logFd);
-    console.error(message);
-    process.exit(1);
-  }
-
-  console.log(`🥚 Hatching Docker assistant: ${instanceName}`);
-  console.log(`   Species: ${species}`);
-  console.log(`   Dockerfile: ${dockerfile}`);
   if (watch) {
-    console.log(`   Mode: development (watch)`);
-  }
-  console.log("");
+    let dockerfileDir: string;
+    try {
+      ({ root: repoRoot, dockerfileDir } = findDockerRoot());
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      const logFd = openLogFile("hatch.log");
+      writeToLogFile(
+        logFd,
+        `[docker-hatch] ${new Date().toISOString()} ERROR\n${message}\n`,
+      );
+      closeLogFile(logFd);
+      console.error(message);
+      throw err;
+    }
 
-  const imageTag = `vellum-assistant:${instanceName}`;
-  const logFd = openLogFile("hatch.log");
-  console.log("🔨 Building Docker image...");
-  try {
-    await exec("docker", ["build", "-f", dockerfile, "-t", imageTag, "."], {
-      cwd: repoRoot,
-    });
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    writeToLogFile(
-      logFd,
-      `[docker-build] ${new Date().toISOString()} ERROR\n${message}\n`,
-    );
+    const dockerfile = join(dockerfileDir, "Dockerfile.development");
+    const dockerfilePath = join(repoRoot, dockerfile);
+
+    if (!existsSync(dockerfilePath)) {
+      const message = `Error: ${dockerfile} not found at ${dockerfilePath}`;
+      const logFd = openLogFile("hatch.log");
+      writeToLogFile(
+        logFd,
+        `[docker-hatch] ${new Date().toISOString()} ERROR\n${message}\n`,
+      );
+      closeLogFile(logFd);
+      console.error(message);
+      process.exit(1);
+    }
+
+    imageTag = `vellum-assistant:${instanceName}`;
+
+    console.log(`🥚 Hatching Docker assistant: ${instanceName}`);
+    console.log(`   Species: ${species}`);
+    console.log(`   Dockerfile: ${dockerfile}`);
+    console.log(`   Mode: development (watch)`);
+    console.log("");
+
+    const logFd = openLogFile("hatch.log");
+    console.log("🔨 Building Docker image...");
+    try {
+      await exec("docker", ["build", "-f", dockerfile, "-t", imageTag, "."], {
+        cwd: repoRoot,
+      });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      writeToLogFile(
+        logFd,
+        `[docker-build] ${new Date().toISOString()} ERROR\n${message}\n`,
+      );
+      closeLogFile(logFd);
+      throw err;
+    }
     closeLogFile(logFd);
-    throw err;
+    console.log("✅ Docker image built\n");
+  } else {
+    const version = cliPkg.version ?? "latest";
+    imageTag = `${DOCKERHUB_IMAGE}:v${version}`;
+
+    console.log(`🥚 Hatching Docker assistant: ${instanceName}`);
+    console.log(`   Species: ${species}`);
+    console.log(`   Image: ${imageTag}`);
+    console.log("");
+
+    const logFd = openLogFile("hatch.log");
+    console.log("📦 Pulling Docker image...");
+    try {
+      await exec("docker", ["pull", imageTag]);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      writeToLogFile(
+        logFd,
+        `[docker-pull] ${new Date().toISOString()} ERROR\n${message}\n`,
+      );
+      closeLogFile(logFd);
+      throw err;
+    }
+    closeLogFile(logFd);
+    console.log("✅ Docker image pulled\n");
   }
-  closeLogFile(logFd);
-  console.log("✅ Docker image built\n");
 
   const gatewayPort = DEFAULT_GATEWAY_PORT;
   const runArgs: string[] = [
@@ -333,7 +335,7 @@ export async function hatchDocker(
   runArgs.push("-e", `VELLUM_ASSISTANT_NAME=${instanceName}`);
 
   // Mount source volumes in watch mode for hot reloading
-  if (watch) {
+  if (watch && repoRoot) {
     runArgs.push(
       "-v",
       `${join(repoRoot, "assistant", "src")}:/app/assistant/src`,
@@ -359,14 +361,15 @@ export async function hatchDocker(
   setActiveAssistant(instanceName);
 
   // The Dockerfiles already define a CMD that runs `vellum hatch --keep-alive`.
-  // Only override CMD when a non-default species is specified, since that
-  // requires an extra argument the Dockerfile doesn't include.
+  // Only override CMD when a non-default species is specified or when using
+  // watch mode with the pulled image, since those require extra arguments the
+  // Dockerfile doesn't include.
   const containerCmd: string[] =
-    species !== "vellum"
+    species !== "vellum" || watch
       ? [
           "vellum",
           "hatch",
-          species,
+          ...(species !== "vellum" ? [species] : []),
           ...(watch ? ["--watch"] : []),
           "--keep-alive",
         ]
@@ -375,9 +378,8 @@ export async function hatchDocker(
   // Always start the container detached so it keeps running after the CLI exits.
   runArgs.push("-d");
   console.log("🚀 Starting Docker container...");
-  await exec("docker", [...runArgs, imageTag, ...containerCmd], {
-    cwd: repoRoot,
-  });
+  const execOpts = repoRoot ? { cwd: repoRoot } : undefined;
+  await exec("docker", [...runArgs, imageTag, ...containerCmd], execOpts);
 
   if (detached) {
     console.log("\n✅ Docker assistant hatched!\n");
