@@ -183,13 +183,13 @@ extension HTTPTransport {
                     let channel = msg.channel ?? "telegram"
                     Task { await self.sendVerificationStatusGetAndDispatch(channel: channel) }
                 case "cancel_session":
-                    Task { await self.sendEncodablePostAndDispatch(.channelVerificationSessions, body: msg, method: "DELETE", messageType: "channel_verification_session_response", label: "channel_verification_cancel") }
+                    Task { await self.sendEncodablePostAndDispatch(.channelVerificationSessions, body: msg, method: "DELETE", messageType: "channel_verification_session_response", label: "channel_verification_cancel", channel: msg.channel) }
                 case "revoke":
-                    Task { await self.sendEncodablePostAndDispatch(.channelVerificationSessionsRevoke, body: msg, messageType: "channel_verification_session_response", label: "channel_verification_revoke") }
+                    Task { await self.sendEncodablePostAndDispatch(.channelVerificationSessionsRevoke, body: msg, messageType: "channel_verification_session_response", label: "channel_verification_revoke", channel: msg.channel) }
                 case "resend_session":
-                    Task { await self.sendEncodablePostAndDispatch(.channelVerificationSessionsResend, body: msg, messageType: "channel_verification_session_response", label: "channel_verification_resend") }
+                    Task { await self.sendEncodablePostAndDispatch(.channelVerificationSessionsResend, body: msg, messageType: "channel_verification_session_response", label: "channel_verification_resend", channel: msg.channel) }
                 default:
-                    Task { await self.sendEncodablePostAndDispatch(.channelVerificationSessions, body: msg, messageType: "channel_verification_session_response", label: "channel_verification_session") }
+                    Task { await self.sendEncodablePostAndDispatch(.channelVerificationSessions, body: msg, messageType: "channel_verification_session_response", label: "channel_verification_session", channel: msg.channel) }
                 }
                 return true
             }
@@ -370,7 +370,8 @@ extension HTTPTransport {
         body: T,
         method: String = "POST",
         messageType: String,
-        label: String
+        label: String,
+        channel: String? = nil
     ) async {
         guard let url = buildURL(for: endpoint) else {
             log.error("Failed to build URL for \(label)")
@@ -401,23 +402,7 @@ extension HTTPTransport {
                           let message = json["error"] as? String {
                     errorMessage = message
                 }
-                // Build a minimal synthetic JSON that satisfies the required
-                // fields of whichever response type `messageType` maps to.
-                var syntheticJSON: [String: Any] = [
-                    "type": messageType,
-                    "success": false,
-                    "error": errorMessage,
-                ]
-                // TelegramConfigResponse requires these non-optional Bools.
-                if messageType == "telegram_config_response" {
-                    syntheticJSON["hasBotToken"] = false
-                    syntheticJSON["connected"] = false
-                    syntheticJSON["hasWebhookSecret"] = false
-                }
-                if let syntheticData = try? JSONSerialization.data(withJSONObject: syntheticJSON),
-                   let serverMessage = try? decoder.decode(ServerMessage.self, from: syntheticData) {
-                    onMessage?(serverMessage)
-                }
+                dispatchSyntheticError(messageType: messageType, errorMessage: errorMessage, channel: channel)
                 return
             }
 
@@ -432,6 +417,32 @@ extension HTTPTransport {
             onMessage?(serverMessage)
         } catch {
             log.error("\(label) error: \(error.localizedDescription)")
+            dispatchSyntheticError(messageType: messageType, errorMessage: error.localizedDescription, channel: channel)
+        }
+    }
+
+    /// Build and dispatch a synthetic error `ServerMessage` so UI callbacks
+    /// fire and loading states are cleared (avoids infinite spinner).
+    private func dispatchSyntheticError(messageType: String, errorMessage: String, channel: String? = nil) {
+        var syntheticJSON: [String: Any] = [
+            "type": messageType,
+            "success": false,
+            "error": errorMessage,
+        ]
+        // TelegramConfigResponse requires these non-optional Bools.
+        if messageType == "telegram_config_response" {
+            syntheticJSON["hasBotToken"] = false
+            syntheticJSON["connected"] = false
+            syntheticJSON["hasWebhookSecret"] = false
+        }
+        // Preserve the channel so SettingsStore can route the response
+        // to the correct verification channel handler.
+        if let channel {
+            syntheticJSON["channel"] = channel
+        }
+        if let syntheticData = try? JSONSerialization.data(withJSONObject: syntheticJSON),
+           let serverMessage = try? decoder.decode(ServerMessage.self, from: syntheticData) {
+            onMessage?(serverMessage)
         }
     }
 
@@ -472,15 +483,7 @@ extension HTTPTransport {
                           let message = json["error"] as? String {
                     errorMessage = message
                 }
-                let syntheticJSON: [String: Any] = [
-                    "type": "channel_verification_session_response",
-                    "success": false,
-                    "error": errorMessage,
-                ]
-                if let syntheticData = try? JSONSerialization.data(withJSONObject: syntheticJSON),
-                   let serverMessage = try? decoder.decode(ServerMessage.self, from: syntheticData) {
-                    onMessage?(serverMessage)
-                }
+                dispatchSyntheticError(messageType: "channel_verification_session_response", errorMessage: errorMessage, channel: channel)
                 return
             }
 
@@ -494,6 +497,7 @@ extension HTTPTransport {
             onMessage?(serverMessage)
         } catch {
             log.error("channel_verification_status error: \(error.localizedDescription)")
+            dispatchSyntheticError(messageType: "channel_verification_session_response", errorMessage: error.localizedDescription, channel: channel)
         }
     }
 
