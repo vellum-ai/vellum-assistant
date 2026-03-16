@@ -15,7 +15,8 @@ struct DrawerMenuView: View {
 
     private var isBillingVisible: Bool {
         authManager.isAuthenticated &&
-        MacOSClientFeatureFlagManager.shared.isEnabled("settings_billing_enabled")
+        MacOSClientFeatureFlagManager.shared.isEnabled("settings_billing_enabled") &&
+        UserDefaults.standard.string(forKey: "connectedOrganizationId") != nil
     }
 
     var body: some View {

@@ -268,7 +268,7 @@ struct SettingsPanel: View {
     }
 
     private var billingVisible: Bool {
-        isBillingEnabled && authManager.isAuthenticated
+        isBillingEnabled && authManager.isAuthenticated && UserDefaults.standard.string(forKey: "connectedOrganizationId") != nil
     }
 
     private var settingsNav: some View {
