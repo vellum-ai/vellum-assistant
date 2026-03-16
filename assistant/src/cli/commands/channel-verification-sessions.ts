@@ -112,7 +112,10 @@ Examples:
       "Destination address for outbound verification (handle, phone number, or user ID)",
     )
     .option("--rebind", "Replace existing guardian binding")
-    .option("--session-id <sessionId>", "Session ID for inbound challenges")
+    .option(
+      "--conversation-id <conversationId>",
+      "Conversation ID for inbound challenges",
+    )
     .option(
       "--origin-conversation-id <id>",
       "Origin conversation ID for routing",
@@ -147,7 +150,7 @@ Examples:
   $ assistant channel-verification-sessions create --purpose trusted_contact --contact-channel-id abc-123
   $ assistant channel-verification-sessions create --channel telegram --destination "@guardian_handle"
   $ assistant channel-verification-sessions create --channel phone --destination "+15551234567" --rebind
-  $ assistant channel-verification-sessions create --channel telegram --session-id sess-123`,
+  $ assistant channel-verification-sessions create --channel telegram --conversation-id conv-123`,
     )
     .action(
       async (
@@ -155,7 +158,7 @@ Examples:
           channel?: string;
           destination?: string;
           rebind?: boolean;
-          sessionId?: string;
+          conversationId?: string;
           originConversationId?: string;
           purpose?: string;
           contactChannelId?: string;
@@ -249,7 +252,7 @@ Examples:
           const result = createInboundChallenge(
             channel,
             opts.rebind,
-            opts.sessionId,
+            opts.conversationId,
           );
           writeOutput(cmd, result);
           if (!result.success) {
