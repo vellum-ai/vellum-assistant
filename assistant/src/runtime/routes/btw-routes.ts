@@ -1,15 +1,15 @@
 /**
  * HTTP route handler for the POST /v1/btw SSE-streaming side-chain endpoint.
  *
- * Runs an ephemeral LLM call that reuses the session's provider, tool
+ * Runs an ephemeral LLM call that reuses the conversation's provider, tool
  * definitions, and message history for prompt-cache efficiency. Uses the
- * session's system prompt when a conversation-specific override is active;
+ * conversation's system prompt when a conversation-specific override is active;
  * otherwise builds a fresh prompt excluding BOOTSTRAP.md so first-run
  * onboarding instructions don't leak into cosmetic UI calls like identity
  * intro generation. The response is streamed as SSE events (`btw_text_delta`,
  * `btw_complete`, `btw_error`).
  *
- * No messages are persisted. `session.processing` is never set or checked.
+ * No messages are persisted. `conversation.processing` is never set or checked.
  */
 
 import { buildToolDefinitions } from "../../daemon/conversation-tool-setup.js";
@@ -81,14 +81,14 @@ async function handleBtw(
   // (the file header promises "No messages are persisted"), so we must not
   // call getOrCreateConversation which would insert a DB row.  When no
   // conversation exists (e.g. greeting generation for a draft conversation), we
-  // still get a usable session via getOrCreateConversation with the raw key; the
-  // session lives only in memory and disappears on restart.
+  // still get a usable conversation via getOrCreateConversation with the raw key; the
+  // conversation lives only in memory and disappears on restart.
   const mapping = getConversationByKey(conversationKey);
   const conversationId = mapping?.conversationId ?? conversationKey;
-  const session =
+  const conversation =
     await deps.sendMessageDeps.getOrCreateConversation(conversationId);
 
-  const messages = [...session.getMessages(), userMessage(trimmedContent)];
+  const messages = [...conversation.getMessages(), userMessage(trimmedContent)];
   const tools = buildToolDefinitions();
   const { signal: timeoutSignal, cleanup: cleanupTimeout } =
     createTimeout(30_000);
@@ -109,30 +109,35 @@ async function handleBtw(
       (async () => {
         try {
           // Preserve any conversation-specific systemPromptOverride so
-          // side-chain responses match the active session contract.  Only
+          // side-chain responses match the active conversation contract.  Only
           // fall back to a fresh prompt (excluding BOOTSTRAP.md) for
-          // default sessions where no override was provided.
-          const systemPrompt = session.hasSystemPromptOverride
-            ? session.systemPrompt
+          // default conversations where no override was provided.
+          const systemPrompt = conversation.hasSystemPromptOverride
+            ? conversation.systemPrompt
             : buildSystemPrompt({ excludeBootstrap: true });
 
-          await session.provider.sendMessage(messages, tools, systemPrompt, {
-            config: {
-              max_tokens: 1024,
-              tool_choice: { type: "none" },
-              modelIntent: "latency-optimized",
+          await conversation.provider.sendMessage(
+            messages,
+            tools,
+            systemPrompt,
+            {
+              config: {
+                max_tokens: 1024,
+                tool_choice: { type: "none" },
+                modelIntent: "latency-optimized",
+              },
+              onEvent: (event) => {
+                if (event.type === "text_delta") {
+                  controller.enqueue(
+                    encoder.encode(
+                      `event: btw_text_delta\ndata: ${JSON.stringify({ text: event.text })}\n\n`,
+                    ),
+                  );
+                }
+              },
+              signal: combinedSignal,
             },
-            onEvent: (event) => {
-              if (event.type === "text_delta") {
-                controller.enqueue(
-                  encoder.encode(
-                    `event: btw_text_delta\ndata: ${JSON.stringify({ text: event.text })}\n\n`,
-                  ),
-                );
-              }
-            },
-            signal: combinedSignal,
-          });
+          );
 
           controller.enqueue(
             encoder.encode(`event: btw_complete\ndata: {}\n\n`),

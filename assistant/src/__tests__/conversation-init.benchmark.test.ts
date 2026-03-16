@@ -278,8 +278,8 @@ mock.module("../daemon/watch-handler.js", () => ({
 }));
 
 mock.module("../tools/browser/browser-screencast.js", () => ({
-  registerSessionSender: () => {},
-  unregisterSessionSender: () => {},
+  registerConversationSender: () => {},
+  unregisterConversationSender: () => {},
   ensureScreencast: () => Promise.resolve(),
   stopBrowserScreencast: () => Promise.resolve(),
   stopAllScreencasts: () => Promise.resolve(),

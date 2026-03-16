@@ -73,11 +73,11 @@ export function syncCanonicalStatusFromConfirmationDecision(
 
 export function makeEventSender(params: {
   ctx: HandlerContext;
-  session: Conversation;
+  conversation: Conversation;
   conversationId: string;
   sourceChannel: string;
 }): (event: ServerMessage) => void {
-  const { ctx, session: conversation, conversationId, sourceChannel } = params;
+  const { ctx, conversation, conversationId, sourceChannel } = params;
 
   return (event: ServerMessage) => {
     if (event.type === "confirmation_request") {
@@ -283,7 +283,7 @@ export async function handleConversationCreate(
       parseChannelId(msg.transport?.channelId) ?? "vellum";
     const sendEvent = makeEventSender({
       ctx,
-      session: conversationObj,
+      conversation: conversationObj,
       conversationId: conversation.id,
       sourceChannel: transportChannel,
     });

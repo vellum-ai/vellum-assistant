@@ -28,7 +28,7 @@ mock.module("../services/published-app-updater.js", () => ({
 }));
 
 mock.module("../tools/browser/browser-screencast.js", () => ({
-  registerSessionSender: mock(() => {}),
+  registerConversationSender: mock(() => {}),
 }));
 
 // ---------------------------------------------------------------------------

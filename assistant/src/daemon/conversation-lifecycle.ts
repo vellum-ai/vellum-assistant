@@ -21,7 +21,7 @@ import {
   isUntrustedTrustClass,
   type TrustClass,
 } from "../runtime/actor-trust-resolver.js";
-import { unregisterSessionSender } from "../tools/browser/browser-screencast.js";
+import { unregisterConversationSender } from "../tools/browser/browser-screencast.js";
 import { getLogger } from "../util/logger.js";
 import {
   unregisterCallNotifiers,
@@ -235,7 +235,7 @@ export function disposeConversation(ctx: DisposeContext): void {
   });
   ctx.abort();
   unregisterCallNotifiers(ctx.conversationId);
-  unregisterSessionSender(ctx.conversationId);
+  unregisterConversationSender(ctx.conversationId);
   resetSkillToolProjection(ctx.skillProjectionState);
   ctx.eventBus.dispose();
 
