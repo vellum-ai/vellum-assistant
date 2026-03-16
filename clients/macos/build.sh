@@ -805,6 +805,13 @@ fi
 # Copy document type icon for .vellum UTI
 cp "$SCRIPT_DIR/vellum-assistant/Resources/VellumDocument.icns" "$RESOURCES_DIR/"
 
+# Derive target architecture for Quick Look extensions from RELEASE_ARCH_FLAGS.
+# Falls back to host architecture when RELEASE_ARCH_FLAGS is unset (dev builds).
+if [ -n "${RELEASE_ARCH_FLAGS:-}" ]; then
+    QL_TARGET_ARCH=$(echo "$RELEASE_ARCH_FLAGS" | sed -n 's/.*--arch \([^ ]*\).*/\1/p')
+fi
+QL_TARGET_ARCH="${QL_TARGET_ARCH:-$(uname -m)}"
+
 # Build and embed Quick Look Thumbnail extension (appex)
 QLTHUMB_SRC="$SCRIPT_DIR/VellumQLThumbnail"
 if [ -d "$QLTHUMB_SRC" ]; then
@@ -821,7 +828,7 @@ if [ -d "$QLTHUMB_SRC" ]; then
     xcrun swiftc \
         -module-name VellumQLThumbnail \
         -emit-executable \
-        -target "$(uname -m)-apple-macosx14.0" \
+        -target "${QL_TARGET_ARCH}-apple-macosx14.0" \
         -sdk "$(xcrun --show-sdk-path)" \
         -framework QuickLookThumbnailing \
         -framework AppKit \
@@ -850,7 +857,7 @@ if [ -d "$QLPREV_SRC" ]; then
     xcrun swiftc \
         -module-name VellumQLPreview \
         -emit-executable \
-        -target "$(uname -m)-apple-macosx14.0" \
+        -target "${QL_TARGET_ARCH}-apple-macosx14.0" \
         -sdk "$(xcrun --show-sdk-path)" \
         -framework QuickLookUI \
         -framework UniformTypeIdentifiers \

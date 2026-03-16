@@ -33,6 +33,14 @@ mock.module("../memory/llm-usage-store.js", () => ({
   queryUnreportedUsageEvents: mockQueryUnreportedUsageEvents,
 }));
 
+const mockQueryUnreportedTurnEvents = mock(
+  () => [] as { id: string; createdAt: number }[],
+);
+
+mock.module("../memory/turn-events-store.js", () => ({
+  queryUnreportedTurnEvents: mockQueryUnreportedTurnEvents,
+}));
+
 const mockResolveManagedProxyContext = mock(async () => ({
   enabled: false,
   platformBaseUrl: "",
@@ -59,6 +67,12 @@ const mockGetDeviceId = mock(() => "test-device-id");
 
 mock.module("../util/device-id.js", () => ({
   getDeviceId: mockGetDeviceId,
+}));
+
+const mockGetExternalAssistantId = mock(() => "test-assistant-id");
+
+mock.module("../runtime/auth/external-assistant-id.js", () => ({
+  getExternalAssistantId: mockGetExternalAssistantId,
 }));
 
 mock.module("../util/logger.js", () => ({
@@ -114,11 +128,15 @@ beforeEach(() => {
   mockGetMemoryCheckpoint.mockReset();
   mockSetMemoryCheckpoint.mockReset();
   mockQueryUnreportedUsageEvents.mockReset();
+  mockQueryUnreportedTurnEvents.mockReset();
+  mockQueryUnreportedTurnEvents.mockReturnValue([]);
   mockResolveManagedProxyContext.mockReset();
   mockGetTelemetryPlatformUrl.mockReset();
   mockGetTelemetryAppToken.mockReset();
   mockGetDeviceId.mockReset();
   mockGetDeviceId.mockReturnValue("test-device-id");
+  mockGetExternalAssistantId.mockReset();
+  mockGetExternalAssistantId.mockReturnValue("test-assistant-id");
 
   // Defaults
   mockGetMemoryCheckpoint.mockReturnValue(null);
@@ -165,7 +183,7 @@ describe("UsageTelemetryReporter", () => {
     expect(mockFetch).toHaveBeenCalledTimes(1);
     const [url, opts] = mockFetch.mock.calls[0] as [string, RequestInit];
     expect(url).toBe(
-      "https://test.vellum.ai/v1/assistants/self-hosted-local/telemetry/usage/",
+      "https://test.vellum.ai/v1/assistants/self-hosted-local/telemetry/ingest/",
     );
     expect((opts.headers as Record<string, string>)["Authorization"]).toBe(
       "Api-Key test-key",
@@ -193,6 +211,7 @@ describe("UsageTelemetryReporter", () => {
     expect(mockFetch).toHaveBeenCalledTimes(1);
     const [url, opts] = mockFetch.mock.calls[0] as [string, RequestInit];
     expect(url).toStartWith("https://platform.test.ai");
+    expect(url).toEndWith("/telemetry/ingest/");
     expect((opts.headers as Record<string, string>)["X-Telemetry-Token"]).toBe(
       "anon-token",
     );
@@ -342,12 +361,14 @@ describe("UsageTelemetryReporter", () => {
       (mockFetch.mock.calls[0] as [string, RequestInit])[1].body as string,
     );
 
-    // Top-level: installation_id and events array
+    // Top-level: installation_id and events array (no turn_events key)
     expect(body.installation_id).toBe("test-device-id");
     expect(Array.isArray(body.events)).toBe(true);
     expect(body.events.length).toBe(1);
+    expect(body.turn_events).toBeUndefined();
 
     const e = body.events[0];
+    expect(e.type).toBe("llm_usage");
     expect(e.daemon_event_id).toBe("evt-shape-test");
     expect(e.provider).toBe("anthropic");
     expect(e.model).toBe("claude-sonnet-4-20250514");
@@ -357,5 +378,42 @@ describe("UsageTelemetryReporter", () => {
     expect(e.cache_read_input_tokens).toBe(15);
     expect(e.actor).toBe("context_compactor");
     expect(e.recorded_at).toBe(1700000099000);
+  });
+
+  test("turn events are included in the events array with type discriminator", async () => {
+    const usageEvent = makeUsageEvent({ id: "evt-mixed-usage" });
+    mockQueryUnreportedUsageEvents.mockReturnValue([usageEvent]);
+    mockQueryUnreportedTurnEvents.mockReturnValue([
+      { id: "evt-mixed-turn", createdAt: 1700000050000 },
+    ]);
+    mockFetch.mockImplementation(() =>
+      Promise.resolve(new Response('{"accepted":2}', { status: 200 })),
+    );
+
+    const reporter = new UsageTelemetryReporter();
+    await reporter.flush();
+
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+    const body = JSON.parse(
+      (mockFetch.mock.calls[0] as [string, RequestInit])[1].body as string,
+    );
+
+    // Single events array containing both types
+    expect(body.events.length).toBe(2);
+    expect(body.turn_events).toBeUndefined();
+
+    const llmEvent = body.events.find(
+      (e: { type: string }) => e.type === "llm_usage",
+    );
+    const turnEvent = body.events.find(
+      (e: { type: string }) => e.type === "turn",
+    );
+
+    expect(llmEvent).toBeDefined();
+    expect(llmEvent.daemon_event_id).toBe("evt-mixed-usage");
+
+    expect(turnEvent).toBeDefined();
+    expect(turnEvent.daemon_event_id).toBe("evt-mixed-turn");
+    expect(turnEvent.recorded_at).toBe(1700000050000);
   });
 });

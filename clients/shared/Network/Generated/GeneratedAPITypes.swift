@@ -4825,8 +4825,10 @@ public struct UserMessageAttachment: Codable, Sendable {
     public let thumbnailData: String?
     /// Absolute path to the local file on disk. Present for file-backed attachments (e.g. recordings).
     public let filePath: String?
+    /// True when the attachment is file-backed and clients should hydrate via the /content endpoint.
+    public let fileBacked: Bool?
 
-    public init(id: String? = nil, filename: String, mimeType: String, data: String, extractedText: String? = nil, sizeBytes: Int? = nil, thumbnailData: String? = nil, filePath: String? = nil) {
+    public init(id: String? = nil, filename: String, mimeType: String, data: String, extractedText: String? = nil, sizeBytes: Int? = nil, thumbnailData: String? = nil, filePath: String? = nil, fileBacked: Bool? = nil) {
         self.id = id
         self.filename = filename
         self.mimeType = mimeType
@@ -4835,6 +4837,7 @@ public struct UserMessageAttachment: Codable, Sendable {
         self.sizeBytes = sizeBytes
         self.thumbnailData = thumbnailData
         self.filePath = filePath
+        self.fileBacked = fileBacked
     }
 }
 
