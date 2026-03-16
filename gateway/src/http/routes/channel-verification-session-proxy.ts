@@ -26,6 +26,7 @@ export function createChannelVerificationSessionProxyHandler(
     req: Request,
     upstreamPath: string,
     upstreamSearch: string,
+    clientIp?: string,
   ): Promise<Response> {
     const start = performance.now();
     const upstream = `${config.assistantRuntimeBaseUrl}${upstreamPath}${upstreamSearch}`;
@@ -33,6 +34,12 @@ export function createChannelVerificationSessionProxyHandler(
     const reqHeaders = stripHopByHop(new Headers(req.headers));
     reqHeaders.delete("host");
     reqHeaders.delete("authorization");
+
+    // Inject the real client IP so the runtime can enforce loopback-only
+    // checks, overwriting any client-supplied value to prevent spoofing.
+    if (clientIp) {
+      reqHeaders.set("x-forwarded-for", clientIp);
+    }
 
     // Mint a short-lived service token for gateway->runtime auth.
     // The token itself proves gateway origin (aud=vellum-daemon).
@@ -139,7 +146,10 @@ export function createChannelVerificationSessionProxyHandler(
       );
     },
 
-    async handleGuardianInit(req: Request): Promise<Response> {
+    async handleGuardianInit(
+      req: Request,
+      clientIp?: string,
+    ): Promise<Response> {
       const lockPath = join(getRootDir(), "guardian-init.lock");
       if (existsSync(lockPath) || guardianInitInFlight) {
         log.warn("Guardian init rejected — already bootstrapped");
@@ -151,7 +161,12 @@ export function createChannelVerificationSessionProxyHandler(
 
       guardianInitInFlight = true;
       try {
-        const response = await proxyToRuntime(req, "/v1/guardian/init", "");
+        const response = await proxyToRuntime(
+          req,
+          "/v1/guardian/init",
+          "",
+          clientIp,
+        );
 
         if (response.status >= 200 && response.status < 300) {
           try {
