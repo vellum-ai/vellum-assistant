@@ -147,11 +147,12 @@ describe("Dynamic Skill Authoring Workflow prompt section", () => {
     expect(result).toContain("skill_load");
   });
 
-  test("system prompt includes browser skill prerequisite guidance", () => {
+  test("browser skill has activation hints in available_skills XML instead of dedicated section", () => {
     writeFileSync(join(TEST_DIR, "IDENTITY.md"), "I am Vellum.");
     const result = buildSystemPrompt();
-    expect(result).toContain("Browser Skill Prerequisite");
-    expect(result).toContain("browser_*");
-    expect(result).toContain("skill_load");
+    // Browser routing moved from dedicated section to frontmatter hints
+    expect(result).not.toContain("Browser Skill Prerequisite");
+    expect(result).toContain('id="browser"');
+    expect(result).toContain("hints=");
   });
 });
