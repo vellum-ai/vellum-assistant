@@ -430,103 +430,86 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
         log.info("Removed private conversation \(id)")
     }
 
+    /// Shared creation path for conversations spawned by background processes
+    /// (schedules, task runs, notifications). All background conversations start
+    /// with the unread badge set, ensuring the user sees new activity.
+    ///
+    /// - Parameters:
+    ///   - conversationId: Daemon conversation ID to bind.
+    ///   - title: Display title for the sidebar.
+    ///   - source: Optional source tag ("schedule", "notification", etc.).
+    ///   - scheduleJobId: Optional schedule job ID for schedule grouping.
+    ///   - markHistoryLoaded: When true (default), marks history as loaded
+    ///     since these conversations stream live. Set to false for notification
+    ///     conversations that have a pre-existing seed message requiring fetch.
+    /// - Returns: The conversation's local ID if created, nil if a duplicate was skipped.
+    @discardableResult
+    private func createBackgroundConversation(
+        conversationId: String,
+        title: String,
+        source: String? = nil,
+        scheduleJobId: String? = nil,
+        markHistoryLoaded: Bool = true
+    ) -> UUID? {
+        guard !conversations.contains(where: { $0.conversationId == conversationId }) else {
+            return nil
+        }
+
+        var conversation = ConversationModel(title: title, conversationId: conversationId)
+        if let source { conversation.source = source }
+        if let scheduleJobId { conversation.scheduleJobId = scheduleJobId }
+        conversation.hasUnseenLatestAssistantMessage = true
+
+        let viewModel = makeViewModel()
+        viewModel.conversationId = conversationId
+        if markHistoryLoaded {
+            viewModel.isHistoryLoaded = true
+        }
+        viewModel.startMessageLoop()
+
+        conversations.insert(conversation, at: 0)
+        chatViewModels[conversation.id] = viewModel
+        subscribeToBusyState(for: conversation.id, viewModel: viewModel)
+        subscribeToAssistantActivity(for: conversation.id, viewModel: viewModel)
+        subscribeToInteractionState(for: conversation.id, viewModel: viewModel)
+        touchVMAccessOrder(conversation.id)
+        evictStaleCachedViewModels()
+
+        return conversation.id
+    }
+
     /// Create a visible thread bound to an existing task run conversation.
     /// Called when the daemon broadcasts `task_run_conversation_created` so the user
     /// can see task execution messages streaming in real-time.
     func createTaskRunConversation(conversationId: String, workItemId: String, title: String) {
-        // Avoid creating a duplicate thread if one already exists for this conversation
-        if conversations.contains(where: { $0.conversationId == conversationId }) {
-            return
-        }
-
-        var thread = ConversationModel(title: title, conversationId: conversationId)
-        thread.hasUnseenLatestAssistantMessage = true
-        let viewModel = makeViewModel()
-        viewModel.conversationId = conversationId
-        // Mark history as loaded since this thread streams live — there is no
-        // prior history to fetch. Without this, handleAssistantMessageArrival
-        // would drop all live updates (unseen indicators, recency bumps) because
-        // the !isHistoryLoaded guard returns early.
-        viewModel.isHistoryLoaded = true
-        // Start the message loop so the view model receives streamed messages
-        viewModel.startMessageLoop()
-
-        conversations.insert(thread, at: 0)
-        chatViewModels[thread.id] = viewModel
-        subscribeToBusyState(for: thread.id, viewModel: viewModel)
-        subscribeToAssistantActivity(for: thread.id, viewModel: viewModel)
-        subscribeToInteractionState(for: thread.id, viewModel: viewModel)
-        touchVMAccessOrder(thread.id)
-        evictStaleCachedViewModels()
-
-        log.info("Created task run conversation \(thread.id) for conversation \(conversationId) (work item \(workItemId))")
+        guard let localId = createBackgroundConversation(conversationId: conversationId, title: title) else { return }
+        log.info("Created task run conversation \(localId) for conversation \(conversationId) (work item \(workItemId))")
     }
 
     /// Create a visible thread bound to a schedule-created conversation.
     /// Called when the daemon broadcasts `schedule_conversation_created` so the user
     /// sees scheduled conversations in the sidebar without a full refresh.
     func createScheduleConversation(conversationId: String, scheduleJobId: String, title: String) {
-        // Avoid creating a duplicate thread if one already exists for this conversation
-        if conversations.contains(where: { $0.conversationId == conversationId }) {
-            return
-        }
-
-        var thread = ConversationModel(title: title, conversationId: conversationId)
-        thread.scheduleJobId = scheduleJobId
-        thread.source = "schedule"
-        thread.hasUnseenLatestAssistantMessage = true
-        let viewModel = makeViewModel()
-        viewModel.conversationId = conversationId
-        viewModel.isHistoryLoaded = true
-        viewModel.startMessageLoop()
-
-        conversations.insert(thread, at: 0)
-        chatViewModels[thread.id] = viewModel
-        subscribeToBusyState(for: thread.id, viewModel: viewModel)
-        subscribeToAssistantActivity(for: thread.id, viewModel: viewModel)
-        subscribeToInteractionState(for: thread.id, viewModel: viewModel)
-        touchVMAccessOrder(thread.id)
-        evictStaleCachedViewModels()
-
-        log.info("Created schedule conversation \(thread.id) for conversation \(conversationId) (schedule \(scheduleJobId))")
+        guard let localId = createBackgroundConversation(
+            conversationId: conversationId,
+            title: title,
+            source: "schedule",
+            scheduleJobId: scheduleJobId
+        ) else { return }
+        log.info("Created schedule conversation \(localId) for conversation \(conversationId) (schedule \(scheduleJobId))")
     }
 
     /// Create a visible thread bound to a notification-created conversation.
     /// Called when the daemon broadcasts `notification_thread_created` so the user
     /// can see notification conversations and deep-link into them.
     func createNotificationConversation(conversationId: String, title: String, sourceEventName: String) {
-        // Avoid creating a duplicate thread if one already exists for this conversation
-        if conversations.contains(where: { $0.conversationId == conversationId }) {
-            return
-        }
-
-        var thread = ConversationModel(title: title, conversationId: conversationId)
-        thread.source = "notification"
-        thread.hasUnseenLatestAssistantMessage = true
-        let viewModel = makeViewModel()
-        viewModel.conversationId = conversationId
-        // Do NOT set isHistoryLoaded here — notification conversations have a
-        // pre-existing seed message persisted by conversation-pairing before
-        // the notification_thread_created event is emitted. Leaving
-        // isHistoryLoaded false allows ConversationRestorer.loadHistoryIfNeeded
-        // to fetch that seed message when the thread is first selected.
-        // The handleAssistantMessageArrival guard dropping updates is correct
-        // for notification conversations because their content arrives via history
-        // load, not live streaming. Unread state is already set explicitly
-        // above (hasUnseenLatestAssistantMessage = true).
-
-        // Start the message loop so the view model receives streamed messages
-        viewModel.startMessageLoop()
-
-        conversations.insert(thread, at: 0)
-        chatViewModels[thread.id] = viewModel
-        subscribeToBusyState(for: thread.id, viewModel: viewModel)
-        subscribeToAssistantActivity(for: thread.id, viewModel: viewModel)
-        subscribeToInteractionState(for: thread.id, viewModel: viewModel)
-        touchVMAccessOrder(thread.id)
-        evictStaleCachedViewModels()
-
-        log.info("Created notification conversation \(thread.id) for conversation \(conversationId) (source: \(sourceEventName))")
+        guard let localId = createBackgroundConversation(
+            conversationId: conversationId,
+            title: title,
+            source: "notification",
+            markHistoryLoaded: false
+        ) else { return }
+        log.info("Created notification conversation \(localId) for conversation \(conversationId) (source: \(sourceEventName))")
     }
 
     func closeConversation(id: UUID) {
