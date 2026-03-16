@@ -20,10 +20,24 @@ interface SessionEntry {
   pendingPermissions: Map<string, { resolve: (optionId: string) => void }>;
   sendToVellum: (msg: ServerMessage) => void;
   currentPrompt: Promise<unknown> | null;
+  parentSessionId: string;
 }
 
 export class AcpSessionManager {
   private sessions = new Map<string, SessionEntry>();
+
+  /**
+   * Optional callback to inject a completion/failure message into the parent
+   * session's conversation so the LLM sees the agent's output.
+   * Wired by DaemonServer at startup.
+   */
+  onAcpSessionFinished:
+    | ((
+        parentSessionId: string,
+        message: string,
+        sendToClient: (msg: ServerMessage) => void,
+      ) => Promise<void>)
+    | null = null;
 
   constructor(private readonly maxConcurrent: number) {}
 
@@ -49,6 +63,11 @@ export class AcpSessionManager {
     }
 
     const acpSessionId = randomUUID();
+    log.info(
+      { acpSessionId, agentId, task: task.slice(0, 200), cwd, parentSessionId },
+      "ACP spawn requested",
+    );
+
     const pendingPermissions = new Map<
       string,
       { resolve: (optionId: string) => void }
@@ -83,17 +102,29 @@ export class AcpSessionManager {
       pendingPermissions,
       sendToVellum,
       currentPrompt: null,
+      parentSessionId,
     };
 
     this.sessions.set(acpSessionId, entry);
 
     try {
+      log.info({ acpSessionId, agentId }, "ACP spawning child process");
       agentProcess.spawn(cwd);
+      log.info(
+        { acpSessionId, agentId },
+        "ACP initializing protocol connection",
+      );
       await agentProcess.initialize();
+      log.info({ acpSessionId, agentId }, "ACP creating session");
       const acpProtocolSessionId = await agentProcess.createSession(cwd);
       state.acpSessionId = acpProtocolSessionId;
       state.status = "running";
+      log.info(
+        { acpSessionId, agentId, acpProtocolSessionId },
+        "ACP session running",
+      );
     } catch (err) {
+      log.error({ acpSessionId, agentId, err }, "ACP spawn failed");
       // Kill the orphaned child process and remove the reserved slot.
       agentProcess.kill();
       this.sessions.delete(acpSessionId);
@@ -231,6 +262,7 @@ export class AcpSessionManager {
     acpProtocolSessionId: string,
     message: string,
   ): Promise<unknown> {
+    log.info({ acpSessionId, messageLen: message.length }, "ACP firing prompt");
     const promptPromise = entry.process
       .prompt(acpProtocolSessionId, message)
       .then((response) => {
@@ -245,11 +277,32 @@ export class AcpSessionManager {
             current.state.stopReason = response.stopReason;
           }
           current.currentPrompt = null;
+          log.info(
+            { acpSessionId, stopReason: response.stopReason },
+            "ACP prompt completed",
+          );
           current.sendToVellum({
             type: "acp_session_completed",
             acpSessionId,
             stopReason: response.stopReason,
           });
+
+          // Notify parent session so the LLM sees the agent's output
+          if (this.onAcpSessionFinished) {
+            const agentLabel = current.state.agentId;
+            const responseText = current.clientHandler.responseText;
+            const notifyMessage = `[ACP agent "${agentLabel}" completed]\n\n${responseText}`;
+            this.onAcpSessionFinished(
+              current.parentSessionId,
+              notifyMessage,
+              current.sendToVellum,
+            ).catch((notifyErr) => {
+              log.error(
+                { acpSessionId, notifyErr },
+                "Failed to notify parent of ACP completion",
+              );
+            });
+          }
         }
       })
       .catch((err: Error) => {
@@ -263,6 +316,7 @@ export class AcpSessionManager {
             current.state.error = err.message;
           }
           current.currentPrompt = null;
+          log.error({ acpSessionId, error: err.message }, "ACP prompt failed");
           current.sendToVellum({
             type: "acp_session_error",
             acpSessionId,

@@ -50,6 +50,12 @@ interface TerminalState {
  */
 export class VellumAcpClientHandler implements Client {
   private terminals = new Map<string, TerminalState>();
+  private accumulatedText = "";
+
+  /** Returns the full agent response text accumulated from agent_message_chunk events. */
+  get responseText(): string {
+    return this.accumulatedText;
+  }
 
   constructor(
     private readonly acpSessionId: string,
@@ -62,10 +68,15 @@ export class VellumAcpClientHandler implements Client {
 
   async sessionUpdate(params: SessionNotification): Promise<void> {
     const update = params.update;
+    log.debug(
+      { acpSessionId: this.acpSessionId, updateType: update.sessionUpdate },
+      "ACP session update received",
+    );
 
     switch (update.sessionUpdate) {
       case "agent_message_chunk": {
         const text = extractText(update.content);
+        this.accumulatedText += text;
         this.sendToVellum({
           type: "acp_session_update",
           acpSessionId: this.acpSessionId,
@@ -141,6 +152,16 @@ export class VellumAcpClientHandler implements Client {
     params: RequestPermissionRequest,
   ): Promise<RequestPermissionResponse> {
     const requestId = randomUUID();
+    log.info(
+      {
+        acpSessionId: this.acpSessionId,
+        requestId,
+        toolTitle: params.toolCall.title,
+        toolKind: params.toolCall.kind,
+        optionCount: params.options.length,
+      },
+      "ACP permission requested",
+    );
 
     const optionIdPromise = new Promise<string>((resolve) => {
       this.pendingPermissions.set(requestId, { resolve });
@@ -161,12 +182,20 @@ export class VellumAcpClientHandler implements Client {
     });
 
     const optionId = await optionIdPromise;
+    log.info(
+      { acpSessionId: this.acpSessionId, requestId, optionId },
+      "ACP permission resolved",
+    );
     return { outcome: { outcome: "selected", optionId } };
   }
 
   async readTextFile(
     params: ReadTextFileRequest,
   ): Promise<ReadTextFileResponse> {
+    log.debug(
+      { acpSessionId: this.acpSessionId, path: params.path },
+      "ACP readTextFile",
+    );
     const content = await Bun.file(params.path).text();
     return { content };
   }
@@ -174,6 +203,10 @@ export class VellumAcpClientHandler implements Client {
   async writeTextFile(
     params: WriteTextFileRequest,
   ): Promise<WriteTextFileResponse> {
+    log.info(
+      { acpSessionId: this.acpSessionId, path: params.path },
+      "ACP writeTextFile",
+    );
     await Bun.write(params.path, params.content);
     return {};
   }
@@ -182,6 +215,15 @@ export class VellumAcpClientHandler implements Client {
     params: CreateTerminalRequest,
   ): Promise<CreateTerminalResponse> {
     const terminalId = randomUUID();
+    log.info(
+      {
+        acpSessionId: this.acpSessionId,
+        terminalId,
+        command: params.command,
+        args: params.args,
+      },
+      "ACP createTerminal",
+    );
 
     const args = params.args ?? [];
     const env: Record<string, string> = { ...process.env } as Record<
