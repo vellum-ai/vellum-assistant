@@ -696,7 +696,7 @@ struct MainWindowView: View {
             // isAppChatOpen could remain persisted as true with no UI to
             // disable it, leaving panels stuck in split mode.
             isAppChatOpen = false
-            windowState.refreshAPIKeyStatus(isConnected: daemonClient.isConnected)
+            windowState.refreshAPIKeyStatus(isConnected: daemonClient.isConnected, isAuthenticated: authManager.isAuthenticated)
             selectedConversationId = conversationManager.activeConversationId
             // Initialize persistent conversation tracking on launch
             if let activeId = conversationManager.activeConversationId {
@@ -725,10 +725,10 @@ struct MainWindowView: View {
             daemonClient.stopSSE()
         }
         .onReceive(NotificationCenter.default.publisher(for: .apiKeyManagerDidChange)) { _ in
-            windowState.refreshAPIKeyStatus(isConnected: daemonClient.isConnected)
+            windowState.refreshAPIKeyStatus(isConnected: daemonClient.isConnected, isAuthenticated: authManager.isAuthenticated)
         }
         .onReceive(daemonClient.$isConnected) { connected in
-            windowState.refreshAPIKeyStatus(isConnected: connected)
+            windowState.refreshAPIKeyStatus(isConnected: connected, isAuthenticated: authManager.isAuthenticated)
 
             // Fallback for fresh users with 0 conversations: dismiss skeleton after a
             // short delay once the daemon is connected. Only applies during initial load.
@@ -739,6 +739,9 @@ struct MainWindowView: View {
                     showDaemonLoading = false
                 }
             }
+        }
+        .onChange(of: authManager.isAuthenticated) { _, isAuthenticated in
+            windowState.refreshAPIKeyStatus(isConnected: daemonClient.isConnected, isAuthenticated: isAuthenticated)
         }
         .onChange(of: conversationManager.conversations.isEmpty) { _, isEmpty in
             // Dismiss skeleton when conversations arrive from daemon

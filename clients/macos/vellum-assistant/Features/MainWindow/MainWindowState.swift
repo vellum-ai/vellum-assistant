@@ -230,8 +230,8 @@ public final class MainWindowState: ObservableObject {
         showPanel(.intelligence)
     }
 
-    func refreshAPIKeyStatus(isConnected: Bool) {
-        hasAPIKey = APIKeyManager.hasAnyKey() || isConnected
+    func refreshAPIKeyStatus(isConnected: Bool, isAuthenticated: Bool) {
+        hasAPIKey = APIKeyManager.hasAnyKey() || isConnected || isAuthenticated
     }
 
     func applyLayoutConfig(_ wire: UiLayoutConfigMessage) {
