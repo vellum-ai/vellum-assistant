@@ -45,7 +45,7 @@ export async function executeAcpSpawn(
       agentConfig,
       task,
       cwd,
-      context.sessionId,
+      context.conversationId,
       sendToClient as (msg: unknown) => void,
     );
 

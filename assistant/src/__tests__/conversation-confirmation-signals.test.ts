@@ -301,7 +301,7 @@ describe("centralized confirmation emissions", () => {
     const emitted: ServerMessage[] = [];
     const conversation = makeConversation((msg) => emitted.push(msg));
 
-    seedPendingConfirmation(session, "req-allow-1");
+    seedPendingConfirmation(conversation, "req-allow-1");
     conversation.handleConfirmationResponse("req-allow-1", "allow");
 
     const confirmMsgs = emitted.filter(
@@ -329,7 +329,7 @@ describe("centralized confirmation emissions", () => {
     const emitted: ServerMessage[] = [];
     const conversation = makeConversation((msg) => emitted.push(msg));
 
-    seedPendingConfirmation(session, "req-deny-1");
+    seedPendingConfirmation(conversation, "req-deny-1");
     conversation.handleConfirmationResponse("req-deny-1", "deny");
 
     const confirmMsg = emitted.find(
@@ -353,7 +353,7 @@ describe("centralized confirmation emissions", () => {
     const emitted: ServerMessage[] = [];
     const conversation = makeConversation((msg) => emitted.push(msg));
 
-    seedPendingConfirmation(session, "req-activity-1");
+    seedPendingConfirmation(conversation, "req-activity-1");
     conversation.handleConfirmationResponse("req-activity-1", "allow");
 
     const activityMsg = emitted.find(
@@ -376,7 +376,7 @@ describe("centralized confirmation emissions", () => {
     const emitted: ServerMessage[] = [];
     const conversation = makeConversation((msg) => emitted.push(msg));
 
-    seedPendingConfirmation(session, "req-ctx-1");
+    seedPendingConfirmation(conversation, "req-ctx-1");
     conversation.handleConfirmationResponse(
       "req-ctx-1",
       "allow",
@@ -406,7 +406,7 @@ describe("centralized confirmation emissions", () => {
     const emitted: ServerMessage[] = [];
     const conversation = makeConversation((msg) => emitted.push(msg));
 
-    seedPendingConfirmation(session, "req-always-deny");
+    seedPendingConfirmation(conversation, "req-always-deny");
     conversation.handleConfirmationResponse("req-always-deny", "always_deny");
 
     const confirmMsg = emitted.find(
@@ -425,7 +425,7 @@ describe("centralized confirmation emissions", () => {
     const emitted: ServerMessage[] = [];
     const conversation = makeConversation((msg) => emitted.push(msg));
 
-    seedPendingConfirmation(session, "req-always-allow");
+    seedPendingConfirmation(conversation, "req-always-allow");
     conversation.handleConfirmationResponse("req-always-allow", "always_allow");
 
     const confirmMsg = emitted.find(
@@ -497,7 +497,7 @@ describe("activity version ordering", () => {
     const baselineVersion = baselineMsg.activityVersion;
 
     // Now handle a confirmation
-    seedPendingConfirmation(session, "req-version-1");
+    seedPendingConfirmation(conversation, "req-version-1");
     conversation.handleConfirmationResponse("req-version-1", "allow");
 
     const activityMsgs = emitted.filter(
@@ -549,7 +549,7 @@ describe("sendToClient receives state signals", () => {
     const clientMsgs: ServerMessage[] = [];
     const conversation = makeConversation((msg) => clientMsgs.push(msg));
 
-    seedPendingConfirmation(session, "req-signal-confirm");
+    seedPendingConfirmation(conversation, "req-signal-confirm");
     conversation.handleConfirmationResponse("req-signal-confirm", "allow");
 
     const confirmSignal = clientMsgs.find(
