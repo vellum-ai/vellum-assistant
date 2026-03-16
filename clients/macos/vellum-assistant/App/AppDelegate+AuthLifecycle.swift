@@ -183,16 +183,15 @@ extension AppDelegate {
             // alive with potentially stale state.
             for assistant in LockfileAssistant.loadAll() where !assistant.isRemote && !assistant.isManaged {
                 if assistant.assistantId != connectedAssistantId {
-                    if let instanceDir = assistant.instanceDir {
-                        let env = ["BASE_DATA_DIR": instanceDir]
-                        let pidPath = VellumAssistantShared.resolvePidPath(environment: env)
-                        if let data = try? Data(contentsOf: URL(fileURLWithPath: pidPath)),
-                           let pidString = String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines),
-                           let pid = pid_t(pidString),
-                           kill(pid, 0) == 0 {
-                            kill(pid, SIGTERM)
-                            log.info("Stopped daemon for assistant \(assistant.assistantId, privacy: .public) (pid \(pid))")
-                        }
+                    let env: [String: String]? = assistant.instanceDir.map { ["BASE_DATA_DIR": $0] }
+                    let pidPath = VellumAssistantShared.resolvePidPath(environment: env)
+                    if let data = try? Data(contentsOf: URL(fileURLWithPath: pidPath)),
+                       let pidString = String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines),
+                       let pid = pid_t(pidString),
+                       kill(pid, 0) == 0,
+                       Self.isVellumProcess(pid: pid) {
+                        kill(pid, SIGTERM)
+                        log.info("Stopped daemon for assistant \(assistant.assistantId, privacy: .public) (pid \(pid))")
                     }
                 }
             }
@@ -650,5 +649,32 @@ extension AppDelegate {
         lastRegisteredGlobalHotkey = nil
         lastRegisteredQuickInputHotkey = nil
         tearDownQuickInputMonitors()
+    }
+
+    // MARK: - Process identity validation
+
+    /// Verify that a PID belongs to a vellum-related process by inspecting its
+    /// command line via `ps`. Prevents killing unrelated processes when a PID
+    /// file is stale and the OS has reused the PID.
+    private static func isVellumProcess(pid: pid_t) -> Bool {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/ps")
+        process.arguments = ["-p", "\(pid)", "-o", "command="]
+        let pipe = Pipe()
+        process.standardOutput = pipe
+        process.standardError = FileHandle.nullDevice
+        do {
+            try process.run()
+            process.waitUntilExit()
+        } catch {
+            return false
+        }
+        guard let data = try? pipe.fileHandleForReading.readDataToEndOfFile(),
+              let command = String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !command.isEmpty else {
+            return false
+        }
+        let vellumPatterns = ["vellum-daemon", "vellum-cli", "vellum-gateway", "@vellumai", "/.vellum/", "/vellum/", "/daemon/main"]
+        return vellumPatterns.contains { command.contains($0) }
     }
 }
