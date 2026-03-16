@@ -750,7 +750,7 @@ describe("host_bash — proxy delegation", () => {
     expect(calls[0].input.command).toBe("echo hello");
     expect(calls[0].input.working_dir).toBe("/tmp");
     expect(calls[0].input.timeout_seconds).toBe(30);
-    expect(calls[0].conversationId).toBe("test-session");
+    expect(calls[0].conversationId).toBe("test-conversation");
     // Should NOT have spawned a local process
     expect(spawnCalls.length).toBe(0);
   });

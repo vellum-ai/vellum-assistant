@@ -99,7 +99,7 @@ async function completeHandshake(
     JSON.stringify({
       type: "handshake_ack",
       protocolVersion: CES_PROTOCOL_VERSION,
-      conversationId: sent.conversationId,
+      sessionId: sent.sessionId,
       accepted: true,
     }),
   );
@@ -122,7 +122,7 @@ describe("handshake schema includes assistantApiKey", () => {
     const result = HandshakeRequestSchema.safeParse({
       type: "handshake_request",
       protocolVersion: "0.1.0",
-      conversationId: "test-session",
+      sessionId: "test-session",
       assistantApiKey: "vak_test_key_12345",
     });
     expect(result.success).toBe(true);
@@ -132,7 +132,7 @@ describe("handshake schema includes assistantApiKey", () => {
     const result = HandshakeRequestSchema.safeParse({
       type: "handshake_request",
       protocolVersion: "0.1.0",
-      conversationId: "test-session",
+      sessionId: "test-session",
     });
     expect(result.success).toBe(true);
   });
@@ -233,7 +233,7 @@ describe("CesClient.updateAssistantApiKey()", () => {
       JSON.stringify({
         type: "handshake_ack",
         protocolVersion: CES_PROTOCOL_VERSION,
-        conversationId: hsSent.conversationId,
+        sessionId: hsSent.sessionId,
         accepted: true,
       }),
     );

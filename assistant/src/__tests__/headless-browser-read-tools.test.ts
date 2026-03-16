@@ -107,7 +107,7 @@ describe("executeBrowserPressKey", () => {
 
   test("presses key on targeted element via element_id", async () => {
     snapshotMaps.set(
-      "test-session",
+      "test-conversation",
       new Map([["e1", '[data-vellum-eid="e1"]']]),
     );
     const result = await executeBrowserPressKey(

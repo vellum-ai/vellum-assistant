@@ -8,7 +8,7 @@
  *    stateful_template.yaml K8s spec (read-only mount + private PVC).
  *
  * 2. Bootstrap handshake contract: protocol version is valid semver and
- *    the handshake schema requires both protocolVersion and conversationId.
+ *    the handshake schema requires both protocolVersion and sessionId.
  *
  * 3. local_static handle rejection: managed mode returns clear errors
  *    when local_static credential handles are used (the core managed-mode
@@ -260,13 +260,13 @@ describe("managed CES bootstrap handshake contract", () => {
     expect(CES_PROTOCOL_VERSION).toBe("0.1.0");
   });
 
-  test("handshake request schema requires protocolVersion and conversationId", () => {
+  test("handshake request schema requires protocolVersion and sessionId", () => {
     // Both fields are mandatory for the managed bootstrap handshake.
     // A handshake missing either must be rejected at parse time.
     const validHandshake = {
       type: "handshake_request" as const,
       protocolVersion: CES_PROTOCOL_VERSION,
-      conversationId: "test-session-123",
+      sessionId: "test-session-123",
     };
     const result = HandshakeRequestSchema.safeParse(validHandshake);
     expect(result.success).toBe(true);
@@ -275,12 +275,12 @@ describe("managed CES bootstrap handshake contract", () => {
   test("handshake request schema rejects missing protocolVersion", () => {
     const result = HandshakeRequestSchema.safeParse({
       type: "handshake_request",
-      conversationId: "test-session-123",
+      sessionId: "test-session-123",
     });
     expect(result.success).toBe(false);
   });
 
-  test("handshake request schema rejects missing conversationId", () => {
+  test("handshake request schema rejects missing sessionId", () => {
     const result = HandshakeRequestSchema.safeParse({
       type: "handshake_request",
       protocolVersion: CES_PROTOCOL_VERSION,
@@ -293,7 +293,7 @@ describe("managed CES bootstrap handshake contract", () => {
     const result = HandshakeRequestSchema.safeParse({
       type: "handshake_request",
       protocolVersion: CES_PROTOCOL_VERSION,
-      conversationId: "test-session-123",
+      sessionId: "test-session-123",
       assistantApiKey: "vellum_key_test",
     });
     expect(result.success).toBe(true);
@@ -303,7 +303,7 @@ describe("managed CES bootstrap handshake contract", () => {
     const acceptedAck = {
       type: "handshake_ack" as const,
       protocolVersion: CES_PROTOCOL_VERSION,
-      conversationId: "test-session-123",
+      sessionId: "test-session-123",
       accepted: true,
     };
     const result = HandshakeAckSchema.safeParse(acceptedAck);
@@ -312,7 +312,7 @@ describe("managed CES bootstrap handshake contract", () => {
     const rejectedAck = {
       type: "handshake_ack" as const,
       protocolVersion: CES_PROTOCOL_VERSION,
-      conversationId: "test-session-123",
+      sessionId: "test-session-123",
       accepted: false,
       reason: "Unsupported protocol version",
     };

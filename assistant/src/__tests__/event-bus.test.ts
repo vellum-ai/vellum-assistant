@@ -23,7 +23,7 @@ describe("EventBus", () => {
       startedAtMs: Date.now(),
     });
 
-    expect(seen).toEqual(["first:bash", "second:sess-1"]);
+    expect(seen).toEqual(["first:bash", "second:conv-1"]);
   });
 
   test("supports onAny listeners with event envelopes", async () => {
