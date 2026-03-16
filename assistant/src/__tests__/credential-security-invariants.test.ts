@@ -254,6 +254,7 @@ describe("Invariant 2: no generic plaintext secret read API", () => {
       "daemon/conversation-slash.ts", // session slash command API key lookup
       "daemon/conversation-process.ts", // session process API key lookup
       "daemon/lifecycle.ts", // CLI edge token persistence at startup
+      "daemon/providers-setup.ts", // provider initialization API key lookup
       "tools/claude-code/claude-code.ts", // Claude Code tool API key lookup
     ]);
 
