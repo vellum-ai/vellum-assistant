@@ -109,7 +109,7 @@ struct MemoryItemDetailSheet: View {
                     VButton(
                         label: "Delete",
                         iconOnly: VIcon.trash.rawValue,
-                        style: .ghost,
+                        style: .dangerGhost,
                         tooltip: "Delete memory"
                     ) {
                         showDeleteConfirm = true
@@ -375,7 +375,13 @@ struct MemoryItemDetailSheet: View {
     private var kindBadge: some View {
         let color = memoryKind?.color ?? VColor.contentTertiary
         let label = memoryKind?.label ?? displayItem.kind.capitalized
-        VBadge(style: .label(label), color: color)
+        Text(label)
+            .font(VFont.caption)
+            .foregroundColor(VColor.contentEmphasized)
+            .padding(.horizontal, VSpacing.sm)
+            .padding(.vertical, VSpacing.xs)
+            .background(color.opacity(0.2))
+            .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
     }
 
     private func metadataRow(label: String, value: String) -> some View {

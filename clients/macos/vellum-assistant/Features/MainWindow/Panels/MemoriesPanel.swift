@@ -138,9 +138,7 @@ struct MemoriesPanel: View {
             }
             .accessibilityLabel("Create new memory")
         }
-        .padding(.horizontal, VSpacing.md)
         .padding(.top, VSpacing.sm)
-        .padding(.bottom, VSpacing.md)
     }
 
     // MARK: - Kind Sidebar
@@ -165,7 +163,6 @@ struct MemoriesPanel: View {
             }
         }
         .frame(width: 220)
-        .padding(.leading, VSpacing.md)
     }
 
     @ViewBuilder
@@ -215,7 +212,6 @@ struct MemoriesPanel: View {
                         )
                     }
                 }
-                .padding(.trailing, VSpacing.md)
                 .background { OverlayScrollerStyle() }
             }
             .scrollContentBackground(.hidden)
