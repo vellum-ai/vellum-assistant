@@ -1,3 +1,4 @@
+import os
 import SwiftUI
 import VellumAssistantShared
 
@@ -405,6 +406,8 @@ struct AssistantProgressView: View {
 
     @ViewBuilder
     private var expandedContent: some View {
+        let _ = os_signpost(.event, log: PerfSignposts.log, name: "assistantProgressExpandedContent",
+                            "toolCallCount=%d", toolCalls.count)
         VStack(alignment: .leading, spacing: 0) {
             ForEach(toolCalls) { toolCall in
                 if !toolCall.isComplete && toolCall.toolName == "claude_code"
