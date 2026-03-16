@@ -24,15 +24,16 @@ import Foundation
 public func vellumRegisterPodRuntimeFactory() {
     let provider = AppleContainersPodRuntimeFactoryProvider()
 
-    // Post on main queue so the observer in AppleContainersLauncher (which is
-    // @MainActor-isolated) receives the notification on the right thread.
-    DispatchQueue.main.async {
-        NotificationCenter.default.post(
-            name: Notification.Name("com.vellum.AppleContainersRuntimeDidLoad"),
-            object: provider,
-            userInfo: nil
-        )
-    }
+    // Post synchronously so that makePodRuntimeHandle() in
+    // AppleContainersLauncher can read factoryProvider immediately after
+    // vellum_register_pod_runtime_factory() returns.  An async dispatch would
+    // let makePodRuntimeHandle() run before the notification fires, leaving
+    // factoryProvider nil on the first launch.
+    NotificationCenter.default.post(
+        name: Notification.Name("com.vellum.AppleContainersRuntimeDidLoad"),
+        object: provider,
+        userInfo: nil
+    )
 }
 
 // MARK: - Factory provider
@@ -141,7 +142,7 @@ public final class AppleContainersPodRuntimeAdapter: NSObject {
 
     /// Starts the pod.  Calls `completionHandler(nil)` on success or
     /// `completionHandler(error)` on failure.
-    @objc
+    @objc(hatchAsync:)
     public func hatchAsync(completionHandler: @escaping (Error?) -> Void) {
         Task {
             do {
@@ -155,7 +156,7 @@ public final class AppleContainersPodRuntimeAdapter: NSObject {
 
     /// Stops the pod.  Calls `completionHandler(nil)` on success or
     /// `completionHandler(error)` on failure.
-    @objc
+    @objc(retireAsync:)
     public func retireAsync(completionHandler: @escaping (Error?) -> Void) {
         Task {
             do {

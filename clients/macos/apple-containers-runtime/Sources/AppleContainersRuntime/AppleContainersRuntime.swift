@@ -18,7 +18,7 @@ public struct AppleContainersRuntime: Sendable {
     /// The version of the Apple Containerization dependency this runtime was
     /// compiled against.  Exposed so the availability helper can surface it in
     /// diagnostic output without importing this module directly.
-    public static let containerizationVersion = "0.1.1"
+    public static let containerizationVersion = "0.12.1"
 
     public init() {}
 
