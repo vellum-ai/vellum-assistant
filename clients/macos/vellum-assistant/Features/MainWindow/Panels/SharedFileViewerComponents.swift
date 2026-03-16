@@ -56,6 +56,7 @@ struct FileContentHeaderBar<Trailing: View>: View {
             Text(fileSize)
                 .font(VFont.small)
                 .foregroundColor(VColor.contentTertiary)
+                .fixedSize()
             trailing
         }
         .padding(.horizontal, VSpacing.md)

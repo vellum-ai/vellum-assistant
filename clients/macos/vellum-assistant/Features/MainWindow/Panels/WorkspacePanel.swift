@@ -724,9 +724,8 @@ private struct WorkspaceFileViewer: View {
                         VSegmentedControl(
                             items: modes.map { (label: viewModeLabel($0), tag: $0) },
                             selection: $state.viewMode,
-                            style: .pill
+                            style: .underline
                         )
-                        .frame(width: CGFloat(modes.count) * 60)
                     }
                 }
 
