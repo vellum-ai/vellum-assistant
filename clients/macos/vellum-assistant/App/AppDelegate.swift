@@ -358,6 +358,11 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
             ensureActorCredentials()
         }
 
+        // Reset before provisioning so a stale flag from a previous
+        // bootstrap cycle doesn't cause awaitLocalBootstrapCompleted to
+        // skip the wait for the new cycle's credentials.
+        localBootstrapDidComplete = false
+
         // Provision an AssistantAPIKey for local assistants so they can
         // call platform APIs.
         ensureLocalAssistantApiKey()
