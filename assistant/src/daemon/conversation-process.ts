@@ -15,7 +15,7 @@ import type {
   TurnInterfaceContext,
 } from "../channels/types.js";
 import { parseChannelId, parseInterfaceId } from "../channels/types.js";
-import { API_KEY_PROVIDERS, getConfig } from "../config/loader.js";
+import { getConfig } from "../config/loader.js";
 import { listPendingRequestsByConversationScope } from "../memory/canonical-guardian-store.js";
 import {
   addMessage,
@@ -25,9 +25,9 @@ import {
 } from "../memory/conversation-crud.js";
 import { extractPreferences } from "../notifications/preference-extractor.js";
 import { createPreference } from "../notifications/preferences-store.js";
+import { getConfiguredProviders } from "../providers/provider-availability.js";
 import type { Message } from "../providers/types.js";
 import { routeGuardianReply } from "../runtime/guardian-reply-router.js";
-import { getProviderKeyAsync } from "../security/secure-keys.js";
 import { getLogger } from "../util/logger.js";
 import type { MessageQueue } from "./conversation-queue-manager.js";
 import type { QueueDrainReason } from "./conversation-queue-manager.js";
@@ -50,18 +50,11 @@ const log = getLogger("session-process");
 /** Build a model_info event with fresh config data. */
 export async function buildModelInfoEvent(): Promise<ServerMessage> {
   const config = getConfig();
-  const configured: string[] = ["ollama"];
-  for (const p of API_KEY_PROVIDERS) {
-    if (p === "ollama") continue;
-    if (await getProviderKeyAsync(p)) {
-      configured.push(p);
-    }
-  }
   return {
     type: "model_info",
     model: config.model,
     provider: config.provider,
-    configuredProviders: configured,
+    configuredProviders: await getConfiguredProviders(),
   };
 }
 
