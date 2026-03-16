@@ -50,7 +50,7 @@ describe("send-notification tool", () => {
       contextPayload: {
         requestedMessage: "Your verification code is 123456",
         requestedByTool: "send_notification",
-        requestedBySessionId: "sess-1",
+        requestedBySessionId: "conv-1",
         requestedTitle: "Verification code",
         requestedByConversationId: "conv-override",
         preferredChannels: ["vellum"],

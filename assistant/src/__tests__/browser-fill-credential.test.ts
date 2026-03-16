@@ -127,7 +127,7 @@ describe("executeBrowserFillCredential", () => {
 
   test("fills credential into element by element_id", async () => {
     snapshotMaps.set(
-      "test-session",
+      "test-conversation",
       new Map([["e1", '[data-vellum-eid="e1"]']]),
     );
     const result = await executeBrowserFillCredential(
@@ -161,7 +161,7 @@ describe("executeBrowserFillCredential", () => {
   test("returns error when credential not found", async () => {
     mockGetCredentialMetadata = mock(() => undefined);
     snapshotMaps.set(
-      "test-session",
+      "test-conversation",
       new Map([["e1", '[data-vellum-eid="e1"]']]),
     );
     const result = await executeBrowserFillCredential(
@@ -177,7 +177,7 @@ describe("executeBrowserFillCredential", () => {
   test("returns error when metadata exists but no stored value", async () => {
     mockGetSecureKey = mock(() => undefined);
     snapshotMaps.set(
-      "test-session",
+      "test-conversation",
       new Map([["e1", '[data-vellum-eid="e1"]']]),
     );
     const result = await executeBrowserFillCredential(
@@ -202,7 +202,7 @@ describe("executeBrowserFillCredential", () => {
 
   test("presses Enter after fill when press_enter is true", async () => {
     snapshotMaps.set(
-      "test-session",
+      "test-conversation",
       new Map([["e2", '[data-vellum-eid="e2"]']]),
     );
     const result = await executeBrowserFillCredential(
@@ -227,7 +227,7 @@ describe("executeBrowserFillCredential", () => {
 
   test("credential value NEVER appears in result content", async () => {
     snapshotMaps.set(
-      "test-session",
+      "test-conversation",
       new Map([["e1", '[data-vellum-eid="e1"]']]),
     );
     const result = await executeBrowserFillCredential(
@@ -240,7 +240,7 @@ describe("executeBrowserFillCredential", () => {
 
   test("returns error when service is missing", async () => {
     snapshotMaps.set(
-      "test-session",
+      "test-conversation",
       new Map([["e1", '[data-vellum-eid="e1"]']]),
     );
     const result = await executeBrowserFillCredential(
@@ -253,7 +253,7 @@ describe("executeBrowserFillCredential", () => {
 
   test("returns error when field is missing", async () => {
     snapshotMaps.set(
-      "test-session",
+      "test-conversation",
       new Map([["e1", '[data-vellum-eid="e1"]']]),
     );
     const result = await executeBrowserFillCredential(
@@ -270,7 +270,7 @@ describe("executeBrowserFillCredential", () => {
   describe("broker integration", () => {
     test("fill succeeds with no domain or tool-policy checks", async () => {
       snapshotMaps.set(
-        "test-session",
+        "test-conversation",
         new Map([["e1", '[data-vellum-eid="e1"]']]),
       );
       const result = await executeBrowserFillCredential(
@@ -284,7 +284,7 @@ describe("executeBrowserFillCredential", () => {
 
     test("credential access goes through broker (metadata + value checked)", async () => {
       snapshotMaps.set(
-        "test-session",
+        "test-conversation",
         new Map([["e1", '[data-vellum-eid="e1"]']]),
       );
       await executeBrowserFillCredential(
@@ -307,7 +307,7 @@ describe("executeBrowserFillCredential", () => {
         allowedTools: ["some_other_tool"],
       }));
       snapshotMaps.set(
-        "test-session",
+        "test-conversation",
         new Map([["e1", '[data-vellum-eid="e1"]']]),
       );
       const result = await executeBrowserFillCredential(
@@ -327,7 +327,7 @@ describe("executeBrowserFillCredential", () => {
         allowedDomains: ["other-site.com"],
       }));
       snapshotMaps.set(
-        "test-session",
+        "test-conversation",
         new Map([["e1", '[data-vellum-eid="e1"]']]),
       );
       const result = await executeBrowserFillCredential(
@@ -346,7 +346,7 @@ describe("executeBrowserFillCredential", () => {
         allowedDomains: ["example.com"],
       }));
       snapshotMaps.set(
-        "test-session",
+        "test-conversation",
         new Map([["e1", '[data-vellum-eid="e1"]']]),
       );
       const result = await executeBrowserFillCredential(
@@ -364,7 +364,7 @@ describe("executeBrowserFillCredential", () => {
         allowedTools: ["other_tool"],
       }));
       snapshotMaps.set(
-        "test-session",
+        "test-conversation",
         new Map([["e1", '[data-vellum-eid="e1"]']]),
       );
       const result = await executeBrowserFillCredential(

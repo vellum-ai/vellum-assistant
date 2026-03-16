@@ -133,7 +133,7 @@ describe("executeBrowserSnapshot", () => {
     await executeBrowserSnapshot({}, ctx);
     expect(storeSnapshotMapMock).toHaveBeenCalledTimes(1);
 
-    const stored = storedMaps.get("test-session");
+    const stored = storedMaps.get("test-conversation");
     expect(stored).toBeDefined();
     expect(stored!.get("e1")).toBe('[data-vellum-eid="e1"]');
     expect(stored!.get("e2")).toBe('[data-vellum-eid="e2"]');
@@ -178,7 +178,7 @@ describe("executeBrowserClose", () => {
     const result = await executeBrowserClose({}, ctx);
     expect(result.isError).toBe(false);
     expect(result.content).toContain("Browser page closed for this session.");
-    expect(closeSessionPageMock).toHaveBeenCalledWith("test-session");
+    expect(closeSessionPageMock).toHaveBeenCalledWith("test-conversation");
     expect(closeAllPagesMock).not.toHaveBeenCalled();
   });
 
