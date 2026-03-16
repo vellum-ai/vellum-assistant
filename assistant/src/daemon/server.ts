@@ -3,6 +3,7 @@ import { join } from "node:path";
 
 import {
   disposeAcpSessionManager,
+  getAcpSessionManager,
   setBroadcastToAllClients,
 } from "../acp/index.js";
 import {
@@ -361,6 +362,38 @@ export class DaemonServer {
             log.error(
               { parentConversationId, err },
               "Failed to process subagent notification in parent",
+            );
+          });
+      }
+    };
+    getAcpSessionManager().onAcpSessionFinished = async (
+      parentSessionId,
+      message,
+      sendToClient,
+    ) => {
+      const parentSession = this.sessions.get(parentSessionId);
+      if (!parentSession) {
+        log.warn(
+          { parentSessionId },
+          "ACP agent finished but parent session not found",
+        );
+        return;
+      }
+      const requestId = `acp-notify-${Date.now()}`;
+      const enqueueResult = parentSession.enqueueMessage(
+        message,
+        [],
+        sendToClient,
+        requestId,
+      );
+      if (!enqueueResult.queued && !enqueueResult.rejected) {
+        const messageId = await parentSession.persistUserMessage(message, []);
+        parentSession
+          .runAgentLoop(message, messageId, sendToClient)
+          .catch((err) => {
+            log.error(
+              { parentSessionId, err },
+              "Failed to process ACP notification in parent",
             );
           });
       }
