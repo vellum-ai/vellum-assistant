@@ -72,32 +72,18 @@ extension AppDelegate {
     /// or until the timeout expires. This ensures managed-proxy credentials are provisioned
     /// before the wake-up greeting triggers an LLM call.
     func awaitLocalBootstrapCompleted(timeout: TimeInterval) async {
-        await withCheckedContinuation { continuation in
-            var resumed = false
-            var observer: (any NSObjectProtocol)?
-            observer = NotificationCenter.default.addObserver(
-                forName: .localBootstrapCompleted,
-                object: nil,
-                queue: .main
-            ) { _ in
-                guard !resumed else { return }
-                resumed = true
-                if let obs = observer {
-                    NotificationCenter.default.removeObserver(obs)
+        await withTaskGroup(of: Void.self) { group in
+            group.addTask {
+                for await _ in NotificationCenter.default.notifications(named: .localBootstrapCompleted) {
+                    return
                 }
-                continuation.resume()
             }
-
-            Task {
+            group.addTask {
                 try? await Task.sleep(nanoseconds: UInt64(timeout * 1_000_000_000))
-                guard !resumed else { return }
-                resumed = true
-                if let obs = observer {
-                    NotificationCenter.default.removeObserver(obs)
-                }
                 log.warning("Local bootstrap did not complete within \(timeout)s — proceeding with wake-up")
-                continuation.resume()
             }
+            await group.next()
+            group.cancelAll()
         }
     }
 
