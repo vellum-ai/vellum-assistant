@@ -86,9 +86,9 @@ export function loadConfig(): GatewayConfig {
   // discover its co-located daemon's HTTP port. In multi-instance setups,
   // the CLI passes a per-instance daemon port so each gateway proxies to
   // the correct daemon process (see cli/src/lib/local.ts startGateway).
-  const runtimeHost = process.env.RUNTIME_HTTP_HOST || "localhost";
+  const assistantHost = process.env.ASSISTANT_HOST || "localhost";
   const runtimePort = process.env.RUNTIME_HTTP_PORT || "7821";
-  const assistantRuntimeBaseUrl = `http://${runtimeHost}:${runtimePort}`;
+  const assistantRuntimeBaseUrl = `http://${assistantHost}:${runtimePort}`;
 
   const gatewayInternalBaseUrl = `http://127.0.0.1:${port}`;
 

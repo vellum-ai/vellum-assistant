@@ -314,6 +314,7 @@ function serviceDockerRunArgs(opts: {
         "-v", `${res.dataVolume}:/data`,
         "-v", `${res.socketVolume}:/run/ces-bootstrap`,
         "-e", `VELLUM_ASSISTANT_NAME=${instanceName}`,
+        "-e", "RUNTIME_HTTP_HOST=0.0.0.0",
       ];
       for (const envVar of ["ANTHROPIC_API_KEY", "VELLUM_PLATFORM_URL"]) {
         if (process.env[envVar]) {
@@ -331,7 +332,7 @@ function serviceDockerRunArgs(opts: {
       "-v", `${res.dataVolume}:/data`,
       "-e", "BASE_DATA_DIR=/data",
       "-e", `GATEWAY_PORT=${GATEWAY_INTERNAL_PORT}`,
-      "-e", `RUNTIME_HTTP_HOST=${res.assistantContainer}`,
+      "-e", `ASSISTANT_HOST=${res.assistantContainer}`,
       "-e", `RUNTIME_HTTP_PORT=${ASSISTANT_INTERNAL_PORT}`,
       imageTags.gateway,
     ],
