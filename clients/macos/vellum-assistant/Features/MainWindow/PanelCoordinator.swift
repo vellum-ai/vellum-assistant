@@ -692,6 +692,7 @@ struct ActiveChatViewWrapper: View {
             daemonGreeting: viewModel.emptyStateGreeting,
             onRequestGreeting: { [weak viewModel] in viewModel?.generateGreeting() },
             threadStarters: viewModel.threadStarters,
+            threadStartersLoading: viewModel.threadStartersLoading,
             onSelectStarter: { [weak viewModel] starter in
                 viewModel?.inputText = starter.prompt
                 viewModel?.sendMessage()

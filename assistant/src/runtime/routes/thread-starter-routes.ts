@@ -4,11 +4,12 @@
  * GET /v1/thread-starters — list thread starters for empty conversation chips
  */
 
-import { desc, eq } from "drizzle-orm";
+import { and, desc, eq, inArray, like } from "drizzle-orm";
 
 import { getDb } from "../../memory/db.js";
+import { enqueueMemoryJob } from "../../memory/jobs-store.js";
 import { rawGet } from "../../memory/raw-query.js";
-import { threadStarters } from "../../memory/schema.js";
+import { memoryJobs, threadStarters } from "../../memory/schema.js";
 import type { RouteDefinition } from "../http-router.js";
 
 // ---------------------------------------------------------------------------
@@ -48,7 +49,39 @@ function handleListThreadStarters(url: URL): Response {
   );
   const total = countRow?.c ?? 0;
 
-  return Response.json({ starters: items, total });
+  // If starters exist, return them immediately.
+  if (total > 0) {
+    return Response.json({ starters: items, total, status: "ready" });
+  }
+
+  // No starters — check whether we have memory items to generate from.
+  const memoryCount = rawGet<{ c: number }>(
+    `SELECT COUNT(*) AS c FROM memory_items WHERE status = 'active' AND scope_id = ?`,
+    scopeId,
+  );
+
+  if (!memoryCount || memoryCount.c === 0) {
+    return Response.json({ starters: [], total: 0, status: "empty" });
+  }
+
+  // Memory items exist but no starters yet — ensure a generation job is queued.
+  const existing = db
+    .select({ id: memoryJobs.id })
+    .from(memoryJobs)
+    .where(
+      and(
+        eq(memoryJobs.type, "generate_thread_starters"),
+        inArray(memoryJobs.status, ["pending", "running"]),
+        like(memoryJobs.payload, `%"scopeId":"${scopeId}"%`),
+      ),
+    )
+    .get();
+
+  if (!existing) {
+    enqueueMemoryJob("generate_thread_starters", { scopeId });
+  }
+
+  return Response.json({ starters: [], total: 0, status: "generating" });
 }
 
 // ---------------------------------------------------------------------------

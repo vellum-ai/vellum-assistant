@@ -203,7 +203,7 @@ ${skills}`;
       systemPrompt,
       {
         config: {
-          modelIntent: "latency-optimized",
+          modelIntent: "quality-optimized",
           max_tokens: 1024,
           tool_choice: { type: "tool" as const, name: "store_thread_starters" },
         },

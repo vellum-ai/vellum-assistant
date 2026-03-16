@@ -26,24 +26,24 @@ public struct ThreadStarter: Identifiable, Codable {
 struct ThreadStartersResponse: Codable {
     let starters: [ThreadStarter]
     let total: Int
+    let status: String  // "ready", "generating", "empty"
 }
 
 @MainActor
 protocol ThreadStarterClientProtocol {
-    func fetchThreadStarters(limit: Int) async -> [ThreadStarter]
+    func fetchThreadStarters(limit: Int) async -> ThreadStartersResponse?
 }
 
 @MainActor
 struct ThreadStarterClient: ThreadStarterClientProtocol {
     nonisolated init() {}
 
-    func fetchThreadStarters(limit: Int) async -> [ThreadStarter] {
+    func fetchThreadStarters(limit: Int) async -> ThreadStartersResponse? {
         guard let response = try? await GatewayHTTPClient.get(
             path: "thread-starters",
             params: ["limit": String(limit)]
-        ), response.isSuccess else { return [] }
-        guard let decoded = try? JSONDecoder().decode(ThreadStartersResponse.self, from: response.data) else { return [] }
-        return decoded.starters
+        ), response.isSuccess else { return nil }
+        return try? JSONDecoder().decode(ThreadStartersResponse.self, from: response.data)
     }
 }
 
@@ -633,6 +633,7 @@ public final class ChatViewModel: ObservableObject {
 
     /// Personalized suggestion chips shown on the empty conversation page.
     @Published public var threadStarters: [ThreadStarter] = []
+    @Published public var threadStartersLoading: Bool = false
 
     private static let fallbackGreetings = [
         "What are we working on?",
@@ -1311,11 +1312,43 @@ public final class ChatViewModel: ObservableObject {
         isGeneratingGreeting = false
     }
 
+    private var threadStarterPollTask: Task<Void, Never>?
+
     /// Fetch personalized thread starters from the daemon for the empty conversation state.
     public func fetchThreadStarters() {
-        Task { @MainActor [weak self] in
+        threadStarterPollTask?.cancel()
+        threadStarterPollTask = Task { @MainActor [weak self] in
             guard let self else { return }
-            self.threadStarters = await self.threadStarterClient.fetchThreadStarters(limit: 4)
+            let response = await self.threadStarterClient.fetchThreadStarters(limit: 4)
+            guard !Task.isCancelled else { return }
+
+            if let response, !response.starters.isEmpty {
+                self.threadStarters = response.starters
+                self.threadStartersLoading = false
+                return
+            }
+
+            if response?.status == "generating" {
+                self.threadStartersLoading = true
+                // Poll every 3 seconds until ready
+                while !Task.isCancelled {
+                    try? await Task.sleep(nanoseconds: 3_000_000_000)
+                    guard !Task.isCancelled else { return }
+                    let poll = await self.threadStarterClient.fetchThreadStarters(limit: 4)
+                    guard !Task.isCancelled else { return }
+                    if let poll, !poll.starters.isEmpty {
+                        self.threadStarters = poll.starters
+                        self.threadStartersLoading = false
+                        return
+                    }
+                    if poll?.status != "generating" {
+                        self.threadStartersLoading = false
+                        return
+                    }
+                }
+            } else {
+                self.threadStartersLoading = false
+            }
         }
     }
 

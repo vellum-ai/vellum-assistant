@@ -30,6 +30,7 @@ struct ChatEmptyStateView: View {
     var daemonGreeting: String? = nil
     var onRequestGreeting: (() -> Void)? = nil
     var threadStarters: [ThreadStarter] = []
+    var threadStartersLoading: Bool = false
     var onSelectStarter: ((ThreadStarter) -> Void)? = nil
     var onFetchThreadStarters: (() -> Void)? = nil
 
@@ -130,7 +131,28 @@ struct ChatEmptyStateView: View {
                     }
                 }
                 .frame(maxWidth: VSpacing.chatBubbleMaxWidth)
-                .padding(.top, VSpacing.md)
+                .padding(.top, VSpacing.xxxl)
+                .opacity(visible ? 1 : 0)
+                .offset(y: visible ? 0 : 10)
+            } else if threadStartersLoading {
+                HStack(spacing: VSpacing.sm) {
+                    Group {
+                        if let body = appearance.characterBodyShape,
+                           let eyes = appearance.characterEyeStyle,
+                           let color = appearance.characterColor {
+                            AnimatedAvatarView(bodyShape: body, eyeStyle: eyes, color: color, size: 16)
+                                .frame(width: 16, height: 16)
+                        } else {
+                            ProgressView()
+                                .controlSize(.small)
+                        }
+                    }
+                    Text("Getting some ideas\u{2026}")
+                        .font(VFont.caption)
+                        .foregroundColor(VColor.contentTertiary)
+                }
+                .frame(maxWidth: VSpacing.chatBubbleMaxWidth)
+                .padding(.top, VSpacing.xxxl)
                 .opacity(visible ? 1 : 0)
                 .offset(y: visible ? 0 : 10)
             }
@@ -164,6 +186,7 @@ struct ThreadStarterChip: View {
     let action: () -> Void
 
     @State private var isHovered = false
+    @State private var showTooltip = false
 
     var body: some View {
         Button(action: action) {
@@ -179,14 +202,25 @@ struct ThreadStarterChip: View {
         .buttonStyle(.plain)
         .background(
             RoundedRectangle(cornerRadius: VRadius.md)
-                .fill(isHovered ? VColor.surfaceActive : VColor.surfaceLift)
+                .fill(isHovered ? VColor.surfaceOverlay : VColor.surfaceActive)
         )
         .overlay(
             RoundedRectangle(cornerRadius: VRadius.md)
                 .stroke(VColor.borderBase, lineWidth: 0.5)
         )
-        .onHover { isHovered = $0 }
-        .help(fullPrompt)
+        .onHover { hovering in
+            isHovered = hovering
+            showTooltip = hovering
+        }
+        .popover(isPresented: $showTooltip, arrowEdge: .bottom) {
+            Text(fullPrompt)
+                .font(VFont.caption)
+                .foregroundColor(VColor.contentDefault)
+                .padding(VSpacing.sm)
+                .frame(maxWidth: 300)
+                .fixedSize(horizontal: false, vertical: true)
+                .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
+        }
     }
 }
 

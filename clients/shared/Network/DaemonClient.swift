@@ -241,6 +241,14 @@ extension Notification.Name {
 @MainActor
 public final class DaemonClient: ObservableObject, DaemonClientProtocol {
 
+    /// Character set for percent-encoding query-string values, excluding
+    /// query-string metacharacters that would break parameter parsing.
+    private static let queryValueAllowed: CharacterSet = {
+        var cs = CharacterSet.urlQueryAllowed
+        cs.remove(charactersIn: "&=+#")
+        return cs
+    }()
+
     // MARK: - Published State
 
     @Published public var isConnected: Bool = false
