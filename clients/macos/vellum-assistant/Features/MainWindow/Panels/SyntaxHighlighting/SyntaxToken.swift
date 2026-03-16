@@ -8,7 +8,6 @@ enum SyntaxTokenType: String, CaseIterable {
     case number
     case type
     case property
-    case punctuation
     case boolean
     case null
     case heading

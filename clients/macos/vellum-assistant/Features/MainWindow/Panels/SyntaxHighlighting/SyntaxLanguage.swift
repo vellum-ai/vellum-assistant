@@ -31,9 +31,9 @@ enum SyntaxLanguage: String, CaseIterable {
         switch mimeType {
         case "application/json":
             return .json
-        case "application/javascript":
+        case "application/javascript", "text/javascript":
             return .javascript
-        case "application/typescript":
+        case "application/typescript", "text/typescript":
             return .typescript
         case "text/markdown":
             return .markdown
