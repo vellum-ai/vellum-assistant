@@ -12,6 +12,7 @@ private let composerLog = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com
 struct ComposerView: View {
     private let composerMaxHeight: CGFloat = 200
     private let composerActionButtonSize: CGFloat = 32
+    private let composerTextToButtonsGap: CGFloat = 10
 
     // MARK: - ComposerMode
 
@@ -436,7 +437,7 @@ struct ComposerView: View {
     @ViewBuilder
     private var textEntryComposer: some View {
         standardComposerShell {
-            HStack(alignment: isSending ? .center : .bottom, spacing: 10) {
+            HStack(alignment: isSending ? .center : .bottom, spacing: composerTextToButtonsGap) {
                 composerTextField
                     .frame(minHeight: composerActionButtonSize)
                 composerActionButtons
