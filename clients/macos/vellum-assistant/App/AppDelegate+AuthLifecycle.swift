@@ -156,12 +156,12 @@ extension AppDelegate {
                     if !cleared {
                         log.warning("Credential cleanup incomplete — stopping daemon to prevent stale managed proxy state")
                         daemonClient.disconnect()
-                        assistantCli.stop()
+                        assistantCli.stop(name: connectedAssistantId)
                     }
                 } else {
                     log.warning("No actor token available during logout — stopping daemon to ensure stale credentials are not retained")
                     daemonClient.disconnect()
-                    assistantCli.stop()
+                    assistantCli.stop(name: connectedAssistantId)
                 }
             }
 
@@ -465,7 +465,7 @@ extension AppDelegate {
                 // Retire failed but user chose Force Remove — stop the daemon
                 // before cleaning up local state.
                 daemonClient.disconnect()
-                assistantCli.stop()
+                assistantCli.stop(name: name)
                 self.removeLockfileEntry(assistantId: name)
             }
 
@@ -475,7 +475,7 @@ extension AppDelegate {
             // thread and always fail because the process is already gone.
             daemonClient.disconnect()
         } else {
-            assistantCli.stop()
+            assistantCli.stop(name: assistantName)
         }
 
         // Check if other assistants remain in the lockfile.
