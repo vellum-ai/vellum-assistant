@@ -328,42 +328,12 @@ struct SettingsPanel: View {
 
     private var integrationsContent: some View {
         VStack(alignment: .leading, spacing: VSpacing.lg) {
-            // ANTHROPIC
-            ServiceCredentialCard(
-                title: "Anthropic",
-                subtitle: "Required for AI responses",
-                isConnected: store.hasKey,
-                keyPlaceholder: "Enter your API key",
-                isManagedProxy: store.providerRoutingSources["anthropic"] == "managed-proxy",
-                keyText: $apiKeyText,
-                onSave: {
-                    store.saveAPIKey(apiKeyText)
-                    apiKeyText = ""
-                },
-                onReset: {
-                    store.clearAPIKey()
-                    apiKeyText = ""
-                }
-            ) {
-                VStack(alignment: .leading, spacing: VSpacing.sm) {
-                    Text("Active Model")
-                        .font(VFont.inputLabel)
-                        .foregroundColor(VColor.contentSecondary)
-                    VDropdown(
-                        placeholder: "Select a model…",
-                        selection: Binding(
-                            get: { store.selectedModel },
-                            set: { model in
-                                store.selectedModel = model
-                                store.setModel(model)
-                            }
-                        ),
-                        options: SettingsStore.availableModels.map { model in
-                            (label: SettingsStore.modelDisplayNames[model] ?? model, value: model)
-                        }
-                    )
-                }
-            }
+            // ANTHROPIC / INFERENCE
+            InferenceServiceCard(
+                store: store,
+                authManager: authManager,
+                apiKeyText: $apiKeyText
+            )
 
             // PERPLEXITY SEARCH
             ServiceCredentialCard(
