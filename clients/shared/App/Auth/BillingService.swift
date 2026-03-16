@@ -103,7 +103,7 @@ public final class BillingService {
         bootstrapTasks[orgId] = task
         let result = await task.value
         // Only clear if this is still the current task — avoid clobbering a newer reference
-        if bootstrapTasks[orgId] === task {
+        if bootstrapTasks[orgId] == task {
             bootstrapTasks[orgId] = nil
         }
         return result
