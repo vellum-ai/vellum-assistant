@@ -64,7 +64,7 @@ private struct DeveloperSettingsSectionContent: View {
                 Button {
                     // Snapshot the most recent conversation at open time so the panel
                     // doesn't jump to a different conversation if newer events arrive.
-                    selectedConversationId = traceStore.mostRecentSessionId
+                    selectedConversationId = traceStore.mostRecentConversationId
                     showDebugPanel = true
                 } label: {
                     Label { Text("Open Debug Panel") } icon: { VIconView(.bug, size: 14) }

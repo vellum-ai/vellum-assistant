@@ -286,7 +286,7 @@ public final class TraceStore: ObservableObject {
     /// Used by developer tooling to auto-select a relevant conversation when no
     /// explicit selection context is available (e.g. when opening the debug panel
     /// from the Settings screen rather than from an active conversation).
-    public var mostRecentSessionId: String? {
+    public var mostRecentConversationId: String? {
         eventsByConversation
             .compactMapValues { $0.last?.timestampMs }
             .max(by: { $0.value < $1.value })
