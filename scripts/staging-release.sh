@@ -53,7 +53,7 @@ fi
 # Build auth-aware wrappers so every scp/ssh call inherits credentials.
 remote_scp() {
   if [ -n "$MAC_MINI_PASSWORD" ]; then
-    sshpass -p "$MAC_MINI_PASSWORD" scp -o StrictHostKeyChecking=no "$@"
+    SSHPASS="$MAC_MINI_PASSWORD" sshpass -e scp -o StrictHostKeyChecking=no "$@"
   elif [ -n "$MAC_MINI_SSH_KEY" ]; then
     scp -i "$MAC_MINI_SSH_KEY" -o StrictHostKeyChecking=no "$@"
   else
@@ -63,7 +63,7 @@ remote_scp() {
 
 remote_ssh() {
   if [ -n "$MAC_MINI_PASSWORD" ]; then
-    sshpass -p "$MAC_MINI_PASSWORD" ssh -o StrictHostKeyChecking=no "$@"
+    SSHPASS="$MAC_MINI_PASSWORD" sshpass -e ssh -o StrictHostKeyChecking=no "$@"
   elif [ -n "$MAC_MINI_SSH_KEY" ]; then
     ssh -i "$MAC_MINI_SSH_KEY" -o StrictHostKeyChecking=no "$@"
   else

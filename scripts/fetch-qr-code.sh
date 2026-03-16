@@ -62,7 +62,7 @@ fi
 
 remote_scp() {
   if [ -n "$MAC_MINI_PASSWORD" ]; then
-    sshpass -p "$MAC_MINI_PASSWORD" scp -o StrictHostKeyChecking=no "$@"
+    SSHPASS="$MAC_MINI_PASSWORD" sshpass -e scp -o StrictHostKeyChecking=no "$@"
   elif [ -n "$MAC_MINI_SSH_KEY" ]; then
     scp -i "$MAC_MINI_SSH_KEY" -o StrictHostKeyChecking=no "$@"
   else
