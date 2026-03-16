@@ -42,6 +42,9 @@ import {
   UpdateManagedCredentialSchema,
 } from "@vellumai/ces-contracts";
 
+// Importing the production error constant directly from credential-executor.
+// This is allowed in __tests__/ files (the CES boundary guard skips them).
+import { MANAGED_LOCAL_STATIC_REJECTION_ERROR } from "../../../credential-executor/src/managed-errors.js";
 import type { AssistantConfig } from "../config/schema.js";
 import {
   isCesManagedSidecarEnabled,
@@ -168,11 +171,21 @@ describe("local_static handle rejection in managed mode", () => {
     expect(types).toHaveLength(3);
   });
 
-  // NOTE: The managed-mode local_static rejection error message is validated
-  // in credential-executor/src/__tests__/managed-rejection.test.ts, which can
-  // import the actual error constant from managed-errors.ts. We cannot import
-  // from credential-executor here due to the hard process-boundary isolation
-  // (see CES boundary guard in credential-execution-client.test.ts).
+  test("production rejection error mentions platform_oauth as the alternative", () => {
+    // Assert against the actual production constant from managed-errors.ts,
+    // not a test-local copy.
+    expect(MANAGED_LOCAL_STATIC_REJECTION_ERROR).toContain("platform_oauth");
+  });
+
+  test("production rejection error references managed mode", () => {
+    expect(MANAGED_LOCAL_STATIC_REJECTION_ERROR).toContain("managed");
+  });
+
+  test("production rejection error states local_static is not supported", () => {
+    expect(MANAGED_LOCAL_STATIC_REJECTION_ERROR).toContain(
+      "local_static credential handles are not supported",
+    );
+  });
 });
 
 // ---------------------------------------------------------------------------
