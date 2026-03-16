@@ -68,9 +68,7 @@ export function buildCliProgram(): Command {
   registerUsageCommand(program);
 
   registerShotgunCommand(program);
-  if (isEmailEnabled(getConfig())) {
-    registerSequenceCommand(program);
-  }
+  registerSequenceCommand(program);
 
   return program;
 }
