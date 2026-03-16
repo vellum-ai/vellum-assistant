@@ -170,12 +170,14 @@ struct SettingsBillingTab: View {
             return
         }
 
+        let normalizedAmount = String(format: "%.2f", amount)
+
         isProcessingTopUp = true
         topUpError = nil
         defer { isProcessingTopUp = false }
 
         do {
-            let checkoutURL = try await BillingService.shared.createTopUpCheckout(amountUsd: topUpAmount)
+            let checkoutURL = try await BillingService.shared.createTopUpCheckout(amountUsd: normalizedAmount)
             NSWorkspace.shared.open(checkoutURL)
             topUpAmount = ""
         } catch {
