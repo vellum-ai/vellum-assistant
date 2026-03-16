@@ -68,6 +68,16 @@ private struct PersistedConversation: Codable {
     var hasUnseenLatestAssistantMessage: Bool?
     var latestAssistantMessageAt: Date?
     var lastSeenAssistantMessageAt: Date?
+
+    // Map conversationId to the legacy "sessionId" JSON key so that
+    // existing UserDefaults data (encoded before the rename) decodes
+    // correctly on upgrade instead of silently dropping all cached
+    // conversations.
+    enum CodingKeys: String, CodingKey {
+        case id, title, createdAt, lastActivityAt, isArchived, isPinned, displayOrder, isPrivate
+        case conversationId = "sessionId"
+        case scheduleJobId, hasUnseenLatestAssistantMessage, latestAssistantMessageAt, lastSeenAssistantMessageAt
+    }
 }
 
 // MARK: - IOSConversationStore
