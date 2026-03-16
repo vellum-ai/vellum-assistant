@@ -136,7 +136,7 @@ public final class BillingService {
         }
         urlRequest.setValue(organizationId, forHTTPHeaderField: "Vellum-Organization-Id")
 
-        let requestBody = TopUpCheckoutRequest(amount_usd: amountUsd, return_path: "/settings?panel=billing")
+        let requestBody = TopUpCheckoutRequest(amount_usd: amountUsd, return_path: "/billing/top-up/success")
         let encoder = JSONEncoder()
         urlRequest.httpBody = try encoder.encode(requestBody)
 
