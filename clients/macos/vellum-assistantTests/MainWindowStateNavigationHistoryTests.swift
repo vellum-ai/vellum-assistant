@@ -7,7 +7,7 @@ final class MainWindowStateNavigationHistoryTests: XCTestCase {
     func testBackForwardAcrossThreadPanelApp() {
         let state = MainWindowState(hasAPIKey: false)
         let id1 = UUID()
-        state.selection = .thread(id1)
+        state.selection = .conversation(id1)
         state.selection = .panel(.settings)
         state.selection = .app("myapp")
 
@@ -15,7 +15,7 @@ final class MainWindowStateNavigationHistoryTests: XCTestCase {
         state.navigateBack()
         XCTAssertEqual(state.selection, .panel(.settings))
         state.navigateBack()
-        XCTAssertEqual(state.selection, .thread(id1))
+        XCTAssertEqual(state.selection, .conversation(id1))
 
         // Forward twice
         state.navigateForward()
@@ -42,20 +42,20 @@ final class MainWindowStateNavigationHistoryTests: XCTestCase {
     func testBackToChatDefaultRestoresThread() {
         let state = MainWindowState(hasAPIKey: false)
         let someId = UUID()
-        state.persistentThreadId = someId
-        // selection is nil (chat default), persistentThreadId is someId
+        state.persistentConversationId = someId
+        // selection is nil (chat default), persistentConversationId is someId
         state.selection = .panel(.settings)
         // back should restore chat default with snapshot
         state.navigateBack()
-        XCTAssertEqual(state.selection, .thread(someId))
+        XCTAssertEqual(state.selection, .conversation(someId))
     }
 
     func testNavigateBackDoesNotReRecord() {
         let state = MainWindowState(hasAPIKey: false)
         let idA = UUID()
         let idB = UUID()
-        state.selection = .thread(idA)
-        state.selection = .thread(idB)
+        state.selection = .conversation(idA)
+        state.selection = .conversation(idB)
         state.navigateBack()
         // Back stack should now have 1 entry: nil->A creates [chatDefault(nil)], A->B creates [chatDefault(nil), A]
         // navigateBack pops A, so back is [chatDefault(nil)]
@@ -72,7 +72,7 @@ final class MainWindowStateNavigationHistoryTests: XCTestCase {
 
     func testBackToChatDefaultNilResolvesToNilSelection() {
         let state = MainWindowState(hasAPIKey: false)
-        // selection is nil, persistentThreadId is nil
+        // selection is nil, persistentConversationId is nil
         state.selection = .panel(.settings)
         state.navigateBack()
         XCTAssertNil(state.selection)

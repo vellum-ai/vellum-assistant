@@ -17,13 +17,13 @@ struct SidebarThreadItem: View {
         switch windowState.selection {
         case .panel:
             return false
-        case .thread(let id):
+        case .conversation(let id):
             return id == thread.id
-        case .appEditing(_, let threadId):
-            return threadId == thread.id
+        case .appEditing(_, let conversationId):
+            return conversationId == thread.id
         case .app, .none:
-            // No explicit thread in selection; fall back to the persistent thread.
-            return thread.id == windowState.persistentThreadId
+            // No explicit conversation in selection; fall back to the persistent conversation.
+            return thread.id == windowState.persistentConversationId
         }
     }
 
@@ -196,7 +196,7 @@ struct SidebarThreadItem: View {
 
             Button {
                 guard let conversationId = thread.conversationId else { return }
-                AppDelegate.shared?.showLogReportWindow(scope: .thread(conversationId: conversationId, threadTitle: thread.title))
+                AppDelegate.shared?.showLogReportWindow(scope: .conversation(conversationId: conversationId, conversationTitle: thread.title))
             } label: {
                 Label { Text("Send Logs for Conversation") } icon: { VIconView(.upload, size: 14) }
             }

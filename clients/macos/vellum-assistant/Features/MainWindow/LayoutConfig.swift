@@ -4,7 +4,7 @@ import VellumAssistantShared
 // MARK: - Domain Types
 
 public enum NativePanelId: String, Equatable, Sendable {
-    case chat, threadList, settings, debug, generated, avatarCustomization, apps, intelligence, usageDashboard
+    case chat, conversationList, settings, debug, generated, avatarCustomization, apps, intelligence, usageDashboard
 }
 
 extension NativePanelId: Codable {
@@ -21,6 +21,9 @@ extension NativePanelId: Codable {
         // Legacy Task Queue panel — removed, degrade gracefully
         case "taskQueue":
             self = .chat
+        // Legacy threadList panel — renamed to conversationList
+        case "threadList":
+            self = .conversationList
         default:
             guard let value = NativePanelId(rawValue: rawValue) else {
                 throw DecodingError.dataCorruptedError(
@@ -61,6 +64,9 @@ extension SlotContent: Codable {
                 self = .native(.apps)
             case "taskQueue":
                 self = .native(.chat)
+            // Legacy threadList panel — renamed to conversationList
+            case "threadList":
+                self = .native(.conversationList)
             default:
                 if let panel = NativePanelId(rawValue: rawPanel) {
                     self = .native(panel)
@@ -107,7 +113,7 @@ public struct LayoutConfig: Codable, Equatable, Sendable {
 
     public static let `default` = LayoutConfig(
         version: 1,
-        left: SlotConfig(content: .native(.threadList), width: 240, visible: true),
+        left: SlotConfig(content: .native(.conversationList), width: 240, visible: true),
         center: SlotConfig(content: .native(.chat), width: nil, visible: true),
         right: SlotConfig(content: .empty, width: 400, visible: false)
     )
@@ -154,6 +160,9 @@ extension SlotContent {
             // Legacy Task Queue panel — removed, degrade gracefully
             case "taskQueue":
                 id = .chat
+            // Legacy threadList panel — renamed to conversationList
+            case "threadList":
+                id = .conversationList
             default:
                 guard let parsed = NativePanelId(rawValue: panel) else { return nil }
                 id = parsed

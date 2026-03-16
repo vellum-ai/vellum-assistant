@@ -32,7 +32,7 @@ final class DocumentEditorThreadVisibilityTests: XCTestCase {
     }
 
     func testThreadSelectionIsConversationVisible() {
-        let state = makeState(.thread(UUID()))
+        let state = makeState(.conversation(UUID()))
 
         XCTAssertTrue(state.isConversationVisible)
         XCTAssertTrue(state.isShowingChat)

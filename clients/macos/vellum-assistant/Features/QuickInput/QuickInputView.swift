@@ -11,13 +11,13 @@ struct QuickInputView: View {
     @ObservedObject var textModel: QuickInputTextModel
     let onSubmit: (String) -> Void
     let onDismiss: () -> Void
-    let onSelectThread: ((UUID, String) -> Void)?
+    let onSelectConversation: ((UUID, String) -> Void)?
     let onScreenCapture: (() -> Void)?
     let onRemoveAttachment: (() -> Void)?
     let onAllowScreenRecording: (() -> Void)?
     let onMicrophoneToggle: (() -> Void)?
     let onNotificationToggle: (() -> Void)?
-    let recentThreads: [QuickInputThread]
+    let recentConversations: [QuickInputThread]
     let attachedImage: NSImage?
     let showScreenPermissionPrompt: Bool
 
@@ -30,26 +30,26 @@ struct QuickInputView: View {
         textModel: QuickInputTextModel,
         onSubmit: @escaping (String) -> Void,
         onDismiss: @escaping () -> Void,
-        onSelectThread: ((UUID, String) -> Void)? = nil,
+        onSelectConversation: ((UUID, String) -> Void)? = nil,
         onScreenCapture: (() -> Void)? = nil,
         onRemoveAttachment: (() -> Void)? = nil,
         onAllowScreenRecording: (() -> Void)? = nil,
         onMicrophoneToggle: (() -> Void)? = nil,
         onNotificationToggle: (() -> Void)? = nil,
-        recentThreads: [QuickInputThread] = [],
+        recentConversations: [QuickInputThread] = [],
         attachedImage: NSImage? = nil,
         showScreenPermissionPrompt: Bool = false
     ) {
         self.textModel = textModel
         self.onSubmit = onSubmit
         self.onDismiss = onDismiss
-        self.onSelectThread = onSelectThread
+        self.onSelectConversation = onSelectConversation
         self.onScreenCapture = onScreenCapture
         self.onRemoveAttachment = onRemoveAttachment
         self.onAllowScreenRecording = onAllowScreenRecording
         self.onMicrophoneToggle = onMicrophoneToggle
         self.onNotificationToggle = onNotificationToggle
-        self.recentThreads = recentThreads
+        self.recentConversations = recentConversations
         self.attachedImage = attachedImage
         self.showScreenPermissionPrompt = showScreenPermissionPrompt
     }
@@ -98,7 +98,7 @@ struct QuickInputView: View {
 
                 // Text field
                 TextField(
-                    textModel.selectedThreadId != nil
+                    textModel.selectedConversationId != nil
                         ? "Continue where we left off..."
                         : "Type or hold Fn to talk",
                     text: $textModel.text
@@ -118,22 +118,22 @@ struct QuickInputView: View {
                 // "New Chat" / thread selector dropdown
                 Menu {
                     Button("New Chat") {
-                        textModel.selectedThreadId = nil
-                        textModel.selectedThreadTitle = nil
+                        textModel.selectedConversationId = nil
+                        textModel.selectedConversationTitle = nil
                     }
 
-                    if !recentThreads.isEmpty {
+                    if !recentConversations.isEmpty {
                         Divider()
 
-                        ForEach(recentThreads) { thread in
+                        ForEach(recentConversations) { thread in
                             Button(thread.title) {
-                                onSelectThread?(thread.id, thread.title)
+                                onSelectConversation?(thread.id, thread.title)
                             }
                         }
                     }
                 } label: {
                     HStack(spacing: VSpacing.xxs) {
-                        Text(textModel.selectedThreadTitle ?? "New Chat")
+                        Text(textModel.selectedConversationTitle ?? "New Chat")
                             .font(.system(size: 13, weight: .medium))
                             .foregroundColor(VColor.contentSecondary)
                             .lineLimit(1)

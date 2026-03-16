@@ -15,9 +15,9 @@ private class KeyablePanel: NSPanel {
 final class QuickInputTextModel: ObservableObject {
     @Published var text = ""
     @Published var isRecording = false
-    /// When set, the user has selected an existing thread to continue.
-    @Published var selectedThreadId: UUID?
-    @Published var selectedThreadTitle: String?
+    /// When set, the user has selected an existing conversation to continue.
+    @Published var selectedConversationId: UUID?
+    @Published var selectedConversationTitle: String?
     /// Whether to send a notification when the assistant response completes.
     @Published var notifyOnComplete: Bool = UserDefaults.standard.object(forKey: "quickInputNotifyOnComplete") as? Bool ?? true
 }
@@ -47,10 +47,10 @@ final class QuickInputWindow {
     var onMicrophoneToggle: (() -> Void)?
     /// Callback invoked when the user toggles the notification bell.
     var onNotificationToggle: (() -> Void)?
-    /// Callback invoked when the user selects an existing thread (navigates to it).
-    var onSelectThread: ((UUID) -> Void)?
+    /// Callback invoked when the user selects an existing conversation (navigates to it).
+    var onSelectConversation: ((UUID) -> Void)?
     /// Recent conversations to show in the dropdown.
-    var recentThreads: [QuickInputThread] = []
+    var recentConversations: [QuickInputThread] = []
     /// When true, show a screen recording permission prompt below the bar.
     var showScreenPermissionPrompt = false
 
@@ -167,9 +167,9 @@ final class QuickInputWindow {
         let view = QuickInputView(
             textModel: textModel,
             onSubmit: { [weak self] message in
-                if let threadId = self?.textModel.selectedThreadId {
-                    self?.onSelectThread?(threadId)
-                    // Small delay so the thread switches before we send the message
+                if let conversationId = self?.textModel.selectedConversationId {
+                    self?.onSelectConversation?(conversationId)
+                    // Small delay so the conversation switches before we send the message
                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
                         self?.onSubmitToThread?(message, self?.attachedImageData)
                     }
@@ -181,9 +181,9 @@ final class QuickInputWindow {
             onDismiss: { [weak self] in
                 self?.dismiss()
             },
-            onSelectThread: { [weak self] threadId, threadTitle in
-                self?.textModel.selectedThreadId = threadId
-                self?.textModel.selectedThreadTitle = threadTitle
+            onSelectConversation: { [weak self] conversationId, conversationTitle in
+                self?.textModel.selectedConversationId = conversationId
+                self?.textModel.selectedConversationTitle = conversationTitle
             },
             onScreenCapture: { [weak self] in
                 self?.startScreenSelection()
@@ -201,7 +201,7 @@ final class QuickInputWindow {
                 self.textModel.notifyOnComplete.toggle()
                 UserDefaults.standard.set(self.textModel.notifyOnComplete, forKey: "quickInputNotifyOnComplete")
             },
-            recentThreads: recentThreads,
+            recentConversations: recentConversations,
             attachedImage: attachedImage,
             showScreenPermissionPrompt: showScreenPermissionPrompt
         )

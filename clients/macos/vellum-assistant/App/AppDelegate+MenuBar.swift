@@ -400,7 +400,7 @@ extension AppDelegate {
         showMainWindow()
         mainWindow?.conversationManager.createConversation()
         if let id = mainWindow?.conversationManager.activeConversationId {
-            mainWindow?.windowState.selection = .thread(id)
+            mainWindow?.windowState.selection = .conversation(id)
         }
         UserDefaults.standard.set(false, forKey: "sidebarExpanded")
     }
@@ -496,7 +496,7 @@ extension AppDelegate {
         // Defer window creation until after the status menu finishes dismissing,
         // otherwise macOS can swallow the makeKeyAndOrderFront during menu teardown.
         DispatchQueue.main.async { [weak self] in
-            self?.showLogReportWindow(scope: .thread(conversationId: conversationId, threadTitle: thread.title))
+            self?.showLogReportWindow(scope: .conversation(conversationId: conversationId, conversationTitle: thread.title))
         }
     }
 
@@ -533,7 +533,7 @@ extension AppDelegate {
         switch scope {
         case .global:
             window.title = "Send Logs to Vellum"
-        case .thread:
+        case .conversation:
             window.title = "Send Logs for Conversation"
         }
         window.backgroundColor = NSColor(VColor.surfaceOverlay)

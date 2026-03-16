@@ -40,9 +40,9 @@ enum LogReportReason: String, CaseIterable, Identifiable, Sendable {
 enum LogExportScope: Sendable {
     /// Full global export — all conversations, all data.
     case global
-    /// Scoped to a single thread/conversation.
-    case thread(conversationId: String, threadTitle: String,
-                startTime: Date? = nil, endTime: Date? = nil)
+    /// Scoped to a single conversation.
+    case conversation(conversationId: String, conversationTitle: String,
+                      startTime: Date? = nil, endTime: Date? = nil)
 }
 
 /// Aggregated form data collected from the log report sheet.

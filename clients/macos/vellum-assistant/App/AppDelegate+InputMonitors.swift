@@ -309,7 +309,7 @@ extension AppDelegate {
             CommandPaletteAction(id: "new-conversation", icon: VIcon.squarePen.rawValue, label: "New Conversation", shortcutHint: "\u{2318}N") { [weak self] in
                 self?.mainWindow?.conversationManager.createConversation()
                 if let id = self?.mainWindow?.conversationManager.activeConversationId {
-                    self?.mainWindow?.windowState.selection = .thread(id)
+                    self?.mainWindow?.windowState.selection = .conversation(id)
                 }
             },
             CommandPaletteAction(id: "settings", icon: VIcon.settings.rawValue, label: "Settings", shortcutHint: "\u{2318},") { [weak self] in
@@ -353,9 +353,9 @@ extension AppDelegate {
 
         window.onSelectSearchConversation = { [weak self] conversationId in
             Task { @MainActor in
-                let found = await self?.mainWindow?.conversationManager.selectThreadByConversationIdAsync(conversationId) ?? false
+                let found = await self?.mainWindow?.conversationManager.selectConversationByConversationIdAsync(conversationId) ?? false
                 if found, let threadId = self?.mainWindow?.conversationManager.activeConversationId {
-                    self?.mainWindow?.windowState.selection = .thread(threadId)
+                    self?.mainWindow?.windowState.selection = .conversation(threadId)
                 }
             }
         }
@@ -395,15 +395,15 @@ extension AppDelegate {
             let notify = window?.notifyOnComplete ?? false
             self?.handleQuickInputSubmitToThread(message, imageData: imageData, notifyOnComplete: notify)
         }
-        window.onSelectThread = { [weak self] threadId in
-            self?.handleQuickInputSelectThread(threadId)
+        window.onSelectConversation = { [weak self] threadId in
+            self?.handleQuickInputSelectConversation(threadId)
         }
         window.onMicrophoneToggle = { [weak self] in
             self?.voiceInput?.toggleRecording()
         }
         // Provide the 3 most recent non-archived conversations
         if let conversations = mainWindow?.conversationManager.conversations {
-            window.recentThreads = conversations
+            window.recentConversations = conversations
                 .filter { !$0.isArchived }
                 .sorted { $0.lastInteractedAt > $1.lastInteractedAt }
                 .prefix(3)
@@ -444,14 +444,14 @@ extension AppDelegate {
                 let notify = window?.notifyOnComplete ?? false
                 self?.handleQuickInputSubmitToThread(message, imageData: imgData, notifyOnComplete: notify)
             }
-            window.onSelectThread = { [weak self] threadId in
-                self?.handleQuickInputSelectThread(threadId)
+            window.onSelectConversation = { [weak self] threadId in
+                self?.handleQuickInputSelectConversation(threadId)
             }
             window.onMicrophoneToggle = { [weak self] in
                 self?.voiceInput?.toggleRecording()
             }
             if let conversations = self.mainWindow?.conversationManager.conversations {
-                window.recentThreads = conversations
+                window.recentConversations = conversations
                     .filter { !$0.isArchived }
                     .sorted { $0.lastInteractedAt > $1.lastInteractedAt }
                     .prefix(3)
@@ -472,7 +472,7 @@ extension AppDelegate {
         guard let mainWindow else { return }
         mainWindow.conversationManager.createConversation()
         if let threadId = mainWindow.conversationManager.activeConversationId {
-            mainWindow.windowState.selection = .thread(threadId)
+            mainWindow.windowState.selection = .conversation(threadId)
         }
         guard let viewModel = mainWindow.activeViewModel else { return }
 
@@ -522,7 +522,7 @@ extension AppDelegate {
         }
     }
 
-    func handleQuickInputSelectThread(_ threadId: UUID) {
+    func handleQuickInputSelectConversation(_ threadId: UUID) {
         showMainWindow()
         guard let mainWindow else { return }
         mainWindow.conversationManager.activeConversationId = threadId

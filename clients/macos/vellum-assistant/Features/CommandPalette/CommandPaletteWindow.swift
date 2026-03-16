@@ -62,8 +62,8 @@ final class CommandPaletteWindow {
             onDismiss: { [weak self] in
                 self?.dismiss()
             },
-            onSelectRecent: { [weak self] threadId in
-                self?.onSelectConversation?(threadId)
+            onSelectRecent: { [weak self] conversationId in
+                self?.onSelectConversation?(conversationId)
             },
             onSelectConversation: { [weak self] convId in
                 self?.onSelectSearchConversation?(convId)

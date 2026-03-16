@@ -48,7 +48,7 @@ extension MainWindowView {
                     appListManager.recordAppOpen(id: id, name: name, icon: icon, appType: appType)
                 }
             )
-        case .threadList:
+        case .conversationList:
             sidebarView
         case .avatarCustomization:
             AvatarCustomizationPanel(onClose: { windowState.selection = .panel(windowState.avatarCustomizationReturnPanel) })
@@ -219,8 +219,8 @@ extension MainWindowView {
     @ViewBuilder
     func chatContentView(geometry: GeometryProxy) -> some View {
         switch windowState.selection {
-        case .thread:
-            // Show chat for this thread (conversationManager.activeViewModel is synced)
+        case .conversation:
+            // Show chat for this conversation (conversationManager.activeViewModel is synced)
             defaultChatLayout
         case .app(let appId), .appEditing(let appId, _):
             if let surface = windowState.activeDynamicParsedSurface,

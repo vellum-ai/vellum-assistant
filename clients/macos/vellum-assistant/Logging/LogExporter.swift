@@ -60,8 +60,8 @@ enum LogExporter {
             let event = Event(level: .info)
             let errorTitle: String
             switch formData.scope {
-            case .thread(_, let threadTitle, _, _):
-                errorTitle = "\(formData.reason.displayName) log report (thread: \(threadTitle))"
+            case .conversation(_, let conversationTitle, _, _):
+                errorTitle = "\(formData.reason.displayName) log report (conversation: \(conversationTitle))"
             case .global:
                 errorTitle = "\(formData.reason.displayName) log report"
             }
@@ -76,9 +76,9 @@ enum LogExporter {
                 "source": "log_report",
                 "report_reason": formData.reason.rawValue,
             ]
-            if case .thread(let conversationId, _, _, _) = formData.scope {
+            if case .conversation(let conversationId, _, _, _) = formData.scope {
                 tags["conversation_id"] = conversationId
-                tags["export_scope"] = "thread"
+                tags["export_scope"] = "conversation"
             } else {
                 tags["export_scope"] = "global"
             }
@@ -386,7 +386,7 @@ enum LogExporter {
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
 
         var body: [String: Any] = ["auditLimit": 10000]
-        if case .thread(let conversationId, _, let startTime, let endTime) = scope {
+        if case .conversation(let conversationId, _, let startTime, let endTime) = scope {
             body["conversationId"] = conversationId
             if let startTime {
                 body["startTime"] = Int(startTime.timeIntervalSince1970 * 1000)

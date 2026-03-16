@@ -14,7 +14,7 @@ struct MainWindowView: View {
     let traceStore: TraceStore
     let usageDashboardStore: UsageDashboardStore
     @ObservedObject var windowState: MainWindowState
-    @State private var selectedThreadId: UUID?
+    @State private var selectedConversationId: UUID?
     @State var sharing = SharingState()
     @State var sidebar = SidebarInteractionState()
     @AppStorage("isAppChatOpen") var isAppChatOpen: Bool = false
@@ -50,7 +50,7 @@ struct MainWindowView: View {
     /// Nil for returning users (no transition).
     let onSendWakeUp: (() -> Void)?
 
-    @State var showThreadSwitcher = false
+    @State var showConversationSwitcher = false
     @State var threadSwitcherTriggerFrame: CGRect = .zero
     /// Whether the "coming alive" overlay is currently showing.
     @State private var showComingAlive: Bool
@@ -138,12 +138,12 @@ struct MainWindowView: View {
 
     /// Resolve a thread ID for the chat bubble toggle using strict priority:
     /// 1. activeConversationId (currently selected thread)
-    /// 2. persistentThreadId (app's last-used thread)
+    /// 2. persistentConversationId (app's last-used thread)
     /// 3. visibleConversations.first (first available thread)
     /// 4. create a new thread
     private func resolveThreadId() -> UUID {
         if let id = conversationManager.activeConversationId { return id }
-        if let id = windowState.persistentThreadId { return id }
+        if let id = windowState.persistentConversationId { return id }
         if let id = conversationManager.visibleConversations.first?.id { return id }
         conversationManager.createConversation()
         return conversationManager.activeConversationId!
@@ -152,7 +152,7 @@ struct MainWindowView: View {
     func enterAppEditing(appId: String) {
         let threadId = resolveThreadId()
         conversationManager.selectConversation(id: threadId)
-        windowState.setAppEditing(appId: appId, threadId: threadId)
+        windowState.setAppEditing(appId: appId, conversationId: threadId)
     }
 
     func exitAppEditing(appId: String) {
@@ -249,17 +249,17 @@ struct MainWindowView: View {
                 }
             }
             .onChange(of: windowState.selection) { oldSelection, newSelection in
-                // When selection transitions to .thread, ensure ConversationManager is synced
-                // so chat content targets the correct thread (e.g. after dismissOverlay).
-                // Guard against archived conversations: if the thread was archived while an
-                // overlay was open, persistentThreadId may still point to the stale ID.
-                if case .thread(let id) = newSelection {
+                // When selection transitions to .conversation, ensure ConversationManager is synced
+                // so chat content targets the correct conversation (e.g. after dismissOverlay).
+                // Guard against archived conversations: if the conversation was archived while an
+                // overlay was open, persistentConversationId may still point to the stale ID.
+                if case .conversation(let id) = newSelection {
                     if conversationManager.conversations.contains(where: { $0.id == id && !$0.isArchived }) {
                         conversationManager.selectConversation(id: id)
                     } else {
                         // Conversation was archived/deleted — fall back to the first visible conversation
                         if let fallback = conversationManager.visibleConversations.first {
-                            windowState.applySelectionCorrection(.thread(fallback.id))
+                            windowState.applySelectionCorrection(.conversation(fallback.id))
                         } else {
                             windowState.applySelectionCorrection(nil)
                         }
@@ -559,16 +559,16 @@ struct MainWindowView: View {
                     }
                 }
                 .overlay {
-                    if showThreadSwitcher {
+                    if showConversationSwitcher {
                         Color.clear
                             .contentShape(Rectangle())
                             .onTapGesture {
-                                showThreadSwitcher = false
+                                showConversationSwitcher = false
                             }
                     }
                 }
                 .overlay(alignment: .topLeading) {
-                    if showThreadSwitcher {
+                    if showConversationSwitcher {
                         ThreadSwitcherDrawer(
                             regularConversations: regularConversations,
                             activeConversationId: conversationManager.activeConversationId,
@@ -576,7 +576,7 @@ struct MainWindowView: View {
                             windowState: windowState,
                             sidebar: sidebar,
                             selectConversation: { selectConversation($0) },
-                            onDismiss: { showThreadSwitcher = false }
+                            onDismiss: { showConversationSwitcher = false }
                         )
                         .frame(width: sidebarExpandedWidth - VSpacing.sm * 2)
                         .offset(
@@ -586,10 +586,10 @@ struct MainWindowView: View {
                         .zIndex(10)
                         .transition(.opacity)
                         .onChange(of: conversationManager.activeConversationId) { _, _ in
-                            showThreadSwitcher = false
+                            showConversationSwitcher = false
                         }
                         .onChange(of: sidebarExpanded) { _, expanded in
-                            if expanded { showThreadSwitcher = false }
+                            if expanded { showConversationSwitcher = false }
                         }
                     }
                 }
@@ -666,10 +666,10 @@ struct MainWindowView: View {
             // disable it, leaving panels stuck in split mode.
             isAppChatOpen = false
             windowState.refreshAPIKeyStatus(isConnected: daemonClient.isConnected)
-            selectedThreadId = conversationManager.activeConversationId
+            selectedConversationId = conversationManager.activeConversationId
             // Initialize persistent thread tracking on launch
             if let activeId = conversationManager.activeConversationId {
-                windowState.persistentThreadId = activeId
+                windowState.persistentConversationId = activeId
             }
             daemonClient.startSSE()
         }
@@ -712,21 +712,21 @@ struct MainWindowView: View {
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
             conversationManager.markActiveThreadSeenIfNeeded()
         }
-        .onChange(of: selectedThreadId) { _, newId in
+        .onChange(of: selectedConversationId) { _, newId in
             if let newId = newId {
                 conversationManager.selectConversation(id: newId)
             }
         }
         .onChange(of: conversationManager.activeConversationId) { oldId, newId in
-            // Sync activeConversationId changes back to selectedThreadId to keep sidebar selection in sync
-            selectedThreadId = newId
-            // Always sync persistentThreadId so the sidebar highlights the
+            // Sync activeConversationId changes back to selectedConversationId to keep sidebar selection in sync
+            selectedConversationId = newId
+            // Always sync persistentConversationId so the sidebar highlights the
             // correct thread — even when an overlay (.panel, .app) is active.
             // Without this, archiving the active thread while viewing a panel
-            // leaves persistentThreadId pointing at the archived (invisible) thread
+            // leaves persistentConversationId pointing at the archived (invisible) thread
             // and the sidebar shows no active highlight.
             // Clear it when entering draft mode (nil) so no thread appears active.
-            windowState.persistentThreadId = newId
+            windowState.persistentConversationId = newId
             if case .panel(.intelligence) = windowState.selection {
                 windowState.selection = nil
             }

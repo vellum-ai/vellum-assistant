@@ -4,9 +4,9 @@ import VellumAssistantShared
 
 /// Represents what is currently displayed in the main content area.
 enum ViewSelection: Equatable {
-    case thread(UUID)
+    case conversation(UUID)
     case app(String)  // app ID
-    case appEditing(appId: String, threadId: UUID)
+    case appEditing(appId: String, conversationId: UUID)
     case panel(SidePanelType)
 }
 
@@ -35,11 +35,11 @@ public final class MainWindowState: ObservableObject {
             let previousSelection = _lastKnownSelection
             _lastKnownSelection = selection
 
-            navigationHistory.recordTransition(from: previousSelection, to: selection, persistentThreadId: persistentThreadId)
-            // When navigating to a thread, update the persistent thread tracker.
-            // For overlays (app, appEditing, panel) and nil, leave persistentThreadId unchanged.
-            if case .thread(let id) = selection {
-                persistentThreadId = id
+            navigationHistory.recordTransition(from: previousSelection, to: selection, persistentConversationId: persistentConversationId)
+            // When navigating to a conversation, update the persistent conversation tracker.
+            // For overlays (app, appEditing, panel) and nil, leave persistentConversationId unchanged.
+            if case .conversation(let id) = selection {
+                persistentConversationId = id
             }
             // Chat dock is only relevant inside app views. Clear it when
             // navigating away so other pages never show a stale split layout.
@@ -50,8 +50,8 @@ public final class MainWindowState: ObservableObject {
         }
     }
 
-    /// Tracks the "background" thread that persists even when viewing an app or panel overlay.
-    @Published var persistentThreadId: UUID?
+    /// Tracks the "background" conversation that persists even when viewing an app or panel overlay.
+    @Published var persistentConversationId: UUID?
 
     /// Tracks which panel originated the avatar customization flow so we can return to it.
     @Published var avatarCustomizationReturnPanel: SidePanelType = .intelligence
@@ -69,7 +69,7 @@ public final class MainWindowState: ObservableObject {
     @Published var toastInfo: ToastInfo?
 
     /// Whether the main content area is showing a plain, full-window chat
-    /// (either an explicit `.thread` selection or `nil` which defaults to chat).
+    /// (either an explicit `.conversation` selection or `nil` which defaults to chat).
     ///
     /// This is **narrower** than ``isConversationVisible``: it excludes panels
     /// (including the document editor) and app-editing mode, even when those
@@ -77,18 +77,18 @@ public final class MainWindowState: ObservableObject {
     /// to know whether *any* conversation UI is on screen.
     var isShowingChat: Bool {
         switch selection {
-        case .thread, .none: return true
+        case .conversation, .none: return true
         default: return false
         }
     }
 
-    /// Whether a conversation is visible — true for thread mode,
+    /// Whether a conversation is visible — true for conversation mode,
     /// app-editing mode (which shows a chat dock alongside the app),
     /// and panel mode when the chat bubble is enabled (split-view with
     /// a live conversation alongside the panel).
     public var isConversationVisible: Bool {
         switch selection {
-        case .thread, .none, .appEditing: return true
+        case .conversation, .none, .appEditing: return true
         case .panel(let panelType):
             // Document editor has a dedicated layout that always includes chat;
             // other panels show chat only when the chat bubble toggle is active.
@@ -140,10 +140,10 @@ public final class MainWindowState: ObservableObject {
 
     // MARK: - Selection Helpers
 
-    /// Dismiss the current overlay (app, panel, etc.) and return to the persistent thread.
+    /// Dismiss the current overlay (app, panel, etc.) and return to the persistent conversation.
     func dismissOverlay() {
-        if let threadId = persistentThreadId {
-            selection = .thread(threadId)
+        if let conversationId = persistentConversationId {
+            selection = .conversation(conversationId)
         } else {
             selection = nil
         }
@@ -156,16 +156,16 @@ public final class MainWindowState: ObservableObject {
     func navigateBack() {
         guard let destination = navigationHistory.popBack(
             currentSelection: selection,
-            persistentThreadId: persistentThreadId
+            persistentConversationId: persistentConversationId
         ) else { return }
         navigationHistory.withRecordingSuppressed {
             switch destination {
             case .selection(let viewSelection):
                 self.selection = viewSelection
-            case .chatDefault(let threadSnapshot):
-                self.persistentThreadId = threadSnapshot
-                if let threadId = threadSnapshot {
-                    self.selection = .thread(threadId)
+            case .chatDefault(let conversationSnapshot):
+                self.persistentConversationId = conversationSnapshot
+                if let conversationId = conversationSnapshot {
+                    self.selection = .conversation(conversationId)
                 } else {
                     self.selection = nil
                 }
@@ -176,16 +176,16 @@ public final class MainWindowState: ObservableObject {
     func navigateForward() {
         guard let destination = navigationHistory.popForward(
             currentSelection: selection,
-            persistentThreadId: persistentThreadId
+            persistentConversationId: persistentConversationId
         ) else { return }
         navigationHistory.withRecordingSuppressed {
             switch destination {
             case .selection(let viewSelection):
                 self.selection = viewSelection
-            case .chatDefault(let threadSnapshot):
-                self.persistentThreadId = threadSnapshot
-                if let threadId = threadSnapshot {
-                    self.selection = .thread(threadId)
+            case .chatDefault(let conversationSnapshot):
+                self.persistentConversationId = conversationSnapshot
+                if let conversationId = conversationSnapshot {
+                    self.selection = .conversation(conversationId)
                 } else {
                     self.selection = nil
                 }
@@ -208,11 +208,11 @@ public final class MainWindowState: ObservableObject {
         }
     }
 
-    /// Whether a thread is currently active (either standalone or editing alongside app)
-    var activeEditingThreadId: UUID? {
+    /// Whether a conversation is currently active (either standalone or editing alongside app)
+    var activeEditingConversationId: UUID? {
         switch selection {
-        case .thread(let id): return id
-        case .appEditing(_, let threadId): return threadId
+        case .conversation(let id): return id
+        case .appEditing(_, let conversationId): return conversationId
         default: return nil
         }
     }
@@ -247,9 +247,9 @@ public final class MainWindowState: ObservableObject {
         activeDynamicParsedSurface = nil
     }
 
-    /// Transition to appEditing with a specific thread
-    func setAppEditing(appId: String, threadId: UUID) {
-        selection = .appEditing(appId: appId, threadId: threadId)
+    /// Transition to appEditing with a specific conversation
+    func setAppEditing(appId: String, conversationId: UUID) {
+        selection = .appEditing(appId: appId, conversationId: conversationId)
     }
 
     func resetLayout() {

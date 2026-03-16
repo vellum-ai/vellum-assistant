@@ -8,10 +8,10 @@ extension MainWindowView {
 
     func selectConversation(_ thread: ConversationModel) {
         if case .appEditing(let appId, _) = windowState.selection {
-            windowState.selection = .appEditing(appId: appId, threadId: thread.id)
+            windowState.selection = .appEditing(appId: appId, conversationId: thread.id)
             conversationManager.selectConversation(id: thread.id)
         } else {
-            windowState.selection = .thread(thread.id)
+            windowState.selection = .conversation(thread.id)
             conversationManager.selectConversation(id: thread.id)
         }
     }
@@ -19,11 +19,11 @@ extension MainWindowView {
     func startNewConversation() {
         conversationManager.createConversation()
         if let id = conversationManager.activeConversationId {
-            windowState.selection = .thread(id)
+            windowState.selection = .conversation(id)
         } else {
             // Draft mode — clear selection so no sidebar thread is highlighted
             windowState.selection = nil
-            windowState.persistentThreadId = nil
+            windowState.persistentConversationId = nil
         }
     }
 
@@ -493,7 +493,7 @@ extension MainWindowView {
             )
             if switcher.showsSwitcher {
                 Button {
-                    showThreadSwitcher.toggle()
+                    showConversationSwitcher.toggle()
                 } label: {
                     ZStack(alignment: .bottomTrailing) {
                         Text(switcher.badgeText)
@@ -522,7 +522,7 @@ extension MainWindowView {
                 .accessibilityLabel(switcher.accessibilityLabel)
                 .accessibilityValue(switcher.accessibilityValue)
                 .onDisappear {
-                    showThreadSwitcher = false
+                    showConversationSwitcher = false
                 }
                 .pointerCursor()
                 .background(GeometryReader { proxy in

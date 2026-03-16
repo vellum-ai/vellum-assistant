@@ -8,7 +8,7 @@ final class MainWindowAppsNavigationTests: XCTestCase {
 
     func testShowAppsPanelSetsSelectionToApps() {
         let state = MainWindowState(hasAPIKey: false)
-        state.selection = .thread(UUID())
+        state.selection = .conversation(UUID())
 
         state.showPanel(.apps)
 
@@ -30,7 +30,7 @@ final class MainWindowAppsNavigationTests: XCTestCase {
         // Simulate a prior app-edit flow that left isAppChatOpen = true
         // by toggling the chat dock while in an app editing state.
         let threadId = UUID()
-        state.selection = .appEditing(appId: "test-app", threadId: threadId)
+        state.selection = .appEditing(appId: "test-app", conversationId: threadId)
 
         // Now navigate to apps panel.
         state.showPanel(.apps)
@@ -45,9 +45,9 @@ final class MainWindowAppsNavigationTests: XCTestCase {
     func testDismissOverlayClearsAppChatState() {
         let state = MainWindowState(hasAPIKey: false)
         let threadId = UUID()
-        state.selection = .thread(threadId)
+        state.selection = .conversation(threadId)
         // Navigate to app editing then dismiss.
-        state.selection = .appEditing(appId: "test-app", threadId: threadId)
+        state.selection = .appEditing(appId: "test-app", conversationId: threadId)
         state.dismissOverlay()
 
         // After dismissing, navigating to apps should not show conversation.

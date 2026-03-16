@@ -7,23 +7,23 @@ final class NavigationHistory: ObservableObject {
 
     enum HistoryEntry: Equatable {
         case selection(ViewSelection)
-        case chatDefault(threadSnapshot: UUID?)
+        case chatDefault(conversationSnapshot: UUID?)
 
         /// Whether two entries resolve to the same visible state.
-        /// `.chatDefault(threadSnapshot: T)` and `.selection(.thread(T))` both
-        /// display the same thread, so transitioning between them is a no-op.
+        /// `.chatDefault(conversationSnapshot: T)` and `.selection(.conversation(T))` both
+        /// display the same conversation, so transitioning between them is a no-op.
         func isEquivalent(to other: HistoryEntry) -> Bool {
             if self == other { return true }
-            switch (self.resolvedThread, other.resolvedThread) {
+            switch (self.resolvedConversation, other.resolvedConversation) {
             case (.some(let a), .some(let b)): return a == b
             default: return false
             }
         }
 
-        /// The thread UUID this entry resolves to, if any.
-        private var resolvedThread: UUID? {
+        /// The conversation UUID this entry resolves to, if any.
+        private var resolvedConversation: UUID? {
             switch self {
-            case .selection(.thread(let id)): return id
+            case .selection(.conversation(let id)): return id
             case .chatDefault(let snapshot): return snapshot
             default: return nil
             }
@@ -43,20 +43,20 @@ final class NavigationHistory: ObservableObject {
 
     // MARK: - Entry Conversion
 
-    func entry(for selection: ViewSelection?, persistentThreadId: UUID?) -> HistoryEntry {
+    func entry(for selection: ViewSelection?, persistentConversationId: UUID?) -> HistoryEntry {
         if let selection { return .selection(selection) }
-        return .chatDefault(threadSnapshot: persistentThreadId)
+        return .chatDefault(conversationSnapshot: persistentConversationId)
     }
 
     // MARK: - Recording
 
-    func recordTransition(from: ViewSelection?, to: ViewSelection?, persistentThreadId: UUID?) {
+    func recordTransition(from: ViewSelection?, to: ViewSelection?, persistentConversationId: UUID?) {
         guard !isSuppressed else { return }
 
-        let fromEntry = entry(for: from, persistentThreadId: persistentThreadId)
-        let toEntry = entry(for: to, persistentThreadId: persistentThreadId)
+        let fromEntry = entry(for: from, persistentConversationId: persistentConversationId)
+        let toEntry = entry(for: to, persistentConversationId: persistentConversationId)
 
-        // Treat chatDefault(threadSnapshot: T) and .selection(.thread(T)) as
+        // Treat chatDefault(conversationSnapshot: T) and .selection(.conversation(T)) as
         // equivalent — they resolve to the same visible state, so recording a
         // transition between them would create a no-op back step.
         guard !fromEntry.isEquivalent(to: toEntry) else { return }
@@ -71,21 +71,21 @@ final class NavigationHistory: ObservableObject {
 
     // MARK: - Navigation
 
-    func popBack(currentSelection: ViewSelection?, persistentThreadId: UUID?) -> HistoryEntry? {
+    func popBack(currentSelection: ViewSelection?, persistentConversationId: UUID?) -> HistoryEntry? {
         guard !backStack.isEmpty else { return nil }
 
         let destination = backStack.removeLast()
-        let currentEntry = entry(for: currentSelection, persistentThreadId: persistentThreadId)
+        let currentEntry = entry(for: currentSelection, persistentConversationId: persistentConversationId)
         forwardStack.append(currentEntry)
 
         return destination
     }
 
-    func popForward(currentSelection: ViewSelection?, persistentThreadId: UUID?) -> HistoryEntry? {
+    func popForward(currentSelection: ViewSelection?, persistentConversationId: UUID?) -> HistoryEntry? {
         guard !forwardStack.isEmpty else { return nil }
 
         let destination = forwardStack.removeLast()
-        let currentEntry = entry(for: currentSelection, persistentThreadId: persistentThreadId)
+        let currentEntry = entry(for: currentSelection, persistentConversationId: persistentConversationId)
         backStack.append(currentEntry)
 
         return destination

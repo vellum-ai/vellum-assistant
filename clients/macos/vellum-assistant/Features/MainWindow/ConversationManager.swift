@@ -782,20 +782,20 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
         }
     }
 
-    /// Select a thread by its daemon conversation ID (conversationId).
-    /// Returns `true` if a matching thread was found and selected, `false` otherwise.
+    /// Select a conversation by its daemon conversation ID (conversationId).
+    /// Returns `true` if a matching conversation was found and selected, `false` otherwise.
     @discardableResult
-    func selectThreadByConversationId(_ conversationId: String) -> Bool {
+    func selectConversationByConversationId(_ conversationId: String) -> Bool {
         guard let thread = conversations.first(where: { $0.conversationId == conversationId }) else { return false }
         selectConversation(id: thread.id)
         return true
     }
 
-    /// Select a thread by session ID, fetching it on-demand from the server if not locally available.
-    /// Returns `true` if the thread was found (or fetched) and selected, `false` on failure.
-    func selectThreadByConversationIdAsync(_ conversationId: String) async -> Bool {
+    /// Select a conversation by session ID, fetching it on-demand from the server if not locally available.
+    /// Returns `true` if the conversation was found (or fetched) and selected, `false` on failure.
+    func selectConversationByConversationIdAsync(_ conversationId: String) async -> Bool {
         // Fast path: already loaded locally
-        if selectThreadByConversationId(conversationId) {
+        if selectConversationByConversationId(conversationId) {
             return true
         }
 
@@ -806,7 +806,7 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
 
         // Re-check after await — another code path (e.g. SSE session-list response)
         // may have inserted this thread while we were waiting on the network.
-        if selectThreadByConversationId(conversationId) {
+        if selectConversationByConversationId(conversationId) {
             return true
         }
 
