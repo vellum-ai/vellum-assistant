@@ -757,6 +757,7 @@ private struct WorkspaceFileViewer: View {
 
     private func sourceView(_ detail: WorkspaceFileResponse) -> some View {
         let readOnly = isHiddenPath(detail.path)
+        let language = SyntaxLanguage.detect(fileName: detail.name, mimeType: detail.mimeType)
         return VStack(spacing: 0) {
             if readOnly {
                 HStack {
@@ -789,18 +790,22 @@ private struct WorkspaceFileViewer: View {
             }
 
             if readOnly {
-                ReadOnlyCodeContent(content: detail.content ?? "")
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                HighlightedTextView(
+                    text: .constant(detail.content ?? ""),
+                    language: language,
+                    isEditable: false
+                )
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
-                TextEditor(text: $state.editableContent)
-                    .font(VFont.mono)
-                    .foregroundColor(VColor.contentDefault)
-                    .scrollContentBackground(.hidden)
-                    .padding(VSpacing.md)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .onChange(of: state.editableContent) { _, newValue in
+                HighlightedTextView(
+                    text: $state.editableContent,
+                    language: language,
+                    isEditable: true,
+                    onTextChange: { newValue in
                         state.isDirty = newValue != state.originalContent
                     }
+                )
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
     }
