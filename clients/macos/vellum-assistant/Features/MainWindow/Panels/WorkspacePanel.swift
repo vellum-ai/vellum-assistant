@@ -447,40 +447,42 @@ private struct WorkspaceTreeRow: View {
             Button {
                 Task { await handleTap() }
             } label: {
-                HStack(spacing: VSpacing.xs) {
-                    if entry.isDirectory {
-                        VIconView(isExpanded ? .chevronDown : .chevronRight, size: 9)
-                            .foregroundColor(VColor.contentTertiary)
-                            .frame(width: 12)
-                    } else {
-                        Spacer().frame(width: 12)
-                    }
-
-                    VIconView(entry.isDirectory ? .folder : .fileText, size: 12)
-                        .foregroundColor(entry.isDirectory ? VColor.primaryBase : VColor.contentSecondary)
-
+                Group {
                     if state.renamingPath == entry.path {
-                        TextField("Name", text: $state.renamingText)
-                            .textFieldStyle(.plain)
-                            .font(VFont.body)
-                            .fixedSize(horizontal: true, vertical: false)
-                            .onSubmit {
-                                submitRename()
+                        // Rename mode: inline TextField (cannot use shared label)
+                        HStack(spacing: VSpacing.xs) {
+                            if entry.isDirectory {
+                                VIconView(isExpanded ? .chevronDown : .chevronRight, size: 9)
+                                    .foregroundColor(VColor.contentTertiary)
+                                    .frame(width: 12)
+                            } else {
+                                Spacer().frame(width: 12)
                             }
-                            .onExitCommand {
-                                state.renamingPath = nil
-                            }
+                            VIconView(entry.isDirectory ? .folder : .fileText, size: 12)
+                                .foregroundColor(entry.isDirectory ? VColor.primaryBase : VColor.contentSecondary)
+                            TextField("Name", text: $state.renamingText)
+                                .textFieldStyle(.plain)
+                                .font(VFont.body)
+                                .fixedSize(horizontal: true, vertical: false)
+                                .onSubmit { submitRename() }
+                                .onExitCommand { state.renamingPath = nil }
+                        }
+                        .padding(.leading, CGFloat(depth) * 16 + VSpacing.sm)
+                        .padding(.trailing, VSpacing.sm)
+                        .padding(.vertical, VSpacing.xs)
+                        .frame(minWidth: minRowWidth, alignment: .leading)
                     } else {
-                        Text(entry.name)
-                            .font(VFont.body)
-                            .foregroundColor(VColor.contentDefault)
-                            .fixedSize(horizontal: true, vertical: false)
+                        // Normal mode: shared label
+                        FileTreeRowLabel(
+                            name: entry.name,
+                            isDirectory: entry.isDirectory,
+                            isExpanded: isExpanded,
+                            depth: depth,
+                            fileIcon: .fileText,
+                            minRowWidth: minRowWidth
+                        )
                     }
                 }
-                .padding(.leading, CGFloat(depth) * 16 + VSpacing.sm)
-                .padding(.trailing, VSpacing.sm)
-                .padding(.vertical, VSpacing.xs)
-                .frame(minWidth: minRowWidth, alignment: .leading)
                 .contentShape(Rectangle())
                 .background(isSelected ? VColor.surfaceActive : Color.clear)
             }
