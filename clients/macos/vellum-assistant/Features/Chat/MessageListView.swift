@@ -416,8 +416,9 @@ struct MessageListView: View {
                                    entryAnimationEnabled: shouldPlayTailEntryAnimation)
                     .frame(width: ConversationAvatarFollower.avatarSize,
                            height: ConversationAvatarFollower.avatarSize)
+                    .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(.horizontal, VSpacing.xl)
-                    .frame(maxWidth: VSpacing.chatColumnMaxWidth, alignment: .leading)
+                    .frame(maxWidth: VSpacing.chatColumnMaxWidth)
                     .frame(maxWidth: .infinity)
                     .offset(y: avatarDisplayY)
                     .accessibilityHidden(true)
