@@ -166,6 +166,7 @@ function dockerResourceNames(instanceName: string) {
     cesContainer: `${instanceName}-credential-executor`,
     dataVolume: `vellum-data-${instanceName}`,
     gatewayContainer: `${instanceName}-gateway`,
+    network: `vellum-net-${instanceName}`,
     socketVolume: `vellum-ces-bootstrap-${instanceName}`,
   };
 }
@@ -189,7 +190,6 @@ export async function retireDocker(name: string): Promise<void> {
 
   const res = dockerResourceNames(name);
 
-  // Stop containers in reverse dependency order
   await removeContainer(res.cesContainer);
   await removeContainer(res.gatewayContainer);
   await removeContainer(res.assistantContainer);
@@ -197,7 +197,12 @@ export async function retireDocker(name: string): Promise<void> {
   // Also clean up a legacy single-container instance if it exists
   await removeContainer(name);
 
-  // Remove shared volumes
+  // Remove shared network and volumes
+  try {
+    await exec("docker", ["network", "rm", res.network]);
+  } catch {
+    // network may not exist
+  }
   for (const vol of [res.dataVolume, res.socketVolume]) {
     try {
       await exec("docker", ["volume", "rm", vol]);
@@ -290,8 +295,8 @@ async function buildAllImages(
 
 /**
  * Returns a function that builds the `docker run` arguments for a given
- * service. Containers must be started in order because gateway and CES
- * attach to the assistant's network namespace.
+ * service. Each container joins a shared Docker bridge network so they
+ * can be restarted independently.
  */
 function serviceDockerRunArgs(opts: {
   gatewayPort: number;
@@ -305,7 +310,7 @@ function serviceDockerRunArgs(opts: {
       const args: string[] = [
         "run", "--init", "-d",
         "--name", res.assistantContainer,
-        "-p", `${gatewayPort}:${GATEWAY_INTERNAL_PORT}`,
+        `--network=${res.network}`,
         "-v", `${res.dataVolume}:/data`,
         "-v", `${res.socketVolume}:/run/ces-bootstrap`,
         "-e", `VELLUM_ASSISTANT_NAME=${instanceName}`,
@@ -321,17 +326,19 @@ function serviceDockerRunArgs(opts: {
     gateway: () => [
       "run", "--init", "-d",
       "--name", res.gatewayContainer,
-      `--network=container:${res.assistantContainer}`,
+      `--network=${res.network}`,
+      "-p", `${gatewayPort}:${GATEWAY_INTERNAL_PORT}`,
       "-v", `${res.dataVolume}:/data`,
       "-e", "BASE_DATA_DIR=/data",
       "-e", `GATEWAY_PORT=${GATEWAY_INTERNAL_PORT}`,
+      "-e", `RUNTIME_HTTP_HOST=${res.assistantContainer}`,
       "-e", `RUNTIME_HTTP_PORT=${ASSISTANT_INTERNAL_PORT}`,
       imageTags.gateway,
     ],
     "credential-executor": () => [
       "run", "--init", "-d",
       "--name", res.cesContainer,
-      `--network=container:${res.assistantContainer}`,
+      `--network=${res.network}`,
       "-v", `${res.socketVolume}:/run/ces-bootstrap`,
       "-v", `${res.dataVolume}:/data:ro`,
       "-e", "CES_MODE=managed",
@@ -456,24 +463,10 @@ function startFileWatcher(opts: {
         }),
       );
 
-      // Gateway and CES share the assistant's network namespace, so if
-      // the assistant container is restarted they must be restarted too.
-      const restartSet = new Set(services);
-      if (restartSet.has("assistant")) {
-        for (const s of SERVICE_START_ORDER) restartSet.add(s);
-      }
-
-      // Stop in reverse dependency order, start in forward order.
-      const stopOrder = [...SERVICE_START_ORDER].reverse();
-      for (const service of stopOrder) {
-        if (!restartSet.has(service)) continue;
+      for (const service of services) {
         const container = containerForService[service];
-        console.log(`🛑 Stopping ${container}...`);
+        console.log(`🔄 Restarting ${container}...`);
         await removeContainer(container);
-      }
-      for (const service of SERVICE_START_ORDER) {
-        if (!restartSet.has(service)) continue;
-        console.log(`🚀 Starting ${containerForService[service]}...`);
         await exec("docker", runArgs[service]());
       }
 
@@ -622,8 +615,9 @@ export async function hatchDocker(
 
   const res = dockerResourceNames(instanceName);
 
-  // Create shared volumes
-  console.log("📁 Creating shared volumes...");
+  // Create shared network and volumes
+  console.log("📁 Creating shared network and volumes...");
+  await exec("docker", ["network", "create", res.network]);
   await exec("docker", ["volume", "create", res.dataVolume]);
   await exec("docker", ["volume", "create", res.socketVolume]);
 
