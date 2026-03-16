@@ -1,5 +1,10 @@
-import { setPlatformAssistantId, setPlatformBaseUrl } from "../config/env.js";
+import {
+  setPlatformAssistantId,
+  setPlatformBaseUrl,
+  setPlatformOrganizationId,
+} from "../config/env.js";
 import type { AssistantConfig } from "../config/types.js";
+import { setSentryOrganizationId } from "../instrument.js";
 import { getMcpServerManager } from "../mcp/manager.js";
 import { gmailMessagingProvider } from "../messaging/providers/gmail/adapter.js";
 import { slackProvider as slackMessagingProvider } from "../messaging/providers/slack/adapter.js";
@@ -56,6 +61,24 @@ export async function initializeProvidersAndTools(
     log.warn(
       { error: err instanceof Error ? err.message : String(err) },
       "Failed to rehydrate platform assistant ID from credential store (non-fatal)",
+    );
+  }
+
+  // Rehydrate the platform organization ID from the credential store so
+  // Sentry events include organization context after restarts.
+  try {
+    const key = credentialKey("vellum", "platform_organization_id");
+    const persisted = await getSecureKeyAsync(key);
+    const trimmed = persisted?.trim();
+    if (trimmed) {
+      setPlatformOrganizationId(trimmed);
+      setSentryOrganizationId(trimmed);
+      log.info("Rehydrated platform organization ID from credential store");
+    }
+  } catch (err) {
+    log.warn(
+      { error: err instanceof Error ? err.message : String(err) },
+      "Failed to rehydrate platform organization ID from credential store (non-fatal)",
     );
   }
 
