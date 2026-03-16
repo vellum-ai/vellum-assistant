@@ -138,10 +138,13 @@ extension AppDelegate {
             // Capture assistant ID before logout clears it from UserDefaults
             let connectedAssistantId = UserDefaults.standard.string(forKey: "connectedAssistantId")
 
+            // Capture actor token before logout clears session state
+            let actorToken = ActorTokenManager.getToken()
+
             await authManager.logout()
 
             // Clear managed proxy credentials from the running daemon
-            if let token = ActorTokenManager.getToken(), !token.isEmpty {
+            if let token = actorToken, !token.isEmpty {
                 let assistantId = connectedAssistantId ?? ""
                 let port = LockfileAssistant.loadByName(assistantId)?.daemonPort ?? 7821
                 let daemonBaseURL = "http://localhost:\(port)"
@@ -149,6 +152,8 @@ extension AppDelegate {
                     daemonBaseURL: daemonBaseURL,
                     daemonToken: token
                 )
+            } else {
+                log.warning("No actor token available during logout — skipping daemon credential cleanup")
             }
 
             // Clear the locally-cached credential from Keychain
