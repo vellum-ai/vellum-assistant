@@ -50,7 +50,7 @@ extension AppDelegate {
         }
     }
 
-    /// Creates the thread in the sidebar and applies urgency surfacing policy.
+    /// Creates the conversation in the sidebar and applies urgency surfacing policy.
     /// Guardian questions are time-sensitive, so they are foregrounded when the
     /// app is active. All notification types get a fallback native alert when
     /// backgrounded to guarantee delivery if the notification_intent event is late.
@@ -87,7 +87,7 @@ extension AppDelegate {
         // When the app is in the background, schedule a fallback notification.
         // notification_intent is normally emitted moments later by the vellum
         // adapter; if it arrives in time the fallback is cancelled to prevent
-        // duplicates. When active, the thread is already visible in the sidebar
+        // duplicates. When active, the conversation is already visible in the sidebar
         // so no fallback is needed.
         guard !NSApp.isActive else { return }
 

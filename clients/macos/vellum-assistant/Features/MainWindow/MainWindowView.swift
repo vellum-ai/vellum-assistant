@@ -98,7 +98,7 @@ struct MainWindowView: View {
         if voiceModeManager.state != .off {
             voiceModeManager.deactivate()
         } else {
-            // Ensure a thread exists
+            // Ensure a conversation exists
             if conversationManager.activeViewModel == nil {
                 conversationManager.enterDraftMode()
             }
@@ -159,7 +159,7 @@ struct MainWindowView: View {
         windowState.selection = .app(appId)
     }
 
-    /// Resolve display names for thread export.
+    /// Resolve display names for conversation export.
     private func resolveParticipantNames() -> ChatTranscriptFormatter.ParticipantNames {
         let assistantName = AssistantDisplayName.resolve(
             IdentityInfo.load()?.name,
@@ -238,12 +238,12 @@ struct MainWindowView: View {
                 }
             }
             .onChange(of: conversationManager.activeConversationId) { oldId, newId in
-                // Deactivate voice mode on a real thread switch (UUID → different UUID),
+                // Deactivate voice mode on a real conversation switch (UUID → different UUID),
                 // but not on draft promotion (nil → UUID) which happens on first send.
                 if let oldId, oldId != newId, voiceModeManager.state != .off {
                     voiceModeManager.deactivate()
                 }
-                // Dismiss thread actions drawer on thread switch
+                // Dismiss conversation actions drawer on conversation switch
                 if showConversationActionsDrawer {
                     showConversationActionsDrawer = false
                 }
@@ -486,7 +486,7 @@ struct MainWindowView: View {
                     }
                 }
                 .overlay {
-                    // Click-outside-to-dismiss background for thread actions drawer
+                    // Click-outside-to-dismiss background for conversation actions drawer
                     if showConversationActionsDrawer {
                         Color.clear
                             .contentShape(Rectangle())
@@ -667,7 +667,7 @@ struct MainWindowView: View {
             isAppChatOpen = false
             windowState.refreshAPIKeyStatus(isConnected: daemonClient.isConnected)
             selectedConversationId = conversationManager.activeConversationId
-            // Initialize persistent thread tracking on launch
+            // Initialize persistent conversation tracking on launch
             if let activeId = conversationManager.activeConversationId {
                 windowState.persistentConversationId = activeId
             }
@@ -721,27 +721,27 @@ struct MainWindowView: View {
             // Sync activeConversationId changes back to selectedConversationId to keep sidebar selection in sync
             selectedConversationId = newId
             // Always sync persistentConversationId so the sidebar highlights the
-            // correct thread — even when an overlay (.panel, .app) is active.
-            // Without this, archiving the active thread while viewing a panel
-            // leaves persistentConversationId pointing at the archived (invisible) thread
+            // correct conversation — even when an overlay (.panel, .app) is active.
+            // Without this, archiving the active conversation while viewing a panel
+            // leaves persistentConversationId pointing at the archived (invisible) conversation
             // and the sidebar shows no active highlight.
-            // Clear it when entering draft mode (nil) so no thread appears active.
+            // Clear it when entering draft mode (nil) so no conversation appears active.
             windowState.persistentConversationId = newId
             if case .panel(.intelligence) = windowState.selection {
                 windowState.selection = nil
             }
-            // Clear subagent detail panel on thread switch
+            // Clear subagent detail panel on conversation switch
             windowState.selectedSubagentId = nil
-            // Clear stale activeSurfaceId on the old thread and sync the new one
+            // Clear stale activeSurfaceId on the old conversation and sync the new one
             if let oldId {
                 conversationManager.clearActiveSurface(conversationId: oldId)
             }
             conversationManager.activeViewModel?.activeSurfaceId = windowState.isDynamicExpanded ? windowState.activeDynamicSurface?.surfaceId : nil
             conversationManager.activeViewModel?.isChatDockedToSide = windowState.isDynamicExpanded && windowState.isChatDockOpen
-            // Consume any buffered deep-link message now that a thread is active.
+            // Consume any buffered deep-link message now that a conversation is active.
             // Mirrors the iOS pattern (ChatTabView.onAppear, ThreadListView.onAppear)
             // where consumeDeepLinkIfNeeded() is called when the view model becomes
-            // visible. Without this, deep links arriving before the window/thread is
+            // visible. Without this, deep links arriving before the window/conversation is
             // fully initialized are silently dropped on macOS.
             conversationManager.activeViewModel?.consumeDeepLinkIfNeeded()
         }
@@ -881,7 +881,7 @@ struct MainWindowView: View {
 /// even though MainWindowView only observes ConversationManager.
 ///
 /// By capturing the viewModel reference at render-time, closures always act on
-/// the correct thread's ViewModel — even if the user switches conversations while a
+/// the correct conversation's ViewModel — even if the user switches conversations while a
 /// toast is visible.
 private struct ErrorToastOverlay: View {
     @ObservedObject var errorManager: ChatErrorManager
