@@ -2,8 +2,8 @@
  * Tests for POST /v1/messages queue-if-busy behavior and hub publishing.
  *
  * Validates that:
- * - Messages are accepted (202) when the session is idle, with hub events published.
- * - Messages are queued (202, queued: true) when the session is busy, not 409.
+ * - Messages are accepted (202) when the conversation is idle, with hub events published.
+ * - Messages are queued (202, queued: true) when the conversation is busy, not 409.
  * - SSE subscribers receive events from messages sent via this endpoint.
  */
 import { mkdtempSync, realpathSync, rmSync } from "node:fs";
@@ -86,7 +86,7 @@ initializeDb();
 // ---------------------------------------------------------------------------
 
 /** Conversation that completes its agent loop quickly and emits a text delta + message_complete. */
-function makeCompletingSession(): Conversation {
+function makeCompletingConversation(): Conversation {
   let processing = false;
   const messages: unknown[] = [];
   return {
@@ -138,8 +138,8 @@ function makeCompletingSession(): Conversation {
   } as unknown as Conversation;
 }
 
-/** Conversation that hangs forever in the agent loop (simulates a busy session). */
-function makeHangingSession(): Conversation {
+/** Conversation that hangs forever in the agent loop (simulates a busy conversation). */
+function makeHangingConversation(): Conversation {
   let processing = false;
   const messages: unknown[] = [];
   const enqueuedMessages: Array<{
@@ -200,7 +200,7 @@ function makeHangingSession(): Conversation {
   } as unknown as Conversation;
 }
 
-function makePendingApprovalSession(
+function makePendingApprovalConversation(
   requestId: string,
   processing: boolean,
   options?: { queueDepth?: number },
@@ -329,7 +329,7 @@ describe("POST /v1/messages — queue-if-busy and hub publishing", () => {
   });
 
   async function startServer(
-    sessionFactory: () => Conversation,
+    conversationFactory: () => Conversation,
     options?: { approvalConversationGenerator?: ApprovalConversationGenerator },
   ): Promise<void> {
     port = 19000 + Math.floor(Math.random() * 1000);
@@ -338,7 +338,7 @@ describe("POST /v1/messages — queue-if-busy and hub publishing", () => {
       bearerToken: TEST_TOKEN,
       approvalConversationGenerator: options?.approvalConversationGenerator,
       sendMessageDeps: {
-        getOrCreateConversation: async () => sessionFactory(),
+        getOrCreateConversation: async () => conversationFactory(),
         assistantEventHub: eventHub,
         resolveAttachments: () => [],
       },
@@ -354,10 +354,10 @@ describe("POST /v1/messages — queue-if-busy and hub publishing", () => {
     return `http://127.0.0.1:${port}/v1/messages`;
   }
 
-  // ── Idle session: immediate processing ──────────────────────────────
+  // ── Idle conversation: immediate processing ─────────────────────────
 
-  test("returns 202 with accepted: true and messageId when session is idle", async () => {
-    await startServer(() => makeCompletingSession());
+  test("returns 202 with accepted: true and messageId when conversation is idle", async () => {
+    await startServer(() => makeCompletingConversation());
 
     const res = await fetch(messagesUrl(), {
       method: "POST",
@@ -384,10 +384,10 @@ describe("POST /v1/messages — queue-if-busy and hub publishing", () => {
     await stopServer();
   });
 
-  test("publishes events to assistantEventHub when session is idle", async () => {
+  test("publishes events to assistantEventHub when conversation is idle", async () => {
     const publishedEvents: AssistantEvent[] = [];
 
-    await startServer(() => makeCompletingSession());
+    await startServer(() => makeCompletingConversation());
 
     eventHub.subscribe({ assistantId: "self" }, (event) => {
       publishedEvents.push(event);
@@ -426,7 +426,7 @@ describe("POST /v1/messages — queue-if-busy and hub publishing", () => {
       enqueueMessageMock,
       denyAllPendingConfirmationsMock,
       handleConfirmationResponseMock,
-    } = makePendingApprovalSession(requestId, false);
+    } = makePendingApprovalConversation(requestId, false);
 
     pendingInteractions.register(requestId, {
       conversation,
@@ -486,7 +486,7 @@ describe("POST /v1/messages — queue-if-busy and hub publishing", () => {
       enqueueMessageMock,
       denyAllPendingConfirmationsMock,
       handleConfirmationResponseMock,
-    } = makePendingApprovalSession(requestId, false);
+    } = makePendingApprovalConversation(requestId, false);
 
     pendingInteractions.register(requestId, {
       conversation,
@@ -554,7 +554,7 @@ describe("POST /v1/messages — queue-if-busy and hub publishing", () => {
       enqueueMessageMock,
       denyAllPendingConfirmationsMock,
       handleConfirmationResponseMock,
-    } = makePendingApprovalSession(requestId, true);
+    } = makePendingApprovalConversation(requestId, true);
 
     pendingInteractions.register(requestId, {
       conversation,
@@ -614,7 +614,7 @@ describe("POST /v1/messages — queue-if-busy and hub publishing", () => {
       enqueueMessageMock,
       denyAllPendingConfirmationsMock,
       handleConfirmationResponseMock,
-    } = makePendingApprovalSession(requestId, true, { queueDepth: 2 });
+    } = makePendingApprovalConversation(requestId, true, { queueDepth: 2 });
 
     pendingInteractions.register(requestId, {
       conversation,
@@ -674,7 +674,7 @@ describe("POST /v1/messages — queue-if-busy and hub publishing", () => {
       enqueueMessageMock,
       denyAllPendingConfirmationsMock,
       handleConfirmationResponseMock,
-    } = makePendingApprovalSession(requestId, false);
+    } = makePendingApprovalConversation(requestId, false);
 
     pendingInteractions.register(requestId, {
       conversation,
@@ -729,7 +729,7 @@ describe("POST /v1/messages — queue-if-busy and hub publishing", () => {
     const conversationKey = "conv-inline-ambiguous";
     const { conversationId } = getOrCreateConversation(conversationKey);
     const requestId = "req-inline-ambiguous";
-    const { conversation, runAgentLoopMock } = makePendingApprovalSession(
+    const { conversation, runAgentLoopMock } = makePendingApprovalConversation(
       requestId,
       false,
     );
@@ -780,13 +780,13 @@ describe("POST /v1/messages — queue-if-busy and hub publishing", () => {
     await stopServer();
   });
 
-  // ── Busy session: queue-if-busy ─────────────────────────────────────
+  // ── Busy conversation: queue-if-busy ────────────────────────────────
 
-  test("returns 202 with queued: true when session is busy (not 409)", async () => {
-    const conversation = makeHangingSession();
+  test("returns 202 with queued: true when conversation is busy (not 409)", async () => {
+    const conversation = makeHangingConversation();
     await startServer(() => conversation);
 
-    // First message starts the agent loop and makes the session busy
+    // First message starts the agent loop and makes the conversation busy
     const res1 = await fetch(messagesUrl(), {
       method: "POST",
       headers: { "Content-Type": "application/json", ...AUTH_HEADERS },
@@ -837,7 +837,7 @@ describe("POST /v1/messages — queue-if-busy and hub publishing", () => {
   // ── Validation ──────────────────────────────────────────────────────
 
   test("returns 400 when sourceChannel is missing", async () => {
-    await startServer(() => makeCompletingSession());
+    await startServer(() => makeCompletingConversation());
 
     const res = await fetch(messagesUrl(), {
       method: "POST",
@@ -850,7 +850,7 @@ describe("POST /v1/messages — queue-if-busy and hub publishing", () => {
   });
 
   test("returns 400 when content is empty", async () => {
-    await startServer(() => makeCompletingSession());
+    await startServer(() => makeCompletingConversation());
 
     const res = await fetch(messagesUrl(), {
       method: "POST",
@@ -868,7 +868,7 @@ describe("POST /v1/messages — queue-if-busy and hub publishing", () => {
   });
 
   test("returns 400 when conversationKey is missing", async () => {
-    await startServer(() => makeCompletingSession());
+    await startServer(() => makeCompletingConversation());
 
     const res = await fetch(messagesUrl(), {
       method: "POST",

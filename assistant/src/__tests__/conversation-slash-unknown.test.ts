@@ -247,7 +247,7 @@ mock.module("../memory/canonical-guardian-store.js", () => ({
 
 import { Conversation } from "../daemon/conversation.js";
 
-function makeSession(): Conversation {
+function makeConversation(): Conversation {
   const provider = {
     name: "mock",
     async sendMessage(): Promise<ProviderResponse> {
@@ -280,17 +280,19 @@ describe("Conversation slash command — passthrough for unknown tokens", () => 
   });
 
   test("unknown slash-like input passes through to agent loop", async () => {
-    const session = makeSession();
-    await session.processMessage("/not-a-skill", [], () => {});
+    const conversation = makeConversation();
+    await conversation.processMessage("/not-a-skill", [], () => {});
 
     // Should go through the normal agent loop path
     expect(agentLoopRunCalled).toBe(true);
   });
 
   test("normal messages still go through standard path", async () => {
-    const session = makeSession();
+    const conversation = makeConversation();
     const events: ServerMessage[] = [];
-    await session.processMessage("hello world", [], (msg) => events.push(msg));
+    await conversation.processMessage("hello world", [], (msg) =>
+      events.push(msg),
+    );
     expect(agentLoopRunCalled).toBe(true);
   });
 });

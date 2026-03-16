@@ -236,7 +236,7 @@ mock.module("../memory/canonical-guardian-store.js", () => ({
 
 import { Conversation } from "../daemon/conversation.js";
 
-function makeSession(): Conversation {
+function makeConversation(): Conversation {
   const provider = {
     name: "mock",
     async sendMessage(): Promise<ProviderResponse> {
@@ -277,10 +277,10 @@ describe("Conversation workspace injection", () => {
   });
 
   test("runtime messages include workspace top-level context", async () => {
-    const session = makeSession();
-    await session.loadFromDb();
+    const conversation = makeConversation();
+    await conversation.loadFromDb();
 
-    await session.processMessage("Hello", [], () => {});
+    await conversation.processMessage("Hello", [], () => {});
 
     expect(runCalls).toHaveLength(1);
     const runtimeUser = runCalls[0][runCalls[0].length - 1];
@@ -291,10 +291,10 @@ describe("Conversation workspace injection", () => {
   });
 
   test("workspace context includes root path and directories", async () => {
-    const session = makeSession();
-    await session.loadFromDb();
+    const conversation = makeConversation();
+    await conversation.loadFromDb();
 
-    await session.processMessage("Hello", [], () => {});
+    await conversation.processMessage("Hello", [], () => {});
 
     expect(runCalls).toHaveLength(1);
     const runtimeUser = runCalls[0][runCalls[0].length - 1];
@@ -303,10 +303,10 @@ describe("Conversation workspace injection", () => {
   });
 
   test("workspace context is prepended before user text", async () => {
-    const session = makeSession();
-    await session.loadFromDb();
+    const conversation = makeConversation();
+    await conversation.loadFromDb();
 
-    await session.processMessage("Hello", [], () => {});
+    await conversation.processMessage("Hello", [], () => {});
 
     expect(runCalls).toHaveLength(1);
     const runtimeUser = runCalls[0][runCalls[0].length - 1];
@@ -317,12 +317,12 @@ describe("Conversation workspace injection", () => {
   });
 
   test("workspace context is stripped from persisted history", async () => {
-    const session = makeSession();
-    await session.loadFromDb();
+    const conversation = makeConversation();
+    await conversation.loadFromDb();
 
-    await session.processMessage("Hello", [], () => {});
+    await conversation.processMessage("Hello", [], () => {});
 
-    const persistedMessages = session.getMessages();
+    const persistedMessages = conversation.getMessages();
     for (const msg of persistedMessages) {
       const text = messageText(msg);
       expect(text).not.toContain("<workspace_top_level>");
@@ -330,12 +330,12 @@ describe("Conversation workspace injection", () => {
   });
 
   test("no empty user messages after stripping workspace context", async () => {
-    const session = makeSession();
-    await session.loadFromDb();
+    const conversation = makeConversation();
+    await conversation.loadFromDb();
 
-    await session.processMessage("Hello", [], () => {});
+    await conversation.processMessage("Hello", [], () => {});
 
-    const persistedMessages = session.getMessages();
+    const persistedMessages = conversation.getMessages();
     const emptyUserMsgs = persistedMessages.filter(
       (m) => m.role === "user" && m.content.length === 0,
     );
@@ -351,10 +351,10 @@ describe("Conversation workspace dirty-refresh E2E", () => {
   });
 
   test("first turn computes snapshot", async () => {
-    const session = makeSession();
-    await session.loadFromDb();
+    const conversation = makeConversation();
+    await conversation.loadFromDb();
 
-    await session.processMessage("Hello", [], () => {});
+    await conversation.processMessage("Hello", [], () => {});
 
     expect(scanCallCount).toBe(1);
     const text = messageText(runCalls[0][runCalls[0].length - 1]);
@@ -362,23 +362,23 @@ describe("Conversation workspace dirty-refresh E2E", () => {
   });
 
   test("second turn without mutation reuses cache", async () => {
-    const session = makeSession();
-    await session.loadFromDb();
+    const conversation = makeConversation();
+    await conversation.loadFromDb();
 
-    await session.processMessage("Hello", [], () => {});
+    await conversation.processMessage("Hello", [], () => {});
     const afterFirst = scanCallCount;
 
-    await session.processMessage("Again", [], () => {});
+    await conversation.processMessage("Again", [], () => {});
 
     // Scanner should NOT have been called again
     expect(scanCallCount).toBe(afterFirst);
   });
 
   test("successful file_edit causes refresh next turn", async () => {
-    const session = makeSession();
-    await session.loadFromDb();
+    const conversation = makeConversation();
+    await conversation.loadFromDb();
 
-    await session.processMessage("Hello", [], () => {});
+    await conversation.processMessage("Hello", [], () => {});
     const afterFirst = scanCallCount;
 
     // Simulate a turn where the agent uses file_edit
@@ -391,7 +391,7 @@ describe("Conversation workspace dirty-refresh E2E", () => {
         isError: false,
       });
     };
-    await session.processMessage("Edit a file", [], () => {});
+    await conversation.processMessage("Edit a file", [], () => {});
 
     // No rescan should happen during the mutation turn itself
     const afterMutation = scanCallCount;
@@ -399,16 +399,16 @@ describe("Conversation workspace dirty-refresh E2E", () => {
 
     // Next turn should trigger exactly one fresh scan
     agentLoopScript = () => {};
-    await session.processMessage("What happened?", [], () => {});
+    await conversation.processMessage("What happened?", [], () => {});
 
     expect(scanCallCount).toBe(afterMutation + 1);
   });
 
   test("successful bash causes refresh next turn", async () => {
-    const session = makeSession();
-    await session.loadFromDb();
+    const conversation = makeConversation();
+    await conversation.loadFromDb();
 
-    await session.processMessage("Hello", [], () => {});
+    await conversation.processMessage("Hello", [], () => {});
     const afterFirst = scanCallCount;
 
     agentLoopScript = (onEvent) => {
@@ -420,7 +420,7 @@ describe("Conversation workspace dirty-refresh E2E", () => {
         isError: false,
       });
     };
-    await session.processMessage("Run a command", [], () => {});
+    await conversation.processMessage("Run a command", [], () => {});
 
     // No rescan should happen during the mutation turn itself
     const afterMutation = scanCallCount;
@@ -428,16 +428,16 @@ describe("Conversation workspace dirty-refresh E2E", () => {
 
     // Next turn should trigger exactly one fresh scan
     agentLoopScript = () => {};
-    await session.processMessage("What now?", [], () => {});
+    await conversation.processMessage("What now?", [], () => {});
 
     expect(scanCallCount).toBe(afterMutation + 1);
   });
 
   test("failed tool results do not trigger refresh", async () => {
-    const session = makeSession();
-    await session.loadFromDb();
+    const conversation = makeConversation();
+    await conversation.loadFromDb();
 
-    await session.processMessage("Hello", [], () => {});
+    await conversation.processMessage("Hello", [], () => {});
     const afterFirst = scanCallCount;
 
     agentLoopScript = (onEvent) => {
@@ -449,10 +449,10 @@ describe("Conversation workspace dirty-refresh E2E", () => {
         isError: true,
       });
     };
-    await session.processMessage("Try editing", [], () => {});
+    await conversation.processMessage("Try editing", [], () => {});
 
     agentLoopScript = () => {};
-    await session.processMessage("What happened?", [], () => {});
+    await conversation.processMessage("What happened?", [], () => {});
 
     // Scanner should NOT have been re-called since the tool failed
     expect(scanCallCount).toBe(afterFirst);

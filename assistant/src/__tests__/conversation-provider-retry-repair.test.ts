@@ -375,7 +375,7 @@ mock.module("../memory/canonical-guardian-store.js", () => ({
 
 import { Conversation } from "../daemon/conversation.js";
 
-function makeSession(): Conversation {
+function makeConversation(): Conversation {
   const provider = {
     name: "mock",
     async sendMessage(): Promise<ProviderResponse> {
@@ -419,11 +419,11 @@ describe("provider ordering error retry", () => {
   test("simulated strict provider error triggers exactly one retry", async () => {
     firstRunErrorMode = "ordering";
 
-    const session = makeSession();
-    await session.loadFromDb();
+    const conversation = makeConversation();
+    await conversation.loadFromDb();
 
     const events: Array<Record<string, unknown>> = [];
-    await session.processMessage("Hello", [], (msg) =>
+    await conversation.processMessage("Hello", [], (msg) =>
       events.push(msg as unknown as Record<string, unknown>),
     );
 
@@ -434,11 +434,11 @@ describe("provider ordering error retry", () => {
   test("[experimental] retry succeeds with repaired history and no spurious error event", async () => {
     firstRunErrorMode = "ordering";
 
-    const session = makeSession();
-    await session.loadFromDb();
+    const conversation = makeConversation();
+    await conversation.loadFromDb();
 
     const events: Array<Record<string, unknown>> = [];
-    await session.processMessage("Hello", [], (msg) =>
+    await conversation.processMessage("Hello", [], (msg) =>
       events.push(msg as unknown as Record<string, unknown>),
     );
 
@@ -451,7 +451,7 @@ describe("provider ordering error retry", () => {
     expect(errorEvents.length).toBe(0);
 
     // Should also have the assistant response in memory
-    const messages = session.getMessages();
+    const messages = conversation.getMessages();
     const lastMsg = messages[messages.length - 1];
     expect(lastMsg.role).toBe("assistant");
   });
@@ -459,11 +459,11 @@ describe("provider ordering error retry", () => {
   test("non-ordering errors do not trigger retry", async () => {
     firstRunErrorMode = "none";
 
-    const session = makeSession();
-    await session.loadFromDb();
+    const conversation = makeConversation();
+    await conversation.loadFromDb();
 
     const events: Array<Record<string, unknown>> = [];
-    await session.processMessage("Hello", [], (msg) =>
+    await conversation.processMessage("Hello", [], (msg) =>
       events.push(msg as unknown as Record<string, unknown>),
     );
 
@@ -475,11 +475,11 @@ describe("provider ordering error retry", () => {
     firstRunErrorMode = "context_too_large";
     forceCompactionEnabled = true;
 
-    const session = makeSession();
-    await session.loadFromDb();
+    const conversation = makeConversation();
+    await conversation.loadFromDb();
 
     const events: Array<Record<string, unknown>> = [];
-    await session.processMessage(
+    await conversation.processMessage(
       "Please compare these images.",
       makeImageAttachments(8),
       (msg) => events.push(msg as unknown as Record<string, unknown>),
@@ -495,11 +495,11 @@ describe("provider ordering error retry", () => {
     firstRunErrorMode = "context_too_large";
     forceCompactionEnabled = false;
 
-    const session = makeSession();
-    await session.loadFromDb();
+    const conversation = makeConversation();
+    await conversation.loadFromDb();
 
     const events: Array<Record<string, unknown>> = [];
-    await session.processMessage(
+    await conversation.processMessage(
       "Please compare these images.",
       makeImageAttachments(8),
       (msg) => events.push(msg as unknown as Record<string, unknown>),
@@ -522,11 +522,11 @@ describe("provider ordering error retry", () => {
     firstRunErrorMode = "context_too_large";
     forceCompactionEnabled = false;
 
-    const session = makeSession();
-    await session.loadFromDb();
+    const conversation = makeConversation();
+    await conversation.loadFromDb();
 
     const events: Array<Record<string, unknown>> = [];
-    await session.processMessage("No attachments here.", [], (msg) =>
+    await conversation.processMessage("No attachments here.", [], (msg) =>
       events.push(msg as unknown as Record<string, unknown>),
     );
 
@@ -540,11 +540,11 @@ describe("provider ordering error retry", () => {
     firstRunErrorMode = "context_too_large_phrase";
     forceCompactionEnabled = true;
 
-    const session = makeSession();
-    await session.loadFromDb();
+    const conversation = makeConversation();
+    await conversation.loadFromDb();
 
     const events: Array<Record<string, unknown>> = [];
-    await session.processMessage(
+    await conversation.processMessage(
       "Please compare these images.",
       makeImageAttachments(4),
       (msg) => events.push(msg as unknown as Record<string, unknown>),
@@ -560,11 +560,11 @@ describe("provider ordering error retry", () => {
     firstRunErrorMode = "context_too_large_413";
     forceCompactionEnabled = true;
 
-    const session = makeSession();
-    await session.loadFromDb();
+    const conversation = makeConversation();
+    await conversation.loadFromDb();
 
     const events: Array<Record<string, unknown>> = [];
-    await session.processMessage(
+    await conversation.processMessage(
       "Please compare these images.",
       makeImageAttachments(8),
       (msg) => events.push(msg as unknown as Record<string, unknown>),
@@ -583,11 +583,11 @@ describe("provider ordering error retry", () => {
     firstRunErrorMode = "context_too_large_413_with_progress";
     forceCompactionEnabled = false;
 
-    const session = makeSession();
-    await session.loadFromDb();
+    const conversation = makeConversation();
+    await conversation.loadFromDb();
 
     const events: Array<Record<string, unknown>> = [];
-    await session.processMessage(
+    await conversation.processMessage(
       "Run some tools then hit the limit.",
       [],
       (msg) => events.push(msg as unknown as Record<string, unknown>),

@@ -256,7 +256,7 @@ function makeProvider() {
   };
 }
 
-function makeSession(
+function makeConversation(
   sendToClient?: (msg: ServerMessage) => void,
   conversationId = CONV_ID,
 ): Conversation {
@@ -345,35 +345,38 @@ beforeEach(() => {
 describe("approval cascading", () => {
   test("allow_10m cascades to all pending in same conversation", () => {
     const emitted: ServerMessage[] = [];
-    const session = makeSession((msg) => emitted.push(msg), CONV_ID);
+    const conversationObj = makeConversation(
+      (msg) => emitted.push(msg),
+      CONV_ID,
+    );
 
     // Seed 3 pending confirmations
-    seedPendingConfirmation(session, "req-1");
-    seedPendingConfirmation(session, "req-2");
-    seedPendingConfirmation(session, "req-3");
+    seedPendingConfirmation(conversationObj, "req-1");
+    seedPendingConfirmation(conversationObj, "req-2");
+    seedPendingConfirmation(conversationObj, "req-3");
 
     // Register in pending-interactions tracker
     registerPendingInteraction(
-      session,
+      conversationObj,
       "req-1",
       CONV_ID,
       makeConfirmationDetails(["bash:echo hello"]),
     );
     registerPendingInteraction(
-      session,
+      conversationObj,
       "req-2",
       CONV_ID,
       makeConfirmationDetails(["bash:ls -la"]),
     );
     registerPendingInteraction(
-      session,
+      conversationObj,
       "req-3",
       CONV_ID,
       makeConfirmationDetails(["bash:cat file"]),
     );
 
     // Resolve the first with allow_10m
-    session.handleConfirmationResponse("req-1", "allow_10m");
+    conversationObj.handleConfirmationResponse("req-1", "allow_10m");
 
     // All 3 should be resolved (approved)
     const confirmMsgs = emitted.filter(
@@ -390,32 +393,35 @@ describe("approval cascading", () => {
 
   test("allow_conversation cascades to all pending in same conversation", () => {
     const emitted: ServerMessage[] = [];
-    const session = makeSession((msg) => emitted.push(msg), CONV_ID);
+    const conversationObj = makeConversation(
+      (msg) => emitted.push(msg),
+      CONV_ID,
+    );
 
-    seedPendingConfirmation(session, "req-a");
-    seedPendingConfirmation(session, "req-b");
-    seedPendingConfirmation(session, "req-c");
+    seedPendingConfirmation(conversationObj, "req-a");
+    seedPendingConfirmation(conversationObj, "req-b");
+    seedPendingConfirmation(conversationObj, "req-c");
 
     registerPendingInteraction(
-      session,
+      conversationObj,
       "req-a",
       CONV_ID,
       makeConfirmationDetails(["bash:echo a"]),
     );
     registerPendingInteraction(
-      session,
+      conversationObj,
       "req-b",
       CONV_ID,
       makeConfirmationDetails(["bash:echo b"]),
     );
     registerPendingInteraction(
-      session,
+      conversationObj,
       "req-c",
       CONV_ID,
       makeConfirmationDetails(["bash:echo c"]),
     );
 
-    session.handleConfirmationResponse("req-a", "allow_conversation");
+    conversationObj.handleConfirmationResponse("req-a", "allow_conversation");
 
     const confirmMsgs = emitted.filter(
       (m) =>
@@ -431,36 +437,39 @@ describe("approval cascading", () => {
 
   test("temporary override does NOT cascade to different conversation", () => {
     const emitted: ServerMessage[] = [];
-    const session = makeSession((msg) => emitted.push(msg), CONV_ID);
+    const conversationObj = makeConversation(
+      (msg) => emitted.push(msg),
+      CONV_ID,
+    );
 
-    seedPendingConfirmation(session, "req-same");
-    seedPendingConfirmation(session, "req-diff");
+    seedPendingConfirmation(conversationObj, "req-same");
+    seedPendingConfirmation(conversationObj, "req-diff");
 
     // Same conversation
     registerPendingInteraction(
-      session,
+      conversationObj,
       "req-same",
       CONV_ID,
       makeConfirmationDetails(["bash:echo same"]),
     );
     // Different conversation
     registerPendingInteraction(
-      session,
+      conversationObj,
       "req-diff",
       "different-conv",
       makeConfirmationDetails(["bash:echo diff"]),
     );
 
     // Seed a primary request
-    seedPendingConfirmation(session, "req-primary");
+    seedPendingConfirmation(conversationObj, "req-primary");
     registerPendingInteraction(
-      session,
+      conversationObj,
       "req-primary",
       CONV_ID,
       makeConfirmationDetails(["bash:echo primary"]),
     );
 
-    session.handleConfirmationResponse("req-primary", "allow_10m");
+    conversationObj.handleConfirmationResponse("req-primary", "allow_10m");
 
     const confirmMsgs = emitted.filter(
       (m) =>
@@ -477,43 +486,46 @@ describe("approval cascading", () => {
 
   test("always_allow cascades to pattern-matching pending", () => {
     const emitted: ServerMessage[] = [];
-    const session = makeSession((msg) => emitted.push(msg), CONV_ID);
+    const conversationObj = makeConversation(
+      (msg) => emitted.push(msg),
+      CONV_ID,
+    );
 
     // Two with matching patterns (asset_materialize:doc.pdf)
-    seedPendingConfirmation(session, "req-match-1");
-    seedPendingConfirmation(session, "req-match-2");
+    seedPendingConfirmation(conversationObj, "req-match-1");
+    seedPendingConfirmation(conversationObj, "req-match-2");
     // One with non-overlapping pattern
-    seedPendingConfirmation(session, "req-nomatch");
+    seedPendingConfirmation(conversationObj, "req-nomatch");
 
     registerPendingInteraction(
-      session,
+      conversationObj,
       "req-match-1",
       CONV_ID,
       makeConfirmationDetails(["asset_materialize:doc.pdf"]),
     );
     registerPendingInteraction(
-      session,
+      conversationObj,
       "req-match-2",
       CONV_ID,
       makeConfirmationDetails(["asset_materialize:report.pdf"]),
     );
     registerPendingInteraction(
-      session,
+      conversationObj,
       "req-nomatch",
       CONV_ID,
       makeConfirmationDetails(["bash:rm -rf"]),
     );
 
     // Primary request
-    seedPendingConfirmation(session, "req-primary");
+    seedPendingConfirmation(conversationObj, "req-primary");
     registerPendingInteraction(
-      session,
+      conversationObj,
       "req-primary",
       CONV_ID,
       makeConfirmationDetails(["asset_materialize:image.png"]),
     );
 
-    session.handleConfirmationResponse(
+    conversationObj.handleConfirmationResponse(
       "req-primary",
       "always_allow",
       "asset_materialize:**",
@@ -534,20 +546,23 @@ describe("approval cascading", () => {
 
   test("always_allow does NOT cascade to high-risk pending confirmations", () => {
     const emitted: ServerMessage[] = [];
-    const session = makeSession((msg) => emitted.push(msg), CONV_ID);
+    const conversationObj = makeConversation(
+      (msg) => emitted.push(msg),
+      CONV_ID,
+    );
 
     // Medium-risk pending — should cascade
-    seedPendingConfirmation(session, "req-medium");
+    seedPendingConfirmation(conversationObj, "req-medium");
     registerPendingInteraction(
-      session,
+      conversationObj,
       "req-medium",
       CONV_ID,
       makeConfirmationDetails(["asset_materialize:report.pdf"]),
     );
 
     // High-risk pending — should NOT cascade via always_allow
-    seedPendingConfirmation(session, "req-high");
-    registerPendingInteraction(session, "req-high", CONV_ID, {
+    seedPendingConfirmation(conversationObj, "req-high");
+    registerPendingInteraction(conversationObj, "req-high", CONV_ID, {
       toolName: "bash",
       input: { command: "rm -rf /" },
       riskLevel: "high",
@@ -562,15 +577,15 @@ describe("approval cascading", () => {
     });
 
     // Primary request
-    seedPendingConfirmation(session, "req-primary");
+    seedPendingConfirmation(conversationObj, "req-primary");
     registerPendingInteraction(
-      session,
+      conversationObj,
       "req-primary",
       CONV_ID,
       makeConfirmationDetails(["asset_materialize:image.png"]),
     );
 
-    session.handleConfirmationResponse(
+    conversationObj.handleConfirmationResponse(
       "req-primary",
       "always_allow",
       "asset_materialize:**",
@@ -596,33 +611,36 @@ describe("approval cascading", () => {
 
   test("always_deny cascades deny to pattern-matching pending", () => {
     const emitted: ServerMessage[] = [];
-    const session = makeSession((msg) => emitted.push(msg), CONV_ID);
+    const conversationObj = makeConversation(
+      (msg) => emitted.push(msg),
+      CONV_ID,
+    );
 
-    seedPendingConfirmation(session, "req-match-1");
-    seedPendingConfirmation(session, "req-nomatch");
+    seedPendingConfirmation(conversationObj, "req-match-1");
+    seedPendingConfirmation(conversationObj, "req-nomatch");
 
     registerPendingInteraction(
-      session,
+      conversationObj,
       "req-match-1",
       CONV_ID,
       makeConfirmationDetails(["asset_materialize:doc.pdf"]),
     );
     registerPendingInteraction(
-      session,
+      conversationObj,
       "req-nomatch",
       CONV_ID,
       makeConfirmationDetails(["bash:rm -rf"]),
     );
 
-    seedPendingConfirmation(session, "req-primary");
+    seedPendingConfirmation(conversationObj, "req-primary");
     registerPendingInteraction(
-      session,
+      conversationObj,
       "req-primary",
       CONV_ID,
       makeConfirmationDetails(["asset_materialize:image.png"]),
     );
 
-    session.handleConfirmationResponse(
+    conversationObj.handleConfirmationResponse(
       "req-primary",
       "always_deny",
       "asset_materialize:**",
@@ -648,25 +666,28 @@ describe("approval cascading", () => {
 
   test("allow (one-time) does NOT cascade", () => {
     const emitted: ServerMessage[] = [];
-    const session = makeSession((msg) => emitted.push(msg), CONV_ID);
+    const conversationObj = makeConversation(
+      (msg) => emitted.push(msg),
+      CONV_ID,
+    );
 
-    seedPendingConfirmation(session, "req-1");
-    seedPendingConfirmation(session, "req-2");
+    seedPendingConfirmation(conversationObj, "req-1");
+    seedPendingConfirmation(conversationObj, "req-2");
 
     registerPendingInteraction(
-      session,
+      conversationObj,
       "req-1",
       CONV_ID,
       makeConfirmationDetails(["bash:echo hello"]),
     );
     registerPendingInteraction(
-      session,
+      conversationObj,
       "req-2",
       CONV_ID,
       makeConfirmationDetails(["bash:echo world"]),
     );
 
-    session.handleConfirmationResponse("req-1", "allow");
+    conversationObj.handleConfirmationResponse("req-1", "allow");
 
     const confirmMsgs = emitted.filter(
       (m) =>
@@ -681,25 +702,28 @@ describe("approval cascading", () => {
 
   test("deny (one-time) does NOT cascade", () => {
     const emitted: ServerMessage[] = [];
-    const session = makeSession((msg) => emitted.push(msg), CONV_ID);
+    const conversationObj = makeConversation(
+      (msg) => emitted.push(msg),
+      CONV_ID,
+    );
 
-    seedPendingConfirmation(session, "req-1");
-    seedPendingConfirmation(session, "req-2");
+    seedPendingConfirmation(conversationObj, "req-1");
+    seedPendingConfirmation(conversationObj, "req-2");
 
     registerPendingInteraction(
-      session,
+      conversationObj,
       "req-1",
       CONV_ID,
       makeConfirmationDetails(["bash:echo hello"]),
     );
     registerPendingInteraction(
-      session,
+      conversationObj,
       "req-2",
       CONV_ID,
       makeConfirmationDetails(["bash:echo world"]),
     );
 
-    session.handleConfirmationResponse("req-1", "deny");
+    conversationObj.handleConfirmationResponse("req-1", "deny");
 
     const confirmMsgs = emitted.filter(
       (m) =>
@@ -714,25 +738,28 @@ describe("approval cascading", () => {
 
   test("cascaded events have source 'system' and causedByRequestId", () => {
     const emitted: ServerMessage[] = [];
-    const session = makeSession((msg) => emitted.push(msg), CONV_ID);
+    const conversationObj = makeConversation(
+      (msg) => emitted.push(msg),
+      CONV_ID,
+    );
 
-    seedPendingConfirmation(session, "req-primary");
-    seedPendingConfirmation(session, "req-cascaded");
+    seedPendingConfirmation(conversationObj, "req-primary");
+    seedPendingConfirmation(conversationObj, "req-cascaded");
 
     registerPendingInteraction(
-      session,
+      conversationObj,
       "req-primary",
       CONV_ID,
       makeConfirmationDetails(["bash:echo primary"]),
     );
     registerPendingInteraction(
-      session,
+      conversationObj,
       "req-cascaded",
       CONV_ID,
       makeConfirmationDetails(["bash:echo cascaded"]),
     );
 
-    session.handleConfirmationResponse("req-primary", "allow_10m");
+    conversationObj.handleConfirmationResponse("req-primary", "allow_10m");
 
     const cascadedMsg = emitted.find(
       (m) =>
@@ -747,13 +774,16 @@ describe("approval cascading", () => {
 
   test("already-resolved request handled gracefully", () => {
     const emitted: ServerMessage[] = [];
-    const session = makeSession((msg) => emitted.push(msg), CONV_ID);
+    const conversationObj = makeConversation(
+      (msg) => emitted.push(msg),
+      CONV_ID,
+    );
 
-    seedPendingConfirmation(session, "req-primary");
-    seedPendingConfirmation(session, "req-stale");
+    seedPendingConfirmation(conversationObj, "req-primary");
+    seedPendingConfirmation(conversationObj, "req-stale");
 
     registerPendingInteraction(
-      session,
+      conversationObj,
       "req-primary",
       CONV_ID,
       makeConfirmationDetails(["bash:echo primary"]),
@@ -762,7 +792,7 @@ describe("approval cascading", () => {
     // in the prompter. We'll remove it from the prompter before cascading
     // reaches it to simulate a stale/already-resolved request.
     registerPendingInteraction(
-      session,
+      conversationObj,
       "req-stale",
       CONV_ID,
       makeConfirmationDetails(["bash:echo stale"]),
@@ -770,14 +800,14 @@ describe("approval cascading", () => {
 
     // Remove req-stale from the prompter's pending map (simulating it was
     // already resolved by another path before cascade reaches it)
-    const prompter = session["prompter"] as unknown as {
+    const prompter = conversationObj["prompter"] as unknown as {
       pending: Map<string, unknown>;
     };
     prompter.pending.delete("req-stale");
 
     // This should not throw — cascade should skip req-stale gracefully
     expect(() => {
-      session.handleConfirmationResponse("req-primary", "allow_10m");
+      conversationObj.handleConfirmationResponse("req-primary", "allow_10m");
     }).not.toThrow();
 
     // Only the primary should be resolved

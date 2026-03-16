@@ -224,7 +224,7 @@ mock.module("../memory/canonical-guardian-store.js", () => ({
 
 import { Conversation } from "../daemon/conversation.js";
 
-function makeSession(): Conversation {
+function makeConversation(): Conversation {
   const provider = {
     name: "mock",
     async sendMessage(): Promise<ProviderResponse> {
@@ -289,15 +289,15 @@ describe("Conversation queue — slash-like messages pass through to agent loop"
   });
 
   test("queued slash-like input does not stall queue — passes through", async () => {
-    const session = makeSession();
-    await session.loadFromDb();
+    const conversation = makeConversation();
+    await conversation.loadFromDb();
 
     const events1: ServerMessage[] = [];
     const eventsSlash: ServerMessage[] = [];
     const events3: ServerMessage[] = [];
 
     // Start first message — blocks on agent loop
-    const p1 = session.processMessage(
+    const p1 = conversation.processMessage(
       "msg-1",
       [],
       (e) => events1.push(e),
@@ -306,14 +306,14 @@ describe("Conversation queue — slash-like messages pass through to agent loop"
     await waitForPendingRun(1);
 
     // Enqueue a slash-like message and a normal message after it
-    session.enqueueMessage(
+    conversation.enqueueMessage(
       "/not-a-skill",
       [],
       (e) => eventsSlash.push(e),
       "req-slash",
     );
-    session.enqueueMessage("msg-3", [], (e) => events3.push(e), "req-3");
-    expect(session.getQueueDepth()).toBe(2);
+    conversation.enqueueMessage("msg-3", [], (e) => events3.push(e), "req-3");
+    expect(conversation.getQueueDepth()).toBe(2);
 
     // Complete first run — triggers drain
     resolveRun(0);
@@ -343,14 +343,14 @@ describe("Conversation queue — slash-like messages pass through to agent loop"
   });
 
   test("queued skill-name slash passes through as-is", async () => {
-    const session = makeSession();
-    await session.loadFromDb();
+    const conversation = makeConversation();
+    await conversation.loadFromDb();
 
     const events1: ServerMessage[] = [];
     const eventsSlash: ServerMessage[] = [];
 
     // Start first message — blocks on agent loop
-    const p1 = session.processMessage(
+    const p1 = conversation.processMessage(
       "msg-1",
       [],
       (e) => events1.push(e),
@@ -359,7 +359,7 @@ describe("Conversation queue — slash-like messages pass through to agent loop"
     await waitForPendingRun(1);
 
     // Enqueue a slash command that matches a skill name — still passes through
-    session.enqueueMessage(
+    conversation.enqueueMessage(
       "/start-the-day",
       [],
       (e) => eventsSlash.push(e),

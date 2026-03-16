@@ -100,7 +100,7 @@ mock.module("../memory/conversation-queries.js", () => ({
 
 import { Conversation } from "../daemon/conversation.js";
 
-function makeSession(): Conversation {
+function makeConversation(): Conversation {
   const provider = {
     name: "mock",
     sendMessage: async () => ({
@@ -155,9 +155,9 @@ describe("loadFromDb history repair", () => {
       },
     ];
 
-    const session = makeSession();
-    await session.loadFromDb();
-    const messages = session.getMessages();
+    const conversation = makeConversation();
+    await conversation.loadFromDb();
+    const messages = conversation.getMessages();
 
     // Repair should have inserted a synthetic user message with tool_result
     expect(messages).toHaveLength(4);
@@ -201,9 +201,9 @@ describe("loadFromDb history repair", () => {
       content: JSON.stringify(m.content),
     }));
 
-    const session = makeSession();
-    await session.loadFromDb();
-    const messages = session.getMessages();
+    const conversation = makeConversation();
+    await conversation.loadFromDb();
+    const messages = conversation.getMessages();
 
     expect(messages).toEqual(validMessages);
   });
@@ -226,10 +226,10 @@ describe("loadFromDb history repair", () => {
       },
     ];
 
-    const session = makeSession();
+    const conversation = makeConversation();
     // Should not throw
-    await session.loadFromDb();
-    const messages = session.getMessages();
+    await conversation.loadFromDb();
+    const messages = conversation.getMessages();
 
     expect(messages).toHaveLength(2);
     // The broken message should have been replaced with a text block
@@ -259,9 +259,9 @@ describe("loadFromDb history repair", () => {
       },
     ];
 
-    const session = makeSession();
-    await session.loadFromDb();
-    const messages = session.getMessages();
+    const conversation = makeConversation();
+    await conversation.loadFromDb();
+    const messages = conversation.getMessages();
 
     expect(messages).toHaveLength(4);
     // String JSON should be wrapped
@@ -299,9 +299,9 @@ describe("loadFromDb history repair", () => {
       },
     ];
 
-    const session = makeSession();
-    await session.loadFromDb();
-    const messages = session.getMessages();
+    const conversation = makeConversation();
+    await conversation.loadFromDb();
+    const messages = conversation.getMessages();
 
     expect(messages).toHaveLength(2);
     expect(messages[1].content).toEqual([{ type: "text", text: "Sure" }]);
@@ -363,13 +363,13 @@ describe("loadFromDb history repair", () => {
       },
     ];
 
-    const session = makeSession();
-    session.setTrustContext({
+    const conversation = makeConversation();
+    conversation.setTrustContext({
       trustClass: "unknown",
       sourceChannel: "telegram",
     });
-    await session.loadFromDb();
-    const messages = session.getMessages();
+    await conversation.loadFromDb();
+    const messages = conversation.getMessages();
 
     expect(messages).toHaveLength(2);
     expect(messages[0].role).toBe("user");
@@ -430,21 +430,21 @@ describe("loadFromDb history repair", () => {
       },
     ];
 
-    const session = makeSession();
+    const conversation = makeConversation();
 
-    session.setTrustContext({
+    conversation.setTrustContext({
       trustClass: "guardian",
       sourceChannel: "telegram",
     });
-    await session.ensureActorScopedHistory();
-    expect(session.getMessages()).toHaveLength(4);
+    await conversation.ensureActorScopedHistory();
+    expect(conversation.getMessages()).toHaveLength(4);
 
-    session.setTrustContext({
+    conversation.setTrustContext({
       trustClass: "unknown",
       sourceChannel: "telegram",
     });
-    await session.ensureActorScopedHistory();
-    const downgradedMessages = session.getMessages();
+    await conversation.ensureActorScopedHistory();
+    const downgradedMessages = conversation.getMessages();
     expect(downgradedMessages).toHaveLength(2);
     expect(downgradedMessages[0].content).toEqual([
       { type: "text", text: "Unverified ping" },
@@ -506,21 +506,21 @@ describe("loadFromDb history repair", () => {
       },
     ];
 
-    const session = makeSession();
+    const conversation = makeConversation();
 
-    session.setTrustContext({
+    conversation.setTrustContext({
       trustClass: "unknown",
       sourceChannel: "telegram",
     });
-    await session.ensureActorScopedHistory();
-    expect(session.getMessages()).toHaveLength(2);
+    await conversation.ensureActorScopedHistory();
+    expect(conversation.getMessages()).toHaveLength(2);
 
-    session.setTrustContext({
+    conversation.setTrustContext({
       trustClass: "guardian",
       sourceChannel: "telegram",
     });
-    await session.persistUserMessage("Guardian follow-up", []);
-    const messagesAfterPersist = session.getMessages();
+    await conversation.persistUserMessage("Guardian follow-up", []);
+    const messagesAfterPersist = conversation.getMessages();
 
     expect(messagesAfterPersist).toHaveLength(5);
     expect(messagesAfterPersist[0].content).toEqual([
