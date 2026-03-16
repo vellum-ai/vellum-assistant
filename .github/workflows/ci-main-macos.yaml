@@ -19,7 +19,7 @@ on:
 
 concurrency:
   group: ci-main-macos-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
   changes:
