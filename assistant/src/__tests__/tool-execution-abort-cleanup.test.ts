@@ -79,6 +79,7 @@ mock.module("../tools/network/script-proxy/index.js", () => ({
 mock.module("../util/platform.js", () => ({
   getRootDir: () => "/tmp",
   getDataDir: () => "/tmp",
+  getWorkspaceDir: () => "/tmp/workspace",
   getDbPath: () => "/tmp/assistant.db",
   ensureDataDir: () => {},
 }));
