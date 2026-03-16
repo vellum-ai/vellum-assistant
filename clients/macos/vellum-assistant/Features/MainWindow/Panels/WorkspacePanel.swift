@@ -189,6 +189,12 @@ struct WorkspacePanel: View {
         state.isLoadingTree = true
         if let response = await daemonClient.fetchWorkspaceTree(path: "", showHidden: state.showHiddenFiles) {
             state.directoryCache[""] = response.entries
+
+            // Auto-select IDENTITY.md if it exists and no file is already selected
+            if state.selectedFilePath == nil,
+               let identityEntry = response.entries.first(where: { $0.name == "IDENTITY.md" && !$0.isDirectory }) {
+                await state.loadFile(path: identityEntry.path, using: daemonClient)
+            }
         }
         state.isLoadingTree = false
     }
@@ -667,7 +673,7 @@ private struct WorkspaceFileViewer: View {
                         RoundedRectangle(cornerRadius: VRadius.md)
                             .strokeBorder(VColor.borderBase, lineWidth: 1)
                     )
-                    .padding(VSpacing.md)
+                    .padding(.horizontal, VSpacing.md)
             } else {
                 emptyState
             }
