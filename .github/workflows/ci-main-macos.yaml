@@ -48,16 +48,12 @@ jobs:
               - 'clients/**'
               - '.github/workflows/ci-main-macos.yaml'
 
-  lint-unused:
-    name: Lint Unused Code (Informational)
+  test:
+    name: macOS Tests & Lint
     needs: [changes]
     if: needs.changes.outputs.clients == 'true' || github.event_name == 'workflow_dispatch'
-    continue-on-error: true
     runs-on: macos-15
     timeout-minutes: 20
-    defaults:
-      run:
-        working-directory: clients
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -74,7 +70,21 @@ jobs:
             macos-spm-${{ hashFiles('clients/Package.resolved') }}-
             macos-spm-
 
-      - name: Lint unused code
+      - name: Design token guard
+        run: bash clients/scripts/check-design-tokens.sh --mode=strict
+
+      - name: Build executable
+        working-directory: clients
+        run: swift build --product vellum-assistant
+
+      - name: Run tests
+        working-directory: clients/macos
+        run: ./build.sh test
+
+      - name: Lint unused code (informational)
+        if: always()
+        continue-on-error: true
+        working-directory: clients
         run: bash scripts/periphery-scan.sh
 
       - name: Upload baseline artifact
@@ -86,39 +96,6 @@ jobs:
           if-no-files-found: ignore
           retention-days: 7
           include-hidden-files: true
-
-  test:
-    name: macOS Tests
-    needs: [changes]
-    if: needs.changes.outputs.clients == 'true' || github.event_name == 'workflow_dispatch'
-    runs-on: macos-15
-    timeout-minutes: 10
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Select Xcode 26.2
-        run: sudo xcode-select -s /Applications/Xcode_26.2.app/Contents/Developer
-
-      - name: Design token guard
-        run: bash clients/scripts/check-design-tokens.sh --mode=strict
-
-      - name: Cache SPM build artifacts
-        uses: actions/cache@v4
-        with:
-          path: clients/.build
-          key: macos-spm-${{ hashFiles('clients/Package.resolved') }}-${{ hashFiles('clients/**/*.swift') }}
-          restore-keys: |
-            macos-spm-${{ hashFiles('clients/Package.resolved') }}-
-            macos-spm-
-
-      - name: Build executable
-        working-directory: clients
-        run: swift build --product vellum-assistant
-
-      - name: Run tests
-        working-directory: clients/macos
-        run: ./build.sh test
 
   build-app:
     name: Build macOS App
@@ -191,7 +168,7 @@ jobs:
 
   notify-macos:
     name: Slack Notification (macOS)
-    needs: [changes, lint-unused, test, build-app]
+    needs: [changes, test, build-app]
     if: always()
     continue-on-error: true
     runs-on: ubuntu-latest
@@ -204,7 +181,7 @@ jobs:
         run: |
           GITHUB_USER="${{ github.actor }}"
 
-          # lint-unused and test are conditionally skipped when only non-client paths change
+          # test is conditionally skipped when only non-client paths change
           # build-app is conditionally skipped when only non-bundled paths change
           CLIENTS_CHANGED="${{ needs.changes.outputs.clients }}"
 
