@@ -6,7 +6,9 @@ import os
 import Combine
 
 private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "ConversationManager")
-private let archivedConversationsKey = "archivedConversationIds"
+// Keep the legacy UserDefaults key so existing persisted archive
+// state is preserved across the session-to-conversation rename.
+private let archivedConversationsKey = "archivedSessionIds"
 
 // MARK: - Conversation Client Protocol
 

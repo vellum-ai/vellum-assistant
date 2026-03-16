@@ -294,17 +294,10 @@ struct SkillDetailView: View {
 
     private func fileIcon(for mimeType: String) -> VIcon {
         if mimeType.hasPrefix("image/") { return .image }
+        if mimeType.hasPrefix("video/") { return .video }
         if mimeType.hasPrefix("text/") { return .fileText }
         if mimeType == "application/json" || mimeType == "application/javascript" || mimeType == "application/typescript" { return .fileCode }
         return .file
-    }
-
-    private func formatFileSize(_ bytes: Int) -> String {
-        if bytes < 1024 { return "\(bytes) B" }
-        let kb = Double(bytes) / 1024.0
-        if kb < 1024 { return String(format: "%.1f KB", kb) }
-        let mb = kb / 1024.0
-        return String(format: "%.1f MB", mb)
     }
 }
 #endif

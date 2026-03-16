@@ -39,7 +39,14 @@ struct HighlightedTextView: NSViewRepresentable {
         textView.textColor = SyntaxTheme.baseTextColor
         textView.backgroundColor = .clear
         textView.insertionPointColor = SyntaxTheme.baseTextColor
-        textView.selectedTextAttributes = [.backgroundColor: NSColor(white: 1.0, alpha: 0.15)]
+        textView.selectedTextAttributes = [
+            .backgroundColor: NSColor(name: nil) { appearance in
+                let isDark = appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+                return isDark
+                    ? NSColor(white: 1.0, alpha: 0.15)
+                    : NSColor(white: 0.0, alpha: 0.12)
+            },
+        ]
         textView.isVerticallyResizable = true
         textView.isHorizontallyResizable = true
         textView.maxSize = NSSize(
@@ -222,8 +229,13 @@ private final class LineNumberRulerView: NSRulerView {
     }
 
     override func drawHashMarksAndLabels(in rect: NSRect) {
-        // Fill the gutter background
-        NSColor(white: 0.12, alpha: 1.0).setFill()
+        // Fill the gutter background with an appearance-aware color
+        let gutterColor = NSColor(name: nil) { appearance in
+            appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+                ? NSColor(white: 0.12, alpha: 1.0)
+                : NSColor(white: 0.94, alpha: 1.0)
+        }
+        gutterColor.setFill()
         rect.fill()
 
         guard let textView = textView,
@@ -244,7 +256,11 @@ private final class LineNumberRulerView: NSRulerView {
         let text = textView.string as NSString
         let lineNumberFont = NSFont(name: "DMMono-Regular", size: 11)
             ?? NSFont.monospacedSystemFont(ofSize: 11, weight: .regular)
-        let lineNumberColor = NSColor(white: 0.45, alpha: 1.0)
+        let lineNumberColor = NSColor(name: nil) { appearance in
+            appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+                ? NSColor(white: 0.45, alpha: 1.0)
+                : NSColor(white: 0.55, alpha: 1.0)
+        }
         let attrs: [NSAttributedString.Key: Any] = [
             .font: lineNumberFont,
             .foregroundColor: lineNumberColor,
