@@ -72,7 +72,7 @@ final class ChatViewModelTests: XCTestCase {
     }
 
     func testSendWhileBootstrappingDoesNothing() {
-        // When no session exists yet (bootstrapping), rapid-fire is blocked
+        // When no conversation exists yet (bootstrapping), rapid-fire is blocked
         viewModel.inputText = "First"
         viewModel.sendMessage()
 
@@ -83,8 +83,8 @@ final class ChatViewModelTests: XCTestCase {
     }
 
     func testSendWhileSendingWithConversationAppendsMessage() {
-        // When a session exists, sending while isSending is allowed (daemon queues)
-        viewModel.conversationId = "test-session"
+        // When a conversation exists, sending while isSending is allowed (daemon queues)
+        viewModel.conversationId = "test-conversation"
         viewModel.isSending = true
 
         viewModel.inputText = "Queued message"
@@ -170,10 +170,10 @@ final class ChatViewModelTests: XCTestCase {
     }
 
     func testConversationInfoDoesNotOverwriteExistingConversation() {
-        viewModel.conversationId = "first-session"
-        let info = ConversationInfoMessage(conversationId: "second-session", title: "Test")
+        viewModel.conversationId = "first-conversation"
+        let info = ConversationInfoMessage(conversationId: "second-conversation", title: "Test")
         viewModel.handleServerMessage(.conversationInfo(info))
-        XCTAssertEqual(viewModel.conversationId, "first-session")
+        XCTAssertEqual(viewModel.conversationId, "first-conversation")
     }
 
     // MARK: - Streaming Deltas
@@ -453,7 +453,7 @@ final class ChatViewModelTests: XCTestCase {
 
     func testSendUserMessageWhenDisconnectedShowsErrorAndClearsState() {
         // Baseline: existing behavior when daemon disconnects between turns
-        viewModel.conversationId = "test-session"
+        viewModel.conversationId = "test-conversation"
         daemonClient.isConnected = false
 
         viewModel.inputText = "Hello"
@@ -474,7 +474,7 @@ final class ChatViewModelTests: XCTestCase {
     }
 
     func testRegenerateWhenDisconnectedShowsError() {
-        viewModel.conversationId = "test-session"
+        viewModel.conversationId = "test-conversation"
         daemonClient.isConnected = false
 
         viewModel.regenerateLastMessage()
@@ -486,7 +486,7 @@ final class ChatViewModelTests: XCTestCase {
     }
 
     func testRegenerateWhileSendingIsBlocked() {
-        viewModel.conversationId = "test-session"
+        viewModel.conversationId = "test-conversation"
         viewModel.isSending = true
 
         viewModel.regenerateLastMessage()
@@ -499,7 +499,7 @@ final class ChatViewModelTests: XCTestCase {
         viewModel.conversationId = "sess-1"
         daemonClient.isConnected = true
 
-        // Simulate a stale session error from a previous failure
+        // Simulate a stale conversation error from a previous failure
         let errorMsg = ConversationErrorMessage(
             conversationId: "sess-1",
             code: .providerApi,
@@ -512,7 +512,7 @@ final class ChatViewModelTests: XCTestCase {
 
         viewModel.regenerateLastMessage()
 
-        XCTAssertNil(viewModel.conversationError, "Regenerate should clear stale session error")
+        XCTAssertNil(viewModel.conversationError, "Regenerate should clear stale conversation error")
         // errorText is re-set by the catch block because connection is nil
         // in the test environment, but the original stale error must be gone.
         XCTAssertNotEqual(viewModel.errorText, "Stale error",
@@ -522,7 +522,7 @@ final class ChatViewModelTests: XCTestCase {
     func testStopGeneratingWhenDisconnectedResetsAllState() {
         // Set up state directly to establish meaningful queue state, since
         // DaemonClient.send() throws when connection is nil.
-        viewModel.conversationId = "test-session"
+        viewModel.conversationId = "test-conversation"
         viewModel.isSending = true
         viewModel.isThinking = true
 
@@ -567,10 +567,10 @@ final class ChatViewModelTests: XCTestCase {
     // MARK: - Stop Generating
 
     func testStopGeneratingKeepsSendingUntilAcknowledged() {
-        // Set up as if we're in a streaming session
+        // Set up as if we're in a streaming conversation
         viewModel.isSending = true
         viewModel.isThinking = true
-        viewModel.conversationId = "test-session"
+        viewModel.conversationId = "test-conversation"
         viewModel.handleServerMessage(.assistantTextDelta(AssistantTextDeltaMessage(text: "Partial response")))
 
         viewModel.stopGenerating()
@@ -588,7 +588,7 @@ final class ChatViewModelTests: XCTestCase {
     func testStopGeneratingSuppressesLateDeltas() {
         viewModel.isSending = true
         viewModel.isThinking = true
-        viewModel.conversationId = "test-session"
+        viewModel.conversationId = "test-conversation"
         viewModel.handleServerMessage(.assistantTextDelta(AssistantTextDeltaMessage(text: "Partial")))
 
         viewModel.stopGenerating()
@@ -617,7 +617,7 @@ final class ChatViewModelTests: XCTestCase {
         // reset the cancelling state.
         viewModel.isSending = true
         viewModel.isThinking = true
-        viewModel.conversationId = "test-session"
+        viewModel.conversationId = "test-conversation"
         viewModel.handleServerMessage(.assistantTextDelta(AssistantTextDeltaMessage(text: "Response")))
 
         viewModel.stopGenerating()
@@ -641,20 +641,20 @@ final class ChatViewModelTests: XCTestCase {
 
         viewModel.stopGenerating()
 
-        // Should reset immediately since there's no daemon session to cancel
+        // Should reset immediately since there's no daemon conversation to cancel
         XCTAssertFalse(viewModel.isSending)
         XCTAssertFalse(viewModel.isThinking)
     }
 
     func testStopGeneratingWithNoConversationDoesNothing() {
-        // Not sending, no session
+        // Not sending, no conversation
         viewModel.stopGenerating()
         XCTAssertFalse(viewModel.isSending)
     }
 
     func testStopGeneratingWhenNotSendingDoesNothing() {
-        // Has session but not sending
-        viewModel.conversationId = "test-session"
+        // Has conversation but not sending
+        viewModel.conversationId = "test-conversation"
         viewModel.stopGenerating()
         XCTAssertFalse(viewModel.isSending)
     }
@@ -790,7 +790,7 @@ final class ChatViewModelTests: XCTestCase {
     // MARK: - Processing Status Reset
 
     func testProcessingStatusResetToSentOnMessageComplete() {
-        // Set up session and send a message while busy (gets queued)
+        // Set up conversation and send a message while busy (gets queued)
         viewModel.bootstrapCorrelationId = "test-correlation-id"
         viewModel.handleServerMessage(.conversationInfo(ConversationInfoMessage(conversationId: "sess-1", title: "Chat", correlationId: "test-correlation-id")))
         viewModel.inputText = "Message A"
@@ -995,7 +995,7 @@ final class ChatViewModelTests: XCTestCase {
     }
 
     func testThreeMessageBurstWithHandoffTransitions() {
-        // Set up session
+        // Set up conversation
         viewModel.bootstrapCorrelationId = "test-correlation-id"
         viewModel.handleServerMessage(.conversationInfo(ConversationInfoMessage(conversationId: "sess-1", title: "Chat", correlationId: "test-correlation-id")))
         viewModel.isSending = true
@@ -1095,7 +1095,7 @@ final class ChatViewModelTests: XCTestCase {
     // MARK: - Queue Badges / Status Transitions (handoff → dequeue → complete)
 
     func testQueueBadgesStatusTransitionsReflectHandoffDequeueComplete() {
-        // Set up viewModel with a session
+        // Set up viewModel with a conversation
         viewModel.bootstrapCorrelationId = "test-correlation-id"
         viewModel.handleServerMessage(.conversationInfo(ConversationInfoMessage(conversationId: "sess-1", title: "Chat", correlationId: "test-correlation-id")))
 
@@ -1190,25 +1190,25 @@ final class ChatViewModelTests: XCTestCase {
     // MARK: - Conversation Filtering
 
     func testTextDeltaFromDifferentConversationIsIgnored() {
-        viewModel.conversationId = "my-session"
+        viewModel.conversationId = "my-conversation"
         viewModel.isThinking = true
-        viewModel.handleServerMessage(.assistantTextDelta(AssistantTextDeltaMessage(text: "foreign", conversationId: "other-session")))
+        viewModel.handleServerMessage(.assistantTextDelta(AssistantTextDeltaMessage(text: "foreign", conversationId: "other-conversation")))
         // Should still be thinking — delta was ignored
         XCTAssertTrue(viewModel.isThinking)
         XCTAssertEqual(viewModel.messages.count, 0) // No messages
     }
 
     func testTextDeltaFromSameConversationIsAccepted() {
-        viewModel.conversationId = "my-session"
+        viewModel.conversationId = "my-conversation"
         viewModel.isThinking = true
-        viewModel.handleServerMessage(.assistantTextDelta(AssistantTextDeltaMessage(text: "hello", conversationId: "my-session")))
+        viewModel.handleServerMessage(.assistantTextDelta(AssistantTextDeltaMessage(text: "hello", conversationId: "my-conversation")))
         XCTAssertFalse(viewModel.isThinking)
         XCTAssertEqual(viewModel.messages.count, 1)
         XCTAssertEqual(viewModel.messages[0].text, "hello")
     }
 
     func testTextDeltaWithNilConversationIdIsAccepted() {
-        viewModel.conversationId = "my-session"
+        viewModel.conversationId = "my-conversation"
         viewModel.isThinking = true
         viewModel.handleServerMessage(.assistantTextDelta(AssistantTextDeltaMessage(text: "hello", conversationId: nil)))
         XCTAssertFalse(viewModel.isThinking)
@@ -1216,20 +1216,20 @@ final class ChatViewModelTests: XCTestCase {
     }
 
     func testMessageCompleteFromDifferentConversationIsIgnored() {
-        viewModel.conversationId = "my-session"
+        viewModel.conversationId = "my-conversation"
         viewModel.isSending = true
         viewModel.isThinking = true
-        viewModel.handleServerMessage(.messageComplete(MessageCompleteMessage(conversationId: "other-session")))
+        viewModel.handleServerMessage(.messageComplete(MessageCompleteMessage(conversationId: "other-conversation")))
         // Should still be sending/thinking — message was ignored
         XCTAssertTrue(viewModel.isSending)
         XCTAssertTrue(viewModel.isThinking)
     }
 
     func testMessageCompleteFromSameConversationIsAccepted() {
-        viewModel.conversationId = "my-session"
+        viewModel.conversationId = "my-conversation"
         viewModel.isSending = true
         viewModel.isThinking = true
-        viewModel.handleServerMessage(.messageComplete(MessageCompleteMessage(conversationId: "my-session")))
+        viewModel.handleServerMessage(.messageComplete(MessageCompleteMessage(conversationId: "my-conversation")))
         XCTAssertFalse(viewModel.isSending)
         XCTAssertFalse(viewModel.isThinking)
     }
@@ -1237,8 +1237,8 @@ final class ChatViewModelTests: XCTestCase {
     // MARK: - Disconnected Send Handling
 
     func testSendUserMessageWhenDisconnectedShowsError() {
-        // Set up a session but daemon is disconnected
-        viewModel.conversationId = "test-session"
+        // Set up a conversation but daemon is disconnected
+        viewModel.conversationId = "test-conversation"
         daemonClient.isConnected = false
 
         viewModel.inputText = "Hello"
@@ -1260,7 +1260,7 @@ final class ChatViewModelTests: XCTestCase {
     // MARK: - Full Conversation Flow
 
     func testFullConversationFlow() {
-        // Simulate a complete conversation: session created, text streamed, completed
+        // Simulate a complete conversation: conversation created, text streamed, completed
         viewModel.bootstrapCorrelationId = "test-correlation-id"
         viewModel.handleServerMessage(.conversationInfo(ConversationInfoMessage(conversationId: "sess-1", title: "Chat", correlationId: "test-correlation-id")))
         XCTAssertEqual(viewModel.conversationId, "sess-1")
@@ -1287,44 +1287,44 @@ final class ChatViewModelTests: XCTestCase {
     // MARK: - Conversation Isolation (Correlation ID)
 
     func testConversationInfoWithWrongCorrelationIdIsIgnored() {
-        // Simulate a ChatViewModel that has sent a session_create with a correlation ID.
-        // A session_info with a different correlation ID should be ignored.
+        // Simulate a ChatViewModel that has sent a conversation_create with a correlation ID.
+        // A conversation_info with a different correlation ID should be ignored.
         viewModel.inputText = "Hello"
         viewModel.sendMessage()
         // At this point the VM is bootstrapping and has a correlationId set internally.
         XCTAssertNil(viewModel.conversationId)
         XCTAssertTrue(viewModel.isSending)
 
-        // A session_info from a different ChatViewModel's request (different correlation ID)
-        let foreignInfo = ConversationInfoMessage(conversationId: "foreign-session", title: "Foreign", correlationId: "wrong-id")
+        // A conversation_info from a different ChatViewModel's request (different correlation ID)
+        let foreignInfo = ConversationInfoMessage(conversationId: "foreign-conversation", title: "Foreign", correlationId: "wrong-id")
         viewModel.handleServerMessage(.conversationInfo(foreignInfo))
 
-        // Should NOT have claimed the foreign session
-        XCTAssertNil(viewModel.conversationId, "Should not claim session_info with non-matching correlationId")
+        // Should NOT have claimed the foreign conversation
+        XCTAssertNil(viewModel.conversationId, "Should not claim conversation_info with non-matching correlationId")
     }
 
     func testConversationInfoWithNilCorrelationIdIsIgnoredWhenBootstrapping() {
-        // When a ChatViewModel is bootstrapping (has a correlationId), a session_info
+        // When a ChatViewModel is bootstrapping (has a correlationId), a conversation_info
         // without any correlationId should also be rejected to prevent cross-contamination.
         viewModel.inputText = "Hello"
         viewModel.sendMessage()
         XCTAssertNil(viewModel.conversationId)
 
-        // Legacy session_info without correlationId
-        let legacyInfo = ConversationInfoMessage(conversationId: "legacy-session", title: "Legacy")
+        // Legacy conversation_info without correlationId
+        let legacyInfo = ConversationInfoMessage(conversationId: "legacy-conversation", title: "Legacy")
         viewModel.handleServerMessage(.conversationInfo(legacyInfo))
 
-        // Should NOT have claimed the legacy session
-        XCTAssertNil(viewModel.conversationId, "Should not claim session_info without correlationId when bootstrapping with one")
+        // Should NOT have claimed the legacy conversation
+        XCTAssertNil(viewModel.conversationId, "Should not claim conversation_info without correlationId when bootstrapping with one")
     }
 
     func testConversationInfoWithoutCorrelationIdRejectedWhenNoBootstrap() {
-        // After removing backwards compat, session_info without a correlationId
+        // After removing backwards compat, conversation_info without a correlationId
         // is rejected even when there is no bootstrap correlationId set.
-        let info = ConversationInfoMessage(conversationId: "test-session", title: "Test")
+        let info = ConversationInfoMessage(conversationId: "test-conversation", title: "Test")
         viewModel.handleServerMessage(.conversationInfo(info))
 
-        XCTAssertNil(viewModel.conversationId, "Should reject session_info when no bootstrapCorrelationId is set")
+        XCTAssertNil(viewModel.conversationId, "Should reject conversation_info when no bootstrapCorrelationId is set")
     }
 
     // MARK: - Conversation Error (Typed Error State)
@@ -1414,7 +1414,7 @@ final class ChatViewModelTests: XCTestCase {
     }
 
     func testConversationErrorIgnoredBeforeConversationClaimed() {
-        // conversationId is nil — no session claimed yet
+        // conversationId is nil — no conversation claimed yet
         XCTAssertNil(viewModel.conversationId)
 
         let errorMsg = ConversationErrorMessage(
@@ -1514,7 +1514,7 @@ final class ChatViewModelTests: XCTestCase {
         viewModel.sendMessage()
 
         XCTAssertNil(viewModel.conversationError,
-                      "Sending a new message should clear the session error")
+                      "Sending a new message should clear the conversation error")
     }
 
     func testAllErrorCategoriesHaveRecoverySuggestions() {
@@ -1538,11 +1538,11 @@ final class ChatViewModelTests: XCTestCase {
         let message = ChatMessage(role: .user, text: "Hello", status: .sent)
         viewModel.messages.append(message)
 
-        // Daemon sends session error as part of cancellation cleanup
+        // Daemon sends conversation error as part of cancellation cleanup
         let errorMsg = ConversationErrorMessage(
             conversationId: "sess-1",
             code: .conversationAborted,
-            userMessage: "Session aborted",
+            userMessage: "Conversation aborted",
             retryable: false
         )
         viewModel.handleServerMessage(.conversationError(errorMsg))
@@ -1550,7 +1550,7 @@ final class ChatViewModelTests: XCTestCase {
         // Both errorText and conversationError should be suppressed during cancellation
         // (user-initiated cancel should only show generation_cancelled, never a toast)
         XCTAssertNil(viewModel.errorText,
-                      "Session error during cancellation should not display errorText")
+                      "Conversation error during cancellation should not display errorText")
         XCTAssertNil(viewModel.conversationError,
                       "Conversation error during cancellation should not set typed conversationError")
     }
@@ -1649,7 +1649,7 @@ final class ChatViewModelTests: XCTestCase {
     }
 
     func testConversationErrorDeliveredViaStreamNotCallback() {
-        // Regression: session errors arrive through handleServerMessage (stream),
+        // Regression: conversation errors arrive through handleServerMessage (stream),
         // not through a singleton callback on DaemonClient.
         viewModel.conversationId = "sess-1"
 
@@ -2370,17 +2370,17 @@ final class ChatViewModelTests: XCTestCase {
 
     func testCreateConversationIfNeededSetsBootstrapping() {
         viewModel.createConversationIfNeeded(conversationType: "private")
-        XCTAssertFalse(viewModel.isSending, "Message-less session creates should not set isSending")
-        XCTAssertFalse(viewModel.isThinking, "Should not show thinking for message-less session create")
+        XCTAssertFalse(viewModel.isSending, "Message-less conversation creates should not set isSending")
+        XCTAssertFalse(viewModel.isThinking, "Should not show thinking for message-less conversation create")
         XCTAssertNotNil(viewModel.bootstrapCorrelationId, "Should set correlation ID")
         XCTAssertEqual(viewModel.conversationType, "private")
         XCTAssertTrue(viewModel.isBootstrapping)
     }
 
     func testCreateConversationIfNeededNoOpWhenConversationExists() {
-        viewModel.conversationId = "existing-session"
+        viewModel.conversationId = "existing-conversation"
         viewModel.createConversationIfNeeded(conversationType: "private")
-        XCTAssertNil(viewModel.bootstrapCorrelationId, "Should not bootstrap when session already exists")
+        XCTAssertNil(viewModel.bootstrapCorrelationId, "Should not bootstrap when conversation already exists")
     }
 
     func testCreateConversationIfNeededNoOpWhenAlreadyBootstrapping() {
@@ -2399,11 +2399,11 @@ final class ChatViewModelTests: XCTestCase {
         viewModel.createConversationIfNeeded(conversationType: "private")
         let correlationId = viewModel.bootstrapCorrelationId!
 
-        // Simulate daemon responding with session_info
-        let info = ConversationInfoMessage(conversationId: "new-session-123", title: "Test", correlationId: correlationId)
+        // Simulate daemon responding with conversation_info
+        let info = ConversationInfoMessage(conversationId: "new-conversation-123", title: "Test", correlationId: correlationId)
         viewModel.handleServerMessage(.conversationInfo(info))
 
-        XCTAssertEqual(viewModel.conversationId, "new-session-123")
+        XCTAssertEqual(viewModel.conversationId, "new-conversation-123")
         XCTAssertFalse(viewModel.isSending, "Should reset isSending for message-less create")
         XCTAssertFalse(viewModel.isThinking, "Should reset isThinking for message-less create")
         XCTAssertNil(viewModel.bootstrapCorrelationId, "Should clear correlation ID")
@@ -2411,18 +2411,18 @@ final class ChatViewModelTests: XCTestCase {
     }
 
     func testCreateConversationIfNeededOnConversationCreatedCallback() {
-        var callbackSessionId: String?
+        var callbackConversationId: String?
         viewModel.onConversationCreated = { conversationId in
-            callbackSessionId = conversationId
+            callbackConversationId = conversationId
         }
 
         viewModel.createConversationIfNeeded(conversationType: "private")
         let correlationId = viewModel.bootstrapCorrelationId!
 
-        let info = ConversationInfoMessage(conversationId: "callback-session", title: "Test", correlationId: correlationId)
+        let info = ConversationInfoMessage(conversationId: "callback-conversation", title: "Test", correlationId: correlationId)
         viewModel.handleServerMessage(.conversationInfo(info))
 
-        XCTAssertEqual(callbackSessionId, "callback-session", "Should fire onConversationCreated callback")
+        XCTAssertEqual(callbackConversationId, "callback-conversation", "Should fire onConversationCreated callback")
     }
 
     func testCreateConversationIfNeededSendsConversationTypeInMessage() {
@@ -2434,21 +2434,21 @@ final class ChatViewModelTests: XCTestCase {
         viewModel.createConversationIfNeeded(conversationType: "private")
 
         // Allow the async Task in bootstrapConversation to execute
-        let expectation = XCTestExpectation(description: "session_create sent")
+        let expectation = XCTestExpectation(description: "conversation_create sent")
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
             expectation.fulfill()
         }
         wait(for: [expectation], timeout: 1.0)
 
-        let sessionCreates = capturedMessages.compactMap { $0 as? ConversationCreateMessage }
-        XCTAssertEqual(sessionCreates.count, 1, "Should send exactly one session_create")
-        XCTAssertEqual(sessionCreates.first?.conversationType, "private", "session_create should include conversationType")
-        XCTAssertNotNil(sessionCreates.first?.correlationId, "session_create should include correlationId")
+        let conversationCreates = capturedMessages.compactMap { $0 as? ConversationCreateMessage }
+        XCTAssertEqual(conversationCreates.count, 1, "Should send exactly one conversation_create")
+        XCTAssertEqual(conversationCreates.first?.conversationType, "private", "conversation_create should include conversationType")
+        XCTAssertNotNil(conversationCreates.first?.correlationId, "conversation_create should include correlationId")
     }
 
     func testCreateConversationIfNeededWithoutConversationType() {
         viewModel.createConversationIfNeeded()
-        XCTAssertFalse(viewModel.isSending, "Message-less session creates should not set isSending")
+        XCTAssertFalse(viewModel.isSending, "Message-less conversation creates should not set isSending")
         XCTAssertNil(viewModel.conversationType, "conversationType should remain nil when not specified")
     }
 
@@ -2464,31 +2464,31 @@ final class ChatViewModelTests: XCTestCase {
         viewModel.sendMessage()
 
         // Allow the async Task in bootstrapConversation to execute
-        let expectation = XCTestExpectation(description: "session_create sent")
+        let expectation = XCTestExpectation(description: "conversation_create sent")
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
             expectation.fulfill()
         }
         wait(for: [expectation], timeout: 1.0)
 
-        let sessionCreates = capturedMessages.compactMap { $0 as? ConversationCreateMessage }
-        XCTAssertEqual(sessionCreates.count, 1)
-        XCTAssertEqual(sessionCreates.first?.conversationType, "private", "Normal send should also pass conversationType")
+        let conversationCreates = capturedMessages.compactMap { $0 as? ConversationCreateMessage }
+        XCTAssertEqual(conversationCreates.count, 1)
+        XCTAssertEqual(conversationCreates.first?.conversationType, "private", "Normal send should also pass conversationType in conversation_create")
     }
 
     func testCreateConversationThenSendMessageUsesClaimedConversation() {
-        // Create session without message
+        // Create conversation without message
         viewModel.createConversationIfNeeded(conversationType: "private")
         let correlationId = viewModel.bootstrapCorrelationId!
 
-        // Daemon responds with session_info
-        let info = ConversationInfoMessage(conversationId: "pre-created-session", title: "Test", correlationId: correlationId)
+        // Daemon responds with conversation_info
+        let info = ConversationInfoMessage(conversationId: "pre-created-conversation", title: "Test", correlationId: correlationId)
         viewModel.handleServerMessage(.conversationInfo(info))
 
         // Now send a message — should go directly via sendUserMessage, not bootstrapConversation
         viewModel.inputText = "Hello"
         viewModel.sendMessage()
 
-        XCTAssertEqual(viewModel.conversationId, "pre-created-session", "Should use the pre-created session")
+        XCTAssertEqual(viewModel.conversationId, "pre-created-conversation", "Should use the pre-created conversation")
         XCTAssertEqual(viewModel.messages.count, 1)
         XCTAssertEqual(viewModel.messages[0].role, .user)
         XCTAssertEqual(viewModel.messages[0].text, "Hello")
@@ -2627,7 +2627,7 @@ final class ChatViewModelTests: XCTestCase {
     // MARK: - Send Direct Queued Message
 
     func testSendDirectQueuedMessageSavesContentAndStops() {
-        // Set up a session with a sending state and a queued message
+        // Set up a conversation with a sending state and a queued message
         viewModel.conversationId = "sess-1"
         viewModel.isSending = true
         viewModel.isThinking = true
@@ -2719,17 +2719,17 @@ final class ChatViewModelTests: XCTestCase {
     // MARK: - Reconnect Streaming Race Regression
 
     func testReconnectDuringStreamingTriggersHistoryCatchUp() {
-        // Simulate an in-progress streaming run: session exists, isSending is
+        // Simulate an in-progress streaming run: conversation exists, isSending is
         // true, and currentAssistantMessageId is set (assistant was mid-stream).
         viewModel.conversationId = "sess-reconnect"
         viewModel.isSending = true
         viewModel.currentAssistantMessageId = UUID()
 
         // Set up the callback to capture the reconnect history request.
-        var reconnectSessionId: String?
+        var reconnectConversationId: String?
         let expectation = XCTestExpectation(description: "onReconnectHistoryNeeded called")
         viewModel.onReconnectHistoryNeeded = { conversationId in
-            reconnectSessionId = conversationId
+            reconnectConversationId = conversationId
             expectation.fulfill()
         }
 
@@ -2744,8 +2744,8 @@ final class ChatViewModelTests: XCTestCase {
         // and then triggered the catch-up callback after debounce.
         XCTAssertNil(viewModel.currentAssistantMessageId,
                      "Reconnect should clear currentAssistantMessageId")
-        XCTAssertEqual(reconnectSessionId, "sess-reconnect",
-                       "onReconnectHistoryNeeded should be called with the session ID")
+        XCTAssertEqual(reconnectConversationId, "sess-reconnect",
+                       "onReconnectHistoryNeeded should be called with the conversation ID")
     }
 
     func testPopulateFromHistoryResetsStreamingState() {
