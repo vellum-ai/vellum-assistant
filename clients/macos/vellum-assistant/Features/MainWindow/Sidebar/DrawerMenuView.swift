@@ -66,7 +66,7 @@ struct DrawerMenuView: View {
 
                 SidebarPrimaryRow(icon: VIcon.barChart.rawValue, label: String(localized: "Usage"), action: onUsage)
 
-                SidebarPrimaryRow(icon: VIcon.bug.rawValue, label: "Debug", action: onDebug)
+                SidebarPrimaryRow(icon: VIcon.scrollText.rawValue, label: String(localized: "Logs"), action: onDebug)
 
                 SidebarPrimaryRow(icon: VIcon.logOut.rawValue, label: String(localized: "Log Out"), action: onLogOut)
             }

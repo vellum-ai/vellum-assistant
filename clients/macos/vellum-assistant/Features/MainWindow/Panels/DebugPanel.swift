@@ -8,7 +8,7 @@ struct DebugPanel: View {
     var onClose: () -> Void
 
     var body: some View {
-        VSidePanel(title: "Debug", onClose: onClose, pinnedContent: {
+        VSidePanel(title: "Logs", onClose: onClose, pinnedContent: {
             if let conversationId = activeSessionId {
                 metricsStrip(conversationId: conversationId)
                 Divider().background(VColor.borderBase)
