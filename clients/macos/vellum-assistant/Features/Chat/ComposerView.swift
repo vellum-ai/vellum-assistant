@@ -218,7 +218,7 @@ struct ComposerView: View {
                 onPasteImage: onPaste
             )
         }
-        .frame(maxWidth: .infinity, height: measuredTextHeight)
+        .frame(height: measuredTextHeight)
         .accessibilityLabel("Message")
         .frame(maxWidth: .infinity)
         .background(

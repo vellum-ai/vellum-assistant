@@ -51,7 +51,7 @@ struct ComposerTextEditor: NSViewRepresentable {
         textView.isAutomaticQuoteSubstitutionEnabled = false
         textView.isAutomaticDashSubstitutionEnabled = false
         textView.textContainer?.widthTracksTextView = true
-        textView.textContainer?.containerSize = NSSize(width: 0, height: .greatestFiniteMagnitude)
+        textView.textContainer?.containerSize = NSSize(width: 0, height: CGFloat.greatestFiniteMagnitude)
         textView.textContainer?.lineFragmentPadding = 5
         textView.textContainerInset = NSSize(width: 0, height: 6)
         textView.isVerticallyResizable = true
