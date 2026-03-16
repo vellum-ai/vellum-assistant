@@ -49,6 +49,9 @@ struct SettingsDeveloperTab: View {
     @State private var inlineUpgradeError: String?
     @State private var inlineUpgradeSuccess: String?
 
+    // -- Hatch backend selection --
+    @State private var hatchRuntimeBackend: LocalRuntimeBackend = .process
+
     // -- Sentry testing state --
     @State private var lastSentryStatus: String?
     @State private var sentryDismissTask: Task<Void, Never>?
@@ -720,21 +723,106 @@ struct SettingsDeveloperTab: View {
 
     // MARK: - Hatch New Assistant
 
+    private var appleContainersAvailability: AppleContainersAvailability {
+        AppleContainersAvailabilityChecker.shared.check()
+    }
+
     private var hatchNewAssistantSection: some View {
         SettingsCard(title: "Hatch New Assistant", subtitle: "Starts the initial setup flow to create a new assistant.") {
+            // Backend picker — always show the process option; show the Apple
+            // Containers option based on availability, with disabled copy when the
+            // flag is off but developer surfaces are visible.
+            VStack(alignment: .leading, spacing: VSpacing.sm) {
+                Text("Backend")
+                    .font(VFont.inputLabel)
+                    .foregroundColor(VColor.contentSecondary)
+
+                hatchBackendRow(
+                    title: "Local (process)",
+                    subtitle: "Standard vellum-cli hatch path",
+                    backend: .process,
+                    disabledReason: nil
+                )
+
+                let availability = appleContainersAvailability
+                let acDisabledReason: String? = availability.isAvailable ? nil : availability.explanation
+                hatchBackendRow(
+                    title: "Apple Containers",
+                    subtitle: "Run the assistant in an Apple Container",
+                    backend: .appleContainers,
+                    disabledReason: acDisabledReason
+                )
+
+                SettingsDivider()
+            }
+
             VButton(label: "Hatch...", style: .primary) {
                 showingHatchConfirmation = true
             }
             .alert("Hatch New Assistant", isPresented: $showingHatchConfirmation) {
                 Button("Cancel", role: .cancel) {}
                 Button("Continue") {
+                    // Write the pending backend selection so the new OnboardingState
+                    // init() picks it up after clearPersistedState() runs.
+                    UserDefaults.standard.set(
+                        hatchRuntimeBackend.rawValue,
+                        forKey: OnboardingState.pendingHatchBackendKey
+                    )
                     AppDelegate.shared?.hatchNewAssistant()
                     onClose()
                 }
             } message: {
-                Text("This will create a brand new assistant. Your existing assistant(s) will continue to exist and you can switch back to using them.")
+                Text("This will create a brand new assistant using the \(hatchRuntimeBackend == .appleContainers ? "Apple Containers" : "local process") backend. Your existing assistant(s) will continue to exist and you can switch back to using them.")
             }
         }
+    }
+
+    private func hatchBackendRow(
+        title: String,
+        subtitle: String,
+        backend: LocalRuntimeBackend,
+        disabledReason: String?
+    ) -> some View {
+        let isDisabled = disabledReason != nil
+        let isSelected = hatchRuntimeBackend == backend && !isDisabled
+
+        return Button(action: {
+            guard !isDisabled else { return }
+            hatchRuntimeBackend = backend
+        }) {
+            HStack(spacing: VSpacing.sm) {
+                VStack(alignment: .leading, spacing: VSpacing.xxs) {
+                    Text(title)
+                        .font(VFont.bodyMedium)
+                        .foregroundColor(isDisabled ? VColor.contentDisabled : VColor.contentDefault)
+                    Text(disabledReason ?? subtitle)
+                        .font(VFont.caption)
+                        .foregroundColor(isDisabled ? VColor.contentDisabled : VColor.contentTertiary)
+                }
+
+                Spacer()
+
+                Circle()
+                    .fill(isSelected ? VColor.primaryBase : Color.clear)
+                    .overlay(
+                        Circle().stroke(
+                            isSelected ? VColor.primaryBase : (isDisabled ? VColor.borderDisabled : VColor.borderBase),
+                            lineWidth: 1.5
+                        )
+                    )
+                    .overlay(
+                        isSelected
+                            ? Circle().fill(VColor.auxWhite).frame(width: 6, height: 6)
+                            : nil
+                    )
+                    .frame(width: 16, height: 16)
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .disabled(isDisabled)
+        .opacity(isDisabled ? 0.6 : 1.0)
+        .pointerCursor()
     }
 
     // MARK: - Assistant Feature Flags

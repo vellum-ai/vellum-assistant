@@ -64,6 +64,10 @@ struct APIKeyStepView: View {
 
     // MARK: - Hosting Cards
 
+    private var appleContainersAvailability: AppleContainersAvailability {
+        AppleContainersAvailabilityChecker.shared.check()
+    }
+
     private var hostingCards: some View {
         VStack(spacing: VSpacing.sm) {
             if !state.skippedAuth {
@@ -84,7 +88,66 @@ struct APIKeyStepView: View {
                 comingSoon: false
             )
 
+            // Apple Containers option — only shown when the feature flag is on
+            // and the current machine passes all availability checks.
+            if appleContainersAvailability.isAvailable {
+                appleContainersCard
+            }
         }
+    }
+
+    private var appleContainersCard: some View {
+        let isSelected = state.selectedHostingMode == .local
+            && state.selectedRuntimeBackend == .appleContainers
+
+        return Button(action: {
+            state.selectedHostingMode = .local
+            state.selectedRuntimeBackend = .appleContainers
+        }) {
+            HStack(spacing: VSpacing.md) {
+                VIconView(.package, size: 18)
+                    .foregroundColor(isSelected ? VColor.primaryBase : VColor.contentSecondary)
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Apple Containers")
+                        .font(.system(size: 15, weight: .medium))
+                        .foregroundColor(VColor.contentDefault)
+                    Text("Run in an isolated container on your Mac")
+                        .font(.system(size: 12))
+                        .foregroundColor(VColor.contentSecondary)
+                }
+
+                Spacer()
+
+                Circle()
+                    .fill(isSelected ? VColor.primaryBase : Color.clear)
+                    .overlay(
+                        Circle().stroke(isSelected ? VColor.primaryBase : VColor.borderBase, lineWidth: 1.5)
+                    )
+                    .overlay(
+                        isSelected
+                            ? Circle().fill(VColor.auxWhite).frame(width: 6, height: 6)
+                            : nil
+                    )
+                    .frame(width: 18, height: 18)
+            }
+            .padding(.horizontal, VSpacing.lg)
+            .padding(.vertical, VSpacing.md)
+            .contentShape(Rectangle())
+            .background(
+                RoundedRectangle(cornerRadius: VRadius.lg)
+                    .fill(isSelected ? VColor.primaryBase.opacity(0.1) : Color.clear)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: VRadius.lg)
+                            .stroke(
+                                isSelected ? VColor.primaryBase.opacity(0.5) : VColor.borderBase,
+                                lineWidth: 1
+                            )
+                    )
+            )
+        }
+        .buttonStyle(.plain)
+        .pointerCursor()
     }
 
     private func hostingCard(
@@ -94,11 +157,20 @@ struct APIKeyStepView: View {
         mode: OnboardingState.HostingMode,
         comingSoon: Bool
     ) -> some View {
-        let isSelected = state.selectedHostingMode == mode && !comingSoon
+        // A card is selected when it matches the hosting mode AND we are using
+        // the process backend (i.e. the card represents the standard local path,
+        // not the Apple Containers path which has its own card above).
+        let isSelected = state.selectedHostingMode == mode
+            && state.selectedRuntimeBackend == .process
+            && !comingSoon
 
         return Button(action: {
             guard !comingSoon else { return }
             state.selectedHostingMode = mode
+            // Selecting the standard card always resets to process backend.
+            if mode == .local {
+                state.selectedRuntimeBackend = .process
+            }
         }) {
             HStack(spacing: VSpacing.md) {
                 VIconView(icon, size: 18)
@@ -165,6 +237,10 @@ struct APIKeyStepView: View {
         state.selectedHostingMode == .local
     }
 
+    private var isAppleContainersSelected: Bool {
+        state.selectedHostingMode == .local && state.selectedRuntimeBackend == .appleContainers
+    }
+
     private var continueButtonTitle: String {
         if isAuthenticated {
             return "Hatch"
@@ -176,13 +252,19 @@ struct APIKeyStepView: View {
         guard canContinue else { return }
 
         state.cloudProvider = state.selectedHostingMode.rawValue
+        // selectedRuntimeBackend is already kept in sync by the card tap actions;
+        // no additional assignment needed here.
 
         if isAuthenticated {
-            // Authenticated user selecting Local: skip API key, go straight to hatching
+            // Authenticated user selecting Local: skip API key, go straight to hatching.
+            // For the Apple Containers path the API key is resolved from the keychain
+            // or env at launch time by AppleContainersLauncher, so we don't need to
+            // prompt for it here either.
             saveModelToConfig("claude-opus-4-6")
             state.isHatching = true
         } else {
-            // Skipped auth: advance to API key entry (step 2)
+            // Skipped auth: advance to API key entry (step 2).
+            // Apple Containers still needs an Anthropic API key for the assistant.
             state.advance()
         }
     }

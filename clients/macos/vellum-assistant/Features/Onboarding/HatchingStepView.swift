@@ -9,6 +9,7 @@ struct HatchingStepView: View {
     @Bindable var state: OnboardingState
 
     @State private var cliLauncher = AssistantCli()
+    @State private var appleContainersLauncher = AppleContainersLauncher()
     @State private var showContent = false
     @State private var characterAwake = false
     @State private var pulseScale: CGFloat = 0.9
@@ -102,6 +103,10 @@ struct HatchingStepView: View {
         state.cloudProvider == "customHardware"
     }
 
+    private var isAppleContainersHatch: Bool {
+        state.selectedRuntimeBackend == .appleContainers
+    }
+
     private var statusText: some View {
         VStack(spacing: VSpacing.sm) {
             if state.hatchFailed {
@@ -130,6 +135,24 @@ struct HatchingStepView: View {
                 Text("Pairing\u{2026}")
                     .font(.system(size: 24, weight: .regular, design: .serif))
                     .foregroundColor(VColor.contentDefault)
+            } else if isAppleContainersHatch {
+                Text("Starting container\u{2026}")
+                    .font(.system(size: 24, weight: .regular, design: .serif))
+                    .foregroundColor(VColor.contentDefault)
+                Text("Setting up your assistant in an Apple Container\u{2026}")
+                    .font(.system(size: 14))
+                    .foregroundColor(VColor.contentSecondary)
+                // Surface the most recent pod runtime progress line if any.
+                if let latestLine = state.hatchLogLines.last {
+                    Text(latestLine)
+                        .font(.system(size: 12))
+                        .foregroundColor(VColor.contentTertiary)
+                        .lineLimit(2)
+                        .multilineTextAlignment(.center)
+                }
+                Text("This may take a few minutes while images are pulled.")
+                    .font(.system(size: 13))
+                    .foregroundColor(VColor.contentTertiary)
             } else {
                 Text("Waking up...")
                     .font(.system(size: 24, weight: .regular, design: .serif))
@@ -220,8 +243,25 @@ struct HatchingStepView: View {
         if state.isManagedHatch { return }
         if isCustomHardware {
             startPairing()
+        } else if isAppleContainersHatch {
+            startAppleContainersHatch()
         } else {
             startRemoteHatch()
+        }
+    }
+
+    private func startAppleContainersHatch() {
+        Task {
+            do {
+                // AppleContainersLauncher writes its own lockfile entry and manages
+                // the full pod lifecycle; we just need to wait for it to finish.
+                try await appleContainersLauncher.launch(name: nil, daemonOnly: false, restart: false)
+                handleHatchSuccess()
+            } catch {
+                log.error("Apple Containers hatch failed: \(String(describing: error), privacy: .public)")
+                failureReason = friendlyErrorMessage(from: error)
+                state.hatchFailed = true
+            }
         }
     }
 
