@@ -302,6 +302,16 @@ struct OnboardingFlowView: View {
             UserDefaults.standard.set(assistant.id, forKey: "connectedAssistantId")
             SentryDeviceInfo.updateAssistantTag(assistant.id)
 
+            // Managed users accept ToS on the platform and skip step 3.
+            // Write default privacy opt-ins so syncPrivacyConfig picks them up.
+            if UserDefaults.standard.object(forKey: "collectUsageData") == nil {
+                UserDefaults.standard.set(true, forKey: "collectUsageData")
+            }
+            if UserDefaults.standard.object(forKey: "sendDiagnostics") == nil {
+                UserDefaults.standard.set(true, forKey: "sendDiagnostics")
+            }
+            UserDefaults.standard.set(true, forKey: "tosAccepted")
+
             isBootstrappingManaged = false
             state.isManagedHatch = true
             state.isHatching = true

@@ -7,8 +7,8 @@ struct ImproveExperienceStepView: View {
 
     @State private var showTitle = false
     @State private var showContent = false
-    @State private var collectUsageData: Bool = true
-    @State private var sendDiagnostics: Bool = true
+    @State private var collectUsageData: Bool = UserDefaults.standard.object(forKey: "collectUsageData") as? Bool ?? true
+    @State private var sendDiagnostics: Bool = UserDefaults.standard.object(forKey: "sendDiagnostics") as? Bool ?? true
     @State private var tosAccepted: Bool = false
 
     var body: some View {
