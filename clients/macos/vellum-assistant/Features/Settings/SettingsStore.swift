@@ -374,6 +374,15 @@ public final class SettingsStore: ObservableObject {
             }
             .store(in: &cancellables)
 
+        // Refresh routing sources when local assistant bootstrap completes
+        // (e.g. after sign-in provisions an API key into the daemon)
+        NotificationCenter.default.publisher(for: .localBootstrapCompleted)
+            .receive(on: RunLoop.main)
+            .sink { [weak self] _ in
+                self?.loadProviderRoutingSources()
+            }
+            .store(in: &cancellables)
+
         // maxStepsPerSession is read at session startup, so it must be persisted synchronously
         // to avoid a race where a new session reads a stale value before the debounced write fires.
         $maxSteps

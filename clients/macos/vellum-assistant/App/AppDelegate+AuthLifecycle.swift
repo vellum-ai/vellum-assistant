@@ -288,6 +288,7 @@ extension AppDelegate {
                 case .registeredAndProvisioned(let id):
                     log.info("Local assistant API key provisioned: \(id, privacy: .public)")
                 }
+                NotificationCenter.default.post(name: .localBootstrapCompleted, object: nil)
             } catch {
                 log.error("Failed to provision local assistant API key: \(error.localizedDescription)")
                 self.mainWindow?.windowState.showToast(

@@ -17,6 +17,7 @@ extension Notification.Name {
     static let appPreviewImageCaptured = Notification.Name("MainWindow.appPreviewImageCaptured")
     static let requestAppPreview = Notification.Name("MainWindow.requestAppPreview")
     static let assistantFeatureFlagDidChange = Notification.Name("assistantFeatureFlagDidChange")
+    static let localBootstrapCompleted = Notification.Name("localBootstrapCompleted")
 }
 
 /// Manages API keys using UserDefaults. The daemon owns the canonical encrypted
