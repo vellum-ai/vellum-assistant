@@ -185,7 +185,7 @@ export async function addPointerMessage(
   // Pointer messages are assistant-generated status updates in the initiating
   // desktop conversation. Do not set userMessageChannel — doing so would mark the
   // conversation's origin channel as voice, causing it to leak into the
-  // desktop conversation list as a channel-bound session.
+  // desktop conversation list as a channel-bound conversation.
   await addMessage(
     conversationId,
     "assistant",
