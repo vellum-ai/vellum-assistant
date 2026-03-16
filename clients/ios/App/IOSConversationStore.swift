@@ -39,7 +39,7 @@ struct IOSThread: Identifiable {
         self.title = title
         self.createdAt = createdAt
         self.lastActivityAt = lastActivityAt ?? createdAt
-        self.conversationId = sessionId
+        self.conversationId = conversationId
         self.isArchived = isArchived
         self.isPinned = isPinned
         self.displayOrder = displayOrder
@@ -159,10 +159,10 @@ class IOSThreadStore: ObservableObject {
     }
 
     private func existingThreadIndex(forConversationId conversationId: String) -> Int? {
-        if let threadIndex = threads.firstIndex(where: { $0.conversationId == sessionId }) {
+        if let threadIndex = threads.firstIndex(where: { $0.conversationId == conversationId }) {
             return threadIndex
         }
-        return threads.firstIndex(where: { viewModels[$0.id]?.conversationId == sessionId })
+        return threads.firstIndex(where: { viewModels[$0.id]?.conversationId == conversationId })
     }
 
     private func mergeThreadMetadata(from restored: IOSThread, into thread: inout IOSThread) {
@@ -189,7 +189,7 @@ class IOSThreadStore: ObservableObject {
 
     private func applyPendingAttentionOverride(to thread: inout IOSThread) {
         guard let conversationId = thread.conversationId,
-              let override = pendingAttentionOverrides[sessionId] else { return }
+              let override = pendingAttentionOverrides[conversationId] else { return }
 
         switch override {
         case .seen(let targetLatestAssistantMessageAt):
@@ -557,7 +557,7 @@ class IOSThreadStore: ObservableObject {
                 // Case 3: User is active (VMs exist or local threads present).
                 // Do not clear locallyEditedConversationIds — title/archive edits persist until
                 // rebind (which resets all local-edit tracking).
-                // Deduplicate: only prepend restored threads whose sessionId
+                // Deduplicate: only prepend restored threads whose conversationId
                 // doesn't already exist in the current thread list.
                 let existingConversationIds: Set<String> = Set(
                     threads.compactMap { thread -> String? in
@@ -675,7 +675,7 @@ class IOSThreadStore: ObservableObject {
               let vm = viewModels[threadId],
               !vm.isHistoryLoaded else { return }
 
-        pendingHistoryByConversationId[sessionId] = threadId
+        pendingHistoryByConversationId[conversationId] = threadId
 
         // Wire up the "load more" callback for pagination.
         vm.onLoadMoreHistory = { [weak self] conversationId, beforeTimestamp in
@@ -695,7 +695,7 @@ class IOSThreadStore: ObservableObject {
               let idx = threads.firstIndex(where: { $0.id == threadId }),
               let conversationId = threads[idx].conversationId,
               threads[idx].hasUnseenLatestAssistantMessage else { return }
-        if case .unread = pendingAttentionOverrides[sessionId] {
+        if case .unread = pendingAttentionOverrides[conversationId] {
             if isExplicitOpen {
                 pendingAttentionOverrides.removeValue(forKey: conversationId)
             } else {
@@ -703,7 +703,7 @@ class IOSThreadStore: ObservableObject {
             }
         }
 
-        pendingAttentionOverrides[sessionId] = .seen(
+        pendingAttentionOverrides[conversationId] = .seen(
             latestAssistantMessageAt: threads[idx].latestAssistantMessageAt
         )
         threads[idx].hasUnseenLatestAssistantMessage = false
@@ -724,16 +724,16 @@ class IOSThreadStore: ObservableObject {
     /// Request an older page of history for pagination.
     private func requestPaginatedHistory(conversationId: String, beforeTimestamp: Double) {
         guard let daemon = daemonClient as? DaemonClient,
-              let thread = threads.first(where: { $0.conversationId == sessionId }) else {
+              let thread = threads.first(where: { $0.conversationId == conversationId }) else {
             // Clear loading state so the user isn't stuck with a permanent spinner.
             // The daemon cast may fail (e.g. HTTP transport) while the thread is still findable.
-            if let thread = threads.first(where: { $0.conversationId == sessionId }),
+            if let thread = threads.first(where: { $0.conversationId == conversationId }),
                let vm = viewModels[thread.id] {
                 vm.isLoadingMoreMessages = false
             }
             return
         }
-        pendingHistoryByConversationId[sessionId] = thread.id
+        pendingHistoryByConversationId[conversationId] = thread.id
         do {
             try daemon.sendHistoryRequest(conversationId: conversationId, limit: 50, beforeTimestamp: beforeTimestamp, mode: "light", maxToolResultChars: 1000)
         } catch {
@@ -754,7 +754,7 @@ class IOSThreadStore: ObservableObject {
         let vm = ChatViewModel(daemonClient: daemonClient)
         viewModels[threadId] = vm
 
-        // Copy sessionId from the thread so the VM joins the existing
+        // Copy conversationId from the thread so the VM joins the existing
         // daemon session instead of bootstrapping a new one.
         if let thread = threads.first(where: { $0.id == threadId }) {
             vm.conversationId = thread.conversationId
@@ -775,9 +775,9 @@ class IOSThreadStore: ObservableObject {
     /// pendingHistoryByConversationId and the response is properly routed back.
     private func wireReconnectCallback(vm: ChatViewModel, threadId: UUID) {
         guard vm.onReconnectHistoryNeeded == nil else { return }
-        vm.onReconnectHistoryNeeded = { [weak self, weak vm] sessionId in
+        vm.onReconnectHistoryNeeded = { [weak self, weak vm] conversationId in
             guard let self, let _ = vm, let daemon = self.daemonClient as? DaemonClient else { return }
-            self.pendingHistoryByConversationId[sessionId] = threadId
+            self.pendingHistoryByConversationId[conversationId] = threadId
             try? daemon.sendHistoryRequest(conversationId: conversationId, limit: 50, mode: "light", maxToolResultChars: 1000)
         }
     }
@@ -944,9 +944,9 @@ class IOSThreadStore: ObservableObject {
         guard let latestAssistantMessageAt else { return }
 
         let previousLastSeenAssistantMessageAt = threads[idx].lastSeenAssistantMessageAt
-        let previousOverride = pendingAttentionOverrides[sessionId]
+        let previousOverride = pendingAttentionOverrides[conversationId]
 
-        pendingAttentionOverrides[sessionId] = .unread(
+        pendingAttentionOverrides[conversationId] = .unread(
             latestAssistantMessageAt: latestAssistantMessageAt
         )
         threads[idx].latestAssistantMessageAt = latestAssistantMessageAt
@@ -1002,11 +1002,11 @@ class IOSThreadStore: ObservableObject {
     ) {
         guard let idx = threads.firstIndex(where: { $0.id == threadId }),
               threads[idx].conversationId == conversationId,
-              case .unread(let pendingLatestAssistantMessageAt) = pendingAttentionOverrides[sessionId],
+              case .unread(let pendingLatestAssistantMessageAt) = pendingAttentionOverrides[conversationId],
               pendingLatestAssistantMessageAt == latestAssistantMessageAt else { return }
 
         if let previousOverride {
-            pendingAttentionOverrides[sessionId] = previousOverride
+            pendingAttentionOverrides[conversationId] = previousOverride
         } else {
             pendingAttentionOverrides.removeValue(forKey: conversationId)
         }
