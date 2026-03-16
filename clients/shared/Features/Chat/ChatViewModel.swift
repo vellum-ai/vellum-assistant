@@ -323,8 +323,8 @@ public final class ChatViewModel: ObservableObject {
     private var pendingGuardianActions: [String: String] = [:]
     public var conversationId: String? {
         didSet {
-            // If the daemon reconnected before this VM had a session ID, a deferred
-            // flush was requested. Now that we have a session, run it.
+            // If the daemon reconnected before this VM had a conversation ID, a deferred
+            // flush was requested. Now that we have a conversation, run it.
             if conversationId != nil && needsOfflineFlush {
                 needsOfflineFlush = false
                 flushOfflineQueue()
@@ -408,16 +408,16 @@ public final class ChatViewModel: ObservableObject {
     var secretBlockedActiveSurfaceId: String?
     var secretBlockedCurrentPage: String?
     /// Nonce sent with `conversation_create` and echoed back in `conversation_info`.
-    /// Used to ensure this ChatViewModel only claims its own session.
+    /// Used to ensure this ChatViewModel only claims its own conversation.
     var bootstrapCorrelationId: String?
     /// Conversation type sent with `conversation_create` (e.g. "private").
     /// Set by `createConversationIfNeeded(conversationType:)` and included in the
     /// message so the daemon can persist the correct conversation kind.
     public var conversationType: String?
-    /// Skill IDs to pre-activate in the session. Included in the
+    /// Skill IDs to pre-activate in the conversation. Included in the
     /// `conversation_create` request for deterministic skill activation.
     public var preactivatedSkillIds: [String]?
-    /// Whether this view model is currently bootstrapping a new session
+    /// Whether this view model is currently bootstrapping a new conversation
     /// (conversation_create sent, awaiting conversation_info). Used by ConversationManager
     /// to decide whether it's safe to release the VM on archive.
     public var isBootstrapping: Bool { bootstrapCorrelationId != nil }
@@ -488,7 +488,7 @@ public final class ChatViewModel: ObservableObject {
 
     /// Timestamp of the most recent `toolUseStart` event received by this view model.
     /// Used by ConversationManager to route `confirmationRequest` messages to the correct
-    /// ChatViewModel when multiple conversations have active sessions.
+    /// ChatViewModel when multiple conversations are active.
     public var lastToolUseReceivedAt: Date?
 
     /// Monotonically increasing version counter for server-authoritative activity state.
@@ -515,7 +515,7 @@ public final class ChatViewModel: ObservableObject {
     /// The macOS layer should cancel the WatchSession and send a cancel to the daemon.
     public var onStopWatch: (() -> Void)?
 
-    /// Called when the daemon assigns a session ID to this chat (via conversation_info).
+    /// Called when the daemon assigns a conversation ID to this chat (via conversation_info).
     /// Used by ConversationManager to backfill ConversationModel.conversationId for new conversations.
     public var onConversationCreated: ((String) -> Void)?
 
@@ -613,7 +613,7 @@ public final class ChatViewModel: ObservableObject {
     }
 
     /// Called when `loadPreviousMessagePage` needs to fetch an older page from the
-    /// daemon. The session restorer sets this so the daemon client request is
+    /// daemon. The conversation restorer sets this so the daemon client request is
     /// routed through the same pending-history tracking used for initial loads.
     public var onLoadMoreHistory: ((_ conversationId: String, _ beforeTimestamp: Double) -> Void)?
 
@@ -805,8 +805,8 @@ public final class ChatViewModel: ObservableObject {
             messages[i].stripHeavyContent()
         }
         displayedMessageCount = Self.messagePageSize
-        // Only mark history as unloaded if there's a session to reload from.
-        // Conversations without a session (new, empty) have nothing to fetch —
+        // Only mark history as unloaded if there's a conversation to reload from.
+        // Conversations without a conversation ID (new, empty) have nothing to fetch —
         // resetting the flag would leave the UI stuck on a loading spinner.
         if conversationId != nil {
             isHistoryLoaded = false
@@ -968,9 +968,9 @@ public final class ChatViewModel: ObservableObject {
                     self.connectionDiagnosticHint = nil
                 }
 
-                // If we already have a session ID, flush immediately. Otherwise
+                // If we already have a conversation ID, flush immediately. Otherwise
                 // defer: conversationId's didSet will trigger flushOfflineQueue() once
-                // the session is restored from history (cold-start reconnect case).
+                // the conversation is restored from history (cold-start reconnect case).
                 if self?.conversationId != nil {
                     self?.flushOfflineQueue()
                 } else {
@@ -1175,7 +1175,7 @@ public final class ChatViewModel: ObservableObject {
         }
 
         if conversationId == nil {
-            // First message: need to bootstrap session
+            // First message: need to bootstrap conversation
             pendingUserMessageDisplayText = rawText
             pendingUserMessageAutomated = hidden
             bootstrapConversation(userMessage: text, attachments: messageAttachments)
@@ -1274,7 +1274,7 @@ public final class ChatViewModel: ObservableObject {
 
     private func bootstrapConversation(userMessage: String?, attachments: [UserMessageAttachment]?) {
         // Only set sending/thinking indicators when there's an actual user
-        // message; message-less session creates (e.g. private conversation
+        // message; message-less conversation creates (e.g. private conversation
         // pre-allocation) are silent and shouldn't affect UI state.
         if userMessage != nil {
             isSending = true
@@ -1320,7 +1320,7 @@ public final class ChatViewModel: ObservableObject {
             do {
                 try daemonClient.send(ConversationCreateMessage(title: nil, correlationId: correlationId, conversationType: self.conversationType, preactivatedSkillIds: self.preactivatedSkillIds))
                 // Clear one-shot preactivated skills so they don't leak into a
-                // later session if this bootstrap is interrupted before completion.
+                // later conversation if this bootstrap is interrupted before completion.
                 self.preactivatedSkillIds = nil
             } catch {
                 log.error("Failed to send conversation_create: \(error.localizedDescription)")
@@ -1354,7 +1354,7 @@ public final class ChatViewModel: ObservableObject {
             // instead of surfacing an error. The message stays visible with a
             // "pending" indicator and is flushed automatically on reconnect.
             if queuedMessageId == nil {
-                log.info("Buffering message in offline queue (session: \(conversationId))")
+                log.info("Buffering message in offline queue (conversation: \(conversationId))")
                 OfflineMessageQueue.shared.enqueue(conversationId: conversationId, text: text, displayText: displayText, attachments: attachments, automated: automated)
                 // Mark the corresponding chat message as offline-pending so the UI
                 // can show a visual indicator. Find the last user message with this
@@ -1458,17 +1458,17 @@ public final class ChatViewModel: ObservableObject {
         guard !queue.isEmpty else { return }
 
         guard let currentConversationId = conversationId else {
-            // No session yet — defer until conversationId is populated.
+            // No conversation yet — defer until conversationId is populated.
             needsOfflineFlush = true
             return
         }
 
-        // Read the queue contents without clearing. Filter for this session only;
-        // other sessions' messages stay in the persistent store for their own VMs.
+        // Read the queue contents without clearing. Filter for this conversation only;
+        // other conversations' messages stay in the persistent store for their own VMs.
         let mine = queue.allMessages.filter { $0.conversationId == currentConversationId }
         guard !mine.isEmpty else { return }
 
-        log.info("Flushing \(mine.count) offline-queued message(s) for session \(currentConversationId)")
+        log.info("Flushing \(mine.count) offline-queued message(s) for conversation \(currentConversationId)")
 
         // Update message bubbles: clear pendingOffline status so they show as sent.
         for queued in mine {
@@ -1530,7 +1530,7 @@ public final class ChatViewModel: ObservableObject {
         }
     }
 
-    /// Start the daemon message stream if this chat has a bound session and
+    /// Start the daemon message stream if this chat has a bound conversation and
     /// no active loop yet.
     public func ensureMessageLoopStarted() {
         guard conversationId != nil, messageLoopTask == nil else { return }
@@ -1539,12 +1539,12 @@ public final class ChatViewModel: ObservableObject {
 
     /// Send a message to the daemon without showing a user bubble in the chat.
     /// Used for automated actions like inline model picker selections.
-    /// Returns `true` if the message was sent (or a session bootstrap was started),
+    /// Returns `true` if the message was sent (or a conversation bootstrap was started),
     /// `false` if the message was silently dropped (e.g. bootstrap already in flight).
     @discardableResult
     public func sendSilently(_ text: String) -> Bool {
-        // Don't re-enter bootstrap if a session creation is already in progress —
-        // that would overwrite pendingUserMessage and orphan the in-flight session.
+        // Don't re-enter bootstrap if a conversation creation is already in progress —
+        // that would overwrite pendingUserMessage and orphan the in-flight conversation.
         if conversationId == nil && (isSending || isBootstrapping) {
             return false
         }
@@ -1556,10 +1556,10 @@ public final class ChatViewModel: ObservableObject {
         return true
     }
 
-    /// Create a daemon session immediately, without a user message.
-    /// Used by private conversations that need a persistent session ID right away
+    /// Create a daemon conversation immediately, without a user message.
+    /// Used by private conversations that need a persistent conversation ID right away
     /// (e.g. to store the conversation in the database before the user types anything).
-    /// No-op if a session already exists or a bootstrap is already in flight.
+    /// No-op if a conversation already exists or a bootstrap is already in flight.
     public func createConversationIfNeeded(conversationType: String? = nil) {
         guard conversationId == nil, !isBootstrapping else { return }
         if let conversationType {
@@ -1591,7 +1591,7 @@ public final class ChatViewModel: ObservableObject {
         // send the prompt as a regular message instead of a surface action.
         // This avoids requiring in-memory surface state on the daemon (which is
         // lost after restart) and ensures the full message send pipeline runs
-        // (session creation, hub publisher setup, SSE event delivery).
+        // (conversation creation, hub publisher setup, SSE event delivery).
         let isRelay = actionId == "relay_prompt" || actionId == "agent_prompt"
         if isRelay, let prompt = data?["prompt"]?.value as? String, !prompt.isEmpty {
             _ = sendSilently(prompt)
@@ -1647,7 +1647,7 @@ public final class ChatViewModel: ObservableObject {
     }
 
     /// Cancel all in-flight surface refetch tasks and reset the manager's
-    /// failure counts so surfaces can be retried in the new session.
+    /// failure counts so surfaces can be retried in the new conversation.
     private func cancelRefetchTasks() {
         for task in refetchTasks.values { task.cancel() }
         refetchTasks.removeAll()
@@ -1656,8 +1656,8 @@ public final class ChatViewModel: ObservableObject {
 
     /// Cancel the queued user message without clearing `bootstrapCorrelationId`.
     /// Used when archiving a conversation before conversation_info arrives: we want to
-    /// discard the pending message (so it isn't sent once the session is claimed)
-    /// but preserve the correlation ID so the VM only claims its own session.
+    /// discard the pending message (so it isn't sent once the conversation is claimed)
+    /// but preserve the correlation ID so the VM only claims its own conversation.
     public func cancelPendingMessage() {
         pendingUserMessage = nil
         pendingUserMessageDisplayText = nil
@@ -1675,7 +1675,7 @@ public final class ChatViewModel: ObservableObject {
 
         pendingVoiceMessage = false
 
-        // If we're still bootstrapping (no session yet), cancel locally:
+        // If we're still bootstrapping (no conversation yet), cancel locally:
         // discard the pending message so it won't be sent when conversation_info
         // arrives, and reset UI state immediately since there's nothing to
         // cancel on the daemon side.
@@ -2246,7 +2246,7 @@ public final class ChatViewModel: ObservableObject {
             )
         }
 
-        // Resend — bootstrap a new session if needed (mirrors retryLastMessage)
+        // Resend — bootstrap a new conversation if needed (mirrors retryLastMessage)
         if conversationId == nil {
             pendingUserMessageAutomated = message.isHidden
             bootstrapConversation(userMessage: message.text, attachments: userAttachments)
@@ -2390,7 +2390,7 @@ public final class ChatViewModel: ObservableObject {
         }
     }
 
-    /// Ask the daemon for a follow-up suggestion for the current session.
+    /// Ask the daemon for a follow-up suggestion for the current conversation.
     func fetchSuggestion() {
         guard let conversationId, daemonClient.isConnected else { return }
 

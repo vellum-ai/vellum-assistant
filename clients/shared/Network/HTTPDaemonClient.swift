@@ -345,7 +345,7 @@ public final class HTTPTransport {
         case conversationSearch(query: String, limit: Int?, maxMessagesPerConversation: Int?)
         case messageContent(id: String, conversationId: String?)
         case deleteQueuedMessage(id: String, conversationId: String)
-        case sessionsReorder
+        case conversationsReorder
         // Skill management
         case skillsList
         case skillEnable(id: String)
@@ -711,7 +711,7 @@ public final class HTTPTransport {
             let idEncoded = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
             let sEncoded = conversationId.addingPercentEncoding(withAllowedCharacters: Self.queryValueAllowed) ?? conversationId
             return ("/v1/messages/queued/\(idEncoded)", "conversationId=\(sEncoded)")
-        case .sessionsReorder:
+        case .conversationsReorder:
             return ("/v1/conversations/reorder", nil)
         // Skill management
         case .skillsList:
@@ -1123,7 +1123,7 @@ public final class HTTPTransport {
             let idEncoded = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
             let sEncoded = conversationId.addingPercentEncoding(withAllowedCharacters: Self.queryValueAllowed) ?? conversationId
             return ("\(prefix)/messages/queued/\(idEncoded)/", "conversationId=\(sEncoded)")
-        case .sessionsReorder:
+        case .conversationsReorder:
             return ("\(prefix)/conversations/reorder/", nil)
         // Skill management
         case .skillsList:
@@ -1563,15 +1563,15 @@ public final class HTTPTransport {
         switch message {
         case .hostBashRequest(let msg):
             if locallyOwnedConversationIds.contains(msg.conversationId) { return false }
-            log.warning("Ignoring host_bash_request for non-local session \(msg.conversationId, privacy: .public)")
+            log.warning("Ignoring host_bash_request for non-local conversation \(msg.conversationId, privacy: .public)")
             return true
         case .hostFileRequest(let msg):
             if locallyOwnedConversationIds.contains(msg.conversationId) { return false }
-            log.warning("Ignoring host_file_request for non-local session \(msg.conversationId, privacy: .public)")
+            log.warning("Ignoring host_file_request for non-local conversation \(msg.conversationId, privacy: .public)")
             return true
         case .hostCuRequest(let msg):
             if locallyOwnedConversationIds.contains(msg.conversationId) { return false }
-            log.warning("Ignoring host_cu_request for non-local session \(msg.conversationId, privacy: .public)")
+            log.warning("Ignoring host_cu_request for non-local conversation \(msg.conversationId, privacy: .public)")
             return true
         default:
             return false
@@ -1739,7 +1739,7 @@ public final class HTTPTransport {
                             self.serverToLocalConversationMap.removeValue(forKey: key)
                         }
                     }
-                    log.info("Mapped server conversation \(serverConvId, privacy: .public) → local session \(conversationId, privacy: .public)")
+                    log.info("Mapped server conversation \(serverConvId, privacy: .public) → local conversation \(conversationId, privacy: .public)")
                 }
             } else if http.statusCode == 401 && !isRetry {
                 let refreshResult = await handleAuthenticationFailureAsync(responseData: data)
@@ -2996,7 +2996,7 @@ public final class HTTPTransport {
                     onMessage?(historyResponse)
                 }
             } catch {
-                log.error("Failed to deserialize history response for session \(conversationId, privacy: .public): \(String(describing: error), privacy: .public)")
+                log.error("Failed to deserialize history response for conversation \(conversationId, privacy: .public): \(String(describing: error), privacy: .public)")
             }
         } catch {
             log.error("Fetch history error: \(error.localizedDescription)")
@@ -3362,7 +3362,7 @@ public final class HTTPTransport {
 
     // MARK: - Conversation Management HTTP Handlers
 
-    func switchSession(conversationId: String, isRetry: Bool = false) async {
+    func switchConversation(conversationId: String, isRetry: Bool = false) async {
         guard let url = buildURL(for: .conversationsSwitch) else { return }
 
         var request = URLRequest(url: url)
@@ -3384,7 +3384,7 @@ public final class HTTPTransport {
             } else if http.statusCode == 401 && !isRetry {
                 let refreshResult = await handleAuthenticationFailureAsync(responseData: data)
                 if case .success = refreshResult {
-                    await switchSession(conversationId: conversationId, isRetry: true)
+                    await switchConversation(conversationId: conversationId, isRetry: true)
                 }
             } else {
                 log.error("Conversation switch failed (HTTP \(http.statusCode))")
@@ -3749,7 +3749,7 @@ public final class HTTPTransport {
     }
 
     func reorderConversations(updates: [ReorderConversationsRequestUpdate], isRetry: Bool = false) async {
-        guard let url = buildURL(for: .sessionsReorder) else { return }
+        guard let url = buildURL(for: .conversationsReorder) else { return }
 
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
