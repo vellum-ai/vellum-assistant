@@ -35,7 +35,7 @@ export async function startHandoff(
   }
 
   if (!isScreencastActive(conversationId)) {
-    log.warn({ conversationId }, "No active browser session for handoff");
+    log.warn({ conversationId }, "No active browser page for handoff");
     return;
   }
 
