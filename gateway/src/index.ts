@@ -506,7 +506,8 @@ async function main() {
       path: "/v1/guardian/init",
       method: "POST",
       auth: "none",
-      handler: (req) => channelVerificationSessionProxy.handleGuardianInit(req),
+      handler: (req, _params, getClientIp) =>
+        channelVerificationSessionProxy.handleGuardianInit(req, getClientIp()),
     },
     {
       path: "/v1/channel-verification-sessions",
