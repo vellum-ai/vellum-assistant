@@ -346,8 +346,8 @@ public struct ToolConfirmationBubble: View {
     private var topLevelActions: [ToolConfirmationKeyboardModel.Action] {
         var actions: [ToolConfirmationKeyboardModel.Action] = []
         if hasAllow10m { actions.append(.allow10m) }
-        actions.append(.dontAllow)
         actions.append(.allowOnce)
+        actions.append(.dontAllow)
         if hasRuleOptions && confirmation.persistentDecisionsAllowed {
             actions.append(.alwaysAllow)
         }
@@ -690,6 +690,10 @@ public struct ToolConfirmationBubble: View {
     private func confirmationButton(_ label: String, isPrimary: Bool, isDanger: Bool, isDangerOutline: Bool = false, isKeyboardSelected: Bool = false, action: @escaping () -> Void) -> some View {
         let style: VButton.Style = isDanger ? .danger : isDangerOutline ? .dangerOutline : isPrimary ? .primary : .outlined
         VButton(label: label, style: style, size: .compact, action: action)
+            .overlay(
+                RoundedRectangle(cornerRadius: VRadius.md)
+                    .stroke(VColor.primaryBase, lineWidth: isKeyboardSelected ? 2 : 0)
+            )
     }
 
     // MARK: - Always Allow Button
