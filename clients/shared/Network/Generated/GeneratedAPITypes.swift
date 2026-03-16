@@ -4794,10 +4794,12 @@ public struct UserMessage: Codable, Sendable {
     public let pttActivationKey: String?
     /// Whether the client has been granted microphone permission by the OS.
     public let microphonePermissionGranted: Bool?
+    /// When true, the message was auto-sent by the client (e.g. wake-up greeting) and should not trigger memory extraction.
+    public let automated: Bool?
     /// Structured command intent — bypasses text parsing when present.
     public let commandIntent: CommandIntent?
 
-    public init(type: String, conversationId: String, content: String? = nil, attachments: [UserMessageAttachment]? = nil, activeSurfaceId: String? = nil, currentPage: String? = nil, bypassSecretCheck: Bool? = nil, channel: String? = nil, interface: String, pttActivationKey: String? = nil, microphonePermissionGranted: Bool? = nil, commandIntent: CommandIntent? = nil) {
+    public init(type: String, conversationId: String, content: String? = nil, attachments: [UserMessageAttachment]? = nil, activeSurfaceId: String? = nil, currentPage: String? = nil, bypassSecretCheck: Bool? = nil, channel: String? = nil, interface: String, pttActivationKey: String? = nil, microphonePermissionGranted: Bool? = nil, automated: Bool? = nil, commandIntent: CommandIntent? = nil) {
         self.type = type
         self.conversationId = conversationId
         self.content = content
@@ -4809,6 +4811,7 @@ public struct UserMessage: Codable, Sendable {
         self.interface = interface
         self.pttActivationKey = pttActivationKey
         self.microphonePermissionGranted = microphonePermissionGranted
+        self.automated = automated
         self.commandIntent = commandIntent
     }
 }
