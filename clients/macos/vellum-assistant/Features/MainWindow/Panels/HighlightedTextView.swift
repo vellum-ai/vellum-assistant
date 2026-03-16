@@ -77,6 +77,14 @@ struct HighlightedTextView: View {
             dismissSearch()
             return .handled
         }
+        .onChange(of: text) { _, _ in
+            let count = searchMatchCount
+            if count == 0 {
+                currentMatchIndex = 0
+            } else if currentMatchIndex >= count {
+                currentMatchIndex = max(0, count - 1)
+            }
+        }
     }
 
     private var editableBinding: Binding<String> {
@@ -161,6 +169,14 @@ struct HighlightedTextView: View {
             guard isSearchVisible else { return .ignored }
             dismissSearch()
             return .handled
+        }
+        .onChange(of: text) { _, _ in
+            let count = searchMatchCount
+            if count == 0 {
+                currentMatchIndex = 0
+            } else if currentMatchIndex >= count {
+                currentMatchIndex = max(0, count - 1)
+            }
         }
     }
 
