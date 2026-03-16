@@ -2,6 +2,7 @@ import {
   setPlatformAssistantId,
   setPlatformBaseUrl,
   setPlatformOrganizationId,
+  setPlatformUserId,
 } from "../config/env.js";
 import type { AssistantConfig } from "../config/types.js";
 import { setSentryOrganizationId } from "../instrument.js";
@@ -79,6 +80,23 @@ export async function initializeProvidersAndTools(
     log.warn(
       { error: err instanceof Error ? err.message : String(err) },
       "Failed to rehydrate platform organization ID from credential store (non-fatal)",
+    );
+  }
+
+  // Rehydrate the platform user ID from the credential store so
+  // telemetry events include user context after restarts.
+  try {
+    const key = credentialKey("vellum", "platform_user_id");
+    const persisted = await getSecureKeyAsync(key);
+    const trimmed = persisted?.trim();
+    if (trimmed) {
+      setPlatformUserId(trimmed);
+      log.info("Rehydrated platform user ID from credential store");
+    }
+  } catch (err) {
+    log.warn(
+      { error: err instanceof Error ? err.message : String(err) },
+      "Failed to rehydrate platform user ID from credential store (non-fatal)",
     );
   }
 

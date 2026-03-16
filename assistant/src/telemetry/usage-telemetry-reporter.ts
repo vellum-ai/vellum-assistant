@@ -10,6 +10,8 @@
  */
 
 import {
+  getPlatformOrganizationId,
+  getPlatformUserId,
   getTelemetryAppToken,
   getTelemetryPlatformUrl,
 } from "../config/env.js";
@@ -155,9 +157,13 @@ export class UsageTelemetryReporter {
       ];
 
       const assistantId = getExternalAssistantId() ?? "self";
+      const organizationId = getPlatformOrganizationId() || undefined;
+      const userId = getPlatformUserId() || undefined;
       const payload = {
         installation_id: getDeviceId(),
         assistant_id: assistantId,
+        ...(organizationId ? { organization_id: organizationId } : {}),
+        ...(userId ? { user_id: userId } : {}),
         events: typedEvents,
       };
 

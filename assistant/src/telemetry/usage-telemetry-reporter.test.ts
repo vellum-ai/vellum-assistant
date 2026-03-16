@@ -54,7 +54,12 @@ mock.module("../providers/managed-proxy/context.js", () => ({
 const mockGetTelemetryPlatformUrl = mock(() => "https://platform.vellum.ai");
 const mockGetTelemetryAppToken = mock(() => "");
 
+const mockGetPlatformOrganizationId = mock(() => "");
+const mockGetPlatformUserId = mock(() => "");
+
 mock.module("../config/env.js", () => ({
+  getPlatformOrganizationId: mockGetPlatformOrganizationId,
+  getPlatformUserId: mockGetPlatformUserId,
   getTelemetryPlatformUrl: mockGetTelemetryPlatformUrl,
   getTelemetryAppToken: mockGetTelemetryAppToken,
   // Re-export anything else the module might import transitively
@@ -139,6 +144,10 @@ beforeEach(() => {
   mockGetDeviceId.mockReturnValue("test-device-id");
   mockGetExternalAssistantId.mockReset();
   mockGetExternalAssistantId.mockReturnValue("test-assistant-id");
+  mockGetPlatformOrganizationId.mockReset();
+  mockGetPlatformOrganizationId.mockReturnValue("");
+  mockGetPlatformUserId.mockReset();
+  mockGetPlatformUserId.mockReturnValue("");
 
   // Defaults
   mockGetMemoryCheckpoint.mockReturnValue(null);
@@ -378,6 +387,46 @@ describe("UsageTelemetryReporter", () => {
     expect(e.cache_read_input_tokens).toBe(15);
     expect(e.actor).toBe("context_compactor");
     expect(e.recorded_at).toBe(1700000099000);
+  });
+
+  test("organization_id and user_id included in payload when available", async () => {
+    mockGetPlatformOrganizationId.mockReturnValue("org-123");
+    mockGetPlatformUserId.mockReturnValue("user-456");
+    const events = [makeUsageEvent()];
+    mockQueryUnreportedUsageEvents.mockReturnValue(events);
+    mockFetch.mockImplementation(() =>
+      Promise.resolve(new Response('{"accepted":1}', { status: 200 })),
+    );
+
+    const reporter = new UsageTelemetryReporter();
+    await reporter.flush();
+
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+    const body = JSON.parse(
+      (mockFetch.mock.calls[0] as [string, RequestInit])[1].body as string,
+    );
+    expect(body.organization_id).toBe("org-123");
+    expect(body.user_id).toBe("user-456");
+  });
+
+  test("organization_id and user_id omitted from payload when empty", async () => {
+    mockGetPlatformOrganizationId.mockReturnValue("");
+    mockGetPlatformUserId.mockReturnValue("");
+    const events = [makeUsageEvent()];
+    mockQueryUnreportedUsageEvents.mockReturnValue(events);
+    mockFetch.mockImplementation(() =>
+      Promise.resolve(new Response('{"accepted":1}', { status: 200 })),
+    );
+
+    const reporter = new UsageTelemetryReporter();
+    await reporter.flush();
+
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+    const body = JSON.parse(
+      (mockFetch.mock.calls[0] as [string, RequestInit])[1].body as string,
+    );
+    expect(body.organization_id).toBeUndefined();
+    expect(body.user_id).toBeUndefined();
   });
 
   test("assistant_id falls back to 'self' when getExternalAssistantId returns undefined", async () => {
