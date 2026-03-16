@@ -1018,6 +1018,21 @@ public final class ChatViewModel: ObservableObject {
         self.memoryPressureSource = source
     }
 
+    // MARK: - Notification Catch-Up
+
+    /// Prepare the view model for a notification catch-up history fetch.
+    ///
+    /// Sets `needsReconnectCatchUp` so the next `populateFromHistory` call uses
+    /// the smart merge path (server-authoritative list + preserved unsent locals)
+    /// instead of the prepend-older-only path which would drop the new message.
+    ///
+    /// Called by ConversationManager when a `notification_intent` arrives for a
+    /// conversation that already has an active ViewModel. Must be followed by a
+    /// `requestReconnectHistory()` call on the ConversationRestorer.
+    public func prepareForNotificationCatchUp() {
+        needsReconnectCatchUp = true
+    }
+
     // MARK: - Deep Link
 
     /// Check for a buffered deep-link message and apply it to `inputText`.
