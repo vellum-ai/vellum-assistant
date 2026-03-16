@@ -109,6 +109,7 @@ export { migrateRenameConversationTypeColumn } from "./164-rename-conversation-t
 export { migrateRenameInboxThreadStateTable } from "./165-rename-inbox-thread-state-table.js";
 export { migrateRenameFollowupsThreadIdColumn } from "./166-rename-followups-thread-id.js";
 export { migrateRenameSequenceEnrollmentsThreadIdColumn } from "./167-rename-sequence-enrollments-thread-id.js";
+export { migrateRenameSequenceStepsReplyKey } from "./168-rename-sequence-steps-reply-key.js";
 export {
   MIGRATION_REGISTRY,
   type MigrationRegistryEntry,

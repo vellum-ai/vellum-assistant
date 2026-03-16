@@ -87,6 +87,7 @@ import {
   migrateRenameInboxThreadStateTable,
   migrateRenameNotificationThreadColumns,
   migrateRenameSequenceEnrollmentsThreadIdColumn,
+  migrateRenameSequenceStepsReplyKey,
   migrateRenameVerificationSessionIdColumn,
   migrateRenameVerificationTable,
   migrateRenameVoiceToPhone,
@@ -415,6 +416,9 @@ export function initializeDb(): void {
 
   // 70. Rename sequence_enrollments.thread_id → conversation_id
   migrateRenameSequenceEnrollmentsThreadIdColumn(database);
+
+  // 71. Rename replyToThread → replyInSameConversation in sequence steps JSON blobs
+  migrateRenameSequenceStepsReplyKey(database);
 
   validateMigrationState(database);
 
