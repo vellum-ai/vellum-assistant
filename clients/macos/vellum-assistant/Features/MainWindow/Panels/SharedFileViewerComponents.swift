@@ -81,6 +81,6 @@ struct FileContentHeaderBar<Trailing: View>: View {
             trailing
         }
         .padding(.horizontal, VSpacing.md)
-        .frame(height: 28)
+        .frame(height: 36)
     }
 }
