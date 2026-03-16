@@ -721,7 +721,7 @@ describe("web_search_tool_result structural guard", () => {
    * are listed in the allowlist below.
    *
    * If this test fails, either:
-   * 1. Use `isToolResultBlock()` from session-history.ts, or
+   * 1. Use `isToolResultBlock()` from conversation-history.ts, or
    * 2. Include both "tool_result" and "web_search_tool_result" in the check, or
    * 3. Add the file to the allowlist with a comment explaining why only
    *    `tool_result` is correct.
@@ -956,7 +956,7 @@ describe("web_search_tool_result structural guard", () => {
         ...allViolations.map((v) => `  - ${v.file}:${v.line}: ${v.text}`),
         "",
         "Fix options:",
-        "  1. Use isToolResultBlock() from session-history.ts",
+        "  1. Use isToolResultBlock() from conversation-history.ts",
         '  2. Add || block.type === "web_search_tool_result" to your check',
         "  3. If only tool_result is correct, add the file to ALLOWLISTED_FILES",
         "     in this test with a comment explaining why.",

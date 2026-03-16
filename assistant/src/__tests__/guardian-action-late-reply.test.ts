@@ -479,7 +479,7 @@ describe("guardian-action-late-reply", () => {
       );
       const code = req1.requestCode; // e.g. "A1B2C3"
 
-      // Simulate case-insensitive prefix matching as done in session-process.ts
+      // Simulate case-insensitive prefix matching as done in conversation-process.ts
       const userInput = `${code.toLowerCase()} the answer is 42`;
       const matched = userInput.toUpperCase().startsWith(code);
       expect(matched).toBe(true);

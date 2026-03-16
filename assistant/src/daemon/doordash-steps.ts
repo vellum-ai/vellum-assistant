@@ -1,7 +1,7 @@
 /**
  * DoorDash-specific step-tracking logic for the task_progress surface.
  *
- * Extracted from session-tool-setup.ts so the generic tool executor
+ * Extracted from conversation-tool-setup.ts so the generic tool executor
  * remains clean and extensible.
  */
 

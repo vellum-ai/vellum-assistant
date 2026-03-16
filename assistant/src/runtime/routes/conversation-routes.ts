@@ -730,7 +730,7 @@ export async function handleSendMessage(
       onEvent,
       // Desktop path: disable NL classification to avoid consuming non-decision
       // messages while a tool confirmation is pending. Deterministic code-prefix
-      // and callback parsing remain active. Mirrors session-process.ts behavior.
+      // and callback parsing remain active. Mirrors conversation-process.ts behavior.
       approvalConversationGenerator:
         sourceChannel === "vellum"
           ? undefined

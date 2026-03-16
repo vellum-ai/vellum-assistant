@@ -377,7 +377,7 @@ Each `guardian_action_request` is assigned a unique 6-character hex code (e.g. `
 
 ### Disambiguation Flow
 
-The disambiguation logic is identical on all channels — mac/vellum (`session-process.ts`) and Telegram (`inbound-message-handler.ts`):
+The disambiguation logic is identical on all channels — mac/vellum (`conversation-process.ts`) and Telegram (`inbound-message-handler.ts`):
 
 1. **Single pending delivery in the conversation**: The guardian's reply is matched to the sole pending request automatically. No request code prefix is needed. This is the **single-match fast path**.
 
@@ -389,7 +389,7 @@ The disambiguation logic is identical on all channels — mac/vellum (`session-p
 
 The disambiguation invariant is enforced identically across:
 
-- **Mac/Vellum** (`session-process.ts`): Intercepts user messages in conversations with pending guardian action deliveries before the agent loop runs.
+- **Mac/Vellum** (`conversation-process.ts`): Intercepts user messages in conversations with pending guardian action deliveries before the agent loop runs.
 - **Telegram** (`inbound-message-handler.ts`): Intercepts inbound messages matched to conversations with pending guardian action deliveries.
 
 All three paths use the same pattern: look up pending deliveries by conversation, apply single-match fast path or request-code prefix matching, and send disambiguation messages via the guardian action message composer when ambiguous.
@@ -530,7 +530,7 @@ ORDER BY d.created_at DESC;
 
 Users express notification preferences in natural language during conversations (e.g., "Use Telegram for urgent alerts", "Mute notifications after 10pm"). The system:
 
-1. **Detects** preferences via `preference-extractor.ts` -- an LLM call that runs on each user message in `session-process.ts`
+1. **Detects** preferences via `preference-extractor.ts` -- an LLM call that runs on each user message in `conversation-process.ts`
 2. **Stores** them in `notification_preferences` with structured conditions (`appliesWhen`: timeRange, channels, urgencyLevels, contexts) and a priority level (0=default, 1=override, 2=critical)
 3. **Summarizes** them at decision time via `preference-summary.ts`, which builds a compact text block injected into the decision engine's system prompt
 

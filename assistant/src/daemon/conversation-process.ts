@@ -3,7 +3,7 @@
  *
  * Conversation delegates `drainQueue` and `processMessage` to the module-level
  * functions exported here, following the same context-interface pattern
- * used by session-history.ts.
+ * used by conversation-history.ts.
  */
 
 import {

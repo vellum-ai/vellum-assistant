@@ -16,11 +16,11 @@ Conversational guardian verification control-plane invocation is guardian-only. 
 
 ## Memory Provenance Invariant
 
-All memory retrieval decisions must consider actor-role provenance. Untrusted actors (non-guardian, unverified_channel) must not receive memory recall results. This invariant is enforced in `indexer.ts` (write gate) and `session-memory.ts` (read gate).
+All memory retrieval decisions must consider actor-role provenance. Untrusted actors (non-guardian, unverified_channel) must not receive memory recall results. This invariant is enforced in `indexer.ts` (write gate) and `conversation-memory.ts` (read gate).
 
 ## Guardian Privilege Isolation Invariant
 
 Untrusted actors (`non-guardian`, `unverified_channel`) must never receive privileged host/tool capabilities or privileged conversation context directly.
 
 - Tool execution gate: untrusted actors cannot execute host-target tools or side-effect tools in-band. These actions require guardian-mediated approval flow. Enforcement lives in `assistant/src/tools/tool-approval-handler.ts`.
-- History view gate: when loading session history for untrusted actors, only untrusted-provenance messages are included and compacted summaries are suppressed. This prevents replay of guardian-era context after trust downgrades. Enforcement lives in `assistant/src/daemon/session-lifecycle.ts` and actor-scoped reload wiring in `assistant/src/daemon/session.ts`.
+- History view gate: when loading session history for untrusted actors, only untrusted-provenance messages are included and compacted summaries are suppressed. This prevents replay of guardian-era context after trust downgrades. Enforcement lives in `assistant/src/daemon/conversation-lifecycle.ts` and actor-scoped reload wiring in `assistant/src/daemon/conversation.ts`.

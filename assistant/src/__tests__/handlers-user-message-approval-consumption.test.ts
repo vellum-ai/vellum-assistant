@@ -2,7 +2,7 @@
  * Tests for confirmation response handling (handleConfirmationResponse).
  *
  * The legacy handleUserMessage tests that previously lived here were removed
- * when session-user-message.ts was deleted. The approval-reply behavior they
+ * when conversation-user-message.ts was deleted. The approval-reply behavior they
  * tested now lives on the HTTP path and is covered by
  * conversation-routes-guardian-reply.test.ts, send-endpoint-busy.test.ts,
  * and http-user-message-parity.test.ts.

@@ -2118,7 +2118,7 @@ describe("tamper detection", () => {
     expect(sessionState.get("deploy")).toBe("v1:initial-hash");
 
     // Make computeSkillVersionHash throw to exercise the catch branch
-    // in session-skill-tools.ts that falls back to `unknown-${Date.now()}`
+    // in conversation-skill-tools.ts that falls back to `unknown-${Date.now()}`
     mockVersionHashErrors.add("deploy");
     mockUnregisteredSkillIds = [];
 

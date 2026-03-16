@@ -1,6 +1,6 @@
 /**
  * Regression tests for app surface refresh and eventing side effects in
- * createToolExecutor (session-tool-setup.ts).
+ * createToolExecutor (conversation-tool-setup.ts).
  *
  * After the App Builder tools source swap (PR 8), app tools like app_update,
  * app_file_edit, and app_file_write are provided by the app-builder skill

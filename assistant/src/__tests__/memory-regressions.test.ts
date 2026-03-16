@@ -2846,7 +2846,7 @@ describe("Memory regressions", () => {
     expect(privRecall.recencyHits).toBeGreaterThan(0);
 
     // 5. Standard conversation recall — must NOT find the Zephyr fact (no leak)
-    // Mirror the production call in session-memory.ts: for standard conversations
+    // Mirror the production call in conversation-memory.ts: for standard conversations
     // (scopeId === 'default'), scopePolicyOverride is undefined.
     const stdRecall = await buildMemoryRecall(
       "Zephyr framework microservices",

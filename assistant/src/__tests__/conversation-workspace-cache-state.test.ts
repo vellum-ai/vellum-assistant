@@ -4,7 +4,7 @@ import type { AgentEvent } from "../agent/loop.js";
 import type { Message, ProviderResponse } from "../providers/types.js";
 
 // ---------------------------------------------------------------------------
-// Mock dependencies — follows session-profile-injection.test.ts pattern
+// Mock dependencies — follows conversation-profile-injection.test.ts pattern
 // ---------------------------------------------------------------------------
 
 mock.module("../util/logger.js", () => ({
