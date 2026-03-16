@@ -654,8 +654,8 @@ public typealias UserMessageEchoMessage = UserMessageEcho
 public typealias AssistantTextDeltaMessage = AssistantTextDelta
 
 extension AssistantTextDelta {
-    public init(text: String, sessionId: String? = nil) {
-        self.init(type: "assistant_text_delta", text: text, sessionId: sessionId)
+    public init(text: String, conversationId: String? = nil) {
+        self.init(type: "assistant_text_delta", text: text, sessionId: conversationId)
     }
 }
 
@@ -673,8 +673,8 @@ extension AssistantThinkingDelta {
 public typealias MessageCompleteMessage = MessageComplete
 
 extension MessageComplete {
-    public init(sessionId: String? = nil, attachments: [UserMessageAttachment]? = nil, messageId: String? = nil) {
-        self.init(type: "message_complete", sessionId: sessionId, attachments: attachments, messageId: messageId)
+    public init(conversationId: String? = nil, attachments: [UserMessageAttachment]? = nil, messageId: String? = nil) {
+        self.init(type: "message_complete", sessionId: conversationId, attachments: attachments, messageId: messageId)
     }
 }
 
@@ -830,8 +830,8 @@ public typealias UndoCompleteMessage = UndoComplete
 public struct GenerationCancelledMessage: Decodable, Sendable {
     public let sessionId: String?
 
-    public init(sessionId: String?) {
-        self.sessionId = sessionId
+    public init(conversationId: String?) {
+        self.sessionId = conversationId
     }
 }
 
