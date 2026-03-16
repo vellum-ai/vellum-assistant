@@ -547,9 +547,11 @@ extension ChatViewModel {
                 // session create by clearing the bootstrap sending state.
                 if let pending = pendingUserMessage {
                     let attachments = pendingUserAttachments
+                    let automated = pendingUserMessageAutomated
                     pendingUserMessage = nil
                     pendingUserMessageDisplayText = nil
                     pendingUserAttachments = nil
+                    pendingUserMessageAutomated = false
                     do {
                         let pttMeta = ChatViewModel.currentPttMetadata()
                         try daemonClient.send(UserMessageMessage(
@@ -559,7 +561,8 @@ extension ChatViewModel {
                             activeSurfaceId: activeSurfaceId,
                             currentPage: activeSurfaceId != nil ? currentPage : nil,
                             pttActivationKey: pttMeta.activationKey,
-                            microphonePermissionGranted: pttMeta.microphonePermissionGranted
+                            microphonePermissionGranted: pttMeta.microphonePermissionGranted,
+                            automated: automated ? true : nil
                         ))
                     } catch {
                         log.error("Failed to send queued user_message: \(error.localizedDescription)")
