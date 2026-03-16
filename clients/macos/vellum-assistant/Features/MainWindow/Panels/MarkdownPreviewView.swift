@@ -259,10 +259,17 @@ private func renderInlineMarkdown(_ text: String) -> Text {
             result = result + Text(content)
                 .font(VFont.mono)
                 .foregroundColor(VColor.systemPositiveStrong)
-        case .link(let linkText, _):
-            result = result + Text(linkText)
-                .foregroundColor(VColor.primaryBase)
-                .underline()
+        case .link(let linkText, let linkUrl):
+            if let url = URL(string: linkUrl) {
+                var attributed = AttributedString(linkText)
+                attributed.link = url
+                attributed.underlineStyle = .single
+                result = result + Text(attributed)
+            } else {
+                result = result + Text(linkText)
+                    .foregroundColor(VColor.primaryBase)
+                    .underline()
+            }
         }
     }
 
@@ -290,6 +297,7 @@ struct MarkdownPreviewView: View {
             }
             .padding(VSpacing.lg)
         }
+        .tint(VColor.primaryBase)
         .textSelection(.enabled)
         .task(id: content) {
             blocks = parseMarkdown(content)
