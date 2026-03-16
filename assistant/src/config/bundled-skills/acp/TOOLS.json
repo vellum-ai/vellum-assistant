@@ -30,6 +30,50 @@
       },
       "executor": "tools/acp-spawn.ts",
       "execution_target": "host"
+    },
+    {
+      "name": "acp_status",
+      "description": "Get the status of a specific ACP session or list all ACP sessions. Only use this when the user explicitly asks about ACP session status — do NOT poll automatically, as you will be notified when sessions complete.",
+      "category": "orchestration",
+      "risk": "low",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "acp_session_id": {
+            "type": "string",
+            "description": "Optional ACP session ID to query. If omitted, returns all ACP sessions."
+          },
+          "reason": {
+            "type": "string",
+            "description": "Brief explanation of why this tool is being called"
+          }
+        },
+        "required": []
+      },
+      "executor": "tools/acp-status.ts",
+      "execution_target": "host"
+    },
+    {
+      "name": "acp_abort",
+      "description": "Abort a running ACP session by ID. This kills the agent process and removes the session.",
+      "category": "orchestration",
+      "risk": "low",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "acp_session_id": {
+            "type": "string",
+            "description": "The ID of the ACP session to abort."
+          },
+          "reason": {
+            "type": "string",
+            "description": "Brief explanation of why this tool is being called"
+          }
+        },
+        "required": ["acp_session_id"]
+      },
+      "executor": "tools/acp-abort.ts",
+      "execution_target": "host"
     }
   ]
 }
