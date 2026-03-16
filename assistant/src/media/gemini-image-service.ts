@@ -93,7 +93,7 @@ export async function generateImage(
       ? new GoogleGenAI({
           vertexai: true,
           project: "proxy",
-          location: "us-central1",
+          location: "global",
           httpOptions: {
             baseUrl: credentials.baseUrl,
             headers: { Authorization: `Bearer ${credentials.assistantApiKey}` },
