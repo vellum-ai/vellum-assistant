@@ -64,7 +64,6 @@ import type { ToolContext } from "../tools/types.js";
 function makeContext(overrides: Partial<ToolContext> = {}): ToolContext {
   return {
     workingDir: "/tmp",
-    sessionId: "test-session",
     conversationId: "test-conversation",
     trustClass: "guardian",
     ...overrides,
@@ -106,7 +105,7 @@ beforeAll(async () => {
     join(tempDir, "echo.ts"),
     `export async function run(input: any, context: any) {
   return {
-    content: JSON.stringify({ input, workingDir: context.workingDir, sessionId: context.sessionId }),
+    content: JSON.stringify({ input, workingDir: context.workingDir, conversationId: context.conversationId }),
     isError: false,
   };
 }`,
@@ -149,7 +148,7 @@ describe("runSkillToolScript sandbox — success", () => {
   test("passes input and context through to the script", async () => {
     const ctx = makeContext({
       workingDir: "/my/project",
-      sessionId: "sess-42",
+      conversationId: "sess-42",
     });
     const result = await runSkillToolScript(
       tempDir,
@@ -163,7 +162,7 @@ describe("runSkillToolScript sandbox — success", () => {
     const parsed = JSON.parse(result.content);
     expect(parsed.input).toEqual({ foo: "bar" });
     expect(parsed.workingDir).toBe("/my/project");
-    expect(parsed.sessionId).toBe("sess-42");
+    expect(parsed.conversationId).toBe("sess-42");
   }, 15_000);
 });
 

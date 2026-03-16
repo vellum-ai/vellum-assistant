@@ -63,25 +63,25 @@ import {
 } from "../util/platform.js";
 import { registerDaemonCallbacks } from "../work-items/work-item-runner.js";
 import { ConfigWatcher } from "./config-watcher.js";
+import {
+  Conversation,
+  type ConversationMemoryPolicy,
+  DEFAULT_MEMORY_POLICY,
+} from "./conversation.js";
+import { ConversationEvictor } from "./conversation-evictor.js";
+import { resolveChannelCapabilities } from "./conversation-runtime-assembly.js";
+import { resolveSlash } from "./conversation-slash.js";
+import { undoLastMessage } from "./handlers/conversations.js";
 import { parseIdentityFields } from "./handlers/identity.js";
-import { undoLastMessage } from "./handlers/sessions.js";
 import type {
+  ConversationCreateOptions,
   HandlerContext,
-  SessionCreateOptions,
 } from "./handlers/shared.js";
 import type { SkillOperationContext } from "./handlers/skills.js";
 import { HostBashProxy } from "./host-bash-proxy.js";
 import { HostCuProxy } from "./host-cu-proxy.js";
 import { HostFileProxy } from "./host-file-proxy.js";
 import type { ServerMessage } from "./message-protocol.js";
-import {
-  DEFAULT_MEMORY_POLICY,
-  Session,
-  type SessionMemoryPolicy,
-} from "./session.js";
-import { SessionEvictor } from "./session-evictor.js";
-import { resolveChannelCapabilities } from "./session-runtime-assembly.js";
-import { resolveSlash } from "./session-slash.js";
 
 const log = getLogger("server");
 
@@ -152,7 +152,7 @@ function resolveCanonicalRequestSourceType(
  * can look up the session by requestId.
  */
 function makePendingInteractionRegistrar(
-  session: Session,
+  session: Conversation,
   conversationId: string,
 ): (msg: ServerMessage) => void {
   return (msg: ServerMessage) => {
@@ -240,13 +240,13 @@ function makePendingInteractionRegistrar(
 }
 
 export class DaemonServer {
-  private sessions = new Map<string, Session>();
-  private sessionOptions = new Map<string, SessionCreateOptions>();
-  private sessionCreating = new Map<string, Promise<Session>>();
+  private conversations = new Map<string, Conversation>();
+  private sessionOptions = new Map<string, ConversationCreateOptions>();
+  private conversationCreating = new Map<string, Promise<Conversation>>();
   private sharedRequestTimestamps: number[] = [];
   private httpPort: number | undefined;
   private unsubscribeContactChange: (() => void) | null = null;
-  private evictor: SessionEvictor;
+  private evictor: ConversationEvictor;
   private _hubChain: Promise<void> = Promise.resolve();
 
   // Composed subsystems
@@ -280,7 +280,7 @@ export class DaemonServer {
     this._heartbeatService = service;
   }
 
-  private deriveMemoryPolicy(conversationId: string): SessionMemoryPolicy {
+  private deriveMemoryPolicy(conversationId: string): ConversationMemoryPolicy {
     const conversationType = getConversationType(conversationId);
     if (conversationType === "private") {
       return {
@@ -293,8 +293,8 @@ export class DaemonServer {
   }
 
   private applyTransportMetadata(
-    _session: Session,
-    options: SessionCreateOptions | undefined,
+    _session: Conversation,
+    options: ConversationCreateOptions | undefined,
   ): void {
     const transport = options?.transport;
     if (!transport) return;
@@ -305,14 +305,14 @@ export class DaemonServer {
   }
 
   constructor() {
-    this.evictor = new SessionEvictor(this.sessions);
+    this.evictor = new ConversationEvictor(this.conversations);
     getSubagentManager().sharedRequestTimestamps = this.sharedRequestTimestamps;
     getSubagentManager().broadcastToAllClients = (msg) => this.broadcast(msg);
-    this.evictor.onEvict = (sessionId: string) => {
-      getSubagentManager().abortAllForParent(sessionId);
+    this.evictor.onEvict = (conversationId: string) => {
+      getSubagentManager().abortAllForParent(conversationId);
     };
-    this.evictor.shouldProtect = (sessionId: string) => {
-      const children = getSubagentManager().getChildrenOf(sessionId);
+    this.evictor.shouldProtect = (conversationId: string) => {
+      const children = getSubagentManager().getChildrenOf(conversationId);
       return children.some(
         (c) => c.status === "running" || c.status === "pending",
       );
@@ -323,7 +323,7 @@ export class DaemonServer {
       sendToClient,
       notification,
     ) => {
-      const parentSession = this.sessions.get(parentSessionId);
+      const parentSession = this.conversations.get(parentSessionId);
       if (!parentSession) {
         log.warn(
           { parentSessionId },
@@ -368,9 +368,12 @@ export class DaemonServer {
    * Publications are serialized via a promise chain so subscribers
    * always observe events in send order.
    */
-  private publishAssistantEvent(msg: ServerMessage, sessionId?: string): void {
+  private publishAssistantEvent(
+    msg: ServerMessage,
+    conversationId?: string,
+  ): void {
     const id = this.assistantId ?? DAEMON_INTERNAL_ASSISTANT_ID;
-    const event = buildAssistantEvent(id, msg, sessionId);
+    const event = buildAssistantEvent(id, msg, conversationId);
     this._hubChain = this._hubChain
       .then(() => assistantEventHub.publish(event))
       .catch((err: unknown) => {
@@ -382,9 +385,9 @@ export class DaemonServer {
 
     // Dual-write to file-based stream for cross-process consumers.
     // No-op when no subscriber files exist for this conversation.
-    if (sessionId) {
+    if (conversationId) {
       try {
-        appendEventToStream(sessionId, event);
+        appendEventToStream(conversationId, event);
       } catch {
         // Best-effort; file I/O failures must not block the hub chain.
       }
@@ -392,8 +395,8 @@ export class DaemonServer {
   }
 
   broadcast(msg: ServerMessage): void {
-    const sessionId = extractSessionId(msg);
-    this.publishAssistantEvent(msg, sessionId);
+    const conversationId = extractSessionId(msg);
+    this.publishAssistantEvent(msg, conversationId);
   }
 
   private broadcastIdentityChanged(): void {
@@ -426,29 +429,29 @@ export class DaemonServer {
     this.evictor.start();
 
     registerDaemonCallbacks({
-      getOrCreateSession: (conversationId) =>
-        this.getOrCreateSession(conversationId),
+      getOrCreateConversation: (conversationId) =>
+        this.getOrCreateConversation(conversationId),
       broadcast: (msg) => this.broadcast(msg),
     });
 
-    registerCancelCallback((sessionId) => {
-      const session = this.sessions.get(sessionId);
+    registerCancelCallback((conversationId) => {
+      const session = this.conversations.get(conversationId);
       if (!session) return false;
-      this.evictor.touch(sessionId);
+      this.evictor.touch(conversationId);
       session.abort();
-      getSubagentManager().abortAllForParent(sessionId);
+      getSubagentManager().abortAllForParent(conversationId);
       return true;
     });
 
-    registerConversationUndoCallback((sessionId) =>
-      undoLastMessage(sessionId, this.handlerContext()),
+    registerConversationUndoCallback((conversationId) =>
+      undoLastMessage(conversationId, this.handlerContext()),
     );
 
     registerUserMessageCallback(async (params) => {
       const { conversationId } = getOrCreateConversation(
         params.conversationKey,
       );
-      const session = await this.getOrCreateSession(conversationId);
+      const session = await this.getOrCreateConversation(conversationId);
       if (session.isProcessing()) {
         const requestId = crypto.randomUUID();
         const resolvedChannel = resolveTurnChannel(params.sourceChannel);
@@ -481,7 +484,7 @@ export class DaemonServer {
     });
 
     this.configWatcher.start(
-      () => this.evictSessionsForReload(),
+      () => this.evictConversationsForReload(),
       () => this.broadcastIdentityChanged(),
     );
 
@@ -569,10 +572,10 @@ export class DaemonServer {
       this.unsubscribeContactChange = null;
     }
 
-    for (const session of this.sessions.values()) {
+    for (const session of this.conversations.values()) {
       session.dispose();
     }
-    this.sessions.clear();
+    this.conversations.clear();
 
     // Abort any in-flight CES initialization so it fails fast instead of
     // blocking shutdown for up to ~15s (socket connect + handshake timeouts).
@@ -605,7 +608,7 @@ export class DaemonServer {
     log.info("Daemon server stopped");
   }
 
-  // ── Session management ──────────────────────────────────────────────
+  // ── Conversation management ──────────────────────────────────────────────
 
   setHttpPort(port: number): void {
     this.httpPort = port;
@@ -617,42 +620,42 @@ export class DaemonServer {
     });
   }
 
-  clearAllSessions(): number {
-    const count = this.sessions.size;
+  clearAllConversations(): number {
+    const count = this.conversations.size;
     const subagentManager = getSubagentManager();
-    for (const id of this.sessions.keys()) {
+    for (const id of this.conversations.keys()) {
       this.evictor.remove(id);
       subagentManager.abortAllForParent(id);
     }
-    for (const session of this.sessions.values()) {
+    for (const session of this.conversations.values()) {
       session.dispose();
     }
-    this.sessions.clear();
+    this.conversations.clear();
     this.sessionOptions.clear();
     return count;
   }
 
   /**
-   * Abort and dispose a single in-memory session, removing it from the session
-   * map. No-op if no session exists for the given ID.
+   * Abort and dispose a single in-memory conversation, removing it from the
+   * conversation map. No-op if no conversation exists for the given ID.
    */
-  destroySession(sessionId: string): void {
-    const session = this.sessions.get(sessionId);
+  destroyConversation(conversationId: string): void {
+    const session = this.conversations.get(conversationId);
     if (!session) return;
-    this.evictor.remove(sessionId);
-    getSubagentManager().abortAllForParent(sessionId);
+    this.evictor.remove(conversationId);
+    getSubagentManager().abortAllForParent(conversationId);
     session.dispose();
-    this.sessions.delete(sessionId);
-    this.sessionOptions.delete(sessionId);
+    this.conversations.delete(conversationId);
+    this.sessionOptions.delete(conversationId);
   }
 
-  private evictSessionsForReload(): void {
+  private evictConversationsForReload(): void {
     const subagentManager = getSubagentManager();
-    for (const [id, session] of this.sessions) {
+    for (const [id, session] of this.conversations) {
       if (!session.isProcessing()) {
         subagentManager.abortAllForParent(id);
         session.dispose();
-        this.sessions.delete(id);
+        this.conversations.delete(id);
         this.evictor.remove(id);
       } else {
         session.markStale();
@@ -670,15 +673,15 @@ export class DaemonServer {
 
   async refreshConfigFromSources(): Promise<boolean> {
     const changed = await this.configWatcher.refreshConfigFromSources();
-    if (changed) this.evictSessionsForReload();
+    if (changed) this.evictConversationsForReload();
     return changed;
   }
 
-  private async getOrCreateSession(
+  private async getOrCreateConversation(
     conversationId: string,
-    options?: SessionCreateOptions,
-  ): Promise<Session> {
-    let session = this.sessions.get(conversationId);
+    options?: ConversationCreateOptions,
+  ): Promise<Conversation> {
+    let session = this.conversations.get(conversationId);
     const sendToClient = () => {};
 
     if (options && Object.values(options).some((v) => v !== undefined)) {
@@ -694,7 +697,7 @@ export class DaemonServer {
         session.dispose();
       }
 
-      const pending = this.sessionCreating.get(conversationId);
+      const pending = this.conversationCreating.get(conversationId);
       if (pending) {
         session = await pending;
         return session;
@@ -730,7 +733,7 @@ export class DaemonServer {
         const sharedCesClient = this.cesClientPromise
           ? await this.cesClientPromise
           : undefined;
-        const newSession = new Session(
+        const newSession = new Conversation(
           conversationId,
           provider,
           systemPrompt,
@@ -760,15 +763,15 @@ export class DaemonServer {
           await newSession.ensureActorScopedHistory();
         }
         this.applyTransportMetadata(newSession, storedOptions);
-        this.sessions.set(conversationId, newSession);
+        this.conversations.set(conversationId, newSession);
         return newSession;
       })();
 
-      this.sessionCreating.set(conversationId, createPromise);
+      this.conversationCreating.set(conversationId, createPromise);
       try {
         session = await createPromise;
       } finally {
-        this.sessionCreating.delete(conversationId);
+        this.conversationCreating.delete(conversationId);
       }
       this.evictor.touch(conversationId);
     } else {
@@ -782,7 +785,7 @@ export class DaemonServer {
 
   private handlerContext(): HandlerContext {
     return {
-      sessions: this.sessions,
+      conversations: this.conversations,
       sharedRequestTimestamps: this.sharedRequestTimestamps,
       debounceTimers: this.configWatcher.timers,
       suppressConfigReload: this.configWatcher.suppressConfigReload,
@@ -794,10 +797,10 @@ export class DaemonServer {
       },
       send: (msg) => this.broadcast(msg),
       broadcast: (msg) => this.broadcast(msg),
-      clearAllSessions: () => this.clearAllSessions(),
-      getOrCreateSession: (id, options?) =>
-        this.getOrCreateSession(id, options),
-      touchSession: (id) => this.evictor.touch(id),
+      clearAllConversations: () => this.clearAllConversations(),
+      getOrCreateConversation: (id, options?) =>
+        this.getOrCreateConversation(id, options),
+      touchConversation: (id) => this.evictor.touch(id),
       heartbeatService: this._heartbeatService,
     };
   }
@@ -822,11 +825,11 @@ export class DaemonServer {
     conversationId: string,
     content: string,
     attachmentIds: string[] | undefined,
-    options: SessionCreateOptions | undefined,
+    options: ConversationCreateOptions | undefined,
     sourceChannel: string | undefined,
     sourceInterface: string | undefined,
   ): Promise<{
-    session: Session;
+    session: Conversation;
     attachments: {
       id: string;
       filename: string;
@@ -842,10 +845,10 @@ export class DaemonServer {
       );
     }
 
-    const session = await this.getOrCreateSession(conversationId, options);
+    const session = await this.getOrCreateConversation(conversationId, options);
 
     if (session.isProcessing()) {
-      throw new Error("Session is already processing a message");
+      throw new Error("Conversation is already processing a message");
     }
 
     const resolvedChannel = resolveTurnChannel(
@@ -927,7 +930,7 @@ export class DaemonServer {
     conversationId: string,
     content: string,
     attachmentIds?: string[],
-    options?: SessionCreateOptions,
+    options?: ConversationCreateOptions,
     sourceChannel?: string,
     sourceInterface?: string,
   ): Promise<{ messageId: string }> {
@@ -991,7 +994,7 @@ export class DaemonServer {
     conversationId: string,
     content: string,
     attachmentIds?: string[],
-    options?: SessionCreateOptions,
+    options?: ConversationCreateOptions,
     sourceChannel?: string,
     sourceInterface?: string,
   ): Promise<{ messageId: string }> {
@@ -1123,22 +1126,24 @@ export class DaemonServer {
    * Expose session lookup for the POST /v1/messages handler.
    * The handler manages busy-state checking and queueing itself.
    */
-  async getSessionForMessages(conversationId: string): Promise<Session> {
-    return this.getOrCreateSession(conversationId);
+  async getConversationForMessages(
+    conversationId: string,
+  ): Promise<Conversation> {
+    return this.getOrCreateConversation(conversationId);
   }
 
   /**
-   * Look up an active session by ID without creating one.
+   * Look up an active conversation by ID without creating one.
    */
-  findSession(sessionId: string): Session | undefined {
-    return this.sessions.get(sessionId);
+  findConversation(conversationId: string): Conversation | undefined {
+    return this.conversations.get(conversationId);
   }
 
   /**
-   * Look up an active session that owns a given surfaceId.
+   * Look up an active conversation that owns a given surfaceId.
    */
-  findSessionBySurfaceId(surfaceId: string): Session | undefined {
-    for (const s of this.sessions.values()) {
+  findConversationBySurfaceId(surfaceId: string): Conversation | undefined {
+    for (const s of this.conversations.values()) {
       if (s.surfaceState.has(surfaceId)) return s;
     }
     return undefined;
@@ -1153,11 +1158,11 @@ export class DaemonServer {
   }
 }
 
-/** Extract sessionId from a ServerMessage if present. */
+/** Extract conversationId from a ServerMessage if present. */
 function extractSessionId(msg: ServerMessage): string | undefined {
   const record = msg as unknown as Record<string, unknown>;
-  if ("sessionId" in msg && typeof record.sessionId === "string") {
-    return record.sessionId as string;
+  if ("conversationId" in msg && typeof record.conversationId === "string") {
+    return record.conversationId as string;
   }
   return undefined;
 }

@@ -90,7 +90,7 @@ mock.module("../runtime/assistant-event.js", () => ({
 
 // ── Session runtime assembly mock ──────────────────────────────────
 
-mock.module("../daemon/session-runtime-assembly.js", () => ({
+mock.module("../daemon/conversation-runtime-assembly.js", () => ({
   resolveChannelCapabilities: () => ({
     supportsRichText: false,
     supportsDynamicUi: false,
@@ -106,8 +106,8 @@ import {
   setVoiceBridgeDeps,
   startVoiceTurn,
 } from "../calls/voice-session-bridge.js";
+import type { TrustContext } from "../daemon/conversation-runtime-assembly.js";
 import type { ServerMessage } from "../daemon/message-protocol.js";
-import type { TrustContext } from "../daemon/session-runtime-assembly.js";
 import { getDb, initializeDb, resetDb } from "../memory/db.js";
 import { scopedApprovalGrants } from "../memory/schema.js";
 import {
@@ -224,7 +224,7 @@ function setupBridgeDeps(
   let currentSession: ReturnType<typeof createMockSession>["session"] | null =
     null;
   setVoiceBridgeDeps({
-    getOrCreateSession: async () => {
+    getOrCreateConversation: async () => {
       currentSession = sessionFactory();
       return currentSession as any;
     },

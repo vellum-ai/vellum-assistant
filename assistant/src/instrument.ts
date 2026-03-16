@@ -37,8 +37,8 @@ function redactObject(obj: unknown): unknown {
 /**
  * Call after dotenv has loaded so SENTRY_DSN is available.
  * Always initializes Sentry to capture early startup crashes. If the user
- * later opts out via the "collect-usage-data" feature flag, call closeSentry()
- * after config is loaded to stop future event capturing.
+ * later opts out via the sendDiagnostics config key (or VELLUM_DEV=1),
+ * call closeSentry() after config is loaded to stop future event capturing.
  */
 export function initSentry(): void {
   Sentry.init({
@@ -86,34 +86,33 @@ export function initSentry(): void {
 
 /**
  * Stop capturing future Sentry events. Called after config loads when the
- * user has opted out of crash reporting so that early-startup crashes are
+ * user has disabled sendDiagnostics so that early-startup crashes are
  * still captured but subsequent events are suppressed.
  */
 export async function closeSentry(): Promise<void> {
   await Sentry.close();
 }
 
-// ── Dynamic session-scoped Sentry tags ──────────────────────────────
+// ── Dynamic conversation-scoped Sentry tags ─────────────────────────
 //
 // These tags change per conversation turn and are set on the current
 // Sentry scope before the agent loop runs. Any `Sentry.captureException`
 // call within that async execution chain (e.g. inside agent/loop.ts)
-// will inherit these tags, enabling filtering by conversation, session,
-// user, or assistant in the Sentry dashboard.
+// will inherit these tags, enabling filtering by conversation, user, or
+// assistant in the Sentry dashboard.
 
-/** Tag keys set by {@link setSentrySessionContext}. */
-const SESSION_TAG_KEYS = [
+/** Tag keys set by {@link setSentryConversationContext}. */
+const CONVERSATION_TAG_KEYS = [
   "assistant_id",
   "conversation_id",
-  "session_id",
   "message_count",
   "user_identifier",
 ] as const;
 
-export interface SentrySessionContext {
+export interface SentryConversationContext {
   /** Internal assistant ID (daemon uses 'self'). */
   assistantId: string;
-  /** Conversation/session identifier. */
+  /** Conversation identifier. */
   conversationId: string;
   /** Number of messages in the conversation at time of the turn. */
   messageCount: number;
@@ -122,17 +121,16 @@ export interface SentrySessionContext {
 }
 
 /**
- * Set session-scoped tags on the current Sentry scope.
+ * Set conversation-scoped tags on the current Sentry scope.
  *
  * Call at the start of each agent loop turn so that any exceptions
- * captured within the turn include conversation/session context.
+ * captured within the turn include conversation context.
  */
-export function setSentrySessionContext(ctx: SentrySessionContext): void {
+export function setSentryConversationContext(
+  ctx: SentryConversationContext,
+): void {
   Sentry.setTag("assistant_id", ctx.assistantId);
   Sentry.setTag("conversation_id", ctx.conversationId);
-  // session_id mirrors conversation_id — in this codebase they are the
-  // same value, but downstream Sentry users may search by either name.
-  Sentry.setTag("session_id", ctx.conversationId);
   Sentry.setTag("message_count", String(ctx.messageCount));
   if (ctx.userIdentifier) {
     Sentry.setTag("user_identifier", ctx.userIdentifier);
@@ -140,13 +138,13 @@ export function setSentrySessionContext(ctx: SentrySessionContext): void {
 }
 
 /**
- * Clear session-scoped tags from the current Sentry scope.
+ * Clear conversation-scoped tags from the current Sentry scope.
  *
  * Call in the finally block after the agent loop completes so tags
  * from one conversation do not leak into unrelated error captures.
  */
-export function clearSentrySessionContext(): void {
-  for (const key of SESSION_TAG_KEYS) {
+export function clearSentryConversationContext(): void {
+  for (const key of CONVERSATION_TAG_KEYS) {
     Sentry.setTag(key, undefined);
   }
 }

@@ -147,7 +147,7 @@ In addition to persistent trust rules (`always_allow` / `always_deny`), the appr
 1. **`allow_conversation`** — Auto-approve all tool confirmations for the remainder of the current conversation. The override persists until the session ends, the conversation is closed, or the mode is explicitly cleared.
 2. **`allow_10m`** — Auto-approve all tool confirmations for 10 minutes (configurable). The override expires lazily on the next read after the TTL elapses — no background sweep runs.
 
-**Session-scoped, in-memory only:** Overrides are keyed by `conversationId` and stored in an in-memory `Map` inside `session-approval-overrides.ts`. They do not survive daemon restarts, which is intentional — temporary approvals should not outlive the session that created them.
+**Session-scoped, in-memory only:** Overrides are keyed by `conversationId` and stored in an in-memory `Map` inside `conversation-approval-overrides.ts`. They do not survive daemon restarts, which is intentional — temporary approvals should not outlive the session that created them.
 
 **Integration with the permission pipeline:** The permission checker (`src/tools/permission-checker.ts`) checks for an active temporary override via `getEffectiveMode()` before prompting the user. If an active override exists for the current conversation, the confirmation is auto-approved without surfacing a prompt. This check runs after persistent trust rules, so a persistent `deny` rule still takes precedence.
 
@@ -155,12 +155,12 @@ In addition to persistent trust rules (`always_allow` / `always_deny`), the appr
 
 **Key source files:**
 
-| File                                        | Purpose                                                                                                                  |
-| ------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
-| `src/runtime/session-approval-overrides.ts` | In-memory store: `setConversationMode`, `setTimedMode`, `getEffectiveMode`, `clearMode`, `hasActiveOverride`, `clearAll` |
-| `src/permissions/types.ts`                  | `UserDecision` type (includes `allow_10m`, `allow_conversation`, `temporary_override`), `isAllowDecision()` helper       |
-| `src/runtime/guardian-decision-types.ts`    | `buildDecisionActions()` — controls which temporary options appear in approval prompts                                   |
-| `src/tools/permission-checker.ts`           | Permission pipeline integration — checks temporary overrides before prompting                                            |
+| File                                             | Purpose                                                                                                                  |
+| ------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------ |
+| `src/runtime/conversation-approval-overrides.ts` | In-memory store: `setConversationMode`, `setTimedMode`, `getEffectiveMode`, `clearMode`, `hasActiveOverride`, `clearAll` |
+| `src/permissions/types.ts`                       | `UserDecision` type (includes `allow_10m`, `allow_conversation`, `temporary_override`), `isAllowDecision()` helper       |
+| `src/runtime/guardian-decision-types.ts`         | `buildDecisionActions()` — controls which temporary options appear in approval prompts                                   |
+| `src/tools/permission-checker.ts`                | Permission pipeline integration — checks temporary overrides before prompting                                            |
 
 ### Canonical Guardian Request System
 
@@ -273,7 +273,7 @@ When a voice call's ASK_GUARDIAN consultation times out before the guardian resp
  [completed] or [failed] (terminal)
 ```
 
-**Generated messaging requirement:** All user-facing copy in the guardian timeout/follow-up path is generated through the `guardian-action-message-composer.ts` composition system, which uses a 2-tier priority chain: (1) daemon-injected LLM generator for natural, varied text; (2) deterministic fallback templates for reliability. No hardcoded user-facing strings exist in the flow files (call-controller, inbound-message-handler, session-process) outside of internal log messages and LLM-instruction prompts. A guard test (`guardian-action-no-hardcoded-copy.test.ts`) enforces this invariant.
+**Generated messaging requirement:** All user-facing copy in the guardian timeout/follow-up path is generated through the `guardian-action-message-composer.ts` composition system, which uses a 2-tier priority chain: (1) daemon-injected LLM generator for natural, varied text; (2) deterministic fallback templates for reliability. No hardcoded user-facing strings exist in the flow files (call-controller, inbound-message-handler, conversation-process) outside of internal log messages and LLM-instruction prompts. A guard test (`guardian-action-no-hardcoded-copy.test.ts`) enforces this invariant.
 
 **Callback branch:** When the conversation engine classifies the guardian's intent as `call_back`, the executor starts an outbound call to the counterparty with context about the guardian's answer. The counterparty phone number is resolved from the original call session by call direction (inbound: `fromNumber`; outbound: `toNumber`).
 
@@ -288,7 +288,7 @@ When a voice call's ASK_GUARDIAN consultation times out before the guardian resp
 | `src/daemon/guardian-action-generators.ts`              | Daemon-injected generator factories: `createGuardianActionCopyGenerator` (latency-optimized text rewriting) and `createGuardianFollowUpConversationGenerator` (tool-calling intent classification) |
 | `src/calls/call-controller.ts`                          | Voice timeout handling: marks requests as timed out, sends expiry notices, injects `[GUARDIAN_TIMEOUT]` instruction for generated voice response                                                   |
 | `src/runtime/routes/inbound-message-handler.ts`         | Late reply interception for Telegram channels: matches late answers to expired requests, routes follow-up conversation turns, dispatches actions                                                   |
-| `src/daemon/session-process.ts`                         | Late reply interception for mac channel: same logic as inbound-message-handler but using conversation-ID-based delivery lookup                                                                     |
+| `src/daemon/conversation-process.ts`                    | Late reply interception for mac channel: same logic as inbound-message-handler but using conversation-ID-based delivery lookup                                                                     |
 | `src/calls/guardian-action-sweep.ts`                    | Periodic sweep for stale pending requests; sends expiry notices to guardian destinations                                                                                                           |
 | `src/memory/migrations/030-guardian-action-followup.ts` | Schema migration adding follow-up columns (`followup_state`, `late_answer_text`, `late_answered_at`, `followup_action`, `followup_completed_at`)                                                   |
 
@@ -634,14 +634,14 @@ The assistant feature-flag resolver (`src/config/assistant-feature-flags.ts`) is
 
 **Skill-gating guarantee:** Skill feature-flag gating is **opt-in**: only skills whose SKILL.md frontmatter contains a `featureFlag` field are gated. Skills without the field are always available regardless of feature flag state. For skills that declare a `featureFlag`, when the corresponding flag is OFF the skill is unavailable everywhere — it cannot appear in client UIs, model context, or runtime tool execution. This is enforced at six independent points:
 
-| Enforcement Point                  | Module                                                   | Effect                                                                                                                                                                                                      |
-| ---------------------------------- | -------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **1. Client skill list**           | `resolveSkillStates()` in `config/skill-state.ts`        | Skills with flag OFF are excluded from the resolved list returned to clients (macOS skill list, settings UI). The skill never appears in the client.                                                        |
-| **2. System prompt skill catalog** | `appendSkillsCatalog()` in `prompts/system-prompt.ts`    | The model-visible `## Skills Catalog` section in the system prompt filters out flagged-off skills. The model cannot see or reference them.                                                                  |
-| **3. `skill_load` tool**           | `executeSkillLoad()` in `tools/skills/load.ts`           | If the model attempts to load a flagged-off skill by name, the tool returns an error: `"skill is currently unavailable (disabled by feature flag)"`.                                                        |
-| **4. Runtime tool projection**     | `projectSkillTools()` in `daemon/session-skill-tools.ts` | Even if a skill was previously active in a session (has `<loaded_skill>` markers in history), the per-turn projection drops it when the flag is OFF. Already-registered tools are unregistered.             |
-| **5. Included child skills**       | `executeSkillLoad()` in `tools/skills/load.ts`           | When a parent skill includes children via the `includes` directive, each child is independently checked against its feature flag. Flagged-off children are silently excluded from the loaded skill content. |
-| **6. Skill install gate**          | `installSkill()` in `daemon/handlers/skills.ts`          | When a client requests skill installation, the function checks the skill's feature flag before proceeding. If the flag is OFF, the install is rejected with an error.                                       |
+| Enforcement Point                  | Module                                                        | Effect                                                                                                                                                                                                      |
+| ---------------------------------- | ------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **1. Client skill list**           | `resolveSkillStates()` in `config/skill-state.ts`             | Skills with flag OFF are excluded from the resolved list returned to clients (macOS skill list, settings UI). The skill never appears in the client.                                                        |
+| **2. System prompt skill catalog** | `appendSkillsCatalog()` in `prompts/system-prompt.ts`         | The model-visible `## Skills Catalog` section in the system prompt filters out flagged-off skills. The model cannot see or reference them.                                                                  |
+| **3. `skill_load` tool**           | `executeSkillLoad()` in `tools/skills/load.ts`                | If the model attempts to load a flagged-off skill by name, the tool returns an error: `"skill is currently unavailable (disabled by feature flag)"`.                                                        |
+| **4. Runtime tool projection**     | `projectSkillTools()` in `daemon/conversation-skill-tools.ts` | Even if a skill was previously active in a session (has `<loaded_skill>` markers in history), the per-turn projection drops it when the flag is OFF. Already-registered tools are unregistered.             |
+| **5. Included child skills**       | `executeSkillLoad()` in `tools/skills/load.ts`                | When a parent skill includes children via the `includes` directive, each child is independently checked against its feature flag. Flagged-off children are silently excluded from the loaded skill content. |
+| **6. Skill install gate**          | `installSkill()` in `daemon/handlers/skills.ts`               | When a client requests skill installation, the function checks the skill's feature flag before proceeding. If the flag is OFF, the install is rejected with an error.                                       |
 
 All six enforcement points derive the flag key via `skillFlagKey(skill)` — which returns `undefined` for ungated skills, short-circuiting the check — and then call `isAssistantFeatureFlagEnabled(flagKey, config)` for consistency.
 
@@ -655,7 +655,7 @@ All six enforcement points derive the flag key via `skillFlagKey(skill)` — whi
 | `src/config/skill-state.ts`                     | `skillFlagKey(skill)` — returns canonical flag key for skills with a `featureFlag` frontmatter field, `undefined` otherwise; `resolveSkillStates()` — enforcement point 1 |
 | `src/prompts/system-prompt.ts`                  | `appendSkillsCatalog()` — enforcement point 2                                                                                                                             |
 | `src/tools/skills/load.ts`                      | `executeSkillLoad()` — enforcement points 3 and 5                                                                                                                         |
-| `src/daemon/session-skill-tools.ts`             | `projectSkillTools()` — enforcement point 4                                                                                                                               |
+| `src/daemon/conversation-skill-tools.ts`        | `projectSkillTools()` — enforcement point 4                                                                                                                               |
 | `src/config/schema.ts`                          | `assistantFeatureFlagValues` field definition in `AssistantConfig` (Zod schema)                                                                                           |
 | `src/daemon/handlers/skills.ts`                 | `listSkills()` — uses `resolveSkillStates()` for client responses; `installSkill()` — enforcement point 6                                                                 |
 | `meta/feature-flags/feature-flag-registry.json` | Unified feature flag registry (repo root) — all declared flags with scope, label, default values, and descriptions                                                        |
@@ -806,7 +806,7 @@ The daemon emits two distinct error message types via SSE:
 
 ### Error Classification
 
-The daemon classifies errors via `classifySessionError()` in `session-error.ts`. Before classification, `isUserCancellation()` checks whether the error is a user-initiated abort (active abort signal or `AbortError`); if so, the daemon emits `generation_cancelled` instead of `session_error` — cancel never surfaces a session-error toast.
+The daemon classifies errors via `classifySessionError()` in `conversation-error.ts`. Before classification, `isUserCancellation()` checks whether the error is a user-initiated abort (active abort signal or `AbortError`); if so, the daemon emits `generation_cancelled` instead of `session_error` — cancel never surfaces a session-error toast.
 
 Classification uses a two-tier strategy:
 
@@ -819,7 +819,7 @@ Debug details are capped at 4,000 characters to prevent oversized payloads.
 
 ```mermaid
 sequenceDiagram
-    participant Daemon as Daemon (session-error.ts)
+    participant Daemon as Daemon (conversation-error.ts)
     participant DC as DaemonClient (Swift)
     participant VM as ChatViewModel
     participant UI as ChatView (toast)
@@ -911,7 +911,7 @@ All overflow recovery settings live under `contextWindow.overflowRecovery` in th
 | `src/daemon/context-overflow-reducer.ts`  | Tiered reducer: four-tier pipeline with idempotent steps and cumulative state    |
 | `src/daemon/context-overflow-policy.ts`   | Overflow policy resolver: maps config + interactivity to concrete action         |
 | `src/daemon/context-overflow-approval.ts` | Approval gate: prompts user for latest-turn compression via `PermissionPrompter` |
-| `src/daemon/session-agent-loop.ts`        | Integration: preflight budget check, convergence loop, approval/deny flow        |
+| `src/daemon/conversation-agent-loop.ts`   | Integration: preflight budget check, convergence loop, approval/deny flow        |
 | `src/config/core-schema.ts`               | `ContextOverflowRecoveryConfigSchema` with defaults and validation               |
 
 ---
@@ -1158,7 +1158,7 @@ Rules enforced by guard tests:
 - Direct gateway `curl` + manual bearer headers are for control-plane writes/actions, not retrieval reads.
 - Bundled skill docs must not instruct direct keychain lookups (`security find-generic-password`, `secret-tool`) for retrieval.
 - `host_bash` is not used for Vellum CLI retrieval commands unless intentionally allowlisted.
-- Outbound credentialed API calls use CES tools (`make_authenticated_request`, `run_authenticated_command`) so credentials never enter the assistant process. `host_bash` is available as a user-approved escape hatch but is outside the strong secrecy guarantee.
+- Outbound credentialed API calls use CES tools (`make_authenticated_request`, `run_authenticated_command`) so credential materialization happens in a separate process. Command output (stdout/stderr) is forwarded back to the assistant and may contain credential values if the command echoes them, so the isolation covers injection, not output. `host_bash` is available as a user-approved escape hatch but is outside the strong secrecy guarantee.
 
 ### Skill Directory Structure
 
@@ -1192,12 +1192,11 @@ The following capabilities ship as bundled skills in `assistant/src/config/bundl
 ```mermaid
 graph TB
     subgraph "Activation Sources"
-        SLASH["Slash command<br/>/skill-id → preactivate"]
         MARKER["&lt;loaded_skill id=&quot;...&quot; /&gt;<br/>marker in conversation history"]
         CONFIG["Config / session<br/>preactivatedSkillIds"]
     end
 
-    subgraph "Per-Turn Projection (session-skill-tools.ts)"
+    subgraph "Per-Turn Projection (conversation-skill-tools.ts)"
         DERIVE["deriveActiveSkills(history)<br/>scan all messages for markers"]
         UNION["Union: context-derived ∪ preactivated"]
         DIFF["Diff vs previous turn"]
@@ -1214,7 +1213,6 @@ graph TB
         PROVIDER["LLM Provider<br/>receives full tool list"]
     end
 
-    SLASH --> CONFIG
     MARKER --> DERIVE
     CONFIG --> UNION
     DERIVE --> UNION
@@ -1229,7 +1227,7 @@ graph TB
     RESOLVE --> PROVIDER
 ```
 
-**Internal preactivation**: Some bundled skills are preactivated programmatically rather than by user slash commands or model discovery. For example, desktop sessions set `preactivatedSkillIds: ['computer-use']`, causing `projectSkillTools()` to load the 11 `computer_use_*` tool definitions from the bundled skill's `TOOLS.json` on the first turn. These proxy tools forward actions to the connected macOS client via `HostCuProxy`.
+**Internal preactivation**: Some bundled skills are preactivated programmatically rather than by model discovery. For example, desktop sessions set `preactivatedSkillIds: ['computer-use']`, causing `projectSkillTools()` to load the 11 `computer_use_*` tool definitions from the bundled skill's `TOOLS.json` on the first turn. These proxy tools forward actions to the connected macOS client via `HostCuProxy`.
 
 ### Skill Tool Execution
 
@@ -1272,7 +1270,7 @@ graph TB
 | `assistant/src/skills/tool-manifest.ts`             | `TOOLS.json` parser and validator                                                          |
 | `assistant/src/skills/active-skill-tools.ts`        | `deriveActiveSkills()` — scans history for `<loaded_skill>` markers                        |
 | `assistant/src/skills/include-graph.ts`             | Include graph builder: `indexCatalogById()`, `validateIncludes()`, cycle/missing detection |
-| `assistant/src/daemon/session-skill-tools.ts`       | `projectSkillTools()` — per-turn projection, register/unregister lifecycle                 |
+| `assistant/src/daemon/conversation-skill-tools.ts`  | `projectSkillTools()` — per-turn projection, register/unregister lifecycle                 |
 | `assistant/src/tools/skills/skill-tool-factory.ts`  | `createSkillToolsFromManifest()` — manifest entries to Tool objects                        |
 | `assistant/src/tools/skills/skill-script-runner.ts` | Host runner: dynamic import + `run()` call                                                 |
 | `assistant/src/tools/skills/sandbox-runner.ts`      | Sandbox runner: isolated subprocess execution                                              |
@@ -1689,7 +1687,7 @@ The assistant-events system provides a single, shared publish path that fans out
 graph TB
     subgraph "Event Sources"
         direction TB
-        SESSION["Session process<br/>(session-process.ts)"]
+        SESSION["Session process<br/>(conversation-process.ts)"]
         HTTP_RUN["HTTP Run path<br/>(run-orchestrator.ts)"]
     end
 
@@ -1773,7 +1771,7 @@ The notification module (`assistant/src/notifications/`) uses a signal-based arc
 ```
 Producer → NotificationSignal → Candidate Generation → Decision Engine (LLM) → Deterministic Checks → Broadcaster → Conversation Pairing → Adapters → Delivery
                                                               ↑                                                            ↓
-                                                      Preference Summary                                    notification_conversation_created SSE event
+                                                      Preference Summary                                    notification_thread_created SSE event
                                                       Conversation Candidates                                (creation-only — not emitted on reuse)
 ```
 
@@ -1800,7 +1798,7 @@ This ensures:
 
 1. Every delivery has an auditable conversation trail in the conversations table
 2. The macOS/iOS client can deep-link directly into the notification conversation
-3. Delivery audit rows in `notification_deliveries` carry `conversation_id`, `message_id`, `conversation_strategy`, `conversation_action`, `conversation_target_conversation_id`, and `conversation_decision_fallback_used` columns
+3. Delivery audit rows in `notification_deliveries` carry `conversation_id`, `message_id`, `conversation_strategy`, `conversation_action`, `conversation_target_id`, and `conversation_fallback_used` columns
 
 The pairing function (`pairDeliveryWithConversation`) is resilient — errors are caught and logged without breaking the delivery pipeline.
 
@@ -1811,9 +1809,9 @@ The notification pipeline uses a single conversation materialization path across
 1. **Canonical pipeline** (`emitNotificationSignal` → decision engine → broadcaster → conversation pairing → adapters): The broadcaster pairs each delivery with a conversation, then dispatches a `notification_intent` SSE event via the Vellum adapter. The payload includes `deepLinkMetadata` (e.g. `{ conversationId, messageId }`) so the macOS/iOS client can deep-link to the relevant context when the user taps the notification. When `messageId` is present, the client scrolls to that specific message within the conversation (message-level anchoring).
 2. **Guardian bookkeeping** (`dispatchGuardianQuestion`): Guardian dispatch creates `guardian_action_request` / `guardian_action_delivery` audit rows derived from pipeline delivery results and the per-dispatch `onConversationCreated` callback — there is no separate conversation-creation path.
 
-### Conversation Surfacing via `notification_conversation_created` (Creation-Only)
+### Conversation Surfacing via `notification_thread_created` (Creation-Only)
 
-The `notification_conversation_created` SSE event is emitted **only when a brand-new conversation is created** by the broadcaster. Reusing an existing conversation does not trigger this event — the macOS/iOS client already knows about the conversation from the original creation. This is enforced in `broadcaster.ts` by gating on `pairing.createdNewConversation === true`.
+The `notification_thread_created` SSE event is emitted **only when a brand-new conversation is created** by the broadcaster. Reusing an existing conversation does not trigger this event — the macOS/iOS client already knows about the conversation from the original creation. This is enforced in `broadcaster.ts` by gating on `pairing.createdNewConversation === true`.
 
 When a new vellum notification conversation is created (strategy `start_new_conversation`), the broadcaster emits the event **immediately** (before waiting for slower channel deliveries like Telegram). This pushes the conversation to the macOS/iOS client so it can display the notification conversation in the sidebar and deep-link to it.
 
@@ -1821,21 +1819,21 @@ When a new vellum notification conversation is created (strategy `start_new_conv
 
 Two SSE push events surface new conversations in the macOS/iOS client sidebar:
 
-- **`notification_conversation_created`** — Emitted by `broadcaster.ts` when a notification delivery **creates** a new vellum conversation (strategy `start_new_conversation`, `createdNewConversation: true`). **Not** emitted when a conversation is reused. Payload: `{ conversationId, title, sourceEventName }`.
+- **`notification_thread_created`** — Emitted by `broadcaster.ts` when a notification delivery **creates** a new vellum conversation (strategy `start_new_conversation`, `createdNewConversation: true`). **Not** emitted when a conversation is reused. Payload: `{ conversationId, title, sourceEventName }`.
 - **`task_run_conversation_created`** — Emitted by `work-item-runner.ts` when a task run creates a conversation. Payload: `{ conversationId, workItemId, title }`.
 
-All events follow the same pattern: the daemon creates a server-side conversation, persists an initial message, and broadcasts the SSE event so the macOS `ThreadManager` can create a visible conversation in the sidebar.
+All events follow the same pattern: the daemon creates a server-side conversation, persists an initial message, and broadcasts the SSE event so the macOS `ConversationManager` can create a visible conversation in the sidebar.
 
 ### Conversation Routing Decision Flow
 
 The decision engine produces per-channel conversation actions using a candidate-driven approach:
 
-1. **Candidate generation** (`thread-candidates.ts`): Queries recent notification-sourced conversations (24-hour window, up to 5 per channel) and enriches them with guardian context (pending request counts).
+1. **Candidate generation** (`conversation-candidates.ts`): Queries recent notification-sourced conversations (24-hour window, up to 5 per channel) and enriches them with guardian context (pending request counts).
 2. **LLM decision**: The candidate set is serialized into the system prompt. The LLM chooses `start_new` or `reuse_existing` (with a candidate `conversationId`) per channel.
 3. **Strict validation** (`validateConversationActions`): Reuse targets must exist in the candidate set. Invalid targets are downgraded to `start_new`.
 4. **Pairing execution**: `pairDeliveryWithConversation` executes the conversation action — appending to an existing conversation on reuse, creating a new one otherwise.
-5. **Creation-only gating**: `notification_conversation_created` fires only on actual creation, not on reuse.
-6. **Audit trail**: Conversation actions are persisted in both `notification_decisions.validation_results` and `notification_deliveries` columns (`conversation_action`, `conversation_target_conversation_id`, `conversation_decision_fallback_used`).
+5. **Creation-only gating**: `notification_thread_created` fires only on actual creation, not on reuse.
+6. **Audit trail**: Conversation actions are persisted in both `notification_decisions.validation_results` and `notification_deliveries` columns (`conversation_action`, `conversation_target_id`, `conversation_fallback_used`).
 
 ### Guardian Call Conversation Affinity
 
@@ -1854,7 +1852,7 @@ When the decision engine routes multiple guardian questions to the same conversa
 - **Multiple pending deliveries**: The guardian must prefix their reply with the 6-char hex request code (e.g. `A1B2C3 yes, allow it`). Case-insensitive matching.
 - **No match**: A disambiguation message is sent listing all active request codes.
 
-This invariant is enforced identically on mac/vellum (`session-process.ts`) and Telegram (`inbound-message-handler.ts`). All disambiguation messages are generated through the guardian action message composer (LLM with deterministic fallback).
+This invariant is enforced identically on mac/vellum (`conversation-process.ts`) and Telegram (`inbound-message-handler.ts`). All disambiguation messages are generated through the guardian action message composer (LLM with deterministic fallback).
 
 ### Reminder Routing Metadata
 
@@ -1877,9 +1875,9 @@ Connected channels are resolved at signal emission time: vellum is always includ
 | `assistant/src/notifications/emit-signal.ts`                               | Single entry point for all producers; orchestrates the full pipeline                                                                  |
 | `assistant/src/notifications/decision-engine.ts`                           | LLM-based routing decisions with deterministic fallback                                                                               |
 | `assistant/src/notifications/deterministic-checks.ts`                      | Hard invariant checks (dedupe, source-active suppression, channel availability)                                                       |
-| `assistant/src/notifications/broadcaster.ts`                               | Dispatches decisions to channel adapters; emits `notification_conversation_created` SSE event (creation-only)                         |
+| `assistant/src/notifications/broadcaster.ts`                               | Dispatches decisions to channel adapters; emits `notification_thread_created` SSE event (creation-only)                               |
 | `assistant/src/notifications/conversation-pairing.ts`                      | Materializes conversation + message per delivery; executes conversation reuse decisions                                               |
-| `assistant/src/notifications/thread-candidates.ts`                         | Builds per-channel candidate set of recent conversations for the decision engine                                                      |
+| `assistant/src/notifications/conversation-candidates.ts`                   | Builds per-channel candidate set of recent conversations for the decision engine                                                      |
 | `assistant/src/notifications/adapters/macos.ts`                            | Vellum adapter — broadcasts `notification_intent` via SSE with deep-link metadata                                                     |
 | `assistant/src/notifications/adapters/telegram.ts`                         | Telegram adapter — POSTs to gateway `/deliver/telegram`                                                                               |
 | `assistant/src/notifications/destination-resolver.ts`                      | Resolves per-channel endpoints (vellum SSE, Telegram chat ID from guardian binding)                                                   |
@@ -1889,7 +1887,7 @@ Connected channels are resolved at signal emission time: vellum is always includ
 | `assistant/src/config/bundled-skills/messaging/tools/send-notification.ts` | Explicit producer tool for user-requested notifications; emits signals into the same routing pipeline                                 |
 | `assistant/src/calls/guardian-dispatch.ts`                                 | Guardian question dispatch that reuses canonical notification pairing and records guardian delivery bookkeeping from pipeline results |
 
-**Audit trail (SQLite):** `notification_events` → `notification_decisions` (with `conversationActions` in validation results) → `notification_deliveries` (with `conversation_id`, `message_id`, `conversation_strategy`, `conversation_action`, `conversation_target_conversation_id`, `conversation_decision_fallback_used`)
+**Audit trail (SQLite):** `notification_events` → `notification_decisions` (with `conversationActions` in validation results) → `notification_deliveries` (with `conversation_id`, `message_id`, `conversation_strategy`, `conversation_action`, `conversation_target_id`, `conversation_fallback_used`)
 
 **Configuration:** `notifications.decisionModelIntent` in `config.json`.
 
@@ -1969,7 +1967,7 @@ The daemon uses a single fixed internal scope constant — `DAEMON_INTERNAL_ASSI
 
 The guardian trust system uses a three-valued `TrustClass` — `'guardian'`, `'trusted_contact'`, or `'unknown'` — as the single vocabulary for actor trust classification across all channels and runtime paths. There is no legacy `actorRole` concept; all trust decisions flow through `TrustClass`.
 
-**`TrustContext`** (in `src/daemon/session-runtime-assembly.ts`) is the single runtime carrier for trust state on channel-originated turns. It carries `trustClass`, guardian identity fields, and requester metadata. The `guardianPrincipalId` field is typed as `?: string` (optional but non-nullable) — a principal ID is present when a guardian binding exists but is never `null`.
+**`TrustContext`** (in `src/daemon/conversation-runtime-assembly.ts`) is the single runtime carrier for trust state on channel-originated turns. It carries `trustClass`, guardian identity fields, and requester metadata. The `guardianPrincipalId` field is typed as `?: string` (optional but non-nullable) — a principal ID is present when a guardian binding exists but is never `null`.
 
 **Explicit trust gates:** `trustClass` is a **required** field in `ToolContext` (in `src/tools/types.ts`). Every tool execution must carry a trust classification — the field is not optional. This ensures trust-gated tool policies (guardian control-plane restrictions, host-tool blocking for untrusted actors) cannot be bypassed by omitting the classification.
 
@@ -1983,7 +1981,7 @@ The guardian trust system uses a three-valued `TrustClass` — `'guardian'`, `'t
 
 | File                                          | Purpose                                               |
 | --------------------------------------------- | ----------------------------------------------------- |
-| `src/daemon/session-runtime-assembly.ts`      | `TrustContext` type definition                        |
+| `src/daemon/conversation-runtime-assembly.ts` | `TrustContext` type definition                        |
 | `src/tools/types.ts`                          | `ToolContext.trustClass` (required trust gate)        |
 | `src/runtime/channel-retry-sweep.ts`          | Strict `trustClass` parser for retry sweep            |
 | `src/memory/channel-verification-sessions.ts` | `GuardianBinding` with required `guardianPrincipalId` |

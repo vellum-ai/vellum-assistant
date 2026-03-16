@@ -31,17 +31,19 @@ mock.module("../tools/browser/browser-manager.js", () => {
   storedMaps = new Map();
   closeSessionPageMock = mock(async () => {});
   closeAllPagesMock = mock(async () => {});
-  storeSnapshotMapMock = mock((sessionId: string, map: Map<string, string>) => {
-    storedMaps.set(sessionId, map);
-  });
+  storeSnapshotMapMock = mock(
+    (conversationId: string, map: Map<string, string>) => {
+      storedMaps.set(conversationId, map);
+    },
+  );
   return {
     browserManager: {
       getOrCreateSessionPage: async () => mockPage,
       closeSessionPage: closeSessionPageMock,
       closeAllPages: closeAllPagesMock,
       storeSnapshotMap: storeSnapshotMapMock,
-      resolveSnapshotSelector: (sessionId: string, elementId: string) => {
-        const map = storedMaps.get(sessionId);
+      resolveSnapshotSelector: (conversationId: string, elementId: string) => {
+        const map = storedMaps.get(conversationId);
         if (!map) return null;
         return map.get(elementId) ?? null;
       },
@@ -64,7 +66,6 @@ import {
 import type { ToolContext } from "../tools/types.js";
 
 const ctx: ToolContext = {
-  sessionId: "test-session",
   conversationId: "test-conversation",
   workingDir: "/tmp",
   trustClass: "guardian",
@@ -132,7 +133,7 @@ describe("executeBrowserSnapshot", () => {
     await executeBrowserSnapshot({}, ctx);
     expect(storeSnapshotMapMock).toHaveBeenCalledTimes(1);
 
-    const stored = storedMaps.get("test-session");
+    const stored = storedMaps.get("test-conversation");
     expect(stored).toBeDefined();
     expect(stored!.get("e1")).toBe('[data-vellum-eid="e1"]');
     expect(stored!.get("e2")).toBe('[data-vellum-eid="e2"]');
@@ -177,7 +178,7 @@ describe("executeBrowserClose", () => {
     const result = await executeBrowserClose({}, ctx);
     expect(result.isError).toBe(false);
     expect(result.content).toContain("Browser page closed for this session.");
-    expect(closeSessionPageMock).toHaveBeenCalledWith("test-session");
+    expect(closeSessionPageMock).toHaveBeenCalledWith("test-conversation");
     expect(closeAllPagesMock).not.toHaveBeenCalled();
   });
 

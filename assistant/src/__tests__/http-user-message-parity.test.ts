@@ -188,7 +188,7 @@ function makeSession(overrides: Record<string, unknown> = {}) {
     trustContext: undefined,
     hasPendingConfirmation: () => false,
     ...overrides,
-  } as unknown as import("../daemon/session.js").Session;
+  } as unknown as import("../daemon/conversation.js").Conversation;
 }
 
 // ── Helper: create an HTTP request to POST /v1/messages ────────────────────
@@ -209,14 +209,14 @@ function makeRequest(content: string, extra: Record<string, unknown> = {}) {
 // ── Helper: send a message through handleSendMessage ───────────────────────
 async function sendMessage(
   content: string,
-  session: import("../daemon/session.js").Session,
+  session: import("../daemon/conversation.js").Conversation,
   extra: Record<string, unknown> = {},
 ) {
   return handleSendMessage(
     makeRequest(content, extra),
     {
       sendMessageDeps: {
-        getOrCreateSession: async () => session,
+        getOrCreateConversation: async () => session,
         assistantEventHub: { publish: async () => {} } as any,
         resolveAttachments: () => [],
       },

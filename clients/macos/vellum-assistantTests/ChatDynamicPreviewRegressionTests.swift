@@ -22,7 +22,7 @@ final class ChatDynamicPreviewRegressionTests: XCTestCase {
         daemonClient.isConnected = true
         daemonClient.sendOverride = { _ in }
         viewModel = ChatViewModel(daemonClient: daemonClient)
-        viewModel.sessionId = "sess-dp"
+        viewModel.conversationId = "sess-dp"
     }
 
     override func tearDown() {
@@ -45,7 +45,7 @@ final class ChatDynamicPreviewRegressionTests: XCTestCase {
         if let preview { dataDict["preview"] = preview }
         if let appId { dataDict["appId"] = appId }
         return UiSurfaceShowMessage(
-            sessionId: "sess-dp",
+            conversationId: "sess-dp",
             surfaceId: surfaceId,
             surfaceType: "dynamic_page",
             title: title,
@@ -342,7 +342,7 @@ final class ChatDynamicPreviewRegressionTests: XCTestCase {
 
         // Update the surface with new preview data
         let updateMsg = UiSurfaceUpdateMessage(
-            sessionId: "sess-dp",
+            conversationId: "sess-dp",
             surfaceId: "surface-update-test",
             data: AnyCodable([
                 "html": "<h1>Updated</h1>",
@@ -380,7 +380,7 @@ final class ChatDynamicPreviewRegressionTests: XCTestCase {
 
         let dismissMsg = UiSurfaceDismissMessage(
             type: "ui_surface_dismiss",
-            sessionId: "sess-dp",
+            conversationId: "sess-dp",
             surfaceId: "surface-dismiss-test"
         )
         viewModel.handleServerMessage(.uiSurfaceDismiss(dismissMsg))
@@ -404,7 +404,7 @@ final class ChatDynamicPreviewRegressionTests: XCTestCase {
         XCTAssertNil(viewModel.messages[0].inlineSurfaces[0].completionState)
 
         let completeMsg = UiSurfaceCompleteMessage(
-            sessionId: "sess-dp",
+            conversationId: "sess-dp",
             surfaceId: "surface-complete-test",
             summary: "App created successfully",
             submittedData: nil
@@ -553,6 +553,6 @@ final class ChatDynamicPreviewRegressionTests: XCTestCase {
         XCTAssertNotNil(surface.surfaceRef,
                         "Inline surface should preserve a lightweight SurfaceRef for re-opening workspace")
         XCTAssertEqual(surface.surfaceRef?.surfaceId, "surface-msg-test")
-        XCTAssertEqual(surface.surfaceRef?.sessionId, "sess-dp")
+        XCTAssertEqual(surface.surfaceRef?.conversationId, "sess-dp")
     }
 }

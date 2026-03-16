@@ -8,7 +8,7 @@
 export interface CommitContext {
   workspaceDir: string;
   trigger: "turn" | "heartbeat" | "shutdown";
-  sessionId?: string;
+  conversationId?: string;
   turnNumber?: number;
   changedFiles: string[];
   timestampMs: number;
@@ -70,7 +70,7 @@ export class DefaultCommitMessageProvider implements CommitMessageProvider {
     const message = [
       `Turn: ${summary}`,
       "",
-      `Session: ${ctx.sessionId}`,
+      `Conversation: ${ctx.conversationId}`,
       `Turn: ${ctx.turnNumber}`,
       `Timestamp: ${timestamp}`,
       `Files: ${ctx.changedFiles.length} changed`,

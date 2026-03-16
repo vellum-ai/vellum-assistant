@@ -23,7 +23,7 @@ export interface AssistantEvent {
   /** The assistant this event belongs to. */
   assistantId: string;
   /** Resolved conversation/session id when available. */
-  sessionId?: string;
+  conversationId?: string;
   /** ISO-8601 timestamp of when the event was emitted. */
   emittedAt: string;
   /** Outbound server message payload. */
@@ -37,17 +37,17 @@ export interface AssistantEvent {
  *
  * @param assistantId  The logical assistant identifier (e.g. from the daemon or HTTP route).
  * @param message      The outbound server message payload.
- * @param sessionId    Optional conversation/session id — pass when known.
+ * @param conversationId    Optional conversation/session id — pass when known.
  */
 export function buildAssistantEvent(
   assistantId: string,
   message: ServerMessage,
-  sessionId?: string,
+  conversationId?: string,
 ): AssistantEvent {
   return {
     id: randomUUID(),
     assistantId,
-    sessionId,
+    conversationId,
     emittedAt: new Date().toISOString(),
     message,
   };

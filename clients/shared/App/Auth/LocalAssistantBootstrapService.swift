@@ -55,7 +55,7 @@ public final class LocalAssistantBootstrapService {
     private let credentialStorage: CredentialStorage?
 
     /// Returns the credential account name for the provisioned credential, scoped to the assistant.
-    static func credentialAccount(for runtimeAssistantId: String) -> String {
+    public static func credentialAccount(for runtimeAssistantId: String) -> String {
         "vellum_assistant_credential_\(runtimeAssistantId)"
     }
 
@@ -68,15 +68,11 @@ public final class LocalAssistantBootstrapService {
     /// - Parameters:
     ///   - runtimeAssistantId: The local assistant's ID from the lockfile
     ///   - clientPlatform: e.g., "macos"
-    ///   - daemonBaseURL: The local daemon's HTTP base URL
-    ///   - daemonToken: The bearer token for authenticating with the local daemon
     public func bootstrap(
         runtimeAssistantId: String,
-        clientPlatform: String = "macos",
-        daemonBaseURL: String,
-        daemonToken: String
+        clientPlatform: String = "macos"
     ) async throws -> LocalBootstrapOutcome {
-        let installId = LocalInstallationIdStore.getOrCreate()
+        let installId = DeviceIdStore.getOrCreate()
 
         // Resolve the user's organization ID — required for all platform API calls.
         let organizationId: String
@@ -106,53 +102,87 @@ public final class LocalAssistantBootstrapService {
         }
 
         // Step 1: Ensure registration (idempotent)
-        let registration: EnsureSelfHostedLocalRegistrationResponse
+        var platformAssistantId: String?
         do {
-            registration = try await authService.ensureSelfHostedLocalRegistration(
+            let registration = try await authService.ensureSelfHostedLocalRegistration(
                 organizationId: organizationId,
                 clientInstallationId: installId,
                 runtimeAssistantId: runtimeAssistantId,
                 clientPlatform: clientPlatform
             )
+            platformAssistantId = registration.assistant.id
+            log.info("Registered local assistant: \(registration.assistant.id, privacy: .public)")
+
+            // Persist the platform assistant ID mapping so other services can resolve it.
+            if let storage = credentialStorage {
+                let userId = try? await resolveUserId()
+                if let uid = userId {
+                    let persisted = PlatformAssistantIdResolver.persist(
+                        platformAssistantId: registration.assistant.id,
+                        runtimeAssistantId: runtimeAssistantId,
+                        organizationId: organizationId,
+                        userId: uid,
+                        credentialStorage: storage
+                    )
+                    if persisted {
+                        log.info("Persisted platform assistant ID mapping for runtime assistant: \(runtimeAssistantId, privacy: .public)")
+                    } else {
+                        log.warning("Failed to persist platform assistant ID mapping for runtime assistant: \(runtimeAssistantId, privacy: .public)")
+                    }
+                } else {
+                    log.warning("Could not resolve user ID — platform assistant ID mapping not persisted")
+                }
+            }
+
+            // Cache the API key from the registration response so Step 2 can re-sync
+            // without an unnecessary reprovision round-trip.
+            if let rawKey = registration.assistantApiKey, !rawKey.isEmpty {
+                let credentialAccount = Self.credentialAccount(for: runtimeAssistantId)
+                _ = credentialStorage?.set(account: credentialAccount, value: rawKey)
+                log.info("Cached API key from ensure-registration response")
+            }
         } catch let error as PlatformAPIError {
-            throw mapPlatformError(error, context: .registration)
+            if case .serverError(let statusCode, _) = error, statusCode == 409 {
+                // Try to resolve platform assistant ID from cache for key re-sync
+                if let storage = credentialStorage,
+                   let orgId = UserDefaults.standard.string(forKey: "connectedOrganizationId"),
+                   let uid = try? await resolveUserId(),
+                   let cachedId = PlatformAssistantIdResolver.resolve(
+                       lockfileAssistantId: runtimeAssistantId,
+                       isManaged: false,
+                       organizationId: orgId,
+                       userId: uid,
+                       credentialStorage: storage
+                   ) {
+                    platformAssistantId = cachedId
+                    log.info("Registration returned 409 — resolved platform assistant ID from cache: \(cachedId, privacy: .public)")
+                } else {
+                    log.info("Registration returned 409 — no cached platform ID, will resolve from reprovision")
+                    // platformAssistantId stays nil — reprovision will provide it
+                }
+            } else {
+                throw mapPlatformError(error, context: .registration)
+            }
         } catch {
             throw LocalBootstrapError.registrationFailed(error.localizedDescription)
         }
 
-        let platformAssistantId = registration.assistant.id
-        log.info("Registered local assistant: \(platformAssistantId, privacy: .public)")
-
-        // Persist the platform assistant ID mapping so other services can resolve it.
-        if let storage = credentialStorage {
-            let userId = try? await resolveUserId()
-            if let uid = userId {
-                let persisted = PlatformAssistantIdResolver.persist(
-                    platformAssistantId: platformAssistantId,
-                    runtimeAssistantId: runtimeAssistantId,
-                    organizationId: organizationId,
-                    userId: uid,
-                    credentialStorage: storage
-                )
-                if persisted {
-                    log.info("Persisted platform assistant ID mapping for runtime assistant: \(runtimeAssistantId, privacy: .public)")
-                } else {
-                    log.warning("Failed to persist platform assistant ID mapping for runtime assistant: \(runtimeAssistantId, privacy: .public)")
-                }
-            } else {
-                log.warning("Could not resolve user ID — platform assistant ID mapping not persisted")
-            }
-        }
-
         let credentialAccount = Self.credentialAccount(for: runtimeAssistantId)
 
-        // Step 2: Check if we already have the key stored locally
-        if let existingKey = credentialStorage?.get(account: credentialAccount), !existingKey.isEmpty {
+        // Step 2: Check if we already have the key stored locally (only when we have the platform ID)
+        if let platformId = platformAssistantId,
+           let existingKey = credentialStorage?.get(account: credentialAccount), !existingKey.isEmpty {
             do {
-                try await injectKeyIntoDaemon(key: existingKey, daemonBaseURL: daemonBaseURL, daemonToken: daemonToken)
+                try await injectKeyIntoDaemon(key: existingKey)
                 log.info("Re-synced existing API key to daemon")
-                try? await injectPlatformAssistantIdIntoDaemon(id: platformAssistantId, daemonBaseURL: daemonBaseURL, daemonToken: daemonToken)
-                return .registeredWithExistingKey(assistantId: platformAssistantId)
+                try? await injectPlatformAssistantIdIntoDaemon(id: platformId)
+                do {
+                    try await injectPlatformBaseUrlIntoDaemon(url: authService.baseURL)
+                } catch {
+                    log.error("Failed to inject platform base URL into daemon on existing-key path: \(error.localizedDescription)")
+                    throw LocalBootstrapError.daemonInjectionFailed
+                }
+                return .registeredWithExistingKey(assistantId: platformId)
             } catch {
                 log.warning("Failed to inject existing key into daemon, will reprovision: \(error.localizedDescription)")
                 // Fall through to Step 3 — key may be stale
@@ -174,90 +204,154 @@ public final class LocalAssistantBootstrapService {
             throw LocalBootstrapError.provisioningFailed(error.localizedDescription)
         }
 
+        // If platformAssistantId was not resolved from Step 1 (e.g. 409 path),
+        // resolve it from the reprovision response which includes the assistant record.
+        if platformAssistantId == nil {
+            platformAssistantId = provisionResponse.assistant.id
+            log.info("Resolved platform assistant ID from reprovision: \(provisionResponse.assistant.id, privacy: .public)")
+
+            // Persist the mapping now that we have it
+            if let storage = credentialStorage {
+                let userId = try? await resolveUserId()
+                if let uid = userId {
+                    PlatformAssistantIdResolver.persist(
+                        platformAssistantId: provisionResponse.assistant.id,
+                        runtimeAssistantId: runtimeAssistantId,
+                        organizationId: organizationId,
+                        userId: uid,
+                        credentialStorage: storage
+                    )
+                }
+            }
+        }
+
+        guard let resolvedPlatformId = platformAssistantId else {
+            throw LocalBootstrapError.registrationFailed("Failed to resolve platform assistant ID")
+        }
+
         let rawKey = provisionResponse.provisioning.assistantApiKey
-        log.info("Provisioned new API key for assistant: \(platformAssistantId, privacy: .public)")
+        log.info("Provisioned new API key for assistant: \(resolvedPlatformId, privacy: .public)")
 
         // Step 4: Store locally for future sign-ins
         _ = credentialStorage?.set(account: credentialAccount, value: rawKey)
 
         // Step 5: Inject into daemon
-        try await injectKeyIntoDaemon(key: rawKey, daemonBaseURL: daemonBaseURL, daemonToken: daemonToken)
-        if (try? await injectPlatformAssistantIdIntoDaemon(id: platformAssistantId, daemonBaseURL: daemonBaseURL, daemonToken: daemonToken)) == nil {
+        try await injectKeyIntoDaemon(key: rawKey)
+        if (try? await injectPlatformAssistantIdIntoDaemon(id: resolvedPlatformId)) == nil {
             log.warning("Failed to inject platform assistant ID into daemon on provision path; the TS env-var fallback will be used")
         }
+        do {
+            try await injectPlatformBaseUrlIntoDaemon(url: authService.baseURL)
+        } catch {
+            log.error("Failed to inject platform base URL into daemon on provision path: \(error.localizedDescription)")
+            throw LocalBootstrapError.daemonInjectionFailed
+        }
 
-        return .registeredAndProvisioned(assistantId: platformAssistantId)
+        return .registeredAndProvisioned(assistantId: resolvedPlatformId)
     }
 
     /// Clear the stored credential and re-run bootstrap to obtain a fresh key.
     /// Call this when a 401 indicates the cached key has been revoked.
     public func reprovision(
         runtimeAssistantId: String,
-        clientPlatform: String = "macos",
-        daemonBaseURL: String,
-        daemonToken: String
+        clientPlatform: String = "macos"
     ) async throws -> LocalBootstrapOutcome {
         let account = Self.credentialAccount(for: runtimeAssistantId)
         _ = credentialStorage?.delete(account: account)
 
         return try await bootstrap(
             runtimeAssistantId: runtimeAssistantId,
-            clientPlatform: clientPlatform,
-            daemonBaseURL: daemonBaseURL,
-            daemonToken: daemonToken
+            clientPlatform: clientPlatform
         )
     }
 
-    /// Inject the assistant API key into the daemon's secret store.
-    private func injectKeyIntoDaemon(key: String, daemonBaseURL: String, daemonToken: String) async throws {
-        guard let url = URL(string: "\(daemonBaseURL)/v1/secrets") else {
-            throw LocalBootstrapError.daemonInjectionFailed
-        }
-
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        request.setValue("Bearer \(daemonToken)", forHTTPHeaderField: "Authorization")
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.timeoutInterval = 10
-
-        let body: [String: String] = [
-            "type": "credential",
-            "name": "vellum:assistant_api_key",
-            "value": key
-        ]
-        request.httpBody = try JSONSerialization.data(withJSONObject: body)
-
-        let (_, response) = try await URLSession.shared.data(for: request)
-        guard let httpResponse = response as? HTTPURLResponse,
-              (200...299).contains(httpResponse.statusCode) else {
+    /// Inject the assistant API key into the daemon's secret store via the gateway.
+    private func injectKeyIntoDaemon(key: String) async throws {
+        let response = try await GatewayHTTPClient.post(
+            path: "secrets",
+            json: ["type": "credential", "name": "vellum:assistant_api_key", "value": key],
+            timeout: 10
+        )
+        guard response.isSuccess else {
             throw LocalBootstrapError.daemonInjectionFailed
         }
     }
 
-    /// Inject the platform assistant ID into the daemon's secret store.
-    private func injectPlatformAssistantIdIntoDaemon(id: String, daemonBaseURL: String, daemonToken: String) async throws {
-        guard let url = URL(string: "\(daemonBaseURL)/v1/secrets") else {
+    /// Inject the platform base URL into the daemon's secret store via the gateway.
+    private func injectPlatformBaseUrlIntoDaemon(url: String) async throws {
+        let response = try await GatewayHTTPClient.post(
+            path: "secrets",
+            json: ["type": "credential", "name": "vellum:platform_base_url", "value": url],
+            timeout: 10
+        )
+        guard response.isSuccess else {
             throw LocalBootstrapError.daemonInjectionFailed
         }
+    }
 
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        request.setValue("Bearer \(daemonToken)", forHTTPHeaderField: "Authorization")
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.timeoutInterval = 10
+    /// Inject the platform assistant ID into the daemon's secret store via the gateway.
+    private func injectPlatformAssistantIdIntoDaemon(id: String) async throws {
+        let response = try await GatewayHTTPClient.post(
+            path: "secrets",
+            json: ["type": "credential", "name": "vellum:platform_assistant_id", "value": id],
+            timeout: 10
+        )
+        guard response.isSuccess else {
+            throw LocalBootstrapError.daemonInjectionFailed
+        }
+    }
 
-        let body: [String: String] = [
-            "type": "credential",
-            "name": "vellum:platform_assistant_id",
-            "value": id
+    /// Clears all managed proxy credentials from the daemon's secret store
+    /// by issuing `DELETE /v1/secrets` for each vellum-namespaced credential.
+    ///
+    /// Uses a direct HTTP call to the daemon (not GatewayHTTPClient) because
+    /// this is called during logout teardown when gateway routing may no
+    /// longer be available.
+    ///
+    /// Returns `true` if all credentials were successfully cleared (or didn't exist).
+    @discardableResult
+    public static func clearDaemonCredentials(
+        daemonBaseURL: String,
+        daemonToken: String
+    ) async -> Bool {
+        let credentialNames = [
+            "vellum:assistant_api_key",
+            "vellum:platform_base_url",
+            "vellum:platform_assistant_id",
         ]
-        request.httpBody = try JSONSerialization.data(withJSONObject: body)
-
-        let (_, response) = try await URLSession.shared.data(for: request)
-        guard let httpResponse = response as? HTTPURLResponse,
-              (200...299).contains(httpResponse.statusCode) else {
-            throw LocalBootstrapError.daemonInjectionFailed
+        var allCleared = true
+        for name in credentialNames {
+            guard let url = URL(string: "\(daemonBaseURL)/v1/secrets") else {
+                allCleared = false
+                continue
+            }
+            var request = URLRequest(url: url)
+            request.httpMethod = "DELETE"
+            request.timeoutInterval = 5
+            request.setValue("Bearer \(daemonToken)", forHTTPHeaderField: "Authorization")
+            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            let body: [String: String] = ["type": "credential", "name": name]
+            request.httpBody = try? JSONSerialization.data(withJSONObject: body)
+            do {
+                let (_, response) = try await URLSession.shared.data(for: request)
+                let statusCode = (response as? HTTPURLResponse)?.statusCode ?? 0
+                if statusCode == 200 || statusCode == 404 {
+                    log.info("Cleared daemon credential: \(name, privacy: .public) (status \(statusCode))")
+                } else {
+                    log.warning("Failed to clear daemon credential: \(name, privacy: .public) (status \(statusCode))")
+                    allCleared = false
+                }
+            } catch {
+                log.warning("Failed to clear daemon credential: \(name, privacy: .public) — \(error.localizedDescription)")
+                allCleared = false
+            }
         }
+        if allCleared {
+            log.info("All managed proxy credentials cleared from daemon")
+        } else {
+            log.warning("Some managed proxy credentials could not be cleared from daemon")
+        }
+        return allCleared
     }
 
     /// Resolves the current user ID from the auth session.

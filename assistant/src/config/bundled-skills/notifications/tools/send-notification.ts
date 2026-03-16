@@ -110,14 +110,14 @@ export async function run(
     asNonEmptyString(input.source_event_name) ?? "user.send_notification";
   const requestedConversationId =
     asNonEmptyString(input.conversation_id) ?? context.conversationId;
-  const sourceSessionId = requestedConversationId ?? context.sessionId;
+  const sourceSessionId = requestedConversationId ?? context.conversationId;
   const title = asNonEmptyString(input.title);
   const dedupeKey = asNonEmptyString(input.dedupe_key);
 
   const contextPayload: Record<string, unknown> = {
     requestedMessage: message,
     requestedByTool: "send_notification",
-    requestedBySessionId: context.sessionId,
+    requestedBySessionId: context.conversationId,
   };
   if (title) contextPayload.requestedTitle = title;
   if (requestedConversationId)

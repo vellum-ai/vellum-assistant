@@ -1317,9 +1317,9 @@ function createMockCtx(): {
       captured = msg as ChannelVerificationSessionResponse;
     },
     broadcast: () => {},
-    clearAllSessions: () => 0,
-    getOrCreateSession: () => Promise.resolve({} as never),
-    touchSession: () => {},
+    clearAllConversations: () => 0,
+    getOrCreateConversation: () => Promise.resolve({} as never),
+    touchConversation: () => {},
   } as unknown as HandlerContext;
   return { ctx, lastResponse: () => captured };
 }

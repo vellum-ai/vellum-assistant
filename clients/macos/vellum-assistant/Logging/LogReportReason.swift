@@ -38,7 +38,7 @@ enum LogReportReason: String, CaseIterable, Identifiable, Sendable {
 
 /// Determines what data the log export should include.
 enum LogExportScope: Sendable {
-    /// Full global export — all threads, all data.
+    /// Full global export — all conversations, all data.
     case global
     /// Scoped to a single thread/conversation.
     case thread(conversationId: String, threadTitle: String,

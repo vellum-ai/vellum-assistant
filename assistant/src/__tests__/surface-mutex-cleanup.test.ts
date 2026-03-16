@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
-import { createSurfaceMutex } from "../daemon/session-surfaces.js";
+import { createSurfaceMutex } from "../daemon/conversation-surfaces.js";
 
 describe("createSurfaceMutex cleanup", () => {
   test("map entry is removed after the queue drains", async () => {

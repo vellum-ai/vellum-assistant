@@ -152,7 +152,6 @@ function spawnRunner(
     // Pass a serializable subset of context to the subprocess
     env.__SKILL_CONTEXT_JSON = JSON.stringify({
       workingDir: context.workingDir,
-      sessionId: context.sessionId,
       conversationId: context.conversationId,
     });
 

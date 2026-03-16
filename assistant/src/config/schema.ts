@@ -306,6 +306,8 @@ export const AssistantConfigSchema = z
         }),
       )
       .optional(),
+    collectUsageData: z.boolean().default(true),
+    sendDiagnostics: z.boolean().default(true),
   })
   .superRefine((config, ctx) => {
     if (

@@ -140,6 +140,11 @@ declare -a SAFE_LINE_PATTERNS=(
     # expression (concatenation via ||), not a literal secret.
     # E.g. `SET client_secret_credential_path = 'oauth_app/' || id || '/client_secret'`
     "[a-z_]*secret[a-z_]*[[:space:]]*=[[:space:]]*'[^']*'[[:space:]]*\|\|"
+    # Swift CodingKeys enum case declarations mapping a property name to a
+    # snake_case JSON key (e.g. `case assistantApiKey = "assistant_api_key"`).
+    # Only allows lowercase letters and underscores in the value — real secrets
+    # contain uppercase, digits, or special characters.
+    "case[[:space:]]+[a-zA-Z][a-zA-Z0-9]*[[:space:]]*=[[:space:]]*['\"][a-z][a-z_]*['\"][[:space:]]*$"
     # AWS well-known example key used in documentation
     "AKIAIOSFODNN7EXAMPLE"
     # Swift let/var constants used as UserDefaults key names (not secrets).
@@ -308,6 +313,10 @@ if [ "${1:-}" = "--self-test" ]; then
     UNSAFE_SWIFT_API_STORAGE_KEY='let apiStorageKey = "abcdefghijklmnopqrstuvwxyz"'
     # Swift compound key with "db" sensitive prefix (dangerous — must NOT be whitelisted)
     UNSAFE_SWIFT_DB_STORAGE_KEY='let dbStorageKey = "abcdefghijklmnopqrstuvwxyz"'
+    # Swift CodingKeys enum case mapping property to snake_case JSON key (false positive to whitelist)
+    SAFE_SWIFT_CODING_KEY='        case assistantApiKey = "assistant_api_key"'
+    # Swift CodingKeys with a real secret value (dangerous — must NOT be whitelisted)
+    UNSAFE_SWIFT_CODING_KEY='        case apiKey = "sk_live_1234567890abcdef"'
 
     if matches_secret_pattern "$SAFE_ARCHITECTURE_LINE"; then
         echo -e "${RED}Self-test failed:${NC} ARCHITECTURE allowlist case still matches"
@@ -611,6 +620,14 @@ if [ "${1:-}" = "--self-test" ]; then
     fi
     if matches_safe_line_pattern "$UNSAFE_SWIFT_DB_STORAGE_KEY"; then
         echo -e "${RED}Self-test failed:${NC} Swift dbStorageKey constant was incorrectly whitelisted (sensitive prefix + safe suffix)"
+        exit 1
+    fi
+    if matches_secret_pattern "$SAFE_SWIFT_CODING_KEY" && ! matches_safe_line_pattern "$SAFE_SWIFT_CODING_KEY"; then
+        echo -e "${RED}Self-test failed:${NC} Swift CodingKeys enum case false positive"
+        exit 1
+    fi
+    if matches_safe_line_pattern "$UNSAFE_SWIFT_CODING_KEY"; then
+        echo -e "${RED}Self-test failed:${NC} Swift CodingKeys enum case with real secret was incorrectly whitelisted"
         exit 1
     fi
 

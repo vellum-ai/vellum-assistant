@@ -207,34 +207,34 @@ extension AppDelegate {
             )
         }
 
-        // Automatically surface threads created by scheduled task runs so
+        // Automatically surface conversations created by scheduled task runs so
         // the user sees them in the sidebar without restarting the app.
-        daemonClient.onTaskRunThreadCreated = { [weak self] msg in
+        daemonClient.onTaskRunConversationCreated = { [weak self] msg in
             guard let self, !self.isBootstrapping else { return }
             self.ensureMainWindowExists()
-            self.mainWindow?.threadManager.createTaskRunThread(
+            self.mainWindow?.conversationManager.createTaskRunConversation(
                 conversationId: msg.conversationId,
                 workItemId: msg.workItemId,
                 title: msg.title
             )
         }
 
-        // Schedule threads — created when the scheduler fires and creates a conversation.
-        daemonClient.onScheduleThreadCreated = { [weak self] msg in
+        // Schedule conversations — created when the scheduler fires and creates a conversation.
+        daemonClient.onScheduleConversationCreated = { [weak self] msg in
             guard let self, !self.isBootstrapping else { return }
             self.ensureMainWindowExists()
-            self.mainWindow?.threadManager.createScheduleThread(
+            self.mainWindow?.conversationManager.createScheduleConversation(
                 conversationId: msg.conversationId,
                 scheduleJobId: msg.scheduleJobId,
                 title: msg.title
             )
         }
 
-        // Notification threads — created when the notification pipeline delivers
+        // Notification conversations — created when the notification pipeline delivers
         // to the vellum channel with start_new_conversation strategy.
-        daemonClient.onNotificationThreadCreated = { [weak self] msg in
+        daemonClient.onNotificationConversationCreated = { [weak self] msg in
             guard let self, !self.isBootstrapping else { return }
-            self.handleNotificationThreadCreated(msg)
+            self.handleNotificationConversationCreated(msg)
         }
 
         // Forward dictation responses from the daemon to VoiceInputManager
@@ -243,16 +243,24 @@ extension AppDelegate {
         }
 
         daemonClient.onDocumentEditorShow = { [weak self] msg in
-            self?.mainWindow?.handleDocumentEditorShow(msg)
+            guard let self else { return }
+            self.ensureMainWindowExists()
+            self.mainWindow?.handleDocumentEditorShow(msg)
         }
         daemonClient.onDocumentEditorUpdate = { [weak self] msg in
-            self?.mainWindow?.handleDocumentEditorUpdate(msg)
+            guard let self else { return }
+            self.ensureMainWindowExists()
+            self.mainWindow?.handleDocumentEditorUpdate(msg)
         }
         daemonClient.onDocumentSaveResponse = { [weak self] msg in
-            self?.mainWindow?.handleDocumentSaveResponse(msg)
+            guard let self else { return }
+            self.ensureMainWindowExists()
+            self.mainWindow?.handleDocumentSaveResponse(msg)
         }
         daemonClient.onDocumentLoadResponse = { [weak self] msg in
-            self?.mainWindow?.handleDocumentLoadResponse(msg)
+            guard let self else { return }
+            self.ensureMainWindowExists()
+            self.mainWindow?.handleDocumentLoadResponse(msg)
         }
 
         // Handle diagnostics export response — show a toast in the main window
@@ -339,9 +347,9 @@ extension AppDelegate {
         // execute locally (verify -> execute -> observe -> post result).
         // The overlay provider lazily creates a session overlay on the first
         // host_cu_request for each conversation.
-        HostCuExecutor.register(on: daemonClient) { [weak self] sessionId, request in
+        HostCuExecutor.register(on: daemonClient) { [weak self] conversationId, request in
             guard let self else { return nil }
-            return self.getOrCreateHostCuOverlay(sessionId: sessionId, request: request)
+            return self.getOrCreateHostCuOverlay(conversationId: conversationId, request: request)
         }
 
         Task {
@@ -411,87 +419,42 @@ extension AppDelegate {
                 setupAmbientAgent()
                 refreshAppsCache()
                 refreshSkillsCache()
-                // Apply the privacy flag now that the gateway is reachable:
-                // close Sentry if the user has opted out of usage data collection.
-                checkAndApplyPrivacyFlag()
+                // Sync privacy config now that the gateway is reachable:
+                // close Sentry if diagnostics are disabled, and sync both
+                // keys to the daemon.
+                syncPrivacyConfig()
             }
         }
     }
 
     // MARK: - Privacy
 
-    /// Queries the gateway feature-flags API for the collect-usage-data flag and,
-    /// if the user has opted out, shuts down Sentry to stop future event capturing.
-    /// Called after the daemon is first connected so the gateway is reachable.
-    func checkAndApplyPrivacyFlag() {
+    /// Reads both privacy keys from UserDefaults (with legacy fallbacks),
+    /// applies Sentry state based on sendDiagnostics, syncs both keys to
+    /// the daemon, and cleans up legacy UserDefaults keys.
+    func syncPrivacyConfig() {
         Task {
-            do {
-                let featureFlagKey = "feature_flags.collect-usage-data.enabled"
+            // Read with legacy fallbacks for first launch after upgrade
+            let collectUsageData = UserDefaults.standard.object(forKey: "collectUsageData") as? Bool
+                ?? UserDefaults.standard.object(forKey: "collectUsageDataEnabled") as? Bool
+                ?? true
+            let sendDiagnostics = UserDefaults.standard.object(forKey: "sendDiagnostics") as? Bool
+                ?? true
 
-                // Check if the user explicitly interacted with the privacy
-                // toggle during onboarding. The `collectUsageDataExplicitlySet`
-                // flag is only written when the user actually touches the
-                // toggle, NOT when the onAppear block sets the default value.
-                // This prevents the auto-written default from making the
-                // UserDefaults key always non-nil and blocking daemon sync.
-                if UserDefaults.standard.bool(forKey: "collectUsageDataExplicitlySet"),
-                   let onboardingValue = UserDefaults.standard.object(forKey: "collectUsageDataEnabled") as? Bool {
-                    // Always apply Sentry state locally first, regardless of
-                    // whether the daemon sync succeeds — the user's explicit
-                    // choice must take effect immediately.
-                    if !onboardingValue {
-                        MetricKitManager.closeSentry()
-                    }
-
-                    // Best-effort sync to daemon. Only clear the explicit-set
-                    // flag when the sync succeeds so that a transient gateway
-                    // failure preserves the flag for retry on next reconnect.
-                    if let flags = try? await daemonClient.getFeatureFlags() {
-                        let daemonValue = flags
-                            .first(where: { $0.key == featureFlagKey })
-                            .map { $0.enabled }
-                            ?? true
-
-                        var syncSucceeded = true
-                        if onboardingValue != daemonValue {
-                            do {
-                                try await daemonClient.setFeatureFlag(key: featureFlagKey, enabled: onboardingValue)
-                            } catch {
-                                syncSucceeded = false
-                                log.debug("Failed to sync onboarding privacy flag to daemon: \(error)")
-                            }
-                        }
-
-                        // Only clear the flag when both read and write
-                        // succeeded so a failed write preserves the flag
-                        // for retry on next reconnect.
-                        if syncSucceeded {
-                            UserDefaults.standard.removeObject(forKey: "collectUsageDataExplicitlySet")
-                        }
-                    }
-                } else {
-                    // No explicit user interaction — use the daemon's value
-                    // as the source of truth.
-                    let flags = try await daemonClient.getFeatureFlags()
-                    let collectUsageData = flags
-                        .first(where: { $0.key == featureFlagKey })
-                        .map { $0.enabled }
-                        ?? true
-                    // Persist so MetricKitManager can check this flag synchronously
-                    // during the startup window on the next launch, regardless of
-                    // whether the user has visited the Privacy settings tab.
-                    UserDefaults.standard.set(collectUsageData, forKey: "collectUsageDataEnabled")
-                    if !collectUsageData {
-                        // Route through sentrySerialQueue to prevent races with
-                        // concurrent MetricKit captures or manual report sends.
-                        MetricKitManager.closeSentry()
-                    }
-                }
-            } catch {
-                // Flag check is best-effort; Sentry stays active when the flag
-                // cannot be read (e.g. gateway not yet ready on first boot).
-                log.debug("Could not read privacy flag from gateway: \(error)")
+            // Apply Sentry state based on sendDiagnostics
+            if !sendDiagnostics {
+                MetricKitManager.closeSentry()
             }
+
+            // Best-effort sync both keys to daemon config
+            try? await daemonClient.setPrivacyConfig(collectUsageData: collectUsageData, sendDiagnostics: sendDiagnostics)
+
+            // Clean up legacy keys and write canonical ones
+            UserDefaults.standard.removeObject(forKey: "collectUsageDataEnabled")
+            UserDefaults.standard.removeObject(forKey: "sendPerformanceReports")
+            UserDefaults.standard.removeObject(forKey: "collectUsageDataExplicitlySet")
+            UserDefaults.standard.set(collectUsageData, forKey: "collectUsageData")
+            UserDefaults.standard.set(sendDiagnostics, forKey: "sendDiagnostics")
         }
     }
 

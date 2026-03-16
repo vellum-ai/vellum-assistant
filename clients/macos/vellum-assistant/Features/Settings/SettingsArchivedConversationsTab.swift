@@ -1,0 +1,73 @@
+import SwiftUI
+import VellumAssistantShared
+
+struct SettingsArchivedThreadsTab: View {
+    @ObservedObject var conversationManager: ConversationManager
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: VSpacing.lg) {
+            if conversationManager.archivedConversations.isEmpty {
+                VEmptyState(
+                    title: "No archived conversations",
+                    subtitle: "Threads you archive will appear here.",
+                    icon: VIcon.archive.rawValue
+                )
+            } else {
+                VStack(alignment: .leading, spacing: 0) {
+                    ForEach(Array(conversationManager.archivedConversations.enumerated()), id: \.element.id) { index, thread in
+                        if index > 0 {
+                            SettingsDivider()
+                        }
+                        ArchivedThreadRow(thread: thread) {
+                            conversationManager.unarchiveConversation(id: thread.id)
+                        }
+                    }
+                }
+                .padding(VSpacing.lg)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .vCard(background: VColor.surfaceOverlay)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
+// MARK: - Archived Conversation Row
+
+private struct ArchivedThreadRow: View {
+    let thread: ConversationModel
+    let onUnarchive: () -> Void
+
+    private static let dateFormatter: DateFormatter = {
+        let f = DateFormatter()
+        f.dateFormat = "MMM d, yyyy, h:mm a"
+        return f
+    }()
+
+    var body: some View {
+        HStack(alignment: .center, spacing: VSpacing.md) {
+            VStack(alignment: .leading, spacing: VSpacing.xs) {
+                Text(thread.title)
+                    .font(VFont.body)
+                    .foregroundColor(VColor.contentDefault)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+
+                Text("\(Self.dateFormatter.string(from: thread.createdAt)) · \(thread.source ?? "vellum-assistant")")
+                    .font(VFont.caption)
+                    .foregroundColor(VColor.contentTertiary)
+                    .lineLimit(1)
+            }
+
+            Spacer()
+
+            VButton(label: "Unarchive", style: .outlined) {
+                onUnarchive()
+            }
+        }
+        .padding(.vertical, VSpacing.sm)
+    }
+}
+
+// MARK: - Preview
+

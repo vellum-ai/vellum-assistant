@@ -27,7 +27,7 @@ enum ActivationKey: String, CaseIterable {
 final class OnboardingState {
     /// Bump this version whenever the default-flow step order changes so that
     /// persisted step indices from a previous layout are not consumed as-is.
-    private static let currentFlowVersion = 10
+    private static let currentFlowVersion = 12
 
     var currentStep: Int = 0
     var assistantName: String = "Velly"
@@ -36,6 +36,19 @@ final class OnboardingState {
     var accessibilityGranted: Bool = false
     var screenGranted: Bool = false
     var skipPermissionChecks: Bool = false
+
+    /// Whether the user explicitly skipped login during onboarding.
+    var skippedAuth: Bool = false
+
+    /// The hosting mode selected in onboarding step 1.
+    var selectedHostingMode: HostingMode = .local
+
+    enum HostingMode: String {
+        case vellumCloud = "vellum-cloud"
+        case local = "local"
+        case localDocker = "local-docker"
+        case vps = "vps"
+    }
     var hasHatched: Bool = false
     var interviewCompleted: Bool = false
     var cloudProvider: String = "local"
@@ -132,7 +145,7 @@ final class OnboardingState {
         let isManagedSignIn = MacOSClientFeatureFlagManager.shared.isEnabled("managed_sign_in_enabled")
         let maxStep: Int
         if isManagedSignIn {
-            maxStep = 1
+            maxStep = 2
         } else if onboardingVariant == .firstMeeting {
             maxStep = 4
         } else {
@@ -142,6 +155,15 @@ final class OnboardingState {
             currentStep = maxStep
         }
 
+        // Opt in to usage data and performance reports by default for new users.
+        // Previously handled by ImproveExperienceStepView.onAppear; that view was
+        // removed so we set the defaults here to keep the same behavior.
+        if UserDefaults.standard.object(forKey: "collectUsageData") == nil {
+            UserDefaults.standard.set(true, forKey: "collectUsageData")
+        }
+        if UserDefaults.standard.object(forKey: "sendDiagnostics") == nil {
+            UserDefaults.standard.set(true, forKey: "sendDiagnostics")
+        }
     }
 
     func advance(by steps: Int = 1) {
@@ -175,6 +197,7 @@ final class OnboardingState {
         hatchCompleted = false
         hatchLogLines = []
         hasHatched = false
+        skippedAuth = false
 
         // Clear stored API key so the user starts fresh
         APIKeyManager.deleteKey(for: "anthropic")

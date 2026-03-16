@@ -38,9 +38,6 @@ final class LockfileAssistantManagedTests: XCTestCase {
         XCTAssertEqual(assistants[0]["cloud"] as? String, "vellum")
         XCTAssertEqual(assistants[0]["runtimeUrl"] as? String, "https://platform.vellum.ai")
         XCTAssertEqual(assistants[0]["hatchedAt"] as? String, "2024-01-01T00:00:00Z")
-        let installationId = assistants[0]["installationId"] as? String
-        XCTAssertNotNil(installationId, "installationId should be generated on insert")
-        XCTAssertFalse(installationId!.isEmpty, "installationId should not be empty")
     }
 
     func testEnsureInsertsIntoEmptyLockfile() {
@@ -91,33 +88,6 @@ final class LockfileAssistantManagedTests: XCTestCase {
         // Original values preserved, NOT overwritten.
         XCTAssertEqual(assistants[0]["runtimeUrl"] as? String, "https://old.example.com")
         XCTAssertEqual(assistants[0]["hatchedAt"] as? String, "2024-01-01T00:00:00Z")
-    }
-
-    func testEnsurePreservesInstallationIdOnRepeatCall() {
-        LockfileAssistant.ensureManagedEntry(
-            assistantId: "test-id",
-            runtimeUrl: "https://example.com",
-            hatchedAt: "2024-01-01T00:00:00Z",
-            lockfilePath: lockfilePath
-        )
-
-        let data1 = try! Data(contentsOf: URL(fileURLWithPath: lockfilePath))
-        let json1 = try! JSONSerialization.jsonObject(with: data1) as! [String: Any]
-        let assistants1 = json1["assistants"] as! [[String: Any]]
-        let originalInstallationId = assistants1[0]["installationId"] as! String
-
-        // Second call with same assistantId — should be no-op.
-        LockfileAssistant.ensureManagedEntry(
-            assistantId: "test-id",
-            runtimeUrl: "https://different.example.com",
-            hatchedAt: "2024-06-01T00:00:00Z",
-            lockfilePath: lockfilePath
-        )
-
-        let data2 = try! Data(contentsOf: URL(fileURLWithPath: lockfilePath))
-        let json2 = try! JSONSerialization.jsonObject(with: data2) as! [String: Any]
-        let assistants2 = json2["assistants"] as! [[String: Any]]
-        XCTAssertEqual(assistants2[0]["installationId"] as? String, originalInstallationId, "installationId must survive repeat calls")
     }
 
     // MARK: - ensureManagedEntry: preserves other entries

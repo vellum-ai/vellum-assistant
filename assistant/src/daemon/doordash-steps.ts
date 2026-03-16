@@ -1,13 +1,13 @@
 /**
  * DoorDash-specific step-tracking logic for the task_progress surface.
  *
- * Extracted from session-tool-setup.ts so the generic tool executor
+ * Extracted from conversation-tool-setup.ts so the generic tool executor
  * remains clean and extensible.
  */
 
 import { isPlainObject } from "../util/object.js";
+import type { ToolSetupContext } from "./conversation-tool-setup.js";
 import type { CardSurfaceData } from "./message-protocol.js";
-import type { ToolSetupContext } from "./session-tool-setup.js";
 
 interface DoordashStep {
   label: string;
@@ -114,7 +114,7 @@ function pushStepsUpdate(
   stored.data = updatedData as CardSurfaceData;
   ctx.sendToClient({
     type: "ui_surface_update",
-    sessionId: ctx.conversationId,
+    conversationId: ctx.conversationId,
     surfaceId: SURFACE_ID,
     data: updatedData,
   });
@@ -192,7 +192,7 @@ export function updateDoordashProgress(
     ctx.surfaceState.set(SURFACE_ID, { surfaceType: "card", data });
     ctx.sendToClient({
       type: "ui_surface_show",
-      sessionId: ctx.conversationId,
+      conversationId: ctx.conversationId,
       surfaceId: SURFACE_ID,
       surfaceType: "card",
       title: "Ordering from DoorDash",

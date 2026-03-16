@@ -34,9 +34,9 @@
                   "type": "string",
                   "description": "Prompt or body text for this step"
                 },
-                "reply_to_thread": {
+                "reply_in_same_conversation": {
                   "type": "boolean",
-                  "description": "Whether to reply in the existing thread (default true for step 2+)"
+                  "description": "Whether to reply in the same conversation (default true for step 2+)"
                 },
                 "require_approval": {
                   "type": "boolean",
@@ -164,9 +164,9 @@
                   "type": "string",
                   "description": "Prompt or body text for this step"
                 },
-                "reply_to_thread": {
+                "reply_in_same_conversation": {
                   "type": "boolean",
-                  "description": "Whether to reply in the existing thread"
+                  "description": "Whether to reply in the same conversation"
                 },
                 "require_approval": {
                   "type": "boolean",

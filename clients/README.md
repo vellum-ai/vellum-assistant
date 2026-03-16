@@ -32,7 +32,7 @@ clients/
 │   └── CLAUDE.md              # Development guide for Claude Code
 ├── ios/                       # iOS-specific code
 │   ├── App/                   # App lifecycle (VellumAssistantApp, AppDelegate, VellumIntents, etc.)
-│   ├── Views/                 # iOS-specific SwiftUI views (ChatTabView, ThreadListView, etc.)
+│   ├── Views/                 # iOS-specific SwiftUI views (ChatTabView, ConversationListView, etc.)
 │   │   ├── Intelligence/      # Skills and contacts views (InstalledSkills, Contacts)
 │   │   ├── Things/            # Apps, shared apps, and documents views
 │   │   └── Settings/          # Decomposed settings sections (Integrations, TrustRules, Models, Privacy, etc.)
@@ -227,7 +227,7 @@ Test files in `clients/ios/Tests/`:
 - `AttachmentFlowIOSTests.swift` — attachment limits, send flow, thumbnails
 - `ChatTranscriptFormatterIOSTests.swift` — markdown formatting
 - `ChatViewModelIOSTests.swift` — send/receive flow, streaming, error handling
-- `ThreadLifecycleIOSTests.swift` — session creation, thread isolation
+- `ConversationLifecycleIOSTests.swift` — session creation, thread isolation
 - `UsageDashboardViewTests.swift` — usage dashboard state, data loading, formatting
 
 Tests use mock implementations of protocols for dependency injection:

@@ -167,7 +167,7 @@ describe("uploadAttachment", () => {
   });
 
   test("accepts payload exactly at MAX_UPLOAD_BYTES", () => {
-    // MAX_UPLOAD_BYTES (20 MB) is divisible by 3, so (MAX/3)*4 base64 chars
+    // MAX_UPLOAD_BYTES (50 MB) is divisible by 3, so (MAX/3)*4 base64 chars
     // decodes to exactly MAX bytes with no padding.
     const exactLength = (MAX_UPLOAD_BYTES / 3) * 4;
     const exactData = "A".repeat(exactLength);

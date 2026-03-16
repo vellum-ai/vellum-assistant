@@ -162,7 +162,7 @@ export async function commitAppChange(message: string): Promise<void> {
  * Fire-and-forget safe: errors are logged but never thrown.
  */
 export async function commitAppTurnChanges(
-  sessionId: string,
+  conversationId: string,
   turnNumber: number,
 ): Promise<void> {
   try {
@@ -172,11 +172,11 @@ export async function commitAppTurnChanges(
     const gitService = getWorkspaceGitService(appsDir);
     await gitService.commitIfDirty(() => ({
       message: `Turn ${turnNumber}: app changes`,
-      metadata: { sessionId, turnNumber },
+      metadata: { conversationId, turnNumber },
     }));
   } catch (err) {
     log.error(
-      { err, sessionId, turnNumber },
+      { err, conversationId, turnNumber },
       "Failed to commit app turn changes",
     );
   }

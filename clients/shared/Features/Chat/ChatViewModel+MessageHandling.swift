@@ -14,17 +14,17 @@ private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.
 
 extension ChatViewModel {
 
-    /// Returns true if the given session ID belongs to this chat session.
-    /// Messages with a nil sessionId are always accepted; messages whose
-    /// sessionId doesn't match the current session are silently ignored
-    /// to prevent cross-session contamination (e.g. from a popover text_qa flow).
-    func belongsToSession(_ messageSessionId: String?) -> Bool {
+    /// Returns true if the given session ID belongs to this chat conversation.
+    /// Messages with a nil conversationId are always accepted; messages whose
+    /// conversationId doesn't match the current session are silently ignored
+    /// to prevent cross-conversation contamination (e.g. from a popover text_qa flow).
+    func belongsToConversation(_ messageSessionId: String?) -> Bool {
         guard let messageSessionId else { return true }
-        guard let sessionId else {
-            // No session established yet — accept all messages
+        guard let conversationId else {
+            // No conversation established yet — accept all messages
             return true
         }
-        return messageSessionId == sessionId
+        return messageSessionId == conversationId
     }
 
     /// Map daemon confirmation state string to ToolConfirmationState.
@@ -524,21 +524,21 @@ extension ChatViewModel {
 
     public func handleServerMessage(_ message: ServerMessage) {
         switch message {
-        case .sessionInfo(let info):
-            // Only claim this session_info if:
+        case .conversationInfo(let info):
+            // Only claim this conversation_info if:
             // 1. We don't have a session yet, AND
             // 2. The correlation ID matches our bootstrap request.
-            if sessionId == nil {
+            if conversationId == nil {
                 guard let expected = bootstrapCorrelationId,
                       info.correlationId == expected else {
                     // No pending bootstrap or correlation mismatch — not ours.
                     break
                 }
 
-                sessionId = info.sessionId
+                conversationId = info.conversationId
                 bootstrapCorrelationId = nil
-                onSessionCreated?(info.sessionId)
-                log.info("Chat session created: \(info.sessionId)")
+                onConversationCreated?(info.conversationId)
+                log.info("Chat conversation created: \(info.conversationId)")
 
                 // Fetch pending guardian prompts for this conversation
                 refreshGuardianPrompts()
@@ -547,19 +547,22 @@ extension ChatViewModel {
                 // session create by clearing the bootstrap sending state.
                 if let pending = pendingUserMessage {
                     let attachments = pendingUserAttachments
+                    let automated = pendingUserMessageAutomated
                     pendingUserMessage = nil
                     pendingUserMessageDisplayText = nil
                     pendingUserAttachments = nil
+                    pendingUserMessageAutomated = false
                     do {
                         let pttMeta = ChatViewModel.currentPttMetadata()
                         try daemonClient.send(UserMessageMessage(
-                            sessionId: info.sessionId,
+                            conversationId: info.conversationId,
                             content: pending,
                             attachments: attachments,
                             activeSurfaceId: activeSurfaceId,
                             currentPage: activeSurfaceId != nil ? currentPage : nil,
                             pttActivationKey: pttMeta.activationKey,
-                            microphonePermissionGranted: pttMeta.microphonePermissionGranted
+                            microphonePermissionGranted: pttMeta.microphonePermissionGranted,
+                            automated: automated ? true : nil
                         ))
                     } catch {
                         log.error("Failed to send queued user_message: \(error.localizedDescription)")
@@ -576,7 +579,7 @@ extension ChatViewModel {
             }
 
         case .userMessageEcho(let echo):
-            guard belongsToSession(echo.sessionId) else { return }
+            guard belongsToConversation(echo.conversationId) else { return }
             let userMsg = ChatMessage(role: .user, text: echo.text, status: .sent)
             messages.append(userMsg)
             isSending = true
@@ -587,7 +590,7 @@ extension ChatViewModel {
             break
 
         case .assistantTextDelta(let delta):
-            guard belongsToSession(delta.sessionId) else { return }
+            guard belongsToConversation(delta.conversationId) else { return }
             guard !isCancelling else { return }
             guard !isLoadingHistory else { return }
             if isWorkspaceRefinementInFlight {
@@ -631,7 +634,7 @@ extension ChatViewModel {
             suggestion = resp.suggestion
 
         case .messageComplete(let complete):
-            guard belongsToSession(complete.sessionId) else { return }
+            guard belongsToConversation(complete.conversationId) else { return }
             // Flush any buffered streaming text before finalizing the message.
             flushStreamingBuffer()
             flushPartialOutputBuffer()
@@ -801,7 +804,7 @@ extension ChatViewModel {
             }
 
         case .undoComplete(let undoMsg):
-            guard belongsToSession(undoMsg.sessionId) else { return }
+            guard belongsToConversation(undoMsg.conversationId) else { return }
             // Remove all messages after the last user message (the assistant
             // exchange that was regenerated). The daemon will immediately start
             // streaming a new response.
@@ -816,7 +819,7 @@ extension ChatViewModel {
             discardPartialOutputBuffer()
 
         case .generationCancelled(let cancelled):
-            guard belongsToSession(cancelled.sessionId) else { return }
+            guard belongsToConversation(cancelled.conversationId) else { return }
             let wasCancelling = isCancelling
             isCancelling = false
             // Stale cancel event from a previous cancel cycle — the daemon
@@ -881,7 +884,7 @@ extension ChatViewModel {
             dispatchPendingSendDirect()
 
         case .messageQueued(let queued):
-            guard belongsToSession(queued.sessionId) else { return }
+            guard belongsToConversation(queued.conversationId) else { return }
             pendingQueuedCount += 1
             // Associate this requestId with the oldest pending user message
             if let messageId = pendingMessageIds.first {
@@ -891,7 +894,7 @@ extension ChatViewModel {
                 // forward the deletion to the daemon now that we have the requestId.
                 if pendingLocalDeletions.remove(messageId) != nil {
                     do {
-                        try daemonClient.send(DeleteQueuedMessageMessage(sessionId: queued.sessionId, requestId: queued.requestId))
+                        try daemonClient.send(DeleteQueuedMessageMessage(conversationId: queued.conversationId, requestId: queued.requestId))
                     } catch {
                         log.error("Failed to send deferred delete_queued_message: \(error.localizedDescription)")
                     }
@@ -901,7 +904,7 @@ extension ChatViewModel {
             }
 
         case .messageQueuedDeleted(let msg):
-            guard belongsToSession(msg.sessionId) else { return }
+            guard belongsToConversation(msg.conversationId) else { return }
             pendingQueuedCount = max(0, pendingQueuedCount - 1)
             // Remove the message from the UI
             let messageId = requestIdToMessageId.removeValue(forKey: msg.requestId)
@@ -922,7 +925,7 @@ extension ChatViewModel {
             }
 
         case .messageDequeued(let msg):
-            guard belongsToSession(msg.sessionId) else { return }
+            guard belongsToConversation(msg.conversationId) else { return }
             pendingQueuedCount = max(0, pendingQueuedCount - 1)
             // Mark the associated user message as processing and track its text
             // so assistantTextDelta tags the response correctly.
@@ -963,7 +966,7 @@ extension ChatViewModel {
             isSending = true
 
         case .messageRequestComplete(let msg):
-            guard belongsToSession(msg.sessionId) else { return }
+            guard belongsToConversation(msg.conversationId) else { return }
             if let messageId = activeRequestIdToMessageId.removeValue(forKey: msg.requestId),
                let index = messages.firstIndex(where: { $0.id == messageId }),
                messages[index].role == .user,
@@ -993,7 +996,7 @@ extension ChatViewModel {
             }
 
         case .generationHandoff(let handoff):
-            guard belongsToSession(handoff.sessionId) else { return }
+            guard belongsToConversation(handoff.conversationId) else { return }
             if let requestId = handoff.requestId {
                 activeRequestIdToMessageId.removeValue(forKey: requestId)
             }
@@ -1169,13 +1172,13 @@ extension ChatViewModel {
             // Flush buffered text before inserting the confirmation message.
             flushStreamingBuffer()
             flushPartialOutputBuffer()
-            // Route using sessionId when available (daemon >= v1.x includes
+            // Route using conversationId when available (daemon >= v1.x includes
             // the conversationId). Fall back to the timestamp-based heuristic
-            // via shouldAcceptConfirmation for older daemons that omit sessionId.
-            if let msgSessionId = msg.sessionId {
-                guard sessionId != nil, belongsToSession(msgSessionId) else { return }
+            // via shouldAcceptConfirmation for older daemons that omit conversationId.
+            if let msgSessionId = msg.conversationId {
+                guard conversationId != nil, belongsToConversation(msgSessionId) else { return }
             } else {
-                guard sessionId != nil,
+                guard conversationId != nil,
                       lastToolUseReceivedAt != nil,
                       shouldAcceptConfirmation?() ?? false else { return }
             }
@@ -1219,7 +1222,7 @@ extension ChatViewModel {
             }
 
         case .toolUsePreviewStart(let msg):
-            guard belongsToSession(msg.sessionId) else { return }
+            guard belongsToConversation(msg.conversationId) else { return }
             guard !isCancelling else { return }
             guard !isLoadingHistory else { return }
             guard !isWorkspaceRefinementInFlight else { return }
@@ -1267,7 +1270,7 @@ extension ChatViewModel {
             lastContentWasToolCall = true
 
         case .toolUseStart(let msg):
-            guard belongsToSession(msg.sessionId) else { return }
+            guard belongsToConversation(msg.conversationId) else { return }
             guard !isCancelling else { return }
             guard !isLoadingHistory else { return }
             guard !isWorkspaceRefinementInFlight else { return }
@@ -1348,7 +1351,7 @@ extension ChatViewModel {
             lastContentWasToolCall = true
 
         case .toolInputDelta(let msg):
-            guard belongsToSession(msg.sessionId) else { return }
+            guard belongsToConversation(msg.conversationId) else { return }
             guard !isCancelling else { return }
             guard !isLoadingHistory else { return }
             let preview = Self.extractCodePreview(from: msg.content, toolName: msg.toolName)
@@ -1375,7 +1378,7 @@ extension ChatViewModel {
 
         case .toolOutputChunk(let msg):
             guard !isCancelling else { return }
-            guard belongsToSession(msg.sessionId) else { return }
+            guard belongsToConversation(msg.conversationId) else { return }
             guard !isLoadingHistory else { return }
             // Handle structured progress events from claude_code sub-tools
             // Resolve the target tool call: prefer matching by toolUseId, fall back to positional heuristic.
@@ -1469,7 +1472,7 @@ extension ChatViewModel {
             }
 
         case .toolResult(let msg):
-            guard belongsToSession(msg.sessionId) else { return }
+            guard belongsToConversation(msg.conversationId) else { return }
             guard !isCancelling else { return }
             guard !isLoadingHistory else { return }
             guard !isWorkspaceRefinementInFlight else { return }
@@ -1568,7 +1571,7 @@ extension ChatViewModel {
             // message or the daemon echoes it back.
 
         case .uiSurfaceShow(let msg):
-            guard belongsToSession(msg.sessionId) else { return }
+            guard belongsToConversation(msg.conversationId) else { return }
             guard msg.display == nil || msg.display == "inline" || msg.display == "panel" else { break }
             guard let surface = Surface.from(msg) else { break }
 
@@ -1643,11 +1646,11 @@ extension ChatViewModel {
             }
 
         case .uiSurfaceUndoResult(let msg):
-            guard belongsToSession(msg.sessionId) else { return }
+            guard belongsToConversation(msg.conversationId) else { return }
             surfaceUndoCount = msg.remainingUndos
 
         case .uiSurfaceUpdate(let msg):
-            guard belongsToSession(msg.sessionId) else { return }
+            guard belongsToConversation(msg.conversationId) else { return }
             if isWorkspaceRefinementInFlight {
                 refinementReceivedSurfaceUpdate = true
             }
@@ -1658,7 +1661,7 @@ extension ChatViewModel {
             for msgIndex in messages.indices {
                 if let surfaceIndex = messages[msgIndex].inlineSurfaces.firstIndex(where: { $0.id == msg.surfaceId }) {
                     let existing = messages[msgIndex].inlineSurfaces[surfaceIndex]
-                    let tempSurface = Surface(id: existing.id, sessionId: msg.sessionId, type: existing.surfaceType, title: existing.title, data: existing.data, actions: existing.actions)
+                    let tempSurface = Surface(id: existing.id, conversationId: msg.conversationId, type: existing.surfaceType, title: existing.title, data: existing.data, actions: existing.actions)
                     if let updated = tempSurface.updated(with: msg) {
                         messages[msgIndex].inlineSurfaces[surfaceIndex] = InlineSurfaceData(
                             id: updated.id,
@@ -1683,7 +1686,7 @@ extension ChatViewModel {
             }
 
         case .uiSurfaceDismiss(let msg):
-            guard belongsToSession(msg.sessionId) else { return }
+            guard belongsToConversation(msg.conversationId) else { return }
             // Find and remove the inline surface across all messages
             for msgIndex in messages.indices {
                 if let surfaceIndex = messages[msgIndex].inlineSurfaces.firstIndex(where: { $0.id == msg.surfaceId }) {
@@ -1693,7 +1696,7 @@ extension ChatViewModel {
             }
 
         case .uiSurfaceComplete(let msg):
-            guard belongsToSession(msg.sessionId) else { return }
+            guard belongsToConversation(msg.conversationId) else { return }
             // Dismiss floating overlay for task_progress cards (macOS only)
             #if os(macOS)
             TaskProgressOverlayManager.shared.dismiss(surfaceId: msg.surfaceId)
@@ -1709,9 +1712,9 @@ extension ChatViewModel {
                 }
             }
 
-        case .sessionError(let msg):
-            // Empty sessionId is treated as a broadcast (e.g. transport-level 401)
-            guard sessionId != nil, msg.sessionId.isEmpty || belongsToSession(msg.sessionId) else { return }
+        case .conversationError(let msg):
+            // Empty conversationId is treated as a broadcast (e.g. transport-level 401)
+            guard conversationId != nil, msg.conversationId.isEmpty || belongsToConversation(msg.conversationId) else { return }
             log.error("Session error [\(msg.code.rawValue, privacy: .public)]: \(msg.userMessage, privacy: .private)")
 
             // Per-message send failure: mark the specific user message instead
@@ -1777,8 +1780,8 @@ extension ChatViewModel {
             // Otherwise, insert an inline error message so errors are visually
             // distinct from normal assistant replies (rendered with a red box).
             if !wasCancelling {
-                let typedError = SessionError(from: msg)
-                sessionError = typedError
+                let typedError = ConversationError(from: msg)
+                conversationError = typedError
                 errorText = msg.userMessage
                 // Remove empty assistant message left over from the interrupted stream
                 if let existingId = messages.last?.id,
@@ -1787,7 +1790,7 @@ extension ChatViewModel {
                    messages.last?.toolCalls.isEmpty == true {
                     messages.removeAll(where: { $0.id == existingId })
                 }
-                // macOS shows ChatSessionErrorToast; only append inline error on iOS where the toast is unavailable
+                // macOS shows ChatConversationErrorToast; only append inline error on iOS where the toast is unavailable
                 #if os(iOS)
                 let errorMsg = ChatMessage(role: .assistant, text: msg.userMessage, isError: true)
                 messages.append(errorMsg)
@@ -1818,7 +1821,7 @@ extension ChatViewModel {
                     requestIdToMessageId = [:]
                     activeRequestIdToMessageId = [:]
                 } else {
-                    // The daemon drains queued work after a session_error
+                    // The daemon drains queued work after a conversation_error
                     // (session.ts calls drainQueue in `finally`), so preserve
                     // pendingQueuedCount, pendingMessageIds, requestIdToMessageId,
                     // and queued message statuses. Incoming message_dequeued events
@@ -1829,7 +1832,7 @@ extension ChatViewModel {
             }
 
         case .confirmationStateChanged(let msg):
-            guard belongsToSession(msg.sessionId) else { return }
+            guard belongsToConversation(msg.conversationId) else { return }
             // Find the confirmation with this requestId and update its state.
             var confirmationToolName: String?
             var precedingAssistantId: UUID?
@@ -1891,7 +1894,7 @@ extension ChatViewModel {
             }
 
         case .assistantActivityState(let msg):
-            guard belongsToSession(msg.sessionId) else { return }
+            guard belongsToConversation(msg.conversationId) else { return }
             // Ignore stale events — only accept monotonically increasing versions.
             guard msg.activityVersion > lastActivityVersion else { return }
             lastActivityVersion = msg.activityVersion
@@ -1916,17 +1919,17 @@ extension ChatViewModel {
             }
 
         case .watchStarted(let msg):
-            guard belongsToSession(msg.sessionId) else { return }
+            guard belongsToConversation(msg.conversationId) else { return }
             isWatchSessionActive = true
             onWatchStarted?(msg, daemonClient)
 
         case .watchCompleteRequest(let msg):
-            guard belongsToSession(msg.sessionId) else { return }
+            guard belongsToConversation(msg.conversationId) else { return }
             isWatchSessionActive = false
             onWatchCompleteRequest?(msg)
 
         case .subagentSpawned(let msg):
-            guard belongsToSession(msg.parentSessionId) else { return }
+            guard belongsToConversation(msg.parentSessionId) else { return }
             let info = SubagentInfo(id: msg.subagentId, label: msg.label, status: .running, parentMessageId: currentAssistantMessageId)
             activeSubagents.append(info)
             subagentDetailStore.recordSpawned(subagentId: msg.subagentId, objective: msg.objective)

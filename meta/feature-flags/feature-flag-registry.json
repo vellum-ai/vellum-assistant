@@ -26,14 +26,6 @@
       "defaultEnabled": true
     },
     {
-      "id": "collect-usage-data",
-      "scope": "assistant",
-      "key": "feature_flags.collect-usage-data.enabled",
-      "label": "Collect usage data",
-      "description": "Send crash reports, error diagnostics, and anonymized usage telemetry to help improve the app",
-      "defaultEnabled": true
-    },
-    {
       "id": "user-hosted-enabled",
       "scope": "macos",
       "key": "user_hosted_enabled",
@@ -144,6 +136,22 @@
       "label": "CES Managed Sidecar Transport",
       "description": "Use managed sidecar transport for CES communication when running in a containerized environment",
       "defaultEnabled": false
+    },
+    {
+      "id": "settings-billing",
+      "scope": "macos",
+      "key": "settings_billing_enabled",
+      "label": "Billing Settings Tab",
+      "description": "Show the Billing tab in Settings when signed in, displaying credits balance and top-up",
+      "defaultEnabled": true
+    },
+    {
+      "id": "managed-sign-in",
+      "scope": "macos",
+      "key": "managed_sign_in_enabled",
+      "label": "Managed Sign In",
+      "description": "Enable managed (organization-hosted) sign-in flow in the onboarding experience",
+      "defaultEnabled": true
     }
   ]
 }

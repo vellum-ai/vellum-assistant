@@ -8,6 +8,7 @@ struct SettingsGeneralTab: View {
     var daemonClient: DaemonClient?
     var authManager: AuthManager
     var onClose: () -> Void
+    var onSignIn: (() -> Void)?
 
     @State private var showingPairingQR: Bool = false
 
@@ -87,7 +88,7 @@ struct SettingsGeneralTab: View {
                 }
             } else if authManager.currentUser != nil {
                 VButton(label: "Log Out", style: .danger) {
-                    Task { await authManager.logout() }
+                    AppDelegate.shared?.performLogout()
                 }
             } else {
                 VButton(
@@ -95,7 +96,12 @@ struct SettingsGeneralTab: View {
                     style: .primary,
                     isDisabled: authManager.isSubmitting
                 ) {
-                    Task { await authManager.startWorkOSLogin() }
+                    Task {
+                        await authManager.startWorkOSLogin()
+                        if authManager.isAuthenticated {
+                            onSignIn?()
+                        }
+                    }
                 }
             }
 

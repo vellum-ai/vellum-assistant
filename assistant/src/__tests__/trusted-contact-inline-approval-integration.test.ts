@@ -117,7 +117,7 @@ mock.module("../runtime/channel-verification-service.js", () => ({
     return null;
   },
   createOutboundSession: () => ({
-    sessionId: "test-session",
+    conversationId: "test-session",
     secret: "123456",
   }),
   bindSessionIdentity: () => {},
@@ -177,7 +177,7 @@ mock.module("../config/env.js", () => ({
 import { applyCanonicalGuardianDecision } from "../approvals/guardian-decision-primitive.js";
 import type { ActorContext } from "../approvals/guardian-request-resolvers.js";
 import { getResolver } from "../approvals/guardian-request-resolvers.js";
-import type { TrustContext } from "../daemon/session-runtime-assembly.js";
+import type { TrustContext } from "../daemon/conversation-runtime-assembly.js";
 import {
   createCanonicalGuardianRequest,
   getCanonicalGuardianRequest,
@@ -219,7 +219,6 @@ afterAll(() => {
 function makeToolContext(overrides: Partial<ToolContext> = {}): ToolContext {
   return {
     workingDir: testDir,
-    sessionId: "session-1",
     conversationId: "conv-1",
     assistantId: "self",
     requestId: "req-1",

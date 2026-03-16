@@ -58,7 +58,7 @@ const parseEnrollmentRow = createRowMapper<
   contactName: "contactName",
   currentStep: "currentStep",
   status: { from: "status", transform: cast<SequenceEnrollment["status"]>() },
-  threadId: "threadId",
+  conversationId: "conversationId",
   nextStepAt: "nextStepAt",
   context: {
     from: "context",
@@ -168,7 +168,7 @@ export function enrollContact(input: EnrollContactInput): SequenceEnrollment {
     contactName: input.contactName ?? null,
     currentStep: 0,
     status: "active" as const,
-    threadId: null,
+    conversationId: null,
     nextStepAt,
     context: input.context ? JSON.stringify(input.context) : null,
     createdAt: now,
@@ -267,7 +267,7 @@ export function claimDueEnrollments(
 
 export function advanceEnrollment(
   id: string,
-  threadId?: string,
+  conversationId?: string,
   nextStepAt?: number | null,
 ): SequenceEnrollment | undefined {
   const db = getDb();
@@ -286,7 +286,7 @@ export function advanceEnrollment(
   if (!current) return undefined;
 
   updates.currentStep = current.currentStep + 1;
-  if (threadId !== undefined) updates.threadId = threadId;
+  if (conversationId !== undefined) updates.conversationId = conversationId;
   if (nextStepAt !== undefined) updates.nextStepAt = nextStepAt;
 
   db.update(sequenceEnrollments)
@@ -367,11 +367,14 @@ export function rescheduleEnrollment(id: string, nextStepAt: number): void {
     .run();
 }
 
-/** Persist a thread ID on an enrollment without advancing the step counter. */
-export function updateEnrollmentThreadId(id: string, threadId: string): void {
+/** Persist a conversation ID on an enrollment without advancing the step counter. */
+export function updateEnrollmentConversationId(
+  id: string,
+  conversationId: string,
+): void {
   const db = getDb();
   db.update(sequenceEnrollments)
-    .set({ threadId, updatedAt: Date.now() })
+    .set({ conversationId, updatedAt: Date.now() })
     .where(eq(sequenceEnrollments.id, id))
     .run();
 }

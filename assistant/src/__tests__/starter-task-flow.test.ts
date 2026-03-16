@@ -21,11 +21,11 @@ mock.module("../memory/app-store.js", () => ({
 import {
   createSurfaceMutex,
   handleSurfaceAction,
+  type SurfaceConversationContext,
   surfaceProxyResolver,
-  type SurfaceSessionContext,
-} from "../daemon/session-surfaces.js";
+} from "../daemon/conversation-surfaces.js";
 
-function makeContext(): SurfaceSessionContext {
+function makeContext(): SurfaceConversationContext {
   return {
     conversationId: "session-1",
     traceEmitter: {

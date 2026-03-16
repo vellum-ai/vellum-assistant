@@ -1,14 +1,14 @@
 import SwiftUI
 import VellumAssistantShared
 
-// MARK: - Session Error Toast
+// MARK: - Conversation Error Toast
 
 /// Unified error toast displayed above the composer with solid accent background and white text.
 ///
 /// Supports two initialization paths:
-/// 1. From a typed `SessionError` (category-based icon, color, and recovery suggestion)
+/// 1. From a typed `ConversationError` (category-based icon, color, and recovery suggestion)
 /// 2. From an unstructured message string (icon, color, and action are customizable)
-struct ChatSessionErrorToast: View {
+struct ChatConversationErrorToast: View {
     // MARK: - Display Properties
 
     private let icon: VIcon
@@ -21,11 +21,11 @@ struct ChatSessionErrorToast: View {
     private let onCopyDebugInfo: (() -> Void)?
     private let onDismiss: (() -> Void)?
 
-    // MARK: - SessionError Init
+    // MARK: - ConversationError Init
 
-    /// Initialize from a typed `SessionError` with category-based styling.
+    /// Initialize from a typed `ConversationError` with category-based styling.
     init(
-        error: SessionError,
+        error: ConversationError,
         onRetry: @escaping () -> Void,
         onCopyDebugInfo: @escaping () -> Void,
         onDismiss: @escaping () -> Void
@@ -137,7 +137,7 @@ struct ChatSessionErrorToast: View {
     // MARK: - Category Helpers
 
     /// VIcon appropriate for each error category.
-    private static func iconForCategory(_ category: SessionErrorCategory) -> VIcon {
+    private static func iconForCategory(_ category: ConversationErrorCategory) -> VIcon {
         switch category {
         case .providerNetwork:
             return .wifiOff
@@ -153,7 +153,7 @@ struct ChatSessionErrorToast: View {
             return .cloudOff
         case .contextTooLarge:
             return .fileText
-        case .sessionAborted:
+        case .conversationAborted:
             return .circleStop
         case .processingFailed, .regenerateFailed:
             return .refreshCw
@@ -166,13 +166,13 @@ struct ChatSessionErrorToast: View {
 
     /// Accent color for each error category — warm for transient/retryable,
     /// red for hard failures.
-    private static func accentColor(for category: SessionErrorCategory) -> Color {
+    private static func accentColor(for category: ConversationErrorCategory) -> Color {
         switch category {
         case .rateLimit:
             return VColor.systemMidStrong
         case .providerNetwork:
             return VColor.systemMidStrong
-        case .sessionAborted:
+        case .conversationAborted:
             return VColor.systemPositiveStrong
         case .contextTooLarge:
             return VColor.systemMidStrong
@@ -184,7 +184,7 @@ struct ChatSessionErrorToast: View {
     }
 
     /// Action button label tailored to the error category.
-    private static func actionLabel(for category: SessionErrorCategory) -> String {
+    private static func actionLabel(for category: ConversationErrorCategory) -> String {
         switch category {
         case .rateLimit:
             return "Retry"
@@ -195,5 +195,46 @@ struct ChatSessionErrorToast: View {
         default:
             return "Retry"
         }
+    }
+}
+
+// MARK: - Credits Exhausted Banner
+
+/// Styled inline error banner shown when the user's credits are exhausted.
+/// Displays a clear message and an "Add Funds" CTA button.
+struct CreditsExhaustedBanner: View {
+    let onAddFunds: () -> Void
+    let onDismiss: () -> Void
+
+    var body: some View {
+        VStack(spacing: VSpacing.sm) {
+            HStack(spacing: VSpacing.sm) {
+                VIconView(.creditCard, size: 16)
+                    .foregroundColor(VColor.systemNegativeStrong)
+                Text("You've run out of credits")
+                    .font(VFont.bodyMedium)
+                    .foregroundColor(VColor.contentEmphasized)
+                Spacer()
+                Button {
+                    onDismiss()
+                } label: {
+                    VIconView(.x, size: 14)
+                        .foregroundColor(VColor.contentTertiary)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Dismiss")
+            }
+            Text("Add funds to continue using the assistant.")
+                .font(VFont.body)
+                .foregroundColor(VColor.contentSecondary)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            VButton(label: "Add Funds", style: .primary) {
+                onAddFunds()
+            }
+        }
+        .padding(VSpacing.lg)
+        .background(VColor.systemNegativeWeak.opacity(0.3))
+        .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
+        .transition(.move(edge: .top).combined(with: .opacity))
     }
 }

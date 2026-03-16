@@ -189,6 +189,12 @@ struct WorkspacePanel: View {
         state.isLoadingTree = true
         if let response = await daemonClient.fetchWorkspaceTree(path: "", showHidden: state.showHiddenFiles) {
             state.directoryCache[""] = response.entries
+
+            // Auto-select IDENTITY.md if it exists and no file is already selected
+            if state.selectedFilePath == nil,
+               let identityEntry = response.entries.first(where: { $0.name == "IDENTITY.md" && !$0.isDirectory }) {
+                await state.loadFile(path: identityEntry.path, using: daemonClient)
+            }
         }
         state.isLoadingTree = false
     }
@@ -286,7 +292,7 @@ private struct WorkspaceTreeSidebar: View {
 
             Divider().background(VColor.borderBase)
 
-            Group {
+            VStack(spacing: 0) {
                 if state.isLoadingTree && state.directoryCache.isEmpty {
                     VStack {
                         Spacer()
@@ -295,7 +301,7 @@ private struct WorkspaceTreeSidebar: View {
                         Spacer()
                     }
                 } else {
-                    ScrollView([.vertical, .horizontal]) {
+                    ScrollView(.vertical) {
                         LazyVStack(alignment: .leading, spacing: 0) {
                             if let rootEntries = state.directoryCache[""] {
                                 ForEach(rootEntries) { entry in
@@ -311,7 +317,6 @@ private struct WorkspaceTreeSidebar: View {
                         }
                         .padding(.vertical, VSpacing.xs)
                     }
-                    .defaultScrollAnchor(.topLeading)
                     .background {
                         GeometryReader { geo in
                             Color.clear
@@ -323,7 +328,7 @@ private struct WorkspaceTreeSidebar: View {
                     }
                 }
             }
-            .frame(maxHeight: .infinity)
+            .frame(maxHeight: .infinity, alignment: .topLeading)
 
             if state.uploadingCount > 0 {
                 HStack(spacing: VSpacing.xs) {
@@ -447,40 +452,42 @@ private struct WorkspaceTreeRow: View {
             Button {
                 Task { await handleTap() }
             } label: {
-                HStack(spacing: VSpacing.xs) {
-                    if entry.isDirectory {
-                        VIconView(isExpanded ? .chevronDown : .chevronRight, size: 9)
-                            .foregroundColor(VColor.contentTertiary)
-                            .frame(width: 12)
-                    } else {
-                        Spacer().frame(width: 12)
-                    }
-
-                    VIconView(entry.isDirectory ? .folder : .fileText, size: 12)
-                        .foregroundColor(entry.isDirectory ? VColor.primaryBase : VColor.contentSecondary)
-
+                Group {
                     if state.renamingPath == entry.path {
-                        TextField("Name", text: $state.renamingText)
-                            .textFieldStyle(.plain)
-                            .font(VFont.body)
-                            .fixedSize(horizontal: true, vertical: false)
-                            .onSubmit {
-                                submitRename()
+                        // Rename mode: inline TextField (cannot use shared label)
+                        HStack(spacing: VSpacing.xs) {
+                            if entry.isDirectory {
+                                VIconView(isExpanded ? .chevronDown : .chevronRight, size: 9)
+                                    .foregroundColor(VColor.contentTertiary)
+                                    .frame(width: 12)
+                            } else {
+                                Spacer().frame(width: 12)
                             }
-                            .onExitCommand {
-                                state.renamingPath = nil
-                            }
+                            VIconView(entry.isDirectory ? .folder : .fileText, size: 12)
+                                .foregroundColor(entry.isDirectory ? VColor.primaryBase : VColor.contentSecondary)
+                            TextField("Name", text: $state.renamingText)
+                                .textFieldStyle(.plain)
+                                .font(VFont.body)
+                                .fixedSize(horizontal: true, vertical: false)
+                                .onSubmit { submitRename() }
+                                .onExitCommand { state.renamingPath = nil }
+                        }
+                        .padding(.leading, CGFloat(depth) * 16 + VSpacing.sm)
+                        .padding(.trailing, VSpacing.sm)
+                        .padding(.vertical, VSpacing.xs)
+                        .frame(minWidth: minRowWidth, alignment: .leading)
                     } else {
-                        Text(entry.name)
-                            .font(VFont.body)
-                            .foregroundColor(VColor.contentDefault)
-                            .fixedSize(horizontal: true, vertical: false)
+                        // Normal mode: shared label
+                        FileTreeRowLabel(
+                            name: entry.name,
+                            isDirectory: entry.isDirectory,
+                            isExpanded: isExpanded,
+                            depth: depth,
+                            fileIcon: .fileText,
+                            minRowWidth: minRowWidth
+                        )
                     }
                 }
-                .padding(.leading, CGFloat(depth) * 16 + VSpacing.sm)
-                .padding(.trailing, VSpacing.sm)
-                .padding(.vertical, VSpacing.xs)
-                .frame(minWidth: minRowWidth, alignment: .leading)
                 .contentShape(Rectangle())
                 .background(isSelected ? VColor.surfaceActive : Color.clear)
             }
@@ -666,7 +673,7 @@ private struct WorkspaceFileViewer: View {
                         RoundedRectangle(cornerRadius: VRadius.md)
                             .strokeBorder(VColor.borderBase, lineWidth: 1)
                     )
-                    .padding(VSpacing.md)
+                    .padding(.horizontal, VSpacing.md)
             } else {
                 emptyState
             }
@@ -675,34 +682,41 @@ private struct WorkspaceFileViewer: View {
     }
 
     private var emptyState: some View {
-        VStack {
-            Spacer()
-            VIconView(.fileText, size: 32)
-                .foregroundColor(VColor.contentTertiary)
-                .padding(.bottom, VSpacing.sm)
-            Text("Select a file to view")
-                .font(VFont.body)
-                .foregroundColor(VColor.contentTertiary)
-            Spacer()
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        FileViewerEmptyState()
     }
 
     @ViewBuilder
     private func fileContent(_ detail: WorkspaceFileResponse) -> some View {
         let mime = detail.mimeType.lowercased()
 
-        if !detail.isBinary, detail.content != nil {
-            textViewer(detail)
-        } else if mime.hasPrefix("image/") {
-            imageViewer(detail)
-        } else if mime.hasPrefix("video/") {
-            videoViewer(detail)
-        } else if !detail.isBinary, detail.content == nil {
-            fileTooLarge(detail)
-        } else {
-            binaryFallback(detail)
+        VStack(spacing: 0) {
+            FileContentHeaderBar(
+                icon: fileIcon(for: mime),
+                fileName: detail.name,
+                fileSize: formatFileSize(detail.size)
+            )
+            Divider().background(VColor.borderBase)
+
+            if !detail.isBinary, detail.content != nil {
+                textViewer(detail)
+            } else if mime.hasPrefix("image/") {
+                imageViewer(detail)
+            } else if mime.hasPrefix("video/") {
+                videoViewer(detail)
+            } else if !detail.isBinary, detail.content == nil {
+                fileTooLarge(detail)
+            } else {
+                binaryFallback(detail)
+            }
         }
+    }
+
+    private func fileIcon(for mimeType: String) -> VIcon {
+        if mimeType.hasPrefix("image/") { return .image }
+        if mimeType.hasPrefix("video/") { return .video }
+        if mimeType.hasPrefix("text/") { return .fileText }
+        if mimeType == "application/json" || mimeType == "application/javascript" || mimeType == "application/typescript" { return .fileCode }
+        return .file
     }
 
     private func textViewer(_ detail: WorkspaceFileResponse) -> some View {
@@ -739,15 +753,8 @@ private struct WorkspaceFileViewer: View {
             }
 
             if readOnly {
-                ScrollView {
-                    Text(detail.content ?? "")
-                        .font(VFont.mono)
-                        .foregroundColor(VColor.contentDefault)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(VSpacing.md)
-                        .textSelection(.enabled)
-                }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                ReadOnlyCodeContent(content: detail.content ?? "")
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
                 TextEditor(text: $state.editableContent)
                     .font(VFont.mono)
@@ -786,19 +793,9 @@ private struct WorkspaceFileViewer: View {
             VIconView(.fileText, size: 40)
                 .foregroundColor(VColor.contentTertiary)
 
-            VStack(spacing: VSpacing.sm) {
-                Text(detail.name)
-                    .font(VFont.bodyMedium)
-                    .foregroundColor(VColor.contentDefault)
-
-                Text("File too large to preview")
-                    .font(VFont.body)
-                    .foregroundColor(VColor.contentSecondary)
-
-                Text(formatFileSize(detail.size))
-                    .font(VFont.caption)
-                    .foregroundColor(VColor.contentTertiary)
-            }
+            Text("File too large to preview")
+                .font(VFont.body)
+                .foregroundColor(VColor.contentSecondary)
 
             Spacer()
         }
@@ -839,14 +836,6 @@ private struct WorkspaceFileViewer: View {
                 .foregroundColor(VColor.contentTertiary)
 
             VStack(spacing: VSpacing.sm) {
-                Text(detail.name)
-                    .font(VFont.bodyMedium)
-                    .foregroundColor(VColor.contentDefault)
-
-                Text(formatFileSize(detail.size))
-                    .font(VFont.caption)
-                    .foregroundColor(VColor.contentSecondary)
-
                 Text(detail.mimeType)
                     .font(VFont.caption)
                     .foregroundColor(VColor.contentSecondary)
@@ -861,12 +850,6 @@ private struct WorkspaceFileViewer: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
-    private func formatFileSize(_ bytes: Int) -> String {
-        let formatter = ByteCountFormatter()
-        formatter.allowedUnits = [.useKB, .useMB, .useGB]
-        formatter.countStyle = .file
-        return formatter.string(fromByteCount: Int64(bytes))
-    }
 }
 
 // MARK: - Hidden Path Helper

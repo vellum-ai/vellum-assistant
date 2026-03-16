@@ -17,7 +17,7 @@ import {
   buildToolDefinitions,
   isToolActiveForContext,
   type SkillProjectionContext,
-} from "../daemon/session-tool-setup.js";
+} from "../daemon/conversation-tool-setup.js";
 import {
   __resetRegistryForTesting,
   initializeTools,

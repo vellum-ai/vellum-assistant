@@ -4,7 +4,7 @@ import VellumAssistantShared
 import UniformTypeIdentifiers
 
 struct MainWindowView: View {
-    @ObservedObject var threadManager: ThreadManager
+    @ObservedObject var conversationManager: ConversationManager
     @ObservedObject var appListManager: AppListManager
     var zoomManager: ZoomManager
     var conversationZoomManager: ConversationZoomManager
@@ -19,12 +19,12 @@ struct MainWindowView: View {
     @State var sidebar = SidebarInteractionState()
     @AppStorage("isAppChatOpen") var isAppChatOpen: Bool = false
     @State private var jitPermissionManager = JITPermissionManager()
-    @State var showThreadActionsDrawer = false
+    @State var showConversationActionsDrawer = false
     /// Frame of the thread title button in the coordinate space of coreLayoutView,
     /// used to position the actions drawer directly below it.
     @State private var threadTitleFrame: CGRect = .zero
     /// Stores the thread ID the user was on before entering temporary chat,
-    /// so we can restore it when they exit instead of jumping to visibleThreads.first
+    /// so we can restore it when they exit instead of jumping to visibleConversations.first
     /// (which may be a pinned thread unrelated to what they were doing).
     @State private var preTemporaryChatThreadId: UUID?
 
@@ -44,6 +44,7 @@ struct MainWindowView: View {
     @ObservedObject var documentManager: DocumentManager
     let onMicrophoneToggle: () -> Void
     @ObservedObject var voiceModeManager: VoiceModeManager
+    @ObservedObject var updateManager: UpdateManager
 
     /// Callback to send the wake-up greeting after the "coming alive" transition.
     /// Nil for returning users (no transition).
@@ -56,8 +57,8 @@ struct MainWindowView: View {
     /// Whether the daemon-loading skeleton overlay is currently showing.
     @State var showDaemonLoading: Bool
 
-    init(threadManager: ThreadManager, appListManager: AppListManager, zoomManager: ZoomManager, conversationZoomManager: ConversationZoomManager, traceStore: TraceStore, usageDashboardStore: UsageDashboardStore, daemonClient: DaemonClient, surfaceManager: SurfaceManager, ambientAgent: AmbientAgent, settingsStore: SettingsStore, authManager: AuthManager, windowState: MainWindowState, documentManager: DocumentManager, onMicrophoneToggle: @escaping () -> Void = {}, voiceModeManager: VoiceModeManager, onSendWakeUp: (() -> Void)? = nil) {
-        self.threadManager = threadManager
+    init(conversationManager: ConversationManager, appListManager: AppListManager, zoomManager: ZoomManager, conversationZoomManager: ConversationZoomManager, traceStore: TraceStore, usageDashboardStore: UsageDashboardStore, daemonClient: DaemonClient, surfaceManager: SurfaceManager, ambientAgent: AmbientAgent, settingsStore: SettingsStore, authManager: AuthManager, windowState: MainWindowState, documentManager: DocumentManager, onMicrophoneToggle: @escaping () -> Void = {}, voiceModeManager: VoiceModeManager, updateManager: UpdateManager, onSendWakeUp: (() -> Void)? = nil) {
+        self.conversationManager = conversationManager
         self.appListManager = appListManager
         self.zoomManager = zoomManager
         self.conversationZoomManager = conversationZoomManager
@@ -72,6 +73,7 @@ struct MainWindowView: View {
         self.documentManager = documentManager
         self.onMicrophoneToggle = onMicrophoneToggle
         self.voiceModeManager = voiceModeManager
+        self.updateManager = updateManager
         self.onSendWakeUp = onSendWakeUp
         self._showComingAlive = State(initialValue: onSendWakeUp != nil)
         // Show skeleton loading only for normal launches (not post-onboarding where
@@ -97,11 +99,11 @@ struct MainWindowView: View {
             voiceModeManager.deactivate()
         } else {
             // Ensure a thread exists
-            if threadManager.activeViewModel == nil {
-                threadManager.enterDraftMode()
+            if conversationManager.activeViewModel == nil {
+                conversationManager.enterDraftMode()
             }
             // Activate directly — voice bar appears automatically via ComposerSection
-            if let viewModel = threadManager.activeViewModel {
+            if let viewModel = conversationManager.activeViewModel {
                 voiceModeManager.activate(chatViewModel: viewModel, settingsStore: settingsStore)
                 voiceModeManager.startListening()
             }
@@ -110,46 +112,46 @@ struct MainWindowView: View {
 
     private func toggleTemporaryChat() {
         withAnimation(VAnimation.standard) {
-            if let privateThread = threadManager.activeThread, privateThread.kind == .private {
+            if let privateThread = conversationManager.activeConversation, privateThread.kind == .private {
                 let privateId = privateThread.id
 
                 // Restore the thread the user was on before entering temporary chat.
-                // Fall back to visibleThreads.first only if the stored thread no longer exists.
+                // Fall back to visibleConversations.first only if the stored thread no longer exists.
                 if let savedId = preTemporaryChatThreadId,
-                   threadManager.visibleThreads.contains(where: { $0.id == savedId }) {
-                    threadManager.selectThread(id: savedId)
-                } else if let recent = threadManager.visibleThreads.first {
-                    threadManager.selectThread(id: recent.id)
+                   conversationManager.visibleConversations.contains(where: { $0.id == savedId }) {
+                    conversationManager.selectConversation(id: savedId)
+                } else if let recent = conversationManager.visibleConversations.first {
+                    conversationManager.selectConversation(id: recent.id)
                 } else {
-                    threadManager.enterDraftMode()
+                    conversationManager.enterDraftMode()
                 }
                 preTemporaryChatThreadId = nil
 
                 // Delete the private thread and its backend conversation.
-                threadManager.removePrivateThread(id: privateId)
+                conversationManager.removePrivateConversation(id: privateId)
             } else {
-                preTemporaryChatThreadId = threadManager.activeThreadId
-                threadManager.createPrivateThread()
+                preTemporaryChatThreadId = conversationManager.activeConversationId
+                conversationManager.createPrivateConversation()
             }
         }
     }
 
     /// Resolve a thread ID for the chat bubble toggle using strict priority:
-    /// 1. activeThreadId (currently selected thread)
+    /// 1. activeConversationId (currently selected thread)
     /// 2. persistentThreadId (app's last-used thread)
-    /// 3. visibleThreads.first (first available thread)
+    /// 3. visibleConversations.first (first available thread)
     /// 4. create a new thread
     private func resolveThreadId() -> UUID {
-        if let id = threadManager.activeThreadId { return id }
+        if let id = conversationManager.activeConversationId { return id }
         if let id = windowState.persistentThreadId { return id }
-        if let id = threadManager.visibleThreads.first?.id { return id }
-        threadManager.createThread()
-        return threadManager.activeThreadId!
+        if let id = conversationManager.visibleConversations.first?.id { return id }
+        conversationManager.createConversation()
+        return conversationManager.activeConversationId!
     }
 
     func enterAppEditing(appId: String) {
         let threadId = resolveThreadId()
-        threadManager.selectThread(id: threadId)
+        conversationManager.selectConversation(id: threadId)
         windowState.setAppEditing(appId: appId, threadId: threadId)
     }
 
@@ -183,37 +185,37 @@ struct MainWindowView: View {
     }
 
     func copyActiveThreadToClipboard() {
-        let messages = threadManager.activeViewModel?.messages ?? []
-        let title = threadManager.activeThread?.title
+        let messages = conversationManager.activeViewModel?.messages ?? []
+        let title = conversationManager.activeConversation?.title
         let names = resolveParticipantNames()
-        let markdown = ChatTranscriptFormatter.threadMarkdown(
+        let markdown = ChatTranscriptFormatter.conversationMarkdown(
             messages: messages,
-            threadTitle: title,
+            conversationTitle: title,
             participantNames: names
         )
         guard !markdown.isEmpty else { return }
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(markdown, forType: .string)
-        windowState.showToast(message: "Thread copied to clipboard", style: .success)
+        windowState.showToast(message: "Conversation copied to clipboard", style: .success)
     }
 
-    private var threadHeaderPresentation: ThreadHeaderPresentation {
-        ThreadHeaderPresentation(
-            activeThread: threadManager.activeThread,
-            activeViewModel: threadManager.activeViewModel,
+    private var threadHeaderPresentation: ConversationHeaderPresentation {
+        ConversationHeaderPresentation(
+            activeConversation: conversationManager.activeConversation,
+            activeViewModel: conversationManager.activeViewModel,
             isConversationVisible: windowState.isConversationVisible
         )
     }
 
     func dismissThreadDrawer() {
         withAnimation(.spring(response: 0.35, dampingFraction: 0.7)) {
-            showThreadActionsDrawer = false
+            showConversationActionsDrawer = false
         }
     }
 
     func startRenameActiveThread() {
-        guard let id = threadManager.activeThreadId,
-              let thread = threadManager.activeThread else { return }
+        guard let id = conversationManager.activeConversationId,
+              let thread = conversationManager.activeConversation else { return }
         sidebar.renamingThreadId = id
         sidebar.renameText = thread.title
     }
@@ -235,28 +237,28 @@ struct MainWindowView: View {
                     .transition(.opacity)
                 }
             }
-            .onChange(of: threadManager.activeThreadId) { oldId, newId in
+            .onChange(of: conversationManager.activeConversationId) { oldId, newId in
                 // Deactivate voice mode on a real thread switch (UUID → different UUID),
                 // but not on draft promotion (nil → UUID) which happens on first send.
                 if let oldId, oldId != newId, voiceModeManager.state != .off {
                     voiceModeManager.deactivate()
                 }
                 // Dismiss thread actions drawer on thread switch
-                if showThreadActionsDrawer {
-                    showThreadActionsDrawer = false
+                if showConversationActionsDrawer {
+                    showConversationActionsDrawer = false
                 }
             }
             .onChange(of: windowState.selection) { oldSelection, newSelection in
-                // When selection transitions to .thread, ensure ThreadManager is synced
+                // When selection transitions to .thread, ensure ConversationManager is synced
                 // so chat content targets the correct thread (e.g. after dismissOverlay).
-                // Guard against archived threads: if the thread was archived while an
+                // Guard against archived conversations: if the thread was archived while an
                 // overlay was open, persistentThreadId may still point to the stale ID.
                 if case .thread(let id) = newSelection {
-                    if threadManager.threads.contains(where: { $0.id == id && !$0.isArchived }) {
-                        threadManager.selectThread(id: id)
+                    if conversationManager.conversations.contains(where: { $0.id == id && !$0.isArchived }) {
+                        conversationManager.selectConversation(id: id)
                     } else {
-                        // Thread was archived/deleted — fall back to the first visible thread
-                        if let fallback = threadManager.visibleThreads.first {
+                        // Conversation was archived/deleted — fall back to the first visible conversation
+                        if let fallback = conversationManager.visibleConversations.first {
                             windowState.applySelectionCorrection(.thread(fallback.id))
                         } else {
                             windowState.applySelectionCorrection(nil)
@@ -267,8 +269,8 @@ struct MainWindowView: View {
                 // Sync surface and chat dock state when selection changes
                 let expanded = windowState.isDynamicExpanded
                 let docked = windowState.isChatDockOpen
-                threadManager.activeViewModel?.activeSurfaceId = expanded ? windowState.activeDynamicSurface?.surfaceId : nil
-                threadManager.activeViewModel?.isChatDockedToSide = expanded && docked
+                conversationManager.activeViewModel?.activeSurfaceId = expanded ? windowState.activeDynamicSurface?.surfaceId : nil
+                conversationManager.activeViewModel?.isChatDockedToSide = expanded && docked
 
                 // Reset expanded state and active surface when navigating away from app/generated
                 let oldIsApp: Bool = {
@@ -329,7 +331,7 @@ struct MainWindowView: View {
             }
             .onChange(of: windowState.activeDynamicSurface?.surfaceId) { _, surfaceId in
                 if windowState.isDynamicExpanded {
-                    threadManager.activeViewModel?.activeSurfaceId = surfaceId
+                    conversationManager.activeViewModel?.activeSurfaceId = surfaceId
                 }
             }
             .preferredColorScheme(themePreference == "light" ? .light : themePreference == "dark" ? .dark : systemIsDark ? .dark : .light)
@@ -373,26 +375,26 @@ struct MainWindowView: View {
             }
             Spacer()
             if windowState.isConversationVisible {
-                ThreadTitleActionsControl(
+                ConversationTitleActionsControl(
                     presentation: threadHeaderPresentation,
                     onCopy: { copyActiveThreadToClipboard(); dismissThreadDrawer() },
                     onPin: {
-                        guard let id = threadManager.activeThreadId else { return }
-                        threadManager.pinThread(id: id)
+                        guard let id = conversationManager.activeConversationId else { return }
+                        conversationManager.pinThread(id: id)
                         dismissThreadDrawer()
                     },
                     onUnpin: {
-                        guard let id = threadManager.activeThreadId else { return }
-                        threadManager.unpinThread(id: id)
+                        guard let id = conversationManager.activeConversationId else { return }
+                        conversationManager.unpinThread(id: id)
                         dismissThreadDrawer()
                     },
                     onArchive: {
-                        guard let id = threadManager.activeThreadId else { return }
-                        threadManager.archiveThread(id: id)
+                        guard let id = conversationManager.activeConversationId else { return }
+                        conversationManager.archiveConversation(id: id)
                         dismissThreadDrawer()
                     },
                     onRename: { startRenameActiveThread(); dismissThreadDrawer() },
-                    showDrawer: $showThreadActionsDrawer
+                    showDrawer: $showConversationActionsDrawer
                 )
                 .background(GeometryReader { proxy in
                     Color.clear.onAppear {
@@ -404,19 +406,35 @@ struct MainWindowView: View {
                 })
             }
             Spacer()
+            if updateManager.isUpdateAvailable {
+                VButton(
+                    label: "Update",
+                    leftIcon: VIcon.arrowUp.rawValue,
+                    style: .primary,
+                    size: .pill,
+                    tooltip: "A new version is available"
+                ) {
+                    if updateManager.isDeferredUpdateReady {
+                        NSApp.terminate(nil)
+                    } else {
+                        updateManager.checkForUpdates()
+                    }
+                }
+                .transition(.opacity.combined(with: .scale(scale: 0.9)))
+            }
             PTTKeyIndicator {
                 settingsStore.pendingSettingsTab = .voice
                 windowState.selection = .panel(.settings)
             }
             if windowState.isConversationVisible {
-                // Temporary chat toggle — always visible on private threads (so users can exit temp chat),
-                // only visible on normal threads when no messages exist yet
-                if threadManager.activeThread?.kind == .private || threadManager.activeViewModel?.messages.contains(where: {
+                // Temporary chat toggle — always visible on private conversations (so users can exit temp chat),
+                // only visible on normal conversations when no messages exist yet
+                if conversationManager.activeConversation?.kind == .private || conversationManager.activeViewModel?.messages.contains(where: {
                     !$0.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
                 }) != true {
                     TemporaryChatToggle(
-                        isActive: threadManager.activeThread?.kind == .private,
-                        tooltip: threadManager.activeThread?.kind == .private ? "Exit temporary chat" : "Temporary chat",
+                        isActive: conversationManager.activeConversation?.kind == .private,
+                        tooltip: conversationManager.activeConversation?.kind == .private ? "Exit temporary chat" : "Temporary chat",
                         onToggle: { toggleTemporaryChat() }
                     )
                 }
@@ -469,31 +487,31 @@ struct MainWindowView: View {
                 }
                 .overlay {
                     // Click-outside-to-dismiss background for thread actions drawer
-                    if showThreadActionsDrawer {
+                    if showConversationActionsDrawer {
                         Color.clear
                             .contentShape(Rectangle())
                             .onTapGesture { dismissThreadDrawer() }
                     }
                 }
                 .overlay(alignment: .topLeading) {
-                    if showThreadActionsDrawer {
+                    if showConversationActionsDrawer {
                         let presentation = threadHeaderPresentation
-                        ThreadActionsDrawer(
+                        ConversationActionsDrawer(
                             presentation: presentation,
                             onCopy: { copyActiveThreadToClipboard(); dismissThreadDrawer() },
                             onPin: {
-                                guard let id = threadManager.activeThreadId else { return }
-                                threadManager.pinThread(id: id)
+                                guard let id = conversationManager.activeConversationId else { return }
+                                conversationManager.pinThread(id: id)
                                 dismissThreadDrawer()
                             },
                             onUnpin: {
-                                guard let id = threadManager.activeThreadId else { return }
-                                threadManager.unpinThread(id: id)
+                                guard let id = conversationManager.activeConversationId else { return }
+                                conversationManager.unpinThread(id: id)
                                 dismissThreadDrawer()
                             },
                             onArchive: {
-                                guard let id = threadManager.activeThreadId else { return }
-                                threadManager.archiveThread(id: id)
+                                guard let id = conversationManager.activeConversationId else { return }
+                                conversationManager.archiveConversation(id: id)
                                 dismissThreadDrawer()
                             },
                             onRename: { startRenameActiveThread(); dismissThreadDrawer() }
@@ -511,6 +529,7 @@ struct MainWindowView: View {
                         let dividerHeight: CGFloat = 1 + SidebarLayoutMetrics.dividerVerticalPadding * 2
                         let drawerY = bottomPad + SidebarLayoutMetrics.rowMinHeight + dividerHeight + VSpacing.xs
                         DrawerMenuView(
+                            authManager: authManager,
                             onSettings: {
                                 sidebar.showPreferencesDrawer = false
                                 windowState.selection = .panel(.settings)
@@ -526,6 +545,11 @@ struct MainWindowView: View {
                             onLogOut: {
                                 sidebar.showPreferencesDrawer = false
                                 AppDelegate.shared?.performLogout()
+                            },
+                            onOpenBilling: {
+                                sidebar.showPreferencesDrawer = false
+                                settingsStore.pendingSettingsTab = .billing
+                                windowState.selection = .panel(.settings)
                             }
                         )
                         .frame(width: drawerWidth)
@@ -546,12 +570,12 @@ struct MainWindowView: View {
                 .overlay(alignment: .topLeading) {
                     if showThreadSwitcher {
                         ThreadSwitcherDrawer(
-                            regularThreads: regularThreads,
-                            activeThreadId: threadManager.activeThreadId,
-                            threadManager: threadManager,
+                            regularConversations: regularConversations,
+                            activeConversationId: conversationManager.activeConversationId,
+                            conversationManager: conversationManager,
                             windowState: windowState,
                             sidebar: sidebar,
-                            selectThread: { selectThread($0) },
+                            selectConversation: { selectConversation($0) },
                             onDismiss: { showThreadSwitcher = false }
                         )
                         .frame(width: sidebarExpandedWidth - VSpacing.sm * 2)
@@ -561,7 +585,7 @@ struct MainWindowView: View {
                         )
                         .zIndex(10)
                         .transition(.opacity)
-                        .onChange(of: threadManager.activeThreadId) { _, _ in
+                        .onChange(of: conversationManager.activeConversationId) { _, _ in
                             showThreadSwitcher = false
                         }
                         .onChange(of: sidebarExpanded) { _, expanded in
@@ -590,20 +614,20 @@ struct MainWindowView: View {
         .animation(VAnimation.fast, value: zoomManager.showZoomIndicator)
         .overlay(alignment: .top) {
             Group {
-                if let viewModel = threadManager.activeViewModel {
+                if let viewModel = conversationManager.activeViewModel {
                     ErrorToastOverlay(
                         errorManager: viewModel.errorManager,
                         hasAPIKey: windowState.hasAPIKey,
                         onOpenSettings: { windowState.selection = .panel(.settings) },
-                        onRetrySessionError: { viewModel.retryAfterSessionError() },
-                        onCopyDebugInfo: { viewModel.copySessionErrorDebugDetails() },
-                        onDismissSessionError: { viewModel.dismissSessionError() },
+                        onRetryConversationError: { viewModel.retryAfterConversationError() },
+                        onCopyDebugInfo: { viewModel.copyConversationErrorDebugDetails() },
+                        onDismissConversationError: { viewModel.dismissConversationError() },
                         onSendAnyway: { viewModel.sendAnyway() },
                         onRetryLastMessage: { viewModel.retryLastMessage() },
                         onDismissError: { viewModel.dismissError() }
                     )
                 } else if !windowState.hasAPIKey {
-                    ChatSessionErrorToast(
+                    ChatConversationErrorToast(
                         message: "API key not set. Add one in Settings to start chatting.",
                         icon: .keyRound,
                         accentColor: VColor.systemMidStrong,
@@ -642,9 +666,9 @@ struct MainWindowView: View {
             // disable it, leaving panels stuck in split mode.
             isAppChatOpen = false
             windowState.refreshAPIKeyStatus(isConnected: daemonClient.isConnected)
-            selectedThreadId = threadManager.activeThreadId
+            selectedThreadId = conversationManager.activeConversationId
             // Initialize persistent thread tracking on launch
-            if let activeId = threadManager.activeThreadId {
+            if let activeId = conversationManager.activeConversationId {
                 windowState.persistentThreadId = activeId
             }
             daemonClient.startSSE()
@@ -667,7 +691,7 @@ struct MainWindowView: View {
         .onReceive(daemonClient.$isConnected) { connected in
             windowState.refreshAPIKeyStatus(isConnected: connected)
 
-            // Fallback for fresh users with 0 threads: dismiss skeleton after a
+            // Fallback for fresh users with 0 conversations: dismiss skeleton after a
             // short delay once the daemon is connected. Only applies during initial load.
             guard connected, showDaemonLoading else { return }
             DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
@@ -677,8 +701,8 @@ struct MainWindowView: View {
                 }
             }
         }
-        .onChange(of: threadManager.threads.isEmpty) { _, isEmpty in
-            // Dismiss skeleton when threads arrive from daemon
+        .onChange(of: conversationManager.conversations.isEmpty) { _, isEmpty in
+            // Dismiss skeleton when conversations arrive from daemon
             if !isEmpty && showDaemonLoading {
                 withAnimation(VAnimation.standard) {
                     showDaemonLoading = false
@@ -686,15 +710,15 @@ struct MainWindowView: View {
             }
         }
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
-            threadManager.markActiveThreadSeenIfNeeded()
+            conversationManager.markActiveThreadSeenIfNeeded()
         }
         .onChange(of: selectedThreadId) { _, newId in
             if let newId = newId {
-                threadManager.selectThread(id: newId)
+                conversationManager.selectConversation(id: newId)
             }
         }
-        .onChange(of: threadManager.activeThreadId) { oldId, newId in
-            // Sync activeThreadId changes back to selectedThreadId to keep sidebar selection in sync
+        .onChange(of: conversationManager.activeConversationId) { oldId, newId in
+            // Sync activeConversationId changes back to selectedThreadId to keep sidebar selection in sync
             selectedThreadId = newId
             // Always sync persistentThreadId so the sidebar highlights the
             // correct thread — even when an overlay (.panel, .app) is active.
@@ -710,16 +734,16 @@ struct MainWindowView: View {
             windowState.selectedSubagentId = nil
             // Clear stale activeSurfaceId on the old thread and sync the new one
             if let oldId {
-                threadManager.clearActiveSurface(threadId: oldId)
+                conversationManager.clearActiveSurface(threadId: oldId)
             }
-            threadManager.activeViewModel?.activeSurfaceId = windowState.isDynamicExpanded ? windowState.activeDynamicSurface?.surfaceId : nil
-            threadManager.activeViewModel?.isChatDockedToSide = windowState.isDynamicExpanded && windowState.isChatDockOpen
+            conversationManager.activeViewModel?.activeSurfaceId = windowState.isDynamicExpanded ? windowState.activeDynamicSurface?.surfaceId : nil
+            conversationManager.activeViewModel?.isChatDockedToSide = windowState.isDynamicExpanded && windowState.isChatDockOpen
             // Consume any buffered deep-link message now that a thread is active.
             // Mirrors the iOS pattern (ChatTabView.onAppear, ThreadListView.onAppear)
             // where consumeDeepLinkIfNeeded() is called when the view model becomes
             // visible. Without this, deep links arriving before the window/thread is
             // fully initialized are silently dropped on macOS.
-            threadManager.activeViewModel?.consumeDeepLinkIfNeeded()
+            conversationManager.activeViewModel?.consumeDeepLinkIfNeeded()
         }
         .onReceive(NotificationCenter.default.publisher(for: .openDynamicWorkspace)) { notification in
             if let msg = notification.userInfo?["surfaceMessage"] as? UiSurfaceShowMessage {
@@ -853,19 +877,19 @@ struct MainWindowView: View {
 // MARK: - Error Toast Overlay
 
 /// Wrapper view that directly observes a `ChatViewModel` via `@ObservedObject`,
-/// ensuring error state changes (sessionError, errorText) trigger UI updates
-/// even though MainWindowView only observes ThreadManager.
+/// ensuring error state changes (conversationError, errorText) trigger UI updates
+/// even though MainWindowView only observes ConversationManager.
 ///
 /// By capturing the viewModel reference at render-time, closures always act on
-/// the correct thread's ViewModel — even if the user switches threads while a
+/// the correct thread's ViewModel — even if the user switches conversations while a
 /// toast is visible.
 private struct ErrorToastOverlay: View {
     @ObservedObject var errorManager: ChatErrorManager
     let hasAPIKey: Bool
     let onOpenSettings: () -> Void
-    let onRetrySessionError: () -> Void
+    let onRetryConversationError: () -> Void
     let onCopyDebugInfo: () -> Void
-    let onDismissSessionError: () -> Void
+    let onDismissConversationError: () -> Void
     let onSendAnyway: () -> Void
     let onRetryLastMessage: () -> Void
     let onDismissError: () -> Void
@@ -873,7 +897,7 @@ private struct ErrorToastOverlay: View {
     var body: some View {
         VStack(alignment: .center, spacing: VSpacing.xs) {
             if !hasAPIKey {
-                ChatSessionErrorToast(
+                ChatConversationErrorToast(
                     message: "API key not set. Add one in Settings to start chatting.",
                     icon: .keyRound,
                     accentColor: VColor.systemMidStrong,
@@ -884,19 +908,19 @@ private struct ErrorToastOverlay: View {
                 .containerRelativeFrame(.horizontal) { width, _ in width * 0.7 }
             }
 
-            if let sessionError = errorManager.sessionError {
-                ChatSessionErrorToast(
-                    error: sessionError,
-                    onRetry: onRetrySessionError,
+            if let conversationError = errorManager.conversationError, !conversationError.isCreditsExhausted {
+                ChatConversationErrorToast(
+                    error: conversationError,
+                    onRetry: onRetryConversationError,
                     onCopyDebugInfo: onCopyDebugInfo,
-                    onDismiss: onDismissSessionError
+                    onDismiss: onDismissConversationError
                 )
                 .fixedSize(horizontal: true, vertical: false)
                 .containerRelativeFrame(.horizontal) { width, _ in width * 0.7 }
             }
 
-            if let errorText = errorManager.errorText, errorManager.sessionError == nil {
-                ChatSessionErrorToast(
+            if let errorText = errorManager.errorText, errorManager.conversationError == nil {
+                ChatConversationErrorToast(
                     message: errorText,
                     subtitle: errorManager.isConnectionError ? errorManager.connectionDiagnosticHint : nil,
                     actionLabel: errorManager.isSecretBlockError ? "Send Anyway" : (errorManager.isRetryableError || (errorManager.isConnectionError && errorManager.hasRetryPayload)) ? "Retry" : nil,
@@ -909,7 +933,7 @@ private struct ErrorToastOverlay: View {
         }
         .padding(.top, VSpacing.sm)
         .animation(VAnimation.fast, value: hasAPIKey)
-        .animation(VAnimation.fast, value: errorManager.sessionError != nil)
+        .animation(VAnimation.fast, value: errorManager.conversationError != nil)
         .animation(VAnimation.fast, value: errorManager.errorText != nil)
     }
 }

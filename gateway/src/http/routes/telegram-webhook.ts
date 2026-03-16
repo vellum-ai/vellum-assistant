@@ -569,13 +569,17 @@ export function createTelegramWebhookHandler(
         const eligible = eventAttachments.filter((att) => {
           if (
             att.fileSize !== undefined &&
-            att.fileSize > config.maxAttachmentBytes
+            att.fileSize >
+              (config.maxAttachmentBytes.telegram ??
+                config.maxAttachmentBytes.default)
           ) {
             tlog.warn(
               {
                 fileId: att.fileId,
                 fileSize: att.fileSize,
-                limit: config.maxAttachmentBytes,
+                limit:
+                  config.maxAttachmentBytes.telegram ??
+                  config.maxAttachmentBytes.default,
               },
               "Skipping oversized attachment",
             );

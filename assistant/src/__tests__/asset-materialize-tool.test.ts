@@ -72,7 +72,6 @@ function resetTables() {
 
 const dummyContext: ToolContext = {
   workingDir: sandboxDir,
-  sessionId: "sess-test",
   conversationId: "conv-test",
   trustClass: "guardian",
 };
@@ -350,7 +349,6 @@ describe("AssetMaterializeTool visibility policy", () => {
     const otherConv = createConversation({ title: "other-conv" });
     const context: ToolContext = {
       workingDir: sandboxDir,
-      sessionId: "sess-test",
       conversationId: otherConv.id,
       trustClass: "guardian",
     };
@@ -380,7 +378,6 @@ describe("AssetMaterializeTool visibility policy", () => {
     // Materialize from the same private conversation
     const context: ToolContext = {
       workingDir: sandboxDir,
-      sessionId: "sess-test",
       conversationId: privateConv.id,
       trustClass: "guardian",
     };
@@ -411,7 +408,6 @@ describe("AssetMaterializeTool visibility policy", () => {
     const otherConv = createConversation({ title: "other-conv" });
     const context: ToolContext = {
       workingDir: sandboxDir,
-      sessionId: "sess-test",
       conversationId: otherConv.id,
       trustClass: "guardian",
     };
@@ -443,7 +439,6 @@ describe("AssetMaterializeTool visibility policy", () => {
     const standardConv = createConversation({ title: "standard-conv" });
     const context: ToolContext = {
       workingDir: sandboxDir,
-      sessionId: "sess-test",
       conversationId: standardConv.id,
       trustClass: "guardian",
     };
@@ -480,7 +475,6 @@ describe("AssetMaterializeTool visibility policy", () => {
     });
     const context: ToolContext = {
       workingDir: sandboxDir,
-      sessionId: "sess-test",
       conversationId: privateConv2.id,
       trustClass: "guardian",
     };
@@ -515,7 +509,6 @@ describe("AssetMaterializeTool visibility policy", () => {
     const otherConv = createConversation({ title: "other-conv" });
     const context: ToolContext = {
       workingDir: sandboxDir,
-      sessionId: "sess-test",
       conversationId: otherConv.id,
       trustClass: "guardian",
     };

@@ -58,7 +58,6 @@ export class ToolExecutor {
       executionTarget,
       input,
       workingDir: context.workingDir,
-      sessionId: context.sessionId,
       conversationId: context.conversationId,
       requestId: context.requestId,
       startedAtMs: startTime,
@@ -104,12 +103,16 @@ export class ToolExecutor {
       // inherently high-impact.
       if (name === "manage_secure_command_tool") {
         context.forcePromptSideEffects = true;
+        context.requireFreshApproval = true;
       }
 
       // A consumed scoped grant is a complete authorization — skip the
       // interactive permission/prompt flow so non-interactive sessions
       // don't auto-deny prompt-gated tools and burn the one-time grant.
-      if (!gateResult.grantConsumed) {
+      // Exception: requireFreshApproval tools always go through the
+      // permission check even when a grant was consumed — the grant does
+      // not substitute for an interactive human review.
+      if (!gateResult.grantConsumed || context.requireFreshApproval) {
         // Check permissions via the extracted PermissionChecker
         const permResult = await this.permissionChecker.checkPermission(
           name,
@@ -137,7 +140,7 @@ export class ToolExecutor {
         riskLevel,
         decision,
         workingDir: context.workingDir,
-        sessionId: context.sessionId,
+        conversationId: context.conversationId,
       });
 
       if (hookResult.blocked) {
@@ -149,7 +152,6 @@ export class ToolExecutor {
           executionTarget,
           input,
           workingDir: context.workingDir,
-          sessionId: context.sessionId,
           conversationId: context.conversationId,
           requestId: context.requestId,
           riskLevel,
@@ -202,7 +204,6 @@ export class ToolExecutor {
             executionTarget,
             input,
             workingDir: context.workingDir,
-            sessionId: context.sessionId,
             conversationId: context.conversationId,
             requestId: context.requestId,
             riskLevel,
@@ -240,7 +241,6 @@ export class ToolExecutor {
           executionTarget,
           input,
           workingDir: context.workingDir,
-          sessionId: context.sessionId,
           conversationId: context.conversationId,
           requestId: context.requestId,
           riskLevel,
@@ -259,7 +259,7 @@ export class ToolExecutor {
           context.cesClient,
           {
             isInteractive: context.isInteractive,
-            sessionId: context.sessionId,
+            sessionId: context.conversationId,
             signal: context.signal,
           },
         );
@@ -274,7 +274,7 @@ export class ToolExecutor {
             {
               toolName: name,
               grantId: bridgeResult.grantId,
-              sessionId: context.sessionId,
+              conversationId: context.conversationId,
             },
             "CES approval granted — retrying tool invocation with grantId",
           );
@@ -307,7 +307,6 @@ export class ToolExecutor {
             executionTarget,
             input,
             workingDir: context.workingDir,
-            sessionId: context.sessionId,
             conversationId: context.conversationId,
             requestId: context.requestId,
             riskLevel,
@@ -326,7 +325,6 @@ export class ToolExecutor {
             executionTarget,
             input,
             workingDir: context.workingDir,
-            sessionId: context.sessionId,
             conversationId: context.conversationId,
             requestId: context.requestId,
             riskLevel,
@@ -382,7 +380,6 @@ export class ToolExecutor {
         executionTarget,
         input,
         workingDir: context.workingDir,
-        sessionId: context.sessionId,
         conversationId: context.conversationId,
         requestId: context.requestId,
         riskLevel,
@@ -397,7 +394,7 @@ export class ToolExecutor {
         riskLevel,
         isError: execResult.isError,
         durationMs,
-        sessionId: context.sessionId,
+        conversationId: context.conversationId,
       });
 
       return execResult;
@@ -437,7 +434,6 @@ export class ToolExecutor {
         executionTarget,
         input,
         workingDir: context.workingDir,
-        sessionId: context.sessionId,
         conversationId: context.conversationId,
         requestId: context.requestId,
         riskLevel,
@@ -456,7 +452,7 @@ export class ToolExecutor {
         riskLevel,
         isError: true,
         durationMs,
-        sessionId: context.sessionId,
+        conversationId: context.conversationId,
       });
 
       if (isExpected) {

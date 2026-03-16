@@ -52,7 +52,7 @@ extension AppDelegate {
         // Bring the main window to front and consume the pending message
         // in the active thread's view model.
         showMainWindow()
-        mainWindow?.threadManager.activeViewModel?.consumeDeepLinkIfNeeded()
+        mainWindow?.conversationManager.activeViewModel?.consumeDeepLinkIfNeeded()
     }
 
     // MARK: - Bundle Open Handling
@@ -165,7 +165,7 @@ extension AppDelegate {
                     </html>
                     """
                     let surfaceMsg = UiSurfaceShowMessage(
-                        sessionId: "shared-app",
+                        conversationId: "shared-app",
                         surfaceId: surfaceId,
                         surfaceType: "dynamic_page",
                         title: manifest.name,

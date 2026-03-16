@@ -20,7 +20,7 @@ assistant/src/config/skill-state.ts @awlevin
 assistant/src/config/bundled-skills/ @awlevin
 assistant/src/daemon/handlers/skills.ts @awlevin
 assistant/src/daemon/message-types/skills.ts @awlevin
-assistant/src/daemon/session-skill-tools.ts @awlevin
+assistant/src/daemon/conversation-skill-tools.ts @awlevin
 
 # Agent-to-agent / agent-to-person interactions (Harrison)
 assistant/src/subagent/ @NgoHarrison
@@ -29,8 +29,8 @@ assistant/src/messaging/ @NgoHarrison
 assistant/src/notifications/ @NgoHarrison
 assistant/src/runtime/routes/ @NgoHarrison
 assistant/src/runtime/ingress-service.ts @NgoHarrison
-assistant/src/daemon/session-messaging.ts @NgoHarrison
-assistant/src/daemon/session-surfaces.ts @NgoHarrison
+assistant/src/daemon/conversation-messaging.ts @NgoHarrison
+assistant/src/daemon/conversation-surfaces.ts @NgoHarrison
 gateway/src/channels/ @NgoHarrison
 gateway/src/handlers/ @NgoHarrison
 gateway/src/routing/ @NgoHarrison
@@ -86,7 +86,7 @@ assistant/src/runtime/confirmation-request-guardian-bridge.ts @noanflaherty
 assistant/src/runtime/actor-trust-resolver.ts @noanflaherty
 assistant/src/runtime/approval-*.ts @noanflaherty
 assistant/src/runtime/verification-rate-limiter.ts @noanflaherty
-assistant/src/runtime/session-approval-overrides.ts @noanflaherty
+assistant/src/runtime/conversation-approval-overrides.ts @noanflaherty
 assistant/src/runtime/routes/approval-routes.ts @noanflaherty
 assistant/src/runtime/routes/channel-guardian-routes.ts @noanflaherty
 assistant/src/runtime/routes/guardian-*.ts @noanflaherty

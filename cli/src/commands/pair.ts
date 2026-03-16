@@ -1,4 +1,4 @@
-import { createHash, randomUUID } from "crypto";
+import { createHash } from "crypto";
 import { readFileSync } from "fs";
 import jsQR from "jsqr";
 import { hostname, userInfo } from "os";
@@ -7,7 +7,7 @@ import { PNG } from "pngjs";
 import { saveAssistantEntry } from "../lib/assistant-config";
 import type { AssistantEntry } from "../lib/assistant-config";
 import type { Species } from "../lib/constants";
-import { generateRandomSuffix } from "../lib/random-name";
+import { generateInstanceName } from "../lib/random-name";
 
 interface QRPairingPayload {
   type: string;
@@ -119,7 +119,7 @@ export async function pair(): Promise<void> {
       throw new Error("QR code does not contain valid Vellum pairing data.");
     }
 
-    const instanceName = `${species}-${generateRandomSuffix()}`;
+    const instanceName = generateInstanceName(species);
     const runtimeUrl = payload.g;
     const deviceId = getDeviceId();
     const deviceName = hostname();
@@ -167,7 +167,6 @@ export async function pair(): Promise<void> {
 
     const customEntry: AssistantEntry = {
       assistantId: instanceName,
-      installationId: randomUUID(),
       runtimeUrl,
       bearerToken,
       cloud: "custom",

@@ -44,7 +44,7 @@ final class SecretPromptManagerTests: XCTestCase {
             label: "GitHub Token",
             description: description,
             placeholder: nil,
-            sessionId: nil,
+            conversationId: nil,
             purpose: purpose,
             allowedTools: allowedTools,
             allowedDomains: allowedDomains,

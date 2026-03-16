@@ -10,7 +10,10 @@ import {
 import { tmpdir } from "node:os";
 import { extname, join } from "node:path";
 
-import { getAttachmentsByIds } from "../../../../memory/attachments-store.js";
+import {
+  getAttachmentsByIds,
+  getFilePathForAttachment,
+} from "../../../../memory/attachments-store.js";
 import { getSecureKeyAsync } from "../../../../security/secure-keys.js";
 import type {
   ToolContext,
@@ -161,6 +164,26 @@ async function resolveSource(
         isError: true,
       };
     }
+    // Check if this is a file-backed attachment (large files stored on disk)
+    const onDiskPath = getFilePathForAttachment(attachment.id);
+    if (onDiskPath) {
+      // File-backed attachment — use the on-disk file directly
+      try {
+        await access(onDiskPath);
+      } catch {
+        return {
+          content: `Attachment file not found on disk: ${onDiskPath}`,
+          isError: true,
+        };
+      }
+      return {
+        inputPath: onDiskPath,
+        isVideo: mime.startsWith("video/"),
+        tempFile: null,
+      };
+    }
+
+    // Inline attachment — decode base64 to a temp file
     const ext = mime.startsWith("video/") ? ".mp4" : ".m4a";
     const tempPath = join(
       tmpdir(),

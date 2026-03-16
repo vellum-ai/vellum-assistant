@@ -68,6 +68,39 @@ extension AppDelegate {
         return daemonClient.isConnected
     }
 
+    /// Waits for the local bootstrap to complete (`.localBootstrapCompleted` notification)
+    /// or until the timeout expires. This ensures managed-proxy credentials are provisioned
+    /// before the wake-up greeting triggers an LLM call.
+    func awaitLocalBootstrapCompleted(timeout: TimeInterval) async {
+        await withCheckedContinuation { continuation in
+            var resumed = false
+            var observer: (any NSObjectProtocol)?
+            observer = NotificationCenter.default.addObserver(
+                forName: .localBootstrapCompleted,
+                object: nil,
+                queue: .main
+            ) { _ in
+                guard !resumed else { return }
+                resumed = true
+                if let obs = observer {
+                    NotificationCenter.default.removeObserver(obs)
+                }
+                continuation.resume()
+            }
+
+            Task {
+                try? await Task.sleep(nanoseconds: UInt64(timeout * 1_000_000_000))
+                guard !resumed else { return }
+                resumed = true
+                if let obs = observer {
+                    NotificationCenter.default.removeObserver(obs)
+                }
+                log.warning("Local bootstrap did not complete within \(timeout)s — proceeding with wake-up")
+                continuation.resume()
+            }
+        }
+    }
+
     /// Sends the wake-up greeting. If the daemon is disconnected, waits for
     /// reconnection before proceeding. Since `showMainWindow` always creates
     /// the window (via `ensureMainWindowExists`), there is no need for a

@@ -93,7 +93,7 @@ class HostFileEditTool implements Tool {
           new_string: newString as string,
           replace_all: replaceAll,
         },
-        context.sessionId,
+        context.conversationId,
         context.signal,
       );
     }

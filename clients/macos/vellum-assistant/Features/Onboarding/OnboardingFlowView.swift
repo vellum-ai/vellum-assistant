@@ -27,9 +27,6 @@ struct OnboardingFlowView: View {
     }
 
     private var maxOnboardingStep: Int {
-        if managedSignInEnabled {
-            return 1
-        }
         return 2
     }
 
@@ -54,9 +51,12 @@ struct OnboardingFlowView: View {
                         .ignoresSafeArea()
                     )
             } else if (0...maxOnboardingStep).contains(state.currentStep) {
-                // Onboarding flow: WakeUp → APIKey → ImproveExperience (steps 0–2)
+                // Onboarding flow: WakeUp → HostingSelector → APIKeyEntry (steps 0–2)
+                ScrollView(.vertical, showsIndicators: false) {
                 VStack(spacing: 0) {
-                    Spacer()
+                    // Fixed top inset — positions the icon consistently
+                    // across all steps regardless of bottom content weight.
+                    Color.clear.frame(height: geometry.size.height * 0.08)
 
                     if let nsImage = Self.appIcon {
                         Image(nsImage: nsImage)
@@ -77,8 +77,9 @@ struct OnboardingFlowView: View {
                             case 0:
                                 WakeUpStepView(
                                     state: state,
-                                    authManager: authManager,
+                                    authManager: managedSignInEnabled ? authManager : nil,
                                     isAdvancing: isAdvancingFromWakeUp,
+                                    managedSignInEnabled: managedSignInEnabled,
                                     onStartWithAPIKey: {
                                         guard !isAdvancingFromWakeUp else { return }
                                         isAdvancingFromWakeUp = true
@@ -104,7 +105,7 @@ struct OnboardingFlowView: View {
                                     }
                                 )
                             case 2:
-                                ImproveExperienceStepView(state: state)
+                                APIKeyEntryStepView(state: state)
                             default:
                                 EmptyView()
                             }
@@ -117,7 +118,17 @@ struct OnboardingFlowView: View {
                         )
                     )
                     .id(isBootstrappingManaged ? -1 : state.currentStep)
+
+                    // Bottom padding so content isn't flush with window edge.
+                    // Skip for step 0 (WakeUpStepView) where the characters
+                    // graphic is designed to sit flush at the window bottom.
+                    if state.currentStep != 0 || isBootstrappingManaged {
+                        Color.clear.frame(height: VSpacing.xxl)
+                    }
                 }
+                .frame(maxWidth: .infinity, minHeight: geometry.size.height)
+                }
+                .scrollBounceBehavior(.basedOnSize)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .background(
                     RadialGradient(
@@ -134,7 +145,6 @@ struct OnboardingFlowView: View {
             }
         }
         }
-        .ignoresSafeArea()
         .task {
             if !authManager.isAuthenticated {
                 await authManager.checkSession()

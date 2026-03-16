@@ -1,5 +1,5 @@
 import {
-  resolveByThread,
+  resolveByConversation,
   resolveFollowUp,
 } from "../../followups/followup-store.js";
 import type { FollowUp } from "../../followups/types.js";
@@ -9,7 +9,7 @@ function formatFollowUp(f: FollowUp): string {
   const lines = [
     `Follow-up ${f.id}`,
     `  Channel: ${f.channel}`,
-    `  Thread: ${f.threadId}`,
+    `  Conversation: ${f.conversationId}`,
     `  Status: ${f.status}`,
   ];
   if (f.contactId) lines.push(`  Contact ID: ${f.contactId}`);
@@ -22,11 +22,12 @@ export async function executeFollowupResolve(
 ): Promise<ToolExecutionResult> {
   const id = input.id as string | undefined;
   const channel = input.channel as string | undefined;
-  const threadId = input.thread_id as string | undefined;
+  const conversationId = input.conversation_id as string | undefined;
 
-  if (!id && !(channel && threadId)) {
+  if (!id && !(channel && conversationId)) {
     return {
-      content: "Error: Either id or both channel and thread_id are required",
+      content:
+        "Error: Either id or both channel and conversation_id are required",
       isError: true,
     };
   }
@@ -39,10 +40,10 @@ export async function executeFollowupResolve(
         isError: false,
       };
     } else {
-      const resolved = resolveByThread(channel!, threadId!);
+      const resolved = resolveByConversation(channel!, conversationId!);
       if (resolved.length === 0) {
         return {
-          content: `No pending follow-up found for channel="${channel}" thread="${threadId}"`,
+          content: `No pending follow-up found for channel="${channel}" conversation="${conversationId}"`,
           isError: false,
         };
       }

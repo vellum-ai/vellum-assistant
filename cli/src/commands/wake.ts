@@ -4,7 +4,8 @@ import { join } from "path";
 import { resolveTargetAssistant } from "../lib/assistant-config.js";
 import { isProcessAlive, stopProcessByPidFile } from "../lib/process";
 import {
-  isWatchModeAvailable,
+  isAssistantWatchModeAvailable,
+  isGatewayWatchModeAvailable,
   startLocalDaemon,
   startGateway,
 } from "../lib/local";
@@ -64,7 +65,7 @@ export async function wake(): Promise<void> {
           // Watch mode requires bun --watch with .ts sources; packaged desktop
           // builds only have a compiled binary. Stopping the daemon without a
           // viable watch-mode path would leave the user with no running assistant.
-          if (!isWatchModeAvailable()) {
+          if (!isAssistantWatchModeAvailable()) {
             console.log(
               `Assistant running (pid ${pid}) — watch mode not available (no source files). Keeping existing process.`,
             );
@@ -95,8 +96,8 @@ export async function wake(): Promise<void> {
     const { alive, pid } = isProcessAlive(gatewayPidFile);
     if (alive) {
       if (watch) {
-        // Same guard as the daemon: only restart if watch mode is viable.
-        if (!isWatchModeAvailable()) {
+        // Guard gateway restart separately: check gateway source availability.
+        if (!isGatewayWatchModeAvailable()) {
           console.log(
             `Gateway running (pid ${pid}) — watch mode not available (no source files). Keeping existing process.`,
           );

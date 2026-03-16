@@ -334,7 +334,7 @@ final class HTTPDaemonClientUnreadTests: XCTestCase {
 
     func testSessionListResponsePreservesPinMetadataFromHTTPTransport() async throws {
         let responseExpectation = expectation(description: "session list response")
-        var capturedResponse: SessionListResponseMessage?
+        var capturedResponse: ConversationListResponseMessage?
 
         MockURLProtocol.requestHandler = { request in
             let response = HTTPURLResponse(
@@ -345,7 +345,7 @@ final class HTTPDaemonClientUnreadTests: XCTestCase {
             )!
             let body = """
             {
-              "sessions": [
+              "conversations": [
                 {
                   "id": "session-123",
                   "title": "Pinned thread",
@@ -367,17 +367,17 @@ final class HTTPDaemonClientUnreadTests: XCTestCase {
             conversationKey: "conv-local"
         )
         transport.onMessage = { message in
-            if case let .sessionListResponse(response) = message {
+            if case let .conversationListResponse(response) = message {
                 capturedResponse = response
                 responseExpectation.fulfill()
             }
         }
 
-        try transport.send(SessionListRequestMessage(offset: 0, limit: 50))
+        try transport.send(ConversationListRequestMessage(offset: 0, limit: 50))
 
         await fulfillment(of: [responseExpectation], timeout: 1.0)
 
-        let session = try XCTUnwrap(capturedResponse?.sessions.first)
+        let session = try XCTUnwrap(capturedResponse?.conversations.first)
         XCTAssertEqual(session.displayOrder, 7)
         XCTAssertEqual(session.isPinned, true)
     }

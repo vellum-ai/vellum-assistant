@@ -84,6 +84,7 @@ import {
   createApprovalConversationGenerator,
   createApprovalCopyGenerator,
 } from "./approval-generators.js";
+import { initSlashPairingContext } from "./conversation-slash.js";
 import {
   cleanupPidFile,
   cleanupPidFileIfOwner,
@@ -95,12 +96,12 @@ import {
 } from "./guardian-action-generators.js";
 import {
   cancelGeneration,
-  clearAllSessions,
+  clearAllConversations,
   regenerateResponse,
-  renameSession,
-  switchSession,
+  renameConversation,
+  switchConversation,
   undoLastMessage,
-} from "./handlers/sessions.js";
+} from "./handlers/conversations.js";
 import type { ServerMessage } from "./message-protocol.js";
 import {
   initializeProvidersAndTools,
@@ -109,7 +110,6 @@ import {
 } from "./providers-setup.js";
 import { seedInterfaceFiles } from "./seed-files.js";
 import { DaemonServer } from "./server.js";
-import { initSlashPairingContext } from "./session-slash.js";
 import { installShutdownHandlers } from "./shutdown-handlers.js";
 import { handleWatchObservation } from "./watch-handler.js";
 
@@ -321,13 +321,13 @@ export async function runDaemon(): Promise<void> {
       });
     }
 
-    // If the user has opted out of crash reporting, stop Sentry from capturing
-    // future events. Early-startup crashes before this point are still captured.
-    const collectUsageData = isAssistantFeatureFlagEnabled(
-      "feature_flags.collect-usage-data.enabled",
-      config,
-    );
-    if (!collectUsageData) {
+    // Privacy gating: Sentry crash/error reporting is gated by sendDiagnostics,
+    // while the usage telemetry reporter is gated by collectUsageData. Both are
+    // disabled in dev mode. Early-startup crashes before this point are still captured.
+    const isDevMode = process.env.VELLUM_DEV === "1";
+    const sendDiagnostics = !isDevMode && config.sendDiagnostics;
+    const collectUsageData = !isDevMode && config.collectUsageData;
+    if (!sendDiagnostics) {
       await closeSentry();
     }
 
@@ -483,6 +483,7 @@ export async function runDaemon(): Promise<void> {
             title: notification.title,
             body: notification.body,
           },
+          dedupeKey: `watcher:notification:${Date.now()}`,
         });
       },
       (params) => {
@@ -500,6 +501,7 @@ export async function runDaemon(): Promise<void> {
             title: params.title,
             body: params.body,
           },
+          dedupeKey: `watcher:escalation:${Date.now()}`,
         });
       },
       (info) => {
@@ -551,8 +553,8 @@ export async function runDaemon(): Promise<void> {
       guardianFollowUpConversationGenerator:
         createGuardianFollowUpConversationGenerator(),
       sendMessageDeps: {
-        getOrCreateSession: (conversationId) =>
-          server.getSessionForMessages(conversationId),
+        getOrCreateConversation: (conversationId) =>
+          server.getConversationForMessages(conversationId),
         assistantEventHub,
         resolveAttachments: (attachmentIds) =>
           attachmentsStore.getAttachmentsByIds(attachmentIds).map((a) => ({
@@ -562,25 +564,30 @@ export async function runDaemon(): Promise<void> {
             data: a.dataBase64,
           })),
       },
-      findSession: (sessionId) => server.findSession(sessionId),
-      findSessionBySurfaceId: (surfaceId) =>
-        server.findSessionBySurfaceId(surfaceId),
+      findConversation: (conversationId) =>
+        server.findConversation(conversationId),
+      findConversationBySurfaceId: (surfaceId) =>
+        server.findConversationBySurfaceId(surfaceId),
       getSkillContext: () => server.getSkillContext(),
       getModelSetContext: () => server.getHandlerContext(),
-      sessionManagementDeps: {
-        switchSession: (sessionId) =>
-          switchSession(sessionId, server.getHandlerContext()),
-        renameSession: (sessionId, name) => renameSession(sessionId, name),
-        clearAllSessions: () => clearAllSessions(server.getHandlerContext()),
-        cancelGeneration: (sessionId) =>
-          cancelGeneration(sessionId, server.getHandlerContext()),
-        destroySession: (sessionId) => server.destroySession(sessionId),
-        undoLastMessage: (sessionId) =>
-          undoLastMessage(sessionId, server.getHandlerContext()),
-        regenerateResponse: (sessionId) => {
+      conversationManagementDeps: {
+        switchConversation: (conversationId) =>
+          switchConversation(conversationId, server.getHandlerContext()),
+        renameConversation: (conversationId, name) =>
+          renameConversation(conversationId, name),
+        clearAllConversations: () =>
+          clearAllConversations(server.getHandlerContext()),
+        cancelGeneration: (conversationId) =>
+          cancelGeneration(conversationId, server.getHandlerContext()),
+        destroyConversation: (conversationId) =>
+          server.destroyConversation(conversationId),
+        undoLastMessage: (conversationId) =>
+          undoLastMessage(conversationId, server.getHandlerContext()),
+        regenerateResponse: (conversationId) => {
           // Resolve conversation key up front so SSE events are tagged with
           // the internal conversation ID, not the raw client key.
-          const resolvedId = resolveConversationId(sessionId) ?? sessionId;
+          const resolvedId =
+            resolveConversationId(conversationId) ?? conversationId;
           let hubChain: Promise<void> = Promise.resolve();
           const sendEvent = (event: ServerMessage) => {
             const ae = buildAssistantEvent(
@@ -601,7 +608,7 @@ export async function runDaemon(): Promise<void> {
             })();
           };
           return regenerateResponse(
-            sessionId,
+            conversationId,
             server.getHandlerContext(),
             sendEvent,
           );
@@ -615,7 +622,7 @@ export async function runDaemon(): Promise<void> {
               {
                 type: "watch_observation",
                 watchId: params.watchId,
-                sessionId: params.sessionId,
+                conversationId: params.conversationId,
                 ocrText: params.ocrText,
                 appName: params.appName,
                 windowTitle: params.windowTitle,
@@ -638,8 +645,8 @@ export async function runDaemon(): Promise<void> {
     // Inject voice bridge deps BEFORE attempting to start the HTTP server.
     // The bridge must be available even when the HTTP server fails to bind.
     setVoiceBridgeDeps({
-      getOrCreateSession: (conversationId, _transport) =>
-        server.getSessionForMessages(conversationId),
+      getOrCreateConversation: (conversationId, _transport) =>
+        server.getConversationForMessages(conversationId),
       resolveAttachments: (attachmentIds) =>
         attachmentsStore.getAttachmentsByIds(attachmentIds).map((a) => ({
           id: a.id,
@@ -657,7 +664,8 @@ export async function runDaemon(): Promise<void> {
       setRelayBroadcast((msg) => server.broadcast(msg));
       setPointerMessageProcessor(
         async (conversationId, instruction, requiredFacts) => {
-          const session = await server.getSessionForMessages(conversationId);
+          const session =
+            await server.getConversationForMessages(conversationId);
 
           // Constrain pointer generation to a tool-disabled path so call-
           // status events cannot trigger unintended side-effect tools.
@@ -733,7 +741,7 @@ export async function runDaemon(): Promise<void> {
               }
               if (
                 "type" in msg &&
-                (msg.type === "error" || msg.type === "session_error")
+                (msg.type === "error" || msg.type === "conversation_error")
               ) {
                 agentLoopError =
                   "message" in msg

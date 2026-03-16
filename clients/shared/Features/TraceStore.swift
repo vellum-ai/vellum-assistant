@@ -14,7 +14,7 @@ public final class TraceStore: ObservableObject {
     /// A single trace event with stable ordering metadata.
     public struct StoredEvent: Identifiable, Sendable {
         public let id: String // eventId
-        public let sessionId: String
+        public let conversationId: String
         public let requestId: String?
         public let timestampMs: Double
         public let sequence: Int
@@ -45,9 +45,9 @@ public final class TraceStore: ObservableObject {
     /// All events per session, in stable order.
     /// Not @Published — updates are coalesced via `schedulePublish()` to avoid
     /// firing objectWillChange on every individual trace event during bursts.
-    public private(set) var eventsBySession: [String: [StoredEvent]] = [:]
+    public private(set) var eventsByConversation: [String: [StoredEvent]] = [:]
 
-    /// The ID of the most recently ingested event per session. Unlike `eventsBySession[sid]?.count`,
+    /// The ID of the most recently ingested event per session. Unlike `eventsByConversation[sid]?.count`,
     /// this always changes on ingestion even when the retention cap holds count constant.
     public private(set) var latestEventIdBySession: [String: String] = [:]
 
@@ -78,7 +78,7 @@ public final class TraceStore: ObservableObject {
 
     /// Ingest a trace event message from the daemon.
     public func ingest(_ msg: TraceEventMessage) {
-        let sid = msg.sessionId
+        let sid = msg.conversationId
 
         // Deduplicate by eventId.
         if seenIds[sid, default: []].contains(msg.eventId) { return }
@@ -86,7 +86,7 @@ public final class TraceStore: ObservableObject {
 
         let event = StoredEvent(
             id: msg.eventId,
-            sessionId: sid,
+            conversationId: sid,
             requestId: msg.requestId,
             timestampMs: msg.timestampMs,
             sequence: msg.sequence,
@@ -98,7 +98,7 @@ public final class TraceStore: ObservableObject {
         )
         nextInsertionIndex += 1
 
-        var events = eventsBySession[sid, default: []]
+        var events = eventsByConversation[sid, default: []]
         // Insert in sorted position (sequence → timestampMs → insertionIndex).
         let idx = events.insertionIndex(for: event)
         events.insert(event, at: idx)
@@ -113,7 +113,7 @@ public final class TraceStore: ObservableObject {
             }
         }
 
-        eventsBySession[sid] = events
+        eventsByConversation[sid] = events
         latestEventIdBySession[sid] = event.id
         generationBySession[sid, default: 0] += 1
         schedulePublish()
@@ -122,8 +122,8 @@ public final class TraceStore: ObservableObject {
     // MARK: - Queries
 
     /// Events for a session grouped by requestId. Events with nil requestId go under an empty-string key.
-    public func eventsByRequest(sessionId: String) -> [String: [StoredEvent]] {
-        guard let events = eventsBySession[sessionId] else { return [:] }
+    public func eventsByRequest(conversationId: String) -> [String: [StoredEvent]] {
+        guard let events = eventsByConversation[conversationId] else { return [:] }
         return Dictionary(grouping: events) { $0.requestId ?? "" }
     }
 
@@ -144,9 +144,9 @@ public final class TraceStore: ObservableObject {
     /// `generation_cancelled`, `generation_handoff`, or `request_error` event
     /// (matching the daemon's `TraceEventKind` contract). If none of those are
     /// present but any event has `status == "error"`, the group is marked as error.
-    public func requestGroupStatus(sessionId: String, requestId: String) -> RequestGroupStatus {
+    public func requestGroupStatus(conversationId: String, requestId: String) -> RequestGroupStatus {
         let key = requestId.isEmpty ? "" : requestId
-        let grouped = eventsByRequest(sessionId: sessionId)
+        let grouped = eventsByRequest(conversationId: conversationId)
         guard let events = grouped[key] else { return .active }
 
         for event in events {
@@ -176,7 +176,7 @@ public final class TraceStore: ObservableObject {
 
     /// Snapshot of aggregate metrics for a session, recomputed only when the
     /// generation counter advances (i.e. new events were ingested).
-    public struct SessionMetrics {
+    public struct ConversationMetrics {
         public let requestCount: Int
         public let llmCallCount: Int
         public let totalInputTokens: Int
@@ -184,7 +184,7 @@ public final class TraceStore: ObservableObject {
         public let averageLlmLatencyMs: Double
         public let toolFailureCount: Int
 
-        static let empty = SessionMetrics(
+        static let empty = ConversationMetrics(
             requestCount: 0, llmCallCount: 0,
             totalInputTokens: 0, totalOutputTokens: 0,
             averageLlmLatencyMs: 0, toolFailureCount: 0
@@ -195,22 +195,22 @@ public final class TraceStore: ObservableObject {
     private var generationBySession: [String: Int] = [:]
 
     /// Cached metrics per session, keyed by the generation at which they were computed.
-    private var metricsCache: [String: (generation: Int, metrics: SessionMetrics)] = [:]
+    private var metricsCache: [String: (generation: Int, metrics: ConversationMetrics)] = [:]
 
     /// Returns cached aggregate metrics for a session, recomputing only when
     /// the generation counter has advanced since the last call.
-    public func metrics(sessionId: String) -> SessionMetrics {
-        let currentGen = generationBySession[sessionId] ?? 0
-        if let cached = metricsCache[sessionId], cached.generation == currentGen {
+    public func metrics(conversationId: String) -> ConversationMetrics {
+        let currentGen = generationBySession[conversationId] ?? 0
+        if let cached = metricsCache[conversationId], cached.generation == currentGen {
             return cached.metrics
         }
-        let computed = computeMetrics(sessionId: sessionId)
-        metricsCache[sessionId] = (generation: currentGen, metrics: computed)
+        let computed = computeMetrics(conversationId: conversationId)
+        metricsCache[conversationId] = (generation: currentGen, metrics: computed)
         return computed
     }
 
-    private func computeMetrics(sessionId: String) -> SessionMetrics {
-        guard let events = eventsBySession[sessionId] else { return .empty }
+    private func computeMetrics(conversationId: String) -> ConversationMetrics {
+        guard let events = eventsByConversation[conversationId] else { return .empty }
 
         var requestIds = Set<String>()
         var llmCalls = 0
@@ -238,7 +238,7 @@ public final class TraceStore: ObservableObject {
             }
         }
 
-        return SessionMetrics(
+        return ConversationMetrics(
             requestCount: requestIds.count,
             llmCallCount: llmCalls,
             totalInputTokens: inputTokens,
@@ -249,33 +249,33 @@ public final class TraceStore: ObservableObject {
     }
 
     /// Number of unique requestIds in a session.
-    public func requestCount(sessionId: String) -> Int {
-        metrics(sessionId: sessionId).requestCount
+    public func requestCount(conversationId: String) -> Int {
+        metrics(conversationId: conversationId).requestCount
     }
 
     /// Count of `llm_call_finished` events in a session.
-    public func llmCallCount(sessionId: String) -> Int {
-        metrics(sessionId: sessionId).llmCallCount
+    public func llmCallCount(conversationId: String) -> Int {
+        metrics(conversationId: conversationId).llmCallCount
     }
 
     /// Total input tokens across all `llm_call_finished` events.
-    public func totalInputTokens(sessionId: String) -> Int {
-        metrics(sessionId: sessionId).totalInputTokens
+    public func totalInputTokens(conversationId: String) -> Int {
+        metrics(conversationId: conversationId).totalInputTokens
     }
 
     /// Total output tokens across all `llm_call_finished` events.
-    public func totalOutputTokens(sessionId: String) -> Int {
-        metrics(sessionId: sessionId).totalOutputTokens
+    public func totalOutputTokens(conversationId: String) -> Int {
+        metrics(conversationId: conversationId).totalOutputTokens
     }
 
     /// Average latency (ms) of `llm_call_finished` events, or 0 if none.
-    public func averageLlmLatencyMs(sessionId: String) -> Double {
-        metrics(sessionId: sessionId).averageLlmLatencyMs
+    public func averageLlmLatencyMs(conversationId: String) -> Double {
+        metrics(conversationId: conversationId).averageLlmLatencyMs
     }
 
     /// Count of `tool_failed` events in a session.
-    public func toolFailureCount(sessionId: String) -> Int {
-        metrics(sessionId: sessionId).toolFailureCount
+    public func toolFailureCount(conversationId: String) -> Int {
+        metrics(conversationId: conversationId).toolFailureCount
     }
 
     // MARK: - Session Selection
@@ -287,7 +287,7 @@ public final class TraceStore: ObservableObject {
     /// explicit selection context is available (e.g. when opening the debug panel
     /// from the Settings screen rather than from an active chat thread).
     public var mostRecentSessionId: String? {
-        eventsBySession
+        eventsByConversation
             .compactMapValues { $0.last?.timestampMs }
             .max(by: { $0.value < $1.value })
             .map(\.key)
@@ -296,18 +296,18 @@ public final class TraceStore: ObservableObject {
     // MARK: - Reset
 
     /// Remove all events for a given session.
-    public func resetSession(sessionId: String) {
-        eventsBySession.removeValue(forKey: sessionId)
-        latestEventIdBySession.removeValue(forKey: sessionId)
-        seenIds.removeValue(forKey: sessionId)
-        generationBySession.removeValue(forKey: sessionId)
-        metricsCache.removeValue(forKey: sessionId)
+    public func resetConversation(conversationId: String) {
+        eventsByConversation.removeValue(forKey: conversationId)
+        latestEventIdBySession.removeValue(forKey: conversationId)
+        seenIds.removeValue(forKey: conversationId)
+        generationBySession.removeValue(forKey: conversationId)
+        metricsCache.removeValue(forKey: conversationId)
         schedulePublish()
     }
 
     /// Remove all events for all sessions.
     public func resetAll() {
-        eventsBySession.removeAll()
+        eventsByConversation.removeAll()
         latestEventIdBySession.removeAll()
         seenIds.removeAll()
         generationBySession.removeAll()

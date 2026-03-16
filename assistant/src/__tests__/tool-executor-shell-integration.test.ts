@@ -145,7 +145,6 @@ import { parse } from "../tools/terminal/parser.js";
 function makeContext(overrides?: Partial<ToolContext>): ToolContext {
   return {
     workingDir: "/tmp/project",
-    sessionId: "session-integration",
     conversationId: "conversation-integration",
     trustClass: "guardian",
     ...overrides,

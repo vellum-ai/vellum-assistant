@@ -11,7 +11,11 @@ export type GatewayConfig = {
   defaultAssistantId: string | undefined;
   gatewayInternalBaseUrl: string;
   logFile: LogFileConfig;
-  maxAttachmentBytes: number;
+  maxAttachmentBytes: Record<
+    "telegram" | "slack" | "whatsapp" | "default",
+    number
+  > &
+    Record<string, number>;
   maxAttachmentConcurrency: number;
   maxWebhookPayloadBytes: number;
   port: number;
@@ -129,7 +133,12 @@ export function loadConfig(): GatewayConfig {
     defaultAssistantId,
     gatewayInternalBaseUrl,
     logFile,
-    maxAttachmentBytes: 20 * 1024 * 1024,
+    maxAttachmentBytes: {
+      telegram: 20 * 1024 * 1024, // Telegram Bot API getFile limit
+      slack: 100 * 1024 * 1024, // Slack standard plan
+      whatsapp: 16 * 1024 * 1024, // WhatsApp Business API limit
+      default: 50 * 1024 * 1024, // Fallback; capped by runtime MAX_UPLOAD_BYTES (50 MB)
+    },
     maxAttachmentConcurrency: 3,
     maxWebhookPayloadBytes: 1024 * 1024,
     port,

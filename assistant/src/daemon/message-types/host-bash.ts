@@ -7,7 +7,7 @@
 export interface HostBashRequest {
   type: "host_bash_request";
   requestId: string;
-  sessionId: string;
+  conversationId: string;
   command: string;
   working_dir?: string;
   timeout_seconds?: number;

@@ -89,7 +89,7 @@ describe("Commit guarantees", () => {
       //   2. Post-processing (resolveAssistantAttachments) throws
       //   3. Turn-boundary commit must still happen in finally block
 
-      const sessionId = "sess_post_processing_error";
+      const conversationId = "sess_post_processing_error";
       const service = getWorkspaceGitService(testDir);
       await service.ensureInitialized();
 
@@ -114,7 +114,7 @@ describe("Commit guarantees", () => {
         // Step 3: Turn-boundary commit in finally block — the key guarantee
         if (turnStarted) {
           turnCount++;
-          await commitTurnChanges(testDir, sessionId, turnCount);
+          await commitTurnChanges(testDir, conversationId, turnCount);
         }
       }
 
@@ -124,7 +124,7 @@ describe("Commit guarantees", () => {
 
       const msg = lastCommitMessage(testDir);
       expect(msg).toContain("Turn:");
-      expect(msg).toContain("Session: sess_post_processing_error");
+      expect(msg).toContain("Conversation: sess_post_processing_error");
       expect(msg).toContain("Turn: 1");
       expect(msg).toContain("Files: 2 changed");
     });
@@ -161,7 +161,7 @@ describe("Commit guarantees", () => {
     test("commits workspace changes when user cancels mid-turn", async () => {
       // When the user cancels, the agent loop may have already modified files.
       // The finally-block commit must still run.
-      const sessionId = "sess_cancelled";
+      const conversationId = "sess_cancelled";
       const service = getWorkspaceGitService(testDir);
       await service.ensureInitialized();
 
@@ -182,7 +182,7 @@ describe("Commit guarantees", () => {
       } finally {
         if (turnStarted) {
           turnCount++;
-          await commitTurnChanges(testDir, sessionId, turnCount);
+          await commitTurnChanges(testDir, conversationId, turnCount);
         }
       }
 
@@ -195,7 +195,7 @@ describe("Commit guarantees", () => {
     test("commits across multiple turns with intermittent errors", async () => {
       // Verify commit guarantees hold across multiple turns where some
       // succeed normally and others have post-processing errors.
-      const sessionId = "sess_mixed";
+      const conversationId = "sess_mixed";
       const service = getWorkspaceGitService(testDir);
       await service.ensureInitialized();
 
@@ -211,7 +211,7 @@ describe("Commit guarantees", () => {
         } finally {
           if (turnStarted) {
             turnCount++;
-            await commitTurnChanges(testDir, sessionId, turnCount);
+            await commitTurnChanges(testDir, conversationId, turnCount);
           }
         }
       }
@@ -228,7 +228,7 @@ describe("Commit guarantees", () => {
         } finally {
           if (turnStarted) {
             turnCount++;
-            await commitTurnChanges(testDir, sessionId, turnCount);
+            await commitTurnChanges(testDir, conversationId, turnCount);
           }
         }
       }
@@ -242,7 +242,7 @@ describe("Commit guarantees", () => {
         } finally {
           if (turnStarted) {
             turnCount++;
-            await commitTurnChanges(testDir, sessionId, turnCount);
+            await commitTurnChanges(testDir, conversationId, turnCount);
           }
         }
       }

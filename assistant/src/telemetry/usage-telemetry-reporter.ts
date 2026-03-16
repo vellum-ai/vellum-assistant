@@ -21,8 +21,9 @@ import { queryUnreportedUsageEvents } from "../memory/llm-usage-store.js";
 import { queryUnreportedTurnEvents } from "../memory/turn-events-store.js";
 import { resolveManagedProxyContext } from "../providers/managed-proxy/context.js";
 import { getExternalAssistantId } from "../runtime/auth/external-assistant-id.js";
-import { getInstallationId } from "../runtime/auth/installation-id.js";
+import { getDeviceId } from "../util/device-id.js";
 import { getLogger } from "../util/logger.js";
+import type { TelemetryEvent } from "./types.js";
 
 const log = getLogger("usage-telemetry");
 
@@ -37,7 +38,7 @@ const CHECKPOINT_KEY_TURN_WATERMARK_ID = "telemetry:turns:last_reported_id";
 const REPORT_INTERVAL_MS = 5 * 60 * 1000;
 const BATCH_SIZE = 500;
 const MAX_CONSECUTIVE_BATCHES = 10;
-const TELEMETRY_PATH = "/v1/assistants/self-hosted-local/telemetry/usage/";
+const TELEMETRY_PATH = "/v1/assistants/self-hosted-local/telemetry/ingest/";
 
 // ---------------------------------------------------------------------------
 // Reporter
@@ -129,24 +130,34 @@ export class UsageTelemetryReporter {
       }
 
       // Build payload
+      const typedEvents: TelemetryEvent[] = [
+        ...events.map(
+          (e): TelemetryEvent => ({
+            type: "llm_usage",
+            daemon_event_id: e.id,
+            provider: e.provider,
+            model: e.model,
+            input_tokens: e.inputTokens,
+            output_tokens: e.outputTokens,
+            cache_creation_input_tokens: e.cacheCreationInputTokens ?? null,
+            cache_read_input_tokens: e.cacheReadInputTokens ?? null,
+            actor: e.actor,
+            recorded_at: e.createdAt,
+          }),
+        ),
+        ...turnEvents.map(
+          (e): TelemetryEvent => ({
+            type: "turn",
+            daemon_event_id: e.id,
+            recorded_at: e.createdAt,
+          }),
+        ),
+      ];
+
       const payload = {
-        installation_id: getInstallationId(),
+        installation_id: getDeviceId(),
         assistant_id: getExternalAssistantId(),
-        events: events.map((e) => ({
-          daemon_event_id: e.id,
-          provider: e.provider,
-          model: e.model,
-          input_tokens: e.inputTokens,
-          output_tokens: e.outputTokens,
-          cache_creation_input_tokens: e.cacheCreationInputTokens ?? null,
-          cache_read_input_tokens: e.cacheReadInputTokens ?? null,
-          actor: e.actor,
-          recorded_at: e.createdAt,
-        })),
-        turn_events: turnEvents.map((e) => ({
-          daemon_event_id: e.id,
-          recorded_at: e.createdAt,
-        })),
+        events: typedEvents,
       };
 
       // Send

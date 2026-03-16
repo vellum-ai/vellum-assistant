@@ -8,7 +8,7 @@ private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.
 /// A single message buffered while the daemon was unreachable.
 struct OfflineQueuedMessage: Codable, Identifiable {
     let id: UUID
-    let sessionId: String?
+    let conversationId: String?
     let text: String
     /// The text stored in the ChatMessage for UI matching. In voice mode, `text`
     /// carries the voice instruction prefix while the ChatMessage stores raw user
@@ -17,9 +17,9 @@ struct OfflineQueuedMessage: Codable, Identifiable {
     let attachments: [OfflineQueuedAttachment]
     let enqueuedAt: Date
 
-    init(sessionId: String?, text: String, displayText: String? = nil, attachments: [UserMessageAttachment]?) {
+    init(conversationId: String?, text: String, displayText: String? = nil, attachments: [UserMessageAttachment]?) {
         self.id = UUID()
-        self.sessionId = sessionId
+        self.conversationId = conversationId
         self.text = text
         self.displayText = displayText
         self.enqueuedAt = Date()
@@ -76,8 +76,8 @@ final class OfflineMessageQueue {
     // MARK: - Enqueue
 
     /// Append a message to the end of the offline queue and persist it.
-    func enqueue(sessionId: String?, text: String, displayText: String? = nil, attachments: [UserMessageAttachment]?) {
-        let message = OfflineQueuedMessage(sessionId: sessionId, text: text, displayText: displayText, attachments: attachments)
+    func enqueue(conversationId: String?, text: String, displayText: String? = nil, attachments: [UserMessageAttachment]?) {
+        let message = OfflineQueuedMessage(conversationId: conversationId, text: text, displayText: displayText, attachments: attachments)
         queue.append(message)
         save()
         log.info("OfflineMessageQueue: enqueued message (queue depth: \(self.queue.count))")

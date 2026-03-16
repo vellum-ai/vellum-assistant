@@ -62,7 +62,7 @@ class HostFileWriteTool implements Tool {
           path: rawPath,
           content: fileContent,
         },
-        context.sessionId,
+        context.conversationId,
         context.signal,
       );
     }

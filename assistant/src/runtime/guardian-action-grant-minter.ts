@@ -3,7 +3,7 @@
  * request is resolved with tool metadata.
  *
  * Used by both the channel inbound path (inbound-message-handler.ts) and
- * the desktop path (session-process.ts) to ensure grants are minted
+ * the desktop path (conversation-process.ts) to ensure grants are minted
  * consistently regardless of which channel the guardian answers on.
  */
 

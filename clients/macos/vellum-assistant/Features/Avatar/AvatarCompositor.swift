@@ -16,6 +16,10 @@ enum AvatarCompositor {
         }
 
         let viewBox = bodyShape.viewBox
+        guard viewBox.width > 0, viewBox.height > 0 else {
+            return NSImage(size: NSSize(width: size, height: size))
+        }
+
         let transform = AvatarTransforms.bodyTransform(viewBox: viewBox, outputSize: size)
 
         let image = NSImage(size: NSSize(width: size, height: size))
@@ -28,10 +32,11 @@ enum AvatarCompositor {
         // Draw body
         let bodyPath = parseSVGPath(bodyShape.svgPath)
         var mutableTransform = transform
-        let transformedBody = bodyPath.copy(using: &mutableTransform)!
-        context.addPath(transformedBody)
-        context.setFillColor(color.nsColor.cgColor)
-        context.fillPath()
+        if let transformedBody = bodyPath.copy(using: &mutableTransform) {
+            context.addPath(transformedBody)
+            context.setFillColor(color.nsColor.cgColor)
+            context.fillPath()
+        }
 
         // Draw eyes — remap from eye sourceViewBox to body viewBox using eye-center → face-center
         // alignment.  Each eye style's paths are designed around a center point within their source
@@ -39,21 +44,25 @@ enum AvatarCompositor {
         // Aspect-fit scaling sizes the eyes appropriately, then translation aligns the centers.
         // Per-combo overrides allow specific eye+body pairs to use a custom face center.
         let faceCenter = AvatarTransforms.resolveFaceCenter(bodyShape: bodyShape, eyeStyle: eyeStyle)
-        let eyeTransform = AvatarTransforms.eyeTransform(
-            eyeSourceViewBox: eyeStyle.sourceViewBox,
-            eyeCenter: eyeStyle.eyeCenter,
-            bodyViewBox: viewBox,
-            faceCenter: faceCenter,
-            bodyTransform: transform
-        )
+        let eyeSourceViewBox = eyeStyle.sourceViewBox
+        if eyeSourceViewBox.width > 0, eyeSourceViewBox.height > 0 {
+            let eyeTransform = AvatarTransforms.eyeTransform(
+                eyeSourceViewBox: eyeSourceViewBox,
+                eyeCenter: eyeStyle.eyeCenter,
+                bodyViewBox: viewBox,
+                faceCenter: faceCenter,
+                bodyTransform: transform
+            )
 
-        for eyePath in eyeStyle.paths {
-            let parsed = parseSVGPath(eyePath.svgPath)
-            var mutableEyeTransform = eyeTransform
-            let transformed = parsed.copy(using: &mutableEyeTransform)!
-            context.addPath(transformed)
-            context.setFillColor(eyePath.color.cgColor)
-            context.fillPath()
+            for eyePath in eyeStyle.paths {
+                let parsed = parseSVGPath(eyePath.svgPath)
+                var mutableEyeTransform = eyeTransform
+                if let transformed = parsed.copy(using: &mutableEyeTransform) {
+                    context.addPath(transformed)
+                    context.setFillColor(eyePath.color.cgColor)
+                    context.fillPath()
+                }
+            }
         }
 
         image.unlockFocus()
@@ -74,6 +83,10 @@ enum AvatarCompositor {
         }
 
         let viewBox = bodyShape.viewBox
+        guard viewBox.width > 0, viewBox.height > 0 else {
+            return NSImage(size: NSSize(width: size, height: size))
+        }
+
         let transform = AvatarTransforms.bodyTransform(viewBox: viewBox, outputSize: size)
 
         let image = NSImage(size: NSSize(width: size, height: size))
@@ -85,10 +98,11 @@ enum AvatarCompositor {
 
         let bodyPath = parseSVGPath(bodyShape.svgPath)
         var mutableTransform = transform
-        let transformedBody = bodyPath.copy(using: &mutableTransform)!
-        context.addPath(transformedBody)
-        context.setFillColor(color.nsColor.cgColor)
-        context.fillPath()
+        if let transformedBody = bodyPath.copy(using: &mutableTransform) {
+            context.addPath(transformedBody)
+            context.setFillColor(color.nsColor.cgColor)
+            context.fillPath()
+        }
 
         image.unlockFocus()
 
@@ -107,6 +121,10 @@ enum AvatarCompositor {
         }
 
         let viewBox = bodyShape.viewBox
+        guard viewBox.width > 0, viewBox.height > 0 else {
+            return NSImage(size: NSSize(width: size, height: size))
+        }
+
         let inset: CGFloat = 2
         let drawSize = size - inset * 2
         let scale = min(drawSize / viewBox.width, drawSize / viewBox.height)
@@ -126,15 +144,16 @@ enum AvatarCompositor {
         }
 
         let bodyPath = parseSVGPath(bodyShape.svgPath)
-        let transformedBody = bodyPath.copy(using: &transform)!
-        context.addPath(transformedBody)
-        context.setFillColor(NSColor(VColor.auxWhite).cgColor)
-        context.fillPath()
+        if let transformedBody = bodyPath.copy(using: &transform) {
+            context.addPath(transformedBody)
+            context.setFillColor(NSColor(VColor.auxWhite).cgColor)
+            context.fillPath()
 
-        context.addPath(transformedBody)
-        context.setStrokeColor(NSColor(VColor.auxBlack).cgColor)
-        context.setLineWidth(1.5)
-        context.strokePath()
+            context.addPath(transformedBody)
+            context.setStrokeColor(NSColor(VColor.auxBlack).cgColor)
+            context.setLineWidth(1.5)
+            context.strokePath()
+        }
 
         image.unlockFocus()
 
@@ -154,6 +173,10 @@ enum AvatarCompositor {
         }
 
         let srcVB = eyeStyle.sourceViewBox
+        guard srcVB.width > 0, srcVB.height > 0 else {
+            return NSImage(size: NSSize(width: size, height: size))
+        }
+
         let eyeCenter = eyeStyle.eyeCenter
         let scale = min(size / srcVB.width, size / srcVB.height)
         // Translate so that the eye center maps to the center of the output image.
@@ -175,10 +198,11 @@ enum AvatarCompositor {
         for eyePath in eyeStyle.paths {
             let parsed = parseSVGPath(eyePath.svgPath)
             var mutableTransform = baseTransform
-            let transformed = parsed.copy(using: &mutableTransform)!
-            context.addPath(transformed)
-            context.setFillColor(eyePath.color.cgColor)
-            context.fillPath()
+            if let transformed = parsed.copy(using: &mutableTransform) {
+                context.addPath(transformed)
+                context.setFillColor(eyePath.color.cgColor)
+                context.fillPath()
+            }
         }
 
         image.unlockFocus()

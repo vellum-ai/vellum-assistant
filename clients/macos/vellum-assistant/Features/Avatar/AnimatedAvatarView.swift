@@ -193,12 +193,14 @@ class AvatarLayerView: NSView {
         CATransaction.setDisableActions(true)
 
         // --- Body layer ---
-        let bodyTransform = AvatarTransforms.bodyTransform(viewBox: bodyShape.viewBox, outputSize: size)
+        let bodyViewBox = bodyShape.viewBox
+        let bodyTransform = AvatarTransforms.bodyTransform(viewBox: bodyViewBox, outputSize: size)
         let bodyEditable = parseSVGPathToEditable(bodyShape.svgPath)
         let bodyCGPath = bodyEditable.toCGPath()
 
         var mutableTransform = bodyTransform
-        bodyLayer.path = bodyCGPath.copy(using: &mutableTransform)
+        bodyLayer.path = (bodyViewBox.width > 0 && bodyViewBox.height > 0)
+            ? bodyCGPath.copy(using: &mutableTransform) : nil
         bodyLayer.fillColor = color.nsColor.cgColor
         bodyLayer.frame = CGRect(x: 0, y: 0, width: size, height: size)
 
@@ -211,47 +213,52 @@ class AvatarLayerView: NSView {
         for layer in eyeLayers { layer.removeFromSuperlayer() }
         eyeLayers.removeAll()
 
-        let faceCenter = AvatarTransforms.resolveFaceCenter(bodyShape: bodyShape, eyeStyle: eyeStyle)
-        let eyeXform = AvatarTransforms.eyeTransform(
-            eyeSourceViewBox: eyeStyle.sourceViewBox,
-            eyeCenter: eyeStyle.eyeCenter,
-            bodyViewBox: bodyShape.viewBox,
-            faceCenter: faceCenter,
-            bodyTransform: bodyTransform
-        )
-
         // Pre-compute blink paths
         openEyePaths.removeAll()
         closedEyePaths.removeAll()
         widenedEyePaths.removeAll()
 
-        for eyePath in eyeStyle.paths {
-            let eyeEditable = parseSVGPathToEditable(eyePath.svgPath)
-            let eyeCGPath = eyeEditable.toCGPath()
-            var mutableEyeTransform = eyeXform
-            let transformedEyePath = eyeCGPath.copy(using: &mutableEyeTransform)!
+        let eyeSourceViewBox = eyeStyle.sourceViewBox
+        let faceCenter = AvatarTransforms.resolveFaceCenter(bodyShape: bodyShape, eyeStyle: eyeStyle)
+        if bodyViewBox.width > 0, bodyViewBox.height > 0,
+           eyeSourceViewBox.width > 0, eyeSourceViewBox.height > 0 {
+            let eyeXform = AvatarTransforms.eyeTransform(
+                eyeSourceViewBox: eyeSourceViewBox,
+                eyeCenter: eyeStyle.eyeCenter,
+                bodyViewBox: bodyViewBox,
+                faceCenter: faceCenter,
+                bodyTransform: bodyTransform
+            )
 
-            let eyeLayer = CAShapeLayer()
-            eyeLayer.path = transformedEyePath
-            eyeLayer.fillColor = eyePath.color.cgColor
-            eyeLayer.frame = CGRect(x: 0, y: 0, width: size, height: size)
-            layer?.addSublayer(eyeLayer)
-            eyeLayers.append(eyeLayer)
+            for eyePath in eyeStyle.paths {
+                let eyeEditable = parseSVGPathToEditable(eyePath.svgPath)
+                let eyeCGPath = eyeEditable.toCGPath()
+                var mutableEyeTransform = eyeXform
+                guard let transformedEyePath = eyeCGPath.copy(using: &mutableEyeTransform) else { continue }
 
-            // Store the open path (reuse the already-computed transformedEyePath)
-            openEyePaths.append(transformedEyePath)
+                // Closed path — squish Y toward center, then apply same transform
+                let closedEditable = eyeEditable.blinked(amount: 1.0)
+                let closedCGPath = closedEditable.toCGPath()
+                var closedTransform = eyeXform
+                guard let closedPath = closedCGPath.copy(using: &closedTransform) else { continue }
 
-            // Closed path — squish Y toward center, then apply same transform
-            let closedEditable = eyeEditable.blinked(amount: 1.0)
-            let closedCGPath = closedEditable.toCGPath()
-            var closedTransform = eyeXform
-            closedEyePaths.append(closedCGPath.copy(using: &closedTransform)!)
+                // Widened path — expand Y away from center for alert/hover look
+                let widenedEditable = eyeEditable.blinked(amount: -0.15)
+                let widenedCGPath = widenedEditable.toCGPath()
+                var widenedTransform = eyeXform
+                guard let widenedPath = widenedCGPath.copy(using: &widenedTransform) else { continue }
 
-            // Widened path — expand Y away from center for alert/hover look
-            let widenedEditable = eyeEditable.blinked(amount: -0.15)
-            let widenedCGPath = widenedEditable.toCGPath()
-            var widenedTransform = eyeXform
-            widenedEyePaths.append(widenedCGPath.copy(using: &widenedTransform)!)
+                let eyeLayer = CAShapeLayer()
+                eyeLayer.path = transformedEyePath
+                eyeLayer.fillColor = eyePath.color.cgColor
+                eyeLayer.frame = CGRect(x: 0, y: 0, width: size, height: size)
+                layer?.addSublayer(eyeLayer)
+                eyeLayers.append(eyeLayer)
+
+                openEyePaths.append(transformedEyePath)
+                closedEyePaths.append(closedPath)
+                widenedEyePaths.append(widenedPath)
+            }
         }
 
         // If hovered during reconfiguration, apply widened paths immediately (no animation)

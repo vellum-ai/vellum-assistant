@@ -1705,6 +1705,51 @@ export function buildSchema(): Record<string, unknown> {
           },
         },
       },
+      "/v1/config/privacy": {
+        patch: {
+          summary: "Update privacy config",
+          description:
+            "Scope-protected gateway endpoint that updates privacy configuration (collectUsageData, sendDiagnostics). Requires a bearer token with `feature_flags.write` scope.",
+          operationId: "privacyConfigPatch",
+          security: [{ BearerAuth: [] }],
+          requestBody: {
+            required: true,
+            content: {
+              "application/json": {
+                schema: {
+                  type: "object",
+                  properties: {
+                    collectUsageData: { type: "boolean" },
+                    sendDiagnostics: { type: "boolean" },
+                  },
+                },
+              },
+            },
+          },
+          responses: {
+            "200": {
+              description: "Privacy config updated",
+              content: {
+                "application/json": {
+                  schema: {
+                    type: "object",
+                    properties: {
+                      collectUsageData: { type: "boolean" },
+                      sendDiagnostics: { type: "boolean" },
+                    },
+                  },
+                },
+              },
+            },
+            "400": { description: "Invalid request body" },
+            "401": {
+              description: "Unauthorized — missing or invalid bearer token",
+            },
+            "403": { description: "Insufficient scope" },
+            "500": { description: "Internal server error" },
+          },
+        },
+      },
       "/integrations/status": {
         get: {
           summary: "Integration status",

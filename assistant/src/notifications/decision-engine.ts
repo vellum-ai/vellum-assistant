@@ -13,6 +13,7 @@ import { v4 as uuid } from "uuid";
 
 import { getDeliverableChannels } from "../channels/config.js";
 import { getConfig } from "../config/loader.js";
+import { buildCoreIdentityContext } from "../prompts/system-prompt.js";
 import {
   createTimeout,
   extractToolUse,
@@ -60,6 +61,7 @@ function buildSystemPrompt(
   availableChannels: NotificationChannel[],
   preferenceContext?: string,
   candidateContext?: string,
+  identityContext?: string,
 ): string {
   const sections: string[] = [
     `You are a notification routing engine. Given a signal describing an event, decide whether the user should be notified, on which channel(s), and compose the notification copy.`,
@@ -73,6 +75,16 @@ function buildSystemPrompt(
       `<user-preferences>`,
       preferenceContext,
       `</user-preferences>`,
+    );
+  }
+
+  if (identityContext) {
+    sections.push(
+      ``,
+      `<assistant-identity>`,
+      `The following describes the assistant's identity, personality, and the user's profile. Use this context to match the assistant's tone and style when composing notification copy. Do not include information from this context that is not relevant to the notification.`,
+      identityContext,
+      `</assistant-identity>`,
     );
   }
 
@@ -777,10 +789,12 @@ async function classifyWithLLM(
   const candidateContext = candidateSet
     ? (serializeCandidatesForPrompt(candidateSet) ?? undefined)
     : undefined;
+  const identityContext = buildCoreIdentityContext() ?? undefined;
   const systemPrompt = buildSystemPrompt(
     availableChannels,
     preferenceContext,
     candidateContext,
+    identityContext,
   );
   const prompt = buildUserPrompt(signal);
   const tool = buildDecisionTool(availableChannels);

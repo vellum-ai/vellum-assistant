@@ -1,4 +1,8 @@
 import {
+  setPlatformAssistantId,
+  setPlatformBaseUrl,
+} from "../../config/env.js";
+import {
   API_KEY_PROVIDERS,
   getConfig,
   invalidateConfigCache,
@@ -21,15 +25,69 @@ import { httpError } from "../http-errors.js";
 import type { RouteDefinition } from "../http-router.js";
 
 const log = getLogger("runtime-http");
-const MANAGED_PROXY_CREDENTIAL = {
-  service: "vellum",
-  field: "assistant_api_key",
-};
+const MANAGED_PROXY_CREDENTIALS = [
+  { service: "vellum", field: "assistant_api_key" },
+  { service: "vellum", field: "platform_base_url" },
+] as const;
 
 function isManagedProxyCredential(service: string, field: string): boolean {
-  return (
-    service === MANAGED_PROXY_CREDENTIAL.service &&
-    field === MANAGED_PROXY_CREDENTIAL.field
+  return MANAGED_PROXY_CREDENTIALS.some(
+    (c) => c.service === service && c.field === field,
+  );
+}
+
+const CES_READY_POLL_INTERVAL_MS = 500;
+const CES_READY_POLL_TIMEOUT_MS = 30_000;
+
+/** Monotonic counter that increments each time a new assistant API key is handled.
+ *  Queued propagation attempts check this before pushing to avoid overwriting
+ *  a newer key with a stale one. */
+let apiKeyGeneration = 0;
+
+/**
+ * Poll the CES client until it becomes ready, then push the API key —
+ * but only if no newer key has been handled in the meantime.
+ */
+async function queueApiKeyPropagation(
+  cesClient: CesClient,
+  apiKey: string,
+  generation: number,
+): Promise<void> {
+  log.info(
+    "CES client not ready — queuing API key propagation until handshake completes",
+  );
+  const deadline = Date.now() + CES_READY_POLL_TIMEOUT_MS;
+  while (Date.now() < deadline) {
+    await new Promise((r) => setTimeout(r, CES_READY_POLL_INTERVAL_MS));
+    if (generation < apiKeyGeneration) {
+      log.info(
+        "Discarding stale queued API key propagation — a newer key was already handled",
+      );
+      return;
+    }
+    if (cesClient.isReady()) {
+      if (generation < apiKeyGeneration) {
+        log.info(
+          "Discarding stale queued API key propagation — a newer key was already handled",
+        );
+        return;
+      }
+      try {
+        await cesClient.updateAssistantApiKey(apiKey);
+        log.info(
+          "Pushed queued assistant API key to CES after handshake completed",
+        );
+      } catch (err) {
+        log.warn(
+          { error: err instanceof Error ? err.message : String(err) },
+          "Failed to push queued assistant API key to CES (non-fatal)",
+        );
+      }
+      return;
+    }
+  }
+  log.warn(
+    "Timed out waiting for CES client to become ready — API key was not propagated",
   );
 }
 
@@ -104,22 +162,37 @@ export async function handleAddSecret(
         );
       }
       upsertCredentialMetadata(service, field, {});
+      if (service === "vellum" && field === "platform_base_url") {
+        setPlatformBaseUrl(value);
+      }
+      if (service === "vellum" && field === "platform_assistant_id") {
+        setPlatformAssistantId(value);
+      }
       if (isManagedProxyCredential(service, field)) {
         await initializeProviders(getConfig());
-        // Push the API key to CES so managed credential materialization
-        // works even though the handshake ran before the key was available.
-        const cesClient = getCesClient?.();
-        if (cesClient?.isReady()) {
-          try {
-            await cesClient.updateAssistantApiKey(value);
-            log.info(
-              "Pushed assistant API key to CES after managed proxy credential update",
-            );
-          } catch (err) {
-            log.warn(
-              { error: err instanceof Error ? err.message : String(err) },
-              "Failed to push assistant API key to CES (non-fatal)",
-            );
+        if (service === "vellum" && field === "assistant_api_key") {
+          // Push the API key to CES so managed credential materialization
+          // works even though the handshake ran before the key was available.
+          const generation = ++apiKeyGeneration;
+          const cesClient = getCesClient?.();
+          if (cesClient) {
+            if (cesClient.isReady()) {
+              try {
+                await cesClient.updateAssistantApiKey(value);
+                log.info(
+                  "Pushed assistant API key to CES after managed proxy credential update",
+                );
+              } catch (err) {
+                log.warn(
+                  { error: err instanceof Error ? err.message : String(err) },
+                  "Failed to push assistant API key to CES (non-fatal)",
+                );
+              }
+            } else {
+              // CES handshake is still in flight — queue the key propagation
+              // so it fires once CES becomes ready.
+              void queueApiKeyPropagation(cesClient, value, generation);
+            }
           }
         }
       }
@@ -215,6 +288,12 @@ export async function handleDeleteSecret(req: Request): Promise<Response> {
         );
       }
       deleteCredentialMetadata(service, field);
+      if (service === "vellum" && field === "platform_base_url") {
+        setPlatformBaseUrl(undefined);
+      }
+      if (service === "vellum" && field === "platform_assistant_id") {
+        setPlatformAssistantId(undefined);
+      }
       if (isManagedProxyCredential(service, field)) {
         await initializeProviders(getConfig());
       }

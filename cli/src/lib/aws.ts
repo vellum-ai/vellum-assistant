@@ -1,4 +1,3 @@
-import { randomUUID } from "node:crypto";
 import { existsSync, mkdirSync, unlinkSync, writeFileSync } from "fs";
 import { homedir, tmpdir, userInfo } from "os";
 import { join } from "path";
@@ -10,7 +9,7 @@ import type { AssistantEntry } from "./assistant-config";
 import { GATEWAY_PORT } from "./constants";
 import type { Species } from "./constants";
 import { leaseGuardianToken } from "./guardian-token";
-import { generateRandomSuffix } from "./random-name";
+import { generateInstanceName } from "./random-name";
 import { exec, execOutput } from "./step-runner";
 
 const KEY_PAIR_NAME = "vellum-assistant";
@@ -384,12 +383,7 @@ export async function hatchAws(
       (await getActiveRegion().catch(() => AWS_DEFAULT_REGION));
     let instanceName: string;
 
-    if (name) {
-      instanceName = name;
-    } else {
-      const suffix = generateRandomSuffix();
-      instanceName = `${species}-${suffix}`;
-    }
+    instanceName = generateInstanceName(species, name);
 
     console.log(`\u{1F95A} Creating new assistant: ${instanceName}`);
     console.log(`   Species: ${species}`);
@@ -410,8 +404,7 @@ export async function hatchAws(
         console.log(
           `\u26a0\ufe0f  Instance name ${instanceName} already exists, generating a new name...`,
         );
-        const suffix = generateRandomSuffix();
-        instanceName = `${species}-${suffix}`;
+        instanceName = generateInstanceName(species);
       }
     }
 
@@ -489,7 +482,6 @@ export async function hatchAws(
       : `http://${instanceName}:${GATEWAY_PORT}`;
     const awsEntry: AssistantEntry = {
       assistantId: instanceName,
-      installationId: randomUUID(),
       runtimeUrl,
       cloud: "aws",
       instanceId,
@@ -537,10 +529,7 @@ export async function hatchAws(
         }
 
         try {
-          const tokenData = await leaseGuardianToken(
-            runtimeUrl,
-            instanceName,
-          );
+          const tokenData = await leaseGuardianToken(runtimeUrl, instanceName);
           awsEntry.bearerToken = tokenData.accessToken;
           saveAssistantEntry(awsEntry);
         } catch (err) {

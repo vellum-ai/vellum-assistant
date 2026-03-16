@@ -51,7 +51,6 @@ function makeMockStore(overrides: Partial<AppStore> = {}): AppStore {
 function makeContext(overrides: Partial<ToolContext> = {}): ToolContext {
   return {
     workingDir: "/tmp",
-    sessionId: "session-1",
     conversationId: "conv-1",
     trustClass: "guardian",
     ...overrides,

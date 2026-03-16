@@ -2,7 +2,7 @@
  * Tests for confirmation response handling (handleConfirmationResponse).
  *
  * The legacy handleUserMessage tests that previously lived here were removed
- * when session-user-message.ts was deleted. The approval-reply behavior they
+ * when conversation-user-message.ts was deleted. The approval-reply behavior they
  * tested now lives on the HTTP path and is covered by
  * conversation-routes-guardian-reply.test.ts, send-endpoint-busy.test.ts,
  * and http-user-message-parity.test.ts.
@@ -143,7 +143,7 @@ mock.module("../util/logger.js", () => ({
   }),
 }));
 
-import { handleConfirmationResponse } from "../daemon/handlers/sessions.js";
+import { handleConfirmationResponse } from "../daemon/handlers/conversations.js";
 
 interface TestSession {
   messages: Array<{ role: string; content: unknown[] }>;
@@ -179,7 +179,7 @@ function createContext(session: TestSession): {
 } {
   const sent: ServerMessage[] = [];
   const ctx: HandlerContext = {
-    sessions: new Map(),
+    conversations: new Map(),
     sharedRequestTimestamps: [],
     debounceTimers: new DebouncerMap({ defaultDelayMs: 100 }),
     suppressConfigReload: false,
@@ -189,9 +189,9 @@ function createContext(session: TestSession): {
       sent.push(msg);
     },
     broadcast: () => {},
-    clearAllSessions: () => 0,
-    getOrCreateSession: async () => session as any,
-    touchSession: () => {},
+    clearAllConversations: () => 0,
+    getOrCreateConversation: async () => session as any,
+    touchConversation: () => {},
   };
   return { ctx, sent };
 }
@@ -243,7 +243,7 @@ describe("handleConfirmationResponse canonical status sync", () => {
       handleConfirmationResponse: mock(() => {}),
     };
     const { ctx } = createContext(makeSession());
-    ctx.sessions.set("conv-1", session as any);
+    ctx.conversations.set("conv-1", session as any);
 
     const msg: ConfirmationResponse = {
       type: "confirmation_response",

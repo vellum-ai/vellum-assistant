@@ -7,27 +7,33 @@ enum SettingsTab: String {
     case voice = "Voice"
     case permissionsAndPrivacy = "Permissions & Privacy"
     case contacts = "Contacts"
-    case archivedThreads = "Archived Threads"
+    case billing = "Billing"
+    case archivedConversations = "Archived Threads"
     case developer = "Developer"
 
     /// Primary tabs shown in the main nav list (excludes feature-flagged bottom tabs).
-    static func primaryTabs(contactsEnabled: Bool = false) -> [SettingsTab] {
+    static func primaryTabs(contactsEnabled: Bool = false, billingEnabled: Bool = false) -> [SettingsTab] {
         var tabs: [SettingsTab] = [.general]
         if contactsEnabled {
             tabs.append(.contacts)
         }
         tabs.append(contentsOf: [
             .voice, .modelsAndServices,
-            .permissionsAndPrivacy, .archivedThreads
+            .permissionsAndPrivacy,
         ])
+        if billingEnabled {
+            tabs.append(.billing)
+        }
+        tabs.append(.archivedConversations)
         return tabs
     }
 
     /// Resolves a tab name string to a SettingsTab. Only accepts current canonical names.
-    static func fromRawValue(_ value: String, contactsEnabled: Bool = false, developerEnabled: Bool = false) -> SettingsTab? {
+    static func fromRawValue(_ value: String, contactsEnabled: Bool = false, billingEnabled: Bool = false, developerEnabled: Bool = false) -> SettingsTab? {
         guard let tab = SettingsTab(rawValue: value) else { return nil }
         // Block feature-flagged tabs when disabled
         if tab == .contacts && !contactsEnabled { return nil }
+        if tab == .billing && !billingEnabled { return nil }
         if tab == .developer && !developerEnabled { return nil }
         return tab
     }
@@ -38,7 +44,7 @@ struct SettingsPanel: View {
     var onClose: () -> Void
     @ObservedObject var store: SettingsStore
     var daemonClient: DaemonClient?
-    @ObservedObject var threadManager: ThreadManager
+    @ObservedObject var conversationManager: ConversationManager
     var authManager: AuthManager
 
     @State private var apiKeyText: String = ""
@@ -56,12 +62,15 @@ struct SettingsPanel: View {
     @State private var permissionCheckTask: Task<Void, Never>?
     @State private var selectedTab: SettingsTab = .general
     @State private var isContactsEnabled: Bool = false
+    @State private var isBillingEnabled: Bool = false
     @State private var isDeveloperEnabled: Bool = false
     @State private var isEmailEnabled: Bool = false
     @State private var showingDevUnlock: Bool = false
     @State private var devUnlockText: String = ""
     @State private var devUnlockMonitor: Any?
+    @State private var bootstrapGeneration: Int = 0
     private static let contactsFeatureFlagKey = "feature_flags.contacts.enabled"
+    private static let billingFeatureFlagKey = "settings_billing_enabled"
     private static let developerFeatureFlagKey = "feature_flags.settings-developer-nav.enabled"
     private static let emailFeatureFlagKey = "feature_flags.email-channel.enabled"
 
@@ -125,7 +134,9 @@ struct SettingsPanel: View {
             await loadFeatureFlags()
         }
         .onAppear {
+            isBillingEnabled = MacOSClientFeatureFlagManager.shared.isEnabled(Self.billingFeatureFlagKey)
             store.refreshAPIKeyState()
+            store.loadProviderRoutingSources()
             store.refreshTelegramStatus()
             store.refreshTwilioStatus()
             store.refreshIngressConfig()
@@ -153,6 +164,11 @@ struct SettingsPanel: View {
                 selectedTab = tab
             }
         }
+        .onChange(of: billingVisible) { _, visible in
+            if !visible && selectedTab == .billing {
+                selectedTab = .general
+            }
+        }
         .onReceive(NotificationCenter.default.publisher(for: .assistantFeatureFlagDidChange)) { notification in
             if let key = notification.userInfo?["key"] as? String,
                let enabled = notification.userInfo?["enabled"] as? Bool {
@@ -166,6 +182,8 @@ struct SettingsPanel: View {
                     if !enabled && selectedTab == .developer {
                         selectedTab = .general
                     }
+                } else if key == Self.billingFeatureFlagKey {
+                    isBillingEnabled = enabled
                 } else if key == Self.emailFeatureFlagKey {
                     isEmailEnabled = enabled
                 }
@@ -180,6 +198,9 @@ struct SettingsPanel: View {
             Task { @MainActor in
                 await refreshPermissionStatus()
             }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .localBootstrapCompleted)) { _ in
+            bootstrapGeneration += 1
         }
         .sheet(isPresented: $showingTrustRules) {
             if let daemonClient {
@@ -242,17 +263,22 @@ struct SettingsPanel: View {
 
     /// All currently visible tabs (primary + gated bottom tabs).
     private var allVisibleTabs: [SettingsTab] {
-        var tabs = SettingsTab.primaryTabs(contactsEnabled: isContactsEnabled)
+        var tabs = SettingsTab.primaryTabs(contactsEnabled: isContactsEnabled, billingEnabled: billingVisible)
         if isDeveloperEnabled {
             tabs.append(.developer)
         }
-        // .archivedThreads is already included via primaryTabs()
+        // .archivedConversations is already included via primaryTabs()
         return tabs
+    }
+
+    private var billingVisible: Bool {
+        let _ = bootstrapGeneration  // Force recomputation when bootstrap completes
+        return isBillingEnabled && authManager.isAuthenticated && UserDefaults.standard.string(forKey: "connectedOrganizationId") != nil
     }
 
     private var settingsNav: some View {
         VStack(alignment: .leading, spacing: VSpacing.xs) {
-            ForEach(SettingsTab.primaryTabs(contactsEnabled: isContactsEnabled), id: \.self) { tab in
+            ForEach(SettingsTab.primaryTabs(contactsEnabled: isContactsEnabled, billingEnabled: billingVisible), id: \.self) { tab in
                 SettingsNavRow(tab: tab, isSelected: selectedTab == tab) {
                     selectedTab = tab
                 }
@@ -277,7 +303,9 @@ struct SettingsPanel: View {
     private var selectedTabContent: some View {
         switch selectedTab {
         case .general:
-            SettingsGeneralTab(store: store, daemonClient: daemonClient, authManager: authManager, onClose: onClose)
+            SettingsGeneralTab(store: store, daemonClient: daemonClient, authManager: authManager, onClose: onClose, onSignIn: {
+                AppDelegate.shared?.ensureLocalAssistantApiKey()
+            })
         case .modelsAndServices:
             integrationsContent
         case .voice:
@@ -286,8 +314,10 @@ struct SettingsPanel: View {
             permissionsAndPrivacyContent
         case .contacts:
             ContactsContainerView(daemonClient: daemonClient, store: store, isEmailEnabled: isEmailEnabled)
-        case .archivedThreads:
-            SettingsArchivedThreadsTab(threadManager: threadManager)
+        case .billing:
+            SettingsBillingTab(authManager: authManager)
+        case .archivedConversations:
+            SettingsArchivedThreadsTab(conversationManager: conversationManager)
         case .developer:
             SettingsDeveloperTab(store: store, daemonClient: daemonClient, authManager: authManager, onClose: onClose)
         }
@@ -303,6 +333,7 @@ struct SettingsPanel: View {
                 subtitle: "Required for AI responses",
                 isConnected: store.hasKey,
                 keyPlaceholder: "Enter your API key",
+                isManagedProxy: store.providerRoutingSources["anthropic"] == "managed-proxy",
                 keyText: $apiKeyText,
                 onSave: {
                     store.saveAPIKey(apiKeyText)
@@ -339,6 +370,7 @@ struct SettingsPanel: View {
                 subtitle: "Enables real-time web search in responses",
                 isConnected: store.hasPerplexityKey,
                 keyPlaceholder: "Enter your Perplexity API key",
+                isManagedProxy: store.providerRoutingSources["perplexity"] == "managed-proxy",
                 keyText: $perplexityKeyText,
                 onSave: {
                     store.savePerplexityKey(perplexityKeyText)
@@ -356,6 +388,7 @@ struct SettingsPanel: View {
                 subtitle: "Enables private web search in responses",
                 isConnected: store.hasBraveKey,
                 keyPlaceholder: "Enter your Brave Search API key",
+                isManagedProxy: store.providerRoutingSources["brave"] == "managed-proxy",
                 keyText: $braveKeyText,
                 onSave: {
                     store.saveBraveKey(braveKeyText)
@@ -373,6 +406,7 @@ struct SettingsPanel: View {
                 subtitle: "Enables AI image generation via Gemini",
                 isConnected: store.hasImageGenKey,
                 keyPlaceholder: "Enter your Gemini API key",
+                isManagedProxy: store.providerRoutingSources["gemini"] == "managed-proxy",
                 keyText: $imageGenKeyText,
                 onSave: {
                     store.saveImageGenKey(imageGenKeyText)

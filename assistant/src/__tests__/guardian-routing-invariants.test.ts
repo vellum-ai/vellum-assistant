@@ -129,7 +129,7 @@ function registerPendingToolApprovalInteraction(
   const mockSession = {
     handleConfirmationResponse,
     ensureActorScopedHistory: async () => {},
-  } as unknown as import("../daemon/session.js").Session;
+  } as unknown as import("../daemon/conversation.js").Conversation;
 
   pendingInteractions.register(requestId, {
     session: mockSession,
@@ -209,7 +209,7 @@ describe("routing invariant: all decision paths reference applyCanonicalGuardian
   // the shared router rather than inlining decision logic.
   const ROUTER_CONSUMERS = [
     "runtime/routes/inbound-message-handler.ts",
-    "daemon/session-process.ts",
+    "daemon/conversation-process.ts",
   ];
 
   for (const relPath of ROUTER_CONSUMERS) {
@@ -220,15 +220,15 @@ describe("routing invariant: all decision paths reference applyCanonicalGuardian
     });
   }
 
-  test("daemon/session-process.ts no longer references legacy guardian-action interception", () => {
-    const fullPath = join(srcRoot, "daemon/session-process.ts");
+  test("daemon/conversation-process.ts no longer references legacy guardian-action interception", () => {
+    const fullPath = join(srcRoot, "daemon/conversation-process.ts");
     const source = readFileSync(fullPath, "utf-8");
     expect(source).not.toContain("../memory/guardian-action-store.js");
     expect(source).not.toContain("getPendingDeliveriesByConversation");
   });
 
-  test("daemon/session-process.ts seeds router hints via listPendingRequestsByConversationScope", () => {
-    const fullPath = join(srcRoot, "daemon/session-process.ts");
+  test("daemon/conversation-process.ts seeds router hints via listPendingRequestsByConversationScope", () => {
+    const fullPath = join(srcRoot, "daemon/conversation-process.ts");
     const source = readFileSync(fullPath, "utf-8");
     expect(source).toContain("listPendingRequestsByConversationScope");
   });
@@ -660,7 +660,7 @@ describe("routing invariant: disambiguation stays fail-closed", () => {
     const result = await routeGuardianReply(
       replyCtx({
         messageText: "approve",
-        conversationId: "conv-guardian-thread",
+        conversationId: "conv-guardian-conversation",
         pendingRequestIds: [req.id],
         approvalConversationGenerator: undefined,
       }),
@@ -689,7 +689,7 @@ describe("routing invariant: disambiguation stays fail-closed", () => {
     const result = await routeGuardianReply(
       replyCtx({
         messageText: "ok, what is this for?",
-        conversationId: "conv-guardian-thread",
+        conversationId: "conv-guardian-conversation",
         pendingRequestIds: [req.id],
         approvalConversationGenerator: undefined,
       }),
@@ -756,7 +756,7 @@ describe("routing invariant: disambiguation stays fail-closed", () => {
     const result = await routeGuardianReply(
       replyCtx({
         messageText: "approve",
-        conversationId: "conv-guardian-thread",
+        conversationId: "conv-guardian-conversation",
         pendingRequestIds: [req1.id, req2.id],
         approvalConversationGenerator: undefined,
       }),
@@ -863,7 +863,7 @@ describe("routing invariant: disambiguation stays fail-closed", () => {
     const result = await routeGuardianReply(
       replyCtx({
         messageText: "approve",
-        conversationId: "conv-guardian-thread",
+        conversationId: "conv-guardian-conversation",
         pendingRequestIds: [answerRequest.id, approvalRequest.id],
         approvalConversationGenerator: undefined,
       }),
@@ -977,7 +977,7 @@ describe("routing invariant: disambiguation stays fail-closed", () => {
     const result = await routeGuardianReply(
       replyCtx({
         messageText: "222BBB approve",
-        conversationId: "conv-guardian-thread",
+        conversationId: "conv-guardian-conversation",
         pendingRequestIds: [inScope.id],
         approvalConversationGenerator: undefined,
       }),
@@ -1251,7 +1251,7 @@ describe("routing invariant: invite handoff bypass for access requests", () => {
     const result = await routeGuardianReply(
       replyCtx({
         messageText: "open invite flow",
-        conversationId: "conv-guardian-thread",
+        conversationId: "conv-guardian-conversation",
         pendingRequestIds: [req.id],
         approvalConversationGenerator: undefined,
       }),
@@ -1312,7 +1312,7 @@ describe("routing invariant: invite handoff bypass for access requests", () => {
     await routeGuardianReply(
       replyCtx({
         messageText: "open invite flow",
-        conversationId: "conv-guardian-thread",
+        conversationId: "conv-guardian-conversation",
         pendingRequestIds: [req.id],
         approvalConversationGenerator: undefined,
       }),
@@ -1342,7 +1342,7 @@ describe("routing invariant: invite handoff bypass for access requests", () => {
     const result = await routeGuardianReply(
       replyCtx({
         messageText: "A00B01 approve",
-        conversationId: "conv-guardian-thread",
+        conversationId: "conv-guardian-conversation",
         pendingRequestIds: [req.id],
         approvalConversationGenerator: undefined,
       }),
@@ -1372,7 +1372,7 @@ describe("routing invariant: invite handoff bypass for access requests", () => {
       messageText: "C0D3A5 approve",
       channel: "vellum",
       actor: trustedActor({ channel: "vellum" }),
-      conversationId: "conv-guardian-thread",
+      conversationId: "conv-guardian-conversation",
       pendingRequestIds: [req.id],
       approvalConversationGenerator: undefined,
     });
@@ -1411,7 +1411,7 @@ describe("routing invariant: invite handoff bypass for access requests", () => {
       messageText: "please approve this request",
       channel: "vellum",
       actor: trustedActor({ channel: "vellum" }),
-      conversationId: "conv-guardian-thread",
+      conversationId: "conv-guardian-conversation",
       pendingRequestIds: [req.id],
       approvalConversationGenerator: approvalConversationGenerator as any,
     });
@@ -1463,7 +1463,7 @@ describe("routing invariant: expired requests are excluded from pending discover
     const result = await routeGuardianReply(
       replyCtx({
         messageText: "approve",
-        conversationId: "conv-guardian-thread",
+        conversationId: "conv-guardian-conversation",
         pendingRequestIds: [expired.id, active.id],
         approvalConversationGenerator: undefined,
       }),
@@ -1508,7 +1508,7 @@ describe("routing invariant: expired requests are excluded from pending discover
     const result = await routeGuardianReply(
       replyCtx({
         messageText: "approve",
-        conversationId: "conv-guardian-thread",
+        conversationId: "conv-guardian-conversation",
         pendingRequestIds: [expired1.id, expired2.id],
         approvalConversationGenerator: undefined,
       }),

@@ -237,7 +237,8 @@ export async function sendSlackAttachments(
     // Skip oversized attachments before downloading when size is known
     if (
       meta.sizeBytes !== undefined &&
-      meta.sizeBytes > config.maxAttachmentBytes
+      meta.sizeBytes >
+        (config.maxAttachmentBytes.slack ?? config.maxAttachmentBytes.default)
     ) {
       log.warn(
         { attachmentId: meta.id, sizeBytes: meta.sizeBytes },
@@ -258,7 +259,10 @@ export async function sendSlackAttachments(
       const sizeBytes = meta.sizeBytes ?? payload.sizeBytes ?? buffer.length;
 
       // Check size after hydration for ID-only payloads
-      if (sizeBytes > config.maxAttachmentBytes) {
+      if (
+        sizeBytes >
+        (config.maxAttachmentBytes.slack ?? config.maxAttachmentBytes.default)
+      ) {
         log.warn(
           { attachmentId: meta.id, sizeBytes },
           "Skipping oversized outbound attachment (detected after download)",

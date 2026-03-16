@@ -52,7 +52,7 @@ class ScreenWatchTool implements Tool {
     input: Record<string, unknown>,
     context: ToolContext,
   ): Promise<ToolExecutionResult> {
-    const { sessionId } = context;
+    const { conversationId: sessionId } = context;
 
     // Validate focus_area
     const focusArea =

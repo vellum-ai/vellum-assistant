@@ -623,7 +623,7 @@ struct GeneratedPanel: View {
             </html>
             """
             let surfaceMsg = UiSurfaceShowMessage(
-                sessionId: "shared-app",
+                conversationId: "shared-app",
                 surfaceId: "shared-app-\(uuid)",
                 surfaceType: "dynamic_page",
                 title: item.name,
@@ -648,9 +648,24 @@ struct GeneratedPanel: View {
         isBundling = true
 
         Task { @MainActor in
-            let previousHandler = daemonClient.onBundleAppResponse
-            daemonClient.onBundleAppResponse = { response in
-                daemonClient.onBundleAppResponse = previousHandler
+            let stream = daemonClient.subscribe()
+
+            do {
+                try daemonClient.sendBundleApp(appId: appId)
+            } catch {
+                isBundling = false
+                sharingAppId = nil
+                return
+            }
+
+            let response = await stream.firstMatch { message -> BundleAppResponseMessage? in
+                if case .bundleAppResponse(let response) = message {
+                    return response
+                }
+                return nil
+            }
+
+            if let response {
                 let url = MainWindowView.cleanBundleURL(bundlePath: response.bundlePath, appName: response.manifest.name)
                 MainWindowView.applyFileIcon(to: url, iconBase64: response.iconImageBase64, emojiIcon: response.manifest.icon, appName: response.manifest.name)
                 self.shareFileURL = url
@@ -658,14 +673,10 @@ struct GeneratedPanel: View {
                 self.shareAppIcon = MainWindowView.buildAppIcon(iconBase64: response.iconImageBase64, emojiIcon: response.manifest.icon, appName: response.manifest.name)
                 self.isBundling = false
                 self.showShareSheet = true
-            }
-
-            do {
-                try daemonClient.sendBundleApp(appId: appId)
-            } catch {
-                isBundling = false
-                sharingAppId = nil
-                daemonClient.onBundleAppResponse = previousHandler
+            } else {
+                // Timeout or stream ended — reset bundling state to avoid stuck UI
+                self.isBundling = false
+                self.sharingAppId = nil
             }
         }
     }
@@ -688,17 +699,23 @@ struct GeneratedPanel: View {
         guard let uuid = item.sharedUUID else { return }
 
         Task { @MainActor in
-            daemonClient.onSharedAppDeleteResponse = { response in
-                if response.success {
-                    self.sharedApps.removeAll { $0.uuid == uuid }
-                    self.buildDisplayItems()
-                }
-            }
+            let stream = daemonClient.subscribe()
 
             do {
                 try daemonClient.sendSharedAppDelete(uuid: uuid)
             } catch {
-                // Silently fail
+                return
+            }
+
+            let success = await stream.firstMatch { message -> Bool? in
+                if case .sharedAppDeleteResponse(let response) = message {
+                    return response.success
+                }
+                return nil
+            }
+            if success == true {
+                self.sharedApps.removeAll { $0.uuid == uuid }
+                self.buildDisplayItems()
             }
         }
     }
@@ -709,16 +726,22 @@ struct GeneratedPanel: View {
         guard let uuid = item.sharedUUID else { return }
 
         Task { @MainActor in
-            daemonClient.onForkSharedAppResponse = { response in
-                if response.success {
-                    self.fetchApps()
-                }
-            }
+            let stream = daemonClient.subscribe()
 
             do {
                 try daemonClient.sendForkSharedApp(uuid: uuid)
             } catch {
-                // Silently fail
+                return
+            }
+
+            let success = await stream.firstMatch { message -> Bool? in
+                if case .forkSharedAppResponse(let response) = message {
+                    return response.success
+                }
+                return nil
+            }
+            if success == true {
+                self.fetchApps()
             }
         }
     }

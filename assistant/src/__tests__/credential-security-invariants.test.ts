@@ -234,7 +234,7 @@ describe("Invariant 2: no generic plaintext secret read API", () => {
       "oauth/token-persistence.ts", // OAuth token persistence (set/delete tokens)
       "oauth/connection-resolver.ts", // resolve OAuthConnection from oauth-store (access_token lookup)
       "runtime/routes/secret-routes.ts", // HTTP secret management routes (set/delete secrets)
-      "daemon/session-messaging.ts", // credential storage during session messaging
+      "daemon/conversation-messaging.ts", // credential storage during session messaging
       "runtime/routes/settings-routes.ts", // settings routes OAuth credential lookup (client_secret)
       "oauth/oauth-store.ts", // OAuth provider disconnect (delete stored tokens)
       "cli/commands/oauth/connections.ts", // CLI OAuth connection delete (legacy credential cleanup)
@@ -251,9 +251,10 @@ describe("Invariant 2: no generic plaintext secret read API", () => {
       "media/avatar-router.ts", // avatar generation API key lookup
       "memory/embedding-backend.ts", // embedding backend API key lookup
       "daemon/handlers/config-model.ts", // model config handler API key lookup
-      "daemon/session-slash.ts", // session slash command API key lookup
-      "daemon/session-process.ts", // session process API key lookup
+      "daemon/conversation-slash.ts", // session slash command API key lookup
+      "daemon/conversation-process.ts", // session process API key lookup
       "daemon/lifecycle.ts", // CLI edge token persistence at startup
+      "daemon/providers-setup.ts", // provider initialization API key lookup
       "tools/claude-code/claude-code.ts", // Claude Code tool API key lookup
     ]);
 

@@ -158,17 +158,17 @@ export function subagentRouteDefinitions(): RouteDefinition[] {
       method: "POST",
       policyKey: "subagents/abort",
       handler: async ({ req, params }) => {
-        const body = (await req.json()) as { sessionId?: string };
-        const sessionId = body.sessionId;
-        if (!sessionId || typeof sessionId !== "string") {
-          return httpError("BAD_REQUEST", "sessionId is required", 400);
+        const body = (await req.json()) as { conversationId?: string };
+        const conversationId = body.conversationId;
+        if (!conversationId || typeof conversationId !== "string") {
+          return httpError("BAD_REQUEST", "conversationId is required", 400);
         }
 
         const manager = getSubagentManager();
         const aborted = manager.abort(
           params.id,
           () => {}, // No send callback needed for HTTP
-          sessionId,
+          conversationId,
         );
 
         if (!aborted) {
@@ -194,12 +194,12 @@ export function subagentRouteDefinitions(): RouteDefinition[] {
       policyKey: "subagents/message",
       handler: async ({ req, params }) => {
         const body = (await req.json()) as {
-          sessionId?: string;
+          conversationId?: string;
           content?: string;
         };
-        const sessionId = body.sessionId;
-        if (!sessionId || typeof sessionId !== "string") {
-          return httpError("BAD_REQUEST", "sessionId is required", 400);
+        const conversationId = body.conversationId;
+        if (!conversationId || typeof conversationId !== "string") {
+          return httpError("BAD_REQUEST", "conversationId is required", 400);
         }
         if (!body.content || typeof body.content !== "string") {
           return httpError("BAD_REQUEST", "content is required", 400);
@@ -209,7 +209,7 @@ export function subagentRouteDefinitions(): RouteDefinition[] {
 
         // Ownership check
         const state = manager.getState(params.id);
-        if (!state || state.config.parentSessionId !== sessionId) {
+        if (!state || state.config.parentSessionId !== conversationId) {
           return httpError(
             "NOT_FOUND",
             `Subagent "${params.id}" not found or in terminal state.`,

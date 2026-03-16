@@ -42,7 +42,12 @@ function makeConfig(overrides: Partial<GatewayConfig> = {}): GatewayConfig {
     defaultAssistantId: undefined,
     gatewayInternalBaseUrl: "http://127.0.0.1:7830",
     logFile: { dir: undefined, retentionDays: 30 },
-    maxAttachmentBytes: 20 * 1024 * 1024,
+    maxAttachmentBytes: {
+      telegram: 50 * 1024 * 1024,
+      slack: 100 * 1024 * 1024,
+      whatsapp: 16 * 1024 * 1024,
+      default: 50 * 1024 * 1024,
+    },
     maxAttachmentConcurrency: 3,
     maxWebhookPayloadBytes: 1024 * 1024,
     port: 7830,

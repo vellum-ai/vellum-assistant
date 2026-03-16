@@ -178,6 +178,12 @@ public final class SettingsStore: ObservableObject {
     /// Values: "not_configured", "incomplete", "ready".
     @Published var channelSetupStatus: [String: String] = [:]
 
+    // MARK: - Provider Routing Sources
+
+    /// Per-provider routing source from the daemon debug endpoint.
+    /// Values: `"user-key"`, `"managed-proxy"`, or absent.
+    @Published var providerRoutingSources: [String: String] = [:]
+
     // MARK: - Platform Config State
 
     @Published var platformBaseUrl: String = ""
@@ -219,10 +225,16 @@ public final class SettingsStore: ObservableObject {
 
     // MARK: - Privacy
 
-    /// Whether the user has opted in to sharing anonymised performance metrics (e.g. hang rate,
-    /// scroll speed). Defaults to `true`. Read by the MetricKit integration (M4) to decide
-    /// whether to forward payloads.
-    @Published var sendPerformanceReports: Bool = UserDefaults.standard.object(forKey: "sendPerformanceReports") as? Bool ?? true
+    /// Whether the user has opted in to sending crash reports, error diagnostics, and
+    /// performance metrics. Defaults to `true`. Controls Sentry independently from usage analytics.
+    @Published var sendDiagnostics: Bool = UserDefaults.standard.object(forKey: "sendDiagnostics") as? Bool
+        ?? true
+
+    /// Whether the user has opted in to sharing anonymized usage analytics (e.g. token counts,
+    /// feature adoption). Defaults to `true`. Independent from diagnostics.
+    @Published var collectUsageData: Bool = UserDefaults.standard.object(forKey: "collectUsageData") as? Bool
+        ?? UserDefaults.standard.object(forKey: "collectUsageDataEnabled") as? Bool
+        ?? true
 
     // MARK: - Private
 
@@ -243,6 +255,7 @@ public final class SettingsStore: ObservableObject {
     /// response arrives.
     private var pendingIngressEnabled: Bool?
     private var pendingIngressUrl: String?
+    private var routingSourceRefreshTask: Task<Void, Never>?
 
     /// Last model reported by the daemon — used to skip redundant model_set calls
     /// that would otherwise reinitialize providers and evict idle sessions.
@@ -355,7 +368,19 @@ public final class SettingsStore: ObservableObject {
         // Re-sync all API keys to daemon when it reconnects
         NotificationCenter.default.publisher(for: .daemonDidReconnect)
             .receive(on: RunLoop.main)
-            .sink { [weak self] _ in self?.syncAllKeysToDaemon() }
+            .sink { [weak self] _ in
+                self?.syncAllKeysToDaemon()
+                self?.loadProviderRoutingSources()
+            }
+            .store(in: &cancellables)
+
+        // Refresh routing sources when local assistant bootstrap completes
+        // (e.g. after sign-in provisions an API key into the daemon)
+        NotificationCenter.default.publisher(for: .localBootstrapCompleted)
+            .receive(on: RunLoop.main)
+            .sink { [weak self] _ in
+                self?.loadProviderRoutingSources()
+            }
             .store(in: &cancellables)
 
         // maxStepsPerSession is read at session startup, so it must be persisted synchronously
@@ -382,20 +407,23 @@ public final class SettingsStore: ObservableObject {
             .sink { value in UserDefaults.standard.set(value, forKey: "cmdEnterToSend") }
             .store(in: &cancellables)
 
-        $sendPerformanceReports
+        $sendDiagnostics
             .dropFirst()
             .debounce(for: .milliseconds(300), scheduler: RunLoop.main)
             .sink {
-                UserDefaults.standard.set($0, forKey: "sendPerformanceReports")
-                // Restart Sentry so the updated profilesSampleRate takes effect
-                // (Sentry config is immutable after start). Only restart when the
-                // user has opted into usage data — otherwise we'd re-enable Sentry
-                // after the user explicitly disabled it.
-                let collectUsageData = UserDefaults.standard.object(forKey: "collectUsageDataEnabled") as? Bool ?? true
-                guard collectUsageData else { return }
-                MetricKitManager.closeSentry()
-                MetricKitManager.startSentry()
+                UserDefaults.standard.set($0, forKey: "sendDiagnostics")
+                if $0 {
+                    MetricKitManager.startSentry()
+                } else {
+                    MetricKitManager.closeSentry()
+                }
             }
+            .store(in: &cancellables)
+
+        $collectUsageData
+            .dropFirst()
+            .debounce(for: .milliseconds(300), scheduler: RunLoop.main)
+            .sink { value in UserDefaults.standard.set(value, forKey: "collectUsageData") }
             .store(in: &cancellables)
 
         // Persist shortcut changes immediately so the hotkey re-registers without delay
@@ -649,6 +677,9 @@ public final class SettingsStore: ObservableObject {
         // Ingress config is refreshed by onAppear in SettingsPanel,
         // not here, to avoid duplicate get requests whose
         // stale responses could overwrite an optimistic toggle.
+
+        // Fetch provider routing sources (managed vs BYO) on init
+        loadProviderRoutingSources()
     }
 
     // MARK: - API Key Actions
@@ -661,6 +692,7 @@ public final class SettingsStore: ObservableObject {
         syncKeyToDaemon(provider: "anthropic", value: trimmed)
         hasKey = true
         maskedKey = Self.maskKey(trimmed)
+        scheduleRoutingSourceRefresh()
     }
 
     func clearAPIKey() {
@@ -669,6 +701,7 @@ public final class SettingsStore: ObservableObject {
         deleteKeyFromDaemon(provider: "anthropic")
         hasKey = false
         maskedKey = ""
+        scheduleRoutingSourceRefresh()
     }
 
     func saveBraveKey(_ raw: String) {
@@ -679,6 +712,7 @@ public final class SettingsStore: ObservableObject {
         syncKeyToDaemon(provider: "brave", value: trimmed)
         hasBraveKey = true
         maskedBraveKey = Self.maskKey(trimmed)
+        scheduleRoutingSourceRefresh()
     }
 
     func clearBraveKey() {
@@ -687,6 +721,7 @@ public final class SettingsStore: ObservableObject {
         deleteKeyFromDaemon(provider: "brave")
         hasBraveKey = false
         maskedBraveKey = ""
+        scheduleRoutingSourceRefresh()
     }
 
     func savePerplexityKey(_ raw: String) {
@@ -697,6 +732,7 @@ public final class SettingsStore: ObservableObject {
         syncKeyToDaemon(provider: "perplexity", value: trimmed)
         hasPerplexityKey = true
         maskedPerplexityKey = Self.maskKey(trimmed)
+        scheduleRoutingSourceRefresh()
     }
 
     func clearPerplexityKey() {
@@ -705,6 +741,7 @@ public final class SettingsStore: ObservableObject {
         deleteKeyFromDaemon(provider: "perplexity")
         hasPerplexityKey = false
         maskedPerplexityKey = ""
+        scheduleRoutingSourceRefresh()
     }
 
     func saveImageGenKey(_ raw: String) {
@@ -715,6 +752,7 @@ public final class SettingsStore: ObservableObject {
         syncKeyToDaemon(provider: "gemini", value: trimmed)
         hasImageGenKey = true
         maskedImageGenKey = Self.maskKey(trimmed)
+        scheduleRoutingSourceRefresh()
     }
 
     func clearImageGenKey() {
@@ -723,6 +761,7 @@ public final class SettingsStore: ObservableObject {
         deleteKeyFromDaemon(provider: "gemini")
         hasImageGenKey = false
         maskedImageGenKey = ""
+        scheduleRoutingSourceRefresh()
     }
 
     func saveElevenLabsKey(_ raw: String) {
@@ -1551,7 +1590,7 @@ public final class SettingsStore: ObservableObject {
     }
 
     private func applyOutboundResponseState(channel: String, response: ChannelVerificationSessionResponseMessage) {
-        let sessionId = response.verificationSessionId
+        let conversationId = response.verificationSessionId
         // Only update fields when the response includes them; partial payloads (e.g. resend
         // success) omit fields like expiresAt, sendCount, and nextResendAt. Overwriting with
         // nil/zero would lose countdown tracking and UI state.
@@ -1567,12 +1606,12 @@ public final class SettingsStore: ObservableObject {
         case "telegram":
             // When the session changes, reset resend metadata so stale cooldown/counter
             // values from the old session don't persist through the if-let guards below.
-            if sessionId != telegramOutboundSessionId {
+            if conversationId != telegramOutboundSessionId {
                 telegramOutboundNextResendAt = nil
                 telegramOutboundSendCount = 0
                 telegramOutboundCode = nil
             }
-            telegramOutboundSessionId = sessionId
+            telegramOutboundSessionId = conversationId
             if let expiresAt { telegramOutboundExpiresAt = expiresAt }
             if let nextResendAt { telegramOutboundNextResendAt = nextResendAt }
             if let sendCount { telegramOutboundSendCount = sendCount }
@@ -1584,28 +1623,28 @@ public final class SettingsStore: ObservableObject {
                 // existing bootstrap URL so the deep link stays visible. The
                 // status handler cannot reconstruct the URL (only the hash is
                 // stored), so we must not overwrite what we received earlier.
-            } else if sessionId != nil {
+            } else if conversationId != nil {
                 // Bootstrap complete — clear the URL so resend becomes available
                 telegramBootstrapUrl = nil
             }
         case "phone":
-            if sessionId != voiceOutboundSessionId {
+            if conversationId != voiceOutboundSessionId {
                 voiceOutboundNextResendAt = nil
                 voiceOutboundSendCount = 0
                 voiceOutboundCode = nil
             }
-            voiceOutboundSessionId = sessionId
+            voiceOutboundSessionId = conversationId
             if let expiresAt { voiceOutboundExpiresAt = expiresAt }
             if let nextResendAt { voiceOutboundNextResendAt = nextResendAt }
             if let sendCount { voiceOutboundSendCount = sendCount }
             if let secret { voiceOutboundCode = secret }
         case "slack":
-            if sessionId != slackOutboundSessionId {
+            if conversationId != slackOutboundSessionId {
                 slackOutboundNextResendAt = nil
                 slackOutboundSendCount = 0
                 slackOutboundCode = nil
             }
-            slackOutboundSessionId = sessionId
+            slackOutboundSessionId = conversationId
             if let expiresAt { slackOutboundExpiresAt = expiresAt }
             if let nextResendAt { slackOutboundNextResendAt = nextResendAt }
             if let sendCount { slackOutboundSendCount = sendCount }
@@ -1766,6 +1805,43 @@ public final class SettingsStore: ObservableObject {
             platformBaseUrl = previous
             AuthService.shared.configuredBaseURL = previous
             log.error("Failed to send platform config set: \(error)")
+        }
+    }
+
+    // MARK: - Provider Routing Sources
+
+    /// Fetches provider routing sources from the daemon debug endpoint and
+    /// updates `providerRoutingSources`. Non-fatal — silently ignores errors.
+    func loadProviderRoutingSources() {
+        guard let assistantId = UserDefaults.standard.string(forKey: "connectedAssistantId") else {
+            providerRoutingSources = [:]
+            return
+        }
+        Task {
+            do {
+                let response = try await GatewayHTTPClient.get(
+                    path: "assistants/\(assistantId)/debug",
+                    timeout: 10
+                )
+                guard response.isSuccess else { return }
+                guard let json = try? JSONSerialization.jsonObject(with: response.data) as? [String: Any],
+                      let provider = json["provider"] as? [String: Any],
+                      let sources = provider["routingSources"] as? [String: String] else { return }
+                self.providerRoutingSources = sources
+            } catch {
+                log.error("Failed to load provider routing sources: \(error)")
+            }
+        }
+    }
+
+    /// Schedules a delayed refresh of provider routing sources, giving the
+    /// daemon time to re-initialize providers after a key change.
+    private func scheduleRoutingSourceRefresh() {
+        routingSourceRefreshTask?.cancel()
+        routingSourceRefreshTask = Task {
+            try? await Task.sleep(nanoseconds: 2_000_000_000)
+            guard !Task.isCancelled else { return }
+            loadProviderRoutingSources()
         }
     }
 

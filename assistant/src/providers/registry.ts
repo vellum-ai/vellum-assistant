@@ -164,6 +164,7 @@ export interface ProviderDebugStatus {
   registeredProviders: string[];
   failoverHealth: ProviderHealthStatus[] | null;
   overallHealth: "healthy" | "degraded" | "down";
+  routingSources: Record<string, "user-key" | "managed-proxy">;
 }
 
 export function getProviderDebugStatus(
@@ -199,6 +200,7 @@ export function getProviderDebugStatus(
     registeredProviders: registered,
     failoverHealth,
     overallHealth,
+    routingSources: Object.fromEntries(routingSources),
   };
 }
 

@@ -268,14 +268,14 @@ public final class ChatViewModel: ObservableObject {
         get { errorManager.errorText }
         set { errorManager.errorText = newValue }
     }
-    public var sessionError: SessionError? {
-        get { errorManager.sessionError }
-        set { errorManager.sessionError = newValue }
+    public var conversationError: ConversationError? {
+        get { errorManager.conversationError }
+        set { errorManager.conversationError = newValue }
     }
     /// Whether this view model has an active error (either a session error or error text).
-    /// Used by ThreadManager to derive `ThreadInteractionState.error`.
+    /// Used by ConversationManager to derive `ConversationInteractionState.error`.
     public var hasActiveError: Bool {
-        sessionError != nil || errorText != nil
+        conversationError != nil || errorText != nil
     }
     /// Supplemental diagnostic hint shown alongside a daemon connection error.
     /// Nil when no connection error is active or the error has been dismissed.
@@ -298,11 +298,11 @@ public final class ChatViewModel: ObservableObject {
     /// response handler can display the correct resolved state (the server does
     /// not echo back the action in its acknowledgement).
     private var pendingGuardianActions: [String: String] = [:]
-    public var sessionId: String? {
+    public var conversationId: String? {
         didSet {
             // If the daemon reconnected before this VM had a session ID, a deferred
             // flush was requested. Now that we have a session, run it.
-            if sessionId != nil && needsOfflineFlush {
+            if conversationId != nil && needsOfflineFlush {
                 needsOfflineFlush = false
                 flushOfflineQueue()
             }
@@ -319,8 +319,8 @@ public final class ChatViewModel: ObservableObject {
     /// Safety task that resets `isReconnectHistoryLoading` if the history
     /// response never arrives (e.g. the request throws or is dropped).
     private var reconnectLatchTimeoutTask: Task<Void, Never>?
-    /// Set to true when daemonDidReconnect fires before sessionId is populated.
-    /// Cleared and actioned in the sessionId didSet observer.
+    /// Set to true when daemonDidReconnect fires before conversationId is populated.
+    /// Cleared and actioned in the conversationId didSet observer.
     private var needsOfflineFlush: Bool = false
     /// Set to true when reconnecting after an SSE gap while a run was in progress.
     /// Causes `populateFromHistory` to do a full message replace instead of
@@ -333,14 +333,16 @@ public final class ChatViewModel: ObservableObject {
     /// reload fires 500ms later).
     private var reconnectPendingSnapshot: [UUID] = []
     /// Called when the SSE stream reconnects while a run was in progress.
-    /// The store/restorer registers the sessionId in pendingHistoryBySessionId
+    /// The store/restorer registers the conversationId in pendingHistoryByConversationId
     /// and sends a history request so the response is routed back properly.
-    public var onReconnectHistoryNeeded: ((_ sessionId: String) -> Void)?
+    public var onReconnectHistoryNeeded: ((_ conversationId: String) -> Void)?
     var pendingUserMessage: String?
     /// The display text (rawText) corresponding to pendingUserMessage.
     /// In voice mode, pendingUserMessage contains the voice-prefixed text while
     /// this stores the original user text used for message-bubble matching.
     var pendingUserMessageDisplayText: String?
+    /// Whether the pending message is automated (e.g. wake-up greeting).
+    var pendingUserMessageAutomated: Bool = false
     /// Optional callback for sending notifications when tool-use messages complete
     public var onToolCallsComplete: ((_ toolCalls: [ToolCallData]) -> Void)?
     /// Whether the current assistant response was triggered by a voice message.
@@ -364,7 +366,7 @@ public final class ChatViewModel: ObservableObject {
     }
     private(set) var lastFailedMessageDisplayText: String?
     private(set) var lastFailedMessageAttachments: [UserMessageAttachment]?
-    /// Set only when a send operation (bootstrapSession or sendUserMessage) fails.
+    /// Set only when a send operation (bootstrapConversation or sendUserMessage) fails.
     /// Used by `isRetryableError` to ensure the retry button only appears for
     /// actual send failures, not for unrelated errors (attachment validation,
     /// confirmation response failures, regenerate errors, etc.).
@@ -381,18 +383,18 @@ public final class ChatViewModel: ObservableObject {
     var secretBlockedAttachments: [UserMessageAttachment]?
     var secretBlockedActiveSurfaceId: String?
     var secretBlockedCurrentPage: String?
-    /// Nonce sent with `session_create` and echoed back in `session_info`.
+    /// Nonce sent with `conversation_create` and echoed back in `conversation_info`.
     /// Used to ensure this ChatViewModel only claims its own session.
     var bootstrapCorrelationId: String?
-    /// Thread type sent with `session_create` (e.g. "private").
-    /// Set by `createSessionIfNeeded(threadType:)` and included in the
-    /// message so the daemon can persist the correct thread kind.
-    public var threadType: String?
+    /// Conversation type sent with `conversation_create` (e.g. "private").
+    /// Set by `createConversationIfNeeded(conversationType:)` and included in the
+    /// message so the daemon can persist the correct conversation kind.
+    public var conversationType: String?
     /// Skill IDs to pre-activate in the session. Included in the
-    /// `session_create` request for deterministic skill activation.
+    /// `conversation_create` request for deterministic skill activation.
     public var preactivatedSkillIds: [String]?
     /// Whether this view model is currently bootstrapping a new session
-    /// (session_create sent, awaiting session_info). Used by ThreadManager
+    /// (conversation_create sent, awaiting conversation_info). Used by ConversationManager
     /// to decide whether it's safe to release the VM on archive.
     public var isBootstrapping: Bool { bootstrapCorrelationId != nil }
     private var messageLoopTask: Task<Void, Never>?
@@ -461,8 +463,8 @@ public final class ChatViewModel: ObservableObject {
     var pendingSendDirectSkillInvocation: SkillInvocationData?
 
     /// Timestamp of the most recent `toolUseStart` event received by this view model.
-    /// Used by ThreadManager to route `confirmationRequest` messages to the correct
-    /// ChatViewModel when multiple threads have active sessions.
+    /// Used by ConversationManager to route `confirmationRequest` messages to the correct
+    /// ChatViewModel when multiple conversations have active sessions.
     public var lastToolUseReceivedAt: Date?
 
     /// Monotonically increasing version counter for server-authoritative activity state.
@@ -474,7 +476,7 @@ public final class ChatViewModel: ObservableObject {
     public var onInlineConfirmationResponse: ((String, String) -> Void)?
 
     /// Called to determine whether this ChatViewModel should accept a `confirmationRequest`.
-    /// Set by ThreadManager to coordinate routing when multiple ChatViewModels are active.
+    /// Set by ConversationManager to coordinate routing when multiple ChatViewModels are active.
     public var shouldAcceptConfirmation: (() -> Bool)?
 
     /// Called when the daemon sends a `watch_started` message to begin a watch session.
@@ -489,16 +491,16 @@ public final class ChatViewModel: ObservableObject {
     /// The macOS layer should cancel the WatchSession and send a cancel to the daemon.
     public var onStopWatch: (() -> Void)?
 
-    /// Called when the daemon assigns a session ID to this chat (via session_info).
-    /// Used by ThreadManager to backfill ThreadModel.sessionId for new threads.
-    public var onSessionCreated: ((String) -> Void)?
+    /// Called when the daemon assigns a session ID to this chat (via conversation_info).
+    /// Used by ConversationManager to backfill ConversationModel.conversationId for new conversations.
+    public var onConversationCreated: ((String) -> Void)?
 
     /// Called once when the first user message is sent, with the message text.
-    /// Used by ThreadManager to auto-title the thread.
+    /// Used by ConversationManager to auto-title the conversation.
     public var onFirstUserMessage: ((String) -> Void)?
 
-    /// Called every time a user message is sent. Used by ThreadManager to
-    /// bump the thread's lastInteractedAt so it rises to the top of the list.
+    /// Called every time a user message is sent. Used by ConversationManager to
+    /// bump the conversation's lastInteractedAt so it rises to the top of the list.
     public var onUserMessageSent: (() -> Void)?
 
     /// Whether this view model has had its history loaded from the daemon.
@@ -589,7 +591,7 @@ public final class ChatViewModel: ObservableObject {
     /// Called when `loadPreviousMessagePage` needs to fetch an older page from the
     /// daemon. The session restorer sets this so the daemon client request is
     /// routed through the same pending-history tracking used for initial loads.
-    public var onLoadMoreHistory: ((_ sessionId: String, _ beforeTimestamp: Double) -> Void)?
+    public var onLoadMoreHistory: ((_ conversationId: String, _ beforeTimestamp: Double) -> Void)?
 
     /// Load the previous page of messages by expanding the display window.
     /// When all locally loaded messages are already visible and the daemon has
@@ -616,11 +618,11 @@ public final class ChatViewModel: ObservableObject {
         }
 
         // All local messages are visible — fetch the next page from the daemon.
-        guard hasMoreHistory, let cursor = historyCursor, let sessionId else { return false }
+        guard hasMoreHistory, let cursor = historyCursor, let conversationId else { return false }
         isLoadingMoreMessages = true
         // Safety timeout: log a warning if the daemon is slow, but do NOT
-        // clear isLoadingMoreMessages here. Callers (ThreadSessionRestorer,
-        // IOSThreadStore) use `vm.isLoadingMoreMessages` to decide whether
+        // clear isLoadingMoreMessages here. Callers (ThreadConversationRestorer,
+        // IOSConversationStore) use `vm.isLoadingMoreMessages` to decide whether
         // a history response is a pagination load. If the timeout clears the
         // flag before the response arrives, the late-but-valid response is
         // misclassified as an initial load and replaces all messages instead
@@ -633,7 +635,7 @@ public final class ChatViewModel: ObservableObject {
             guard let self, !Task.isCancelled, self.isLoadingMoreMessages else { return }
             log.warning("Pagination request still pending after 30s — daemon may be unresponsive")
         }
-        onLoadMoreHistory?(sessionId, cursor)
+        onLoadMoreHistory?(conversationId, cursor)
         // The loading indicator is cleared by populateFromHistory when the response arrives.
         return true
     }
@@ -656,10 +658,10 @@ public final class ChatViewModel: ObservableObject {
     public func rehydrateMessage(id: UUID) {
         guard let idx = messages.firstIndex(where: { $0.id == id }),
               messages[idx].wasTruncated || messages[idx].isContentStripped,
-              let sessionId = sessionId,
+              let conversationId = conversationId,
               let daemonMessageId = messages[idx].daemonMessageId else { return }
         do {
-            try daemonClient.send(MessageContentRequest(type: "message_content_request", sessionId: sessionId, messageId: daemonMessageId))
+            try daemonClient.send(MessageContentRequest(type: "message_content_request", conversationId: conversationId, messageId: daemonMessageId))
         } catch {
             log.error("Failed to send message_content_request: \(error)")
         }
@@ -782,7 +784,7 @@ public final class ChatViewModel: ObservableObject {
         // Only mark history as unloaded if there's a session to reload from.
         // Threads without a session (new, empty) have nothing to fetch —
         // resetting the flag would leave the UI stuck on a loading spinner.
-        if sessionId != nil {
+        if conversationId != nil {
             isHistoryLoaded = false
         }
     }
@@ -912,7 +914,7 @@ public final class ChatViewModel: ObservableObject {
                         try? await Task.sleep(nanoseconds: 500_000_000) // 500ms
                         guard !Task.isCancelled else { return }
                         guard let self, !self.isReconnectHistoryLoading else { return }
-                        if let sessionId = self.sessionId {
+                        if let conversationId = self.conversationId {
                             self.isReconnectHistoryLoading = true
                             self.needsReconnectCatchUp = true
                             // Safety timeout: if the history response never arrives
@@ -927,7 +929,7 @@ public final class ChatViewModel: ObservableObject {
                                 self.needsReconnectCatchUp = false
                                 self.reconnectPendingSnapshot = []
                             }
-                            self.onReconnectHistoryNeeded?(sessionId)
+                            self.onReconnectHistoryNeeded?(conversationId)
                         }
                     }
                 }
@@ -943,9 +945,9 @@ public final class ChatViewModel: ObservableObject {
                 }
 
                 // If we already have a session ID, flush immediately. Otherwise
-                // defer: sessionId's didSet will trigger flushOfflineQueue() once
+                // defer: conversationId's didSet will trigger flushOfflineQueue() once
                 // the session is restored from history (cold-start reconnect case).
-                if self?.sessionId != nil {
+                if self?.conversationId != nil {
                     self?.flushOfflineQueue()
                 } else {
                     self?.needsOfflineFlush = true
@@ -1043,20 +1045,21 @@ public final class ChatViewModel: ObservableObject {
             callback(rawText)
         }
 
-        // Notify ThreadManager so the thread rises to the top of the list
+        // Notify ConversationManager so the conversation rises to the top of the list
         onUserMessageSent?()
 
         // Block rapid-fire only when bootstrapping with a queued message.
         // When a message-less bootstrap is in flight (e.g. private thread
         // pre-allocation), adopt the user's message as the pending message
-        // so it gets sent when session_info arrives instead of being dropped.
-        if (isSending || isBootstrapping) && sessionId == nil {
+        // so it gets sent when conversation_info arrives instead of being dropped.
+        if (isSending || isBootstrapping) && conversationId == nil {
             if pendingUserMessage == nil {
                 isSending = true
                 let attachments = pendingAttachments
                 pendingAttachments = []
                 pendingUserMessage = text
                 pendingUserMessageDisplayText = rawText
+                pendingUserMessageAutomated = hidden
                 pendingUserAttachments = attachments.isEmpty ? nil : attachments.map {
                     UserMessageAttachment(filename: $0.filename, mimeType: $0.mimeType, data: $0.data, extractedText: nil)
                 }
@@ -1069,7 +1072,7 @@ public final class ChatViewModel: ObservableObject {
                 suggestion = nil
                 pendingSuggestionRequestId = nil
                 errorText = nil
-                sessionError = nil
+                conversationError = nil
                 lastFailedMessageText = nil
                 lastFailedMessageDisplayText = nil
                 lastFailedMessageAttachments = nil
@@ -1097,7 +1100,7 @@ public final class ChatViewModel: ObservableObject {
         let isModelCommand = text == "/model" || text == "/models" || text.hasPrefix("/model ")
         let isWorkspaceRefinement = activeSurfaceId != nil && !isChatDockedToSide && !isModelCommand
 
-        let willBeQueued = isSending && sessionId != nil
+        let willBeQueued = isSending && conversationId != nil
         var queuedMessageId: UUID?
         if !isWorkspaceRefinement {
             let status: ChatMessageStatus = willBeQueued ? .queued(position: 0) : .sent
@@ -1122,7 +1125,7 @@ public final class ChatViewModel: ObservableObject {
         suggestion = nil
         pendingSuggestionRequestId = nil
         errorText = nil
-        sessionError = nil
+        conversationError = nil
         lastFailedMessageText = nil
         lastFailedMessageDisplayText = nil
         lastFailedMessageAttachments = nil
@@ -1145,13 +1148,14 @@ public final class ChatViewModel: ObservableObject {
             currentTurnUserText = rawText
         }
 
-        if sessionId == nil {
+        if conversationId == nil {
             // First message: need to bootstrap session
             pendingUserMessageDisplayText = rawText
-            bootstrapSession(userMessage: text, attachments: messageAttachments)
+            pendingUserMessageAutomated = hidden
+            bootstrapConversation(userMessage: text, attachments: messageAttachments)
         } else {
             // Subsequent messages: send directly (daemon queues if busy)
-            sendUserMessage(text, displayText: rawText, attachments: messageAttachments, queuedMessageId: queuedMessageId)
+            sendUserMessage(text, displayText: rawText, attachments: messageAttachments, queuedMessageId: queuedMessageId, automated: hidden)
         }
     }
 
@@ -1172,7 +1176,7 @@ public final class ChatViewModel: ObservableObject {
             do {
                 let stream = self.daemonClient.sendBtwMessage(
                     content: question,
-                    conversationKey: self.sessionId ?? ""
+                    conversationKey: self.conversationId ?? ""
                 )
                 for try await delta in stream {
                     guard !Task.isCancelled else { return }
@@ -1234,7 +1238,7 @@ public final class ChatViewModel: ObservableObject {
         }
     }
 
-    private func bootstrapSession(userMessage: String?, attachments: [UserMessageAttachment]?) {
+    private func bootstrapConversation(userMessage: String?, attachments: [UserMessageAttachment]?) {
         // Only set sending/thinking indicators when there's an actual user
         // message; message-less session creates (e.g. private thread
         // pre-allocation) are silent and shouldn't affect UI state.
@@ -1246,7 +1250,7 @@ public final class ChatViewModel: ObservableObject {
         pendingUserAttachments = attachments
 
         // Generate a unique correlation ID so this ChatViewModel only claims
-        // the session_info response that belongs to its own session_create request.
+        // the conversation_info response that belongs to its own conversation_create request.
         let correlationId = UUID().uuidString
         self.bootstrapCorrelationId = correlationId
 
@@ -1268,6 +1272,7 @@ public final class ChatViewModel: ObservableObject {
                     self.pendingUserMessage = nil
                     self.pendingUserMessageDisplayText = nil
                     self.pendingUserAttachments = nil
+                    self.pendingUserMessageAutomated = false
                     self.errorText = self.lastFailedSendError
                     return
                 }
@@ -1276,14 +1281,14 @@ public final class ChatViewModel: ObservableObject {
             // Subscribe to daemon stream
             self.startMessageLoop()
 
-            // Send session_create with correlation ID and thread type
+            // Send conversation_create with correlation ID and thread type
             do {
-                try daemonClient.send(SessionCreateMessage(title: nil, correlationId: correlationId, threadType: self.threadType, preactivatedSkillIds: self.preactivatedSkillIds))
+                try daemonClient.send(ConversationCreateMessage(title: nil, correlationId: correlationId, conversationType: self.conversationType, preactivatedSkillIds: self.preactivatedSkillIds))
                 // Clear one-shot preactivated skills so they don't leak into a
                 // later session if this bootstrap is interrupted before completion.
                 self.preactivatedSkillIds = nil
             } catch {
-                log.error("Failed to send session_create: \(error.localizedDescription)")
+                log.error("Failed to send conversation_create: \(error.localizedDescription)")
                 self.isThinking = false
                 self.isSending = false
                 self.bootstrapCorrelationId = nil
@@ -1294,13 +1299,14 @@ public final class ChatViewModel: ObservableObject {
                 self.pendingUserMessage = nil
                 self.pendingUserMessageDisplayText = nil
                 self.pendingUserAttachments = nil
+                self.pendingUserMessageAutomated = false
                 self.errorText = self.lastFailedSendError
             }
         }
     }
 
-    private func sendUserMessage(_ text: String, displayText: String? = nil, attachments: [UserMessageAttachment]? = nil, queuedMessageId: UUID? = nil) {
-        guard let sessionId else { return }
+    private func sendUserMessage(_ text: String, displayText: String? = nil, attachments: [UserMessageAttachment]? = nil, queuedMessageId: UUID? = nil, automated: Bool = false) {
+        guard let conversationId else { return }
 
         // Check connectivity before entering sending state so the UI
         // doesn't get stuck with isSending/isThinking = true when the
@@ -1312,8 +1318,8 @@ public final class ChatViewModel: ObservableObject {
             // instead of surfacing an error. The message stays visible with a
             // "pending" indicator and is flushed automatically on reconnect.
             if queuedMessageId == nil {
-                log.info("Buffering message in offline queue (session: \(sessionId))")
-                OfflineMessageQueue.shared.enqueue(sessionId: sessionId, text: text, displayText: displayText, attachments: attachments)
+                log.info("Buffering message in offline queue (session: \(conversationId))")
+                OfflineMessageQueue.shared.enqueue(conversationId: conversationId, text: text, displayText: displayText, attachments: attachments)
                 // Mark the corresponding chat message as offline-pending so the UI
                 // can show a visual indicator. Find the last user message with this
                 // text — it is the one just appended by sendMessage().
@@ -1363,13 +1369,14 @@ public final class ChatViewModel: ObservableObject {
         do {
             let pttMeta = Self.currentPttMetadata()
             try daemonClient.send(UserMessageMessage(
-                sessionId: sessionId,
+                conversationId: conversationId,
                 content: text,
                 attachments: attachments,
                 activeSurfaceId: activeSurfaceId,
                 currentPage: activeSurfaceId != nil ? currentPage : nil,
                 pttActivationKey: pttMeta.activationKey,
-                microphonePermissionGranted: pttMeta.microphonePermissionGranted
+                microphonePermissionGranted: pttMeta.microphonePermissionGranted,
+                automated: automated ? true : nil
             ))
         } catch {
             log.error("Failed to send user_message: \(error.localizedDescription)")
@@ -1402,8 +1409,8 @@ public final class ChatViewModel: ObservableObject {
     /// Drain the persistent offline queue and send all buffered messages in order.
     ///
     /// Called automatically when the daemon reconnects. Only flushes messages whose
-    /// sessionId matches this view model's current session, so concurrent view models
-    /// on different sessions don't interfere with each other's queued messages.
+    /// conversationId matches this view model's current conversation, so concurrent view models
+    /// on different conversations don't interfere with each other's queued messages.
     ///
     /// Messages are removed from persistent storage one at a time, immediately before
     /// each send, so a crash mid-flush leaves unprocessed messages intact rather than
@@ -1412,18 +1419,18 @@ public final class ChatViewModel: ObservableObject {
         let queue = OfflineMessageQueue.shared
         guard !queue.isEmpty else { return }
 
-        guard let currentSessionId = sessionId else {
-            // No session yet — defer until sessionId is populated.
+        guard let currentConversationId = conversationId else {
+            // No session yet — defer until conversationId is populated.
             needsOfflineFlush = true
             return
         }
 
         // Read the queue contents without clearing. Filter for this session only;
         // other sessions' messages stay in the persistent store for their own VMs.
-        let mine = queue.allMessages.filter { $0.sessionId == currentSessionId }
+        let mine = queue.allMessages.filter { $0.conversationId == currentConversationId }
         guard !mine.isEmpty else { return }
 
-        log.info("Flushing \(mine.count) offline-queued message(s) for session \(currentSessionId)")
+        log.info("Flushing \(mine.count) offline-queued message(s) for session \(currentConversationId)")
 
         // Update message bubbles: clear pendingOffline status so they show as sent.
         for queued in mine {
@@ -1488,7 +1495,7 @@ public final class ChatViewModel: ObservableObject {
     /// Start the daemon message stream if this chat has a bound session and
     /// no active loop yet.
     public func ensureMessageLoopStarted() {
-        guard sessionId != nil, messageLoopTask == nil else { return }
+        guard conversationId != nil, messageLoopTask == nil else { return }
         startMessageLoop()
     }
 
@@ -1500,11 +1507,11 @@ public final class ChatViewModel: ObservableObject {
     public func sendSilently(_ text: String) -> Bool {
         // Don't re-enter bootstrap if a session creation is already in progress —
         // that would overwrite pendingUserMessage and orphan the in-flight session.
-        if sessionId == nil && (isSending || isBootstrapping) {
+        if conversationId == nil && (isSending || isBootstrapping) {
             return false
         }
-        if sessionId == nil {
-            bootstrapSession(userMessage: text, attachments: nil)
+        if conversationId == nil {
+            bootstrapConversation(userMessage: text, attachments: nil)
         } else {
             sendUserMessage(text)
         }
@@ -1515,12 +1522,12 @@ public final class ChatViewModel: ObservableObject {
     /// Used by private threads that need a persistent session ID right away
     /// (e.g. to store the thread in the database before the user types anything).
     /// No-op if a session already exists or a bootstrap is already in flight.
-    public func createSessionIfNeeded(threadType: String? = nil) {
-        guard sessionId == nil, !isBootstrapping else { return }
-        if let threadType {
-            self.threadType = threadType
+    public func createConversationIfNeeded(conversationType: String? = nil) {
+        guard conversationId == nil, !isBootstrapping else { return }
+        if let conversationType {
+            self.conversationType = conversationType
         }
-        bootstrapSession(userMessage: nil, attachments: nil)
+        bootstrapConversation(userMessage: nil, attachments: nil)
     }
 
     // MARK: - Model
@@ -1528,7 +1535,7 @@ public final class ChatViewModel: ObservableObject {
     /// Switch the active model via the daemon's `model_set` command.
     public func setModel(_ modelId: String) {
         // Ensure the message loop is running so we receive the model_info response.
-        // VMs restored with an existing sessionId may not have started it yet.
+        // VMs restored with an existing conversationId may not have started it yet.
         if messageLoopTask == nil {
             startMessageLoop()
         }
@@ -1553,9 +1560,9 @@ public final class ChatViewModel: ObservableObject {
             return
         }
 
-        guard let sessionId = sessionId else { return }
+        guard let conversationId else { return }
         let msg = UiSurfaceActionMessage(
-            sessionId: sessionId,
+            conversationId: conversationId,
             surfaceId: surfaceId,
             actionId: actionId,
             data: data
@@ -1570,21 +1577,21 @@ public final class ChatViewModel: ObservableObject {
     // MARK: - Surface Refetch
 
     /// Lazily created manager that serializes surface content fetches.
-    private lazy var surfaceRefetchManager = SurfaceRefetchManager { [weak self] surfaceId, sessionId in
+    private lazy var surfaceRefetchManager = SurfaceRefetchManager { [weak self] surfaceId, conversationId in
         guard let self else { return nil }
-        return await self.daemonClient.fetchSurfaceData(surfaceId: surfaceId, sessionId: sessionId)
+        return await self.daemonClient.fetchSurfaceData(surfaceId: surfaceId, conversationId: conversationId)
     }
 
     /// In-flight refetch tasks, keyed by surface ID for cancellation.
     private var refetchTasks: [String: Task<Void, Never>] = [:]
 
     /// Re-fetch the full payload for a stripped surface and replace it in the message list.
-    public func refetchStrippedSurface(surfaceId: String, sessionId: String) {
+    public func refetchStrippedSurface(surfaceId: String, conversationId: String) {
         guard refetchTasks[surfaceId] == nil else { return }
         refetchTasks[surfaceId] = Task { @MainActor [weak self] in
             defer { self?.refetchTasks.removeValue(forKey: surfaceId) }
             guard let self else { return }
-            let result = await self.surfaceRefetchManager.enqueue(surfaceId: surfaceId, sessionId: sessionId)
+            let result = await self.surfaceRefetchManager.enqueue(surfaceId: surfaceId, conversationId: conversationId)
             for msgIndex in self.messages.indices {
                 if let surfIndex = self.messages[msgIndex].inlineSurfaces.firstIndex(where: { $0.id == surfaceId }) {
                     if let data = result.data {
@@ -1610,13 +1617,14 @@ public final class ChatViewModel: ObservableObject {
     }
 
     /// Cancel the queued user message without clearing `bootstrapCorrelationId`.
-    /// Used when archiving a thread before session_info arrives: we want to
+    /// Used when archiving a thread before conversation_info arrives: we want to
     /// discard the pending message (so it isn't sent once the session is claimed)
     /// but preserve the correlation ID so the VM only claims its own session.
     public func cancelPendingMessage() {
         pendingUserMessage = nil
         pendingUserMessageDisplayText = nil
         pendingUserAttachments = nil
+        pendingUserMessageAutomated = false
         isWorkspaceRefinementInFlight = false
         refinementMessagePreview = nil
         refinementStreamingText = nil
@@ -1630,13 +1638,14 @@ public final class ChatViewModel: ObservableObject {
         pendingVoiceMessage = false
 
         // If we're still bootstrapping (no session yet), cancel locally:
-        // discard the pending message so it won't be sent when session_info
+        // discard the pending message so it won't be sent when conversation_info
         // arrives, and reset UI state immediately since there's nothing to
         // cancel on the daemon side.
-        if sessionId == nil {
+        if conversationId == nil {
             pendingUserMessage = nil
             pendingUserMessageDisplayText = nil
             pendingUserAttachments = nil
+            pendingUserMessageAutomated = false
             bootstrapCorrelationId = nil
             isWorkspaceRefinementInFlight = false
             refinementMessagePreview = nil
@@ -1693,7 +1702,7 @@ public final class ChatViewModel: ObservableObject {
         }
 
         do {
-            try daemonClient.send(CancelMessage(sessionId: sessionId!))
+            try daemonClient.send(CancelMessage(conversationId: conversationId!))
         } catch {
             log.error("Failed to send cancel: \(error.localizedDescription)")
             // Cancel failed to send, so no generationCancelled or
@@ -1807,7 +1816,7 @@ public final class ChatViewModel: ObservableObject {
     /// Regenerate the last assistant response. Removes the old reply from
     /// all memory systems (including Qdrant) and re-runs the agent loop.
     public func regenerateLastMessage() {
-        guard let sessionId, !isSending else { return }
+        guard let conversationId, !isSending else { return }
         guard daemonClient.isConnected else {
             errorText = "Failed to connect to the assistant."
             return
@@ -1819,7 +1828,7 @@ public final class ChatViewModel: ObservableObject {
             messages.removeLast()
         }
         errorText = nil
-        sessionError = nil
+        conversationError = nil
         isSending = true
         isThinking = true
         suggestion = nil
@@ -1831,7 +1840,7 @@ public final class ChatViewModel: ObservableObject {
         }
 
         do {
-            try daemonClient.send(RegenerateMessage(sessionId: sessionId))
+            try daemonClient.send(RegenerateMessage(conversationId: conversationId))
         } catch {
             log.error("Failed to send regenerate: \(error.localizedDescription)")
             isSending = false
@@ -1842,10 +1851,10 @@ public final class ChatViewModel: ObservableObject {
 
     /// Revert the last refinement on the active workspace surface.
     public func undoSurfaceRefinement() {
-        guard let sessionId, let surfaceId = activeSurfaceId else { return }
+        guard let conversationId, let surfaceId = activeSurfaceId else { return }
         guard surfaceUndoCount > 0 else { return }
         do {
-            try daemonClient.send(UiSurfaceUndoMessage(sessionId: sessionId, surfaceId: surfaceId))
+            try daemonClient.send(UiSurfaceUndoMessage(conversationId: conversationId, surfaceId: surfaceId))
         } catch {
             log.error("Failed to send surface undo: \(error.localizedDescription)")
         }
@@ -1854,7 +1863,7 @@ public final class ChatViewModel: ObservableObject {
     /// Delete a queued message by its local message ID.
     /// Finds the daemon requestId for the message and sends a delete request.
     public func deleteQueuedMessage(messageId: UUID) {
-        guard let sessionId else { return }
+        guard let conversationId else { return }
 
         // Find the requestId for this message
         guard let entry = requestIdToMessageId.first(where: { $0.value == messageId }) else {
@@ -1866,7 +1875,7 @@ public final class ChatViewModel: ObservableObject {
         }
 
         do {
-            try daemonClient.send(DeleteQueuedMessageMessage(sessionId: sessionId, requestId: entry.key))
+            try daemonClient.send(DeleteQueuedMessageMessage(conversationId: conversationId, requestId: entry.key))
         } catch {
             log.error("Failed to send delete_queued_message: \(error.localizedDescription)")
         }
@@ -1946,7 +1955,7 @@ public final class ChatViewModel: ObservableObject {
     }
 
     public func dismissError() {
-        sessionError = nil
+        conversationError = nil
         errorText = nil
         lastFailedMessageText = nil
         lastFailedMessageDisplayText = nil
@@ -1961,18 +1970,18 @@ public final class ChatViewModel: ObservableObject {
 
     /// Dismiss the typed session error state. Clears both the typed error
     /// and any corresponding `errorText` so the UI can return to normal.
-    public func dismissSessionError() {
-        sessionError = nil
+    public func dismissConversationError() {
+        conversationError = nil
         errorText = nil
     }
 
-    /// Copy session error details to the clipboard for debugging.
-    public func copySessionErrorDebugDetails() {
-        guard let error = sessionError else { return }
+    /// Copy conversation error details to the clipboard for debugging.
+    public func copyConversationErrorDebugDetails() {
+        guard let error = conversationError else { return }
         var details = """
         Error: \(error.message)
         Category: \(error.category)
-        Session: \(error.sessionId)
+        Session: \(error.conversationId)
         Retryable: \(error.isRetryable)
         """
         if let debugDetails = error.debugDetails {
@@ -1986,10 +1995,10 @@ public final class ChatViewModel: ObservableObject {
         #endif
     }
 
-    /// Retry the last message after a session error, if the error is retryable.
-    public func retryAfterSessionError() {
-        guard let error = sessionError, error.isRetryable else { return }
-        guard sessionId != nil else { return }
+    /// Retry the last message after a conversation error, if the error is retryable.
+    public func retryAfterConversationError() {
+        guard let error = conversationError, error.isRetryable else { return }
+        guard conversationId != nil else { return }
         // Reset sending state that may still be set if the session error arrived
         // while queued messages were pending (pendingQueuedCount > 0).
         // Without this, regenerateLastMessage() silently bails at its
@@ -2005,7 +2014,7 @@ public final class ChatViewModel: ObservableObject {
                 messages[i].status = .sent
             }
         }
-        dismissSessionError()
+        dismissConversationError()
 
         // When the last message is from the user (i.e. the assistant never
         // responded — e.g. because the send was rate-limited with 429), resend
@@ -2072,7 +2081,7 @@ public final class ChatViewModel: ObservableObject {
 
     /// Resend the secret-blocked message with the bypass flag so the backend skips the check.
     public func sendAnyway() {
-        guard let text = secretBlockedMessageText, let sessionId else { return }
+        guard let text = secretBlockedMessageText, let conversationId else { return }
 
         guard daemonClient.isConnected else {
             errorText = "Cannot connect to assistant. Please ensure it's running."
@@ -2100,7 +2109,7 @@ public final class ChatViewModel: ObservableObject {
         do {
             let pttMeta = Self.currentPttMetadata()
             try daemonClient.send(UserMessageMessage(
-                sessionId: sessionId,
+                conversationId: conversationId,
                 content: text,
                 attachments: attachments,
                 activeSurfaceId: surfaceId,
@@ -2131,9 +2140,9 @@ public final class ChatViewModel: ObservableObject {
         errorText = nil
         connectionDiagnosticHint = nil
 
-        if sessionId == nil {
+        if conversationId == nil {
             pendingUserMessageDisplayText = displayText
-            bootstrapSession(userMessage: text, attachments: attachments)
+            bootstrapConversation(userMessage: text, attachments: attachments)
         } else {
             // When retrying while another turn is in progress, the retried
             // message will be queued by the daemon. Track it in
@@ -2177,24 +2186,26 @@ public final class ChatViewModel: ObservableObject {
         retryMessage.isHidden = message.isHidden
         messages.append(retryMessage)
 
-        // Convert ChatAttachments back to UserMessageAttachments for the send call
+        // Convert ChatAttachments back to UserMessageAttachments for the send call.
+        // Keep file-path-based attachments even when data is empty,
+        // since the daemon can read the file from disk.
         let userAttachments: [UserMessageAttachment]? = message.attachments.isEmpty ? nil : message.attachments.compactMap { att in
-            guard !att.data.isEmpty else { return nil }
+            guard !att.data.isEmpty || att.filePath != nil else { return nil }
             return UserMessageAttachment(
                 id: att.id,
                 filename: att.filename,
                 mimeType: att.mimeType,
                 data: att.data,
                 extractedText: nil,
-                sizeBytes: nil,
-                thumbnailData: nil,
+                sizeBytes: att.sizeBytes,
+                thumbnailData: att.thumbnailData?.base64EncodedString(),
                 filePath: att.filePath
             )
         }
 
         // Resend — bootstrap a new session if needed (mirrors retryLastMessage)
-        if sessionId == nil {
-            bootstrapSession(userMessage: message.text, attachments: userAttachments)
+        if conversationId == nil {
+            bootstrapConversation(userMessage: message.text, attachments: userAttachments)
         } else {
             sendUserMessage(message.text, attachments: userAttachments)
         }
@@ -2337,14 +2348,14 @@ public final class ChatViewModel: ObservableObject {
 
     /// Ask the daemon for a follow-up suggestion for the current session.
     func fetchSuggestion() {
-        guard let sessionId, daemonClient.isConnected else { return }
+        guard let conversationId, daemonClient.isConnected else { return }
 
         let requestId = UUID().uuidString
         pendingSuggestionRequestId = requestId
 
         do {
             try daemonClient.send(SuggestionRequestMessage(
-                sessionId: sessionId,
+                conversationId: conversationId,
                 requestId: requestId
             ))
         } catch {
@@ -2454,8 +2465,8 @@ public final class ChatViewModel: ObservableObject {
             var inlineSurfaces: [InlineSurfaceData] = []
             if let historySurfaces = item.surfaces {
                 for surf in historySurfaces {
-                    if let sessionId = self.sessionId,
-                       let surface = Surface.from(surf, sessionId: sessionId) {
+                    if let conversationId = self.conversationId,
+                       let surface = Surface.from(surf, conversationId: conversationId) {
                         // Build a lightweight SurfaceRef so the card remains
                         // clickable after the app restarts (history restore).
                         // The full UiSurfaceShowMessage is not retained to avoid
@@ -2470,7 +2481,7 @@ public final class ChatViewModel: ObservableObject {
                         }()
                         let ref = SurfaceRef(
                             surfaceId: surf.surfaceId,
-                            sessionId: sessionId,
+                            conversationId: conversationId,
                             surfaceType: surf.surfaceType,
                             title: surf.title,
                             appId: appId
@@ -2763,7 +2774,7 @@ public final class ChatViewModel: ObservableObject {
     /// requestId are updated rather than duplicated; resolved prompts not in
     /// the response are marked stale.
     public func refreshGuardianPrompts() {
-        guard let conversationId = sessionId else { return }
+        guard let conversationId else { return }
         do {
             try daemonClient.send(GuardianActionsPendingRequestMessage(conversationId: conversationId))
         } catch {
@@ -2783,7 +2794,6 @@ public final class ChatViewModel: ObservableObject {
             messages[idx].guardianDecision?.isSubmitting = true
         }
 
-        let conversationId = sessionId
         do {
             try daemonClient.send(GuardianActionDecisionMessage(requestId: requestId, action: action, conversationId: conversationId))
         } catch {
@@ -2800,7 +2810,7 @@ public final class ChatViewModel: ObservableObject {
     /// Inserts new prompts, updates existing ones, and marks absent ones as stale.
     func handleGuardianActionsPendingResponse(_ response: GuardianActionsPendingResponseMessage) {
         // Only process prompts that belong to this conversation
-        guard let myConversationId = sessionId else {
+        guard let myConversationId = conversationId else {
             return
         }
 

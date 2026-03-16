@@ -13,7 +13,7 @@
 
 import type { ChannelId } from "../channels/types.js";
 import { findGuardianForChannel } from "../contacts/contact-store.js";
-import type { TrustContext } from "../daemon/session-runtime-assembly.js";
+import type { TrustContext } from "../daemon/conversation-runtime-assembly.js";
 import { getLogger } from "../util/logger.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "./assistant-scope.js";
 import { CURRENT_POLICY_EPOCH } from "./auth/policy.js";
@@ -76,7 +76,9 @@ export function resolveLocalTrustContext(
 
   // No guardian contact with a principalId — bootstrap via ensureVellumGuardianBinding
   // to self-heal (creates the binding + contact if missing).
-  log.debug("No vellum guardian contact found; bootstrapping binding for local session");
+  log.debug(
+    "No vellum guardian contact found; bootstrapping binding for local session",
+  );
   try {
     const principalId = ensureVellumGuardianBinding(assistantId);
     const trustCtx = resolveTrustContext({

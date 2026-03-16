@@ -1,5 +1,5 @@
 /**
- * Tests for CES API key propagation after hatch.
+ * Tests for CES API key propagation after hatch — **client side**.
  *
  * Validates the fix for the race condition where the assistant API key
  * can permanently miss CES after hatch in managed mode:
@@ -9,9 +9,26 @@
  * 3. CES server invokes the onApiKeyUpdate callback
  * 4. The client convenience method correctly sends the RPC
  *
- * Also validates the lazy `ApiKeyRef` pattern used in `managed-main.ts`
- * that allows the assistant API key to arrive after CES handlers are
- * registered (key resolved at call time, not registration time).
+ * ## What this file tests (and what it does NOT)
+ *
+ * This file exercises **production code** exclusively:
+ * - `createCesClient` from `credential-execution/client.ts`
+ * - Zod schemas from `@vellumai/ces-contracts` (HandshakeRequestSchema,
+ *   CesRpcSchemas, CesRpcMethod)
+ *
+ * The `createMockTransport` helper is a mock of the **transport layer**
+ * (stdin/stdout or Unix socket), not a reimplementation of any production
+ * logic. The transport interface is intentionally thin (write/onMessage/
+ * isAlive/close) so the mock is trivial and cannot diverge from real
+ * behaviour.
+ *
+ * The **server-side** lazy `ApiKeyRef` pattern used in `managed-main.ts`
+ * is tested directly in
+ * `credential-executor/src/__tests__/managed-lazy-getters.test.ts`
+ * against the production `buildLazyGetters` function. A structural guard
+ * below verifies that `managed-main.ts` imports `buildLazyGetters` from
+ * `managed-lazy-getters.ts`, so these two test files stay coupled to
+ * production code.
  *
  * These tests mock the transport layer (no real processes or sockets)
  * to verify the contract and wiring in isolation.
@@ -88,321 +105,6 @@ async function completeHandshake(
   );
   await handshakePromise;
 }
-
-// ---------------------------------------------------------------------------
-// Reproduce the ApiKeyRef + lazy getter pattern from managed-main.ts:89-146
-// ---------------------------------------------------------------------------
-
-// Inlined from credential-executor to avoid cross-package source imports
-// (which pull in transitive deps that the assistant tsconfig can't resolve).
-interface ManagedSubjectResolverOptions {
-  platformBaseUrl: string;
-  assistantApiKey: string;
-  assistantId: string;
-}
-
-interface ManagedMaterializerOptions {
-  platformBaseUrl: string;
-  assistantApiKey: string;
-  assistantId: string;
-}
-
-interface ApiKeyRef {
-  current: string;
-}
-
-/**
- * Build the lazy getter functions that mirror managed-main.ts.
- * These test-local copies isolate the behavioral pattern from the full
- * managed-main.ts module (which requires process-level dependencies).
- */
-function buildLazyGetters(opts: {
-  platformBaseUrl: string;
-  assistantId: string;
-  apiKeyRef: ApiKeyRef;
-  envApiKey?: string;
-}) {
-  const { platformBaseUrl, assistantId, apiKeyRef, envApiKey } = opts;
-
-  const getAssistantApiKey = (): string => apiKeyRef.current || envApiKey || "";
-
-  const getManagedSubjectOptions = ():
-    | ManagedSubjectResolverOptions
-    | undefined => {
-    const key = getAssistantApiKey();
-    return platformBaseUrl && key && assistantId
-      ? { platformBaseUrl, assistantApiKey: key, assistantId }
-      : undefined;
-  };
-
-  const getManagedMaterializerOptions = ():
-    | ManagedMaterializerOptions
-    | undefined => {
-    const key = getAssistantApiKey();
-    return platformBaseUrl && key && assistantId
-      ? { platformBaseUrl, assistantApiKey: key, assistantId }
-      : undefined;
-  };
-
-  return {
-    getAssistantApiKey,
-    getManagedSubjectOptions,
-    getManagedMaterializerOptions,
-  };
-}
-
-// ---------------------------------------------------------------------------
-// Lazy ApiKeyRef pattern tests
-// ---------------------------------------------------------------------------
-
-describe("API key post-handshake propagation", () => {
-  // -------------------------------------------------------------------------
-  // 1. Empty ref -> options unavailable
-  // -------------------------------------------------------------------------
-
-  describe("before API key arrives", () => {
-    test("apiKeyRef starts empty and managed subject options are undefined", () => {
-      const apiKeyRef: ApiKeyRef = { current: "" };
-      const { getManagedSubjectOptions } = buildLazyGetters({
-        platformBaseUrl: "https://api.vellum.ai",
-        assistantId: "ast_abc123",
-        apiKeyRef,
-      });
-
-      expect(apiKeyRef.current).toBe("");
-      expect(getManagedSubjectOptions()).toBeUndefined();
-    });
-
-    test("apiKeyRef starts empty and managed materializer options are undefined", () => {
-      const apiKeyRef: ApiKeyRef = { current: "" };
-      const { getManagedMaterializerOptions } = buildLazyGetters({
-        platformBaseUrl: "https://api.vellum.ai",
-        assistantId: "ast_abc123",
-        apiKeyRef,
-      });
-
-      expect(getManagedMaterializerOptions()).toBeUndefined();
-    });
-
-    test("getAssistantApiKey returns empty string when ref is empty and no env var", () => {
-      const apiKeyRef: ApiKeyRef = { current: "" };
-      const { getAssistantApiKey } = buildLazyGetters({
-        platformBaseUrl: "https://api.vellum.ai",
-        assistantId: "ast_abc123",
-        apiKeyRef,
-      });
-
-      expect(getAssistantApiKey()).toBe("");
-    });
-  });
-
-  // -------------------------------------------------------------------------
-  // 2. Setting ref -> options become available
-  // -------------------------------------------------------------------------
-
-  describe("after API key arrives via handshake", () => {
-    test("setting apiKeyRef.current enables managed subject options", () => {
-      const apiKeyRef: ApiKeyRef = { current: "" };
-      const { getManagedSubjectOptions } = buildLazyGetters({
-        platformBaseUrl: "https://api.vellum.ai",
-        assistantId: "ast_abc123",
-        apiKeyRef,
-      });
-
-      // Before key arrives
-      expect(getManagedSubjectOptions()).toBeUndefined();
-
-      // Simulate handshake callback setting the key
-      apiKeyRef.current = "vak_test_key_12345";
-
-      const opts = getManagedSubjectOptions();
-      expect(opts).toBeDefined();
-      expect(opts!.platformBaseUrl).toBe("https://api.vellum.ai");
-      expect(opts!.assistantApiKey).toBe("vak_test_key_12345");
-      expect(opts!.assistantId).toBe("ast_abc123");
-    });
-
-    test("setting apiKeyRef.current enables managed materializer options", () => {
-      const apiKeyRef: ApiKeyRef = { current: "" };
-      const { getManagedMaterializerOptions } = buildLazyGetters({
-        platformBaseUrl: "https://api.vellum.ai",
-        assistantId: "ast_abc123",
-        apiKeyRef,
-      });
-
-      // Before key arrives
-      expect(getManagedMaterializerOptions()).toBeUndefined();
-
-      // Simulate handshake callback setting the key
-      apiKeyRef.current = "vak_test_key_12345";
-
-      const opts = getManagedMaterializerOptions();
-      expect(opts).toBeDefined();
-      expect(opts!.platformBaseUrl).toBe("https://api.vellum.ai");
-      expect(opts!.assistantApiKey).toBe("vak_test_key_12345");
-      expect(opts!.assistantId).toBe("ast_abc123");
-    });
-
-    test("returned options contain the exact key from the ref (not a stale copy)", () => {
-      const apiKeyRef: ApiKeyRef = { current: "" };
-      const { getManagedSubjectOptions, getManagedMaterializerOptions } =
-        buildLazyGetters({
-          platformBaseUrl: "https://api.vellum.ai",
-          assistantId: "ast_abc123",
-          apiKeyRef,
-        });
-
-      // Set first key
-      apiKeyRef.current = "vak_key_v1";
-      expect(getManagedSubjectOptions()!.assistantApiKey).toBe("vak_key_v1");
-      expect(getManagedMaterializerOptions()!.assistantApiKey).toBe(
-        "vak_key_v1",
-      );
-
-      // Rotate to a new key
-      apiKeyRef.current = "vak_key_v2";
-      expect(getManagedSubjectOptions()!.assistantApiKey).toBe("vak_key_v2");
-      expect(getManagedMaterializerOptions()!.assistantApiKey).toBe(
-        "vak_key_v2",
-      );
-    });
-  });
-
-  // -------------------------------------------------------------------------
-  // 3. Lazy resolution -- key resolved at call time, not registration time
-  // -------------------------------------------------------------------------
-
-  describe("lazy resolution timing", () => {
-    test("handlers built before key arrives resolve the key at call time", () => {
-      const apiKeyRef: ApiKeyRef = { current: "" };
-
-      // Build getters (simulating handler registration at startup)
-      const { getManagedSubjectOptions, getManagedMaterializerOptions } =
-        buildLazyGetters({
-          platformBaseUrl: "https://api.vellum.ai",
-          assistantId: "ast_abc123",
-          apiKeyRef,
-        });
-
-      // At registration time: no key yet
-      expect(getManagedSubjectOptions()).toBeUndefined();
-      expect(getManagedMaterializerOptions()).toBeUndefined();
-
-      // Later: handshake delivers the key
-      apiKeyRef.current = "vak_late_arriving_key";
-
-      // Same getter functions now return valid options
-      expect(getManagedSubjectOptions()).toBeDefined();
-      expect(getManagedMaterializerOptions()).toBeDefined();
-      expect(getManagedSubjectOptions()!.assistantApiKey).toBe(
-        "vak_late_arriving_key",
-      );
-    });
-
-    test("deps object with getter properties resolves lazily (mirrors httpDeps pattern)", () => {
-      const apiKeyRef: ApiKeyRef = { current: "" };
-      const { getManagedSubjectOptions, getManagedMaterializerOptions } =
-        buildLazyGetters({
-          platformBaseUrl: "https://api.vellum.ai",
-          assistantId: "ast_abc123",
-          apiKeyRef,
-        });
-
-      // Build a deps object with getters, mirroring managed-main.ts:186-196
-      const httpDeps = {
-        get managedSubjectOptions() {
-          return getManagedSubjectOptions();
-        },
-        get managedMaterializerOptions() {
-          return getManagedMaterializerOptions();
-        },
-      };
-
-      // Before key: both undefined
-      expect(httpDeps.managedSubjectOptions).toBeUndefined();
-      expect(httpDeps.managedMaterializerOptions).toBeUndefined();
-
-      // After key: both resolved
-      apiKeyRef.current = "vak_lazy_key";
-      expect(httpDeps.managedSubjectOptions).toBeDefined();
-      expect(httpDeps.managedSubjectOptions!.assistantApiKey).toBe(
-        "vak_lazy_key",
-      );
-      expect(httpDeps.managedMaterializerOptions).toBeDefined();
-      expect(httpDeps.managedMaterializerOptions!.assistantApiKey).toBe(
-        "vak_lazy_key",
-      );
-    });
-
-    test("env var fallback is used when ref is empty", () => {
-      const apiKeyRef: ApiKeyRef = { current: "" };
-      const { getAssistantApiKey, getManagedSubjectOptions } = buildLazyGetters(
-        {
-          platformBaseUrl: "https://api.vellum.ai",
-          assistantId: "ast_abc123",
-          apiKeyRef,
-          envApiKey: "vak_env_fallback",
-        },
-      );
-
-      // Ref is empty but env var provides the key
-      expect(getAssistantApiKey()).toBe("vak_env_fallback");
-      expect(getManagedSubjectOptions()).toBeDefined();
-      expect(getManagedSubjectOptions()!.assistantApiKey).toBe(
-        "vak_env_fallback",
-      );
-    });
-
-    test("handshake-provided key takes precedence over env var", () => {
-      const apiKeyRef: ApiKeyRef = { current: "" };
-      const { getAssistantApiKey } = buildLazyGetters({
-        platformBaseUrl: "https://api.vellum.ai",
-        assistantId: "ast_abc123",
-        apiKeyRef,
-        envApiKey: "vak_env_key",
-      });
-
-      // Before handshake: falls back to env
-      expect(getAssistantApiKey()).toBe("vak_env_key");
-
-      // After handshake: ref takes precedence
-      apiKeyRef.current = "vak_handshake_key";
-      expect(getAssistantApiKey()).toBe("vak_handshake_key");
-    });
-  });
-
-  // -------------------------------------------------------------------------
-  // 4. Missing required fields -> undefined (graceful degradation)
-  // -------------------------------------------------------------------------
-
-  describe("missing platform config fields", () => {
-    test("missing platformBaseUrl returns undefined even with API key", () => {
-      const apiKeyRef: ApiKeyRef = { current: "vak_test_key" };
-      const { getManagedSubjectOptions, getManagedMaterializerOptions } =
-        buildLazyGetters({
-          platformBaseUrl: "",
-          assistantId: "ast_abc123",
-          apiKeyRef,
-        });
-
-      expect(getManagedSubjectOptions()).toBeUndefined();
-      expect(getManagedMaterializerOptions()).toBeUndefined();
-    });
-
-    test("missing assistantId returns undefined even with API key", () => {
-      const apiKeyRef: ApiKeyRef = { current: "vak_test_key" };
-      const { getManagedSubjectOptions, getManagedMaterializerOptions } =
-        buildLazyGetters({
-          platformBaseUrl: "https://api.vellum.ai",
-          assistantId: "",
-          apiKeyRef,
-        });
-
-      expect(getManagedSubjectOptions()).toBeUndefined();
-      expect(getManagedMaterializerOptions()).toBeUndefined();
-    });
-  });
-});
 
 // ---------------------------------------------------------------------------
 // Handshake schema contract -- assistantApiKey field
@@ -571,5 +273,37 @@ describe("CesClient.updateAssistantApiKey()", () => {
     }
 
     client.close();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Structural guard: managed-main.ts uses production buildLazyGetters
+// ---------------------------------------------------------------------------
+
+describe("structural guard: managed-main.ts uses production buildLazyGetters", () => {
+  test("managed-main.ts imports buildLazyGetters from managed-lazy-getters", async () => {
+    // This guard ensures that managed-main.ts exercises the production
+    // buildLazyGetters function (tested in managed-lazy-getters.test.ts),
+    // not a local reimplementation. If the import is removed or the source
+    // module changes, this test will fail and signal that the companion
+    // test coverage may no longer be wired to production code.
+    const { readFileSync } = await import("node:fs");
+    const { join, dirname } = await import("node:path");
+
+    // Resolve from the repo root (three levels up from __tests__/)
+    const repoRoot = join(dirname(import.meta.dir), "..", "..");
+    const managedMainPath = join(
+      repoRoot,
+      "credential-executor",
+      "src",
+      "managed-main.ts",
+    );
+
+    const source = readFileSync(managedMainPath, "utf-8");
+
+    expect(source).toContain('from "./managed-lazy-getters.js"');
+    expect(source).toMatch(
+      /import\s+\{[^}]*buildLazyGetters[^}]*\}\s+from\s+["']\.\/managed-lazy-getters\.js["']/,
+    );
   });
 });

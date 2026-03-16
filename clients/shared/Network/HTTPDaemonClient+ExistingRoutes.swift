@@ -17,7 +17,7 @@ extension HTTPTransport {
             guard let self else { return false }
 
             if let msg = message as? UserMessageMessage {
-                Task { await self.sendMessage(content: msg.content, sessionId: msg.sessionId, attachments: msg.attachments) }
+                Task { await self.sendMessage(content: msg.content, conversationId: msg.conversationId, attachments: msg.attachments, automated: msg.automated) }
                 return true
             } else if let msg = message as? ConfirmationResponseMessage {
                 Task { await self.sendDecision(requestId: msg.requestId, decision: msg.decision, selectedPattern: msg.selectedPattern, selectedScope: msg.selectedScope) }
@@ -25,25 +25,25 @@ extension HTTPTransport {
             } else if let msg = message as? SecretResponseMessage {
                 Task { await self.sendSecret(requestId: msg.requestId, value: msg.value, delivery: msg.delivery) }
                 return true
-            } else if let msg = message as? SessionCreateMessage {
+            } else if let msg = message as? ConversationCreateMessage {
                 // For HTTP transport, session creation is implicit — the conversationKey
                 // acts as the session. Emit a synthetic session_info so ChatViewModel
                 // records the session ID.
-                let sessionId = (msg.correlationId.flatMap { $0.isEmpty ? nil : $0 }) ?? UUID().uuidString
-                // Remember private sessions so sendMessage can pass threadType to the backend.
-                if msg.threadType == "private" {
-                    self.privateSessionIds.insert(sessionId)
+                let conversationId = (msg.correlationId.flatMap { $0.isEmpty ? nil : $0 }) ?? UUID().uuidString
+                // Remember private sessions so sendMessage can pass conversationType to the backend.
+                if msg.conversationType == "private" {
+                    self.privateConversationIds.insert(conversationId)
                 }
-                let info = ServerMessage.sessionInfo(
-                    SessionInfoMessage(sessionId: sessionId, title: msg.title ?? "New Chat", correlationId: msg.correlationId)
+                let info = ServerMessage.conversationInfo(
+                    ConversationInfoMessage(conversationId: conversationId, title: msg.title ?? "New Chat", correlationId: msg.correlationId)
                 )
                 self.onMessage?(info)
                 return true
-            } else if let msg = message as? SessionListRequestMessage {
-                Task { await self.fetchSessionList(offset: Int(msg.offset ?? 0), limit: Int(msg.limit ?? 50)) }
+            } else if let msg = message as? ConversationListRequestMessage {
+                Task { await self.fetchConversationList(offset: Int(msg.offset ?? 0), limit: Int(msg.limit ?? 50)) }
                 return true
             } else if let msg = message as? HistoryRequestMessage {
-                Task { await self.fetchHistory(sessionId: msg.sessionId) }
+                Task { await self.fetchHistory(conversationId: msg.conversationId) }
                 return true
             } else if let msg = message as? ConversationSeenSignal {
                 Task { await self.sendConversationSeen(msg) }

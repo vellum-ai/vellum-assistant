@@ -23,12 +23,12 @@ extension MainWindowView {
         case .chat:
             chatView
         case .settings:
-            SettingsPanel(onClose: { windowState.selection = nil }, store: settingsStore, daemonClient: daemonClient, threadManager: threadManager, authManager: authManager)
+            SettingsPanel(onClose: { windowState.selection = nil }, store: settingsStore, daemonClient: daemonClient, conversationManager: conversationManager, authManager: authManager)
         case .debug:
             DebugPanel(
                 traceStore: traceStore,
                 daemonClient: daemonClient,
-                activeSessionId: threadManager.activeViewModel?.sessionId,
+                activeSessionId: conversationManager.activeViewModel?.conversationId,
                 onClose: { windowState.selection = nil }
             )
         case .generated:
@@ -73,7 +73,7 @@ extension MainWindowView {
                     }
                 },
                 onNewThread: {
-                    threadManager.openThread(message: "What kind of apps can you build?", forceNew: true)
+                    conversationManager.openConversation(message: "What kind of apps can you build?", forceNew: true)
                     windowState.selection = nil
                 }
             )
@@ -81,7 +81,7 @@ extension MainWindowView {
             IntelligencePanel(
                 onClose: { windowState.selection = nil },
                 onInvokeSkill: { skill in
-                    let vm = threadManager.openThread(message: "Use the \(skill.name) skill") { vm in
+                    let vm = conversationManager.openConversation(message: "Use the \(skill.name) skill") { vm in
                         vm.pendingSkillInvocation = SkillInvocationData(
                             name: skill.name,
                             emoji: skill.emoji,
@@ -123,7 +123,7 @@ extension MainWindowView {
                        !prompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                         // Ensure a thread exists so the prompt doesn't silently fail
                         // on fresh app launch before any chat thread is created.
-                        threadManager.openThread(
+                        conversationManager.openConversation(
                             message: prompt.trimmingCharacters(in: .whitespacesAndNewlines)
                         ) { vm in
                             // Sync dock state before sending so the message is
@@ -132,7 +132,7 @@ extension MainWindowView {
                         }
                         return
                     }
-                    surfaceManager.onAction?(surface.sessionId, surface.id, actionId, actionData as? [String: Any])
+                    surfaceManager.onAction?(surface.conversationId, surface.id, actionId, actionData as? [String: Any])
                 },
                 onLinkOpen: { url, metadata in
                     surfaceManager.onLinkOpen?(url, metadata)
@@ -220,7 +220,7 @@ extension MainWindowView {
     func chatContentView(geometry: GeometryProxy) -> some View {
         switch windowState.selection {
         case .thread:
-            // Show chat for this thread (threadManager.activeViewModel is synced)
+            // Show chat for this thread (conversationManager.activeViewModel is synced)
             defaultChatLayout
         case .app(let appId), .appEditing(let appId, _):
             if let surface = windowState.activeDynamicParsedSurface,
@@ -272,7 +272,7 @@ extension MainWindowView {
                         }
                     },
                     onNewThread: {
-                        threadManager.openThread(message: "What kind of apps can you build?", forceNew: true)
+                        conversationManager.openConversation(message: "What kind of apps can you build?", forceNew: true)
                         windowState.selection = nil
                     }
                 )
@@ -293,7 +293,7 @@ extension MainWindowView {
                     }
                 )
                 .onAppear {
-                    threadManager.ensureActiveThread(preferredSessionId: documentManager.sessionId)
+                    conversationManager.ensureActiveConversation(preferredConversationId: documentManager.conversationId)
                 }
             } else if isAppChatOpen {
                 // Split view: chat (left) + panel (right)
@@ -311,7 +311,7 @@ extension MainWindowView {
                     }
                 )
                 .onAppear {
-                    threadManager.ensureActiveThread()
+                    conversationManager.ensureActiveConversation()
                 }
             } else {
                 // Full-window panels: settings, debug, identity
@@ -328,7 +328,7 @@ extension MainWindowView {
     var defaultChatLayout: some View {
         let config = windowState.layoutConfig
         let showConfigPanel = config.right.visible && config.right.content != .empty
-        let showSubagentPanel = windowState.selectedSubagentId != nil && threadManager.activeViewModel != nil
+        let showSubagentPanel = windowState.selectedSubagentId != nil && conversationManager.activeViewModel != nil
 
         VSplitView(
             panelWidth: $sidePanelWidth,
@@ -338,12 +338,12 @@ extension MainWindowView {
             main: { slotView(for: config.center.content) },
             panel: {
                 if let subagentId = windowState.selectedSubagentId,
-                   let viewModel = threadManager.activeViewModel {
+                   let viewModel = conversationManager.activeViewModel {
                     SubagentDetailPanel(
                         subagentId: subagentId,
                         viewModel: viewModel,
                         detailStore: viewModel.subagentDetailStore,
-                        onAbort: { try? daemonClient.sendSubagentAbort(subagentId: subagentId, sessionId: viewModel.sessionId) },
+                        onAbort: { try? daemonClient.sendSubagentAbort(subagentId: subagentId, conversationId: viewModel.conversationId) },
                         onRequestDetail: {
                             if let conversationId = viewModel.activeSubagents.first(where: { $0.id == subagentId })?.conversationId {
                                 try? daemonClient.sendSubagentDetailRequest(subagentId: subagentId, conversationId: conversationId)
@@ -361,8 +361,8 @@ extension MainWindowView {
 
     @ViewBuilder
     var chatView: some View {
-        if let viewModel = threadManager.activeViewModel {
-            let activeThread = threadManager.activeThread
+        if let viewModel = conversationManager.activeViewModel {
+            let activeConversation = conversationManager.activeConversation
             ActiveChatViewWrapper(
                 viewModel: viewModel,
                 windowState: windowState,
@@ -370,7 +370,7 @@ extension MainWindowView {
                 ambientAgent: ambientAgent,
                 settingsStore: settingsStore,
                 onMicrophoneToggle: onMicrophoneToggle,
-                isTemporaryChat: activeThread?.kind == .private,
+                isTemporaryChat: activeConversation?.kind == .private,
                 voiceModeManager: voiceModeManager,
                 voiceService: voiceModeManager.openAIVoiceService,
                 onEndVoiceMode: {
@@ -382,8 +382,9 @@ extension MainWindowView {
                 onVoiceModeToggle: {
                     toggleVoiceMode()
                 },
-                threadId: threadManager.activeThreadId,
-                anchorMessageId: $threadManager.pendingAnchorMessageId
+                threadId: conversationManager.activeConversationId,
+                anchorMessageId: $conversationManager.pendingAnchorMessageId,
+                highlightedMessageId: $conversationManager.highlightedMessageId
             )
             .environment(\.conversationZoomScale, conversationZoomManager.zoomLevel)
             .overlay(alignment: .top) {
@@ -401,12 +402,12 @@ extension MainWindowView {
     func fullWindowPanel(_ panel: SidePanelType) -> some View {
         switch panel {
         case .settings:
-            SettingsPanel(onClose: { windowState.dismissOverlay() }, store: settingsStore, daemonClient: daemonClient, threadManager: threadManager, authManager: authManager)
+            SettingsPanel(onClose: { windowState.dismissOverlay() }, store: settingsStore, daemonClient: daemonClient, conversationManager: conversationManager, authManager: authManager)
         case .debug:
             DebugPanel(
                 traceStore: traceStore,
                 daemonClient: daemonClient,
-                activeSessionId: threadManager.activeViewModel?.sessionId,
+                activeSessionId: conversationManager.activeViewModel?.conversationId,
                 onClose: { windowState.dismissOverlay() }
             )
             .overlay(alignment: .topTrailing) { panelDismissButton }
@@ -443,7 +444,7 @@ extension MainWindowView {
                     }
                 },
                 onNewThread: {
-                    threadManager.openThread(message: "What kind of apps can you build?", forceNew: true)
+                    conversationManager.openConversation(message: "What kind of apps can you build?", forceNew: true)
                     windowState.dismissOverlay()
                 }
             )
@@ -453,7 +454,7 @@ extension MainWindowView {
             IntelligencePanel(
                 onClose: { windowState.dismissOverlay() },
                 onInvokeSkill: { skill in
-                    let vm = threadManager.openThread(message: "Use the \(skill.name) skill") { vm in
+                    let vm = conversationManager.openConversation(message: "Use the \(skill.name) skill") { vm in
                         vm.pendingSkillInvocation = SkillInvocationData(
                             name: skill.name,
                             emoji: skill.emoji,
@@ -498,7 +499,7 @@ extension MainWindowView {
 
     @ViewBuilder
     func dynamicWorkspaceView(surface: Surface, data: DynamicPageSurfaceData) -> some View {
-        if let viewModel = threadManager.activeViewModel {
+        if let viewModel = conversationManager.activeViewModel {
             DynamicWorkspaceWrapper(
                 viewModel: viewModel,
                 surface: surface,
@@ -562,7 +563,7 @@ func openFilePicker(viewModel: ChatViewModel) {
 // MARK: - Wrapper Views
 // These observe the ChatViewModel directly so that only the views that
 // actually need ChatViewModel state are invalidated on change, instead
-// of propagating every change up through ThreadManager.
+// of propagating every change up through ConversationManager.
 
 /// Observes the active ChatViewModel and renders the chat interface.
 struct ActiveChatViewWrapper: View {
@@ -580,6 +581,7 @@ struct ActiveChatViewWrapper: View {
     var onVoiceModeToggle: (() -> Void)? = nil
     var threadId: UUID?
     @Binding var anchorMessageId: UUID?
+    @Binding var highlightedMessageId: UUID?
 
     /// Reads the persisted bootstrap state so the chat view can suppress
     /// the empty state during first-launch bootstrap.
@@ -642,10 +644,10 @@ struct ActiveChatViewWrapper: View {
             watchSession: ambientAgent.activeWatchSession,
             onStopWatch: { viewModel.stopWatchSession() },
             onReportMessage: { daemonMessageId in
-                guard let sessionId = viewModel.sessionId else { return }
+                guard let conversationId = viewModel.conversationId else { return }
                 do {
                     try daemonClient.sendDiagnosticsExportRequest(
-                        conversationId: sessionId,
+                        conversationId: conversationId,
                         anchorMessageId: daemonMessageId
                     )
                 } catch {
@@ -663,7 +665,7 @@ struct ActiveChatViewWrapper: View {
             isTemporaryChat: isTemporaryChat,
             activeSubagents: viewModel.activeSubagents,
             onAbortSubagent: { subagentId in
-                try? daemonClient.sendSubagentAbort(subagentId: subagentId, sessionId: viewModel.sessionId)
+                try? daemonClient.sendSubagentAbort(subagentId: subagentId, conversationId: viewModel.conversationId)
             },
             onSubagentTap: { subagentId in
                 windowState.selectedSubagentId = subagentId
@@ -671,8 +673,8 @@ struct ActiveChatViewWrapper: View {
             onRehydrateMessage: { messageId in
                 viewModel.rehydrateMessage(id: messageId)
             },
-            onSurfaceRefetch: { surfaceId, sessionId in
-                viewModel.refetchStrippedSurface(surfaceId: surfaceId, sessionId: sessionId)
+            onSurfaceRefetch: { surfaceId, conversationId in
+                viewModel.refetchStrippedSurface(surfaceId: surfaceId, conversationId: conversationId)
             },
             onRetryFailedMessage: { messageId in
                 viewModel.retryFailedMessage(id: messageId)
@@ -693,9 +695,16 @@ struct ActiveChatViewWrapper: View {
             daemonGreeting: viewModel.emptyStateGreeting,
             onRequestGreeting: { [weak viewModel] in viewModel?.generateGreeting() },
             anchorMessageId: $anchorMessageId,
+            highlightedMessageId: $highlightedMessageId,
             btwResponse: viewModel.btwResponse,
             btwLoading: viewModel.btwLoading,
             onDismissBtw: { viewModel.dismissBtw() },
+            creditsExhaustedError: viewModel.errorManager.conversationError?.isCreditsExhausted == true ? viewModel.errorManager.conversationError : nil,
+            onAddFunds: {
+                settingsStore.pendingSettingsTab = .billing
+                windowState.selection = .panel(.settings)
+            },
+            onDismissCreditsExhausted: { viewModel.dismissConversationError() },
             displayedMessageCount: viewModel.displayedMessageCount,
             hasMoreMessages: viewModel.hasMoreMessages,
             isLoadingMoreMessages: viewModel.isLoadingMoreMessages,
@@ -926,7 +935,7 @@ struct DynamicWorkspaceWrapper: View {
                                 viewModel.sendMessage()
                                 return
                             }
-                            surfaceManager.onAction?(surface.sessionId, surface.id, actionId, actionData as? [String: Any])
+                            surfaceManager.onAction?(surface.conversationId, surface.id, actionId, actionData as? [String: Any])
                         },
                         appId: data.appId,
                         onDataRequest: data.appId != nil ? { callId, method, recordId, requestData in

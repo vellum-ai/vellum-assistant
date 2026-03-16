@@ -51,7 +51,7 @@ final class HostCuSessionProxy: ObservableObject, SessionOverlayProviding {
     @Published var pendingUserGuidance: String?
 
     let task: String
-    let sessionId: String
+    let conversationId: String
 
     /// Callback invoked when the user cancels via the overlay.
     /// The AppDelegate wires this to abort the main session.
@@ -61,9 +61,9 @@ final class HostCuSessionProxy: ObservableObject, SessionOverlayProviding {
     var undoCountPublisher: Published<Int>.Publisher { $undoCount }
     var autoApproveToolsPublisher: Published<Bool>.Publisher { $autoApproveTools }
 
-    init(task: String, sessionId: String) {
+    init(task: String, conversationId: String) {
         self.task = task
-        self.sessionId = sessionId
+        self.conversationId = conversationId
     }
 
     func cancel() {

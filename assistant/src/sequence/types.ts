@@ -18,7 +18,7 @@ export interface SequenceStep {
   delaySeconds: number; // delay from previous step (0 for first step)
   subjectTemplate: string; // subject line template
   bodyPrompt: string; // prompt for the assistant to generate body
-  replyToThread: boolean; // whether to reply in the same thread as step 1
+  replyInSameConversation: boolean; // whether to reply in the same conversation as step 1
   requireApproval: boolean; // draft-first, require human approval before send
 }
 
@@ -41,7 +41,7 @@ export interface SequenceEnrollment {
   contactName: string | null;
   currentStep: number; // index of the next step to send (0-based)
   status: EnrollmentStatus;
-  threadId: string | null; // messaging thread ID (set after first send)
+  conversationId: string | null; // messaging conversation ID (set after first send)
   nextStepAt: number | null; // epoch ms — when the next step is due
   context: Record<string, unknown> | null; // per-enrollment personalization context
   createdAt: number;

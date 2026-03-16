@@ -9,7 +9,7 @@
  * {@link ActorTrustContext} is converted to {@link TrustContext} via
  * {@link toTrustContext}.
  */
-import type { TrustContext } from "../daemon/session-runtime-assembly.js";
+import type { TrustContext } from "../daemon/conversation-runtime-assembly.js";
 import {
   resolveActorTrust,
   type ResolveActorTrustInput,

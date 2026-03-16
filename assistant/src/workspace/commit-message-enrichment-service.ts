@@ -293,7 +293,7 @@ export class CommitEnrichmentService {
       trigger: job.context.trigger,
       filesChanged: job.context.changedFiles.length,
       timestamp: job.context.timestampMs,
-      sessionId: job.context.sessionId,
+      conversationId: job.context.conversationId,
       turnNumber: job.context.turnNumber,
     });
 

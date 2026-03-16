@@ -283,7 +283,7 @@ Two trust gates enforce trust-class-based access control over the memory pipelin
 
 - **Write gate** (`indexer.ts`): The `extract_items` job only runs for messages from trusted actors (guardian or undefined provenance). Messages from untrusted actors (`trusted_contact`, `unknown`) are still segmented and embedded — so they appear in conversation context — but no item extraction is triggered. This prevents untrusted channels from injecting or mutating long-term memory items.
 
-- **Read gate** (`session-memory.ts`): When the current session's actor is untrusted, the memory recall pipeline returns a no-op context — no recall injection. This ensures untrusted actors cannot surface or exploit previously extracted memory.
+- **Read gate** (`conversation-memory.ts`): When the current session's actor is untrusted, the memory recall pipeline returns a no-op context — no recall injection. This ensures untrusted actors cannot surface or exploit previously extracted memory.
 
 Trust policy is **cross-channel and trust-class-based**: decisions use `trustContext.trustClass`, not the channel string. Desktop sessions default to `trustClass: 'guardian'`. External channels (Telegram, WhatsApp, phone) provide explicit trust context via the resolver. Messages without provenance metadata are treated as trusted (guardian); all new messages carry provenance.
 
@@ -386,16 +386,16 @@ This ensures that file writes, bash commands, host operations, and other mutatin
 
 ### Key Source Files
 
-| File                                         | Role                                                                                       |
-| -------------------------------------------- | ------------------------------------------------------------------------------------------ |
-| `assistant/src/memory/schema.ts`             | `conversations` table: `conversationType` and `memoryScopeId` column definitions           |
-| `assistant/src/daemon/session.ts`            | `SessionMemoryPolicy` interface and `DEFAULT_MEMORY_POLICY` constant                       |
-| `assistant/src/daemon/server.ts`             | `deriveMemoryPolicy()` — maps conversation type to memory policy                           |
-| `assistant/src/daemon/session-tool-setup.ts` | Propagates `memoryPolicy.strictSideEffects` as `forcePromptSideEffects` into `ToolContext` |
-| `assistant/src/tools/executor.ts`            | `forcePromptSideEffects` gate — promotes allow to prompt for side-effect tools             |
-| `assistant/src/memory/search/types.ts`       | `ScopePolicyOverride` interface for per-call scope control                                 |
-| `assistant/src/memory/retriever.ts`          | `buildScopeFilter()` — builds scope ID list from override or global config                 |
-| `assistant/src/daemon/session-memory.ts`     | Wires `scopeId` and `includeDefaultFallback` into recall                                   |
+| File                                              | Role                                                                                       |
+| ------------------------------------------------- | ------------------------------------------------------------------------------------------ |
+| `assistant/src/memory/schema.ts`                  | `conversations` table: `conversationType` and `memoryScopeId` column definitions           |
+| `assistant/src/daemon/conversation.ts`            | `SessionMemoryPolicy` interface and `DEFAULT_MEMORY_POLICY` constant                       |
+| `assistant/src/daemon/server.ts`                  | `deriveMemoryPolicy()` — maps conversation type to memory policy                           |
+| `assistant/src/daemon/conversation-tool-setup.ts` | Propagates `memoryPolicy.strictSideEffects` as `forcePromptSideEffects` into `ToolContext` |
+| `assistant/src/tools/executor.ts`                 | `forcePromptSideEffects` gate — promotes allow to prompt for side-effect tools             |
+| `assistant/src/memory/search/types.ts`            | `ScopePolicyOverride` interface for per-call scope control                                 |
+| `assistant/src/memory/retriever.ts`               | `buildScopeFilter()` — builds scope ID list from override or global config                 |
+| `assistant/src/daemon/conversation-memory.ts`     | Wires `scopeId` and `includeDefaultFallback` into recall                                   |
 
 ---
 
@@ -452,13 +452,13 @@ The Anthropic provider places `cache_control: { type: 'ephemeral' }` on the **la
 
 ### Key files
 
-| File                                                  | Role                                                                                                                                       |
-| ----------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
-| `assistant/src/workspace/top-level-scanner.ts`        | Synchronous directory scanner with `MAX_TOP_LEVEL_ENTRIES` cap                                                                             |
-| `assistant/src/workspace/top-level-renderer.ts`       | Renders `TopLevelSnapshot` to `<workspace_top_level>` XML block                                                                            |
-| `assistant/src/daemon/session-runtime-assembly.ts`    | Runtime injections and strip helpers (`<workspace_top_level>`, `<temporal_context>`, `<channel_onboarding_playbook>`, `<onboarding_mode>`) |
-| `assistant/src/onboarding/onboarding-orchestrator.ts` | Builds assistant-owned onboarding runtime guidance from channel playbook + transport metadata                                              |
-| `assistant/src/daemon/session-agent-loop.ts`          | Agent loop orchestration, runtime injection wiring, strip chain                                                                            |
+| File                                                    | Role                                                                                                                                       |
+| ------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
+| `assistant/src/workspace/top-level-scanner.ts`          | Synchronous directory scanner with `MAX_TOP_LEVEL_ENTRIES` cap                                                                             |
+| `assistant/src/workspace/top-level-renderer.ts`         | Renders `TopLevelSnapshot` to `<workspace_top_level>` XML block                                                                            |
+| `assistant/src/daemon/conversation-runtime-assembly.ts` | Runtime injections and strip helpers (`<workspace_top_level>`, `<temporal_context>`, `<channel_onboarding_playbook>`, `<onboarding_mode>`) |
+| `assistant/src/onboarding/onboarding-orchestrator.ts`   | Builds assistant-owned onboarding runtime guidance from channel playbook + transport metadata                                              |
+| `assistant/src/daemon/conversation-agent-loop.ts`       | Agent loop orchestration, runtime injection wiring, strip chain                                                                            |
 
 ---
 
@@ -495,11 +495,11 @@ graph TB
 
 ### Key files
 
-| File                                               | Role                                                                                    |
-| -------------------------------------------------- | --------------------------------------------------------------------------------------- |
-| `assistant/src/daemon/date-context.ts`             | `buildTemporalContext()` — generates the `<temporal_context>` XML block                 |
-| `assistant/src/daemon/session-runtime-assembly.ts` | `injectTemporalContext()` / `stripTemporalContext()` helpers                            |
-| `assistant/src/daemon/session-agent-loop.ts`       | Wiring: computes temporal context, passes to `applyRuntimeInjections`, strips after run |
+| File                                                    | Role                                                                                    |
+| ------------------------------------------------------- | --------------------------------------------------------------------------------------- |
+| `assistant/src/daemon/date-context.ts`                  | `buildTemporalContext()` — generates the `<temporal_context>` XML block                 |
+| `assistant/src/daemon/conversation-runtime-assembly.ts` | `injectTemporalContext()` / `stripTemporalContext()` helpers                            |
+| `assistant/src/daemon/conversation-agent-loop.ts`       | Wiring: computes temporal context, passes to `applyRuntimeInjections`, strips after run |
 
 ---
 
@@ -550,7 +550,7 @@ graph TB
 
 1. **Lazy initialization**: The git repository is created on first use, not at workspace creation. When `ensureInitialized()` is called, it checks for a `.git` directory. If absent, it runs `git init`, creates a `.gitignore` (excluding `data/`, `logs/`, `*.log`, `*.sock`, `*.pid`, `session-token`), sets the git identity to "Vellum Assistant", and creates an initial baseline commit capturing any pre-existing files. The baseline commit is intentional — it makes `git log`, `git diff`, and `git revert` work cleanly from the start. Both new and existing workspaces get the same treatment. For existing repos (e.g. created by older versions or external tools), `.gitignore` rules and git identity are set idempotently on each init, ensuring proper configuration regardless of how the repo was originally created.
 
-2. **Turn-boundary commits**: After each conversation turn (user message + assistant response cycle), `session.ts` commits workspace changes via `commitTurnChanges(workspaceDir, sessionId, turnNumber)`. The commit runs in the `finally` block of `runAgentLoop`, guarded by a `turnStarted` flag that is set once the agent loop begins executing. This guarantees a commit attempt even when post-processing (e.g. `resolveAssistantAttachments`) throws, or when the user cancels mid-turn. The commit is raced against a configurable timeout (`workspaceGit.turnCommitMaxWaitMs`, default 4s) via `Promise.race`. If the commit exceeds the timeout, the turn proceeds immediately while the commit continues in the background. Note: the background commit is NOT awaited before the next turn starts, so brief cross-turn file attribution windows are possible but accepted as a tradeoff for responsiveness. Commit outcomes are logged with structured fields (`sessionId`, `turnNumber`, `filesChanged`, `durationMs`) for observability.
+2. **Turn-boundary commits**: After each conversation turn (user message + assistant response cycle), `conversation.ts` commits workspace changes via `commitTurnChanges(workspaceDir, sessionId, turnNumber)`. The commit runs in the `finally` block of `runAgentLoop`, guarded by a `turnStarted` flag that is set once the agent loop begins executing. This guarantees a commit attempt even when post-processing (e.g. `resolveAssistantAttachments`) throws, or when the user cancels mid-turn. The commit is raced against a configurable timeout (`workspaceGit.turnCommitMaxWaitMs`, default 4s) via `Promise.race`. If the commit exceeds the timeout, the turn proceeds immediately while the commit continues in the background. Note: the background commit is NOT awaited before the next turn starts, so brief cross-turn file attribution windows are possible but accepted as a tradeoff for responsiveness. Commit outcomes are logged with structured fields (`sessionId`, `turnNumber`, `filesChanged`, `durationMs`) for observability.
 
 3. **Heartbeat safety net**: A `HeartbeatService` runs on a 5-minute interval, checking all tracked workspaces for uncommitted changes. It auto-commits when changes exceed either an age threshold (5 minutes since first detected) or a file count threshold (20+ files). This catches changes from long-running bash scripts, background processes, or crashed sessions that miss turn-boundary commits.
 
@@ -562,7 +562,7 @@ graph TB
 
 7. **Circuit breaker with exponential backoff**: `WorkspaceGitService` tracks consecutive commit failures and backs off exponentially (2s, 4s, 8s... up to 60s configurable max). When the breaker is open, `commitIfDirty()` short-circuits without attempting git operations. On success, the breaker resets. State transitions are logged at info/warn level with structured fields (`consecutiveFailures`, `backoffMs`).
 
-8. **Turn-commit timeout protection**: The turn-boundary commit in `session.ts` uses `Promise.race` with a configurable timeout (`workspaceGit.turnCommitMaxWaitMs`, default 4s). If the commit exceeds the timeout, the turn proceeds immediately (the commit continues in the background). This prevents slow git operations from blocking the conversation loop.
+8. **Turn-commit timeout protection**: The turn-boundary commit in `conversation.ts` uses `Promise.race` with a configurable timeout (`workspaceGit.turnCommitMaxWaitMs`, default 4s). If the commit exceeds the timeout, the turn proceeds immediately (the commit continues in the background). This prevents slow git operations from blocking the conversation loop.
 
 9. **Non-blocking enrichment queue**: After each successful commit, a `CommitEnrichmentService` runs async enrichment fire-and-forget. The queue has configurable max size (default 50), concurrency (default 1), per-job timeout (default 30s), and retry count (default 2 with exponential backoff). On queue overflow, the oldest job is dropped with a warning log. On graceful shutdown, in-flight jobs drain while pending jobs are discarded. Currently writes placeholder JSON metadata to git notes (`refs/notes/vellum`) as a scaffold for future LLM enrichment.
 
@@ -592,7 +592,7 @@ graph TB
 - **Commit at turn boundaries, not per-tool-call**: A single commit per turn captures all file mutations from that turn atomically. This avoids noisy per-file commits and keeps the history meaningful.
 - **Lazy init with baseline commit**: The repo is created on first use, not at daemon startup. Existing workspaces get their files captured in an "Initial commit: migrated existing workspace" on first use, rather than requiring an explicit migration step. The baseline commit ensures `git log`, `git diff`, and `git revert` work cleanly from the start.
 - **Mutex serialization**: All git operations go through a per-workspace `Mutex` to prevent concurrent `git add`/`git commit` from corrupting the index. The mutex uses a FIFO wait queue.
-- **Finally-block commit guarantee in session-agent-loop.ts**: Turn commits run in the `finally` block of `runAgentLoop`, ensuring they execute even when post-processing throws or the user cancels. The `turnStarted` flag prevents commits for turns that were blocked before the agent loop started. All errors are caught and logged as warnings. The commit is raced against a timeout (`turnCommitMaxWaitMs`, default 4s); if it exceeds the timeout the turn proceeds and the commit continues in the background without synchronization. Brief cross-turn file attribution is accepted as a tradeoff for keeping the conversation loop responsive.
+- **Finally-block commit guarantee in conversation-agent-loop.ts**: Turn commits run in the `finally` block of `runAgentLoop`, ensuring they execute even when post-processing throws or the user cancels. The `turnStarted` flag prevents commits for turns that were blocked before the agent loop started. All errors are caught and logged as warnings. The commit is raced against a timeout (`turnCommitMaxWaitMs`, default 4s); if it exceeds the timeout the turn proceeds and the commit continues in the background without synchronization. Brief cross-turn file attribution is accepted as a tradeoff for keeping the conversation loop responsive.
 - **Branch enforcement at init time**: `ensureOnMainLocked()` is called during initialization to ensure the workspace is on the `main` branch. If the workspace is on the wrong branch or in a detached HEAD state, it auto-corrects to `main` with a warning log. Per-commit enforcement is unnecessary since nothing in the codebase switches branches.
 - **We intentionally don't provide custom history APIs** -- assistants should use git commands naturally via Bash (e.g. `git log`, `git diff`, `git show`). The workspace git repo is a standard git repository that any tool can interact with.
 
@@ -606,7 +606,7 @@ graph TB
 | `assistant/src/workspace/turn-commit.ts`                       | `commitTurnChanges()`: turn-boundary commit with structured metadata + enrichment enqueue                                       |
 | `assistant/src/workspace/provider-commit-message-generator.ts` | `ProviderCommitMessageGenerator`: LLM-based commit message generation with circuit breaker and deterministic fallback           |
 | `assistant/src/workspace/heartbeat-service.ts`                 | `HeartbeatService`: periodic safety-net auto-commits, shutdown commits, enrichment enqueue                                      |
-| `assistant/src/daemon/session-agent-loop.ts`                   | Integration: turn-boundary commit with `raceWithTimeout` protection in `runAgentLoop` finally block                             |
+| `assistant/src/daemon/conversation-agent-loop.ts`              | Integration: turn-boundary commit with `raceWithTimeout` protection in `runAgentLoop` finally block                             |
 | `assistant/src/daemon/lifecycle.ts`                            | Integration: `HeartbeatService` start/stop and shutdown commit                                                                  |
 | `assistant/src/config/schema.ts`                               | `WorkspaceGitConfigSchema`: timeout, backoff, and enrichment queue configuration                                                |
 

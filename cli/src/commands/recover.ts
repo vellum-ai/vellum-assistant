@@ -1,4 +1,3 @@
-import { randomUUID } from "node:crypto";
 import { existsSync, readFileSync, unlinkSync } from "fs";
 import { homedir } from "os";
 import { join } from "path";
@@ -40,8 +39,6 @@ export async function recover(): Promise<void> {
 
   // 2. Read and validate metadata before any side effects
   const entry: AssistantEntry = JSON.parse(readFileSync(metadataPath, "utf-8"));
-  // Backfill installationId for archives created before the field was introduced
-  entry.installationId ??= randomUUID();
   if (!entry.resources) {
     throw new Error(
       `Retired assistant '${name}' is missing resource configuration. ` +

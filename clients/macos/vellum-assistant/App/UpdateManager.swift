@@ -9,9 +9,12 @@ private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.
 /// The appcast URL points to the public releases repo where CI publishes
 /// signed ZIPs alongside an `appcast.xml`.
 @MainActor
-public final class UpdateManager: NSObject, SPUUpdaterDelegate {
+public final class UpdateManager: NSObject, ObservableObject, SPUUpdaterDelegate {
 
     private var updaterController: SPUStandardUpdaterController!
+
+    @Published public private(set) var isUpdateAvailable = false
+    @Published public private(set) var isDeferredUpdateReady = false
 
     /// Called before the app is replaced — stop the daemon so the new version
     /// can launch its own bundled daemon cleanly.
@@ -105,8 +108,44 @@ public final class UpdateManager: NSObject, SPUUpdaterDelegate {
     ) -> Bool {
         deferredInstallLock.withLock { $0 = immediateInstallHandler }
         Task { @MainActor in
+            self.isDeferredUpdateReady = true
+        }
+        Task { @MainActor in
             log.info("Update \(item.displayVersionString) ready — deferring install until quit")
         }
         return false
+    }
+
+    /// Called when Sparkle finds a valid update in the appcast (automatic or
+    /// manual check).  Sets `isUpdateAvailable` so the top-bar button appears.
+    nonisolated public func updater(_ updater: SPUUpdater, didFindValidUpdate item: SUAppcastItem) {
+        Task { @MainActor in
+            log.info("Found valid update: \(item.displayVersionString)")
+            self.isUpdateAvailable = true
+        }
+    }
+
+    /// Called when no valid update is found.  Clears the flag in case a
+    /// previously-advertised update was pulled from the appcast.
+    nonisolated public func updaterDidNotFindUpdate(_ updater: SPUUpdater) {
+        Task { @MainActor in
+            self.isUpdateAvailable = false
+        }
+    }
+
+    /// Called when the user makes a choice in Sparkle's update dialog.
+    /// If they skip this version, hide the button.  Dismiss/install leave it.
+    nonisolated public func updater(
+        _ updater: SPUUpdater,
+        userDidMake choice: SPUUserUpdateChoice,
+        forUpdate updateItem: SUAppcastItem,
+        state: SPUUserUpdateState
+    ) {
+        Task { @MainActor in
+            if choice == .skip {
+                log.info("User skipped update \(updateItem.displayVersionString)")
+                self.isUpdateAvailable = false
+            }
+        }
     }
 }

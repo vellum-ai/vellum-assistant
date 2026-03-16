@@ -130,7 +130,7 @@ Use the Swift convention `TypeName+Purpose.swift` for files that contain extensi
 ### When to Split a File
 - **Target: ~500-600 lines max per file.** If a file exceeds this, split it.
 - **Extension files** (`TypeName+Purpose.swift`) — use when the code logically belongs to the same type but can be grouped by purpose. The extension lives in the same directory as the primary file.
-- **Standalone views** (`SidebarThreadItem.swift`) — use when a view has its own identity, state, and can be reused independently. Place in a subdirectory if there are multiple related views (e.g., `Sidebar/`).
+- **Standalone views** (`SidebarConversationItem.swift`) — use when a view has its own identity, state, and can be reused independently. Place in a subdirectory if there are multiple related views (e.g., `Sidebar/`).
 - **Helper types** (`MainWindowGroupedState.swift`) — use for supporting types (state enums, delegates) that don't belong in the main view file.
 
 ### Access Control Across File Boundaries
@@ -143,7 +143,7 @@ Swift does not allow `private` members to be accessed from a different file, eve
 - Comments and docstrings must describe the code's intent and behavior, not its refactoring history.
 - Do not leave breadcrumb comments like `// moved to X.swift` or `// extracted from Y()`. These become stale and clutter the code.
 - Good: `/// Cancellable task for the delayed hover trigger on the collapsed thread section.`
-- Bad: `// threadItem — moved to Sidebar/SidebarThreadItem.swift (standalone view)`
+- Bad: `// conversationItem — moved to Sidebar/SidebarConversationItem.swift (standalone view)`
 
 ---
 

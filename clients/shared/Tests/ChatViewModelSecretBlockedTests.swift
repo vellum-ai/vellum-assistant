@@ -12,7 +12,7 @@ final class ChatViewModelSecretBlockedTests: XCTestCase {
         daemonClient = MockDaemonClient()
         daemonClient.isConnected = true
         viewModel = ChatViewModel(daemonClient: daemonClient)
-        viewModel.sessionId = "sess-1"
+        viewModel.conversationId = "sess-1"
     }
 
     override func tearDown() {

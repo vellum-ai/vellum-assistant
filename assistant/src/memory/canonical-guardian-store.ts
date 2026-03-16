@@ -7,7 +7,7 @@
  * request from the expected status wins.
  */
 
-import { and, desc, eq, inArray } from "drizzle-orm";
+import { and, desc, eq, inArray, isNotNull, lt, or } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 
 import { IntegrityError } from "../util/errors.js";
@@ -471,17 +471,19 @@ export function resolveCanonicalGuardianRequest(
 const INTERACTION_BOUND_KINDS = ["tool_approval", "pending_question"];
 
 /**
- * Expire pending interaction-bound canonical guardian requests in a single
- * bulk update.
+ * Expire stale pending canonical guardian requests in a single bulk update.
  *
- * Called at daemon startup to clean up requests that can never be completed
- * because the in-memory pending-interactions Map (which holds session
- * references needed by resolvers) was wiped on restart.
+ * Called at daemon startup to clean up two categories of requests:
  *
- * Only expires request kinds that depend on in-memory pending interactions
- * (`tool_approval`, `pending_question`). Persistent kinds like
- * `access_request` and `tool_grant_request` resolve without pending
- * interactions and remain valid across restarts.
+ * 1. **Interaction-bound kinds** (`tool_approval`, `pending_question`) — these
+ *    can never be completed after a restart because the in-memory
+ *    pending-interactions Map was wiped.
+ *
+ * 2. **Already-dead persistent kinds** (`access_request`, `tool_grant_request`)
+ *    whose `expiresAt` has already passed while the daemon was stopped. Without
+ *    this, stale rows stay `pending` until the periodic sweep runs, causing
+ *    deduplication logic to return expired rows instead of creating fresh
+ *    requests.
  *
  * Returns the number of requests transitioned from pending → expired.
  */
@@ -494,7 +496,15 @@ export function expireAllPendingCanonicalRequests(): number {
     .where(
       and(
         eq(canonicalGuardianRequests.status, "pending"),
-        inArray(canonicalGuardianRequests.kind, INTERACTION_BOUND_KINDS),
+        or(
+          // Interaction-bound kinds: always expire on restart
+          inArray(canonicalGuardianRequests.kind, INTERACTION_BOUND_KINDS),
+          // Persistent kinds: expire only if already past their deadline
+          and(
+            isNotNull(canonicalGuardianRequests.expiresAt),
+            lt(canonicalGuardianRequests.expiresAt, now),
+          ),
+        ),
       ),
     )
     .run();

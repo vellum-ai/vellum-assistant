@@ -7,6 +7,7 @@ import { getBaseDataDir, getIsContainerized } from "../config/env-registry.js";
 import { getConfig } from "../config/loader.js";
 import { skillFlagKey } from "../config/skill-state.js";
 import { loadSkillCatalog, type SkillSummary } from "../config/skills.js";
+import { isPlatformManaged } from "../inbound/platform-callback-registration.js";
 import { listConnections } from "../oauth/oauth-store.js";
 import { resolveBundledDir } from "../util/bundled-asset.js";
 import { getLogger } from "../util/logger.js";
@@ -284,7 +285,7 @@ function buildAttachmentSection(): string {
     "",
     'Example: `<vellum-attachment source="sandbox" path="scratch/chart.png" />`',
     "",
-    "Limits: 20 MB per attachment. Tool outputs that produce image or file content blocks are also automatically converted into attachments.",
+    "Limits: 50 MB per attachment. Tool outputs that produce image or file content blocks are also automatically converted into attachments.",
     "",
     "### Inline Images and GIFs",
     "Embed images/GIFs inline using markdown: `![description](URL)`. Do NOT wrap in code fences.",
@@ -345,9 +346,17 @@ function buildInChatConfigurationSection(): string {
     "When the user needs to configure a value (API keys, OAuth credentials, webhook URLs, or any setting that can be changed from the Settings page), **always collect it conversationally in the chat first** rather than directing them to the Settings page.",
     "",
     "**How to collect credentials and secrets:**",
-    '- Use `credential_store` with `action: "prompt"` to present a secure input field. The value never appears in the conversation. Once stored, run `assistant credentials list` to find the service:field identifiers, construct the CES handle as `local_static:<service>/<field>`, and use CES tools (`make_authenticated_request`, `run_authenticated_command`) for authenticated work.',
-    '- For OAuth flows, use `credential_store` with `action: "oauth2_connect"` to handle the authorization in-browser. Some services (e.g. Twitter/X) define their own auth flow via dedicated skill instructions — check the service\'s skill documentation for provider-specific setup steps. After connecting, run `assistant oauth connections list` to find the provider key, construct the CES handle, and use CES tools.',
-    "- For non-secret config values (e.g. a public URL, a webhook URL), ask the user directly in the conversation and use the appropriate config tool to persist the value.",
+    ...(isPlatformManaged()
+      ? [
+          "- Secrets and API keys are managed through the platform's credential system. Users connect credentials via OAuth or platform-managed secrets — the `credential_store` prompt flow for API keys is not available in managed deployments.",
+          "- For OAuth flows, guide the user to connect through the platform. After connecting, run `assistant oauth connections list` to find the connection ID, and use the `platform_oauth:<connectionId>` handle with CES tools (`make_authenticated_request`, `run_authenticated_command`) for authenticated work.",
+          "- For non-secret config values (e.g. a public URL, a webhook URL), ask the user directly in the conversation and use the appropriate config tool to persist the value.",
+        ]
+      : [
+          '- Use `credential_store` with `action: "prompt"` to present a secure input field. The value never appears in the conversation. Once stored, run `assistant credentials list` to find the service:field identifiers, construct the CES handle as `local_static:<service>/<field>`, and use CES tools (`make_authenticated_request`, `run_authenticated_command`) for authenticated work.',
+          '- For OAuth flows, use `credential_store` with `action: "oauth2_connect"` to handle the authorization in-browser. Some services (e.g. Twitter/X) define their own auth flow via dedicated skill instructions — check the service\'s skill documentation for provider-specific setup steps. After connecting, run `assistant oauth connections list` to find the provider key, construct the CES handle, and use CES tools.',
+          "- For non-secret config values (e.g. a public URL, a webhook URL), ask the user directly in the conversation and use the appropriate config tool to persist the value.",
+        ]),
     "",
     '**After saving a value**, confirm success with a message like: "Great, saved! You can always update this from the Settings page."',
     "",
@@ -851,7 +860,7 @@ export function buildCliReferenceSection(): string {
     "   - `assistant credentials list` — lists local credentials with their service:field identifiers",
     "   - `assistant oauth connections list` — lists OAuth connections with provider keys",
     "   - `assistant credentials list --search <query>` — filter by service, field, or description",
-    ...(getIsContainerized()
+    ...(isPlatformManaged()
       ? [
           "   In managed deployments, credential handles use the `platform_oauth:<connectionId>` format (shown in the `handle` field of `assistant oauth connections list`). Local credential handles (`local_static`, `local_oauth`) are not available in managed mode.",
         ]
@@ -926,6 +935,22 @@ function readPromptFile(path: string): string | null {
     log.warn({ err, path }, "Failed to read prompt file");
     return null;
   }
+}
+
+/**
+ * Reads the core identity/personality prompt files (SOUL.md, IDENTITY.md, USER.md)
+ * and concatenates whichever exist. Returns null if none are present.
+ *
+ * This is useful for injecting identity context into subsystems (e.g. memory
+ * extraction) that run outside the main system prompt pipeline.
+ */
+export function buildCoreIdentityContext(): string | null {
+  const parts: string[] = [];
+  for (const file of PROMPT_FILES) {
+    const content = readPromptFile(getWorkspacePromptPath(file));
+    if (content) parts.push(content);
+  }
+  return parts.length > 0 ? parts.join("\n\n") : null;
 }
 
 function appendSkillsCatalog(basePrompt: string): string {

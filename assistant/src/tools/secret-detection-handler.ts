@@ -84,7 +84,6 @@ export class SecretDetectionHandler {
       executionTarget,
       input,
       workingDir: context.workingDir,
-      sessionId: context.sessionId,
       conversationId: context.conversationId,
       requestId: context.requestId,
       matches: matchSummary,
@@ -229,7 +228,6 @@ export class SecretDetectionHandler {
       executionTarget,
       input,
       workingDir: context.workingDir,
-      sessionId: context.sessionId,
       conversationId: context.conversationId,
       requestId: context.requestId,
       riskLevel,
@@ -244,7 +242,7 @@ export class SecretDetectionHandler {
       riskLevel,
       isError: true,
       durationMs,
-      sessionId: context.sessionId,
+      conversationId: context.conversationId,
     });
 
     return { result: blockedResult, earlyReturn: true };
@@ -282,7 +280,6 @@ export class SecretDetectionHandler {
         executionTarget,
         input,
         workingDir: context.workingDir,
-        sessionId: context.sessionId,
         conversationId: context.conversationId,
         requestId: context.requestId,
         riskLevel: RiskLevel.High,
@@ -297,7 +294,7 @@ export class SecretDetectionHandler {
         riskLevel,
         isError: true,
         durationMs,
-        sessionId: context.sessionId,
+        conversationId: context.conversationId,
       });
 
       return {
@@ -318,7 +315,6 @@ export class SecretDetectionHandler {
       executionTarget,
       input: promptInput,
       workingDir: context.workingDir,
-      sessionId: context.sessionId,
       conversationId: context.conversationId,
       requestId: context.requestId,
       riskLevel: RiskLevel.High,
@@ -352,7 +348,6 @@ export class SecretDetectionHandler {
         executionTarget,
         input,
         workingDir: context.workingDir,
-        sessionId: context.sessionId,
         conversationId: context.conversationId,
         requestId: context.requestId,
         riskLevel: RiskLevel.High,
@@ -367,7 +362,7 @@ export class SecretDetectionHandler {
         riskLevel,
         isError: true,
         durationMs,
-        sessionId: context.sessionId,
+        conversationId: context.conversationId,
       });
 
       return {

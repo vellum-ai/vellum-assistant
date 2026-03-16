@@ -15,10 +15,10 @@ import { getApp, getAppsDir, isMultifileApp } from "../memory/app-store.js";
 import { updatePublishedAppDeployment } from "../services/published-app-updater.js";
 import type { ToolExecutionResult } from "../tools/types.js";
 import { getLogger } from "../util/logger.js";
+import { refreshSurfacesForApp } from "./conversation-surfaces.js";
+import type { ToolSetupContext } from "./conversation-tool-setup.js";
 import { isDoordashCommand, updateDoordashProgress } from "./doordash-steps.js";
 import type { ServerMessage } from "./message-protocol.js";
-import { refreshSurfacesForApp } from "./session-surfaces.js";
-import type { ToolSetupContext } from "./session-tool-setup.js";
 
 const log = getLogger("tool-side-effects");
 

@@ -11,8 +11,11 @@
 import { v4 as uuid } from "uuid";
 
 import { getConfig } from "../config/loader.js";
+import {
+  Conversation,
+  type ConversationMemoryPolicy,
+} from "../daemon/conversation.js";
 import type { ServerMessage } from "../daemon/message-protocol.js";
-import { Session, type SessionMemoryPolicy } from "../daemon/session.js";
 import { bootstrapConversation } from "../memory/conversation-bootstrap.js";
 import { RateLimitProvider } from "../providers/ratelimit.js";
 import { getFailoverProvider } from "../providers/registry.js";
@@ -47,7 +50,7 @@ function buildSubagentSystemPrompt(config: SubagentConfig): string {
 // ── Manager ─────────────────────────────────────────────────────────────
 
 interface ManagedSubagent {
-  session: Session;
+  session: Conversation;
   state: SubagentState;
   /** Mutable reference to the parent's current sendToClient. Updated on reconnect. */
   parentSendToClient: (msg: ServerMessage) => void;
@@ -148,7 +151,7 @@ export class SubagentManager {
     const maxTokens = appConfig.maxTokens;
     const workingDir = getSandboxWorkingDir();
 
-    const memoryPolicy: SessionMemoryPolicy = {
+    const memoryPolicy: ConversationMemoryPolicy = {
       scopeId: `subagent:${subagentId}`,
       includeDefaultFallback: true,
       strictSideEffects: false,
@@ -167,9 +170,9 @@ export class SubagentManager {
     // Store the managed subagent early so the wrapper can read the mutable
     // parentSendToClient reference — this ensures reconnects are picked up.
     const managed: ManagedSubagent = {
-      // Placeholder — replaced with the real Session a few lines below, before
+      // Placeholder — replaced with the real Conversation a few lines below, before
       // any code reads this field. Using null! avoids the `as unknown as` cast.
-      session: null! as Session,
+      session: null! as Conversation,
       state,
       parentSendToClient,
     };
@@ -184,7 +187,7 @@ export class SubagentManager {
       } as ServerMessage);
     };
 
-    const session = new Session(
+    const session = new Conversation(
       conversation.id,
       provider,
       systemPrompt,
@@ -409,7 +412,7 @@ export class SubagentManager {
       return "sent"; // error event already delivered via onEvent
     }
     if (!result.queued) {
-      // Session is idle — send directly.  Fire-and-forget so we don't block.
+      // Conversation is idle — send directly.  Fire-and-forget so we don't block.
       const messageId = await managed.session.persistUserMessage(trimmed, []);
       managed.session.runAgentLoop(trimmed, messageId, onEvent).catch((err) => {
         log.error({ subagentId, err }, "Subagent message processing failed");

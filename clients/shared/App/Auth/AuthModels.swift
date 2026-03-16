@@ -199,6 +199,13 @@ public struct EnsureSelfHostedLocalRegistrationRequest: Codable, Sendable {
 public struct EnsureSelfHostedLocalRegistrationResponse: Codable, Sendable {
     public let assistant: SelfHostedAssistantInfo
     public let registration: SelfHostedRegistrationInfo
+    public let assistantApiKey: String?
+
+    enum CodingKeys: String, CodingKey {
+        case assistant
+        case registration
+        case assistantApiKey = "assistant_api_key"
+    }
 }
 
 public struct SelfHostedAssistantInfo: Codable, Sendable {
@@ -245,4 +252,23 @@ public struct SelfHostedProvisioningInfo: Codable, Sendable {
         case assistantApiKey = "assistant_api_key"
         case rotated
     }
+}
+
+// MARK: - Billing Models
+
+public struct BillingSummaryResponse: Codable, Sendable {
+    public let settled_balance_usd: String
+    public let pending_compute_usd: String
+    public let effective_balance_usd: String
+    public let minimum_top_up_usd: String
+    public let is_degraded: Bool
+}
+
+public struct TopUpCheckoutRequest: Codable, Sendable {
+    public let amount_usd: String
+    public let return_path: String
+}
+
+public struct TopUpCheckoutResponse: Codable, Sendable {
+    public let checkout_url: String
 }

@@ -11,7 +11,6 @@ const testDirs: string[] = [];
 function makeContext(): ToolContext {
   return {
     workingDir: "/tmp",
-    sessionId: "test-session",
     conversationId: "test-conversation",
     trustClass: "guardian",
   };

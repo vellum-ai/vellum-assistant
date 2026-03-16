@@ -5,7 +5,7 @@ import VellumAssistantShared
 /// that pauses when the user manually scrolls up.
 struct TraceTimelineView: View {
     @ObservedObject var traceStore: TraceStore
-    let sessionId: String
+    let conversationId: String
 
     /// Tracks whether auto-scroll is active. Uses a debounced approach to avoid
     /// a race condition where new content pushes the bottom anchor out of the
@@ -17,7 +17,7 @@ struct TraceTimelineView: View {
     @State private var expandedEventIds: Set<String> = []
 
     private var groupedEvents: [(key: String, events: [TraceStore.StoredEvent])] {
-        let byRequest = traceStore.eventsByRequest(sessionId: sessionId)
+        let byRequest = traceStore.eventsByRequest(conversationId: conversationId)
         return byRequest.map { (key: $0.key, events: $0.value) }
             .sorted { lhs, rhs in
                 let lhsFirst = lhs.events.first?.sequence ?? 0
@@ -57,7 +57,7 @@ struct TraceTimelineView: View {
                 .padding(.horizontal, VSpacing.lg)
                 .padding(.vertical, VSpacing.md)
             }
-            .onChange(of: traceStore.latestEventIdBySession[sessionId]) {
+            .onChange(of: traceStore.latestEventIdBySession[conversationId]) {
                 if isNearBottom {
                     withAnimation(VAnimation.fast) {
                         proxy.scrollTo("trace-bottom", anchor: .bottom)
@@ -97,7 +97,7 @@ struct TraceTimelineView: View {
 
     @ViewBuilder
     private func requestGroup(_ requestId: String, events: [TraceStore.StoredEvent]) -> some View {
-        let groupStatus = traceStore.requestGroupStatus(sessionId: sessionId, requestId: requestId)
+        let groupStatus = traceStore.requestGroupStatus(conversationId: conversationId, requestId: requestId)
 
         VStack(alignment: .leading, spacing: VSpacing.xs) {
             HStack(spacing: VSpacing.sm) {

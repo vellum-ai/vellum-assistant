@@ -230,11 +230,11 @@ public struct ToolConfirmationBubble: View {
                 } label: {
                     HStack(spacing: VSpacing.xs) {
                         VIconView(.chevronRight, size: 9)
-                            .foregroundColor(VColor.contentTertiary)
+                            .foregroundColor(VColor.contentDefault)
                             .rotationEffect(.degrees(showTechnicalDetails ? 90 : 0))
                         Text(showTechnicalDetails ? "Hide" : "More details")
                             .font(VFont.captionMedium)
-                            .foregroundColor(VColor.contentTertiary)
+                            .foregroundColor(VColor.contentDefault)
                     }
                 }
                 .buttonStyle(.plain)
@@ -342,16 +342,24 @@ public struct ToolConfirmationBubble: View {
     // MARK: - Button Row
 
     /// Build the ordered list of top-level actions based on current confirmation state.
-    /// Temporary options come first (matching visual top-to-bottom, left-to-right order).
+    /// Order matches visual layout (top-to-bottom, left-to-right) so keyboard Tab
+    /// navigation follows the same sequence the user sees on screen.
     private var topLevelActions: [ToolConfirmationKeyboardModel.Action] {
         var actions: [ToolConfirmationKeyboardModel.Action] = []
-        if hasAllow10m { actions.append(.allow10m) }
-        if hasAllowConversation { actions.append(.allowConversation) }
+        // When allow10m is present, it and dontAllow share the top "Recommended" row
+        if hasAllow10m {
+            actions.append(.allow10m)
+            actions.append(.dontAllow)
+        }
+        // Bottom row (or only row): allowOnce, alwaysAllow?, allowConversation?
         actions.append(.allowOnce)
         if hasRuleOptions && confirmation.persistentDecisionsAllowed {
             actions.append(.alwaysAllow)
         }
-        actions.append(.dontAllow)
+        if hasAllowConversation { actions.append(.allowConversation) }
+        // When allow10m is absent, dontAllow goes at the end (matching its rightmost
+        // visual position) so an allow action is always the default at index 0
+        if !hasAllow10m { actions.append(.dontAllow) }
         return actions
     }
 
@@ -363,53 +371,60 @@ public struct ToolConfirmationBubble: View {
     private var buttonRow: some View {
         let actions = topLevelActions
         VStack(alignment: .leading, spacing: VSpacing.sm) {
-            // Top group: temporary approval options (approve all future actions)
-            if hasTemporaryOptions {
+            // Top group: recommended actions — only shown when allow10m is available
+            // (pairs "Allow for 10 minutes" with "Don't Allow" under "Recommended")
+            if hasAllow10m {
                 VStack(alignment: .leading, spacing: VSpacing.xs) {
-                    Text("Approve all actions")
-                        .font(VFont.caption)
-                        .foregroundColor(VColor.contentTertiary)
+                    Text("Recommended")
+                        .font(VFont.captionMedium)
+                        .foregroundColor(VColor.contentDefault)
                     HStack(spacing: VSpacing.xs) {
-                        if hasAllow10m {
-                            confirmationButton(
-                                "Allow for 10 minutes",
-                                isPrimary: true,
-                                isDanger: false,
-                                isKeyboardSelected: keyboardModel?.selectedAction == .allow10m
-                            ) { markCommandExplanationSeen(); onTemporaryAllow?(confirmation.requestId, "allow_10m") }
-                        }
-                        if hasAllowConversation {
-                            confirmationButton(
-                                "Allow for this conversation",
-                                isPrimary: true,
-                                isDanger: false,
-                                isKeyboardSelected: keyboardModel?.selectedAction == .allowConversation
-                            ) { markCommandExplanationSeen(); onTemporaryAllow?(confirmation.requestId, "allow_conversation") }
-                        }
+                        confirmationButton(
+                            "Allow for 10 minutes",
+                            isPrimary: true,
+                            isDanger: false,
+                            isKeyboardSelected: keyboardModel?.selectedAction == .allow10m
+                        ) { markCommandExplanationSeen(); onTemporaryAllow?(confirmation.requestId, "allow_10m") }
+                        confirmationButton(
+                            "Don\u{2019}t Allow",
+                            isPrimary: false,
+                            isDanger: true,
+                            isKeyboardSelected: keyboardModel?.selectedAction == .dontAllow
+                        ) { markCommandExplanationSeen(); onDeny() }
                     }
                 }
             }
-            // Bottom group: per-action options
+            // Bottom group: more options
             VStack(alignment: .leading, spacing: VSpacing.xs) {
-                if hasTemporaryOptions {
-                    Text("This action only")
-                        .font(VFont.caption)
-                        .foregroundColor(VColor.contentTertiary)
+                if hasAllow10m {
+                    Text("More Options")
+                        .font(VFont.captionMedium)
+                        .foregroundColor(VColor.contentDefault)
                 }
                 HStack(spacing: VSpacing.xs) {
                     confirmationButton(
                         "Allow Once",
-                        isPrimary: !hasTemporaryOptions,
+                        isPrimary: !hasAllow10m,
                         isDanger: false,
                         isKeyboardSelected: keyboardModel?.selectedAction == .allowOnce
                     ) { markCommandExplanationSeen(); onAllow() }
                     if hasRuleOptions && confirmation.persistentDecisionsAllowed { alwaysAllowInlineButton }
-                    confirmationButton(
-                        "Don\u{2019}t Allow",
-                        isPrimary: false,
-                        isDanger: false,
-                        isKeyboardSelected: keyboardModel?.selectedAction == .dontAllow
-                    ) { markCommandExplanationSeen(); onDeny() }
+                    if hasAllowConversation {
+                        confirmationButton(
+                            "Allow for this conversation",
+                            isPrimary: false,
+                            isDanger: false,
+                            isKeyboardSelected: keyboardModel?.selectedAction == .allowConversation
+                        ) { markCommandExplanationSeen(); onTemporaryAllow?(confirmation.requestId, "allow_conversation") }
+                    }
+                    if !hasAllow10m {
+                        confirmationButton(
+                            "Don\u{2019}t Allow",
+                            isPrimary: false,
+                            isDanger: true,
+                            isKeyboardSelected: keyboardModel?.selectedAction == .dontAllow
+                        ) { markCommandExplanationSeen(); onDeny() }
+                    }
                     Spacer()
                 }
             }
@@ -677,17 +692,16 @@ public struct ToolConfirmationBubble: View {
         }
     }
 
-    /// Convenience wrapper around the shared `ApprovalActionButton` to preserve
-    /// call-site compatibility within the existing button row logic.
+    /// Convenience wrapper that maps the legacy isPrimary/isDanger flags to a `VButton.Style`.
     @ViewBuilder
-    private func confirmationButton(_ label: String, isPrimary: Bool, isDanger: Bool, isKeyboardSelected: Bool = false, action: @escaping () -> Void) -> some View {
-        ApprovalActionButton(
-            label: label,
-            isPrimary: isPrimary,
-            isDanger: isDanger,
-            isKeyboardSelected: isKeyboardSelected,
-            action: action
-        )
+    private func confirmationButton(_ label: String, isPrimary: Bool, isDanger: Bool, isDangerOutline: Bool = false, isKeyboardSelected: Bool = false, action: @escaping () -> Void) -> some View {
+        let style: VButton.Style = isDanger ? .danger : isDangerOutline ? .dangerOutline : isPrimary ? .primary : .outlined
+        VButton(label: label, style: style, size: .compact, action: action)
+            .overlay(
+                RoundedRectangle(cornerRadius: VRadius.md)
+                    .stroke(VColor.primaryBase, lineWidth: isKeyboardSelected ? 2 : 0)
+            )
+            .accessibilityLabel(label)
     }
 
     // MARK: - Always Allow Button

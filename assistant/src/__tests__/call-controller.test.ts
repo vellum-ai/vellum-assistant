@@ -282,7 +282,7 @@ function setupController(
   task?: string,
   opts?: {
     assistantId?: string;
-    trustContext?: import("../daemon/session-runtime-assembly.js").TrustContext;
+    trustContext?: import("../daemon/conversation-runtime-assembly.js").TrustContext;
   },
 ) {
   ensureConversation("conv-ctrl-test");

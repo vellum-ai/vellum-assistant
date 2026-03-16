@@ -1,3 +1,7 @@
+import { customAlphabet } from "nanoid";
+
+const nanoidLower = customAlphabet("abcdefghijklmnopqrstuvwxyz0123456789", 6);
+
 const ADJECTIVES = [
   "brave",
   "calm",
@@ -129,5 +133,17 @@ function randomElement<T>(arr: T[]): T {
 }
 
 export function generateRandomSuffix(): string {
-  return `${randomElement(ADJECTIVES)}-${randomElement(NOUNS)}`;
+  return `${randomElement(ADJECTIVES)}-${randomElement(NOUNS)}-${nanoidLower()}`;
+}
+
+/**
+ * Generate an instance name for a new assistant. Uses the explicit name if
+ * provided, otherwise produces `<species>-<adjective>-<noun>-<nanoid>`.
+ */
+export function generateInstanceName(
+  species: string,
+  explicitName?: string | null,
+): string {
+  if (explicitName) return explicitName;
+  return `${species}-${generateRandomSuffix()}`;
 }

@@ -155,7 +155,6 @@ import type { ToolContext } from "../tools/types.js";
 // Create a minimal context for tool execution
 const _ctx: ToolContext = {
   workingDir: "/tmp",
-  sessionId: "test-session",
   conversationId: "test-conv",
   trustClass: "guardian",
 };

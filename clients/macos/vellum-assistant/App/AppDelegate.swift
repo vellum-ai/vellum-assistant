@@ -123,8 +123,8 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
     /// inside a short window is treated as a duplicate and suppressed.
     var fallbackDeliveredAtMs: [String: Double] = [:]
     /// Guard to avoid repeatedly re-requesting notification authorization when
-    /// multiple notification threads are created in quick succession.
-    var hasRequestedNotificationAuthorizationFromThreadSignal = false
+    /// multiple notification conversations are created in quick succession.
+    var hasRequestedNotificationAuthorizationFromConversationSignal = false
     /// Last time we surfaced the denied-notification permission toast.
     var lastNotificationPermissionToastAtMs: Double = 0
 
@@ -193,28 +193,29 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
         // can appear as a blank window during activation policy transitions).
         NSWindow.allowsAutomaticWindowTabbing = false
 
-        // Initialize crash reporting eagerly so crashes before the daemon connects
-        // are captured. Privacy opt-out is checked after the daemon is ready and
-        // applied via SentrySDK.close() — matching the daemon-side pattern in
-        // lifecycle.ts (init at top, close after config load if flag disabled).
-        let collectUsageData = UserDefaults.standard.object(forKey: "collectUsageDataEnabled") as? Bool ?? true
-        let perfOptIn = collectUsageData && UserDefaults.standard.bool(forKey: "sendPerformanceReports")
-        let appVersion = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "unknown"
-        let buildNumber = Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "0"
-        SentrySDK.start { options in
-            options.dsn = MetricKitManager.macosDSN
-            options.releaseName = "vellum-macos@\(appVersion)"
-            options.dist = buildNumber
-            options.environment = SentryDeviceInfo.sentryEnvironment
-            options.debug = false
-            options.tracesSampleRate = 0.1
-            options.configureProfiling = { profilingOptions in
-                profilingOptions.sessionSampleRate = perfOptIn ? 1.0 : 0
+        // Gated on sendDiagnostics: if the user has previously disabled diagnostics,
+        // Sentry is never initialized. Otherwise, initialize eagerly so crashes
+        // before the daemon connects are captured.
+        let sendDiagnostics = UserDefaults.standard.object(forKey: "sendDiagnostics") as? Bool
+            ?? true
+        if sendDiagnostics {
+            let appVersion = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "unknown"
+            let buildNumber = Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "0"
+            SentrySDK.start { options in
+                options.dsn = MetricKitManager.macosDSN
+                options.releaseName = "vellum-macos@\(appVersion)"
+                options.dist = buildNumber
+                options.environment = SentryDeviceInfo.sentryEnvironment
+                options.debug = false
+                options.tracesSampleRate = 0.1
+                options.configureProfiling = { profilingOptions in
+                    profilingOptions.sessionSampleRate = 1.0
+                }
+                options.sendDefaultPii = false
+                options.maxAttachmentSize = MetricKitManager.sentryMaxAttachmentSize
             }
-            options.sendDefaultPii = false
-            options.maxAttachmentSize = MetricKitManager.sentryMaxAttachmentSize
+            SentryDeviceInfo.configureSentryScope()
         }
-        SentryDeviceInfo.configureSentryScope()
 
         // Surface any crash log from the previous session so the user can send
         // it. Also records this launch timestamp for the next session's check.
@@ -363,6 +364,13 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
                 let ready = await awaitDaemonReady(timeout: 15)
 
                 if ready {
+                    // If the user is signed in with a local assistant, wait for
+                    // credential provisioning to complete before sending the wake-up
+                    // greeting, so the managed-proxy key is available for the LLM call.
+                    if authManager.isAuthenticated && !isCurrentAssistantManaged {
+                        await awaitLocalBootstrapCompleted(timeout: 30)
+                    }
+
                     // Daemon connected within timeout — proceed directly
                     // to mandatory wake-up send with retries.
                     transitionBootstrap(to: .pendingWakeupSend)
@@ -427,9 +435,9 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
     public func performZoomOut() { zoomManager.zoomOut() }
     public func performZoomReset() { zoomManager.resetZoom() }
 
-    public func createNewThread() {
+    public func createNewConversation() {
         showMainWindow()
-        mainWindow?.threadManager.createThread()
+        mainWindow?.conversationManager.createConversation()
     }
 
 }

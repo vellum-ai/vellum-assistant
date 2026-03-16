@@ -3,14 +3,14 @@
  */
 import type { ChannelId, InterfaceId } from "../channels/types.js";
 import type { CesClient } from "../credential-execution/client.js";
+import type { Conversation } from "../daemon/conversation.js";
+import type { TrustContext } from "../daemon/conversation-runtime-assembly.js";
 import type { SkillOperationContext } from "../daemon/handlers/skills.js";
 import type { ServerMessage } from "../daemon/message-protocol.js";
 import type {
   SurfaceData,
   SurfaceType,
 } from "../daemon/message-types/surfaces.js";
-import type { Session } from "../daemon/session.js";
-import type { TrustContext } from "../daemon/session-runtime-assembly.js";
 import type {
   ApprovalMessageContext,
   ComposeApprovalMessageGenerativeOptions,
@@ -20,7 +20,7 @@ import type {
   ComposeGuardianActionMessageOptions,
   GuardianActionMessageContext,
 } from "./guardian-action-message-composer.js";
-import type { SessionManagementDeps } from "./routes/session-management-routes.js";
+import type { ConversationManagementDeps } from "./routes/conversation-management-routes.js";
 /**
  * Daemon-injected function that generates approval copy using a provider.
  * Returns generated text or `null` on failure (caller falls back to deterministic text).
@@ -112,7 +112,7 @@ export type GuardianFollowUpConversationGenerator = (
   context: GuardianFollowUpConversationContext,
 ) => Promise<GuardianFollowUpTurnResult>;
 
-export interface RuntimeMessageSessionOptions {
+export interface RuntimeMessageConversationOptions {
   transport?: {
     channelId: ChannelId;
     hints?: string[];
@@ -137,7 +137,7 @@ export type MessageProcessor = (
   conversationId: string,
   content: string,
   attachmentIds?: string[],
-  options?: RuntimeMessageSessionOptions,
+  options?: RuntimeMessageConversationOptions,
   sourceChannel?: ChannelId,
   sourceInterface?: InterfaceId,
 ) => Promise<{ messageId: string }>;
@@ -150,7 +150,7 @@ export type MessageProcessor = (
  * Hub publishing wires outbound events to the SSE stream.
  */
 export interface SendMessageDeps {
-  getOrCreateSession: (conversationId: string) => Promise<Session>;
+  getOrCreateConversation: (conversationId: string) => Promise<Conversation>;
   assistantEventHub: AssistantEventHub;
   resolveAttachments: (attachmentIds: string[]) => Array<{
     id: string;
@@ -181,8 +181,8 @@ export interface RuntimeHttpServerOptions {
   sendMessageDeps?: SendMessageDeps;
   /** Context provider for skill management HTTP routes. */
   getSkillContext?: () => SkillOperationContext;
-  /** Lookup an active session by ID (for surface actions and content fetches). */
-  findSession?: (sessionId: string) =>
+  /** Lookup an active conversation by ID (for surface actions and content fetches). */
+  findConversation?: (conversationId: string) =>
     | {
         handleSurfaceAction(
           surfaceId: string,
@@ -203,8 +203,8 @@ export interface RuntimeHttpServerOptions {
         removeQueuedMessage?: (requestId: string) => boolean;
       }
     | undefined;
-  /** Lookup an active session by surfaceId (fallback when sessionId is absent). */
-  findSessionBySurfaceId?: (surfaceId: string) =>
+  /** Lookup an active conversation by surfaceId (fallback when conversationId is absent). */
+  findConversationBySurfaceId?: (surfaceId: string) =>
     | {
         handleSurfaceAction(
           surfaceId: string,
@@ -217,8 +217,8 @@ export interface RuntimeHttpServerOptions {
         >;
       }
     | undefined;
-  /** Dependencies for session management HTTP routes (switch, rename, clear, cancel, undo, regenerate). */
-  sessionManagementDeps?: SessionManagementDeps;
+  /** Dependencies for conversation management HTTP routes (switch, rename, clear, cancel, undo, regenerate). */
+  conversationManagementDeps?: ConversationManagementDeps;
   /** Lazy factory for model config set context (session eviction, config reload suppression). */
   getModelSetContext?: () => import("../daemon/handlers/config-model.js").ModelSetContext;
   /** Provider for watch observation dependencies (watch routes). */
@@ -237,6 +237,7 @@ export interface RuntimeAttachmentMetadata {
   kind: string;
   data?: string;
   thumbnailData?: string;
+  fileBacked?: boolean;
 }
 
 export interface RuntimeMessagePayload {

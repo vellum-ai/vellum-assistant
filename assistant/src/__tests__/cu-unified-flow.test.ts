@@ -7,19 +7,21 @@
 
 import { afterEach, describe, expect, test } from "bun:test";
 
+import type { SurfaceConversationContext } from "../daemon/conversation-surfaces.js";
+import { surfaceProxyResolver } from "../daemon/conversation-surfaces.js";
 import { HostCuProxy } from "../daemon/host-cu-proxy.js";
-import type { SurfaceSessionContext } from "../daemon/session-surfaces.js";
-import { surfaceProxyResolver } from "../daemon/session-surfaces.js";
 
 // ---------------------------------------------------------------------------
 // Test helpers
 // ---------------------------------------------------------------------------
 
 /**
- * Build a minimal SurfaceSessionContext with optional hostCuProxy.
+ * Build a minimal SurfaceConversationContext with optional hostCuProxy.
  * Only the fields required by the CU routing path are populated.
  */
-function buildMockContext(hostCuProxy?: HostCuProxy): SurfaceSessionContext {
+function buildMockContext(
+  hostCuProxy?: HostCuProxy,
+): SurfaceConversationContext {
   return {
     conversationId: "test-session",
     traceEmitter: { emit: () => {} },
@@ -47,7 +49,7 @@ describe("surfaceProxyResolver — CU tool routing", () => {
   let sentMessages: unknown[];
   let proxy: HostCuProxy;
 
-  function setupProxy(maxSteps?: number): SurfaceSessionContext {
+  function setupProxy(maxSteps?: number): SurfaceConversationContext {
     sentMessages = [];
     const sendToClient = (msg: unknown) => sentMessages.push(msg);
     proxy = new HostCuProxy(sendToClient as never, undefined, maxSteps);
@@ -210,7 +212,7 @@ describe("surfaceProxyResolver — CU tool routing", () => {
         element_id: 42,
         reasoning: "Click the submit button",
       });
-      expect(sent.sessionId).toBe("test-session");
+      expect(sent.conversationId).toBe("test-session");
 
       // Action was recorded
       expect(proxy.stepCount).toBe(1);

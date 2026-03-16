@@ -13,10 +13,10 @@
 import { consumeGrantForInvocation } from "../approvals/approval-primitive.js";
 import type { ChannelId } from "../channels/types.js";
 import { getConfig } from "../config/loader.js";
+import type { Conversation } from "../daemon/conversation.js";
+import type { TrustContext } from "../daemon/conversation-runtime-assembly.js";
+import { resolveChannelCapabilities } from "../daemon/conversation-runtime-assembly.js";
 import type { ServerMessage } from "../daemon/message-protocol.js";
-import type { Session } from "../daemon/session.js";
-import type { TrustContext } from "../daemon/session-runtime-assembly.js";
-import { resolveChannelCapabilities } from "../daemon/session-runtime-assembly.js";
 import { buildAssistantEvent } from "../runtime/assistant-event.js";
 import { assistantEventHub } from "../runtime/assistant-event-hub.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../runtime/assistant-scope.js";
@@ -36,14 +36,14 @@ const log = getLogger("voice-session-bridge");
 // ---------------------------------------------------------------------------
 
 export interface VoiceBridgeDeps {
-  getOrCreateSession: (
+  getOrCreateConversation: (
     conversationId: string,
     transport?: {
       channelId: ChannelId;
       hints?: string[];
       uxBrief?: string;
     },
-  ) => Promise<Session>;
+  ) => Promise<Conversation>;
   resolveAttachments: (attachmentIds: string[]) => Array<{
     id: string;
     filename: string;
@@ -291,7 +291,10 @@ export async function startVoiceTurn(
   const transport = {
     channelId: "phone" as ChannelId,
   };
-  const session = await deps.getOrCreateSession(opts.conversationId, transport);
+  const session = await deps.getOrCreateConversation(
+    opts.conversationId,
+    transport,
+  );
 
   if (session.isProcessing()) {
     // Voice barge-in can race with turn teardown. Wait briefly for the
@@ -346,17 +349,17 @@ export async function startVoiceTurn(
   // Serialized publish chain so hub subscribers observe events in order.
   let hubChain: Promise<void> = Promise.resolve();
   const publishToHub = (msg: ServerMessage): void => {
-    // ServerMessage is a large union; sessionId exists on most but not all variants.
-    const msgSessionId =
-      "sessionId" in msg &&
-      typeof (msg as { sessionId?: unknown }).sessionId === "string"
-        ? (msg as { sessionId: string }).sessionId
+    // ServerMessage is a large union; conversationId exists on most but not all variants.
+    const msgConversationId =
+      "conversationId" in msg &&
+      typeof (msg as { conversationId?: unknown }).conversationId === "string"
+        ? (msg as { conversationId: string }).conversationId
         : undefined;
-    const resolvedSessionId = msgSessionId ?? opts.conversationId;
+    const resolvedConversationId = msgConversationId ?? opts.conversationId;
     const event = buildAssistantEvent(
       DAEMON_INTERNAL_ASSISTANT_ID,
       msg,
-      resolvedSessionId,
+      resolvedConversationId,
     );
     hubChain = (async () => {
       await hubChain;
@@ -498,7 +501,7 @@ export async function startVoiceTurn(
         (msg: ServerMessage) => {
           if (msg.type === "error") {
             lastError = msg.message;
-          } else if (msg.type === "session_error") {
+          } else if (msg.type === "conversation_error") {
             lastError = msg.userMessage;
           }
           publishToHub(msg);
@@ -514,7 +517,7 @@ export async function startVoiceTurn(
             eventSink.onMessageComplete();
           } else if (msg.type === "error") {
             eventSink.onError(msg.message);
-          } else if (msg.type === "session_error") {
+          } else if (msg.type === "conversation_error") {
             eventSink.onError(msg.userMessage);
           } else if (msg.type === "tool_use_start") {
             eventSink.onToolUse(msg.toolName, msg.input);

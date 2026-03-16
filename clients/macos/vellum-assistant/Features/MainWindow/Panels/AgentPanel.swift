@@ -246,7 +246,6 @@ struct AgentPanelContent: View {
                 ) {
                     withAnimation(VAnimation.fast) {
                         selectedInstalledSkillId = skill.id
-                        skillsManager.fetchSkillBody(skillId: skill.id)
                     }
                 }
             }
@@ -262,25 +261,21 @@ struct AgentPanelContent: View {
 
     @ViewBuilder
     private func installedSkillDetailView(_ skill: SkillInfo) -> some View {
-        VStack(alignment: .leading, spacing: VSpacing.lg) {
+        VStack(alignment: .leading, spacing: VSpacing.sm) {
 
-            // Back button
-            Button(action: {
-                withAnimation(VAnimation.standard) {
-                    selectedInstalledSkillId = nil
-                }
-            }) {
-                HStack(spacing: VSpacing.sm) {
-                    VIconView(.chevronLeft, size: 11)
-                    Text("Skills")
-                        .font(VFont.caption)
-                }
-                .foregroundColor(VColor.contentTertiary)
-            }
-            .buttonStyle(.plain)
-
-            // Title row
+            // Title row with back button
             HStack(spacing: VSpacing.sm) {
+                VButton(
+                    label: "Back",
+                    iconOnly: VIcon.chevronLeft.rawValue,
+                    style: .ghost,
+                    tooltip: "Back to Skills"
+                ) {
+                    withAnimation(VAnimation.standard) {
+                        selectedInstalledSkillId = nil
+                    }
+                }
+
                 skillIcon(skill.emoji)
 
                 Text(skill.name)
@@ -365,28 +360,44 @@ struct AgentPanelContent: View {
                 }
             }
 
-            // Skill body content
-            ScrollView {
-                VStack(alignment: .leading, spacing: VSpacing.md) {
-                    skillBody(for: skill.id)
-                }
-                .padding(VSpacing.lg)
-                .frame(maxWidth: .infinity, alignment: .leading)
-            }
-            .frame(maxHeight: 300)
-            .background(VColor.surfaceOverlay)
-            .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
-            .overlay(
-                RoundedRectangle(cornerRadius: VRadius.md)
-                    .stroke(VColor.borderBase, lineWidth: 1)
-            )
+            // Two-pane content: file list + file content viewer
+            HStack(spacing: VSpacing.md) {
+                // Left: file list (always fixed width)
+                skillFilesSection
+                    .frame(width: 280, alignment: .topLeading)
+                    .frame(maxHeight: .infinity)
 
-            // Skill files
-            skillFilesSection
+                // Right: file content viewer (always visible)
+                if let selectedPath = expandedFilePath,
+                   let filesResponse = skillsManager.selectedSkillFiles,
+                   let file = filesResponse.files.first(where: { $0.path == selectedPath }),
+                   !file.isBinary,
+                   let content = file.content {
+                    skillFileContentPane(file: file, content: content)
+                } else {
+                    // Empty state when no file is selected or loading
+                    FileViewerEmptyState()
+                        .background(VColor.surfaceOverlay)
+                        .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: VRadius.md)
+                                .stroke(VColor.borderBase, lineWidth: 1)
+                        )
+                }
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
 
         }
         .onAppear {
             skillsManager.fetchSkillFiles(skillId: skill.id)
+        }
+        .onChange(of: skillsManager.selectedSkillFiles?.files.map(\.path)) {
+            // Auto-select SKILL.md (or the first text file) when files load
+            if expandedFilePath == nil, let files = skillsManager.selectedSkillFiles?.files {
+                let skillMd = files.first { $0.path == "SKILL.md" && !$0.isBinary && $0.content != nil }
+                let firstText = files.first { !$0.isBinary && $0.content != nil }
+                expandedFilePath = (skillMd ?? firstText)?.path
+            }
         }
         .onDisappear {
             expandedFilePath = nil
@@ -456,17 +467,28 @@ struct AgentPanelContent: View {
     }
 
     @ViewBuilder
-    private func skillBody(for skillId: String) -> some View {
-        if let body = skillsManager.loadedBodies[skillId] {
-            Text(body)
-                .font(VFont.caption)
-                .foregroundColor(VColor.contentTertiary)
-                .textSelection(.enabled)
-        } else {
-            ProgressView()
-                .controlSize(.small)
-                .padding(.vertical, VSpacing.sm)
+    private func skillFileContentPane(file: SkillFileEntry, content: String) -> some View {
+        VStack(alignment: .leading, spacing: 0) {
+            // File header
+            FileContentHeaderBar(
+                icon: fileIcon(for: file.mimeType),
+                fileName: file.path,
+                fileSize: formatFileSize(file.size)
+            )
+
+            Divider().background(VColor.borderBase)
+
+            // File content
+            ReadOnlyCodeContent(content: content)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .background(VColor.surfaceOverlay)
+        .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
+        .overlay(
+            RoundedRectangle(cornerRadius: VRadius.md)
+                .stroke(VColor.borderBase, lineWidth: 1)
+        )
     }
 
     @ViewBuilder
@@ -488,110 +510,55 @@ struct AgentPanelContent: View {
     private var skillFilesSection: some View {
         if skillsManager.isLoadingSkillFiles || skillsManager.skillFilesError != nil ||
             (skillsManager.selectedSkillFiles != nil && !skillsManager.selectedSkillFiles!.files.isEmpty) {
-            VStack(alignment: .leading, spacing: VSpacing.sm) {
-                Text("Files")
-                    .font(VFont.bodyBold)
-                    .foregroundColor(VColor.contentDefault)
-
-                if skillsManager.isLoadingSkillFiles {
-                    HStack {
-                        Spacer()
-                        ProgressView()
-                            .controlSize(.small)
-                        Spacer()
-                    }
-                    .padding(.vertical, VSpacing.md)
-                } else if let error = skillsManager.skillFilesError {
-                    Text(error)
-                        .font(VFont.caption)
-                        .foregroundColor(VColor.systemNegativeStrong)
-                } else if let filesResponse = skillsManager.selectedSkillFiles, !filesResponse.files.isEmpty {
-                    VStack(spacing: 0) {
-                        ForEach(filesResponse.files, id: \.path) { file in
-                            skillFileRow(file)
-                            if file.path != filesResponse.files.last?.path {
-                                Divider()
-                            }
-                        }
-                    }
-                    .background(VColor.surfaceOverlay)
-                    .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
-                    .overlay(
-                        RoundedRectangle(cornerRadius: VRadius.md)
-                            .stroke(VColor.borderBase, lineWidth: 1)
-                    )
-                }
-            }
-        }
-    }
-
-    @ViewBuilder
-    private func skillFileRow(_ file: SkillFileEntry) -> some View {
-        let isText = !file.isBinary && file.content != nil
-        let isExpanded = expandedFilePath == file.path
-
-        VStack(alignment: .leading, spacing: 0) {
-            Button {
-                if isText {
-                    withAnimation(VAnimation.fast) {
-                        expandedFilePath = isExpanded ? nil : file.path
-                    }
-                }
-            } label: {
-                HStack(spacing: VSpacing.sm) {
-                    VIconView(fileIcon(for: file.mimeType), size: 12)
-                        .foregroundColor(VColor.primaryBase)
-                        .frame(width: 20)
-
-                    Text(file.path)
-                        .font(VFont.caption)
+            VStack(alignment: .leading, spacing: 0) {
+                // Header
+                HStack {
+                    Text("Files")
+                        .font(VFont.headline)
                         .foregroundColor(VColor.contentDefault)
-                        .lineLimit(1)
-
                     Spacer()
-
-                    Text(formatFileSize(file.size))
-                        .font(VFont.small)
-                        .foregroundColor(VColor.contentTertiary)
-
-                    if isText {
-                        VIconView(isExpanded ? .chevronUp : .chevronDown, size: 9)
-                            .foregroundColor(VColor.contentTertiary)
-                    }
                 }
                 .padding(.horizontal, VSpacing.md)
                 .padding(.vertical, VSpacing.sm)
-                .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .disabled(!isText)
 
-            if isExpanded, let content = file.content {
-                ScrollView(.horizontal, showsIndicators: true) {
-                    Text(content)
-                        .font(VFont.mono)
-                        .foregroundColor(VColor.contentSecondary)
-                        .textSelection(.enabled)
-                        .padding(VSpacing.md)
+                Divider().background(VColor.borderBase)
+
+                // Content (loading, error, or tree)
+                VStack(spacing: 0) {
+                    if skillsManager.isLoadingSkillFiles {
+                        HStack {
+                            Spacer()
+                            ProgressView()
+                                .controlSize(.small)
+                            Spacer()
+                        }
+                        .padding(.vertical, VSpacing.md)
+                    } else if let error = skillsManager.skillFilesError {
+                        Text(error)
+                            .font(VFont.caption)
+                            .foregroundColor(VColor.systemNegativeStrong)
+                    } else if let filesResponse = skillsManager.selectedSkillFiles, !filesResponse.files.isEmpty {
+                        ScrollView(.vertical) {
+                            SkillFileTreeView(
+                                files: filesResponse.files,
+                                selectedFilePath: $expandedFilePath
+                            )
+                        }
+                    }
                 }
-                .frame(maxHeight: 300)
-                .background(VColor.surfaceBase)
+                .frame(maxHeight: .infinity, alignment: .topLeading)
             }
+            .background(VColor.surfaceBase)
+            .clipShape(RoundedRectangle(cornerRadius: VRadius.lg))
         }
     }
 
     private func fileIcon(for mimeType: String) -> VIcon {
         if mimeType.hasPrefix("image/") { return .image }
+        if mimeType.hasPrefix("video/") { return .video }
         if mimeType.hasPrefix("text/") { return .fileText }
         if mimeType == "application/json" || mimeType == "application/javascript" || mimeType == "application/typescript" { return .fileCode }
         return .file
     }
 
-    private func formatFileSize(_ bytes: Int) -> String {
-        if bytes < 1024 { return "\(bytes) B" }
-        let kb = Double(bytes) / 1024.0
-        if kb < 1024 { return String(format: "%.1f KB", kb) }
-        let mb = kb / 1024.0
-        return String(format: "%.1f MB", mb)
-    }
 }

@@ -40,7 +40,7 @@ final class SidebarLayoutMetricsTests: XCTestCase {
     // MARK: - List Row Spacing
 
     func testListRowGapMatchesCompactRhythm() {
-        // Thread row gap uses compact spacing (VSpacing.xs = 4pt).
+        // Conversation row gap uses compact spacing (VSpacing.xs = 4pt).
         XCTAssertEqual(SidebarLayoutMetrics.listRowGap, 4)
     }
 

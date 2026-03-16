@@ -38,7 +38,7 @@ mock.module("../util/logger.js", () => ({
     }),
 }));
 
-import type { Session } from "../daemon/session.js";
+import type { Conversation } from "../daemon/conversation.js";
 import * as trustStore from "../permissions/trust-store.js";
 import type {
   ApprovalDecisionResult,
@@ -86,7 +86,7 @@ function registerPendingConfirmation(
   const mockSession = {
     handleConfirmationResponse: mock(() => {}),
     ensureActorScopedHistory: async () => {},
-  } as unknown as Session;
+  } as unknown as Conversation;
 
   pendingInteractions.register(requestId, {
     session: mockSession,

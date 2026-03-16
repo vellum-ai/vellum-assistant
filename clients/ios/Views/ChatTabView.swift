@@ -42,7 +42,7 @@ struct ChatTabView: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .navigationBarTrailing) {
-                    exportMenu(messages: viewModel.messages, threadTitle: nil)
+                    exportMenu(messages: viewModel.messages, conversationTitle: nil)
                 }
             }
             .sheet(isPresented: $showShareSheet) {
@@ -51,14 +51,14 @@ struct ChatTabView: View {
     }
 
     @ViewBuilder
-    private func exportMenu(messages: [ChatMessage], threadTitle: String?) -> some View {
+    private func exportMenu(messages: [ChatMessage], conversationTitle: String?) -> some View {
         let hasTextMessages = messages.contains {
             !$0.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         }
 
         Menu {
             Button {
-                let markdown = buildMarkdown(messages: messages, threadTitle: threadTitle)
+                let markdown = buildMarkdown(messages: messages, conversationTitle: conversationTitle)
                 guard !markdown.isEmpty else { return }
                 UIPasteboard.general.string = markdown
                 showCopiedConfirmation = true
@@ -74,7 +74,7 @@ struct ChatTabView: View {
             }
 
             Button {
-                let markdown = buildMarkdown(messages: messages, threadTitle: threadTitle)
+                let markdown = buildMarkdown(messages: messages, conversationTitle: conversationTitle)
                 guard !markdown.isEmpty else { return }
                 shareMarkdown = markdown
                 showShareSheet = true
@@ -88,14 +88,14 @@ struct ChatTabView: View {
         .disabled(!hasTextMessages)
     }
 
-    private func buildMarkdown(messages: [ChatMessage], threadTitle: String?) -> String {
+    private func buildMarkdown(messages: [ChatMessage], conversationTitle: String?) -> String {
         let names = ChatTranscriptFormatter.ParticipantNames(
             assistantName: "Assistant",
             userName: "You"
         )
-        return ChatTranscriptFormatter.threadMarkdown(
+        return ChatTranscriptFormatter.conversationMarkdown(
             messages: messages,
-            threadTitle: threadTitle,
+            conversationTitle: conversationTitle,
             participantNames: names
         )
     }

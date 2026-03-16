@@ -68,7 +68,7 @@ export function formatMarkdown(conversation: ExportConversation): string {
 
   lines.push(`# ${title}`);
   lines.push("");
-  lines.push(`*Session ID: ${conversation.id}*`);
+  lines.push(`*Conversation ID: ${conversation.id}*`);
   lines.push(`*Created: ${formatTimestamp(conversation.createdAt)}*`);
   lines.push("");
   lines.push("---");

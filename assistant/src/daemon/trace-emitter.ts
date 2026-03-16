@@ -22,7 +22,7 @@ export class TraceEmitter {
   private sequence = 0;
 
   constructor(
-    private readonly sessionId: string,
+    private readonly conversationId: string,
     private sendToClient: (msg: ServerMessage) => void,
   ) {}
 
@@ -40,7 +40,7 @@ export class TraceEmitter {
     const event: ServerMessage = {
       type: "trace_event",
       eventId,
-      sessionId: this.sessionId,
+      conversationId: this.conversationId,
       requestId: opts?.requestId,
       timestampMs: Date.now(),
       sequence: this.sequence++,

@@ -23,7 +23,6 @@ describe("createToolDomainEventPublisher", () => {
       toolName: "bash",
       input: { command: "ls" },
       workingDir: "/tmp/project",
-      sessionId: "session-1",
       conversationId: "conversation-1",
       startedAtMs: 100,
     });
@@ -33,7 +32,6 @@ describe("createToolDomainEventPublisher", () => {
       toolName: "bash",
       input: { command: "ls" },
       workingDir: "/tmp/project",
-      sessionId: "session-1",
       conversationId: "conversation-1",
       riskLevel: "medium",
       reason: "needs approval",
@@ -47,7 +45,6 @@ describe("createToolDomainEventPublisher", () => {
       toolName: "bash",
       input: { command: "rm -rf /tmp" },
       workingDir: "/tmp/project",
-      sessionId: "session-1",
       conversationId: "conversation-1",
       riskLevel: "high",
       decision: "deny",
@@ -62,7 +59,6 @@ describe("createToolDomainEventPublisher", () => {
     ]);
     expect(events[0].payload).toMatchObject({
       toolName: "bash",
-      sessionId: "session-1",
       conversationId: "conversation-1",
       startedAtMs: 100,
     });
@@ -86,7 +82,6 @@ describe("createToolDomainEventPublisher", () => {
       toolName: "file_read",
       input: { path: "README.md" },
       workingDir: "/tmp/project",
-      sessionId: "session-1",
       conversationId: "conversation-1",
       riskLevel: "low",
       decision: "allow",
@@ -119,7 +114,6 @@ describe("createToolDomainEventPublisher", () => {
       toolName: "bash",
       input: { command: "sleep 30" },
       workingDir: "/tmp/project",
-      sessionId: "session-1",
       conversationId: "conversation-1",
       riskLevel: "high",
       decision: "always_allow",
@@ -156,7 +150,6 @@ describe("createToolDomainEventPublisher", () => {
       toolName: "file_read",
       input: { path: "secrets.txt" },
       workingDir: "/tmp/project",
-      sessionId: "session-1",
       conversationId: "conversation-1",
       action: "redact",
       matches: [
@@ -172,7 +165,6 @@ describe("createToolDomainEventPublisher", () => {
     expect(events[0].type).toBe("tool.secret.detected");
     expect(events[0].payload).toEqual({
       conversationId: "conversation-1",
-      sessionId: "session-1",
       toolName: "file_read",
       action: "redact",
       matches: [
@@ -194,7 +186,6 @@ describe("createToolDomainEventPublisher", () => {
       toolName: "bash",
       input: { command: "cat /missing" },
       workingDir: "/tmp/project",
-      sessionId: "session-1",
       conversationId: "conversation-1",
       riskLevel: "high",
       decision: "allow",
@@ -234,7 +225,6 @@ describe("createToolDomainEventPublisher", () => {
       toolName: "bash",
       input: { command: "cat /missing" },
       workingDir: "/tmp/project",
-      sessionId: "session-1",
       conversationId: "conversation-1",
       riskLevel: "medium",
       decision: "error",
@@ -250,7 +240,6 @@ describe("createToolDomainEventPublisher", () => {
     expect(events[0].type).toBe("tool.execution.failed");
     expect(events[0].payload).toMatchObject({
       conversationId: "conversation-1",
-      sessionId: "session-1",
       toolName: "bash",
       riskLevel: "medium",
       decision: "error",

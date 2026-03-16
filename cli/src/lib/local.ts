@@ -769,17 +769,37 @@ export function getLocalLanIPv4(): string | undefined {
 }
 
 /**
- * Check whether watch-mode startup is possible. Watch mode requires source
- * files (bun --watch only works with .ts sources, not compiled binaries).
- * Returns true when assistant source can be resolved, false otherwise.
+ * Check whether watch-mode startup is possible for the assistant daemon.
+ * Watch mode requires source files (bun --watch only works with .ts sources,
+ * not compiled binaries). Returns true when assistant source can be resolved,
+ * false otherwise.
  *
  * Use this before stopping a running assistant for a watch-mode restart — if
  * watch mode isn't available (e.g. packaged desktop app without source), the
  * caller should keep the existing process alive rather than killing it and
  * failing.
  */
-export function isWatchModeAvailable(): boolean {
+export function isAssistantWatchModeAvailable(): boolean {
   return resolveAssistantIndexPath() !== undefined;
+}
+
+/**
+ * Check whether watch-mode startup is possible for the gateway. Watch mode
+ * requires gateway source files (bun --watch only works with .ts sources).
+ * Returns true when the gateway source directory can be resolved, false
+ * otherwise.
+ *
+ * Use this before stopping a running gateway for a watch-mode restart — if
+ * watch mode isn't available, the caller should keep the existing process
+ * alive rather than killing it and failing.
+ */
+export function isGatewayWatchModeAvailable(): boolean {
+  try {
+    resolveGatewayDir();
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 // NOTE: startLocalDaemon() is the CLI-side daemon lifecycle manager.
@@ -892,6 +912,7 @@ export async function startLocalDaemon(
         "ANTHROPIC_API_KEY",
         "APP_VERSION",
         "BASE_DATA_DIR",
+        "PLATFORM_BASE_URL",
         "QDRANT_HTTP_PORT",
         "QDRANT_URL",
         "RUNTIME_HTTP_PORT",

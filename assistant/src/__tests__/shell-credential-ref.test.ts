@@ -86,7 +86,6 @@ import type { ToolContext } from "../tools/types.js";
 
 const ctx: ToolContext = {
   workingDir: "/tmp",
-  sessionId: "test-session",
   conversationId: "test-conv",
   trustClass: "guardian",
 };
@@ -166,7 +165,7 @@ describe("shell tool credential ref resolution", () => {
     expect(result.isError).toBe(true);
     expect(result.content).toContain("unknown credential reference");
     expect(result.content).toContain("nonexistent/key");
-    // Session should NOT have been created
+    // Conversation should NOT have been created
     expect(mockGetOrStartSession).not.toHaveBeenCalled();
   });
 

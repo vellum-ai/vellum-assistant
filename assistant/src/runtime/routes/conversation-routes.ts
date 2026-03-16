@@ -16,20 +16,20 @@ import {
   parseInterfaceId,
 } from "../../channels/types.js";
 import { getConfig } from "../../config/loader.js";
+import {
+  buildModelInfoEvent,
+  isModelSlashCommand,
+} from "../../daemon/conversation-process.js";
+import {
+  isProviderShortcut,
+  resolveSlash,
+  type SlashContext,
+} from "../../daemon/conversation-slash.js";
 import { renderHistoryContent } from "../../daemon/handlers/shared.js";
 import { HostBashProxy } from "../../daemon/host-bash-proxy.js";
 import { HostCuProxy } from "../../daemon/host-cu-proxy.js";
 import { HostFileProxy } from "../../daemon/host-file-proxy.js";
 import type { ServerMessage } from "../../daemon/message-protocol.js";
-import {
-  buildModelInfoEvent,
-  isModelSlashCommand,
-} from "../../daemon/session-process.js";
-import {
-  isProviderShortcut,
-  resolveSlash,
-  type SlashContext,
-} from "../../daemon/session-slash.js";
 import * as attachmentsStore from "../../memory/attachments-store.js";
 import {
   createCanonicalGuardianRequest,
@@ -79,7 +79,7 @@ const SUGGESTION_CACHE_MAX = 100;
 function collectCanonicalGuardianRequestHintIds(
   conversationId: string,
   sourceChannel: string,
-  session: import("../../daemon/session.js").Session,
+  session: import("../../daemon/conversation.js").Conversation,
 ): string[] {
   const requests = listPendingRequestsByConversationScope(
     conversationId,
@@ -105,7 +105,7 @@ async function tryConsumeCanonicalGuardianReply(params: {
     mimeType: string;
     data: string;
   }>;
-  session: import("../../daemon/session.js").Session;
+  session: import("../../daemon/conversation.js").Conversation;
   onEvent: (msg: ServerMessage) => void;
   approvalConversationGenerator?: ApprovalConversationGenerator;
   /** Verified actor identity from actor-token middleware. */
@@ -167,7 +167,7 @@ async function tryConsumeCanonicalGuardianReply(params: {
   // so we emit resolved_stale here for those cases.
   if (routerResult.requestId && !routerResult.decisionApplied) {
     session.emitConfirmationStateChanged({
-      sessionId: conversationId,
+      conversationId: conversationId,
       requestId: routerResult.requestId,
       state: "resolved_stale",
       source: "inline_nl",
@@ -216,9 +216,9 @@ async function tryConsumeCanonicalGuardianReply(params: {
       onEvent({
         type: "assistant_text_delta",
         text: replyText,
-        sessionId: conversationId,
+        conversationId: conversationId,
       });
-      onEvent({ type: "message_complete", sessionId: conversationId });
+      onEvent({ type: "message_complete", conversationId: conversationId });
     }
   } catch (err) {
     log.warn(
@@ -318,70 +318,44 @@ export function handleListMessages(
   const messages: RuntimeMessagePayload[] = parsed.map((m) => {
     let msgAttachments: RuntimeAttachmentMetadata[] = [];
     if (m.id) {
-      if (m.role === "user") {
-        // Use metadata-only query first to avoid loading large base64
-        // blobs for non-image attachments (documents, audio). Then
-        // selectively fetch full data only for images so the client can
-        // generate thumbnails for inline display on history restore.
-        const linked = attachmentsStore.getAttachmentMetadataForMessage(m.id);
-        if (linked.length > 0) {
-          msgAttachments = linked.map((a) => {
-            if (a.mimeType.startsWith("image/")) {
-              const full = attachmentsStore.getAttachmentById(a.id);
-              return {
-                id: a.id,
-                filename: a.originalFilename,
-                mimeType: a.mimeType,
-                sizeBytes: a.sizeBytes,
-                kind: a.kind,
-                ...(full?.dataBase64 ? { data: full.dataBase64 } : {}),
-                ...(a.thumbnailBase64
-                  ? { thumbnailData: a.thumbnailBase64 }
-                  : {}),
-              };
-            }
+      // Use metadata-only query first to avoid loading large base64
+      // blobs for non-image attachments (documents, audio). Then
+      // selectively fetch full data only for images so the client can
+      // generate thumbnails for inline display on history restore.
+      const linked = attachmentsStore.getAttachmentMetadataForMessage(m.id);
+      if (linked.length > 0) {
+        // Batch-fetch file-backed status for all attachments in one query
+        // instead of issuing a separate query per attachment.
+        const fileBackedIds = attachmentsStore.getFileBackedAttachmentIds(
+          linked.map((a) => a.id),
+        );
+        msgAttachments = linked.map((a) => {
+          const isFileBacked = fileBackedIds.has(a.id);
+          if (a.mimeType.startsWith("image/")) {
+            const full = attachmentsStore.getAttachmentById(a.id);
             return {
               id: a.id,
               filename: a.originalFilename,
               mimeType: a.mimeType,
               sizeBytes: a.sizeBytes,
               kind: a.kind,
+              ...(full?.dataBase64 ? { data: full.dataBase64 } : {}),
               ...(a.thumbnailBase64
                 ? { thumbnailData: a.thumbnailBase64 }
                 : {}),
+              ...(isFileBacked ? { fileBacked: true } : {}),
             };
-          });
-        }
-      } else {
-        const linked = attachmentsStore.getAttachmentMetadataForMessage(m.id);
-        if (linked.length > 0) {
-          msgAttachments = linked.map((a) => {
-            if (a.mimeType.startsWith("image/")) {
-              const full = attachmentsStore.getAttachmentById(a.id);
-              return {
-                id: a.id,
-                filename: a.originalFilename,
-                mimeType: a.mimeType,
-                sizeBytes: a.sizeBytes,
-                kind: a.kind,
-                ...(full?.dataBase64 ? { data: full.dataBase64 } : {}),
-                ...(a.thumbnailBase64
-                  ? { thumbnailData: a.thumbnailBase64 }
-                  : {}),
-              };
-            }
-            return {
-              id: a.id,
-              filename: a.originalFilename,
-              mimeType: a.mimeType,
-              sizeBytes: a.sizeBytes,
-              kind: a.kind,
-              ...(a.thumbnailBase64
-                ? { thumbnailData: a.thumbnailBase64 }
-                : {}),
-            };
-          });
-        }
+          }
+          return {
+            id: a.id,
+            filename: a.originalFilename,
+            mimeType: a.mimeType,
+            sizeBytes: a.sizeBytes,
+            kind: a.kind,
+            ...(a.thumbnailBase64 ? { thumbnailData: a.thumbnailBase64 } : {}),
+            ...(isFileBacked ? { fileBacked: true } : {}),
+          };
+        });
       }
     }
 
@@ -429,7 +403,7 @@ export function handleListMessages(
 function makeHubPublisher(
   deps: SendMessageDeps,
   conversationId: string,
-  session: import("../../daemon/session.js").Session,
+  session: import("../../daemon/conversation.js").Conversation,
 ): (msg: ServerMessage) => void {
   let hubChain: Promise<void> = Promise.resolve();
   return (msg: ServerMessage) => {
@@ -515,11 +489,11 @@ function makeHubPublisher(
       });
     }
 
-    // ServerMessage is a large union; sessionId exists on most but not all variants.
+    // ServerMessage is a large union; conversationId exists on most but not all variants.
     const msgSessionId =
-      "sessionId" in msg &&
-      typeof (msg as { sessionId?: unknown }).sessionId === "string"
-        ? (msg as { sessionId: string }).sessionId
+      "conversationId" in msg &&
+      typeof (msg as { conversationId?: unknown }).conversationId === "string"
+        ? (msg as { conversationId: string }).conversationId
         : undefined;
     const resolvedSessionId = msgSessionId ?? conversationId;
     const event = buildAssistantEvent(
@@ -555,7 +529,8 @@ export async function handleSendMessage(
     attachmentIds?: string[];
     sourceChannel?: string;
     interface?: string;
-    threadType?: string;
+    conversationType?: string;
+    automated?: boolean;
   };
 
   const { conversationKey, content, attachmentIds } = body;
@@ -655,12 +630,12 @@ export async function handleSendMessage(
   }
 
   const conversationType =
-    body.threadType === "private" ? ("private" as const) : undefined;
+    body.conversationType === "private" ? ("private" as const) : undefined;
   const mapping = getOrCreateConversation(conversationKey, {
     conversationType,
   });
   const smDeps = deps.sendMessageDeps;
-  const session = await smDeps.getOrCreateSession(mapping.conversationId);
+  const session = await smDeps.getOrCreateConversation(mapping.conversationId);
 
   // Resolve guardian context from the AuthContext's actorPrincipalId.
   // The JWT-verified principal is used as the sender identity through
@@ -756,7 +731,7 @@ export async function handleSendMessage(
       onEvent,
       // Desktop path: disable NL classification to avoid consuming non-decision
       // messages while a tool confirmation is pending. Deterministic code-prefix
-      // and callback parsing remain active. Mirrors session-process.ts behavior.
+      // and callback parsing remain active. Mirrors conversation-process.ts behavior.
       approvalConversationGenerator:
         sourceChannel === "vellum"
           ? undefined
@@ -798,6 +773,7 @@ export async function handleSendMessage(
         assistantMessageChannel: sourceChannel,
         userMessageInterface: sourceInterface,
         assistantMessageInterface: sourceInterface,
+        ...(body.automated ? { automated: true } : {}),
       },
       { isInteractive },
     );
@@ -822,7 +798,7 @@ export async function handleSendMessage(
           interaction.kind === "confirmation"
         ) {
           session.emitConfirmationStateChanged({
-            sessionId: mapping.conversationId,
+            conversationId: mapping.conversationId,
             requestId: interaction.requestId,
             state: "denied" as const,
             source: "auto_deny" as const,
@@ -830,7 +806,7 @@ export async function handleSendMessage(
         }
       }
       session.denyAllPendingConfirmations();
-      pendingInteractions.removeBySession(session);
+      pendingInteractions.removeByConversation(session);
     }
 
     return Response.json(
@@ -853,7 +829,7 @@ export async function handleSendMessage(
         interaction.kind === "confirmation"
       ) {
         session.emitConfirmationStateChanged({
-          sessionId: mapping.conversationId,
+          conversationId: mapping.conversationId,
           requestId: interaction.requestId,
           state: "denied" as const,
           source: "auto_deny" as const,
@@ -861,10 +837,10 @@ export async function handleSendMessage(
       }
     }
     session.denyAllPendingConfirmations();
-    pendingInteractions.removeBySession(session);
+    pendingInteractions.removeByConversation(session);
   }
 
-  // Session is idle — persist and fire agent loop immediately
+  // Conversation is idle — persist and fire agent loop immediately
   session.setTurnChannelContext({
     userMessageChannel: sourceChannel,
     assistantMessageChannel: sourceChannel,
@@ -901,6 +877,7 @@ export async function handleSendMessage(
         assistantMessageChannel: sourceChannel,
         userMessageInterface: sourceInterface,
         assistantMessageInterface: sourceInterface,
+        ...(body.automated ? { automated: true } : {}),
       };
       const userMsg = createUserMessage(rawContent, attachments);
       const persisted = await addMessage(
@@ -962,7 +939,7 @@ export async function handleSendMessage(
         onEvent({ type: "assistant_text_delta", text: message });
         onEvent({
           type: "message_complete",
-          sessionId: conversationId,
+          conversationId: conversationId,
         });
         session.processing = false;
         silentlyWithLog(session.drainQueue(), "slash-command queue drain");
@@ -989,6 +966,7 @@ export async function handleSendMessage(
       resolvedContent,
       attachments,
       requestId,
+      body.automated ? { automated: true } : undefined,
     );
   } catch (err) {
     throw err;

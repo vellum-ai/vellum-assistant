@@ -134,8 +134,20 @@ export function getOllamaBaseUrlEnv(): string | undefined {
 
 // ── Platform ─────────────────────────────────────────────────────────────────
 
+let _platformBaseUrlOverride: string | undefined;
+
+export function setPlatformBaseUrl(value: string | undefined): void {
+  _platformBaseUrlOverride = value;
+}
+
 export function getPlatformBaseUrl(): string {
-  return str("PLATFORM_BASE_URL") ?? "";
+  return str("PLATFORM_BASE_URL") ?? _platformBaseUrlOverride ?? "";
+}
+
+let _platformAssistantIdOverride: string | undefined;
+
+export function setPlatformAssistantId(value: string | undefined): void {
+  _platformAssistantIdOverride = value;
 }
 
 /**
@@ -143,7 +155,7 @@ export function getPlatformBaseUrl(): string {
  * Required for registering callback routes when containerized.
  */
 export function getPlatformAssistantId(): string {
-  return str("PLATFORM_ASSISTANT_ID") ?? "";
+  return str("PLATFORM_ASSISTANT_ID") ?? _platformAssistantIdOverride ?? "";
 }
 
 /**

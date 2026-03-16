@@ -22,7 +22,7 @@ export async function executeCallStatus(
 
   const { session } = result;
   const lines = [
-    `Call Session: ${session.id}`,
+    `Call Conversation: ${session.id}`,
     `  Status: ${session.status}`,
     `  To: ${session.toNumber}`,
     `  From: ${session.fromNumber}`,

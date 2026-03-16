@@ -29,7 +29,7 @@ final class InterviewViewModel {
     // MARK: - Internal State
 
     private let maxTurns = 5
-    private var sessionId: String?
+    private var conversationId: String?
     private var currentTask: Task<Void, Never>?
     private var startTime: Date?
 
@@ -73,7 +73,7 @@ final class InterviewViewModel {
                 if !trimmedName.isEmpty {
                     hints.append("assistant-name:\(trimmedName)")
                 }
-                try self.daemonClient.send(SessionCreateMessage(
+                try self.daemonClient.send(ConversationCreateMessage(
                     title: "Getting to know you",
                     maxResponseTokens: 220,
                     transportChannelId: "vellum",
@@ -96,16 +96,16 @@ final class InterviewViewModel {
                 guard !Task.isCancelled else { break }
 
                 switch message {
-                case .sessionInfo(let info):
-                    // Capture the daemon-assigned session ID, then send a natural
+                case .conversationInfo(let info):
+                    // Capture the daemon-assigned conversation ID, then send a natural
                     // first user message to kick off the conversation.
-                    if self.sessionId == nil {
-                        self.sessionId = info.sessionId
-                        log.info("Interview session created: \(info.sessionId)")
+                    if self.conversationId == nil {
+                        self.conversationId = info.conversationId
+                        log.info("Interview conversation created: \(info.conversationId)")
 
                         do {
                             try self.daemonClient.send(UserMessageMessage(
-                                sessionId: info.sessionId,
+                                conversationId: info.conversationId,
                                 content: "Hi! I just hatched you and I want to get set up together.",
                                 attachments: nil
                             ))
@@ -120,16 +120,16 @@ final class InterviewViewModel {
                         }
                     }
 
-                case .assistantTextDelta(let delta) where self.sessionId != nil:
+                case .assistantTextDelta(let delta) where self.conversationId != nil:
                     accumulated += delta.text
                     self.isThinking = false
                     self.streamingText = accumulated
 
-                case .assistantThinkingDelta where self.sessionId != nil:
+                case .assistantThinkingDelta where self.conversationId != nil:
                     // Stay in thinking state while the model reasons.
                     break
 
-                case .messageComplete(let complete) where complete.sessionId == self.sessionId && self.sessionId != nil:
+                case .messageComplete(let complete) where complete.conversationId == self.conversationId && self.conversationId != nil:
                     self.isThinking = false
                     self.streamingText = ""
                     let finalText = accumulated.isEmpty ? "(No response)" : accumulated
@@ -140,7 +140,7 @@ final class InterviewViewModel {
                     log.info("Interview greeting complete (\(accumulated.count) chars)")
                     return
 
-                case .generationHandoff(let handoff) where handoff.sessionId == self.sessionId && self.sessionId != nil:
+                case .generationHandoff(let handoff) where handoff.conversationId == self.conversationId && self.conversationId != nil:
                     self.isThinking = false
                     self.streamingText = ""
                     let finalText = accumulated.isEmpty ? "(No response)" : accumulated
@@ -151,7 +151,7 @@ final class InterviewViewModel {
                     log.info("Interview greeting complete via handoff (\(accumulated.count) chars)")
                     return
 
-                case .sessionError(let error) where error.sessionId == self.sessionId && self.sessionId != nil:
+                case .conversationError(let error) where error.conversationId == self.conversationId && self.conversationId != nil:
                     self.isThinking = false
                     self.streamingText = ""
                     log.error("Interview start failed (session_error): \(error.userMessage)")
@@ -188,7 +188,7 @@ final class InterviewViewModel {
     func sendMessage() {
         let text = inputText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty, !isFinished else { return }
-        guard let sessionId else {
+        guard let conversationId else {
             log.warning("Cannot send message — no active session")
             return
         }
@@ -214,7 +214,7 @@ final class InterviewViewModel {
 
             do {
                 try self.daemonClient.send(UserMessageMessage(
-                    sessionId: sessionId,
+                    conversationId: conversationId,
                     content: contentToSend,
                     attachments: nil
                 ))
@@ -243,7 +243,7 @@ final class InterviewViewModel {
                     // Stay in thinking state while the model reasons.
                     break
 
-                case .messageComplete(let complete) where complete.sessionId == sessionId:
+                case .messageComplete(let complete) where complete.conversationId == conversationId:
                     self.isThinking = false
                     self.streamingText = ""
                     let finalText = accumulated.isEmpty ? "(No response)" : accumulated
@@ -257,7 +257,7 @@ final class InterviewViewModel {
                     log.info("Follow-up response complete (\(accumulated.count) chars)")
                     return
 
-                case .generationHandoff(let handoff) where handoff.sessionId == sessionId:
+                case .generationHandoff(let handoff) where handoff.conversationId == conversationId:
                     self.isThinking = false
                     self.streamingText = ""
                     let finalText = accumulated.isEmpty ? "(No response)" : accumulated
@@ -271,7 +271,7 @@ final class InterviewViewModel {
                     log.info("Follow-up response complete via handoff (\(accumulated.count) chars)")
                     return
 
-                case .sessionError(let error) where error.sessionId == sessionId:
+                case .conversationError(let error) where error.conversationId == conversationId:
                     self.isThinking = false
                     self.streamingText = ""
                     log.error("Session error during follow-up (session_error): \(error.userMessage)")
@@ -314,7 +314,7 @@ final class InterviewViewModel {
         isComplete = true
         currentTask?.cancel()
         currentTask = nil
-        sessionId = nil
+        conversationId = nil
         isThinking = false
         streamingText = ""
     }
@@ -325,6 +325,6 @@ final class InterviewViewModel {
     func cancel() {
         currentTask?.cancel()
         currentTask = nil
-        sessionId = nil
+        conversationId = nil
     }
 }

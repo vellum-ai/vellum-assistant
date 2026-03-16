@@ -58,7 +58,7 @@ final class DebugStateWriter {
 
     private func captureSnapshot(from appDelegate: AppDelegate) -> DebugSnapshot {
         let daemonClient = appDelegate.services.daemonClient
-        let threadManager = appDelegate.mainWindow?.threadManager
+        let conversationManager = appDelegate.mainWindow?.conversationManager
 
         let transport: String
         switch daemonClient.config.transport {
@@ -73,12 +73,12 @@ final class DebugStateWriter {
             transport: transport
         )
 
-        let threadSnapshots: [DebugSnapshot.ThreadInfo] = (threadManager?.threads ?? []).map { thread in
-            let vm = threadManager?.chatViewModel(for: thread.id)
-            return DebugSnapshot.ThreadInfo(
+        let conversationSnapshots: [DebugSnapshot.ConversationInfo] = (conversationManager?.conversations ?? []).map { thread in
+            let vm = conversationManager?.chatViewModel(for: thread.id)
+            return DebugSnapshot.ConversationInfo(
                 id: thread.id.uuidString,
                 title: thread.title,
-                sessionId: thread.sessionId,
+                conversationId: thread.conversationId,
                 messageCount: vm?.messages.count ?? 0,
                 kind: thread.kind == .private ? "private" : "standard",
                 isArchived: thread.isArchived,
@@ -86,22 +86,22 @@ final class DebugStateWriter {
             )
         }
 
-        let threadsState = DebugSnapshot.ThreadsState(
-            activeThreadId: threadManager?.activeThreadId?.uuidString,
-            count: threadManager?.threads.count ?? 0,
-            threads: threadSnapshots
+        let conversationsState = DebugSnapshot.ConversationsState(
+            activeConversationId: conversationManager?.activeConversationId?.uuidString,
+            count: conversationManager?.conversations.count ?? 0,
+            conversations: conversationSnapshots
         )
 
         var activeChatState: DebugSnapshot.ActiveChatState?
-        if let vm = threadManager?.activeViewModel {
+        if let vm = conversationManager?.activeViewModel {
             activeChatState = DebugSnapshot.ActiveChatState(
-                sessionId: vm.sessionId,
+                conversationId: vm.conversationId,
                 isThinking: vm.isThinking,
                 isSending: vm.isSending,
                 isBootstrapping: vm.isBootstrapping,
                 errorText: vm.errorText,
-                sessionErrorCategory: vm.sessionError.map { "\($0.category)" },
-                sessionErrorDebugDetails: vm.sessionError?.debugDetails,
+                conversationErrorCategory: vm.conversationError.map { "\($0.category)" },
+                conversationErrorDebugDetails: vm.conversationError?.debugDetails,
                 selectedModel: vm.selectedModel,
                 messageCount: vm.messages.count,
                 pendingQueuedCount: vm.pendingQueuedCount,
@@ -122,7 +122,7 @@ final class DebugStateWriter {
             timestamp: Date(),
             appVersion: version ?? "unknown",
             daemon: daemonState,
-            threads: threadsState,
+            conversations: conversationsState,
             activeChat: activeChatState,
             computerUse: cuState
         )
@@ -135,7 +135,7 @@ struct DebugSnapshot: Codable {
     let timestamp: Date
     let appVersion: String
     let daemon: DaemonState
-    let threads: ThreadsState
+    let conversations: ConversationsState
     let activeChat: ActiveChatState?
     let computerUse: ComputerUseState
 
@@ -146,16 +146,16 @@ struct DebugSnapshot: Codable {
         let transport: String
     }
 
-    struct ThreadsState: Codable {
-        let activeThreadId: String?
+    struct ConversationsState: Codable {
+        let activeConversationId: String?
         let count: Int
-        let threads: [ThreadInfo]
+        let conversations: [ConversationInfo]
     }
 
-    struct ThreadInfo: Codable {
+    struct ConversationInfo: Codable {
         let id: String
         let title: String
-        let sessionId: String?
+        let conversationId: String?
         let messageCount: Int
         let kind: String
         let isArchived: Bool
@@ -163,13 +163,13 @@ struct DebugSnapshot: Codable {
     }
 
     struct ActiveChatState: Codable {
-        let sessionId: String?
+        let conversationId: String?
         let isThinking: Bool
         let isSending: Bool
         let isBootstrapping: Bool
         let errorText: String?
-        let sessionErrorCategory: String?
-        let sessionErrorDebugDetails: String?
+        let conversationErrorCategory: String?
+        let conversationErrorDebugDetails: String?
         let selectedModel: String
         let messageCount: Int
         let pendingQueuedCount: Int

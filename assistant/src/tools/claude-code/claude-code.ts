@@ -357,7 +357,7 @@ export const claudeCodeTool: Tool = {
     try {
       const conversation = query({ prompt, options: queryOptions });
       let resultText = "";
-      let sessionId = "";
+      let conversationId = "";
       let hasError = false;
 
       // Track tool_use_id → {name, inputSummary} for enriching progress events.
@@ -374,7 +374,7 @@ export const claudeCodeTool: Tool = {
             // Check for SDK-level errors on the assistant message
             if (message.error) {
               log.error(
-                { error: message.error, sessionId: message.session_id },
+                { error: message.error, conversationId: message.session_id },
                 "Claude Code assistant message error",
               );
               hasError = true;
@@ -419,7 +419,7 @@ export const claudeCodeTool: Tool = {
                 }
               }
             }
-            sessionId = message.session_id;
+            conversationId = message.session_id;
             break;
           }
           case "tool_progress": {
@@ -427,7 +427,7 @@ export const claudeCodeTool: Tool = {
             // This is our primary signal for live sub-tool progress.
             const toolUseId = message.tool_use_id;
             const toolName = message.tool_name;
-            sessionId = message.session_id;
+            conversationId = message.session_id;
 
             // Record tool name if we don't have it yet (tool_progress fires before assistant sometimes).
             if (!toolUseIdInfo.has(toolUseId)) {
@@ -467,7 +467,7 @@ export const claudeCodeTool: Tool = {
           case "tool_use_summary": {
             // The SDK fires tool_use_summary after tool execution with a summary
             // and the IDs of tools that were executed.
-            sessionId = message.session_id;
+            conversationId = message.session_id;
             for (const completedId of message.preceding_tool_use_ids) {
               const info = toolUseIdInfo.get(completedId);
               const completedName: string | null =
@@ -505,7 +505,7 @@ export const claudeCodeTool: Tool = {
               );
               lastSubToolName = null;
             }
-            sessionId = message.session_id;
+            conversationId = message.session_id;
             const resultMeta = {
               subtype: message.subtype,
               numTurns: message.num_turns,
@@ -565,8 +565,8 @@ export const claudeCodeTool: Tool = {
       const output =
         resultText.trim() ||
         "Claude Code completed without producing text output.";
-      const sessionInfo = sessionId
-        ? `\n\n[Claude Code session: ${sessionId}]`
+      const sessionInfo = conversationId
+        ? `\n\n[Claude Code session: ${conversationId}]`
         : "";
 
       return {

@@ -135,7 +135,70 @@ extension AppDelegate {
 
     @objc public func performLogout() {
         Task {
+            // Capture assistant ID before logout clears it from UserDefaults
+            let connectedAssistantId = UserDefaults.standard.string(forKey: "connectedAssistantId")
+
+            // Capture actor token before logout clears session state
+            let actorToken = ActorTokenManager.getToken()
+
             await authManager.logout()
+
+            // Clear managed proxy credentials from the running daemon (local assistants only)
+            if !isCurrentAssistantManaged && !isCurrentAssistantRemote {
+                if let token = actorToken, !token.isEmpty {
+                    let assistantId = connectedAssistantId ?? ""
+                    let port = LockfileAssistant.loadByName(assistantId)?.daemonPort ?? 7821
+                    let daemonBaseURL = "http://localhost:\(port)"
+                    let cleared = await LocalAssistantBootstrapService.clearDaemonCredentials(
+                        daemonBaseURL: daemonBaseURL,
+                        daemonToken: token
+                    )
+                    if !cleared {
+                        log.warning("Credential cleanup incomplete — stopping daemon to prevent stale managed proxy state")
+                        daemonClient.disconnect()
+                        assistantCli.stop()
+                    }
+                } else {
+                    log.warning("No actor token available during logout — stopping daemon to ensure stale credentials are not retained")
+                    daemonClient.disconnect()
+                    assistantCli.stop()
+                }
+            }
+
+            // Clear locally-cached credentials from Keychain for all local assistants
+            let keychainStorage = KeychainCredentialStorage()
+            for assistant in LockfileAssistant.loadAll() where !assistant.isRemote && !assistant.isManaged {
+                let credentialAccount = LocalAssistantBootstrapService.credentialAccount(for: assistant.assistantId)
+                _ = keychainStorage.delete(account: credentialAccount)
+            }
+            // Also clear for the connected assistant in case it's not in the lockfile
+            if let assistantId = connectedAssistantId {
+                let credentialAccount = LocalAssistantBootstrapService.credentialAccount(for: assistantId)
+                _ = keychainStorage.delete(account: credentialAccount)
+            }
+
+            // Stop all non-current local daemons to clear in-memory managed proxy
+            // credentials. Assistant switches intentionally leave old daemons running
+            // for fast switching, but on full logout there's no reason to keep them
+            // alive with potentially stale state.
+            for assistant in LockfileAssistant.loadAll() where !assistant.isRemote && !assistant.isManaged {
+                if assistant.assistantId != connectedAssistantId {
+                    if let instanceDir = assistant.instanceDir {
+                        let env = ["BASE_DATA_DIR": instanceDir]
+                        let pidPath = VellumAssistantShared.resolvePidPath(environment: env)
+                        if let data = try? Data(contentsOf: URL(fileURLWithPath: pidPath)),
+                           let pidString = String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines),
+                           let pid = pid_t(pidString),
+                           kill(pid, 0) == 0 {
+                            kill(pid, SIGTERM)
+                            log.info("Stopped daemon for assistant \(assistant.assistantId, privacy: .public) (pid \(pid))")
+                        }
+                    }
+                }
+            }
+
+            // Reset dock icon to default before tearing down UI
+            AvatarAppearanceManager.shared.resetForDisconnect()
 
             let detachedWindow = mainWindow?.detachWindow()
             mainWindow = nil
@@ -204,7 +267,7 @@ extension AppDelegate {
     /// and stale-key reprovisioning are handled (not just Keychain presence).
     ///
     /// Waits up to 60s for the actor token to become available, retrying every
-    /// 5s, so that assistant switches (which clear then re-bootstrap actor
+    /// 10s, so that assistant switches (which clear then re-bootstrap actor
     /// credentials) don't race with this method.
     func ensureLocalAssistantApiKey() {
         guard !isCurrentAssistantManaged, !isCurrentAssistantRemote else {
@@ -216,49 +279,35 @@ extension AppDelegate {
             return
         }
 
-        let storedId = UserDefaults.standard.string(forKey: "connectedAssistantId")
-        guard let assistantId = storedId,
-              let assistant = LockfileAssistant.loadByName(assistantId) else {
-            log.warning("Skipping local assistant API key provisioning because connectedAssistantId is missing from lockfile")
+        guard let assistantId = UserDefaults.standard.string(forKey: "connectedAssistantId"), !assistantId.isEmpty else {
+            log.warning("Skipping local assistant API key provisioning because connectedAssistantId is not set")
             return
         }
 
-        // Resolve daemon HTTP endpoint from lockfile, with env override and fallback
-        let daemonPort = assistant.daemonPort
-            ?? Int(ProcessInfo.processInfo.environment["RUNTIME_HTTP_PORT"] ?? "")
-            ?? 7821
-        let daemonBaseURL = "http://localhost:\(daemonPort)"
-        log.info("Starting local assistant API key provisioning for \(assistant.assistantId, privacy: .public) at \(daemonBaseURL, privacy: .public)")
+        log.info("Starting local assistant API key provisioning for \(assistantId, privacy: .public)")
 
         Task {
-            // Wait for actor token with retries — initial bootstrap may take
-            // longer than a single waitForToken timeout when the daemon is
-            // still coming up or credentials are being rotated after a switch.
-            let daemonToken: String
-            if let token = ActorTokenManager.getToken(), !token.isEmpty {
-                daemonToken = token
-            } else {
+            // Wait for the actor token — GatewayHTTPClient requires it for
+            // auth and will throw immediately if it's not available yet.
+            if ActorTokenManager.getToken()?.isEmpty != false {
                 var token: String?
                 for attempt in 1...6 {
                     token = await ActorTokenManager.waitForToken(timeout: 10)
                     if token != nil { break }
                     log.info("Actor token not yet available (attempt \(attempt)/6), retrying...")
                 }
-                guard let resolved = token else {
+                guard token != nil else {
                     log.warning("No actor token available for local API key provisioning after 60s")
                     return
                 }
-                daemonToken = resolved
             }
 
             do {
                 let credentialStorage = KeychainCredentialStorage()
                 let bootstrapService = LocalAssistantBootstrapService(credentialStorage: credentialStorage)
                 let outcome = try await bootstrapService.bootstrap(
-                    runtimeAssistantId: assistant.assistantId,
-                    clientPlatform: "macos",
-                    daemonBaseURL: daemonBaseURL,
-                    daemonToken: daemonToken
+                    runtimeAssistantId: assistantId,
+                    clientPlatform: "macos"
                 )
                 switch outcome {
                 case .registeredWithExistingKey(let id):
@@ -266,8 +315,13 @@ extension AppDelegate {
                 case .registeredAndProvisioned(let id):
                     log.info("Local assistant API key provisioned: \(id, privacy: .public)")
                 }
+                NotificationCenter.default.post(name: .localBootstrapCompleted, object: nil)
             } catch {
                 log.error("Failed to provision local assistant API key: \(error.localizedDescription)")
+                self.mainWindow?.windowState.showToast(
+                    message: "Failed to set up Vellum credentials. You may need to sign out and sign in again.",
+                    style: .error
+                )
             }
         }
     }
@@ -291,6 +345,8 @@ extension AppDelegate {
         // 2. Disconnect transport — leave the old daemon running so it stays
         //    awake and can be switched back to without a cold start.
         daemonClient.disconnect()
+        // Reset dock icon to default before loading the new assistant's avatar
+        AvatarAppearanceManager.shared.resetForDisconnect()
         // Close and recreate the main window to reset thread/session state
         mainWindow?.close()
         mainWindow = nil
@@ -320,6 +376,10 @@ extension AppDelegate {
         //    when the app was launched via Finder/open). Push keys from
         //    UserDefaults so the daemon can initialize its LLM providers.
         syncApiKeysToAssistant(assistant)
+
+        // Reload avatar for the new assistant (customAvatarURL now resolves
+        // to the new assistant's path after connectedAssistantId was updated).
+        AvatarAppearanceManager.shared.reloadAvatar()
 
         showMainWindow()
     }
@@ -450,6 +510,7 @@ extension AppDelegate {
         }
 
         // No assistants left — tear down fully and show onboarding
+        AvatarAppearanceManager.shared.resetForDisconnect()
         OnboardingState.clearPersistedState()
         UserDefaults.standard.removeObject(forKey: "bootstrapState")
         UserDefaults.standard.removeObject(forKey: "connectedAssistantId")

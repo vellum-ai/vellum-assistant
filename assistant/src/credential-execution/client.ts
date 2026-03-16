@@ -201,6 +201,82 @@ export function createCesClient(
     return `${sessionId}:${++requestCounter}`;
   }
 
+  // Standalone call implementation — used by both the public `call` method
+  // and `updateAssistantApiKey` to avoid `this`-binding fragility.
+  async function call<M extends CesRpcMethod>(
+    method: M,
+    request: CesRpcContract[M]["request"],
+  ): Promise<CesRpcContract[M]["response"]> {
+    if (!ready) {
+      throw new CesClientError(
+        "CES client has not completed handshake — call handshake() first",
+      );
+    }
+
+    if (!transport.isAlive()) {
+      throw new CesTransportError("CES transport is not alive");
+    }
+
+    // Validate request against the shared schema
+    const schemas = CesRpcSchemas[method];
+    const parseResult = schemas.request.safeParse(request);
+    if (!parseResult.success) {
+      throw new CesClientError(
+        `Invalid CES RPC request for method "${method}": ${parseResult.error.message}`,
+      );
+    }
+
+    const id = nextRequestId();
+
+    const responsePromise = new Promise<unknown>((resolve, reject) => {
+      const timer = setTimeout(() => {
+        pending.delete(id);
+        reject(
+          new CesTimeoutError(
+            `CES RPC call "${method}" timed out after ${requestTimeoutMs}ms`,
+          ),
+        );
+      }, requestTimeoutMs);
+
+      pending.set(id, {
+        resolve,
+        reject,
+        timer,
+      });
+    });
+
+    const envelope: RpcEnvelope = {
+      id,
+      kind: "request",
+      method,
+      payload: request,
+      timestamp: new Date().toISOString(),
+    };
+
+    try {
+      sendLine({ type: "rpc", ...envelope });
+    } catch (err) {
+      const entry = pending.get(id);
+      if (entry) {
+        clearTimeout(entry.timer);
+        pending.delete(id);
+      }
+      throw err;
+    }
+
+    const rawResponse = await responsePromise;
+
+    // Validate response against the shared schema
+    const respParseResult = schemas.response.safeParse(rawResponse);
+    if (!respParseResult.success) {
+      throw new CesClientError(
+        `Invalid CES RPC response for method "${method}": ${respParseResult.error.message}`,
+      );
+    }
+
+    return respParseResult.data as CesRpcContract[M]["response"];
+  }
+
   // -------------------------------------------------------------------------
   // Public API
   // -------------------------------------------------------------------------
@@ -261,84 +337,12 @@ export function createCesClient(
       return { accepted: ack.accepted, reason: ack.reason };
     },
 
-    async call<M extends CesRpcMethod>(
-      method: M,
-      request: CesRpcContract[M]["request"],
-    ): Promise<CesRpcContract[M]["response"]> {
-      if (!ready) {
-        throw new CesClientError(
-          "CES client has not completed handshake — call handshake() first",
-        );
-      }
-
-      if (!transport.isAlive()) {
-        throw new CesTransportError("CES transport is not alive");
-      }
-
-      // Validate request against the shared schema
-      const schemas = CesRpcSchemas[method];
-      const parseResult = schemas.request.safeParse(request);
-      if (!parseResult.success) {
-        throw new CesClientError(
-          `Invalid CES RPC request for method "${method}": ${parseResult.error.message}`,
-        );
-      }
-
-      const id = nextRequestId();
-
-      const responsePromise = new Promise<unknown>((resolve, reject) => {
-        const timer = setTimeout(() => {
-          pending.delete(id);
-          reject(
-            new CesTimeoutError(
-              `CES RPC call "${method}" timed out after ${requestTimeoutMs}ms`,
-            ),
-          );
-        }, requestTimeoutMs);
-
-        pending.set(id, {
-          resolve,
-          reject,
-          timer,
-        });
-      });
-
-      const envelope: RpcEnvelope = {
-        id,
-        kind: "request",
-        method,
-        payload: request,
-        timestamp: new Date().toISOString(),
-      };
-
-      try {
-        sendLine({ type: "rpc", ...envelope });
-      } catch (err) {
-        const entry = pending.get(id);
-        if (entry) {
-          clearTimeout(entry.timer);
-          pending.delete(id);
-        }
-        throw err;
-      }
-
-      const rawResponse = await responsePromise;
-
-      // Validate response against the shared schema
-      const respParseResult = schemas.response.safeParse(rawResponse);
-      if (!respParseResult.success) {
-        throw new CesClientError(
-          `Invalid CES RPC response for method "${method}": ${respParseResult.error.message}`,
-        );
-      }
-
-      return respParseResult.data as CesRpcContract[M]["response"];
-    },
+    call,
 
     async updateAssistantApiKey(
       assistantApiKey: string,
     ): Promise<{ updated: boolean }> {
-      return this.call(CesRpcMethod.UpdateManagedCredential, {
+      return call(CesRpcMethod.UpdateManagedCredential, {
         assistantApiKey,
       });
     },

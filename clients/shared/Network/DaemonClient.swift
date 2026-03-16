@@ -86,7 +86,7 @@ public protocol DaemonClientProtocol {
     func disconnect()
     func startSSE()
     func stopSSE()
-    func fetchSurfaceData(surfaceId: String, sessionId: String) async -> SurfaceData?
+    func fetchSurfaceData(surfaceId: String, conversationId: String) async -> SurfaceData?
     func sendBtwMessage(content: String, conversationKey: String) -> AsyncThrowingStream<String, Error>
 }
 
@@ -96,7 +96,7 @@ extension DaemonClientProtocol {
     }
 
     /// Default no-op implementation for clients that don't support HTTP surface fetches.
-    public func fetchSurfaceData(surfaceId: String, sessionId: String) async -> SurfaceData? { nil }
+    public func fetchSurfaceData(surfaceId: String, conversationId: String) async -> SurfaceData? { nil }
 
     /// Default no-op implementation for clients that don't support btw side-chain.
     public func sendBtwMessage(content: String, conversationKey: String) -> AsyncThrowingStream<String, Error> {
@@ -356,8 +356,8 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     /// Called when the daemon emits a generic `notification_intent` payload.
     public var onNotificationIntent: ((NotificationIntentMessage) -> Void)?
 
-    /// Called when a notification delivery creates a new vellum conversation thread.
-    public var onNotificationThreadCreated: ((NotificationThreadCreated) -> Void)?
+    /// Called when a notification delivery creates a new vellum conversation.
+    public var onNotificationConversationCreated: ((NotificationConversationCreated) -> Void)?
 
     /// Called when the daemon sends a `trust_rules_list_response` message.
     public var onTrustRulesListResponse: (([TrustRuleItem]) -> Void)?
@@ -419,11 +419,11 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     /// Called when the daemon sends an `open_bundle_response` message.
     public var onOpenBundleResponse: ((OpenBundleResponseMessage) -> Void)?
 
-    /// Called when the daemon sends a `session_list_response` message.
-    public var onSessionListResponse: ((SessionListResponseMessage) -> Void)?
+    /// Called when the daemon sends a `conversation_list_response` message.
+    public var onConversationListResponse: ((ConversationListResponseMessage) -> Void)?
 
-    /// Called when the daemon sends a `session_title_updated` message.
-    public var onSessionTitleUpdated: ((SessionTitleUpdatedMessage) -> Void)?
+    /// Called when the daemon sends a `conversation_title_updated` message.
+    public var onConversationTitleUpdated: ((ConversationTitleUpdatedMessage) -> Void)?
 
     /// Called when the daemon sends a `history_response` message.
     public var onHistoryResponse: ((HistoryResponse) -> Void)?
@@ -525,10 +525,10 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     public var onError: ((ErrorMessage) -> Void)?
 
     /// Called when a task run creates a conversation so the client can show it as a visible chat thread.
-    public var onTaskRunThreadCreated: ((TaskRunThreadCreated) -> Void)?
+    public var onTaskRunConversationCreated: ((TaskRunConversationCreated) -> Void)?
 
     /// Called when a schedule creates a conversation so the client can show it as a visible chat thread.
-    public var onScheduleThreadCreated: ((ScheduleThreadCreated) -> Void)?
+    public var onScheduleConversationCreated: ((ScheduleConversationCreated) -> Void)?
 
     /// Called when the daemon requests pairing approval from macOS.
     public var onPairingApprovalRequest: ((PairingApprovalRequestMessage) -> Void)?
@@ -621,7 +621,7 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
 
     /// Reconfigure the daemon client's transport in place without replacing
     /// the object identity. This preserves all callback closures and
-    /// subscriber references held by long-lived objects (ThreadManager,
+    /// subscriber references held by long-lived objects (ConversationManager,
     /// ChatViewModel, RecordingManager, etc.) across assistant switches.
     ///
     /// The method disconnects the current transport, updates the config,
@@ -757,9 +757,9 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
 
     /// Convenience method for sending a surface action response to the daemon.
     /// Keeps the message construction co-located with the client.
-    public func sendSurfaceAction(sessionId: String?, surfaceId: String, actionId: String, data: [String: AnyCodable]?) throws {
+    public func sendSurfaceAction(conversationId: String?, surfaceId: String, actionId: String, data: [String: AnyCodable]?) throws {
         let message = UiSurfaceActionMessage(
-            sessionId: sessionId,
+            conversationId: conversationId,
             surfaceId: surfaceId,
             actionId: actionId,
             data: data
@@ -773,15 +773,15 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     /// For remote connections, delegates to `HTTPTransport`. For local connections,
     /// builds a request against the daemon's HTTP server directly.
     /// Returns the parsed `SurfaceData`, or `nil` on failure.
-    public func fetchSurfaceData(surfaceId: String, sessionId: String) async -> SurfaceData? {
+    public func fetchSurfaceData(surfaceId: String, conversationId: String) async -> SurfaceData? {
         if let httpTransport {
-            return await httpTransport.fetchSurfaceData(surfaceId: surfaceId, sessionId: sessionId)
+            return await httpTransport.fetchSurfaceData(surfaceId: surfaceId, conversationId: conversationId)
         }
 
         // Local daemon path — build request using the daemon HTTP port.
         let sEncoded = surfaceId.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? surfaceId
-        let qEncoded = sessionId.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? sessionId
-        let surfacePath = "v1/surfaces/\(sEncoded)?sessionId=\(qEncoded)"
+        let qEncoded = conversationId.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? conversationId
+        let surfacePath = "v1/surfaces/\(sEncoded)?conversationId=\(qEncoded)"
         guard let request = buildLocalRequest(
             target: .daemon,
             path: surfacePath,
@@ -1130,8 +1130,8 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     // MARK: - Surface Undo
 
     /// Send a surface undo request to revert the last refinement on a workspace surface.
-    public func sendSurfaceUndo(sessionId: String, surfaceId: String) throws {
-        let message = UiSurfaceUndoMessage(sessionId: sessionId, surfaceId: surfaceId)
+    public func sendSurfaceUndo(conversationId: String, surfaceId: String) throws {
+        let message = UiSurfaceUndoMessage(conversationId: conversationId, surfaceId: surfaceId)
         try send(message)
     }
 
@@ -1312,8 +1312,8 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     // MARK: - Subagent Management
 
     /// Abort a running subagent.
-    public func sendSubagentAbort(subagentId: String, sessionId: String? = nil) throws {
-        try send(SubagentAbortMessage(subagentId: subagentId, sessionId: sessionId))
+    public func sendSubagentAbort(subagentId: String, conversationId: String? = nil) throws {
+        try send(SubagentAbortMessage(subagentId: subagentId, conversationId: conversationId))
     }
 
     /// Request subagent detail events (lazy-loaded when the user opens the detail panel).
@@ -1381,40 +1381,40 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     // MARK: - Queue Management
 
     /// Delete a specific queued message by its requestId.
-    public func sendDeleteQueuedMessage(sessionId: String, requestId: String) throws {
-        try send(DeleteQueuedMessageMessage(sessionId: sessionId, requestId: requestId))
+    public func sendDeleteQueuedMessage(conversationId: String, requestId: String) throws {
+        try send(DeleteQueuedMessageMessage(conversationId: conversationId, requestId: requestId))
     }
 
     // MARK: - Regenerate
 
-    /// Regenerate the last assistant response for a session.
-    public func sendRegenerate(sessionId: String) throws {
-        try send(RegenerateMessage(sessionId: sessionId))
+    /// Regenerate the last assistant response for a conversation.
+    public func sendRegenerate(conversationId: String) throws {
+        try send(RegenerateMessage(conversationId: conversationId))
     }
 
-    // MARK: - Sessions
+    // MARK: - Conversations
 
-    /// Request the list of past sessions from the daemon.
-    public func sendSessionList(offset: Int? = nil, limit: Int? = nil) throws {
-        try send(SessionListRequestMessage(offset: offset, limit: limit))
+    /// Request the list of past conversations from the daemon.
+    public func sendConversationList(offset: Int? = nil, limit: Int? = nil) throws {
+        try send(ConversationListRequestMessage(offset: offset, limit: limit))
     }
 
-    /// Request message history for a specific session.
+    /// Request message history for a specific conversation.
     /// - Parameters:
-    ///   - sessionId: The session to fetch history for.
+    ///   - conversationId: The conversation to fetch history for.
     ///   - limit: Max messages to return per page.
     ///   - beforeTimestamp: Pagination cursor — only return messages before this timestamp (ms since epoch).
     ///   - mode: `"light"` omits heavy payloads (attachments, tool images, surface data); `"full"` includes everything.
     ///   - maxTextChars: When set, truncates assistant text content to this many characters.
     ///   - maxToolResultChars: When set, truncates tool result content to this many characters.
-    public func sendHistoryRequest(sessionId: String, limit: Int? = nil, beforeTimestamp: Double? = nil, mode: String? = nil, maxTextChars: Int? = nil, maxToolResultChars: Int? = nil) throws {
-        try send(HistoryRequestMessage(sessionId: sessionId, limit: limit, beforeTimestamp: beforeTimestamp, mode: mode, maxTextChars: maxTextChars, maxToolResultChars: maxToolResultChars))
+    public func sendHistoryRequest(conversationId: String, limit: Int? = nil, beforeTimestamp: Double? = nil, mode: String? = nil, maxTextChars: Int? = nil, maxToolResultChars: Int? = nil) throws {
+        try send(HistoryRequestMessage(conversationId: conversationId, limit: limit, beforeTimestamp: beforeTimestamp, mode: mode, maxTextChars: maxTextChars, maxToolResultChars: maxToolResultChars))
     }
 
     /// Request full (untruncated) content for a specific message.
     /// Used to rehydrate messages that were loaded with truncated text/tool results.
-    public func sendMessageContentRequest(sessionId: String, messageId: String) throws {
-        try send(MessageContentRequest(type: "message_content_request", sessionId: sessionId, messageId: messageId))
+    public func sendMessageContentRequest(conversationId: String, messageId: String) throws {
+        try send(MessageContentRequest(type: "message_content_request", conversationId: conversationId, messageId: messageId))
     }
 
     // MARK: - Apps
@@ -1503,7 +1503,7 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     public func sendChannelVerificationSession(
         action: String,
         channel: String? = nil,
-        sessionId: String? = nil,
+        conversationId: String? = nil,
         rebind: Bool? = nil,
         destination: String? = nil,
         originConversationId: String? = nil,
@@ -1513,7 +1513,7 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
         try send(ChannelVerificationSessionRequestMessage(
             action: action,
             channel: channel,
-            sessionId: sessionId,
+            conversationId: conversationId,
             rebind: rebind,
             destination: destination,
             originConversationId: originConversationId,
@@ -2379,6 +2379,40 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
         os_signpost(.begin, log: networkLog, name: "daemonHTTPRequest", signpostID: sid)
         defer { os_signpost(.end, log: networkLog, name: "daemonHTTPRequest", signpostID: sid) }
         try await httpTransport.setFeatureFlag(key: key, enabled: enabled, featureFlagToken: token)
+        #endif
+    }
+
+    /// Update the privacy config via the gateway's PATCH /v1/config/privacy endpoint.
+    /// Authenticates with the feature-flag token (same auth scope).
+    public func setPrivacyConfig(collectUsageData: Bool? = nil, sendDiagnostics: Bool? = nil) async throws {
+        guard let token = resolveFeatureFlagAuthToken() else {
+            throw FeatureFlagError.missingToken
+        }
+
+        #if os(macOS)
+        if let httpTransport = self.httpTransport, !Self.isLocalBaseURL(httpTransport.baseURL) {
+            try await httpTransport.setPrivacyConfig(collectUsageData: collectUsageData, sendDiagnostics: sendDiagnostics, featureFlagToken: token)
+            return
+        }
+
+        // Local mode: call the gateway directly.
+        guard var request = buildLocalRequest(target: .gateway, path: "v1/config/privacy", method: "PATCH", tokenOverride: token) else {
+            throw FeatureFlagError.invalidURL
+        }
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+
+        var body: [String: Any] = [:]
+        if let collectUsageData { body["collectUsageData"] = collectUsageData }
+        if let sendDiagnostics { body["sendDiagnostics"] = sendDiagnostics }
+        request.httpBody = try JSONSerialization.data(withJSONObject: body)
+
+        let (_, response) = try await URLSession.shared.data(for: request)
+        guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
+            return // Best-effort — failure is non-fatal
+        }
+        #else
+        guard let httpTransport else { return }
+        try await httpTransport.setPrivacyConfig(collectUsageData: collectUsageData, sendDiagnostics: sendDiagnostics, featureFlagToken: token)
         #endif
     }
 

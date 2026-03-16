@@ -149,15 +149,17 @@ export async function executeBrowserNavigate(
   let blockedUrl: string | null = null;
 
   // Start screencast if a sender is registered for this session
-  const sender = getSender(context.sessionId);
+  const sender = getSender(context.conversationId);
   if (sender) {
-    await ensureScreencast(context.sessionId);
+    await ensureScreencast(context.conversationId);
   }
 
   try {
-    const page = await browserManager.getOrCreateSessionPage(context.sessionId);
+    const page = await browserManager.getOrCreateSessionPage(
+      context.conversationId,
+    );
     log.debug(
-      { url: safeRequestedUrl, sessionId: context.sessionId },
+      { url: safeRequestedUrl, sessionId: context.conversationId },
       "Navigating",
     );
 
@@ -280,7 +282,7 @@ export async function executeBrowserNavigate(
 
     // Reposition the browser window after navigation so the user can watch.
     // positionWindowSidebar() is a no-op when browserCdpSession is unavailable.
-    if (!browserManager.isInteractive(context.sessionId)) {
+    if (!browserManager.isInteractive(context.conversationId)) {
       await browserManager.positionWindowSidebar();
     }
 
@@ -295,7 +297,7 @@ export async function executeBrowserNavigate(
     // Without this, element IDs from a previous page could resolve and cause
     // confusing Playwright timeout errors instead of the actionable
     // "run browser_snapshot first" message.
-    browserManager.clearSnapshotMap(context.sessionId);
+    browserManager.clearSnapshotMap(context.conversationId);
 
     // Auto-dismiss common blocker modals (regulatory notices, cookie banners)
     // that aren't exposed in the accessibility tree. Runs silently — if no
@@ -373,7 +375,7 @@ export async function executeBrowserNavigate(
           // CAPTCHA persisted after auto-resolve wait — hand off to user
           if (sender) {
             const { startHandoff } = await import("./browser-handoff.js");
-            await startHandoff(context.sessionId, {
+            await startHandoff(context.conversationId, {
               reason: "captcha",
               message:
                 "Cloudflare verification detected. Please solve the CAPTCHA in the Chrome window. The browser will automatically detect when you're done and resume.",
@@ -450,7 +452,7 @@ export async function executeBrowserNavigate(
     if (routeHandler) {
       try {
         const page = await browserManager.getOrCreateSessionPage(
-          context.sessionId,
+          context.conversationId,
         );
         await page.unroute("**/*", routeHandler);
       } catch {
@@ -481,7 +483,9 @@ export async function executeBrowserSnapshot(
   context: ToolContext,
 ): Promise<ToolExecutionResult> {
   try {
-    const page = await browserManager.getOrCreateSessionPage(context.sessionId);
+    const page = await browserManager.getOrCreateSessionPage(
+      context.conversationId,
+    );
     const currentUrl = page.url();
     const title = await page.title();
 
@@ -515,7 +519,7 @@ export async function executeBrowserSnapshot(
     for (const el of elements) {
       selectorMap.set(el.eid, `[data-vellum-eid="${el.eid}"]`);
     }
-    browserManager.storeSnapshotMap(context.sessionId, selectorMap);
+    browserManager.storeSnapshotMap(context.conversationId, selectorMap);
 
     // Format output
     const lines: string[] = [
@@ -563,7 +567,9 @@ export async function executeBrowserScreenshot(
   const fullPage = input.full_page === true;
 
   try {
-    const page = await browserManager.getOrCreateSessionPage(context.sessionId);
+    const page = await browserManager.getOrCreateSessionPage(
+      context.conversationId,
+    );
     const buffer = await page.screenshot({
       type: "jpeg",
       quality: 80,
@@ -601,9 +607,9 @@ export async function executeBrowserClose(
   context: ToolContext,
 ): Promise<ToolExecutionResult> {
   try {
-    const sender = getSender(context.sessionId);
+    const sender = getSender(context.conversationId);
     if (sender) {
-      await stopBrowserScreencast(context.sessionId);
+      await stopBrowserScreencast(context.conversationId);
     }
 
     if (input.close_all_pages === true) {
@@ -614,7 +620,7 @@ export async function executeBrowserClose(
         isError: false,
       };
     }
-    await browserManager.closeSessionPage(context.sessionId);
+    await browserManager.closeSessionPage(context.conversationId);
     return { content: "Browser page closed for this session.", isError: false };
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
@@ -629,14 +635,16 @@ export async function executeBrowserClick(
   input: Record<string, unknown>,
   context: ToolContext,
 ): Promise<ToolExecutionResult> {
-  const { selector, error } = resolveSelector(context.sessionId, input);
+  const { selector, error } = resolveSelector(context.conversationId, input);
   if (error) return { content: error, isError: true };
 
   const timeout =
     typeof input.timeout === "number" ? input.timeout : ACTION_TIMEOUT_MS;
 
   try {
-    const page = await browserManager.getOrCreateSessionPage(context.sessionId);
+    const page = await browserManager.getOrCreateSessionPage(
+      context.conversationId,
+    );
     await page.click(selector!, { timeout });
     return { content: `Clicked element: ${selector}`, isError: false };
   } catch (err) {
@@ -652,7 +660,7 @@ export async function executeBrowserType(
   input: Record<string, unknown>,
   context: ToolContext,
 ): Promise<ToolExecutionResult> {
-  const { selector, error } = resolveSelector(context.sessionId, input);
+  const { selector, error } = resolveSelector(context.conversationId, input);
   if (error) return { content: error, isError: true };
 
   const text = typeof input.text === "string" ? input.text : "";
@@ -664,7 +672,9 @@ export async function executeBrowserType(
   const pressEnter = input.press_enter === true;
 
   try {
-    const page = await browserManager.getOrCreateSessionPage(context.sessionId);
+    const page = await browserManager.getOrCreateSessionPage(
+      context.conversationId,
+    );
 
     const fillTimeout =
       typeof input.timeout === "number" ? input.timeout : ACTION_TIMEOUT_MS;
@@ -710,7 +720,9 @@ export async function executeBrowserPressKey(
   }
 
   try {
-    const page = await browserManager.getOrCreateSessionPage(context.sessionId);
+    const page = await browserManager.getOrCreateSessionPage(
+      context.conversationId,
+    );
 
     // If element_id or selector is provided, press key on that element
     const elementId =
@@ -719,7 +731,10 @@ export async function executeBrowserPressKey(
       typeof input.selector === "string" ? input.selector : null;
 
     if (elementId || rawSelector) {
-      const { selector, error } = resolveSelector(context.sessionId, input);
+      const { selector, error } = resolveSelector(
+        context.conversationId,
+        input,
+      );
       if (error) {
         return { content: error, isError: true };
       }
@@ -759,7 +774,9 @@ export async function executeBrowserScroll(
     typeof input.amount === "number" ? Math.abs(input.amount) : 500;
 
   try {
-    const page = await browserManager.getOrCreateSessionPage(context.sessionId);
+    const page = await browserManager.getOrCreateSessionPage(
+      context.conversationId,
+    );
 
     let deltaX = 0;
     let deltaY = 0;
@@ -794,7 +811,7 @@ export async function executeBrowserSelectOption(
   input: Record<string, unknown>,
   context: ToolContext,
 ): Promise<ToolExecutionResult> {
-  const { selector, error } = resolveSelector(context.sessionId, input);
+  const { selector, error } = resolveSelector(context.conversationId, input);
   if (error) return { content: error, isError: true };
 
   const value = typeof input.value === "string" ? input.value : undefined;
@@ -809,7 +826,9 @@ export async function executeBrowserSelectOption(
   }
 
   try {
-    const page = await browserManager.getOrCreateSessionPage(context.sessionId);
+    const page = await browserManager.getOrCreateSessionPage(
+      context.conversationId,
+    );
 
     const option: Record<string, string | number> = {};
     if (value !== undefined) option.value = value;
@@ -841,11 +860,13 @@ export async function executeBrowserHover(
   input: Record<string, unknown>,
   context: ToolContext,
 ): Promise<ToolExecutionResult> {
-  const { selector, error } = resolveSelector(context.sessionId, input);
+  const { selector, error } = resolveSelector(context.conversationId, input);
   if (error) return { content: error, isError: true };
 
   try {
-    const page = await browserManager.getOrCreateSessionPage(context.sessionId);
+    const page = await browserManager.getOrCreateSessionPage(
+      context.conversationId,
+    );
     await page.hover(selector!, { timeout: ACTION_TIMEOUT_MS });
 
     return { content: `Hovered element: ${selector}`, isError: false };
@@ -894,7 +915,9 @@ export async function executeBrowserWaitFor(
       : MAX_WAIT_MS;
 
   try {
-    const page = await browserManager.getOrCreateSessionPage(context.sessionId);
+    const page = await browserManager.getOrCreateSessionPage(
+      context.conversationId,
+    );
 
     if (selector) {
       await page.waitForSelector(selector, { timeout });
@@ -936,7 +959,9 @@ export async function executeBrowserExtract(
   const includeLinks = input.include_links === true;
 
   try {
-    const page = await browserManager.getOrCreateSessionPage(context.sessionId);
+    const page = await browserManager.getOrCreateSessionPage(
+      context.conversationId,
+    );
     const currentUrl = page.url();
     const title = await page.title();
 
@@ -1000,13 +1025,15 @@ export async function executeBrowserFillCredential(
     return { content: "Error: field is required.", isError: true };
   }
 
-  const { selector, error } = resolveSelector(context.sessionId, input);
+  const { selector, error } = resolveSelector(context.conversationId, input);
   if (error) return { content: error, isError: true };
 
   const pressEnter = input.press_enter === true;
 
   try {
-    const page = await browserManager.getOrCreateSessionPage(context.sessionId);
+    const page = await browserManager.getOrCreateSessionPage(
+      context.conversationId,
+    );
 
     // Extract domain from the current page for domain policy enforcement
     let pageDomain: string | undefined;

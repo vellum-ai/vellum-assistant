@@ -140,7 +140,7 @@ struct AppsGridView: View {
             title: "Your library is empty",
             subtitle: "Ask your assistant to build something",
             icon: VIcon.layoutGrid.rawValue,
-            actionLabel: "New Thread",
+            actionLabel: "New Conversation",
             actionIcon: VIcon.plus.rawValue,
             action: { onNewThread?() }
         )
@@ -411,7 +411,7 @@ struct AppsGridView: View {
         </html>
         """
         let surfaceMsg = UiSurfaceShowMessage(
-            sessionId: "shared-app",
+            conversationId: "shared-app",
             surfaceId: "shared-app-\(app.uuid)",
             surfaceType: "dynamic_page",
             title: app.name,

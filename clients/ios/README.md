@@ -117,7 +117,7 @@ Test files in `clients/ios/Tests/`:
 - `AttachmentFlowIOSTests.swift` — attachment limits, send flow, thumbnails
 - `ChatTranscriptFormatterIOSTests.swift` — markdown formatting, plain text extraction
 - `ChatViewModelIOSTests.swift` — message send/receive flow, streaming, error handling
-- `ThreadLifecycleIOSTests.swift` — session creation, backfill, thread isolation
+- `ConversationLifecycleIOSTests.swift` — session creation, backfill, thread isolation
 - `UsageDashboardViewTests.swift` — usage dashboard state, data loading, formatting
 
 ### Shared Tests

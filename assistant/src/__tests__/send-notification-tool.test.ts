@@ -28,7 +28,6 @@ describe("send-notification tool", () => {
       },
       {
         workingDir: "/tmp",
-        sessionId: "sess-1",
         conversationId: "conv-1",
         assistantId: "ast-alpha",
         trustClass: "guardian" as const,
@@ -51,7 +50,7 @@ describe("send-notification tool", () => {
       contextPayload: {
         requestedMessage: "Your verification code is 123456",
         requestedByTool: "send_notification",
-        requestedBySessionId: "sess-1",
+        requestedBySessionId: "conv-1",
         requestedTitle: "Verification code",
         requestedByConversationId: "conv-override",
         preferredChannels: ["vellum"],
@@ -71,7 +70,6 @@ describe("send-notification tool", () => {
       { message: "test notification" },
       {
         workingDir: "/tmp",
-        sessionId: "sess-1",
         conversationId: "conv-1",
         assistantId: "ast-alpha",
         trustClass: "guardian" as const,

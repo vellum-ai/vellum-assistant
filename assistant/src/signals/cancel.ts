@@ -20,7 +20,7 @@ const log = getLogger("signal:cancel");
 
 // ── Daemon callback registry ─────────────────────────────────────────
 
-type CancelCallback = (sessionId: string) => boolean;
+type CancelCallback = (conversationId: string) => boolean;
 
 let _cancelGeneration: CancelCallback | null = null;
 
@@ -41,11 +41,11 @@ export function registerCancelCallback(cb: CancelCallback): void {
 export function handleCancelSignal(): void {
   try {
     const content = readFileSync(join(getSignalsDir(), "cancel"), "utf-8");
-    const parsed = JSON.parse(content) as { sessionId?: string };
-    const { sessionId } = parsed;
+    const parsed = JSON.parse(content) as { conversationId?: string };
+    const { conversationId } = parsed;
 
-    if (!sessionId || typeof sessionId !== "string") {
-      log.warn("Cancel signal missing sessionId");
+    if (!conversationId || typeof conversationId !== "string") {
+      log.warn("Cancel signal missing conversationId");
       return;
     }
 
@@ -54,11 +54,11 @@ export function handleCancelSignal(): void {
       return;
     }
 
-    const found = _cancelGeneration(sessionId);
+    const found = _cancelGeneration(conversationId);
     if (found) {
-      log.info({ sessionId }, "Generation cancelled via signal file");
+      log.info({ conversationId }, "Generation cancelled via signal file");
     } else {
-      log.warn({ sessionId }, "No active session for cancel signal");
+      log.warn({ conversationId }, "No active session for cancel signal");
     }
   } catch (err) {
     log.error({ err }, "Failed to handle cancel signal");

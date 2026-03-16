@@ -7,12 +7,12 @@ import type { AuthContext } from "../../runtime/auth/types.js";
 import type { DebouncerMap } from "../../util/debounce.js";
 import { getLogger } from "../../util/logger.js";
 import { estimateBase64Bytes } from "../assistant-attachments.js";
+import { Conversation } from "../conversation.js";
+import type { TrustContext } from "../conversation-runtime-assembly.js";
 import type {
+  ConversationTransportMetadata,
   ServerMessage,
-  SessionTransportMetadata,
 } from "../message-protocol.js";
-import { Session } from "../session.js";
-import type { TrustContext } from "../session-runtime-assembly.js";
 
 const log = getLogger("handlers");
 
@@ -115,12 +115,12 @@ export interface ParsedHistoryMessage {
 }
 
 /**
- * Optional overrides for session creation (e.g. interview mode).
+ * Optional overrides for conversation creation (e.g. interview mode).
  */
-export interface SessionCreateOptions {
+export interface ConversationCreateOptions {
   systemPromptOverride?: string;
   maxResponseTokens?: number;
-  transport?: SessionTransportMetadata;
+  transport?: ConversationTransportMetadata;
   assistantId?: string;
   trustContext?: TrustContext;
   /** Normalized auth context for the session. */
@@ -141,7 +141,7 @@ export interface SessionCreateOptions {
  * Keeps handlers decoupled from the server class itself.
  */
 export interface HandlerContext {
-  sessions: Map<string, Session>;
+  conversations: Map<string, Conversation>;
   sharedRequestTimestamps: number[];
   debounceTimers: DebouncerMap;
   suppressConfigReload: boolean;
@@ -149,13 +149,13 @@ export interface HandlerContext {
   updateConfigFingerprint(): void;
   send(msg: ServerMessage): void;
   broadcast(msg: ServerMessage): void;
-  clearAllSessions(): number;
-  getOrCreateSession(
+  clearAllConversations(): number;
+  getOrCreateConversation(
     conversationId: string,
-    options?: SessionCreateOptions,
-  ): Promise<Session>;
-  /** Refresh the eviction timestamp for a session that was accessed directly. */
-  touchSession(sessionId: string): void;
+    options?: ConversationCreateOptions,
+  ): Promise<Conversation>;
+  /** Refresh the eviction timestamp for a conversation that was accessed directly. */
+  touchConversation(conversationId: string): void;
   /** Optional heartbeat service reference for "Run Now" support. */
   heartbeatService?: HeartbeatService;
 }

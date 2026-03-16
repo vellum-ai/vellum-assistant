@@ -68,6 +68,8 @@ struct ChatView: View {
     var onRequestGreeting: (() -> Void)? = nil
     /// When set, scroll to this message ID and clear the binding.
     @Binding var anchorMessageId: UUID?
+    /// Message ID to visually highlight after an anchor scroll completes.
+    @Binding var highlightedMessageId: UUID?
 
     // MARK: - BTW Side-Chain
 
@@ -77,6 +79,15 @@ struct ChatView: View {
     var btwLoading: Bool = false
     /// Called to dismiss the btw overlay.
     var onDismissBtw: (() -> Void)?
+
+    // MARK: - Credits Exhausted (inline banner)
+
+    /// Non-nil when the conversation ended due to credits exhaustion.
+    var creditsExhaustedError: ConversationError? = nil
+    /// Opens the billing / add-funds flow.
+    var onAddFunds: (() -> Void)? = nil
+    /// Dismisses the credits-exhausted banner.
+    var onDismissCreditsExhausted: (() -> Void)? = nil
 
     // MARK: - Pagination
 
@@ -216,12 +227,16 @@ struct ChatView: View {
                             onSurfaceRefetch: onSurfaceRefetch,
                             onRetryFailedMessage: onRetryFailedMessage,
                             subagentDetailStore: subagentDetailStore,
+                            creditsExhaustedError: creditsExhaustedError,
+                            onAddFunds: onAddFunds,
+                            onDismissCreditsExhausted: onDismissCreditsExhausted,
                             displayedMessageCount: displayedMessageCount,
                             hasMoreMessages: hasMoreMessages,
                             isLoadingMoreMessages: isLoadingMoreMessages,
                             loadPreviousMessagePage: loadPreviousMessagePage,
                             threadId: threadId,
                             anchorMessageId: $anchorMessageId,
+                            highlightedMessageId: $highlightedMessageId,
                             isNearBottom: $isNearBottom,
                             containerWidth: containerWidth
                         )
@@ -632,7 +647,7 @@ struct ScrollWheelDetector: NSViewRepresentable {
                 // Called synchronously so isNearBottom is cleared before any competing
                 // layout pass can trigger an auto-scroll-to-bottom.
                 // Guard: only untether if content is actually scrollable (prevents false
-                // untethers on short threads that can't scroll).
+                // untethers on short conversations that can't scroll).
                 if let scrollView = coordinator.findEnclosingScrollView() {
                     let clipHeight = scrollView.contentView.bounds.height
                     let docHeight = scrollView.documentView?.frame.height ?? 0
@@ -790,6 +805,7 @@ struct ScrollWheelPassthrough: NSViewRepresentable {
 private struct ChatViewPreviewWrapper: View {
     @State private var text = ""
     @State private var anchorMessageId: UUID?
+    @State private var highlightedMessageId: UUID?
 
     private let sampleMessages: [ChatMessage] = [
         ChatMessage(role: .assistant, text: "Hello! How can I help you today?"),
@@ -834,7 +850,8 @@ private struct ChatViewPreviewWrapper: View {
                 watchSession: nil,
                 onStopWatch: {},
                 subagentDetailStore: SubagentDetailStore(),
-                anchorMessageId: $anchorMessageId
+                anchorMessageId: $anchorMessageId,
+                highlightedMessageId: $highlightedMessageId
             )
         }
     }

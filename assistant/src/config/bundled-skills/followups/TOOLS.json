@@ -13,9 +13,9 @@
             "type": "string",
             "description": "Communication channel (e.g. email, slack, whatsapp)"
           },
-          "thread_id": {
+          "conversation_id": {
             "type": "string",
-            "description": "External thread or conversation identifier on that channel"
+            "description": "External conversation identifier on that channel"
           },
           "contact_id": {
             "type": "string",
@@ -34,7 +34,7 @@
             "description": "Brief non-technical explanation of why this tool is being called"
           }
         },
-        "required": ["channel", "thread_id"]
+        "required": ["channel", "conversation_id"]
       },
       "executor": "tools/followup-create.ts",
       "execution_target": "host"
@@ -76,7 +76,7 @@
     },
     {
       "name": "followup_resolve",
-      "description": "Manually resolve a follow-up by ID, or auto-resolve by channel + thread ID when a response is received.",
+      "description": "Manually resolve a follow-up by ID, or auto-resolve by channel + conversation ID when a response is received.",
       "category": "followups",
       "risk": "low",
       "input_schema": {
@@ -88,11 +88,11 @@
           },
           "channel": {
             "type": "string",
-            "description": "Channel to match (used with thread_id for auto-resolution)"
+            "description": "Channel to match (used with conversation_id for auto-resolution)"
           },
-          "thread_id": {
+          "conversation_id": {
             "type": "string",
-            "description": "Thread ID to match (used with channel for auto-resolution)"
+            "description": "Conversation ID to match (used with channel for auto-resolution)"
           },
           "reason": {
             "type": "string",

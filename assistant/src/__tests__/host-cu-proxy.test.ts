@@ -42,7 +42,7 @@ describe("HostCuProxy", () => {
       expect(sentMessages).toHaveLength(1);
       const sent = sentMessages[0] as Record<string, unknown>;
       expect(sent.type).toBe("host_cu_request");
-      expect(sent.sessionId).toBe("session-1");
+      expect(sent.conversationId).toBe("session-1");
       expect(sent.toolName).toBe("computer_use_click");
       expect(sent.input).toEqual({ element_id: 42 });
       expect(sent.stepNumber).toBe(1);

@@ -5,11 +5,13 @@
  * data. Provides upload, delete, and message-linkage operations.
  */
 
-import { unlinkSync } from "node:fs";
+import { mkdirSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
+import { basename, join } from "node:path";
 
 import { eq } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 
+import { getWorkspaceDir } from "../util/platform.js";
 import { getDb, rawAll, rawGet, rawRun } from "./db.js";
 import { attachments, messageAttachments } from "./schema.js";
 
@@ -46,8 +48,28 @@ function formatBytes(bytes: number): string {
 // Size and encoding limits
 // ---------------------------------------------------------------------------
 
-/** Hard ceiling on a single uploaded attachment (20 MB, matching assistant limits). */
-export const MAX_UPLOAD_BYTES = 20 * 1024 * 1024;
+/** Hard ceiling on a single uploaded attachment (50 MB, matching assistant limits). */
+export const MAX_UPLOAD_BYTES = 50 * 1024 * 1024;
+
+/** Attachments larger than this are stored on disk instead of inline in SQLite. */
+export const FILE_BACKED_THRESHOLD_BYTES = 5 * 1024 * 1024;
+
+/**
+ * Write decoded base64 data to disk under the workspace attachments directory.
+ * Returns the absolute file path of the written file.
+ */
+export function writeAttachmentToDisk(
+  dataBase64: string,
+  filename: string,
+): string {
+  const dir = join(getWorkspaceDir(), "data", "attachments");
+  mkdirSync(dir, { recursive: true });
+  const destFilename = `${uuid()}-${basename(filename)}`;
+  const destPath = join(dir, destFilename);
+  const buffer = Buffer.from(dataBase64, "base64");
+  writeFileSync(destPath, buffer);
+  return destPath;
+}
 
 /**
  * Validate that a string contains only characters from the standard base64
@@ -201,25 +223,14 @@ function computeContentHash(dataBase64: string): string {
 // File-backed attachment storage (avoids reading large files into memory)
 // ---------------------------------------------------------------------------
 
-function ensureFilePathColumn(): void {
-  try {
-    // SQLite allows ALTER TABLE ADD COLUMN for nullable columns
-    rawRun("ALTER TABLE attachments ADD COLUMN file_path TEXT");
-  } catch {
-    // Column already exists — ignore the error
-  }
-}
-
-let filePathColumnEnsured = false;
-
 /**
  * Store a file-backed attachment by path reference, without reading the file
  * into memory. This avoids OOM risk for large recordings that exceed the
- * normal 20 MB upload limit.
+ * normal 50 MB upload limit.
  *
  * The file stays on disk; the attachment row stores an empty dataBase64 and
- * records the on-disk path in a `file_path` column (added via runtime
- * migration since the Drizzle schema doesn't know about it).
+ * records the on-disk path in a `file_path` column (added via DB migration
+ * in 102-alter-table-columns.ts since the Drizzle schema doesn't know about it).
  */
 export function uploadFileBackedAttachment(
   filename: string,
@@ -227,11 +238,6 @@ export function uploadFileBackedAttachment(
   filePath: string,
   sizeBytes: number,
 ): StoredAttachment & { filePath: string } {
-  if (!filePathColumnEnsured) {
-    ensureFilePathColumn();
-    filePathColumnEnsured = true;
-  }
-
   const now = Date.now();
   const kind = classifyKind(mimeType);
   const id = uuid();
@@ -263,18 +269,65 @@ export function uploadFileBackedAttachment(
 
 /**
  * Returns the file_path for a file-backed attachment, or null if not file-backed.
- * Uses raw SQL since file_path is added via runtime migration and is not in the Drizzle schema.
+ * Uses raw SQL since file_path is added via DB migration and is not in the Drizzle schema.
  */
 export function getFilePathForAttachment(attachmentId: string): string | null {
-  if (!filePathColumnEnsured) {
-    ensureFilePathColumn();
-    filePathColumnEnsured = true;
-  }
   const row = rawGet<{ file_path: string | null }>(
     "SELECT file_path FROM attachments WHERE id = ?",
     attachmentId,
   );
   return row?.file_path ?? null;
+}
+
+/**
+ * Batch-fetch file_path values for multiple attachment IDs in a single query.
+ * Returns a Set of attachment IDs that are file-backed (have a non-null file_path).
+ * Uses raw SQL since file_path is added via runtime migration and is not in the Drizzle schema.
+ */
+export function getFileBackedAttachmentIds(
+  attachmentIds: string[],
+): Set<string> {
+  if (attachmentIds.length === 0) return new Set();
+  const placeholders = attachmentIds.map(() => "?").join(", ");
+  const rows = rawAll<{ id: string }>(
+    `SELECT id FROM attachments WHERE id IN (${placeholders}) AND file_path IS NOT NULL`,
+    ...attachmentIds,
+  );
+  return new Set(rows.map((r) => r.id));
+}
+
+/**
+ * Return the raw binary content for an attachment, abstracting over inline
+ * (base64-in-DB) vs file-backed (on-disk) storage.
+ *
+ * For file-backed attachments the bytes are read from the on-disk path;
+ * for inline attachments the base64 payload is decoded from the DB row.
+ *
+ * Returns null if the attachment does not exist.
+ */
+export function getAttachmentContent(attachmentId: string): Buffer | null {
+  const filePath = getFilePathForAttachment(attachmentId);
+  if (filePath) {
+    try {
+      return readFileSync(filePath);
+    } catch (err: unknown) {
+      if (err instanceof Error && "code" in err && err.code === "ENOENT") {
+        return null;
+      }
+      throw err;
+    }
+  }
+
+  // Fall back to inline base64 stored in the DB
+  const db = getDb();
+  const row = db
+    .select({ dataBase64: attachments.dataBase64 })
+    .from(attachments)
+    .where(eq(attachments.id, attachmentId))
+    .get();
+
+  if (!row) return null;
+  return Buffer.from(row.dataBase64, "base64");
 }
 
 export function uploadAttachment(
@@ -394,7 +447,19 @@ export function deleteAttachment(attachmentId: string): DeleteAttachmentResult {
 
   if (refCount > 0) return "still_referenced";
 
+  // Collect file path BEFORE deleting the DB row (the row contains the path reference)
+  const filePath = getFilePathForAttachment(attachmentId);
+
   db.delete(attachments).where(eq(attachments.id, attachmentId)).run();
+
+  // Clean up on-disk file only after the DB row has been removed
+  if (filePath) {
+    try {
+      unlinkSync(filePath);
+    } catch {
+      /* file may already be gone */
+    }
+  }
 
   return "deleted";
 }

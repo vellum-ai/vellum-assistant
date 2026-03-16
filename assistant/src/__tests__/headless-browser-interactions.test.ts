@@ -39,11 +39,11 @@ mock.module("../tools/browser/browser-manager.js", () => {
       getOrCreateSessionPage: async () => mockPage,
       closeSessionPage: async () => {},
       closeAllPages: async () => {},
-      storeSnapshotMap: (sessionId: string, map: Map<string, string>) => {
-        snapshotMaps.set(sessionId, map);
+      storeSnapshotMap: (conversationId: string, map: Map<string, string>) => {
+        snapshotMaps.set(conversationId, map);
       },
-      resolveSnapshotSelector: (sessionId: string, elementId: string) => {
-        const map = snapshotMaps.get(sessionId);
+      resolveSnapshotSelector: (conversationId: string, elementId: string) => {
+        const map = snapshotMaps.get(conversationId);
         if (!map) return null;
         return map.get(elementId) ?? null;
       },
@@ -81,7 +81,6 @@ import {
 import type { ToolContext } from "../tools/types.js";
 
 const ctx: ToolContext = {
-  sessionId: "test-session",
   conversationId: "test-conversation",
   workingDir: "/tmp",
   trustClass: "guardian",
@@ -119,7 +118,7 @@ describe("executeBrowserClick", () => {
 
   test("clicks by element_id via snapshot map", async () => {
     snapshotMaps.set(
-      "test-session",
+      "test-conversation",
       new Map([["e1", '[data-vellum-eid="e1"]']]),
     );
     const result = await executeBrowserClick({ element_id: "e1" }, ctx);
@@ -140,7 +139,7 @@ describe("executeBrowserClick", () => {
 
   test("prefers element_id over selector", async () => {
     snapshotMaps.set(
-      "test-session",
+      "test-conversation",
       new Map([["e1", '[data-vellum-eid="e1"]']]),
     );
     const result = await executeBrowserClick(
@@ -195,7 +194,7 @@ describe("executeBrowserType", () => {
 
   test("types with element_id and default clear_first=true", async () => {
     snapshotMaps.set(
-      "test-session",
+      "test-conversation",
       new Map([["e3", '[data-vellum-eid="e3"]']]),
     );
     const result = await executeBrowserType(
@@ -333,7 +332,7 @@ describe("executeBrowserSnapshot", () => {
     ];
     mockPage.evaluate = mock(async () => sampleElements);
     await executeBrowserSnapshot({}, ctx);
-    const map = snapshotMaps.get("test-session");
+    const map = snapshotMaps.get("test-conversation");
     expect(map).toBeDefined();
     expect(map!.get("e1")).toBe('[data-vellum-eid="e1"]');
   });
@@ -505,7 +504,7 @@ describe("executeBrowserPressKey", () => {
 
   test("presses key on targeted element via element_id", async () => {
     snapshotMaps.set(
-      "test-session",
+      "test-conversation",
       new Map([["e5", '[data-vellum-eid="e5"]']]),
     );
     const result = await executeBrowserPressKey(
@@ -622,7 +621,7 @@ describe("executeBrowserSelectOption", () => {
 
   test("selects by value via element_id", async () => {
     snapshotMaps.set(
-      "test-session",
+      "test-conversation",
       new Map([["e4", '[data-vellum-eid="e4"]']]),
     );
     const result = await executeBrowserSelectOption(
@@ -703,7 +702,7 @@ describe("executeBrowserHover", () => {
 
   test("hovers by element_id via snapshot map", async () => {
     snapshotMaps.set(
-      "test-session",
+      "test-conversation",
       new Map([["e2", '[data-vellum-eid="e2"]']]),
     );
     const result = await executeBrowserHover({ element_id: "e2" }, ctx);
@@ -762,7 +761,7 @@ describe("browser execution wrapper contract", () => {
 
   test("executeBrowserClick matches wrapper contract (input, context) → result", async () => {
     snapshotMaps.set(
-      "test-session",
+      "test-conversation",
       new Map([["e1", '[data-vellum-eid="e1"]']]),
     );
     const result = await executeBrowserClick({ element_id: "e1" }, ctx);
@@ -775,7 +774,7 @@ describe("browser execution wrapper contract", () => {
 
   test("executeBrowserType matches wrapper contract", async () => {
     snapshotMaps.set(
-      "test-session",
+      "test-conversation",
       new Map([["e3", '[data-vellum-eid="e3"]']]),
     );
     const result = await executeBrowserType(
@@ -840,7 +839,7 @@ describe("browser execution wrapper contract", () => {
 
   test("executeBrowserSelectOption matches wrapper contract", async () => {
     snapshotMaps.set(
-      "test-session",
+      "test-conversation",
       new Map([["e4", '[data-vellum-eid="e4"]']]),
     );
     const result = await executeBrowserSelectOption(
@@ -854,7 +853,7 @@ describe("browser execution wrapper contract", () => {
 
   test("executeBrowserHover matches wrapper contract", async () => {
     snapshotMaps.set(
-      "test-session",
+      "test-conversation",
       new Map([["e2", '[data-vellum-eid="e2"]']]),
     );
     const result = await executeBrowserHover({ element_id: "e2" }, ctx);

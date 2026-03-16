@@ -58,7 +58,7 @@ const testSteps: SequenceStep[] = [
     delaySeconds: 0,
     subjectTemplate: "Intro",
     bodyPrompt: "Write an intro email",
-    replyToThread: false,
+    replyInSameConversation: false,
     requireApproval: false,
   },
   {
@@ -66,7 +66,7 @@ const testSteps: SequenceStep[] = [
     delaySeconds: 86400,
     subjectTemplate: "Follow up",
     bodyPrompt: "Write a follow-up",
-    replyToThread: true,
+    replyInSameConversation: true,
     requireApproval: false,
   },
   {
@@ -74,7 +74,7 @@ const testSteps: SequenceStep[] = [
     delaySeconds: 259200,
     subjectTemplate: "Final check",
     bodyPrompt: "Write a final check-in",
-    replyToThread: true,
+    replyInSameConversation: true,
     requireApproval: true,
   },
 ];
@@ -364,7 +364,7 @@ describe("sequence-store", () => {
           delaySeconds: 86400,
           subjectTemplate: "Future",
           bodyPrompt: "Later",
-          replyToThread: false,
+          replyInSameConversation: false,
           requireApproval: false,
         },
       ];
@@ -444,7 +444,7 @@ describe("sequence-store", () => {
         Date.now() + 86400000,
       );
       expect(advanced!.currentStep).toBe(1);
-      expect(advanced!.threadId).toBe("thread-123");
+      expect(advanced!.conversationId).toBe("thread-123");
     });
 
     test("returns undefined for non-existent id", () => {

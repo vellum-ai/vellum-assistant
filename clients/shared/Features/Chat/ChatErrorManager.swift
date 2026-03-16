@@ -22,7 +22,7 @@ public final class ChatErrorManager: ObservableObject {
     @Published public var errorText: String?
 
     /// Typed session error, richer than `errorText` and used for structured retry UI.
-    @Published public var sessionError: SessionError?
+    @Published public var conversationError: ConversationError?
 
     /// Supplemental diagnostic hint shown alongside a daemon connection error.
     /// Nil when no connection error is active or the error has been dismissed.

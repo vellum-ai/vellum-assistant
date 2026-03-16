@@ -34,7 +34,7 @@ final class FirstMeetingIntroductionViewModel {
     // MARK: - Internal State
 
     private let maxTurns = 10
-    private var sessionId: String?
+    private var conversationId: String?
     private var currentTask: Task<Void, Never>?
     private var startTime: Date?
 
@@ -66,7 +66,7 @@ final class FirstMeetingIntroductionViewModel {
             let stream = self.daemonClient.subscribe()
 
             do {
-                try self.daemonClient.send(SessionCreateMessage(
+                try self.daemonClient.send(ConversationCreateMessage(
                     title: "First meeting",
                     maxResponseTokens: 220,
                     transportChannelId: "vellum",
@@ -93,14 +93,14 @@ final class FirstMeetingIntroductionViewModel {
                 guard !Task.isCancelled else { break }
 
                 switch message {
-                case .sessionInfo(let info):
-                    if self.sessionId == nil {
-                        self.sessionId = info.sessionId
-                        log.info("First meeting session created: \(info.sessionId)")
+                case .conversationInfo(let info):
+                    if self.conversationId == nil {
+                        self.conversationId = info.conversationId
+                        log.info("First meeting conversation created: \(info.conversationId)")
 
                         do {
                             try self.daemonClient.send(UserMessageMessage(
-                                sessionId: info.sessionId,
+                                conversationId: info.conversationId,
                                 content: "Hi! You just hatched and I want to set us up well.",
                                 attachments: nil
                             ))
@@ -115,19 +115,19 @@ final class FirstMeetingIntroductionViewModel {
                         }
                     }
 
-                case .assistantTextDelta(let delta) where self.sessionId != nil:
+                case .assistantTextDelta(let delta) where self.conversationId != nil:
                     // Filter by session to prevent contamination from concurrent sessions.
-                    if let deltaSessionId = delta.sessionId, deltaSessionId != self.sessionId {
+                    if let deltaSessionId = delta.conversationId, deltaSessionId != self.conversationId {
                         break
                     }
                     accumulated += delta.text
                     self.isThinking = false
                     self.streamingText = accumulated
 
-                case .assistantThinkingDelta where self.sessionId != nil:
+                case .assistantThinkingDelta where self.conversationId != nil:
                     break
 
-                case .messageComplete(let complete) where complete.sessionId == self.sessionId && self.sessionId != nil:
+                case .messageComplete(let complete) where complete.conversationId == self.conversationId && self.conversationId != nil:
                     self.isThinking = false
                     self.streamingText = ""
                     let finalText = accumulated.isEmpty ? "(No response)" : accumulated
@@ -138,7 +138,7 @@ final class FirstMeetingIntroductionViewModel {
                     log.info("First meeting greeting complete (\(accumulated.count) chars)")
                     return
 
-                case .generationHandoff(let handoff) where handoff.sessionId == self.sessionId && self.sessionId != nil:
+                case .generationHandoff(let handoff) where handoff.conversationId == self.conversationId && self.conversationId != nil:
                     self.isThinking = false
                     self.streamingText = ""
                     let finalText = accumulated.isEmpty ? "(No response)" : accumulated
@@ -149,7 +149,7 @@ final class FirstMeetingIntroductionViewModel {
                     log.info("First meeting greeting complete via handoff (\(accumulated.count) chars)")
                     return
 
-                case .sessionError(let error) where error.sessionId == self.sessionId && self.sessionId != nil:
+                case .conversationError(let error) where error.conversationId == self.conversationId && self.conversationId != nil:
                     self.isThinking = false
                     self.streamingText = ""
                     log.error("First meeting start failed (session_error): \(error.userMessage)")
@@ -184,7 +184,7 @@ final class FirstMeetingIntroductionViewModel {
     func sendMessage() {
         let text = inputText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty, !isFinished else { return }
-        guard let sessionId else {
+        guard let conversationId else {
             log.warning("Cannot send message — no active session")
             return
         }
@@ -210,7 +210,7 @@ final class FirstMeetingIntroductionViewModel {
 
             do {
                 try self.daemonClient.send(UserMessageMessage(
-                    sessionId: sessionId,
+                    conversationId: conversationId,
                     content: contentToSend,
                     attachments: nil
                 ))
@@ -232,7 +232,7 @@ final class FirstMeetingIntroductionViewModel {
                 switch message {
                 case .assistantTextDelta(let delta):
                     // Filter by session to prevent contamination from concurrent sessions.
-                    if let deltaSessionId = delta.sessionId, deltaSessionId != sessionId {
+                    if let deltaSessionId = delta.conversationId, deltaSessionId != conversationId {
                         break
                     }
                     accumulated += delta.text
@@ -242,7 +242,7 @@ final class FirstMeetingIntroductionViewModel {
                 case .assistantThinkingDelta:
                     break
 
-                case .messageComplete(let complete) where complete.sessionId == sessionId:
+                case .messageComplete(let complete) where complete.conversationId == conversationId:
                     self.isThinking = false
                     self.streamingText = ""
                     let finalText = accumulated.isEmpty ? "(No response)" : accumulated
@@ -256,7 +256,7 @@ final class FirstMeetingIntroductionViewModel {
                     log.info("Follow-up response complete (\(accumulated.count) chars), turn \(nextTurn)/\(self.maxTurns)")
                     return
 
-                case .generationHandoff(let handoff) where handoff.sessionId == sessionId:
+                case .generationHandoff(let handoff) where handoff.conversationId == conversationId:
                     self.isThinking = false
                     self.streamingText = ""
                     let finalText = accumulated.isEmpty ? "(No response)" : accumulated
@@ -270,10 +270,10 @@ final class FirstMeetingIntroductionViewModel {
                     log.info("Follow-up response complete via handoff (\(accumulated.count) chars), turn \(nextTurn)/\(self.maxTurns)")
                     return
 
-                case .sessionError(let error) where error.sessionId == sessionId:
+                case .conversationError(let error) where error.conversationId == conversationId:
                     self.isThinking = false
                     self.streamingText = ""
-                    log.error("Session error during follow-up (session_error): \(error.userMessage)")
+                    log.error("Conversation error during follow-up: \(error.userMessage)")
                     self.messages.append(InterviewMessage(
                         role: .assistant,
                         text: "Something went wrong. Please try again."
@@ -370,7 +370,7 @@ final class FirstMeetingIntroductionViewModel {
         isComplete = true
         currentTask?.cancel()
         currentTask = nil
-        sessionId = nil
+        conversationId = nil
         isThinking = false
         streamingText = ""
     }
@@ -381,6 +381,6 @@ final class FirstMeetingIntroductionViewModel {
     func cancel() {
         currentTask?.cancel()
         currentTask = nil
-        sessionId = nil
+        conversationId = nil
     }
 }

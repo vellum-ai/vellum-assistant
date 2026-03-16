@@ -81,18 +81,18 @@ extension AppDelegate {
         ])
     }
 
-    /// Handles notification permission when a notification thread arrives while
+    /// Handles notification permission when a notification conversation arrives while
     /// the app is active. This provides user-visible context for the OS prompt
     /// and gives an immediate recovery path when the app is already denied.
-    func maybePromptNotificationAuthorizationForThreadCreated() {
+    func maybePromptNotificationAuthorizationForConversationCreated() {
         Task { @MainActor in
             let settings = await UNUserNotificationCenter.current().notificationSettings()
             switch settings.authorizationStatus {
             case .authorized, .provisional, .ephemeral:
                 return
             case .notDetermined:
-                guard !hasRequestedNotificationAuthorizationFromThreadSignal else { return }
-                hasRequestedNotificationAuthorizationFromThreadSignal = true
+                guard !hasRequestedNotificationAuthorizationFromConversationSignal else { return }
+                hasRequestedNotificationAuthorizationFromConversationSignal = true
                 log.info("Requesting notification authorization from notification_thread_created signal")
                 requestNotificationAuthorization(trigger: "notification_thread_created", showDeniedToast: true)
             case .denied:
@@ -453,11 +453,11 @@ extension AppDelegate: UNUserNotificationCenterDelegate {
 
         // Handle activity completion notifications
         if categoryId == "ACTIVITY_COMPLETE" {
-            let sessionId = response.notification.request.content.userInfo["sessionId"] as? String
+            let conversationId = response.notification.request.content.userInfo["conversationId"] as? String
             await MainActor.run {
                 guard !self.isBootstrapping else { return }
-                if let sessionId, !sessionId.isEmpty {
-                    self.openConversationThread(conversationId: sessionId)
+                if let conversationId, !conversationId.isEmpty {
+                    self.openConversationThread(conversationId: conversationId)
                 } else {
                     self.showMainWindow()
                 }
@@ -515,8 +515,8 @@ extension AppDelegate: UNUserNotificationCenterDelegate {
                         evidenceText: "User clicked View on notification"
                     )
                     // Clear local unseen state so sidebar dot disappears immediately
-                    if let threadIdx = self.mainWindow?.threadManager.threads.firstIndex(where: { $0.sessionId == conversationId }) {
-                        self.mainWindow?.threadManager.threads[threadIdx].hasUnseenLatestAssistantMessage = false
+                    if let threadIdx = self.mainWindow?.conversationManager.conversations.firstIndex(where: { $0.conversationId == conversationId }) {
+                        self.mainWindow?.conversationManager.conversations[threadIdx].hasUnseenLatestAssistantMessage = false
                     }
                 } else {
                     self.showMainWindow()

@@ -14,7 +14,7 @@ type DistributiveOmit<T, K extends PropertyKey> = T extends unknown
 /** Clean input type for callers — transport envelope fields are added by the proxy. */
 export type HostFileInput = DistributiveOmit<
   HostFileRequest,
-  "type" | "requestId" | "sessionId"
+  "type" | "requestId" | "conversationId"
 >;
 
 const log = getLogger("host-file-proxy");
@@ -49,7 +49,7 @@ export class HostFileProxy {
 
   request(
     input: HostFileInput,
-    sessionId: string,
+    conversationId: string,
     signal?: AbortSignal,
   ): Promise<ToolExecutionResult> {
     if (signal?.aborted) {
@@ -92,7 +92,7 @@ export class HostFileProxy {
         ...input,
         type: "host_file_request",
         requestId,
-        sessionId,
+        conversationId,
       } as ServerMessage);
     });
   }

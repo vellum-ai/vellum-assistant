@@ -82,9 +82,12 @@ import {
   migrateReminderRoutingIntent,
   migrateRemindersToSchedules,
   migrateRenameConversationTypeColumn,
+  migrateRenameFollowupsThreadIdColumn,
   migrateRenameGuardianVerificationValues,
   migrateRenameInboxThreadStateTable,
   migrateRenameNotificationThreadColumns,
+  migrateRenameSequenceEnrollmentsThreadIdColumn,
+  migrateRenameSequenceStepsReplyKey,
   migrateRenameVerificationSessionIdColumn,
   migrateRenameVerificationTable,
   migrateRenameVoiceToPhone,
@@ -224,7 +227,7 @@ export function initializeDb(): void {
   // 14c3. Guardian action supersession metadata (superseded_by_request_id, superseded_at) + session lookup index
   migrateGuardianActionSupersession(database);
 
-  // 14d. Index on conversations.thread_type for frequent WHERE filters
+  // 14d. Index on conversations.conversation_type for frequent WHERE filters
   migrateConversationsThreadTypeIndex(database);
 
   // 14e. Index on guardian_action_deliveries.destination_conversation_id for conversation-based lookups
@@ -255,7 +258,7 @@ export function initializeDb(): void {
   // 22. Scoped approval grants (channel-agnostic one-time-use grants)
   createScopedApprovalGrantsTable(database);
 
-  // 23. Thread decision audit columns on notification_deliveries
+  // 23. Conversation decision audit columns on notification_deliveries
   migrateNotificationDeliveryThreadDecision(database);
 
   // 24. Canonical guardian requests and deliveries (unified cross-source guardian domain)
@@ -407,6 +410,15 @@ export function initializeDb(): void {
 
   // 68. Rename notification_deliveries thread columns → conversation columns
   migrateRenameNotificationThreadColumns(database);
+
+  // 69. Rename followups.thread_id → conversation_id
+  migrateRenameFollowupsThreadIdColumn(database);
+
+  // 70. Rename sequence_enrollments.thread_id → conversation_id
+  migrateRenameSequenceEnrollmentsThreadIdColumn(database);
+
+  // 71. Rename replyToThread → replyInSameConversation in sequence steps JSON blobs
+  migrateRenameSequenceStepsReplyKey(database);
 
   validateMigrationState(database);
 

@@ -63,7 +63,7 @@ extension AppDelegate {
 
         let markAllSeenItem = NSMenuItem(
             title: "Mark All Threads as Seen",
-            action: #selector(markAllThreadsSeen),
+            action: #selector(markAllConversationsSeen),
             keyEquivalent: "k"
         )
         markAllSeenItem.keyEquivalentModifierMask = [.command, .shift]
@@ -100,8 +100,8 @@ extension AppDelegate {
 
     @objc func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
         guard let action = menuItem.action else { return true }
-        if action == #selector(markAllThreadsSeen) {
-            return (mainWindow?.threadManager.unseenVisibleConversationCount ?? 0) > 0
+        if action == #selector(markAllConversationsSeen) {
+            return (mainWindow?.conversationManager.unseenVisibleConversationCount ?? 0) > 0
         }
         return true
     }
@@ -190,7 +190,7 @@ extension AppDelegate {
 
     var currentAssistantStatus: AssistantStatus {
         if !daemonClient.isConnected { return .disconnected }
-        guard let viewModel = mainWindow?.threadManager.activeViewModel else { return .idle }
+        guard let viewModel = mainWindow?.conversationManager.activeViewModel else { return .idle }
         if let error = viewModel.errorText { return .error(error) }
         if viewModel.isThinking { return .thinking }
         return .idle
@@ -221,10 +221,10 @@ extension AppDelegate {
 
         menu.addItem(NSMenuItem.separator())
 
-        let currentThreadItem = NSMenuItem(title: "Current Thread", action: #selector(openCurrentThread), keyEquivalent: "")
-        currentThreadItem.target = self
-        currentThreadItem.image = VIcon.messageSquare.nsImage
-        menu.addItem(currentThreadItem)
+        let currentConversationItem = NSMenuItem(title: "Current Conversation", action: #selector(openCurrentConversation), keyEquivalent: "")
+        currentConversationItem.target = self
+        currentConversationItem.image = VIcon.messageSquare.nsImage
+        menu.addItem(currentConversationItem)
 
         let newChatItem = NSMenuItem(title: "New Chat", action: #selector(openNewChat), keyEquivalent: "n")
         newChatItem.target = self
@@ -306,11 +306,11 @@ extension AppDelegate {
         sendLogsItem.image = VIcon.upload.nsImage
         menu.addItem(sendLogsItem)
 
-        let sendThreadLogsItem = NSMenuItem(title: "Send Logs for Current Thread", action: #selector(sendCurrentThreadLogsToSentry), keyEquivalent: "")
-        sendThreadLogsItem.target = self
-        sendThreadLogsItem.image = VIcon.upload.nsImage
-        sendThreadLogsItem.isEnabled = mainWindow?.threadManager.activeThread?.sessionId != nil && !isCurrentAssistantManaged
-        menu.addItem(sendThreadLogsItem)
+        let sendConversationLogsItem = NSMenuItem(title: "Send Logs for Current Conversation", action: #selector(sendCurrentConversationLogsToSentry), keyEquivalent: "")
+        sendConversationLogsItem.target = self
+        sendConversationLogsItem.image = VIcon.upload.nsImage
+        sendConversationLogsItem.isEnabled = mainWindow?.conversationManager.activeConversation?.conversationId != nil && !isCurrentAssistantManaged
+        menu.addItem(sendConversationLogsItem)
 
         if MacOSClientFeatureFlagManager.shared.isEnabled("developer-menu-items") {
             menu.addItem(NSMenuItem.separator())
@@ -350,23 +350,23 @@ extension AppDelegate {
         menu.popUp(positioning: nil, at: NSPoint(x: 0, y: button.bounds.height + 2), in: button)
     }
 
-    @objc func markAllThreadsSeen() {
-        guard let threadManager = mainWindow?.threadManager else { return }
-        let markedIds = threadManager.markAllThreadsSeen()
+    @objc func markAllConversationsSeen() {
+        guard let conversationManager = mainWindow?.conversationManager else { return }
+        let markedIds = conversationManager.markAllConversationsSeen()
         guard !markedIds.isEmpty else { return }
         let count = markedIds.count
         let toastId = mainWindow?.windowState.showToast(
             message: "Marked \(count) thread\(count == 1 ? "" : "s") as seen",
             style: .success,
             primaryAction: VToastAction(label: "Undo") { [weak self] in
-                self?.mainWindow?.threadManager.restoreUnseen(threadIds: markedIds)
+                self?.mainWindow?.conversationManager.restoreUnseen(threadIds: markedIds)
                 self?.mainWindow?.windowState.dismissToast()
             },
             onDismiss: { [weak self] in
-                self?.mainWindow?.threadManager.commitPendingSeenSignals()
+                self?.mainWindow?.conversationManager.commitPendingSeenSignals()
             }
         )
-        threadManager.schedulePendingSeenSignals { [weak self] in
+        conversationManager.schedulePendingSeenSignals { [weak self] in
             guard let toastId else { return }
             self?.mainWindow?.windowState.dismissToast(id: toastId)
         }
@@ -381,7 +381,7 @@ extension AppDelegate {
 
         let markAllSeenItem = NSMenuItem(
             title: "Mark All Threads as Seen",
-            action: #selector(markAllThreadsSeen),
+            action: #selector(markAllConversationsSeen),
             keyEquivalent: ""
         )
         markAllSeenItem.target = self
@@ -390,7 +390,7 @@ extension AppDelegate {
         return menu
     }
 
-    @objc func openCurrentThread() {
+    @objc func openCurrentConversation() {
         guard !isBootstrapping else { return }
         showMainWindow()
     }
@@ -398,15 +398,15 @@ extension AppDelegate {
     @objc func openNewChat() {
         guard !isBootstrapping else { return }
         showMainWindow()
-        mainWindow?.threadManager.createThread()
-        if let id = mainWindow?.threadManager.activeThreadId {
+        mainWindow?.conversationManager.createConversation()
+        if let id = mainWindow?.conversationManager.activeConversationId {
             mainWindow?.windowState.selection = .thread(id)
         }
         UserDefaults.standard.set(false, forKey: "sidebarExpanded")
     }
 
     @objc func activateChatSearch() {
-        NotificationCenter.default.post(name: .activateChatSearch, object: mainWindow?.threadManager.activeThreadId)
+        NotificationCenter.default.post(name: .activateChatSearch, object: mainWindow?.conversationManager.activeConversationId)
     }
 
     @objc func openAppCollection() {
@@ -489,14 +489,14 @@ extension AppDelegate {
         }
     }
 
-    @objc func sendCurrentThreadLogsToSentry() {
-        guard let thread = mainWindow?.threadManager.activeThread,
-              let sessionId = thread.sessionId else { return }
+    @objc func sendCurrentConversationLogsToSentry() {
+        guard let thread = mainWindow?.conversationManager.activeConversation,
+              let conversationId = thread.conversationId else { return }
 
         // Defer window creation until after the status menu finishes dismissing,
         // otherwise macOS can swallow the makeKeyAndOrderFront during menu teardown.
         DispatchQueue.main.async { [weak self] in
-            self?.showLogReportWindow(scope: .thread(conversationId: sessionId, threadTitle: thread.title))
+            self?.showLogReportWindow(scope: .thread(conversationId: conversationId, threadTitle: thread.title))
         }
     }
 
@@ -534,7 +534,7 @@ extension AppDelegate {
         case .global:
             window.title = "Send Logs to Vellum"
         case .thread:
-            window.title = "Send Logs for Thread"
+            window.title = "Send Logs for Conversation"
         }
         window.backgroundColor = NSColor(VColor.surfaceOverlay)
         window.isReleasedWhenClosed = false

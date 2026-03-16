@@ -21,7 +21,7 @@ const SCANNED_FILES = [
   "calls/guardian-action-sweep.ts",
   "runtime/routes/inbound-message-handler.ts",
   "runtime/guardian-action-conversation-turn.ts",
-  "daemon/session-process.ts",
+  "daemon/conversation-process.ts",
 ];
 
 const BANNED_PATTERNS: { pattern: RegExp; description: string }[] = [

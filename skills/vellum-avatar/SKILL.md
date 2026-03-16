@@ -65,12 +65,10 @@ The user picks a body shape, eye style, and color. Present the options conversat
 
 ### Setting traits
 
-After the user chooses, call the render endpoint with the chosen traits. This writes `character-traits.json` and generates the static PNG in one step:
+After the user chooses, run the following command to set the character traits. This writes `character-traits.json`, generates the static PNG, and creates an ASCII representation in one step:
 
 ```bash
-curl -s -X POST "$INTERNAL_GATEWAY_BASE_URL/v1/avatar/render-from-traits" \
-  -H "Content-Type: application/json" \
-  -d '{"bodyShape": "<value>", "eyeStyle": "<value>", "color": "<value>"}'
+assistant avatar character update --body-shape <value> --eye-style <value> --color <value>
 ```
 
 The client will detect the traits file and render the animated character. The assistant also generates a static PNG for use as dock icon and by other clients.
@@ -86,10 +84,11 @@ mkdir -p "$VELLUM_WORKSPACE_DIR/data/avatar"
 cp "<user-provided-path>" "$VELLUM_WORKSPACE_DIR/data/avatar/avatar-image.png"
 ```
 
-Then remove the character traits file, since a custom image overrides the native character:
+Then remove the native character files, since a custom image overrides the native character:
 
 ```bash
 rm -f "$VELLUM_WORKSPACE_DIR/data/avatar/character-traits.json"
+rm -f "$VELLUM_WORKSPACE_DIR/data/avatar/character-ascii.txt"
 ```
 
 Tell the user their avatar has been updated. The client will pick up the new image automatically.
@@ -104,10 +103,11 @@ curl -s -X POST "$INTERNAL_GATEWAY_BASE_URL/v1/settings/avatar/generate" \
   -d '{"description": "<user'\''s description>"}'
 ```
 
-This generates an image using AI and saves it to `data/avatar/avatar-image.png`. After the image is generated, remove the character traits file:
+This generates an image using AI and saves it to `data/avatar/avatar-image.png`. After the image is generated, remove the native character files:
 
 ```bash
 rm -f "$VELLUM_WORKSPACE_DIR/data/avatar/character-traits.json"
+rm -f "$VELLUM_WORKSPACE_DIR/data/avatar/character-ascii.txt"
 ```
 
 The generated avatar will appear automatically in the client.
@@ -134,5 +134,5 @@ The client checks for character traits first — if `character-traits.json` exis
 
 Enforcement rules:
 
-- **Setting native character traits** → call `POST /v1/avatar/render-from-traits` with `{ bodyShape, eyeStyle, color }`. This writes `character-traits.json` and auto-generates the PNG in one step.
-- **Uploading or generating a custom image** → write `avatar-image.png` and remove `character-traits.json`.
+- **Setting native character traits** → run `assistant avatar character update --body-shape X --eye-style Y --color Z`. This writes `character-traits.json`, auto-generates the PNG, and creates ASCII art in one step.
+- **Uploading or generating a custom image** → write `avatar-image.png` and remove `character-traits.json` and `character-ascii.txt`.

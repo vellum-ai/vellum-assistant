@@ -39,7 +39,7 @@ import { verificationRateLimiter } from "../verification-rate-limiter.js";
  * - `destination` present: outbound guardian verification
  * - Otherwise: inbound guardian challenge
  *
- * Body: { channel?: ChannelId; destination?: string; rebind?: boolean; sessionId?: string; originConversationId?: string; purpose?: string; contactChannelId?: string }
+ * Body: { channel?: ChannelId; destination?: string; rebind?: boolean; conversationId?: string; originConversationId?: string; purpose?: string; contactChannelId?: string }
  */
 export async function handleCreateVerificationSession(
   req: Request,
@@ -49,7 +49,7 @@ export async function handleCreateVerificationSession(
     channel?: ChannelId;
     destination?: string;
     rebind?: boolean;
-    sessionId?: string;
+    conversationId?: string;
     originConversationId?: string;
     purpose?: string;
     contactChannelId?: string;
@@ -130,7 +130,7 @@ export async function handleCreateVerificationSession(
   const result = createInboundChallenge(
     body.channel,
     body.rebind,
-    body.sessionId,
+    body.conversationId,
   );
   const status = result.success ? 200 : 400;
   return Response.json(result, { status });

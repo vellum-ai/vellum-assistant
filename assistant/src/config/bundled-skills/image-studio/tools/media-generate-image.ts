@@ -8,7 +8,10 @@ import {
   type ImageGenCredentials,
   mapGeminiError,
 } from "../../../../media/gemini-image-service.js";
-import { getAttachmentsByIds } from "../../../../memory/attachments-store.js";
+import {
+  getAttachmentContent,
+  getAttachmentsByIds,
+} from "../../../../memory/attachments-store.js";
 import { getConversationType } from "../../../../memory/conversation-crud.js";
 import {
   buildManagedBaseUrl,
@@ -110,10 +113,22 @@ export async function run(
       };
     }
 
-    sourceImages = visibleAttachments.map((att) => ({
-      mimeType: att.mimeType,
-      dataBase64: att.dataBase64,
-    }));
+    sourceImages = visibleAttachments
+      .map((att) => {
+        let buffer: Buffer | null | undefined;
+        try {
+          buffer = getAttachmentContent(att.id);
+        } catch {
+          // File-backed attachment may point to a missing or unreadable file
+          return undefined;
+        }
+        if (!buffer) return undefined;
+        return {
+          mimeType: att.mimeType,
+          dataBase64: buffer.toString("base64"),
+        };
+      })
+      .filter((img): img is NonNullable<typeof img> => img !== undefined);
   }
 
   try {

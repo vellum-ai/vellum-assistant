@@ -1,5 +1,4 @@
 import { spawn as nodeSpawn } from "child_process";
-import { randomUUID } from "node:crypto";
 import { existsSync } from "fs";
 import { createRequire } from "module";
 import { dirname, join } from "path";
@@ -9,7 +8,7 @@ import type { AssistantEntry } from "./assistant-config";
 import { DEFAULT_GATEWAY_PORT } from "./constants";
 import type { Species } from "./constants";
 import { leaseGuardianToken } from "./guardian-token";
-import { generateRandomSuffix } from "./random-name";
+import { generateInstanceName } from "./random-name";
 import { exec, execOutput } from "./step-runner";
 import {
   closeLogFile,
@@ -220,7 +219,6 @@ function createLinePrefixer(
   };
 }
 
-
 export async function retireDocker(name: string): Promise<void> {
   console.log(`\u{1F5D1}\ufe0f  Stopping Docker container '${name}'...\n`);
 
@@ -269,7 +267,7 @@ export async function hatchDocker(
     throw err;
   }
 
-  const instanceName = name ?? `${species}-${generateRandomSuffix()}`;
+  const instanceName = generateInstanceName(species, name);
   const dockerfileName = watch ? "Dockerfile.development" : "Dockerfile";
   const dockerfile = join(dockerfileDir, dockerfileName);
   const dockerfilePath = join(repoRoot, dockerfile);
@@ -352,7 +350,6 @@ export async function hatchDocker(
   const runtimeUrl = `http://localhost:${gatewayPort}`;
   const dockerEntry: AssistantEntry = {
     assistantId: instanceName,
-    installationId: randomUUID(),
     runtimeUrl,
     cloud: "docker",
     species,

@@ -7,7 +7,7 @@ Signal-driven notification architecture where producers emit free-form events an
 ```
 Producer → NotificationSignal → Candidate Generation → Decision Engine (LLM) → Deterministic Checks → Broadcaster → Conversation Pairing → Adapters → Delivery
                                                               ↑                                                            ↓
-                                                      Preference Summary                                    notification_conversation_created SSE event
+                                                      Preference Summary                                    notification_thread_created SSE event
                                                       Conversation Candidates                               (creation-only — not emitted on reuse)
 ```
 
@@ -71,7 +71,7 @@ Hard invariants that the LLM cannot override:
 
 ### 6. Broadcast, Conversation Pairing, and Delivery
 
-The broadcaster (`broadcaster.ts`) iterates over selected channels (vellum first for fast SSE push), resolves destinations via `destination-resolver.ts`, pairs each delivery with a conversation via `conversation-pairing.ts`, pulls rendered copy from the decision (falling back to `copy-composer.ts` templates), and dispatches through channel adapters. Each delivery attempt is recorded in `notification_deliveries` with `conversation_id`, `message_id`, and `conversation_strategy` columns. The broadcaster emits `notification_conversation_created` SSE events for new vellum conversations.
+The broadcaster (`broadcaster.ts`) iterates over selected channels (vellum first for fast SSE push), resolves destinations via `destination-resolver.ts`, pairs each delivery with a conversation via `conversation-pairing.ts`, pulls rendered copy from the decision (falling back to `copy-composer.ts` templates), and dispatches through channel adapters. Each delivery attempt is recorded in `notification_deliveries` with `conversation_id`, `message_id`, and `conversation_strategy` columns. The broadcaster emits `notification_thread_created` SSE events for new vellum conversations.
 
 ## Channel Policy Registry
 
@@ -183,14 +183,14 @@ Take out the trash
 Reminder. Take out the trash. Action required.
 ```
 
-## Conversation Surfacing via `notification_conversation_created` Event (Creation-Only)
+## Conversation Surfacing via `notification_thread_created` Event (Creation-Only)
 
-The `notification_conversation_created` SSE event is emitted **only when a brand-new conversation is actually created** by the broadcaster. Reused conversations do not trigger this event — the macOS/iOS client already knows about the conversation from the original creation.
+The `notification_thread_created` SSE event is emitted **only when a brand-new conversation is actually created** by the broadcaster. Reused conversations do not trigger this event — the macOS/iOS client already knows about the conversation from the original creation.
 
 This is enforced in `broadcaster.ts` by gating the event emission on `pairing.createdNewConversation === true`:
 
 ```ts
-// Emit notification_conversation_created only when a NEW conversation was
+// Emit notification_thread_created only when a NEW conversation was
 // actually created. Reusing an existing conversation should not fire the SSE
 // event — the client already knows about the conversation.
 if (
@@ -207,7 +207,7 @@ The SSE event payload:
 
 ```ts
 {
-  type: 'notification_conversation_created',
+  type: 'notification_thread_created',
   conversationId: string,
   title: string,
   sourceEventName: string,
@@ -223,7 +223,7 @@ The macOS/iOS client listens for this event and surfaces the conversation in the
 **Important distinction between the two callbacks:**
 
 - **Per-dispatch `options.onConversationCreated`**: Fires for **both** new and reused vellum conversation pairings. Callers like `dispatchGuardianQuestion` rely on this to create delivery bookkeeping rows before `emitNotificationSignal()` returns, regardless of whether the conversation was newly created or reused.
-- **Class-level `this.onConversationCreated` (SSE broadcast)**: Fires **only** when a brand-new conversation is created (`createdNewConversation === true && strategy === 'start_new_conversation'`). This emits the `notification_conversation_created` SSE event so macOS/iOS clients surface the new conversation in the sidebar. Reused conversations do not trigger this event because the client already knows about the conversation.
+- **Class-level `this.onConversationCreated` (SSE broadcast)**: Fires **only** when a brand-new conversation is created (`createdNewConversation === true && strategy === 'start_new_conversation'`). This emits the `notification_thread_created` SSE event so macOS/iOS clients surface the new conversation in the sidebar. Reused conversations do not trigger this event because the client already knows about the conversation.
 
 ## Schedule Routing Metadata and Trigger-Time Enforcement
 
@@ -314,7 +314,7 @@ The system uses a single conversation materialization path for **all** notificat
 
 1. `emitNotificationSignal()` evaluates the signal and dispatches to channels.
 2. `NotificationBroadcaster` pairs each delivery with a conversation via `pairDeliveryWithConversation()`, executing the per-channel conversation action (start_new or reuse_existing).
-3. For vellum deliveries, the broadcaster merges `conversationId` into `deepLinkMetadata` and emits `notification_conversation_created` only when a new conversation was created (not on reuse).
+3. For vellum deliveries, the broadcaster merges `conversationId` into `deepLinkMetadata` and emits `notification_thread_created` only when a new conversation was created (not on reuse).
 
 Guardian dispatch follows this same path and uses the optional `onConversationCreated` callback to attach guardian-delivery bookkeeping to the canonical vellum conversation.
 
@@ -377,7 +377,7 @@ Each `guardian_action_request` is assigned a unique 6-character hex code (e.g. `
 
 ### Disambiguation Flow
 
-The disambiguation logic is identical on all channels — mac/vellum (`session-process.ts`) and Telegram (`inbound-message-handler.ts`):
+The disambiguation logic is identical on all channels — mac/vellum (`conversation-process.ts`) and Telegram (`inbound-message-handler.ts`):
 
 1. **Single pending delivery in the conversation**: The guardian's reply is matched to the sole pending request automatically. No request code prefix is needed. This is the **single-match fast path**.
 
@@ -389,7 +389,7 @@ The disambiguation logic is identical on all channels — mac/vellum (`session-p
 
 The disambiguation invariant is enforced identically across:
 
-- **Mac/Vellum** (`session-process.ts`): Intercepts user messages in conversations with pending guardian action deliveries before the agent loop runs.
+- **Mac/Vellum** (`conversation-process.ts`): Intercepts user messages in conversations with pending guardian action deliveries before the agent loop runs.
 - **Telegram** (`inbound-message-handler.ts`): Intercepts inbound messages matched to conversations with pending guardian action deliveries.
 
 All three paths use the same pattern: look up pending deliveries by conversation, apply single-match fast path or request-code prefix matching, and send disambiguation messages via the guardian action message composer when ambiguous.
@@ -406,29 +406,29 @@ All disambiguation messages are generated through `composeGuardianActionMessageG
 
 ## Key Files
 
-| File                            | Purpose                                                                                                    |
-| ------------------------------- | ---------------------------------------------------------------------------------------------------------- |
-| `../channels/config.ts`         | Channel policy registry -- single source of truth for per-channel notification behavior                    |
-| `emit-signal.ts`                | Single entry point for producers; orchestrates the full pipeline                                           |
-| `signal.ts`                     | `NotificationSignal` and `AttentionHints` type definitions                                                 |
-| `types.ts`                      | Channel adapter interfaces, delivery types, decision output contract, `ConversationAction` union           |
-| `conversation-candidates.ts`    | Builds per-channel candidate set of recent notification conversations for the decision engine              |
-| `conversation-pairing.ts`       | Materializes conversation + message per delivery based on channel strategy                                 |
-| `decision-engine.ts`            | LLM-based routing with forced tool_choice; deterministic fallback                                          |
-| `deterministic-checks.ts`       | Pre-send gate checks (dedupe, source-active, channel availability)                                         |
-| `runtime-dispatch.ts`           | Dispatch gating (no-op decisions, empty channels)                                                          |
-| `broadcaster.ts`                | Fan-out to channel adapters with delivery audit trail; emits `notification_conversation_created` SSE event |
-| `copy-composer.ts`              | Template-based fallback notification copy when LLM copy is unavailable                                     |
-| `conversation-seed-composer.ts` | Surface-aware conversation seed generation (richer than notification copy)                                 |
-| `destination-resolver.ts`       | Resolves per-channel endpoints (vellum SSE, Telegram chat ID)                                              |
-| `adapters/macos.ts`             | Vellum adapter -- broadcasts `notification_intent` via SSE with deep-link metadata                         |
-| `adapters/telegram.ts`          | Telegram adapter -- POSTs to gateway `/deliver/telegram`                                                   |
-| `preference-extractor.ts`       | Detects notification preferences in conversation messages                                                  |
-| `preference-summary.ts`         | Builds preference context string for the decision engine prompt                                            |
-| `preferences-store.ts`          | CRUD for `notification_preferences` table                                                                  |
-| `events-store.ts`               | CRUD for `notification_events` table                                                                       |
-| `decisions-store.ts`            | CRUD for `notification_decisions` table                                                                    |
-| `deliveries-store.ts`           | CRUD for `notification_deliveries` table                                                                   |
+| File                            | Purpose                                                                                              |
+| ------------------------------- | ---------------------------------------------------------------------------------------------------- |
+| `../channels/config.ts`         | Channel policy registry -- single source of truth for per-channel notification behavior              |
+| `emit-signal.ts`                | Single entry point for producers; orchestrates the full pipeline                                     |
+| `signal.ts`                     | `NotificationSignal` and `AttentionHints` type definitions                                           |
+| `types.ts`                      | Channel adapter interfaces, delivery types, decision output contract, `ConversationAction` union     |
+| `conversation-candidates.ts`    | Builds per-channel candidate set of recent notification conversations for the decision engine        |
+| `conversation-pairing.ts`       | Materializes conversation + message per delivery based on channel strategy                           |
+| `decision-engine.ts`            | LLM-based routing with forced tool_choice; deterministic fallback                                    |
+| `deterministic-checks.ts`       | Pre-send gate checks (dedupe, source-active, channel availability)                                   |
+| `runtime-dispatch.ts`           | Dispatch gating (no-op decisions, empty channels)                                                    |
+| `broadcaster.ts`                | Fan-out to channel adapters with delivery audit trail; emits `notification_thread_created` SSE event |
+| `copy-composer.ts`              | Template-based fallback notification copy when LLM copy is unavailable                               |
+| `conversation-seed-composer.ts` | Surface-aware conversation seed generation (richer than notification copy)                           |
+| `destination-resolver.ts`       | Resolves per-channel endpoints (vellum SSE, Telegram chat ID)                                        |
+| `adapters/macos.ts`             | Vellum adapter -- broadcasts `notification_intent` via SSE with deep-link metadata                   |
+| `adapters/telegram.ts`          | Telegram adapter -- POSTs to gateway `/deliver/telegram`                                             |
+| `preference-extractor.ts`       | Detects notification preferences in conversation messages                                            |
+| `preference-summary.ts`         | Builds preference context string for the decision engine prompt                                      |
+| `preferences-store.ts`          | CRUD for `notification_preferences` table                                                            |
+| `events-store.ts`               | CRUD for `notification_events` table                                                                 |
+| `decisions-store.ts`            | CRUD for `notification_decisions` table                                                              |
+| `deliveries-store.ts`           | CRUD for `notification_deliveries` table                                                             |
 
 ## How to Add a New Notification Producer
 
@@ -530,7 +530,7 @@ ORDER BY d.created_at DESC;
 
 Users express notification preferences in natural language during conversations (e.g., "Use Telegram for urgent alerts", "Mute notifications after 10pm"). The system:
 
-1. **Detects** preferences via `preference-extractor.ts` -- an LLM call that runs on each user message in `session-process.ts`
+1. **Detects** preferences via `preference-extractor.ts` -- an LLM call that runs on each user message in `conversation-process.ts`
 2. **Stores** them in `notification_preferences` with structured conditions (`appliesWhen`: timeRange, channels, urgencyLevels, contexts) and a priority level (0=default, 1=override, 2=critical)
 3. **Summarizes** them at decision time via `preference-summary.ts`, which builds a compact text block injected into the decision engine's system prompt
 

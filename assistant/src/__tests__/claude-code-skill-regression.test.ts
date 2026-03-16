@@ -126,7 +126,7 @@ describe("Claude Code skill migration regression", () => {
 
     const input = { prompt: "hello" };
     const ctx = {
-      sessionId: "test",
+      conversationId: "test",
       workingDir: "/tmp",
       onOutput: () => {},
     };

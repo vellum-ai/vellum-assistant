@@ -191,9 +191,9 @@ describe("runtime call routes — HTTP layer", () => {
   });
 
   async function startServer(): Promise<void> {
-    port = 19000 + Math.floor(Math.random() * 1000);
-    server = new RuntimeHttpServer({ port, bearerToken: TEST_TOKEN });
+    server = new RuntimeHttpServer({ port: 0, bearerToken: TEST_TOKEN });
     await server.start();
+    port = server.actualPort;
   }
 
   async function stopServer(): Promise<void> {

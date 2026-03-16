@@ -12,7 +12,7 @@
  * focused on orchestration.
  */
 import type { ChannelId } from "../../../channels/types.js";
-import type { TrustContext } from "../../../daemon/session-runtime-assembly.js";
+import type { TrustContext } from "../../../daemon/conversation-runtime-assembly.js";
 import { recordConversationSeenSignal } from "../../../memory/conversation-attention-store.js";
 import * as deliveryCrud from "../../../memory/delivery-crud.js";
 import { checkIngressForSecrets } from "../../../security/secret-ingress.js";

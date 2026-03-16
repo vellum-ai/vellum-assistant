@@ -5,11 +5,11 @@ import {
   mkdirSync,
   readFileSync,
   readlinkSync,
+  rmSync,
   symlinkSync,
   unlinkSync,
   writeFileSync,
 } from "fs";
-import { randomUUID } from "node:crypto";
 import { homedir } from "os";
 import { join } from "path";
 
@@ -47,7 +47,7 @@ import {
 import { maybeStartNgrokTunnel } from "../lib/ngrok";
 import { detectOrphanedProcesses } from "../lib/orphan-detection";
 import { isProcessAlive, stopProcess } from "../lib/process";
-import { generateRandomSuffix } from "../lib/random-name";
+import { generateInstanceName } from "../lib/random-name";
 import { validateAssistantName } from "../lib/retire-archive";
 import { archiveLogFile, resetLogFile } from "../lib/xdg-log";
 
@@ -575,10 +575,10 @@ async function hatchLocal(
     process.exit(1);
   }
 
-  const instanceName =
-    name ??
-    process.env.VELLUM_ASSISTANT_NAME ??
-    `${species}-${generateRandomSuffix()}`;
+  const instanceName = generateInstanceName(
+    species,
+    name ?? process.env.VELLUM_ASSISTANT_NAME,
+  );
 
   // Clean up stale local state: if daemon/gateway processes are running but
   // the lock file has no entries, stop them before starting fresh.
@@ -623,6 +623,26 @@ async function hatchLocal(
     resources = existingEntry.resources;
   } else {
     resources = await allocateLocalResources(instanceName);
+  }
+
+  // Clean up stale workspace data: if the .vellum directory already exists for
+  // this instance but no lockfile entry owns it, a previous retire failed to
+  // archive it (or a managed-only retire left local data behind). Remove it so
+  // the new assistant starts with a fresh workspace.
+  if (!existingEntry) {
+    const instanceVellumDir = join(resources.instanceDir, ".vellum");
+    if (existsSync(instanceVellumDir)) {
+      const ownedByOther = loadAllAssistants().some((a) => {
+        if (a.cloud !== "local" || !a.resources) return false;
+        return join(a.resources.instanceDir, ".vellum") === instanceVellumDir;
+      });
+      if (!ownedByOther) {
+        console.log(
+          `🧹 Removing stale workspace at ${instanceVellumDir} (not owned by any assistant)...\n`,
+        );
+        rmSync(instanceVellumDir, { recursive: true, force: true });
+      }
+    }
   }
 
   const logsDir = join(
@@ -675,7 +695,6 @@ async function hatchLocal(
 
   const localEntry: AssistantEntry = {
     assistantId: instanceName,
-    installationId: randomUUID(),
     runtimeUrl,
     localUrl: `http://127.0.0.1:${resources.gatewayPort}`,
     cloud: "local",

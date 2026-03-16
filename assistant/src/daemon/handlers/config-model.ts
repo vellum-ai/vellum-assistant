@@ -6,11 +6,11 @@ import {
 } from "../../config/loader.js";
 import { initializeProviders } from "../../providers/registry.js";
 import { getSecureKeyAsync } from "../../security/secure-keys.js";
+import { MODEL_TO_PROVIDER } from "../conversation-slash.js";
 import type {
   ImageGenModelSetRequest,
   ModelSetRequest,
 } from "../message-protocol.js";
-import { MODEL_TO_PROVIDER } from "../session-slash.js";
 import {
   CONFIG_RELOAD_DEBOUNCE_MS,
   type HandlerContext,
@@ -49,7 +49,7 @@ export async function getModelInfo(): Promise<ModelInfo> {
  * Keeps the business logic decoupled from transport-specific HandlerContext.
  */
 export interface ModelSetContext {
-  sessions: Map<
+  conversations: Map<
     string,
     { isProcessing(): boolean; dispose(): void; markStale(): void }
   >;
@@ -120,10 +120,10 @@ export async function setModel(
 
   // Evict idle sessions immediately; mark busy ones as stale so they
   // get recreated with the new provider once they finish processing.
-  for (const [id, session] of ctx.sessions) {
+  for (const [id, session] of ctx.conversations) {
     if (!session.isProcessing()) {
       session.dispose();
-      ctx.sessions.delete(id);
+      ctx.conversations.delete(id);
     } else {
       session.markStale();
     }

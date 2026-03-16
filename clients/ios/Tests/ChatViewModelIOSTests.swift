@@ -46,7 +46,7 @@ final class ChatViewModelIOSTests: XCTestCase {
     }
 
     func testInitStartsWithNoSessionId() {
-        XCTAssertNil(viewModel.sessionId)
+        XCTAssertNil(viewModel.conversationId)
     }
 
     func testInitStartsWithNoPendingAttachments() {
@@ -92,7 +92,7 @@ final class ChatViewModelIOSTests: XCTestCase {
     }
 
     func testSendWhileSendingWithSessionAppendsQueuedMessage() {
-        viewModel.sessionId = "test-session"
+        viewModel.conversationId = "test-session"
         viewModel.isSending = true
 
         viewModel.inputText = "Queued message"
@@ -116,7 +116,7 @@ final class ChatViewModelIOSTests: XCTestCase {
     }
 
     func testSendMessageRecordsInMockClient() throws {
-        viewModel.sessionId = "sess-abc"
+        viewModel.conversationId = "sess-abc"
         viewModel.inputText = "Test"
         viewModel.sendMessage()
 
@@ -128,16 +128,16 @@ final class ChatViewModelIOSTests: XCTestCase {
 
     func testSessionInfoStoresSessionId() {
         viewModel.bootstrapCorrelationId = "corr-1"
-        let info = SessionInfoMessage(sessionId: "ios-sess-123", title: "iOS Test", correlationId: "corr-1")
-        viewModel.handleServerMessage(.sessionInfo(info))
-        XCTAssertEqual(viewModel.sessionId, "ios-sess-123")
+        let info = ConversationInfoMessage(conversationId: "ios-sess-123", title: "iOS Test", correlationId: "corr-1")
+        viewModel.handleServerMessage(.conversationInfo(info))
+        XCTAssertEqual(viewModel.conversationId, "ios-sess-123")
     }
 
     func testSessionInfoDoesNotOverwriteExistingSession() {
-        viewModel.sessionId = "first-session"
-        let info = SessionInfoMessage(sessionId: "second-session", title: "Test")
-        viewModel.handleServerMessage(.sessionInfo(info))
-        XCTAssertEqual(viewModel.sessionId, "first-session")
+        viewModel.conversationId = "first-session"
+        let info = ConversationInfoMessage(conversationId: "second-session", title: "Test")
+        viewModel.handleServerMessage(.conversationInfo(info))
+        XCTAssertEqual(viewModel.conversationId, "first-session")
     }
 
     func testSessionInfoClearsBootstrapState() {
@@ -162,14 +162,14 @@ final class ChatViewModelIOSTests: XCTestCase {
         cancelled = true
 
         // Extract the correlation ID from the sent session_create message
-        let sessionCreates = mockClient.sentMessages.compactMap { $0 as? SessionCreateMessage }
+        let sessionCreates = mockClient.sentMessages.compactMap { $0 as? ConversationCreateMessage }
         let correlationId = sessionCreates.first?.correlationId
 
         // Session info arrives with matching correlation ID
-        let info = SessionInfoMessage(sessionId: "new-sess", title: "Test", correlationId: correlationId)
-        viewModel.handleServerMessage(.sessionInfo(info))
+        let info = ConversationInfoMessage(conversationId: "new-sess", title: "Test", correlationId: correlationId)
+        viewModel.handleServerMessage(.conversationInfo(info))
 
-        XCTAssertEqual(viewModel.sessionId, "new-sess")
+        XCTAssertEqual(viewModel.conversationId, "new-sess")
     }
 
     // MARK: - Streaming Deltas
@@ -202,7 +202,7 @@ final class ChatViewModelIOSTests: XCTestCase {
     }
 
     func testTextDeltaAfterUserMessageCreatesNewAssistantMessage() {
-        viewModel.sessionId = "sess-1"
+        viewModel.conversationId = "sess-1"
         viewModel.inputText = "Question"
         viewModel.sendMessage()
 
@@ -252,7 +252,7 @@ final class ChatViewModelIOSTests: XCTestCase {
 
         // User initiates cancel, then server acknowledges
         viewModel.isCancelling = true
-        viewModel.handleServerMessage(.generationCancelled(GenerationCancelledMessage(sessionId: nil)))
+        viewModel.handleServerMessage(.generationCancelled(GenerationCancelledMessage(conversationId: nil)))
 
         XCTAssertFalse(viewModel.isSending)
         XCTAssertFalse(viewModel.isThinking)
@@ -281,7 +281,7 @@ final class ChatViewModelIOSTests: XCTestCase {
     // MARK: - Stop Generating
 
     func testStopGeneratingSetsCancellingState() {
-        viewModel.sessionId = "sess-stop"
+        viewModel.conversationId = "sess-stop"
         viewModel.isSending = true
 
         viewModel.stopGenerating()
@@ -316,13 +316,13 @@ final class ChatViewModelIOSTests: XCTestCase {
         cancelled = true
 
         // Extract the correlation ID from the sent session_create message
-        let sessionCreates = mockClient.sentMessages.compactMap { $0 as? SessionCreateMessage }
+        let sessionCreates = mockClient.sentMessages.compactMap { $0 as? ConversationCreateMessage }
         let correlationId = sessionCreates.first?.correlationId
 
         // 2. Session info arrives with matching correlation ID
-        let info = SessionInfoMessage(sessionId: "cycle-sess", title: "iOS Chat", correlationId: correlationId)
-        viewModel.handleServerMessage(.sessionInfo(info))
-        XCTAssertEqual(viewModel.sessionId, "cycle-sess")
+        let info = ConversationInfoMessage(conversationId: "cycle-sess", title: "iOS Chat", correlationId: correlationId)
+        viewModel.handleServerMessage(.conversationInfo(info))
+        XCTAssertEqual(viewModel.conversationId, "cycle-sess")
 
         // 3. Assistant starts streaming
         viewModel.handleServerMessage(.assistantTextDelta(AssistantTextDeltaMessage(text: "iOS is ")))
@@ -362,7 +362,7 @@ final class ChatViewModelIOSTests: XCTestCase {
             callCount += 1
         }
 
-        viewModel.sessionId = "sess-callback"
+        viewModel.conversationId = "sess-callback"
         viewModel.inputText = "First"
         viewModel.sendMessage()
 
@@ -374,13 +374,13 @@ final class ChatViewModelIOSTests: XCTestCase {
 
     func testOnSessionCreatedCallbackFires() {
         var capturedSessionId: String?
-        viewModel.onSessionCreated = { sessionId in
-            capturedSessionId = sessionId
+        viewModel.onConversationCreated = { conversationId in
+            capturedSessionId = conversationId
         }
 
         viewModel.bootstrapCorrelationId = "corr-cb"
-        let info = SessionInfoMessage(sessionId: "callback-sess", title: "Test", correlationId: "corr-cb")
-        viewModel.handleServerMessage(.sessionInfo(info))
+        let info = ConversationInfoMessage(conversationId: "callback-sess", title: "Test", correlationId: "corr-cb")
+        viewModel.handleServerMessage(.conversationInfo(info))
 
         XCTAssertEqual(capturedSessionId, "callback-sess")
     }
@@ -389,7 +389,7 @@ final class ChatViewModelIOSTests: XCTestCase {
 
     func testCancellingSuppressesIncomingDeltas() {
         viewModel.isCancelling = true
-        viewModel.sessionId = "sess-cancel"
+        viewModel.conversationId = "sess-cancel"
 
         viewModel.handleServerMessage(.assistantTextDelta(AssistantTextDeltaMessage(text: "Should be suppressed")))
 
@@ -399,7 +399,7 @@ final class ChatViewModelIOSTests: XCTestCase {
     // MARK: - Always Allow Decision Plumbing
 
     func testRespondToAlwaysAllowSendsHighRiskDecision() {
-        viewModel.sessionId = "sess-hr"
+        viewModel.conversationId = "sess-hr"
 
         viewModel.respondToAlwaysAllow(
             requestId: "req-1",
@@ -417,7 +417,7 @@ final class ChatViewModelIOSTests: XCTestCase {
     }
 
     func testRespondToAlwaysAllowSendsDefaultDecision() {
-        viewModel.sessionId = "sess-default"
+        viewModel.conversationId = "sess-default"
 
         viewModel.respondToAlwaysAllow(
             requestId: "req-2",
@@ -432,7 +432,7 @@ final class ChatViewModelIOSTests: XCTestCase {
     }
 
     func testRespondToAlwaysAllowFailsWhenDisconnected() {
-        viewModel.sessionId = "sess-fallback"
+        viewModel.conversationId = "sess-fallback"
         mockClient.isConnected = false
 
         viewModel.respondToAlwaysAllow(
@@ -454,7 +454,7 @@ final class ChatViewModelIOSTests: XCTestCase {
         let failOnceClient = FailOnceDaemonClient()
         failOnceClient.isConnected = true
         let vm = ChatViewModel(daemonClient: failOnceClient)
-        vm.sessionId = "sess-fail-once"
+        vm.conversationId = "sess-fail-once"
 
         // Seed a confirmation message so the fallback path can update its state
         let confirmation = ToolConfirmationData(

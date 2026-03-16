@@ -18,13 +18,13 @@ import {
   updateStatusText,
 } from "./cli/main-screen.jsx";
 import { loadRawConfig, saveRawConfig } from "./config/loader.js";
+import { MODEL_TO_PROVIDER } from "./daemon/conversation-slash.js";
 import { getModelInfo } from "./daemon/handlers/config-model.js";
 import { renderHistoryContent } from "./daemon/handlers/shared.js";
 import type {
   ConfirmationRequest,
   ServerMessage,
 } from "./daemon/message-protocol.js";
-import { MODEL_TO_PROVIDER } from "./daemon/session-slash.js";
 import { getConversation, getMessages } from "./memory/conversation-crud.js";
 import {
   getConversationByKey,
@@ -143,7 +143,7 @@ export function formatConfirmationCommandPreview(
 
 export async function startCli(): Promise<void> {
   let conversationKey = CLI_CONVERSATION_KEY;
-  let sessionId = "";
+  let conversationId = "";
   let pendingUserContent: string | null = null;
   let generating = false;
   let lastResponse = "";
@@ -608,7 +608,7 @@ export async function startCli(): Promise<void> {
       if (trimmed === "n") {
         // Create a new conversation by using a unique key
         conversationKey = `builtin-cli:${randomUUID()}`;
-        sessionId = "";
+        conversationId = "";
         pendingSessionPick = false;
         reconnectEvents();
         process.stdout.write(
@@ -626,11 +626,11 @@ export async function startCli(): Promise<void> {
       const idx = parsed - 1;
       if (idx >= 0 && idx < sessions.length) {
         const selected = sessions[idx];
-        if (selected.id === sessionId) {
+        if (selected.id === conversationId) {
           // Already on this session
           pendingSessionPick = false;
           process.stdout.write(
-            `\n  Session: ${selected.title}\n  Type your message. Ctrl+D to detach.\n\n`,
+            `\n  Conversation: ${selected.title}\n  Type your message. Ctrl+D to detach.\n\n`,
           );
           prompt();
         } else {
@@ -643,12 +643,12 @@ export async function startCli(): Promise<void> {
             }
             const newKey = `builtin-cli:${selected.id}`;
             setConversationKeyIfAbsent(newKey, selected.id);
-            sessionId = conversation.id;
+            conversationId = conversation.id;
             conversationKey = newKey;
             pendingSessionPick = false;
             reconnectEvents();
             process.stdout.write(
-              `\n  Session: ${conversation.title ?? "Untitled"}\n  Type your message. Ctrl+D to detach.\n\n`,
+              `\n  Conversation: ${conversation.title ?? "Untitled"}\n  Type your message. Ctrl+D to detach.\n\n`,
             );
             prompt();
           } catch {
@@ -665,11 +665,11 @@ export async function startCli(): Promise<void> {
 
   function handleMessage(msg: ServerMessage): void {
     switch (msg.type) {
-      case "session_info":
+      case "conversation_info":
         pendingSessionPick = false;
-        sessionId = msg.sessionId;
+        conversationId = msg.conversationId;
         process.stdout.write(
-          `\n  Session: ${msg.title}\n  Type your message. Ctrl+D to detach.\n\n`,
+          `\n  Conversation: ${msg.title}\n  Type your message. Ctrl+D to detach.\n\n`,
         );
         if (pendingUserContent) {
           const content = pendingUserContent;
@@ -876,11 +876,11 @@ export async function startCli(): Promise<void> {
         break;
       }
 
-      case "session_list_response":
+      case "conversation_list_response":
         if (pendingSessionPick) {
-          renderSessionPicker(msg.sessions);
+          renderSessionPicker(msg.conversations);
         } else {
-          for (const session of msg.sessions) {
+          for (const session of msg.conversations) {
             process.stdout.write(`  ${session.id}  ${session.title}\n`);
           }
           prompt();
@@ -981,8 +981,8 @@ export async function startCli(): Promise<void> {
     const mapping = getOrCreateConversation(conversationKey);
 
     eventSubscription = watchEventStream(mapping.conversationId, (event) => {
-      if (!sessionId && event.sessionId) {
-        sessionId = event.sessionId;
+      if (!conversationId && event.conversationId) {
+        conversationId = event.conversationId;
       }
       handleMessage(event.message);
     });
@@ -1097,7 +1097,7 @@ export async function startCli(): Promise<void> {
     if (content === "/new") {
       // Create a new conversation by using a unique key
       conversationKey = `builtin-cli:${randomUUID()}`;
-      sessionId = "";
+      conversationId = "";
       reconnectEvents();
       process.stdout.write(
         `\n  New session started.\n  Type your message. Ctrl+D to detach.\n\n`,
@@ -1188,7 +1188,7 @@ export async function startCli(): Promise<void> {
     }
 
     if (content === "/undo") {
-      if (!sessionId) {
+      if (!conversationId) {
         process.stdout.write("\n  No active session.\n\n");
         prompt();
         return;
@@ -1205,7 +1205,7 @@ export async function startCli(): Promise<void> {
         const requestId = randomUUID();
         writeFileSync(
           join(signalsDir, "conversation-undo"),
-          JSON.stringify({ sessionId, requestId }),
+          JSON.stringify({ conversationId, requestId }),
         );
 
         let settled = false;
@@ -1328,13 +1328,13 @@ export async function startCli(): Promise<void> {
   // Ctrl+C: cancel generation if in progress, otherwise detach
   process.on("SIGINT", () => {
     spinner.stop();
-    if (generating && sessionId) {
+    if (generating && conversationId) {
       try {
         const signalsDir = getSignalsDir();
         mkdirSync(signalsDir, { recursive: true });
         writeFileSync(
           join(signalsDir, "cancel"),
-          JSON.stringify({ sessionId }),
+          JSON.stringify({ conversationId }),
         );
       } catch {
         // Best-effort cancel

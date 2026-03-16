@@ -31,7 +31,7 @@ interface SurfaceContentTarget {
 }
 
 export type SurfaceContentSessionLookup = (
-  sessionId: string,
+  conversationId: string,
 ) => SurfaceContentTarget | undefined;
 
 // ---------------------------------------------------------------------------
@@ -39,14 +39,14 @@ export type SurfaceContentSessionLookup = (
 // ---------------------------------------------------------------------------
 
 export function surfaceContentRouteDefinitions(deps: {
-  findSession?: SurfaceContentSessionLookup;
+  findConversation?: SurfaceContentSessionLookup;
 }): RouteDefinition[] {
   return [
     {
       endpoint: "surfaces/:surfaceId",
       method: "GET",
       handler: ({ url, params }) => {
-        if (!deps.findSession) {
+        if (!deps.findConversation) {
           return httpError(
             "NOT_IMPLEMENTED",
             "Surface content lookup not available",
@@ -54,11 +54,11 @@ export function surfaceContentRouteDefinitions(deps: {
           );
         }
 
-        const sessionId = url.searchParams.get("sessionId");
-        if (!sessionId) {
+        const conversationId = url.searchParams.get("conversationId");
+        if (!conversationId) {
           return httpError(
             "BAD_REQUEST",
-            "sessionId query parameter is required",
+            "conversationId query parameter is required",
             400,
           );
         }
@@ -72,11 +72,11 @@ export function surfaceContentRouteDefinitions(deps: {
           );
         }
 
-        const session = deps.findSession(sessionId);
+        const session = deps.findConversation(conversationId);
         if (!session) {
           return httpError(
             "NOT_FOUND",
-            "No active session found for this sessionId",
+            "No active session found for this conversationId",
             404,
           );
         }
@@ -85,7 +85,7 @@ export function surfaceContentRouteDefinitions(deps: {
         const stored = session.surfaceState.get(surfaceId);
         if (stored) {
           log.info(
-            { sessionId, surfaceId },
+            { conversationId, surfaceId },
             "Surface content served from surfaceState",
           );
           return Response.json({
@@ -103,7 +103,7 @@ export function surfaceContentRouteDefinitions(deps: {
         );
         if (turnSurface) {
           log.info(
-            { sessionId, surfaceId },
+            { conversationId, surfaceId },
             "Surface content served from currentTurnSurfaces",
           );
           return Response.json({

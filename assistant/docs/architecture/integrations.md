@@ -430,7 +430,7 @@ sequenceDiagram
 | `ask_missing_credential` | A known template pattern matches but no credential is bound to the session |
 | `ask_unauthenticated`    | Completely unknown host — prompt for unauthenticated access                |
 
-**Trust rule persistence**: The `createProxyApprovalCallback` in `session-tool-setup.ts` is wired into the session startup path and routes policy "ask" decisions through the existing `PermissionPrompter` UI. Trust rules use the `network_request` tool name (not `proxy:*`) with URL-based scope patterns (e.g., `https://api.example.com/*`), aligning with the `buildCommandCandidates()` allowlist generation in `checker.ts`.
+**Trust rule persistence**: The `createProxyApprovalCallback` in `conversation-tool-setup.ts` is wired into the session startup path and routes policy "ask" decisions through the existing `PermissionPrompter` UI. Trust rules use the `network_request` tool name (not `proxy:*`) with URL-based scope patterns (e.g., `https://api.example.com/*`), aligning with the `buildCommandCandidates()` allowlist generation in `checker.ts`.
 
 **Proxied bash permission restriction**: The `ToolExecutor` sets `persistentDecisionsAllowed = false` when the bash tool is invoked with `network_mode: 'proxied'`. This prevents users from saving permanent trust rules for proxied bash commands, since the proxy session's credential scope can change between invocations.
 
@@ -499,7 +499,7 @@ The proxy subsystem intercepts outbound HTTPS requests and injects stored creden
 | `assistant/src/tools/network/script-proxy/logging.ts`         | Log sanitization (header/URL redaction) and safe decision trace builders for policy and credential resolution           |
 | `assistant/src/tools/network/script-proxy/types.ts`           | Type definitions — session, policy decisions, approval callback                                                         |
 | `assistant/src/tools/executor.ts`                             | `persistentDecisionsAllowed` gate — disables trust rule saving for proxied bash                                         |
-| `assistant/src/daemon/session-tool-setup.ts`                  | `createProxyApprovalCallback` — wired into session startup, uses `network_request` tool name with URL-based trust rules |
+| `assistant/src/daemon/conversation-tool-setup.ts`             | `createProxyApprovalCallback` — wired into session startup, uses `network_request` tool name with URL-based trust rules |
 | `assistant/src/permissions/checker.ts`                        | `network_request` trust rule matching and risk classification (Medium)                                                  |
 
 ### Runtime Wiring Summary
@@ -508,7 +508,7 @@ The proxy subsystem is fully wired, including credential injection. The session 
 
 - **MITM handler config**: `mitmHandler` is configured with the local CA path and a `rewriteCallback` that performs per-credential specificity-based template selection — for each credential it picks the most specific matching header template (exact > wildcard), blocks on same-credential equal-specificity ties or cross-credential ambiguity, and for the winning `header`-type template resolves the secret from secure storage and sets the outbound header. Wildcard patterns (`*.fal.run`) match the bare apex domain (`fal.run`) via apex-inclusive matching.
 - **Policy callback**: `evaluateRequestWithApproval()` is called via the `policyCallback`; for `'matched'` decisions it injects credential headers (reading the secret value at injection time), while `'ambiguous'` decisions are blocked and `'ask_*'` decisions route through the approval callback
-- **Approval callback**: `createProxyApprovalCallback()` from `session-tool-setup.ts` routes approval prompts through the `PermissionPrompter`, using the `network_request` tool name with URL-based trust rules
+- **Approval callback**: `createProxyApprovalCallback()` from `conversation-tool-setup.ts` routes approval prompts through the `PermissionPrompter`, using the `network_request` tool name with URL-based trust rules
 - **networkMode plumbing**: `shell.ts` passes `{ networkMode }` to `wrapCommand()`, which forwards it to the native backend
 - **Session lifecycle**: `createSession` / `startSession` / `stopSession` with idle timeout and per-conversation limits
 

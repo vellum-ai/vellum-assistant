@@ -19,16 +19,22 @@ import { messages } from "../schema.js";
 const BACKFILL_CHECKPOINT_KEY = "memory:backfill:last_created_at";
 const BACKFILL_CHECKPOINT_ID_KEY = "memory:backfill:last_message_id";
 
-function parseProvenanceTrustClass(
-  rawMetadata: string | null,
-): TrustClass | undefined {
-  if (!rawMetadata) return undefined;
+function parseMessageMetadata(rawMetadata: string | null): {
+  provenanceTrustClass: TrustClass | undefined;
+  automated: boolean | undefined;
+} {
+  if (!rawMetadata)
+    return { provenanceTrustClass: undefined, automated: undefined };
   try {
     const parsed = messageMetadataSchema.safeParse(JSON.parse(rawMetadata));
-    if (!parsed.success) return undefined;
-    return parsed.data.provenanceTrustClass;
+    if (!parsed.success)
+      return { provenanceTrustClass: undefined, automated: undefined };
+    return {
+      provenanceTrustClass: parsed.data.provenanceTrustClass,
+      automated: parsed.data.automated,
+    };
   } catch {
-    return undefined;
+    return { provenanceTrustClass: undefined, automated: undefined };
   }
 }
 
@@ -73,7 +79,7 @@ export async function backfillJob(
         scopeId = getConversationMemoryScopeId(message.conversationId);
         scopeCache.set(message.conversationId, scopeId);
       }
-      const provenanceTrustClass = parseProvenanceTrustClass(
+      const { provenanceTrustClass, automated } = parseMessageMetadata(
         message.metadata ?? null,
       );
       await indexMessageNow(
@@ -85,6 +91,7 @@ export async function backfillJob(
           createdAt: message.createdAt,
           scopeId,
           provenanceTrustClass,
+          automated,
         },
         config.memory,
       );

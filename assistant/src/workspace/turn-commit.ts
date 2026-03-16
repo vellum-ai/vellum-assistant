@@ -26,8 +26,8 @@ import { getCommitMessageGenerator } from "./provider-commit-message-generator.j
 const log = getLogger("turn-commit");
 
 export interface TurnCommitMetadata {
-  /** Session/conversation identifier */
-  sessionId: string;
+  /** Conversation/conversation identifier */
+  conversationId: string;
   /** 1-based turn number within the session */
   turnNumber: number;
   /** ISO 8601 timestamp of when the turn completed */
@@ -46,14 +46,14 @@ export interface TurnCommitMetadata {
  * starts. All errors are caught and logged to avoid disrupting the session.
  *
  * @param workspaceDir - Absolute path to the workspace directory
- * @param sessionId - Session/conversation identifier
+ * @param conversationId - Conversation/conversation identifier
  * @param turnNumber - 1-based turn number within the session
  * @param provider - Optional commit message provider (defaults to deterministic)
  * @param deadlineMs - Optional absolute deadline (Date.now()) after which the commit should be skipped
  */
 export async function commitTurnChanges(
   workspaceDir: string,
-  sessionId: string,
+  conversationId: string,
   turnNumber: number,
   provider?: CommitMessageProvider,
   deadlineMs?: number,
@@ -101,7 +101,7 @@ export async function commitTurnChanges(
             {
               workspaceDir,
               trigger: "turn",
-              sessionId,
+              conversationId,
               turnNumber,
               changedFiles: candidateChangedFiles,
               timestampMs: Date.now(),
@@ -133,7 +133,7 @@ export async function commitTurnChanges(
         const ctx: CommitContext = {
           workspaceDir,
           trigger: "turn",
-          sessionId,
+          conversationId,
           turnNumber,
           changedFiles: uniqueFiles,
           timestampMs: Date.now(),
@@ -156,7 +156,7 @@ export async function commitTurnChanges(
       ];
       log.info(
         {
-          sessionId,
+          conversationId,
           turnNumber,
           filesChanged: uniqueFiles.length,
           durationMs: commitDurationMs,
@@ -172,7 +172,7 @@ export async function commitTurnChanges(
         const ctx: CommitContext = {
           workspaceDir,
           trigger: "turn",
-          sessionId,
+          conversationId,
           turnNumber,
           changedFiles: uniqueFiles,
           timestampMs: Date.now(),
@@ -188,14 +188,14 @@ export async function commitTurnChanges(
       }
     } else {
       log.debug(
-        { sessionId, turnNumber, durationMs: commitDurationMs },
+        { conversationId, turnNumber, durationMs: commitDurationMs },
         "No workspace changes to commit for turn",
       );
     }
   } catch (err) {
     // Never let commit failures propagate — they must not affect the turn
     log.warn(
-      { err, sessionId, turnNumber },
+      { err, conversationId, turnNumber },
       "Failed to create turn-boundary commit (non-fatal)",
     );
   }

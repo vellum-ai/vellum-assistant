@@ -198,7 +198,6 @@ export class ToolApprovalHandler {
         executionTarget,
         input,
         workingDir: context.workingDir,
-        sessionId: context.sessionId,
         conversationId: context.conversationId,
         requestId: context.requestId,
         riskLevel,
@@ -224,7 +223,6 @@ export class ToolApprovalHandler {
       log.warn(
         {
           toolName: name,
-          sessionId: context.sessionId,
           conversationId: context.conversationId,
           trustClass: context.trustClass,
           reason: "guardian_only_policy",
@@ -238,7 +236,6 @@ export class ToolApprovalHandler {
         executionTarget,
         input,
         workingDir: context.workingDir,
-        sessionId: context.sessionId,
         conversationId: context.conversationId,
         requestId: context.requestId,
         riskLevel,
@@ -273,7 +270,8 @@ export class ToolApprovalHandler {
         toolName: name,
         inputDigest,
         consumingRequestId:
-          context.requestId ?? `preexec-${context.sessionId}-${Date.now()}`,
+          context.requestId ??
+          `preexec-${context.conversationId}-${Date.now()}`,
         executionChannel: context.executionChannel,
         conversationId: context.conversationId,
         callSessionId: context.callSessionId,
@@ -291,7 +289,6 @@ export class ToolApprovalHandler {
         executionTarget,
         input,
         workingDir: context.workingDir,
-        sessionId: context.sessionId,
         conversationId: context.conversationId,
         requestId: context.requestId,
         riskLevel,
@@ -320,7 +317,6 @@ export class ToolApprovalHandler {
           executionTarget,
           input,
           workingDir: context.workingDir,
-          sessionId: context.sessionId,
           conversationId: context.conversationId,
           requestId: context.requestId,
           riskLevel,
@@ -348,7 +344,6 @@ export class ToolApprovalHandler {
         executionTarget,
         input,
         workingDir: context.workingDir,
-        sessionId: context.sessionId,
         conversationId: context.conversationId,
         requestId: context.requestId,
         riskLevel,
@@ -382,7 +377,6 @@ export class ToolApprovalHandler {
             toolName: name,
             channelId: context.channelPermissionChannelId,
             category: tool.category,
-            sessionId: context.sessionId,
             conversationId: context.conversationId,
             reason: "channel_permission_policy",
           },
@@ -395,7 +389,6 @@ export class ToolApprovalHandler {
           executionTarget,
           input,
           workingDir: context.workingDir,
-          sessionId: context.sessionId,
           conversationId: context.conversationId,
           requestId: context.requestId,
           riskLevel,
@@ -427,7 +420,6 @@ export class ToolApprovalHandler {
         log.info(
           {
             toolName: name,
-            sessionId: context.sessionId,
             conversationId: context.conversationId,
             trustClass: context.trustClass,
             executionTarget,
@@ -451,7 +443,6 @@ export class ToolApprovalHandler {
           executionTarget,
           input,
           workingDir: context.workingDir,
-          sessionId: context.sessionId,
           conversationId: context.conversationId,
           requestId: context.requestId,
           riskLevel,
@@ -527,7 +518,6 @@ export class ToolApprovalHandler {
             log.info(
               {
                 toolName: name,
-                sessionId: context.sessionId,
                 conversationId: context.conversationId,
                 trustClass: context.trustClass,
                 executionTarget,
@@ -552,7 +542,6 @@ export class ToolApprovalHandler {
               executionTarget,
               input,
               workingDir: context.workingDir,
-              sessionId: context.sessionId,
               conversationId: context.conversationId,
               requestId: context.requestId,
               riskLevel,
@@ -592,7 +581,6 @@ export class ToolApprovalHandler {
           log.warn(
             {
               toolName: name,
-              sessionId: context.sessionId,
               conversationId: context.conversationId,
               trustClass: context.trustClass,
               executionTarget,
@@ -610,7 +598,6 @@ export class ToolApprovalHandler {
             executionTarget,
             input,
             workingDir: context.workingDir,
-            sessionId: context.sessionId,
             conversationId: context.conversationId,
             requestId: context.requestId,
             riskLevel,
@@ -631,7 +618,6 @@ export class ToolApprovalHandler {
       log.warn(
         {
           toolName: name,
-          sessionId: context.sessionId,
           conversationId: context.conversationId,
           trustClass: context.trustClass,
           executionTarget,
@@ -648,7 +634,6 @@ export class ToolApprovalHandler {
         executionTarget,
         input,
         workingDir: context.workingDir,
-        sessionId: context.sessionId,
         conversationId: context.conversationId,
         requestId: context.requestId,
         riskLevel,

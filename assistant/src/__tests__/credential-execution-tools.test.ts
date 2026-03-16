@@ -165,7 +165,6 @@ describe("secure tool installation is separate from credential grants", () => {
 describe("CES tool execution without client", () => {
   const minimalContext = {
     workingDir: "/tmp",
-    sessionId: "test-session",
     conversationId: "test-conversation",
     trustClass: "guardian" as const,
   };
@@ -222,7 +221,6 @@ describe("CES tool execution without client", () => {
 describe("manage_secure_command_tool input validation", () => {
   const contextWithMockCes = {
     workingDir: "/tmp",
-    sessionId: "test-session",
     conversationId: "test-conversation",
     trustClass: "guardian" as const,
     cesClient: {

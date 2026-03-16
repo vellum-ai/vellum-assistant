@@ -14,7 +14,7 @@ describe("parseSub", () => {
       expect(result.principalType).toBe("actor");
       expect(result.assistantId).toBe("self");
       expect(result.actorPrincipalId).toBe("principal-abc");
-      expect(result.sessionId).toBeUndefined();
+      expect(result.conversationId).toBeUndefined();
     }
   });
 
@@ -39,7 +39,7 @@ describe("parseSub", () => {
       expect(result.principalType).toBe("svc_gateway");
       expect(result.assistantId).toBe("self");
       expect(result.actorPrincipalId).toBeUndefined();
-      expect(result.sessionId).toBeUndefined();
+      expect(result.conversationId).toBeUndefined();
     }
   });
 
@@ -54,7 +54,7 @@ describe("parseSub", () => {
       expect(result.principalType).toBe("svc_daemon");
       expect(result.assistantId).toBe("self");
       expect(result.actorPrincipalId).toBeUndefined();
-      expect(result.sessionId).toBeUndefined();
+      expect(result.conversationId).toBeUndefined();
     }
   });
 
@@ -79,13 +79,13 @@ describe("parseSub", () => {
   // local pattern
   // -------------------------------------------------------------------------
 
-  test("parses local:<assistantId>:<sessionId>", () => {
+  test("parses local:<assistantId>:<conversationId>", () => {
     const result = parseSub("local:self:session-xyz");
     expect(result.ok).toBe(true);
     if (result.ok) {
       expect(result.principalType).toBe("local");
       expect(result.assistantId).toBe("self");
-      expect(result.sessionId).toBe("session-xyz");
+      expect(result.conversationId).toBe("session-xyz");
       expect(result.actorPrincipalId).toBeUndefined();
     }
   });
@@ -158,7 +158,7 @@ describe("parseSub", () => {
     }
   });
 
-  test("fails on local with empty sessionId", () => {
+  test("fails on local with empty conversationId", () => {
     const result = parseSub("local:self:");
     expect(result.ok).toBe(false);
     if (!result.ok) {

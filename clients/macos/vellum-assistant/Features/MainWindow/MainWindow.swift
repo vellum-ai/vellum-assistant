@@ -215,7 +215,7 @@ private class NonDraggableContainerView: NSView {
 public final class MainWindow {
     private let services: AppServices
     private var window: NSWindow?
-    let threadManager: ThreadManager
+    let conversationManager: ConversationManager
     let appListManager = AppListManager()
     let traceStore = TraceStore()
     let usageDashboardStore: UsageDashboardStore
@@ -223,6 +223,7 @@ public final class MainWindow {
     let documentManager = DocumentManager()
     var onMicrophoneToggle: (() -> Void)?
     let voiceModeManager = VoiceModeManager()
+    let updateManager: UpdateManager
 
     /// Wake-up greeting to auto-send after the "coming alive" transition completes.
     /// Set by AppDelegate on first launch; consumed by MainWindowView.
@@ -254,18 +255,19 @@ public final class MainWindow {
 
     /// The active ChatViewModel from the current thread, if any.
     var activeViewModel: ChatViewModel? {
-        threadManager.activeViewModel
+        conversationManager.activeViewModel
     }
 
-    init(services: AppServices, isFirstLaunch: Bool = false) {
+    init(services: AppServices, updateManager: UpdateManager, isFirstLaunch: Bool = false) {
         self.services = services
-        self.threadManager = ThreadManager(
+        self.updateManager = updateManager
+        self.conversationManager = ConversationManager(
             daemonClient: services.daemonClient,
             activityNotificationService: services.activityNotificationService,
             isFirstLaunch: isFirstLaunch
         )
         self.usageDashboardStore = UsageDashboardStore()
-        self.threadManager.ambientAgent = services.ambientAgent
+        self.conversationManager.ambientAgent = services.ambientAgent
         documentManager.daemonClient = daemonClient
         services.daemonClient.onTraceEvent = { [weak self] msg in
             Task { @MainActor in
@@ -301,7 +303,7 @@ public final class MainWindow {
     func handleDocumentEditorShow(_ msg: DocumentEditorShowMessage) {
         documentManager.createDocument(
             surfaceId: msg.surfaceId,
-            sessionId: msg.sessionId,
+            conversationId: msg.conversationId,
             title: msg.title,
             initialContent: msg.initialContent
         )
@@ -327,7 +329,7 @@ public final class MainWindow {
         }
         documentManager.createDocument(
             surfaceId: msg.surfaceId,
-            sessionId: msg.conversationId,
+            conversationId: msg.conversationId,
             title: msg.title,
             initialContent: msg.content
         )
@@ -357,7 +359,7 @@ public final class MainWindow {
         let wakeUpMessage = pendingWakeUpMessage
         let wakeUpCallback: (() -> Void)? = wakeUpMessage != nil ? { [weak self] in
             guard let self, let message = wakeUpMessage,
-                  let viewModel = self.threadManager.activeViewModel else { return }
+                  let viewModel = self.conversationManager.activeViewModel else { return }
             viewModel.inputText = message
             viewModel.sendMessage(hidden: true)
             self.pendingWakeUpMessage = nil
@@ -373,7 +375,7 @@ public final class MainWindow {
             }
         } : nil
 
-        let rootView = MainWindowView(threadManager: threadManager, appListManager: appListManager, zoomManager: zoomManager, conversationZoomManager: services.conversationZoomManager, traceStore: traceStore, usageDashboardStore: usageDashboardStore, daemonClient: daemonClient, surfaceManager: surfaceManager, ambientAgent: ambientAgent, settingsStore: services.settingsStore, authManager: services.authManager, windowState: windowState, documentManager: documentManager, onMicrophoneToggle: onMicrophoneToggle ?? {}, voiceModeManager: voiceModeManager, onSendWakeUp: wakeUpCallback)
+        let rootView = MainWindowView(conversationManager: conversationManager, appListManager: appListManager, zoomManager: zoomManager, conversationZoomManager: services.conversationZoomManager, traceStore: traceStore, usageDashboardStore: usageDashboardStore, daemonClient: daemonClient, surfaceManager: surfaceManager, ambientAgent: ambientAgent, settingsStore: services.settingsStore, authManager: services.authManager, windowState: windowState, documentManager: documentManager, onMicrophoneToggle: onMicrophoneToggle ?? {}, voiceModeManager: voiceModeManager, updateManager: updateManager, onSendWakeUp: wakeUpCallback)
         let hostingController = NonDraggableHostingController(rootView: rootView)
 
         let screenFrame = NSScreen.main?.visibleFrame ?? NSScreen.screens.first?.visibleFrame ?? NSRect(x: 0, y: 0, width: 1440, height: 900)

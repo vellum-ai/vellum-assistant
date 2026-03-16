@@ -81,7 +81,7 @@ final class SurfaceManager: ObservableObject {
     // MARK: - Action Callback
 
     /// Called when a user interacts with a surface action button.
-    /// Parameters: sessionId (optional), surfaceId, actionId, optional data dictionary.
+    /// Parameters: conversationId (optional), surfaceId, actionId, optional data dictionary.
     var onAction: ((String?, String, String, [String: Any]?) -> Void)?
 
     /// Called when a persistent app's JS makes a data request via the RPC bridge.
@@ -134,14 +134,14 @@ final class SurfaceManager: ObservableObject {
         }
 
         let appId = surfaceAppIds[surface.id]
-        let isSandboxed = message.sessionId == "shared-app"
+        let isSandboxed = message.conversationId == "shared-app"
 
         let viewModel = SurfaceViewModel(
             surface: surface,
             onAction: { [weak self] actionId, data in
                 guard let self, !self.respondedSurfaces.contains(surface.id) else { return }
                 self.respondedSurfaces.insert(surface.id)
-                self.onAction?(surface.sessionId, surface.id, actionId, data)
+                self.onAction?(surface.conversationId, surface.id, actionId, data)
             },
             onDismiss: { [weak self] in
                 guard let self, !self.respondedSurfaces.contains(surface.id) else {
@@ -149,7 +149,7 @@ final class SurfaceManager: ObservableObject {
                     return
                 }
                 self.respondedSurfaces.insert(surface.id)
-                self.onAction?(surface.sessionId, surface.id, "dismiss", nil)
+                self.onAction?(surface.conversationId, surface.id, "dismiss", nil)
                 self.dismissSurfaceById(surface.id)
             },
             appId: appId,

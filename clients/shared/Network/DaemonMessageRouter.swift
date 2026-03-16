@@ -90,8 +90,8 @@ extension DaemonClient {
             onDictationResponse?(msg)
         case .notificationIntent(let msg):
             onNotificationIntent?(msg)
-        case .notificationThreadCreated(let msg):
-            onNotificationThreadCreated?(msg)
+        case .notificationConversationCreated(let msg):
+            onNotificationConversationCreated?(msg)
         case .trustRulesListResponse(let msg):
             onTrustRulesListResponse?(msg.rules)
         case .toolPermissionSimulateResponse(let msg):
@@ -134,10 +134,10 @@ extension DaemonClient {
             onBundleAppResponse?(msg)
         case .openBundleResponse(let msg):
             onOpenBundleResponse?(msg)
-        case .sessionListResponse(let msg):
-            onSessionListResponse?(msg)
-        case .sessionTitleUpdated(let msg):
-            onSessionTitleUpdated?(msg)
+        case .conversationListResponse(let msg):
+            onConversationListResponse?(msg)
+        case .conversationTitleUpdated(let msg):
+            onConversationTitleUpdated?(msg)
         case .historyResponse(let msg):
             onHistoryResponse?(msg)
         case .messageContentResponse(let msg):
@@ -230,10 +230,10 @@ extension DaemonClient {
             onWorkItemApprovePermissionsResponse?(msg)
         case .workItemCancelResponse(let msg):
             onWorkItemCancelResponse?(msg)
-        case .taskRunThreadCreated(let msg):
-            onTaskRunThreadCreated?(msg)
-        case .scheduleThreadCreated(let msg):
-            onScheduleThreadCreated?(msg)
+        case .taskRunConversationCreated(let msg):
+            onTaskRunConversationCreated?(msg)
+        case .scheduleConversationCreated(let msg):
+            onScheduleConversationCreated?(msg)
         case .subagentSpawned(let msg):
             onSubagentSpawned?(msg)
         case .subagentStatusChanged(let msg):

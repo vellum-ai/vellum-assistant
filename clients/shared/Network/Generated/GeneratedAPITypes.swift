@@ -396,7 +396,7 @@ public struct AppUpdatePreviewResponse: Codable, Sendable {
 /// ignore events with a version older than their current known version.
 public struct AssistantActivityState: Codable, Sendable {
     public let type: String
-    public let sessionId: String
+    public let conversationId: String
     public let activityVersion: Int
     public let phase: String
     public let anchor: String
@@ -406,9 +406,9 @@ public struct AssistantActivityState: Codable, Sendable {
     /// Human-readable description of what the assistant is currently doing.
     public let statusText: String?
 
-    public init(type: String, sessionId: String, activityVersion: Int, phase: String, anchor: String, requestId: String? = nil, reason: String, statusText: String? = nil) {
+    public init(type: String, conversationId: String, activityVersion: Int, phase: String, anchor: String, requestId: String? = nil, reason: String, statusText: String? = nil) {
         self.type = type
-        self.sessionId = sessionId
+        self.conversationId = conversationId
         self.activityVersion = activityVersion
         self.phase = phase
         self.anchor = anchor
@@ -517,12 +517,12 @@ public struct AssistantInboxEscalationResponseEscalation: Codable, Sendable {
 public struct AssistantTextDelta: Codable, Sendable {
     public let type: String
     public let text: String
-    public let sessionId: String?
+    public let conversationId: String?
 
-    public init(type: String, text: String, sessionId: String? = nil) {
+    public init(type: String, text: String, conversationId: String? = nil) {
         self.type = type
         self.text = text
-        self.sessionId = sessionId
+        self.conversationId = conversationId
     }
 }
 
@@ -623,11 +623,11 @@ public struct BundleAppResponseManifest: Codable, Sendable {
 
 public struct CancelRequest: Codable, Sendable {
     public let type: String
-    public let sessionId: String?
+    public let conversationId: String?
 
-    public init(type: String, sessionId: String? = nil) {
+    public init(type: String, conversationId: String? = nil) {
         self.type = type
-        self.sessionId = sessionId
+        self.conversationId = conversationId
     }
 }
 
@@ -652,7 +652,7 @@ public struct ChannelVerificationSessionRequest: Codable, Sendable {
     public let type: String
     public let action: String
     public let channel: String?
-    public let sessionId: String?
+    public let conversationId: String?
     public let rebind: Bool?
     /// E.164 phone number for phone, Telegram handle/chat-id. Used by outbound actions.
     public let destination: String?
@@ -663,11 +663,11 @@ public struct ChannelVerificationSessionRequest: Codable, Sendable {
     /// Contact-channel ID for the absorbed contact-channel verify flow.
     public let contactChannelId: String?
 
-    public init(type: String, action: String, channel: String? = nil, sessionId: String? = nil, rebind: Bool? = nil, destination: String? = nil, originConversationId: String? = nil, purpose: String? = nil, contactChannelId: String? = nil) {
+    public init(type: String, action: String, channel: String? = nil, conversationId: String? = nil, rebind: Bool? = nil, destination: String? = nil, originConversationId: String? = nil, purpose: String? = nil, contactChannelId: String? = nil) {
         self.type = type
         self.action = action
         self.channel = channel
-        self.sessionId = sessionId
+        self.conversationId = conversationId
         self.rebind = rebind
         self.destination = destination
         self.originConversationId = originConversationId
@@ -773,7 +773,7 @@ public struct ConfirmationRequest: Codable, Sendable {
     public let scopeOptions: [ConfirmationRequestScopeOption]
     public let diff: ConfirmationRequestDiff?
     public let sandboxed: Bool?
-    public let sessionId: String?
+    public let conversationId: String?
     /// When false, the client should hide "always allow" / trust-rule persistence affordances.
     public let persistentDecisionsAllowed: Bool?
     /// Which temporary approval options the client should render (e.g. "Allow for 10 minutes", "Allow for this thread").
@@ -781,7 +781,7 @@ public struct ConfirmationRequest: Codable, Sendable {
     /// The tool_use block ID for client-side correlation with specific tool calls.
     public let toolUseId: String?
 
-    public init(type: String, requestId: String, toolName: String, input: [String: AnyCodable], riskLevel: String, executionTarget: String? = nil, allowlistOptions: [ConfirmationRequestAllowlistOption], scopeOptions: [ConfirmationRequestScopeOption], diff: ConfirmationRequestDiff? = nil, sandboxed: Bool? = nil, sessionId: String? = nil, persistentDecisionsAllowed: Bool? = nil, temporaryOptionsAvailable: [String]? = nil, toolUseId: String? = nil) {
+    public init(type: String, requestId: String, toolName: String, input: [String: AnyCodable], riskLevel: String, executionTarget: String? = nil, allowlistOptions: [ConfirmationRequestAllowlistOption], scopeOptions: [ConfirmationRequestScopeOption], diff: ConfirmationRequestDiff? = nil, sandboxed: Bool? = nil, conversationId: String? = nil, persistentDecisionsAllowed: Bool? = nil, temporaryOptionsAvailable: [String]? = nil, toolUseId: String? = nil) {
         self.type = type
         self.requestId = requestId
         self.toolName = toolName
@@ -792,7 +792,7 @@ public struct ConfirmationRequest: Codable, Sendable {
         self.scopeOptions = scopeOptions
         self.diff = diff
         self.sandboxed = sandboxed
-        self.sessionId = sessionId
+        self.conversationId = conversationId
         self.persistentDecisionsAllowed = persistentDecisionsAllowed
         self.temporaryOptionsAvailable = temporaryOptionsAvailable
         self.toolUseId = toolUseId
@@ -857,7 +857,7 @@ public struct ConfirmationResponse: Codable, Sendable {
 /// confirmation bubble state.
 public struct ConfirmationStateChanged: Codable, Sendable {
     public let type: String
-    public let sessionId: String
+    public let conversationId: String
     public let requestId: String
     public let state: String
     public let source: String
@@ -868,9 +868,9 @@ public struct ConfirmationStateChanged: Codable, Sendable {
     /// The tool_use block ID this confirmation applies to, for disambiguating parallel tool calls.
     public let toolUseId: String?
 
-    public init(type: String, sessionId: String, requestId: String, state: String, source: String, causedByRequestId: String? = nil, decisionText: String? = nil, toolUseId: String? = nil) {
+    public init(type: String, conversationId: String, requestId: String, state: String, source: String, causedByRequestId: String? = nil, decisionText: String? = nil, toolUseId: String? = nil) {
         self.type = type
-        self.sessionId = sessionId
+        self.conversationId = conversationId
         self.requestId = requestId
         self.state = state
         self.source = source
@@ -1218,15 +1218,15 @@ public struct ConversationUnreadSignal: Codable, Sendable {
 
 public struct CuAction: Codable, Sendable {
     public let type: String
-    public let sessionId: String
+    public let conversationId: String
     public let toolName: String
     public let input: [String: AnyCodable]
     public let reasoning: String?
     public let stepNumber: Int
 
-    public init(type: String, sessionId: String, toolName: String, input: [String: AnyCodable], reasoning: String? = nil, stepNumber: Int) {
+    public init(type: String, conversationId: String, toolName: String, input: [String: AnyCodable], reasoning: String? = nil, stepNumber: Int) {
         self.type = type
-        self.sessionId = sessionId
+        self.conversationId = conversationId
         self.toolName = toolName
         self.input = input
         self.reasoning = reasoning
@@ -1236,14 +1236,14 @@ public struct CuAction: Codable, Sendable {
 
 public struct CuComplete: Codable, Sendable {
     public let type: String
-    public let sessionId: String
+    public let conversationId: String
     public let summary: String
     public let stepCount: Int
     public let isResponse: Bool?
 
-    public init(type: String, sessionId: String, summary: String, stepCount: Int, isResponse: Bool? = nil) {
+    public init(type: String, conversationId: String, summary: String, stepCount: Int, isResponse: Bool? = nil) {
         self.type = type
-        self.sessionId = sessionId
+        self.conversationId = conversationId
         self.summary = summary
         self.stepCount = stepCount
         self.isResponse = isResponse
@@ -1266,12 +1266,12 @@ public struct DaemonStatusMessage: Codable, Sendable {
 
 public struct DeleteQueuedMessage: Codable, Sendable {
     public let type: String
-    public let sessionId: String
+    public let conversationId: String
     public let requestId: String
 
-    public init(type: String, sessionId: String, requestId: String) {
+    public init(type: String, conversationId: String, requestId: String) {
         self.type = type
-        self.sessionId = sessionId
+        self.conversationId = conversationId
         self.requestId = requestId
     }
 }
@@ -1352,14 +1352,14 @@ public struct DictationResponse: Codable, Sendable {
 
 public struct DocumentEditorShow: Codable, Sendable {
     public let type: String
-    public let sessionId: String
+    public let conversationId: String
     public let surfaceId: String
     public let title: String
     public let initialContent: String
 
-    public init(type: String, sessionId: String, surfaceId: String, title: String, initialContent: String) {
+    public init(type: String, conversationId: String, surfaceId: String, title: String, initialContent: String) {
         self.type = type
-        self.sessionId = sessionId
+        self.conversationId = conversationId
         self.surfaceId = surfaceId
         self.title = title
         self.initialContent = initialContent
@@ -1368,14 +1368,14 @@ public struct DocumentEditorShow: Codable, Sendable {
 
 public struct DocumentEditorUpdate: Codable, Sendable {
     public let type: String
-    public let sessionId: String
+    public let conversationId: String
     public let surfaceId: String
     public let markdown: String
     public let mode: String
 
-    public init(type: String, sessionId: String, surfaceId: String, markdown: String, mode: String) {
+    public init(type: String, conversationId: String, surfaceId: String, markdown: String, mode: String) {
         self.type = type
-        self.sessionId = sessionId
+        self.conversationId = conversationId
         self.surfaceId = surfaceId
         self.markdown = markdown
         self.mode = mode
@@ -1674,25 +1674,25 @@ public struct GenerateAvatarResponse: Codable, Sendable {
 
 public struct GenerationCancelled: Codable, Sendable {
     public let type: String
-    public let sessionId: String?
+    public let conversationId: String?
 
-    public init(type: String, sessionId: String? = nil) {
+    public init(type: String, conversationId: String? = nil) {
         self.type = type
-        self.sessionId = sessionId
+        self.conversationId = conversationId
     }
 }
 
 public struct GenerationHandoff: Codable, Sendable {
     public let type: String
-    public let sessionId: String
+    public let conversationId: String
     public let requestId: String?
     public let queuedCount: Int
     public let attachments: [UserMessageAttachment]?
     public let messageId: String?
 
-    public init(type: String, sessionId: String, requestId: String? = nil, queuedCount: Int, attachments: [UserMessageAttachment]? = nil, messageId: String? = nil) {
+    public init(type: String, conversationId: String, requestId: String? = nil, queuedCount: Int, attachments: [UserMessageAttachment]? = nil, messageId: String? = nil) {
         self.type = type
-        self.sessionId = sessionId
+        self.conversationId = conversationId
         self.requestId = requestId
         self.queuedCount = queuedCount
         self.attachments = attachments
@@ -1971,7 +1971,7 @@ public struct HeartbeatRunsListResponseRun: Codable, Sendable {
 
 public struct HistoryRequest: Codable, Sendable {
     public let type: String
-    public let sessionId: String
+    public let conversationId: String
     /// Max messages to return. When omitted, all messages are returned (unlimited).
     public let limit: Double?
     /// Pagination cursor: return messages with timestamp before this value.
@@ -1991,9 +1991,9 @@ public struct HistoryRequest: Codable, Sendable {
     /// Truncate tool result strings beyond this character limit. When omitted, full results are returned.
     public let maxToolResultChars: Double?
 
-    public init(type: String, sessionId: String, limit: Double? = nil, beforeTimestamp: Double? = nil, beforeMessageId: String? = nil, includeAttachments: Bool? = nil, includeToolImages: Bool? = nil, includeSurfaceData: Bool? = nil, mode: String? = nil, maxTextChars: Double? = nil, maxToolResultChars: Double? = nil) {
+    public init(type: String, conversationId: String, limit: Double? = nil, beforeTimestamp: Double? = nil, beforeMessageId: String? = nil, includeAttachments: Bool? = nil, includeToolImages: Bool? = nil, includeSurfaceData: Bool? = nil, mode: String? = nil, maxTextChars: Double? = nil, maxToolResultChars: Double? = nil) {
         self.type = type
-        self.sessionId = sessionId
+        self.conversationId = conversationId
         self.limit = limit
         self.beforeTimestamp = beforeTimestamp
         self.beforeMessageId = beforeMessageId
@@ -2008,7 +2008,7 @@ public struct HistoryRequest: Codable, Sendable {
 
 public struct HistoryResponse: Codable, Sendable {
     public let type: String
-    public let sessionId: String
+    public let conversationId: String
     public let messages: [HistoryResponseMessage]
     /// Whether older messages exist beyond the returned page.
     public let hasMore: Bool
@@ -2017,9 +2017,9 @@ public struct HistoryResponse: Codable, Sendable {
     /// ID of the oldest message in the response (tie-breaker for same-millisecond cursors).
     public let oldestMessageId: String?
 
-    public init(type: String, sessionId: String, messages: [HistoryResponseMessage], hasMore: Bool, oldestTimestamp: Double? = nil, oldestMessageId: String? = nil) {
+    public init(type: String, conversationId: String, messages: [HistoryResponseMessage], hasMore: Bool, oldestTimestamp: Double? = nil, oldestMessageId: String? = nil) {
         self.type = type
-        self.sessionId = sessionId
+        self.conversationId = conversationId
         self.messages = messages
         self.hasMore = hasMore
         self.oldestTimestamp = oldestTimestamp
@@ -2540,13 +2540,13 @@ public struct MemoryStatus: Codable, Sendable {
 
 public struct MessageComplete: Codable, Sendable {
     public let type: String
-    public let sessionId: String?
+    public let conversationId: String?
     public let attachments: [UserMessageAttachment]?
     public let messageId: String?
 
-    public init(type: String, sessionId: String? = nil, attachments: [UserMessageAttachment]? = nil, messageId: String? = nil) {
+    public init(type: String, conversationId: String? = nil, attachments: [UserMessageAttachment]? = nil, messageId: String? = nil) {
         self.type = type
-        self.sessionId = sessionId
+        self.conversationId = conversationId
         self.attachments = attachments
         self.messageId = messageId
     }
@@ -2554,26 +2554,26 @@ public struct MessageComplete: Codable, Sendable {
 
 public struct MessageContentRequest: Codable, Sendable {
     public let type: String
-    public let sessionId: String
+    public let conversationId: String
     public let messageId: String
 
-    public init(type: String, sessionId: String, messageId: String) {
+    public init(type: String, conversationId: String, messageId: String) {
         self.type = type
-        self.sessionId = sessionId
+        self.conversationId = conversationId
         self.messageId = messageId
     }
 }
 
 public struct MessageContentResponse: Codable, Sendable {
     public let type: String
-    public let sessionId: String
+    public let conversationId: String
     public let messageId: String
     public let text: String?
     public let toolCalls: [MessageContentResponseToolCall]?
 
-    public init(type: String, sessionId: String, messageId: String, text: String? = nil, toolCalls: [MessageContentResponseToolCall]? = nil) {
+    public init(type: String, conversationId: String, messageId: String, text: String? = nil, toolCalls: [MessageContentResponseToolCall]? = nil) {
         self.type = type
-        self.sessionId = sessionId
+        self.conversationId = conversationId
         self.messageId = messageId
         self.text = text
         self.toolCalls = toolCalls
@@ -2594,25 +2594,25 @@ public struct MessageContentResponseToolCall: Codable, Sendable {
 
 public struct MessageDequeued: Codable, Sendable {
     public let type: String
-    public let sessionId: String
+    public let conversationId: String
     public let requestId: String
 
-    public init(type: String, sessionId: String, requestId: String) {
+    public init(type: String, conversationId: String, requestId: String) {
         self.type = type
-        self.sessionId = sessionId
+        self.conversationId = conversationId
         self.requestId = requestId
     }
 }
 
 public struct MessageQueued: Codable, Sendable {
     public let type: String
-    public let sessionId: String
+    public let conversationId: String
     public let requestId: String
     public let position: Int
 
-    public init(type: String, sessionId: String, requestId: String, position: Int) {
+    public init(type: String, conversationId: String, requestId: String, position: Int) {
         self.type = type
-        self.sessionId = sessionId
+        self.conversationId = conversationId
         self.requestId = requestId
         self.position = position
     }
@@ -2620,12 +2620,12 @@ public struct MessageQueued: Codable, Sendable {
 
 public struct MessageQueuedDeleted: Codable, Sendable {
     public let type: String
-    public let sessionId: String
+    public let conversationId: String
     public let requestId: String
 
-    public init(type: String, sessionId: String, requestId: String) {
+    public init(type: String, conversationId: String, requestId: String) {
         self.type = type
-        self.sessionId = sessionId
+        self.conversationId = conversationId
         self.requestId = requestId
     }
 }
@@ -2637,14 +2637,14 @@ public struct MessageQueuedDeleted: Codable, Sendable {
 /// separate in-flight turn may still be running.
 public struct MessageRequestComplete: Codable, Sendable {
     public let type: String
-    public let sessionId: String
+    public let conversationId: String
     public let requestId: String
     /// True when an existing turn is still running after this request is finalized.
     public let runStillActive: Bool?
 
-    public init(type: String, sessionId: String, requestId: String, runStillActive: Bool? = nil) {
+    public init(type: String, conversationId: String, requestId: String, runStillActive: Bool? = nil) {
         self.type = type
-        self.sessionId = sessionId
+        self.conversationId = conversationId
         self.requestId = requestId
         self.runStillActive = runStillActive
     }
@@ -2735,13 +2735,13 @@ public struct NotificationIntentResult: Codable, Sendable {
     }
 }
 
-/// Server push — broadcast when a notification creates a new vellum conversation thread.
-public struct NotificationThreadCreated: Codable, Sendable {
+/// Server push — broadcast when a notification creates a new vellum conversation.
+public struct NotificationConversationCreated: Codable, Sendable {
     public let type: String
     public let conversationId: String
     public let title: String
     public let sourceEventName: String
-    /// When set, this thread was created for a guardian-sensitive notification
+    /// When set, this conversation was created for a guardian-sensitive notification
     /// and should only be surfaced by clients bound to this guardian identity.
     public let targetGuardianPrincipalId: String?
 
@@ -3033,7 +3033,7 @@ public struct RecordingStart: Codable, Sendable {
 /// Client → Server: recording lifecycle status update.
 public struct RecordingStatus: Codable, Sendable {
     public let type: String
-    public let sessionId: String
+    public let conversationId: String
     public let status: String
     public let filePath: String?
     public let durationMs: Double?
@@ -3042,9 +3042,9 @@ public struct RecordingStatus: Codable, Sendable {
     /// Operation token for restart race hardening — matches the token from RecordingStart.
     public let operationToken: String?
 
-    public init(type: String, sessionId: String, status: String, filePath: String? = nil, durationMs: Double? = nil, error: String? = nil, attachToConversationId: String? = nil, operationToken: String? = nil) {
+    public init(type: String, conversationId: String, status: String, filePath: String? = nil, durationMs: Double? = nil, error: String? = nil, attachToConversationId: String? = nil, operationToken: String? = nil) {
         self.type = type
-        self.sessionId = sessionId
+        self.conversationId = conversationId
         self.status = status
         self.filePath = filePath
         self.durationMs = durationMs
@@ -3067,11 +3067,11 @@ public struct RecordingStop: Codable, Sendable {
 
 public struct RegenerateRequest: Codable, Sendable {
     public let type: String
-    public let sessionId: String
+    public let conversationId: String
 
-    public init(type: String, sessionId: String) {
+    public init(type: String, conversationId: String) {
         self.type = type
-        self.sessionId = sessionId
+        self.conversationId = conversationId
     }
 }
 
@@ -3085,23 +3085,23 @@ public struct RemoveTrustRule: Codable, Sendable {
     }
 }
 
-public struct ReorderThreadsRequest: Codable, Sendable {
+public struct ReorderConversationsRequest: Codable, Sendable {
     public let type: String
-    public let updates: [ReorderThreadsRequestUpdate]
+    public let updates: [ReorderConversationsRequestUpdate]
 
-    public init(type: String, updates: [ReorderThreadsRequestUpdate]) {
+    public init(type: String, updates: [ReorderConversationsRequestUpdate]) {
         self.type = type
         self.updates = updates
     }
 }
 
-public struct ReorderThreadsRequestUpdate: Codable, Sendable {
-    public let sessionId: String
+public struct ReorderConversationsRequestUpdate: Codable, Sendable {
+    public let conversationId: String
     public let displayOrder: Double?
     public let isPinned: Bool
 
-    public init(sessionId: String, displayOrder: Double?, isPinned: Bool) {
-        self.sessionId = sessionId
+    public init(conversationId: String, displayOrder: Double?, isPinned: Bool) {
+        self.conversationId = conversationId
         self.displayOrder = displayOrder
         self.isPinned = isPinned
     }
@@ -3194,7 +3194,7 @@ public struct SchedulesListResponseSchedule: Codable, Sendable {
 }
 
 /// Server push — broadcast when a schedule creates a conversation, so the client can show it as a chat thread.
-public struct ScheduleThreadCreated: Codable, Sendable {
+public struct ScheduleConversationCreated: Codable, Sendable {
     public let type: String
     public let conversationId: String
     public let scheduleJobId: String
@@ -3252,7 +3252,7 @@ public struct SecretRequest: Codable, Sendable {
     public let label: String
     public let description: String?
     public let placeholder: String?
-    public let sessionId: String?
+    public let conversationId: String?
     /// Intended purpose of the credential (displayed to user).
     public let purpose: String?
     /// Tools allowed to use this credential.
@@ -3262,7 +3262,7 @@ public struct SecretRequest: Codable, Sendable {
     /// Whether one-time send override is available.
     public let allowOneTimeSend: Bool?
 
-    public init(type: String, requestId: String, service: String, field: String, label: String, description: String? = nil, placeholder: String? = nil, sessionId: String? = nil, purpose: String? = nil, allowedTools: [String]? = nil, allowedDomains: [String]? = nil, allowOneTimeSend: Bool? = nil) {
+    public init(type: String, requestId: String, service: String, field: String, label: String, description: String? = nil, placeholder: String? = nil, conversationId: String? = nil, purpose: String? = nil, allowedTools: [String]? = nil, allowedDomains: [String]? = nil, allowOneTimeSend: Bool? = nil) {
         self.type = type
         self.requestId = requestId
         self.service = service
@@ -3270,7 +3270,7 @@ public struct SecretRequest: Codable, Sendable {
         self.label = label
         self.description = description
         self.placeholder = placeholder
-        self.sessionId = sessionId
+        self.conversationId = conversationId
         self.purpose = purpose
         self.allowedTools = allowedTools
         self.allowedDomains = allowedDomains
@@ -3293,54 +3293,54 @@ public struct SecretResponse: Codable, Sendable {
     }
 }
 
-public struct SessionCreateRequest: Codable, Sendable {
+public struct ConversationCreateRequest: Codable, Sendable {
     public let type: String
     public let title: String?
     public let systemPromptOverride: String?
     public let maxResponseTokens: Int?
     public let correlationId: String?
-    /// Lightweight session transport metadata for channel identity and natural-language guidance.
-    public let transport: SessionTransportMetadata?
-    public let threadType: String?
-    /// Skill IDs to pre-activate in the new session (loaded before the first message).
+    /// Lightweight conversation transport metadata for channel identity and natural-language guidance.
+    public let transport: ConversationTransportMetadata?
+    public let conversationType: String?
+    /// Skill IDs to pre-activate in the new conversation (loaded before the first message).
     public let preactivatedSkillIds: [String]?
-    /// If provided, automatically sent as the first user message after session creation.
+    /// If provided, automatically sent as the first user message after conversation creation.
     public let initialMessage: String?
 
-    public init(type: String, title: String? = nil, systemPromptOverride: String? = nil, maxResponseTokens: Int? = nil, correlationId: String? = nil, transport: SessionTransportMetadata? = nil, threadType: String? = nil, preactivatedSkillIds: [String]? = nil, initialMessage: String? = nil) {
+    public init(type: String, title: String? = nil, systemPromptOverride: String? = nil, maxResponseTokens: Int? = nil, correlationId: String? = nil, transport: ConversationTransportMetadata? = nil, conversationType: String? = nil, preactivatedSkillIds: [String]? = nil, initialMessage: String? = nil) {
         self.type = type
         self.title = title
         self.systemPromptOverride = systemPromptOverride
         self.maxResponseTokens = maxResponseTokens
         self.correlationId = correlationId
         self.transport = transport
-        self.threadType = threadType
+        self.conversationType = conversationType
         self.preactivatedSkillIds = preactivatedSkillIds
         self.initialMessage = initialMessage
     }
 }
 
-public struct SessionInfo: Codable, Sendable {
+public struct ConversationInfo: Codable, Sendable {
     public let type: String
-    public let sessionId: String
+    public let conversationId: String
     public let title: String
     public let correlationId: String?
-    public let threadType: String?
+    public let conversationType: String?
 
-    public init(type: String, sessionId: String, title: String, correlationId: String? = nil, threadType: String? = nil) {
+    public init(type: String, conversationId: String, title: String, correlationId: String? = nil, conversationType: String? = nil) {
         self.type = type
-        self.sessionId = sessionId
+        self.conversationId = conversationId
         self.title = title
         self.correlationId = correlationId
-        self.threadType = threadType
+        self.conversationType = conversationType
     }
 }
 
-public struct SessionListRequest: Codable, Sendable {
+public struct ConversationListRequest: Codable, Sendable {
     public let type: String
-    /// Number of sessions to skip (for pagination). Defaults to 0.
+    /// Number of conversations to skip (for pagination). Defaults to 0.
     public let offset: Double?
-    /// Maximum number of sessions to return. Defaults to 50.
+    /// Maximum number of conversations to return. Defaults to 50.
     public let limit: Double?
 
     public init(type: String, offset: Double? = nil, limit: Double? = nil) {
@@ -3350,25 +3350,25 @@ public struct SessionListRequest: Codable, Sendable {
     }
 }
 
-public struct SessionListResponse: Codable, Sendable {
+public struct ConversationListResponse: Codable, Sendable {
     public let type: String
-    public let sessions: [SessionListResponseSession]
-    /// Whether more sessions exist beyond the returned page.
+    public let conversations: [ConversationListResponseItem]
+    /// Whether more conversations exist beyond the returned page.
     public let hasMore: Bool?
 
-    public init(type: String, sessions: [SessionListResponseSession], hasMore: Bool? = nil) {
+    public init(type: String, conversations: [ConversationListResponseItem], hasMore: Bool? = nil) {
         self.type = type
-        self.sessions = sessions
+        self.conversations = conversations
         self.hasMore = hasMore
     }
 }
 
-public struct SessionListResponseSession: Codable, Sendable {
+public struct ConversationListResponseItem: Codable, Sendable {
     public let id: String
     public let title: String
     public let createdAt: Int?
     public let updatedAt: Int
-    public let threadType: String?
+    public let conversationType: String?
     public let source: String?
     public let scheduleJobId: String?
     /// Channel binding metadata exposed in session/conversation list APIs.
@@ -3380,12 +3380,12 @@ public struct SessionListResponseSession: Codable, Sendable {
     public let displayOrder: Double?
     public let isPinned: Bool?
 
-    public init(id: String, title: String, createdAt: Int? = nil, updatedAt: Int, threadType: String? = nil, source: String? = nil, scheduleJobId: String? = nil, channelBinding: ChannelBinding? = nil, conversationOriginChannel: String? = nil, conversationOriginInterface: String? = nil, assistantAttention: AssistantAttention? = nil, displayOrder: Double? = nil, isPinned: Bool? = nil) {
+    public init(id: String, title: String, createdAt: Int? = nil, updatedAt: Int, conversationType: String? = nil, source: String? = nil, scheduleJobId: String? = nil, channelBinding: ChannelBinding? = nil, conversationOriginChannel: String? = nil, conversationOriginInterface: String? = nil, assistantAttention: AssistantAttention? = nil, displayOrder: Double? = nil, isPinned: Bool? = nil) {
         self.id = id
         self.title = title
         self.createdAt = createdAt
         self.updatedAt = updatedAt
-        self.threadType = threadType
+        self.conversationType = conversationType
         self.source = source
         self.scheduleJobId = scheduleJobId
         self.channelBinding = channelBinding
@@ -3397,19 +3397,19 @@ public struct SessionListResponseSession: Codable, Sendable {
     }
 }
 
-public struct SessionRenameRequest: Codable, Sendable {
+public struct ConversationRenameRequest: Codable, Sendable {
     public let type: String
-    public let sessionId: String
+    public let conversationId: String
     public let title: String
 
-    public init(type: String, sessionId: String, title: String) {
+    public init(type: String, conversationId: String, title: String) {
         self.type = type
-        self.sessionId = sessionId
+        self.conversationId = conversationId
         self.title = title
     }
 }
 
-public struct SessionsClearRequest: Codable, Sendable {
+public struct ConversationsClearRequest: Codable, Sendable {
     public let type: String
 
     public init(type: String) {
@@ -3417,7 +3417,7 @@ public struct SessionsClearRequest: Codable, Sendable {
     }
 }
 
-public struct SessionsClearResponse: Codable, Sendable {
+public struct ConversationsClearResponse: Codable, Sendable {
     public let type: String
     public let cleared: Int
 
@@ -3427,30 +3427,30 @@ public struct SessionsClearResponse: Codable, Sendable {
     }
 }
 
-public struct SessionSwitchRequest: Codable, Sendable {
+public struct ConversationSwitchRequest: Codable, Sendable {
     public let type: String
-    public let sessionId: String
+    public let conversationId: String
 
-    public init(type: String, sessionId: String) {
+    public init(type: String, conversationId: String) {
         self.type = type
-        self.sessionId = sessionId
+        self.conversationId = conversationId
     }
 }
 
-public struct SessionTitleUpdated: Codable, Sendable {
+public struct ConversationTitleUpdated: Codable, Sendable {
     public let type: String
-    public let sessionId: String
+    public let conversationId: String
     public let title: String
 
-    public init(type: String, sessionId: String, title: String) {
+    public init(type: String, conversationId: String, title: String) {
         self.type = type
-        self.sessionId = sessionId
+        self.conversationId = conversationId
         self.title = title
     }
 }
 
-/// Lightweight session transport metadata for channel identity and natural-language guidance.
-public struct SessionTransportMetadata: Codable, Sendable {
+/// Lightweight conversation transport metadata for channel identity and natural-language guidance.
+public struct ConversationTransportMetadata: Codable, Sendable {
     /// Logical channel identifier (e.g. "desktop", "telegram", "mobile").
     public let channelId: String
     /// Interface identifier for this transport (e.g. "macos", "ios", "cli").
@@ -4100,13 +4100,13 @@ public struct SubagentMessageRequest: Codable, Sendable {
     public let type: String
     public let subagentId: String
     public let content: String
-    public let sessionId: String?
+    public let conversationId: String?
 
-    public init(type: String, subagentId: String, content: String, sessionId: String? = nil) {
+    public init(type: String, subagentId: String, content: String, conversationId: String? = nil) {
         self.type = type
         self.subagentId = subagentId
         self.content = content
-        self.sessionId = sessionId
+        self.conversationId = conversationId
     }
 }
 
@@ -4155,12 +4155,12 @@ public struct SubagentStatusRequest: Codable, Sendable {
 
 public struct SuggestionRequest: Codable, Sendable {
     public let type: String
-    public let sessionId: String
+    public let conversationId: String
     public let requestId: String
 
-    public init(type: String, sessionId: String, requestId: String) {
+    public init(type: String, conversationId: String, requestId: String) {
         self.type = type
-        self.sessionId = sessionId
+        self.conversationId = conversationId
         self.requestId = requestId
     }
 }
@@ -4195,7 +4195,7 @@ public struct SurfaceAction: Codable, Sendable {
 }
 
 /// Server push — broadcast when a task run creates a conversation, so the client can show it as a chat thread.
-public struct TaskRunThreadCreated: Codable, Sendable {
+public struct TaskRunConversationCreated: Codable, Sendable {
     public let type: String
     public let conversationId: String
     public let workItemId: String
@@ -4297,15 +4297,15 @@ public struct ToolInputDelta: Codable, Sendable {
     public let type: String
     public let toolName: String
     public let content: String
-    public let sessionId: String?
+    public let conversationId: String?
     /// The tool_use block ID for client-side correlation.
     public let toolUseId: String?
 
-    public init(type: String, toolName: String, content: String, sessionId: String? = nil, toolUseId: String? = nil) {
+    public init(type: String, toolName: String, content: String, conversationId: String? = nil, toolUseId: String? = nil) {
         self.type = type
         self.toolName = toolName
         self.content = content
-        self.sessionId = sessionId
+        self.conversationId = conversationId
         self.toolUseId = toolUseId
     }
 }
@@ -4347,7 +4347,7 @@ public struct ToolNamesListResponse: Codable, Sendable {
 public struct ToolOutputChunk: Codable, Sendable {
     public let type: String
     public let chunk: String
-    public let sessionId: String?
+    public let conversationId: String?
     public let toolUseId: String?
     public let subType: String?
     public let subToolName: String?
@@ -4355,10 +4355,10 @@ public struct ToolOutputChunk: Codable, Sendable {
     public let subToolIsError: Bool?
     public let subToolId: String?
 
-    public init(type: String, chunk: String, sessionId: String? = nil, toolUseId: String? = nil, subType: String? = nil, subToolName: String? = nil, subToolInput: String? = nil, subToolIsError: Bool? = nil, subToolId: String? = nil) {
+    public init(type: String, chunk: String, conversationId: String? = nil, toolUseId: String? = nil, subType: String? = nil, subToolName: String? = nil, subToolInput: String? = nil, subToolIsError: Bool? = nil, subToolId: String? = nil) {
         self.type = type
         self.chunk = chunk
-        self.sessionId = sessionId
+        self.conversationId = conversationId
         self.toolUseId = toolUseId
         self.subType = subType
         self.subToolName = subToolName
@@ -4463,20 +4463,20 @@ public struct ToolResult: Codable, Sendable {
     public let isError: Bool?
     public let diff: ToolResultDiff?
     public let status: String?
-    public let sessionId: String?
+    public let conversationId: String?
     /// Base64-encoded image data extracted from contentBlocks (e.g. browser_screenshot).
     public let imageData: String?
     /// The tool_use block ID for client-side correlation.
     public let toolUseId: String?
 
-    public init(type: String, toolName: String, result: String, isError: Bool? = nil, diff: ToolResultDiff? = nil, status: String? = nil, sessionId: String? = nil, imageData: String? = nil, toolUseId: String? = nil) {
+    public init(type: String, toolName: String, result: String, isError: Bool? = nil, diff: ToolResultDiff? = nil, status: String? = nil, conversationId: String? = nil, imageData: String? = nil, toolUseId: String? = nil) {
         self.type = type
         self.toolName = toolName
         self.result = result
         self.isError = isError
         self.diff = diff
         self.status = status
-        self.sessionId = sessionId
+        self.conversationId = conversationId
         self.imageData = imageData
         self.toolUseId = toolUseId
     }
@@ -4500,13 +4500,13 @@ public struct ToolUsePreviewStart: Codable, Sendable {
     public let type: String
     public let toolUseId: String
     public let toolName: String
-    public let sessionId: String?
+    public let conversationId: String?
 
-    public init(type: String, toolUseId: String, toolName: String, sessionId: String? = nil) {
+    public init(type: String, toolUseId: String, toolName: String, conversationId: String? = nil) {
         self.type = type
         self.toolUseId = toolUseId
         self.toolName = toolName
-        self.sessionId = sessionId
+        self.conversationId = conversationId
     }
 }
 
@@ -4514,15 +4514,15 @@ public struct ToolUseStart: Codable, Sendable {
     public let type: String
     public let toolName: String
     public let input: [String: AnyCodable]
-    public let sessionId: String?
+    public let conversationId: String?
     /// The tool_use block ID for client-side correlation.
     public let toolUseId: String?
 
-    public init(type: String, toolName: String, input: [String: AnyCodable], sessionId: String? = nil, toolUseId: String? = nil) {
+    public init(type: String, toolName: String, input: [String: AnyCodable], conversationId: String? = nil, toolUseId: String? = nil) {
         self.type = type
         self.toolName = toolName
         self.input = input
-        self.sessionId = sessionId
+        self.conversationId = conversationId
         self.toolUseId = toolUseId
     }
 }
@@ -4567,14 +4567,14 @@ public struct TrustRulesListResponseRule: Codable, Sendable {
 
 public struct UiSurfaceAction: Codable, Sendable {
     public let type: String
-    public let sessionId: String
+    public let conversationId: String
     public let surfaceId: String
     public let actionId: String
     public let data: [String: AnyCodable]?
 
-    public init(type: String, sessionId: String, surfaceId: String, actionId: String, data: [String: AnyCodable]? = nil) {
+    public init(type: String, conversationId: String, surfaceId: String, actionId: String, data: [String: AnyCodable]? = nil) {
         self.type = type
-        self.sessionId = sessionId
+        self.conversationId = conversationId
         self.surfaceId = surfaceId
         self.actionId = actionId
         self.data = data
@@ -4583,14 +4583,14 @@ public struct UiSurfaceAction: Codable, Sendable {
 
 public struct UiSurfaceComplete: Codable, Sendable {
     public let type: String
-    public let sessionId: String
+    public let conversationId: String
     public let surfaceId: String
     public let summary: String
     public let submittedData: [String: AnyCodable]?
 
-    public init(type: String, sessionId: String, surfaceId: String, summary: String, submittedData: [String: AnyCodable]? = nil) {
+    public init(type: String, conversationId: String, surfaceId: String, summary: String, submittedData: [String: AnyCodable]? = nil) {
         self.type = type
-        self.sessionId = sessionId
+        self.conversationId = conversationId
         self.surfaceId = surfaceId
         self.summary = summary
         self.submittedData = submittedData
@@ -4599,12 +4599,12 @@ public struct UiSurfaceComplete: Codable, Sendable {
 
 public struct UiSurfaceDismiss: Codable, Sendable {
     public let type: String
-    public let sessionId: String
+    public let conversationId: String
     public let surfaceId: String
 
-    public init(type: String, sessionId: String, surfaceId: String) {
+    public init(type: String, conversationId: String, surfaceId: String) {
         self.type = type
-        self.sessionId = sessionId
+        self.conversationId = conversationId
         self.surfaceId = surfaceId
     }
 }
@@ -4613,27 +4613,27 @@ public struct UiSurfaceDismiss: Codable, Sendable {
 
 public struct UiSurfaceUndoRequest: Codable, Sendable {
     public let type: String
-    public let sessionId: String
+    public let conversationId: String
     public let surfaceId: String
 
-    public init(type: String, sessionId: String, surfaceId: String) {
+    public init(type: String, conversationId: String, surfaceId: String) {
         self.type = type
-        self.sessionId = sessionId
+        self.conversationId = conversationId
         self.surfaceId = surfaceId
     }
 }
 
 public struct UiSurfaceUndoResult: Codable, Sendable {
     public let type: String
-    public let sessionId: String
+    public let conversationId: String
     public let surfaceId: String
     public let success: Bool
     /// Number of remaining undo entries after this undo.
     public let remainingUndos: Int
 
-    public init(type: String, sessionId: String, surfaceId: String, success: Bool, remainingUndos: Int) {
+    public init(type: String, conversationId: String, surfaceId: String, success: Bool, remainingUndos: Int) {
         self.type = type
-        self.sessionId = sessionId
+        self.conversationId = conversationId
         self.surfaceId = surfaceId
         self.success = success
         self.remainingUndos = remainingUndos
@@ -4642,13 +4642,13 @@ public struct UiSurfaceUndoResult: Codable, Sendable {
 
 public struct UiSurfaceUpdate: Codable, Sendable {
     public let type: String
-    public let sessionId: String
+    public let conversationId: String
     public let surfaceId: String
     public let data: [String: AnyCodable]
 
-    public init(type: String, sessionId: String, surfaceId: String, data: [String: AnyCodable]) {
+    public init(type: String, conversationId: String, surfaceId: String, data: [String: AnyCodable]) {
         self.type = type
-        self.sessionId = sessionId
+        self.conversationId = conversationId
         self.surfaceId = surfaceId
         self.data = data
     }
@@ -4657,22 +4657,22 @@ public struct UiSurfaceUpdate: Codable, Sendable {
 public struct UndoComplete: Codable, Sendable {
     public let type: String
     public let removedCount: Int
-    public let sessionId: String?
+    public let conversationId: String?
 
-    public init(type: String, removedCount: Int, sessionId: String? = nil) {
+    public init(type: String, removedCount: Int, conversationId: String? = nil) {
         self.type = type
         self.removedCount = removedCount
-        self.sessionId = sessionId
+        self.conversationId = conversationId
     }
 }
 
 public struct UndoRequest: Codable, Sendable {
     public let type: String
-    public let sessionId: String
+    public let conversationId: String
 
-    public init(type: String, sessionId: String) {
+    public init(type: String, conversationId: String) {
         self.type = type
-        self.sessionId = sessionId
+        self.conversationId = conversationId
     }
 }
 
@@ -4720,11 +4720,11 @@ public struct UpdateTrustRule: Codable, Sendable {
 
 public struct UsageRequest: Codable, Sendable {
     public let type: String
-    public let sessionId: String
+    public let conversationId: String
 
-    public init(type: String, sessionId: String) {
+    public init(type: String, conversationId: String) {
         self.type = type
-        self.sessionId = sessionId
+        self.conversationId = conversationId
     }
 }
 
@@ -4778,7 +4778,7 @@ public struct UsageUpdate: Codable, Sendable {
 
 public struct UserMessage: Codable, Sendable {
     public let type: String
-    public let sessionId: String
+    public let conversationId: String
     public let content: String?
     public let attachments: [UserMessageAttachment]?
     public let activeSurfaceId: String?
@@ -4794,12 +4794,14 @@ public struct UserMessage: Codable, Sendable {
     public let pttActivationKey: String?
     /// Whether the client has been granted microphone permission by the OS.
     public let microphonePermissionGranted: Bool?
+    /// When true, the message was auto-sent by the client (e.g. wake-up greeting) and should not trigger memory extraction.
+    public let automated: Bool?
     /// Structured command intent — bypasses text parsing when present.
     public let commandIntent: CommandIntent?
 
-    public init(type: String, sessionId: String, content: String? = nil, attachments: [UserMessageAttachment]? = nil, activeSurfaceId: String? = nil, currentPage: String? = nil, bypassSecretCheck: Bool? = nil, channel: String? = nil, interface: String, pttActivationKey: String? = nil, microphonePermissionGranted: Bool? = nil, commandIntent: CommandIntent? = nil) {
+    public init(type: String, conversationId: String, content: String? = nil, attachments: [UserMessageAttachment]? = nil, activeSurfaceId: String? = nil, currentPage: String? = nil, bypassSecretCheck: Bool? = nil, channel: String? = nil, interface: String, pttActivationKey: String? = nil, microphonePermissionGranted: Bool? = nil, automated: Bool? = nil, commandIntent: CommandIntent? = nil) {
         self.type = type
-        self.sessionId = sessionId
+        self.conversationId = conversationId
         self.content = content
         self.attachments = attachments
         self.activeSurfaceId = activeSurfaceId
@@ -4809,6 +4811,7 @@ public struct UserMessage: Codable, Sendable {
         self.interface = interface
         self.pttActivationKey = pttActivationKey
         self.microphonePermissionGranted = microphonePermissionGranted
+        self.automated = automated
         self.commandIntent = commandIntent
     }
 }
@@ -4825,8 +4828,10 @@ public struct UserMessageAttachment: Codable, Sendable {
     public let thumbnailData: String?
     /// Absolute path to the local file on disk. Present for file-backed attachments (e.g. recordings).
     public let filePath: String?
+    /// True when the attachment is file-backed and clients should hydrate via the /content endpoint.
+    public let fileBacked: Bool?
 
-    public init(id: String? = nil, filename: String, mimeType: String, data: String, extractedText: String? = nil, sizeBytes: Int? = nil, thumbnailData: String? = nil, filePath: String? = nil) {
+    public init(id: String? = nil, filename: String, mimeType: String, data: String, extractedText: String? = nil, sizeBytes: Int? = nil, thumbnailData: String? = nil, filePath: String? = nil, fileBacked: Bool? = nil) {
         self.id = id
         self.filename = filename
         self.mimeType = mimeType
@@ -4835,18 +4840,19 @@ public struct UserMessageAttachment: Codable, Sendable {
         self.sizeBytes = sizeBytes
         self.thumbnailData = thumbnailData
         self.filePath = filePath
+        self.fileBacked = fileBacked
     }
 }
 
 public struct UserMessageEcho: Codable, Sendable {
     public let type: String
     public let text: String
-    public let sessionId: String?
+    public let conversationId: String?
 
-    public init(type: String, text: String, sessionId: String? = nil) {
+    public init(type: String, text: String, conversationId: String? = nil) {
         self.type = type
         self.text = text
-        self.sessionId = sessionId
+        self.conversationId = conversationId
     }
 }
 
@@ -4890,12 +4896,12 @@ public struct VoiceConfigUpdateRequest: Codable, Sendable {
 
 public struct WatchCompleteRequest: Codable, Sendable {
     public let type: String
-    public let sessionId: String
+    public let conversationId: String
     public let watchId: String
 
-    public init(type: String, sessionId: String, watchId: String) {
+    public init(type: String, conversationId: String, watchId: String) {
         self.type = type
-        self.sessionId = sessionId
+        self.conversationId = conversationId
         self.watchId = watchId
     }
 }
@@ -4903,7 +4909,7 @@ public struct WatchCompleteRequest: Codable, Sendable {
 public struct WatchObservation: Codable, Sendable {
     public let type: String
     public let watchId: String
-    public let sessionId: String
+    public let conversationId: String
     public let ocrText: String
     public let appName: String?
     public let windowTitle: String?
@@ -4912,10 +4918,10 @@ public struct WatchObservation: Codable, Sendable {
     public let captureIndex: Int
     public let totalExpected: Int
 
-    public init(type: String, watchId: String, sessionId: String, ocrText: String, appName: String? = nil, windowTitle: String? = nil, bundleIdentifier: String? = nil, timestamp: Double, captureIndex: Int, totalExpected: Int) {
+    public init(type: String, watchId: String, conversationId: String, ocrText: String, appName: String? = nil, windowTitle: String? = nil, bundleIdentifier: String? = nil, timestamp: Double, captureIndex: Int, totalExpected: Int) {
         self.type = type
         self.watchId = watchId
-        self.sessionId = sessionId
+        self.conversationId = conversationId
         self.ocrText = ocrText
         self.appName = appName
         self.windowTitle = windowTitle
@@ -4928,14 +4934,14 @@ public struct WatchObservation: Codable, Sendable {
 
 public struct WatchStarted: Codable, Sendable {
     public let type: String
-    public let sessionId: String
+    public let conversationId: String
     public let watchId: String
     public let durationSeconds: Double
     public let intervalSeconds: Double
 
-    public init(type: String, sessionId: String, watchId: String, durationSeconds: Double, intervalSeconds: Double) {
+    public init(type: String, conversationId: String, watchId: String, durationSeconds: Double, intervalSeconds: Double) {
         self.type = type
-        self.sessionId = sessionId
+        self.conversationId = conversationId
         self.watchId = watchId
         self.durationSeconds = durationSeconds
         self.intervalSeconds = intervalSeconds

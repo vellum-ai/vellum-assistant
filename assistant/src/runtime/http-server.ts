@@ -121,6 +121,8 @@ import {
   contactRouteDefinitions,
 } from "./routes/contact-routes.js";
 import { conversationAttentionRouteDefinitions } from "./routes/conversation-attention-routes.js";
+import { conversationManagementRouteDefinitions } from "./routes/conversation-management-routes.js";
+import { conversationQueryRouteDefinitions } from "./routes/conversation-query-routes.js";
 import { conversationRouteDefinitions } from "./routes/conversation-routes.js";
 import { debugRouteDefinitions } from "./routes/debug-routes.js";
 import { diagnosticsRouteDefinitions } from "./routes/diagnostics-routes.js";
@@ -152,8 +154,6 @@ import {
 import { recordingRouteDefinitions } from "./routes/recording-routes.js";
 import { scheduleRouteDefinitions } from "./routes/schedule-routes.js";
 import { secretRouteDefinitions } from "./routes/secret-routes.js";
-import { sessionManagementRouteDefinitions } from "./routes/session-management-routes.js";
-import { sessionQueryRouteDefinitions } from "./routes/session-query-routes.js";
 import { settingsRouteDefinitions } from "./routes/settings-routes.js";
 import { skillRouteDefinitions } from "./routes/skills-routes.js";
 import { subagentRouteDefinitions } from "./routes/subagents-routes.js";
@@ -177,7 +177,7 @@ export type {
   MessageProcessor,
   RuntimeAttachmentMetadata,
   RuntimeHttpServerOptions,
-  RuntimeMessageSessionOptions,
+  RuntimeMessageConversationOptions,
   SendMessageDeps,
 } from "./http-types.js";
 
@@ -218,10 +218,10 @@ export class RuntimeHttpServer {
   private pairingStore = new PairingStore();
   private pairingBroadcast?: (msg: ServerMessage) => void;
   private sendMessageDeps?: SendMessageDeps;
-  private findSession?: RuntimeHttpServerOptions["findSession"];
-  private findSessionBySurfaceId?: RuntimeHttpServerOptions["findSessionBySurfaceId"];
+  private findConversation?: RuntimeHttpServerOptions["findConversation"];
+  private findConversationBySurfaceId?: RuntimeHttpServerOptions["findConversationBySurfaceId"];
   private getSkillContext?: RuntimeHttpServerOptions["getSkillContext"];
-  private sessionManagementDeps?: RuntimeHttpServerOptions["sessionManagementDeps"];
+  private conversationManagementDeps?: RuntimeHttpServerOptions["conversationManagementDeps"];
   private getModelSetContext?: RuntimeHttpServerOptions["getModelSetContext"];
   private getWatchDeps?: RuntimeHttpServerOptions["getWatchDeps"];
   private getRecordingDeps?: RuntimeHttpServerOptions["getRecordingDeps"];
@@ -240,10 +240,10 @@ export class RuntimeHttpServer {
       options.guardianFollowUpConversationGenerator;
     this.interfacesDir = options.interfacesDir ?? null;
     this.sendMessageDeps = options.sendMessageDeps;
-    this.findSession = options.findSession;
-    this.findSessionBySurfaceId = options.findSessionBySurfaceId;
+    this.findConversation = options.findConversation;
+    this.findConversationBySurfaceId = options.findConversationBySurfaceId;
     this.getSkillContext = options.getSkillContext;
-    this.sessionManagementDeps = options.sessionManagementDeps;
+    this.conversationManagementDeps = options.conversationManagementDeps;
     this.getModelSetContext = options.getModelSetContext;
     this.getWatchDeps = options.getWatchDeps;
     this.getRecordingDeps = options.getRecordingDeps;
@@ -536,7 +536,10 @@ export class RuntimeHttpServer {
       return httpError("NOT_FOUND", "Not found", 404);
     }
 
-    const endpoint = path.slice("/v1/".length);
+    // Strip trailing slashes so routes match regardless of whether the
+    // caller includes one (e.g. platform proxy paths use Django's trailing-
+    // slash convention, so the gateway may forward paths with a trailing /).
+    const endpoint = path.slice("/v1/".length).replace(/\/$/, "");
 
     if (!isHttpAuthDisabled()) {
       const clientIp = extractClientIp(req, server);
@@ -747,24 +750,24 @@ export class RuntimeHttpServer {
       ...workItemRouteDefinitions(
         this.sendMessageDeps
           ? {
-              getOrCreateSession: (conversationId) =>
-                this.sendMessageDeps!.getOrCreateSession(conversationId),
-              findSession: this.findSession
+              getOrCreateConversation: (conversationId) =>
+                this.sendMessageDeps!.getOrCreateConversation(conversationId),
+              findConversation: this.findConversation
                 ? (conversationId) => {
-                    const s = this.findSession!(conversationId);
+                    const s = this.findConversation!(conversationId);
                     if (!s || !("abort" in s)) return undefined;
-                    return s as import("../daemon/session.js").Session;
+                    return s as import("../daemon/conversation.js").Conversation;
                   }
                 : undefined,
             }
           : undefined,
       ),
       ...subagentRouteDefinitions(),
-      ...sessionQueryRouteDefinitions({
+      ...conversationQueryRouteDefinitions({
         getModelSetContext: this.getModelSetContext,
-        findSessionForQueue: this.findSession
+        findConversationForQueue: this.findConversation
           ? (id) => {
-              const s = this.findSession!(id);
+              const s = this.findConversation!(id);
               if (!s?.removeQueuedMessage) return undefined;
               return { removeQueuedMessage: s.removeQueuedMessage.bind(s) };
             }
@@ -814,7 +817,7 @@ export class RuntimeHttpServer {
           const attentionStates =
             getAttentionStateByConversationIds(conversationIds);
           return Response.json({
-            sessions: conversations.map((c) => {
+            conversations: conversations.map((c) => {
               const binding = bindings.get(c.id);
               const originChannel = parseChannelId(c.originChannel);
               const attn = attentionStates.get(c.id);
@@ -850,7 +853,7 @@ export class RuntimeHttpServer {
                 title: c.title ?? "Untitled",
                 createdAt: c.createdAt,
                 updatedAt: c.updatedAt,
-                threadType:
+                conversationType:
                   c.conversationType === "private" ? "private" : "standard",
                 source: c.source ?? "user",
                 ...(c.scheduleJobId ? { scheduleJobId: c.scheduleJobId } : {}),
@@ -887,8 +890,10 @@ export class RuntimeHttpServer {
       },
       ...conversationAttentionRouteDefinitions(),
 
-      ...(this.sessionManagementDeps
-        ? sessionManagementRouteDefinitions(this.sessionManagementDeps)
+      ...(this.conversationManagementDeps
+        ? conversationManagementRouteDefinitions(
+            this.conversationManagementDeps,
+          )
         : []),
 
       {
@@ -1023,12 +1028,12 @@ export class RuntimeHttpServer {
               }
             : undefined;
           return Response.json({
-            session: {
+            conversation: {
               id: conversation.id,
               title: conversation.title ?? "Untitled",
               createdAt: conversation.createdAt,
               updatedAt: conversation.updatedAt,
-              threadType:
+              conversationType:
                 conversation.conversationType === "private"
                   ? "private"
                   : "standard",
@@ -1079,10 +1084,12 @@ export class RuntimeHttpServer {
         : []),
       ...trustRulesRouteDefinitions(),
       ...surfaceActionRouteDefinitions({
-        findSession: this.findSession,
-        findSessionBySurfaceId: this.findSessionBySurfaceId,
+        findConversation: this.findConversation,
+        findConversationBySurfaceId: this.findConversationBySurfaceId,
       }),
-      ...surfaceContentRouteDefinitions({ findSession: this.findSession }),
+      ...surfaceContentRouteDefinitions({
+        findConversation: this.findConversation,
+      }),
       ...guardianActionRouteDefinitions(),
 
       ...contactRouteDefinitions(),

@@ -177,7 +177,7 @@ struct MarkdownSegmentView: View {
     private static let maxCacheBytes = 5_000_000
     @MainActor static var estimatedCacheBytes: Int = 0
 
-    /// Clears the attributed string cache.  Called when switching threads
+    /// Clears the attributed string cache.  Called when switching conversations
     /// or archiving a conversation to reclaim memory.
     static func clearAttributedStringCache() {
         attributedStringCache.removeAll()

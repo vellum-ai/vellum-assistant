@@ -16,31 +16,31 @@ describe("AssistantEvent shape", () => {
       emittedAt: "2026-02-18T21:20:00.000Z",
       message: {
         type: "assistant_text_delta",
-        sessionId: "conv_456",
+        conversationId: "conv_456",
         text: "Working on it...",
       },
     };
 
     expect(event.id).toBe("evt_001");
     expect(event.assistantId).toBe("ast_123");
-    expect(event.sessionId).toBeUndefined();
+    expect(event.conversationId).toBeUndefined();
     expect(event.emittedAt).toBe("2026-02-18T21:20:00.000Z");
     expect(event.message.type).toBe("assistant_text_delta");
   });
 
-  test("accepts a full event with sessionId", () => {
+  test("accepts a full event with conversationId", () => {
     const event: AssistantEvent = {
       id: "evt_002",
       assistantId: "ast_123",
-      sessionId: "conv_456",
+      conversationId: "conv_456",
       emittedAt: "2026-02-18T21:20:00.000Z",
       message: {
         type: "message_complete",
-        sessionId: "conv_456",
+        conversationId: "conv_456",
       },
     };
 
-    expect(event.sessionId).toBe("conv_456");
+    expect(event.conversationId).toBe("conv_456");
     expect(event.message.type).toBe("message_complete");
   });
 });
@@ -51,11 +51,11 @@ describe("formatSseFrame", () => {
   const baseEvent: AssistantEvent = {
     id: "evt_003",
     assistantId: "ast_abc",
-    sessionId: "sess_xyz",
+    conversationId: "sess_xyz",
     emittedAt: "2026-02-18T00:00:00.000Z",
     message: {
       type: "assistant_text_delta",
-      sessionId: "sess_xyz",
+      conversationId: "sess_xyz",
       text: "hello",
     },
   };
@@ -81,7 +81,7 @@ describe("formatSseFrame", () => {
 
     expect(parsed.id).toBe(baseEvent.id);
     expect(parsed.assistantId).toBe(baseEvent.assistantId);
-    expect(parsed.sessionId).toBe(baseEvent.sessionId);
+    expect(parsed.conversationId).toBe(baseEvent.conversationId);
     expect(parsed.emittedAt).toBe(baseEvent.emittedAt);
     expect(parsed.message.type).toBe("assistant_text_delta");
   });

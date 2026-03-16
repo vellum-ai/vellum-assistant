@@ -59,7 +59,7 @@ export class PermissionPrompter {
       isNewFile: boolean;
     },
     sandboxed?: boolean,
-    sessionId?: string,
+    conversationId?: string,
     executionTarget?: ExecutionTarget,
     persistentDecisionsAllowed?: boolean,
     signal?: AbortSignal,
@@ -120,7 +120,7 @@ export class PermissionPrompter {
         })),
         diff,
         sandboxed,
-        sessionId,
+        conversationId,
         executionTarget,
         persistentDecisionsAllowed: persistentDecisionsAllowed ?? true,
         temporaryOptionsAvailable,

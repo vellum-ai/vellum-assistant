@@ -28,6 +28,10 @@ extension EnvironmentValues {
     var lastMinY: CGFloat = .infinity  // NOT @Published — no re-render on scroll
     @Published var isVisible: Bool = true
 
+    /// Updates the tracked minY and recalculates visibility.
+    /// Only publishes `isVisible` when the boundary is actually crossed
+    /// (visible ↔ invisible), not on every scroll tick — this prevents
+    /// SwiftUI re-renders during continuous scrolling.
     func update(minY: CGFloat, viewportHeight: CGFloat) {
         lastMinY = minY
         let newVisible = minY >= -20 && minY <= viewportHeight + 20
@@ -36,6 +40,11 @@ extension EnvironmentValues {
 
     func updateViewport(height: CGFloat, storedViewportHeight: inout CGFloat) {
         storedViewportHeight = height
+        // Don't recompute visibility before the anchor position has been
+        // measured — lastMinY starts at .infinity, and .infinity <= height + 20
+        // evaluates to false, incorrectly flipping isVisible to false and
+        // flashing the "Scroll to latest" button on short conversations.
+        guard lastMinY.isFinite else { return }
         let newVisible = lastMinY >= -20 && lastMinY <= height + 20
         if isVisible != newVisible { isVisible = newVisible }
     }
@@ -79,6 +88,15 @@ struct MessageListView: View {
     var onRetryFailedMessage: ((UUID) -> Void)?
     var subagentDetailStore: SubagentDetailStore
 
+    // MARK: - Credits Exhausted (inline banner)
+
+    /// Non-nil when the conversation ended due to credits exhaustion.
+    var creditsExhaustedError: ConversationError? = nil
+    /// Opens the billing / add-funds flow.
+    var onAddFunds: (() -> Void)? = nil
+    /// Dismisses the credits-exhausted banner.
+    var onDismissCreditsExhausted: (() -> Void)? = nil
+
     // MARK: - Pagination
 
     /// Number of messages the view currently displays (suffix window size).
@@ -94,6 +112,8 @@ struct MessageListView: View {
     /// When set, scroll to this message ID and clear the binding.
     /// Used by notification deep links to anchor the view to a specific message.
     @Binding var anchorMessageId: UUID?
+    /// Message ID to visually highlight after an anchor scroll completes.
+    @Binding var highlightedMessageId: UUID?
     @Binding var isNearBottom: Bool
     /// Measured width of the chat container, used to detect sidebar/split resizes
     /// and stabilize scroll position during layout width changes.
@@ -152,6 +172,8 @@ struct MessageListView: View {
     @State private var lastHandledContainerWidth: CGFloat = 0
     /// In-flight resize scroll stabilization task; cancelled on each new resize.
     @State private var resizeScrollTask: Task<Void, Never>?
+    /// Task that clears the highlight flash after the animation duration.
+    @State private var highlightDismissTask: Task<Void, Never>?
     /// In-flight staged scroll-to-bottom task used after thread switches and
     /// app restarts to reliably anchor the viewport once layout settles.
     @State private var scrollRestoreTask: Task<Void, Never>?
@@ -165,6 +187,9 @@ struct MessageListView: View {
     @State private var avatarSmoothingTask: Task<Void, Never>?
     @State private var avatarLastAppliedAt: Date?
     @State private var hasPlayedTailEntryAnimation = false
+    /// Last reported ConversationTailAnchorYKey value. Used to apply a 2pt
+    /// dead-zone so that sub-pixel layout jitter doesn't trigger avatar updates.
+    @State private var lastTailAnchorY: CGFloat = .infinity
 
     /// The subset of messages actually shown, honoring the pagination window.
     private var visibleMessages: [ChatMessage] {
@@ -189,6 +214,73 @@ struct MessageListView: View {
         let last = messages.last(where: { if case .queued = $0.status { return false }; return true })
         let textLen = last?.textSegments.reduce(0) { $0 + $1.utf8.count } ?? 0
         return textLen + (last?.toolCalls.count ?? 0) + (last?.inlineSurfaces.count ?? 0)
+    }
+
+    /// Computes all expensive derived values once per body evaluation.
+    /// Moving these out of the LazyVStack closure ensures O(n) scans
+    /// (timestamp indices, subagent grouping, turn detection) run once
+    /// per body evaluation rather than being re-evaluated on layout passes.
+    private var precomputedState: PrecomputedMessageListState {
+        let displayMessages = visibleMessages
+        let activePendingRequestId = PendingConfirmationFocusSelector.activeRequestId(from: displayMessages)
+        let latestAssistantId = displayMessages.last(where: { $0.role == .assistant })?.id
+        let anchoredThinkingIndex = resolvedThinkingAnchorIndex(for: displayMessages)
+        let subagentsByParent: [UUID: [SubagentInfo]] = Dictionary(
+            grouping: activeSubagents.filter { $0.parentMessageId != nil },
+            by: { $0.parentMessageId! }
+        )
+        let orphanSubagents = activeSubagents.filter { $0.parentMessageId == nil }
+        let showTimestamp = timestampIndices(for: displayMessages)
+        let lastVisible = displayMessages.last
+        let currentTurnMessages: ArraySlice<ChatMessage> = {
+            if isSending, let last = displayMessages.last, last.role == .user {
+                let lastNonUser = displayMessages.last(where: {
+                    $0.role != .user
+                })
+                let isActivelyProcessing = lastNonUser?.isStreaming == true
+                    || lastNonUser?.confirmation?.state == .pending
+                if !isActivelyProcessing {
+                    return displayMessages[displayMessages.endIndex...]
+                }
+            }
+            let lastTurnStart = displayMessages.indices.reversed().first(where: { idx in
+                displayMessages[idx].role == .user
+                    && displayMessages.index(after: idx) < displayMessages.endIndex
+                    && displayMessages[displayMessages.index(after: idx)].role != .user
+            })
+            if let idx = lastTurnStart {
+                return displayMessages[displayMessages.index(after: idx)...]
+            }
+            return displayMessages[displayMessages.startIndex...]
+        }()
+        let hasActiveToolCall = currentTurnMessages.contains(where: {
+            $0.toolCalls.contains(where: { !$0.isComplete })
+        })
+        let wouldShowThinking = isSending
+            && (isThinking || !(lastVisible?.isStreaming == true))
+            && !hasActiveToolCall
+        let lastVisibleIsAssistant = lastVisible?.role == .assistant
+        let canInlineProcessing = wouldShowThinking && lastVisibleIsAssistant
+        let shouldShowThinkingIndicator = wouldShowThinking && !canInlineProcessing
+        let effectiveStatusText = isCompacting ? "Compacting context\u{2026}" : assistantStatusText
+
+        return PrecomputedMessageListState(
+            displayMessages: displayMessages,
+            activePendingRequestId: activePendingRequestId,
+            latestAssistantId: latestAssistantId,
+            anchoredThinkingIndex: anchoredThinkingIndex,
+            subagentsByParent: subagentsByParent,
+            orphanSubagents: orphanSubagents,
+            showTimestamp: showTimestamp,
+            lastVisible: lastVisible,
+            currentTurnMessages: currentTurnMessages,
+            hasActiveToolCall: hasActiveToolCall,
+            wouldShowThinking: wouldShowThinking,
+            lastVisibleIsAssistant: lastVisibleIsAssistant,
+            canInlineProcessing: canInlineProcessing,
+            shouldShowThinkingIndicator: shouldShowThinkingIndicator,
+            effectiveStatusText: effectiveStatusText
+        )
     }
 
     /// Pre-compute which message indices should show a timestamp divider.
@@ -416,6 +508,25 @@ struct MessageListView: View {
         }
     }
 
+    /// Flash-highlight the given message after an anchor scroll completes.
+    /// The highlight fades out automatically after 1.5 seconds.
+    private func flashHighlight(messageId: UUID) {
+        highlightDismissTask?.cancel()
+        highlightedMessageId = messageId
+        highlightDismissTask = Task { @MainActor in
+            do {
+                try await Task.sleep(nanoseconds: 1_500_000_000)
+            } catch {
+                return
+            }
+            guard !Task.isCancelled else { return }
+            withAnimation(VAnimation.slow) {
+                highlightedMessageId = nil
+            }
+            highlightDismissTask = nil
+        }
+    }
+
     private var shouldAnchorThinkingToConfirmationChip: Bool {
         assistantActivityPhase == "thinking"
             && assistantActivityAnchor == "assistant_turn"
@@ -477,6 +588,8 @@ struct MessageListView: View {
         ScrollViewReader { proxy in
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: VSpacing.md) {
+                    let _ = os_signpost(.event, log: PerfSignposts.log, name: "messageListBodyEvaluated",
+                                        "count=%d", messages.count)
                     // MARK: - Pagination sentinel
 
                     if isLoadingMoreMessages {
@@ -519,66 +632,23 @@ struct MessageListView: View {
                             }
                     }
 
-                    let displayMessages = visibleMessages
-                    let activePendingRequestId = PendingConfirmationFocusSelector.activeRequestId(from: displayMessages)
-                    let latestAssistantId = displayMessages.last(where: { $0.role == .assistant })?.id
-                    let anchoredThinkingIndex = resolvedThinkingAnchorIndex(for: displayMessages)
-                    // Pre-compute subagent lookup to avoid O(n*m) filtering inside ForEach
-                    let subagentsByParent: [UUID: [SubagentInfo]] = Dictionary(grouping: activeSubagents.filter { $0.parentMessageId != nil }, by: { $0.parentMessageId! })
-                    let orphanSubagents = activeSubagents.filter { $0.parentMessageId == nil }
-                    let showTimestamp = timestampIndices(for: displayMessages)
-                    let lastVisible = displayMessages.last
-                    let currentTurnMessages: ArraySlice<ChatMessage> = {
-                        if isSending, let last = displayMessages.last, last.role == .user {
-                            let lastNonUser = displayMessages.last(where: {
-                                $0.role != .user
-                            })
-                            let isActivelyProcessing = lastNonUser?.isStreaming == true
-                                || lastNonUser?.confirmation?.state == .pending
-                            if !isActivelyProcessing {
-                                return displayMessages[displayMessages.endIndex...]
-                            }
-                        }
-                        let lastTurnStart = displayMessages.indices.reversed().first(where: { idx in
-                            displayMessages[idx].role == .user
-                                && displayMessages.index(after: idx) < displayMessages.endIndex
-                                && displayMessages[displayMessages.index(after: idx)].role != .user
-                        })
-                        if let idx = lastTurnStart {
-                            return displayMessages[displayMessages.index(after: idx)...]
-                        }
-                        return displayMessages[displayMessages.startIndex...]
-                    }()
-                    let hasActiveToolCall = currentTurnMessages.contains(where: {
-                        $0.toolCalls.contains(where: { !$0.isComplete })
-                    })
-                    // Determine whether a standalone thinking row would be shown
-                    // (before considering inlining).
-                    let wouldShowThinking = isSending
-                        && (isThinking || !(lastVisible?.isStreaming == true))
-                        && !hasActiveToolCall
-                    // When the last visible message is an assistant bubble, render
-                    // the indicator inline inside that bubble's trailingStatus
-                    // instead of spawning a standalone row (duplicate avatar).
-                    let lastVisibleIsAssistant = lastVisible?.role == .assistant
-                    let canInlineProcessing = wouldShowThinking && lastVisibleIsAssistant
-                    let shouldShowThinkingIndicator = wouldShowThinking && !canInlineProcessing
-                    let effectiveStatusText = isCompacting ? "Compacting context\u{2026}" : assistantStatusText
-                    ForEach(Array(zip(displayMessages.indices, displayMessages)), id: \.1.id) { index, message in
+                    let state = precomputedState
+                    ForEach(Array(zip(state.displayMessages.indices, state.displayMessages)), id: \.1.id) { index, message in
                         MessageCellView(
                             message: message,
                             index: index,
-                            displayMessages: displayMessages,
-                            showTimestamp: showTimestamp,
-                            activePendingRequestId: activePendingRequestId,
-                            latestAssistantId: latestAssistantId,
-                            anchoredThinkingIndex: anchoredThinkingIndex,
-                            subagentsByParent: subagentsByParent,
-                            canInlineProcessing: canInlineProcessing,
-                            shouldShowThinkingIndicator: shouldShowThinkingIndicator,
-                            assistantStatusText: effectiveStatusText,
+                            displayMessages: state.displayMessages,
+                            showTimestamp: state.showTimestamp,
+                            activePendingRequestId: state.activePendingRequestId,
+                            latestAssistantId: state.latestAssistantId,
+                            anchoredThinkingIndex: state.anchoredThinkingIndex,
+                            subagentsByParent: state.subagentsByParent,
+                            canInlineProcessing: state.canInlineProcessing,
+                            shouldShowThinkingIndicator: state.shouldShowThinkingIndicator,
+                            assistantStatusText: state.effectiveStatusText,
                             dismissedDocumentSurfaceIds: dismissedDocumentSurfaceIds,
                             activeSurfaceId: activeSurfaceId,
+                            isHighlighted: highlightedMessageId == message.id,
                             mediaEmbedSettings: mediaEmbedSettings,
                             resolveHttpPort: resolveHttpPort,
                             onConfirmationAllow: onConfirmationAllow,
@@ -599,9 +669,10 @@ struct MessageListView: View {
                             selectedModel: selectedModel,
                             configuredProviders: configuredProviders
                         )
+                        .equatable()
                     }
 
-                    ForEach(orphanSubagents) { subagent in
+                    ForEach(state.orphanSubagents) { subagent in
                         SubagentEventsReader(
                             store: subagentDetailStore,
                             subagent: subagent,
@@ -613,12 +684,24 @@ struct MessageListView: View {
                             .transition(.opacity.combined(with: .move(edge: .bottom)))
                     }
 
-                    if shouldShowThinkingIndicator && anchoredThinkingIndex == nil {
+                    if state.shouldShowThinkingIndicator && state.anchoredThinkingIndex == nil {
                         if isCompacting {
                             compactingIndicatorRow()
                         } else {
-                            thinkingIndicatorRow(displayMessages: displayMessages)
+                            thinkingIndicatorRow(displayMessages: state.displayMessages)
                         }
+                    } else if isCompacting && !state.shouldShowThinkingIndicator && !state.canInlineProcessing {
+                        compactingIndicatorRow()
+                    }
+
+                    // Inline credits-exhausted recovery banner
+                    if let exhaustedError = creditsExhaustedError, exhaustedError.isCreditsExhausted {
+                        CreditsExhaustedBanner(
+                            onAddFunds: { onAddFunds?() },
+                            onDismiss: { onDismissCreditsExhausted?() }
+                        )
+                        .frame(maxWidth: VSpacing.chatBubbleMaxWidth)
+                        .transition(.opacity.combined(with: .move(edge: .bottom)))
                     }
 
                     Color.clear
@@ -632,8 +715,9 @@ struct MessageListView: View {
                                 )
                             }
                         }
+                        .transaction { $0.disablesAnimations = true }
 
-                    if !displayMessages.isEmpty && ConversationAvatarFollower.bottomInset > 0 {
+                    if !state.displayMessages.isEmpty && ConversationAvatarFollower.bottomInset > 0 {
                         Color.clear
                             .frame(height: ConversationAvatarFollower.bottomInset)
                             .accessibilityHidden(true)
@@ -713,15 +797,25 @@ struct MessageListView: View {
                 anchorTracker.updateViewport(height: height, storedViewportHeight: &scrollViewportHeight)
                 os_signpost(.end, log: PerfSignposts.log, name: "anchorPreferenceChange")
             }
+            .transaction { $0.disablesAnimations = true }
             .onPreferenceChange(AnchorMinYKey.self) { minY in
+                // 2pt dead-zone: skip update when value hasn't meaningfully changed,
+                // reducing layout invalidation cascades during rapid scroll.
+                guard abs(minY - anchorTracker.lastMinY) > 2 else { return }
                 os_signpost(.begin, log: PerfSignposts.log, name: "anchorPreferenceChange")
                 anchorTracker.update(minY: minY, viewportHeight: scrollViewportHeight)
                 if !hasFreshAnchorMeasurement { hasFreshAnchorMeasurement = true }
                 os_signpost(.end, log: PerfSignposts.log, name: "anchorPreferenceChange")
             }
+            .transaction { $0.disablesAnimations = true }
             .onPreferenceChange(ConversationTailAnchorYKey.self) { anchorY in
+                // 2pt dead-zone: skip update when value hasn't meaningfully changed,
+                // reducing layout invalidation cascades during rapid scroll.
+                guard abs(anchorY - lastTailAnchorY) > 2 else { return }
+                lastTailAnchorY = anchorY
                 updateAvatarFollower(anchorY: anchorY)
             }
+            .transaction { $0.disablesAnimations = true }
             .overlay(alignment: .topLeading) {
                 conversationTailAvatar
             }
@@ -757,6 +851,7 @@ struct MessageListView: View {
                     // Anchor is already set and the target message is loaded —
                     // scroll to it immediately instead of falling through to bottom.
                     proxy.scrollTo(id, anchor: .center)
+                    flashHighlight(messageId: id)
                     anchorMessageId = nil
                     anchorSetTime = nil
                 } else if anchorMessageId != nil {
@@ -809,6 +904,8 @@ struct MessageListView: View {
                 scrollRestoreTask = nil
                 avatarSmoothingTask?.cancel()
                 avatarSmoothingTask = nil
+                highlightDismissTask?.cancel()
+                highlightDismissTask = nil
             }
             .onChange(of: isSending) {
                 if isSending {
@@ -872,6 +969,7 @@ struct MessageListView: View {
                     withAnimation {
                         proxy.scrollTo(id, anchor: .center)
                     }
+                    flashHighlight(messageId: id)
                     anchorMessageId = nil
                     anchorSetTime = nil
                     anchorTimeoutTask?.cancel()
@@ -963,6 +1061,9 @@ struct MessageListView: View {
                 isPaginationInFlight = false
                 isSuppressingBottomScroll = false
                 isNearBottom = true
+                highlightedMessageId = nil
+                highlightDismissTask?.cancel()
+                highlightDismissTask = nil
                 anchorTracker.isVisible = true
                 anchorTracker.lastMinY = 0
                 hasReceivedScrollEvent = false
@@ -1015,6 +1116,7 @@ struct MessageListView: View {
                     withAnimation {
                         proxy.scrollTo(id, anchor: .center)
                     }
+                    flashHighlight(messageId: id)
                     anchorMessageId = nil
                     anchorSetTime = nil
                 } else {
@@ -1092,7 +1194,26 @@ struct MessageListView: View {
 /// Per-message cell extracted from the ForEach body so SwiftUI has a typed
 /// struct boundary for diffing: when all `let` inputs are equal, SwiftUI can
 /// skip re-evaluating the body during LazySubviewPlacements.updateValue.
-private struct MessageCellView: View {
+private struct MessageCellView: View, Equatable {
+    static func == (lhs: MessageCellView, rhs: MessageCellView) -> Bool {
+        lhs.message.id == rhs.message.id
+            && lhs.message.text.count == rhs.message.text.count
+            && lhs.message.isStreaming == rhs.message.isStreaming
+            && lhs.message.toolCalls.count == rhs.message.toolCalls.count
+            && lhs.message.status == rhs.message.status
+            && lhs.index == rhs.index
+            && lhs.showTimestamp == rhs.showTimestamp
+            && lhs.activePendingRequestId == rhs.activePendingRequestId
+            && lhs.latestAssistantId == rhs.latestAssistantId
+            && lhs.canInlineProcessing == rhs.canInlineProcessing
+            && lhs.shouldShowThinkingIndicator == rhs.shouldShowThinkingIndicator
+            && lhs.assistantStatusText == rhs.assistantStatusText
+            && lhs.dismissedDocumentSurfaceIds == rhs.dismissedDocumentSurfaceIds
+            && lhs.activeSurfaceId == rhs.activeSurfaceId
+            && lhs.isHighlighted == rhs.isHighlighted
+            && lhs.selectedModel == rhs.selectedModel
+    }
+
     let message: ChatMessage
     let index: Int
     let displayMessages: [ChatMessage]
@@ -1106,6 +1227,8 @@ private struct MessageCellView: View {
     let assistantStatusText: String?
     let dismissedDocumentSurfaceIds: Set<String>
     let activeSurfaceId: String?
+    /// When true, the cell renders a brief highlight flash.
+    let isHighlighted: Bool
     let mediaEmbedSettings: MediaEmbedResolverSettings?
     let resolveHttpPort: () -> Int?
     let onConfirmationAllow: (String) -> Void
@@ -1277,6 +1400,13 @@ private struct MessageCellView: View {
                 processingStatusText: canInlineProcessing && message.id == latestAssistantId ? assistantStatusText : nil,
                 activeSurfaceId: activeSurfaceId
             )
+            .background(
+                RoundedRectangle(cornerRadius: VRadius.md)
+                    .fill(VColor.primaryBase.opacity(isHighlighted ? 0.15 : 0))
+                    .padding(.horizontal, -VSpacing.sm)
+                    .padding(.vertical, -VSpacing.xs)
+            )
+            .animation(VAnimation.slow, value: isHighlighted)
             .id(message.id)
         }
 
@@ -1400,4 +1530,30 @@ private struct AnchorMinYKey: PreferenceKey {
         // value of .infinity) don't overwrite the anchor's actual Y position.
         value = min(value, nextValue())
     }
+}
+
+// MARK: - Precomputed Message List State
+
+/// Holds derived values computed once per body evaluation so they are not
+/// redundantly recalculated inside the LazyVStack ForEach body.
+/// Note: `LazyVStack` already gates child view evaluation, so each cell is
+/// only built when it scrolls into the prefetch window. The primary gain here
+/// is avoiding repeated O(n) scans (timestamp indices, subagent grouping,
+/// current-turn detection) on every layout pass.
+struct PrecomputedMessageListState {
+    let displayMessages: [ChatMessage]
+    let activePendingRequestId: String?
+    let latestAssistantId: UUID?
+    let anchoredThinkingIndex: Int?
+    let subagentsByParent: [UUID: [SubagentInfo]]
+    let orphanSubagents: [SubagentInfo]
+    let showTimestamp: Set<Int>
+    let lastVisible: ChatMessage?
+    let currentTurnMessages: ArraySlice<ChatMessage>
+    let hasActiveToolCall: Bool
+    let wouldShowThinking: Bool
+    let lastVisibleIsAssistant: Bool
+    let canInlineProcessing: Bool
+    let shouldShowThinkingIndicator: Bool
+    let effectiveStatusText: String?
 }

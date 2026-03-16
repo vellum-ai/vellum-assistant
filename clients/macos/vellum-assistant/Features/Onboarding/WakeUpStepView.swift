@@ -14,6 +14,10 @@ struct WakeUpStepView: View {
     /// When true, disables all buttons (e.g. during 0.3s advance delay).
     var isAdvancing: Bool = false
 
+    /// When true, the primary action triggers managed sign-in ("Log In").
+    /// When false, the primary action is "Get Started" and advances directly.
+    var managedSignInEnabled: Bool = false
+
     // Callbacks
     var onStartWithAPIKey: () -> Void = {}
     var onContinueWithVellum: () -> Void = {}
@@ -29,17 +33,6 @@ struct WakeUpStepView: View {
         guard let url = ResourceBundle.bundle.url(forResource: "welcome-characters", withExtension: "png") else { return nil }
         return NSImage(contentsOf: url)
     }()
-
-    private var managedSignInEnabled: Bool {
-        MacOSClientFeatureFlagManager.shared.isEnabled("managed_sign_in_enabled")
-    }
-
-    private var primaryButtonTitle: String {
-        onboardingPrimaryButtonTitle(
-            isAuthenticated: authManager?.isAuthenticated == true,
-            hasAssistant: LockfileAssistant.loadLatest() != nil
-        )
-    }
 
     // MARK: - Body
 
@@ -84,20 +77,21 @@ struct WakeUpStepView: View {
                 }
                 .frame(height: 36)
             } else if managedSignInEnabled {
-                let buttonTitle = primaryButtonTitle
-                VStack(spacing: VSpacing.xs) {
-                    OnboardingButton(title: buttonTitle, style: .primary) {
-                        onContinueWithVellum()
-                    }
-                    .accessibilityLabel(buttonTitle)
+                OnboardingButton(title: "Log In", style: .primary) {
+                    onContinueWithVellum()
                 }
+                .accessibilityLabel("Log In")
 
-                if authManager?.isAuthenticated != true {
-                    OnboardingButton(title: "Skip for now", style: .secondary) {
-                        onStartWithAPIKey()
-                    }
-                    .accessibilityLabel("Skip for now")
+                Button {
+                    state?.skippedAuth = true
+                    onStartWithAPIKey()
+                } label: {
+                    Text("Skip")
+                        .font(VFont.caption)
+                        .foregroundColor(VColor.contentSecondary)
                 }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Skip")
             } else {
                 OnboardingButton(title: "Get Started", style: .primary) {
                     onStartWithAPIKey()

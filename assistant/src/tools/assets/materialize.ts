@@ -7,7 +7,7 @@
  * regular file.
  */
 
-import { mkdirSync, writeFileSync } from "node:fs";
+import { copyFileSync, mkdirSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 
 import { eq } from "drizzle-orm";
@@ -16,6 +16,10 @@ import {
   type AttachmentContext,
   isAttachmentVisible,
 } from "../../daemon/media-visibility-policy.js";
+import {
+  getAttachmentContent,
+  getFilePathForAttachment,
+} from "../../memory/attachments-store.js";
 import { getConversationType } from "../../memory/conversation-crud.js";
 import { getDb } from "../../memory/db.js";
 import { attachments } from "../../memory/schema.js";
@@ -44,7 +48,7 @@ function formatBytes(bytes: number): string {
 }
 
 /**
- * Load an attachment row (including base64 data) by its primary key.
+ * Load attachment metadata by its primary key.
  *
  * Not scoped by assistantId because attachment access is enforced by
  * conversation visibility checks in execute().
@@ -54,7 +58,6 @@ function loadAttachmentById(attachmentId: string): {
   originalFilename: string;
   mimeType: string;
   sizeBytes: number;
-  dataBase64: string;
 } | null {
   const db = getDb();
   const row = db
@@ -63,7 +66,6 @@ function loadAttachmentById(attachmentId: string): {
       originalFilename: attachments.originalFilename,
       mimeType: attachments.mimeType,
       sizeBytes: attachments.sizeBytes,
-      dataBase64: attachments.dataBase64,
     })
     .from(attachments)
     .where(eq(attachments.id, attachmentId))
@@ -205,15 +207,28 @@ class AssetMaterializeTool implements Tool {
       };
     }
 
-    // --- Decode and write ---------------------------------------------------
+    // --- Write to disk -------------------------------------------------------
 
     try {
-      const buffer = Buffer.from(attachment.dataBase64, "base64");
-
       // Ensure parent directories exist
       mkdirSync(dirname(resolvedPath), { recursive: true });
 
-      writeFileSync(resolvedPath, buffer);
+      // For file-backed attachments, copy directly from the on-disk path
+      // to avoid reading potentially large files into memory. For inline
+      // attachments, decode the base64 content from the database.
+      const filePath = getFilePathForAttachment(attachmentId);
+      if (filePath) {
+        copyFileSync(filePath, resolvedPath);
+      } else {
+        const buffer = getAttachmentContent(attachmentId);
+        if (!buffer) {
+          return {
+            content: `Error: Could not read content for attachment "${attachmentId}".`,
+            isError: true,
+          };
+        }
+        writeFileSync(resolvedPath, buffer);
+      }
 
       return {
         content:

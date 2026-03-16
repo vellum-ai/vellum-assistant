@@ -2,9 +2,9 @@ export type HookEventName =
   // Daemon lifecycle
   | "daemon-start"
   | "daemon-stop"
-  // Session lifecycle
-  | "session-start"
-  | "session-end"
+  // Conversation lifecycle
+  | "conversation-start"
+  | "conversation-end"
   // LLM call lifecycle
   | "pre-llm-call"
   | "post-llm-call"

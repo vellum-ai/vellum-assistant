@@ -1,3 +1,4 @@
+import os
 import SwiftUI
 import VellumAssistantShared
 
@@ -161,6 +162,8 @@ struct ChatBubble: View {
     }
 
     var body: some View {
+        let _ = os_signpost(.event, log: PerfSignposts.log, name: "chatBubbleBody",
+                            "id=%{public}s streaming=%d", message.id.uuidString, message.isStreaming ? 1 : 0)
         // Outer HStack: Spacer pushes the content group to the correct side.
         HStack(alignment: .top, spacing: 0) {
             if isUser { Spacer(minLength: 0) }
