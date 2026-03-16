@@ -341,6 +341,8 @@ public final class ChatViewModel: ObservableObject {
     /// In voice mode, pendingUserMessage contains the voice-prefixed text while
     /// this stores the original user text used for message-bubble matching.
     var pendingUserMessageDisplayText: String?
+    /// Whether the pending message is automated (e.g. wake-up greeting).
+    var pendingUserMessageAutomated: Bool = false
     /// Optional callback for sending notifications when tool-use messages complete
     public var onToolCallsComplete: ((_ toolCalls: [ToolCallData]) -> Void)?
     /// Whether the current assistant response was triggered by a voice message.
@@ -1057,6 +1059,7 @@ public final class ChatViewModel: ObservableObject {
                 pendingAttachments = []
                 pendingUserMessage = text
                 pendingUserMessageDisplayText = rawText
+                pendingUserMessageAutomated = hidden
                 pendingUserAttachments = attachments.isEmpty ? nil : attachments.map {
                     UserMessageAttachment(filename: $0.filename, mimeType: $0.mimeType, data: $0.data, extractedText: nil)
                 }
@@ -1148,10 +1151,11 @@ public final class ChatViewModel: ObservableObject {
         if conversationId == nil {
             // First message: need to bootstrap session
             pendingUserMessageDisplayText = rawText
+            pendingUserMessageAutomated = hidden
             bootstrapConversation(userMessage: text, attachments: messageAttachments)
         } else {
             // Subsequent messages: send directly (daemon queues if busy)
-            sendUserMessage(text, displayText: rawText, attachments: messageAttachments, queuedMessageId: queuedMessageId)
+            sendUserMessage(text, displayText: rawText, attachments: messageAttachments, queuedMessageId: queuedMessageId, automated: hidden)
         }
     }
 
@@ -1268,6 +1272,7 @@ public final class ChatViewModel: ObservableObject {
                     self.pendingUserMessage = nil
                     self.pendingUserMessageDisplayText = nil
                     self.pendingUserAttachments = nil
+                    self.pendingUserMessageAutomated = false
                     self.errorText = self.lastFailedSendError
                     return
                 }
@@ -1294,12 +1299,13 @@ public final class ChatViewModel: ObservableObject {
                 self.pendingUserMessage = nil
                 self.pendingUserMessageDisplayText = nil
                 self.pendingUserAttachments = nil
+                self.pendingUserMessageAutomated = false
                 self.errorText = self.lastFailedSendError
             }
         }
     }
 
-    private func sendUserMessage(_ text: String, displayText: String? = nil, attachments: [UserMessageAttachment]? = nil, queuedMessageId: UUID? = nil) {
+    private func sendUserMessage(_ text: String, displayText: String? = nil, attachments: [UserMessageAttachment]? = nil, queuedMessageId: UUID? = nil, automated: Bool = false) {
         guard let conversationId else { return }
 
         // Check connectivity before entering sending state so the UI
@@ -1369,7 +1375,8 @@ public final class ChatViewModel: ObservableObject {
                 activeSurfaceId: activeSurfaceId,
                 currentPage: activeSurfaceId != nil ? currentPage : nil,
                 pttActivationKey: pttMeta.activationKey,
-                microphonePermissionGranted: pttMeta.microphonePermissionGranted
+                microphonePermissionGranted: pttMeta.microphonePermissionGranted,
+                automated: automated ? true : nil
             ))
         } catch {
             log.error("Failed to send user_message: \(error.localizedDescription)")
@@ -1617,6 +1624,7 @@ public final class ChatViewModel: ObservableObject {
         pendingUserMessage = nil
         pendingUserMessageDisplayText = nil
         pendingUserAttachments = nil
+        pendingUserMessageAutomated = false
         isWorkspaceRefinementInFlight = false
         refinementMessagePreview = nil
         refinementStreamingText = nil
@@ -1637,6 +1645,7 @@ public final class ChatViewModel: ObservableObject {
             pendingUserMessage = nil
             pendingUserMessageDisplayText = nil
             pendingUserAttachments = nil
+            pendingUserMessageAutomated = false
             bootstrapCorrelationId = nil
             isWorkspaceRefinementInFlight = false
             refinementMessagePreview = nil
