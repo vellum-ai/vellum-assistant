@@ -37,8 +37,8 @@ final class WorkspaceBrowserState {
     var showHiddenFiles: Bool = UserDefaults.standard.bool(forKey: "showHiddenFiles")
     var hiddenFilesToggleRequestId: UInt64 = 0
 
-    func refreshDirectory(_ dirPath: String, using daemonClient: DaemonClient) async {
-        if let response = await daemonClient.fetchWorkspaceTree(path: dirPath, showHidden: showHiddenFiles) {
+    func refreshDirectory(_ dirPath: String, using workspaceClient: any WorkspaceClientProtocol) async {
+        if let response = await workspaceClient.fetchWorkspaceTree(path: dirPath, showHidden: showHiddenFiles) {
             directoryCache[dirPath] = response.entries
         }
     }
@@ -76,6 +76,7 @@ final class WorkspaceBrowserState {
 struct WorkspacePanel: View {
     let daemonClient: DaemonClient
     @State private var state = WorkspaceBrowserState()
+    private let workspaceClient = WorkspaceClient()
     @State private var sidebarWidth: CGFloat = 300
     @State private var dragStartWidth: CGFloat?
     @State private var didPushResizeCursor = false
@@ -87,7 +88,7 @@ struct WorkspacePanel: View {
 
     var body: some View {
         HStack(spacing: 0) {
-            WorkspaceTreeSidebar(state: state, daemonClient: daemonClient, onToggleHiddenFiles: applyHiddenFilesToggle)
+            WorkspaceTreeSidebar(state: state, daemonClient: daemonClient, workspaceClient: workspaceClient, onToggleHiddenFiles: applyHiddenFilesToggle)
                 .frame(width: sidebarWidth)
 
             // Invisible resize handle
@@ -169,7 +170,7 @@ struct WorkspacePanel: View {
                 Task {
                     let success = await daemonClient.deleteWorkspaceItem(path: path)
                     if success {
-                        await state.refreshDirectory(parentPath, using: daemonClient)
+                        await state.refreshDirectory(parentPath, using: workspaceClient)
                         if state.selectedFilePath == path || state.selectedFilePath?.hasPrefix(path + "/") == true {
                             state.selectedFilePath = nil
                             state.selectedFileDetail = nil
@@ -196,7 +197,7 @@ struct WorkspacePanel: View {
 
     private func loadRoot() async {
         state.isLoadingTree = true
-        if let response = await daemonClient.fetchWorkspaceTree(path: "", showHidden: state.showHiddenFiles) {
+        if let response = await workspaceClient.fetchWorkspaceTree(path: "", showHidden: state.showHiddenFiles) {
             state.directoryCache[""] = response.entries
 
             // Auto-select IDENTITY.md if it exists and no file is already selected
@@ -222,7 +223,7 @@ struct WorkspacePanel: View {
         state.hiddenFilesToggleRequestId &+= 1
         let requestId = state.hiddenFilesToggleRequestId
         Task {
-            if let response = await daemonClient.fetchWorkspaceTree(path: "", showHidden: newValue) {
+            if let response = await workspaceClient.fetchWorkspaceTree(path: "", showHidden: newValue) {
                 // Guard against stale response from a concurrent toggle (ABA pattern)
                 guard state.hiddenFilesToggleRequestId == requestId else { return }
                 state.directoryCache[""] = response.entries
@@ -246,6 +247,7 @@ struct WorkspacePanel: View {
 private struct WorkspaceTreeSidebar: View {
     @Bindable var state: WorkspaceBrowserState
     let daemonClient: DaemonClient
+    let workspaceClient: WorkspaceClient
     let onToggleHiddenFiles: (Bool) -> Void
     @State private var viewportWidth: CGFloat = 0
 
@@ -320,6 +322,7 @@ private struct WorkspaceTreeSidebar: View {
                                         depth: 0,
                                         state: state,
                                         daemonClient: daemonClient,
+                                        workspaceClient: workspaceClient,
                                         minRowWidth: viewportWidth
                                     )
                                 }
@@ -359,7 +362,7 @@ private struct WorkspaceTreeSidebar: View {
             }
         }
         .onDrop(of: [.fileURL], isTargeted: $state.isDropTargeted) { providers in
-            handleDrop(providers: providers, targetDir: "", state: state, daemonClient: daemonClient)
+            handleDrop(providers: providers, targetDir: "", state: state, daemonClient: daemonClient, workspaceClient: workspaceClient)
             return true
         }
         .background(VColor.surfaceBase)
@@ -375,7 +378,9 @@ private struct WorkspaceTreeSidebar: View {
                 Task {
                     let success = await daemonClient.writeWorkspaceFile(path: filePath, content: Data())
                     if success {
-                        await state.refreshDirectory(parentPath, using: daemonClient)
+                        if let response = await workspaceClient.fetchWorkspaceTree(path: parentPath, showHidden: state.showHiddenFiles) {
+                            state.directoryCache[parentPath] = response.entries
+                        }
                         if !parentPath.isEmpty {
                             state.expandedDirs.insert(parentPath)
                         }
@@ -394,7 +399,9 @@ private struct WorkspaceTreeSidebar: View {
                 Task {
                     let success = await daemonClient.createWorkspaceDirectory(path: folderPath)
                     if success {
-                        await state.refreshDirectory(parentPath, using: daemonClient)
+                        if let response = await workspaceClient.fetchWorkspaceTree(path: parentPath, showHidden: state.showHiddenFiles) {
+                            state.directoryCache[parentPath] = response.entries
+                        }
                         if !parentPath.isEmpty {
                             state.expandedDirs.insert(parentPath)
                         }
@@ -407,7 +414,7 @@ private struct WorkspaceTreeSidebar: View {
 
 // MARK: - Drop Handler
 
-private func handleDrop(providers: [NSItemProvider], targetDir: String, state: WorkspaceBrowserState, daemonClient: DaemonClient) {
+private func handleDrop(providers: [NSItemProvider], targetDir: String, state: WorkspaceBrowserState, daemonClient: DaemonClient, workspaceClient: WorkspaceClient) {
     for provider in providers {
         provider.loadItem(forTypeIdentifier: UTType.fileURL.identifier, options: nil) { item, _ in
             guard let url = fileURLFromDropItem(item) else { return }
@@ -418,7 +425,7 @@ private func handleDrop(providers: [NSItemProvider], targetDir: String, state: W
                 if let fileData = try? Data(contentsOf: url) {
                     let success = await daemonClient.writeWorkspaceFile(path: targetPath, content: fileData)
                     if success {
-                        await state.refreshDirectory(targetDir, using: daemonClient)
+                        await state.refreshDirectory(targetDir, using: workspaceClient)
                     }
                 }
                 await MainActor.run { state.uploadingCount -= 1 }
@@ -447,6 +454,7 @@ private struct WorkspaceTreeRow: View {
     let depth: Int
     @Bindable var state: WorkspaceBrowserState
     let daemonClient: DaemonClient
+    let workspaceClient: WorkspaceClient
     var minRowWidth: CGFloat = 0
 
     private var isExpanded: Bool {
@@ -504,7 +512,7 @@ private struct WorkspaceTreeRow: View {
             .buttonStyle(.plain)
             .onDrop(of: entry.isDirectory && !isHiddenPath(entry.path) ? [.fileURL] : [], isTargeted: .none) { providers in
                 guard entry.isDirectory, !isHiddenPath(entry.path) else { return false }
-                handleDrop(providers: providers, targetDir: entry.path, state: state, daemonClient: daemonClient)
+                handleDrop(providers: providers, targetDir: entry.path, state: state, daemonClient: daemonClient, workspaceClient: workspaceClient)
                 return true
             }
 
@@ -517,6 +525,7 @@ private struct WorkspaceTreeRow: View {
                             depth: depth + 1,
                             state: state,
                             daemonClient: daemonClient,
+                            workspaceClient: workspaceClient,
                             minRowWidth: minRowWidth
                         )
                     }
@@ -566,7 +575,9 @@ private struct WorkspaceTreeRow: View {
         Task {
             let success = await daemonClient.renameWorkspaceItem(oldPath: oldPath, newPath: newPath)
             if success {
-                await state.refreshDirectory(parentPath, using: daemonClient)
+                if let response = await workspaceClient.fetchWorkspaceTree(path: parentPath, showHidden: state.showHiddenFiles) {
+                    state.directoryCache[parentPath] = response.entries
+                }
 
                 // Update selectedFilePath and selectedFileDetail for exact match or descendants
                 if state.selectedFilePath == oldPath {
@@ -613,7 +624,9 @@ private struct WorkspaceTreeRow: View {
                     // Re-fetch contents for directories that remain expanded under the new path
                     let newExpandedDirs = state.expandedDirs.filter { $0 == newPath || $0.hasPrefix(newPath + "/") }
                     for dir in newExpandedDirs {
-                        await state.refreshDirectory(dir, using: daemonClient)
+                        if let response = await workspaceClient.fetchWorkspaceTree(path: dir, showHidden: state.showHiddenFiles) {
+                            state.directoryCache[dir] = response.entries
+                        }
                     }
                 }
             }
@@ -635,7 +648,7 @@ private struct WorkspaceTreeRow: View {
                 state.expandedDirs.insert(entry.path)
                 // Load children if not cached
                 if state.directoryCache[entry.path] == nil {
-                    if let response = await daemonClient.fetchWorkspaceTree(path: entry.path, showHidden: state.showHiddenFiles) {
+                    if let response = await workspaceClient.fetchWorkspaceTree(path: entry.path, showHidden: state.showHiddenFiles) {
                         state.directoryCache[entry.path] = response.entries
                     }
                 }

@@ -288,7 +288,6 @@ public final class HTTPTransport {
         case contactsInvitesCreate
         case contactsInvitesCall(id: String)
         case channelsReadiness
-        case workspaceTree(path: String, showHidden: Bool)
         case workspaceFile(path: String, showHidden: Bool)
         case workspaceFileContent(path: String, showHidden: Bool)
         case workspaceWrite
@@ -554,12 +553,6 @@ public final class HTTPTransport {
             return ("/v1/contacts/invites/\(encoded)/call", nil)
         case .channelsReadiness:
             return ("/v1/channels/readiness", nil)
-        case .workspaceTree(let path, let showHidden):
-            let encoded = path.addingPercentEncoding(withAllowedCharacters: Self.queryValueAllowed) ?? path
-            var params: [String] = []
-            if !path.isEmpty { params.append("path=\(encoded)") }
-            if showHidden { params.append("showHidden=true") }
-            return ("/v1/workspace/tree", params.isEmpty ? nil : params.joined(separator: "&"))
         case .workspaceFile(let path, let showHidden):
             let encoded = path.addingPercentEncoding(withAllowedCharacters: Self.queryValueAllowed) ?? path
             var query = "path=\(encoded)"
@@ -966,12 +959,6 @@ public final class HTTPTransport {
             return ("\(prefix)/contacts/invites/\(encoded)/call/", nil)
         case .channelsReadiness:
             return ("\(prefix)/channels/readiness/", nil)
-        case .workspaceTree(let path, let showHidden):
-            let encoded = path.addingPercentEncoding(withAllowedCharacters: Self.queryValueAllowed) ?? path
-            var params: [String] = []
-            if !path.isEmpty { params.append("path=\(encoded)") }
-            if showHidden { params.append("showHidden=true") }
-            return ("\(prefix)/workspace/tree/", params.isEmpty ? nil : params.joined(separator: "&"))
         case .workspaceFile(let path, let showHidden):
             let encoded = path.addingPercentEncoding(withAllowedCharacters: Self.queryValueAllowed) ?? path
             var query = "path=\(encoded)"
@@ -3168,33 +3155,6 @@ public final class HTTPTransport {
     }
 
     // MARK: - Workspace API
-
-    /// Fetch the workspace directory tree from `GET /v1/workspace/tree`.
-    func fetchWorkspaceTree(path: String, showHidden: Bool = false, isRetry: Bool = false) async -> WorkspaceTreeResponse? {
-        guard let url = buildURL(for: .workspaceTree(path: path, showHidden: showHidden)) else { return nil }
-
-        var request = URLRequest(url: url)
-        request.timeoutInterval = 10
-        applyAuth(&request)
-
-        do {
-            let (data, response) = try await URLSession.shared.data(for: request)
-            if let http = response as? HTTPURLResponse {
-                if http.statusCode == 401 && !isRetry {
-                    let refreshResult = await handleAuthenticationFailureAsync(responseData: data)
-                    if case .success = refreshResult {
-                        return await fetchWorkspaceTree(path: path, showHidden: showHidden, isRetry: true)
-                    }
-                    return nil
-                }
-                guard (200...299).contains(http.statusCode) else { return nil }
-            }
-            return try decoder.decode(WorkspaceTreeResponse.self, from: data)
-        } catch {
-            log.error("fetchWorkspaceTree failed: \(error.localizedDescription)")
-            return nil
-        }
-    }
 
     /// Fetch a single workspace file's metadata from `GET /v1/workspace/file`.
     func fetchWorkspaceFile(path: String, showHidden: Bool = false, isRetry: Bool = false) async -> WorkspaceFileResponse? {
