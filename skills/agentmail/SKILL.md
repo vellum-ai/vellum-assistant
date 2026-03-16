@@ -6,6 +6,7 @@ metadata:
   emoji: "📬"
   vellum:
     display-name: "Email CLI Ops"
+    feature-flag: "email-channel"
 ---
 
 ## How to run
