@@ -374,7 +374,7 @@ export async function startVoiceTurn(
     })();
   };
 
-  // Hook into session to intercept confirmation_request and secret_request events.
+  // Hook into conversation to intercept confirmation_request and secret_request events.
   // Voice auto-denies/auto-allows/auto-resolves these since there's no interactive UI.
   const autoDeny = !isGuardian;
   const autoAllow = isGuardian;
@@ -488,8 +488,8 @@ export async function startVoiceTurn(
     conversation.setAssistantId("self");
     conversation.setVoiceCallControlPrompt(null);
     conversation.callSessionId = undefined;
-    // Reset the session's client callback to a no-op so the stale
-    // closure doesn't intercept events from future turns on the same session.
+    // Reset the conversation's client callback to a no-op so the stale
+    // closure doesn't intercept events from future turns on the same conversation.
     conversation.updateClient(() => {}, true);
   };
 

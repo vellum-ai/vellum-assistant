@@ -843,7 +843,7 @@ export class CallController {
       // Clear any pending consultation before completing the call.
       // Without this, the consultation timeout can fire on an already-ended
       // call, overwriting 'completed' status back to 'in_progress' and
-      // starting a new LLM turn on a dead session. Similarly, a late
+      // starting a new LLM turn on a dead conversation. Similarly, a late
       // handleUserAnswer could be accepted since pendingGuardianInput is
       // still non-null.
       if (this.pendingGuardianInput) {
