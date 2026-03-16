@@ -256,6 +256,7 @@ public final class SettingsStore: ObservableObject {
     /// response arrives.
     private var pendingIngressEnabled: Bool?
     private var pendingIngressUrl: String?
+    private var routingSourceRefreshTask: Task<Void, Never>?
 
     /// Last model reported by the daemon — used to skip redundant model_set calls
     /// that would otherwise reinitialize providers and evict idle sessions.
@@ -1804,7 +1805,10 @@ public final class SettingsStore: ObservableObject {
     /// Fetches provider routing sources from the daemon debug endpoint and
     /// updates `providerRoutingSources`. Non-fatal — silently ignores errors.
     func loadProviderRoutingSources() {
-        guard let assistantId = UserDefaults.standard.string(forKey: "connectedAssistantId") else { return }
+        guard let assistantId = UserDefaults.standard.string(forKey: "connectedAssistantId") else {
+            providerRoutingSources = [:]
+            return
+        }
         Task {
             do {
                 let response = try await GatewayHTTPClient.get(
@@ -1825,8 +1829,10 @@ public final class SettingsStore: ObservableObject {
     /// Schedules a delayed refresh of provider routing sources, giving the
     /// daemon time to re-initialize providers after a key change.
     private func scheduleRoutingSourceRefresh() {
-        Task {
+        routingSourceRefreshTask?.cancel()
+        routingSourceRefreshTask = Task {
             try? await Task.sleep(nanoseconds: 2_000_000_000)
+            guard !Task.isCancelled else { return }
             loadProviderRoutingSources()
         }
     }
