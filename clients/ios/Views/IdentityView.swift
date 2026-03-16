@@ -43,7 +43,7 @@ final class IdentityViewModel {
             .sink { [weak self] count in self?.contactsCount = count }
             .store(in: &cancellables)
 
-        let memories = MemoryItemsStore(daemonClient: daemonClient)
+        let memories = MemoryItemsStore(memoryItemClient: MemoryItemClient())
         memoriesStore = memories
         memories.$items
             .map(\.count)

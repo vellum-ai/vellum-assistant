@@ -284,8 +284,6 @@ public final class HTTPTransport {
         case contactsGet(id: String)
         case contactsDelete(id: String)
         case contactChannelUpdate(contactChannelId: String)
-        case contactsUpsert
-        case contactsInvitesCreate
         case contactsInvitesCall(id: String)
         case channelsReadiness
         // Apps
@@ -438,12 +436,6 @@ public final class HTTPTransport {
         case channelVerificationSessionsRevoke
         case registerDeviceToken
 
-        // Memory Items
-        case memoryItemsList(kind: String?, status: String?, search: String?, sort: String?, order: String?, limit: Int, offset: Int)
-        case memoryItemGet(id: String)
-        case memoryItemCreate
-        case memoryItemUpdate(id: String)
-        case memoryItemDelete(id: String)
     }
 
     /// Build a URL for the given endpoint using the current route mode.
@@ -538,10 +530,6 @@ public final class HTTPTransport {
         case .contactChannelUpdate(let contactChannelId):
             let encoded = contactChannelId.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? contactChannelId
             return ("/v1/contact-channels/\(encoded)", nil)
-        case .contactsUpsert:
-            return ("/v1/contacts", nil)
-        case .contactsInvitesCreate:
-            return ("/v1/contacts/invites", nil)
         case .contactsInvitesCall(let id):
             let encoded = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
             return ("/v1/contacts/invites/\(encoded)/call", nil)
@@ -831,26 +819,6 @@ public final class HTTPTransport {
             return ("/v1/channel-verification-sessions/revoke", nil)
         case .registerDeviceToken:
             return ("/v1/device-token", nil)
-        // Memory Items
-        case .memoryItemsList(let kind, let status, let search, let sort, let order, let limit, let offset):
-            var queryParts = ["limit=\(limit)", "offset=\(offset)"]
-            if let kind { queryParts.append("kind=\(kind.addingPercentEncoding(withAllowedCharacters: Self.queryValueAllowed) ?? kind)") }
-            if let status { queryParts.append("status=\(status.addingPercentEncoding(withAllowedCharacters: Self.queryValueAllowed) ?? status)") }
-            if let search, !search.isEmpty { queryParts.append("search=\(search.addingPercentEncoding(withAllowedCharacters: Self.queryValueAllowed) ?? search)") }
-            if let sort { queryParts.append("sort=\(sort.addingPercentEncoding(withAllowedCharacters: Self.queryValueAllowed) ?? sort)") }
-            if let order { queryParts.append("order=\(order.addingPercentEncoding(withAllowedCharacters: Self.queryValueAllowed) ?? order)") }
-            return ("/v1/memory-items", queryParts.joined(separator: "&"))
-        case .memoryItemGet(let id):
-            let encoded = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
-            return ("/v1/memory-items/\(encoded)", nil)
-        case .memoryItemCreate:
-            return ("/v1/memory-items", nil)
-        case .memoryItemUpdate(let id):
-            let encoded = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
-            return ("/v1/memory-items/\(encoded)", nil)
-        case .memoryItemDelete(let id):
-            let encoded = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
-            return ("/v1/memory-items/\(encoded)", nil)
         }
     }
 
@@ -926,10 +894,6 @@ public final class HTTPTransport {
         case .contactChannelUpdate(let contactChannelId):
             let encoded = contactChannelId.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? contactChannelId
             return ("\(prefix)/contact-channels/\(encoded)/", nil)
-        case .contactsUpsert:
-            return ("\(prefix)/contacts/", nil)
-        case .contactsInvitesCreate:
-            return ("\(prefix)/contacts/invites/", nil)
         case .contactsInvitesCall(let id):
             let encoded = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
             return ("\(prefix)/contacts/invites/\(encoded)/call/", nil)
@@ -1219,26 +1183,6 @@ public final class HTTPTransport {
             return ("\(prefix)/channel-verification-sessions/revoke/", nil)
         case .registerDeviceToken:
             return ("\(prefix)/device-token/", nil)
-        // Memory Items
-        case .memoryItemsList(let kind, let status, let search, let sort, let order, let limit, let offset):
-            var queryParts = ["limit=\(limit)", "offset=\(offset)"]
-            if let kind { queryParts.append("kind=\(kind.addingPercentEncoding(withAllowedCharacters: Self.queryValueAllowed) ?? kind)") }
-            if let status { queryParts.append("status=\(status.addingPercentEncoding(withAllowedCharacters: Self.queryValueAllowed) ?? status)") }
-            if let search, !search.isEmpty { queryParts.append("search=\(search.addingPercentEncoding(withAllowedCharacters: Self.queryValueAllowed) ?? search)") }
-            if let sort { queryParts.append("sort=\(sort.addingPercentEncoding(withAllowedCharacters: Self.queryValueAllowed) ?? sort)") }
-            if let order { queryParts.append("order=\(order.addingPercentEncoding(withAllowedCharacters: Self.queryValueAllowed) ?? order)") }
-            return ("\(prefix)/memory-items/", queryParts.joined(separator: "&"))
-        case .memoryItemGet(let id):
-            let encoded = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
-            return ("\(prefix)/memory-items/\(encoded)/", nil)
-        case .memoryItemCreate:
-            return ("\(prefix)/memory-items/", nil)
-        case .memoryItemUpdate(let id):
-            let encoded = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
-            return ("\(prefix)/memory-items/\(encoded)/", nil)
-        case .memoryItemDelete(let id):
-            let encoded = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
-            return ("\(prefix)/memory-items/\(encoded)/", nil)
         }
     }
 
@@ -2385,33 +2329,6 @@ public final class HTTPTransport {
         let contact: ContactPayload?
     }
 
-    /// Response wrapper for `POST /v1/contacts` (upsert).
-    private struct HTTPContactUpsertResponse: Decodable {
-        let ok: Bool
-        let contact: ContactPayload
-    }
-
-    /// Response wrapper for `POST /v1/contacts/invites` (create invite).
-    private struct HTTPCreateInviteResponse: Decodable {
-        let ok: Bool
-        let invite: InvitePayload?
-        struct InvitePayload: Decodable {
-            let id: String
-            let sourceChannel: String
-            let token: String?
-            let share: SharePayload?
-            let status: String
-            let inviteCode: String?
-            let voiceCode: String?
-            let guardianInstruction: String?
-            let channelHandle: String?
-        }
-        struct SharePayload: Decodable {
-            let url: String
-            let displayText: String
-        }
-    }
-
     /// Response wrapper for `GET /v1/channels/readiness`.
     private struct HTTPChannelReadinessResponse: Decodable {
         let success: Bool
@@ -2430,137 +2347,6 @@ public final class HTTPTransport {
             let passed: Bool
             let message: String
         }
-    }
-
-    /// Update a contact's metadata via `POST /v1/contacts` and return the updated payload.
-    /// Routes through `buildURL`/`applyAuth` so managed-mode URL paths and auth headers
-    /// are applied correctly.
-    func updateContactAndReturn(
-        contactId: String,
-        displayName: String,
-        notes: String? = nil,
-        isRetry: Bool = false
-    ) async throws -> ContactPayload? {
-        guard let url = buildURL(for: .contactsUpsert) else { return nil }
-
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        applyAuth(&request)
-
-        var body: [String: Any] = ["id": contactId, "displayName": displayName]
-        if let notes { body["notes"] = notes }
-
-        request.httpBody = try JSONSerialization.data(withJSONObject: body)
-        let (data, response) = try await URLSession.shared.data(for: request)
-
-        if let http = response as? HTTPURLResponse {
-            if http.statusCode == 401 && !isRetry {
-                let refreshResult = await handleAuthenticationFailureAsync(responseData: data)
-                if case .success = refreshResult {
-                    return try await updateContactAndReturn(contactId: contactId, displayName: displayName, notes: notes, isRetry: true)
-                }
-                return nil
-            }
-            guard (200...201).contains(http.statusCode) else {
-                return nil
-            }
-        }
-
-        let decoded = try decoder.decode(HTTPContactUpsertResponse.self, from: data)
-        return decoded.contact
-    }
-
-    /// Create a new contact via `POST /v1/contacts` and return the created payload.
-    /// Omits the `id` field to trigger creation instead of update.
-    func createContactAndReturn(
-        displayName: String,
-        notes: String? = nil,
-        channels: [DaemonClient.NewContactChannel]? = nil,
-        isRetry: Bool = false
-    ) async throws -> ContactPayload? {
-        guard let url = buildURL(for: .contactsUpsert) else { return nil }
-
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        applyAuth(&request)
-
-        var body: [String: Any] = ["displayName": displayName]
-        if let notes { body["notes"] = notes }
-        if let channels {
-            body["channels"] = channels.map { ch -> [String: Any] in
-                ["type": ch.type, "address": ch.address, "isPrimary": ch.isPrimary]
-            }
-        }
-
-        request.httpBody = try JSONSerialization.data(withJSONObject: body)
-        let (data, response) = try await URLSession.shared.data(for: request)
-
-        if let http = response as? HTTPURLResponse {
-            if http.statusCode == 401 && !isRetry {
-                let refreshResult = await handleAuthenticationFailureAsync(responseData: data)
-                if case .success = refreshResult {
-                    return try await createContactAndReturn(displayName: displayName, notes: notes, channels: channels, isRetry: true)
-                }
-                return nil
-            }
-            guard (200...201).contains(http.statusCode) else {
-                return nil
-            }
-        }
-
-        let decoded = try decoder.decode(HTTPContactUpsertResponse.self, from: data)
-        return decoded.contact
-    }
-
-    // MARK: - Invite Creation
-
-    /// Create an invite for a contact channel via `POST /v1/contacts/invites`.
-    func createInvite(
-        sourceChannel: String,
-        note: String? = nil,
-        maxUses: Int? = nil,
-        contactName: String? = nil,
-        contactId: String? = nil,
-        expectedExternalUserId: String? = nil,
-        friendName: String? = nil,
-        guardianName: String? = nil,
-        isRetry: Bool = false
-    ) async throws -> (inviteId: String, token: String?, shareUrl: String?, inviteCode: String?, voiceCode: String?, guardianInstruction: String?, channelHandle: String?)? {
-        guard let url = buildURL(for: .contactsInvitesCreate) else { return nil }
-
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        applyAuth(&request)
-
-        var body: [String: Any] = ["sourceChannel": sourceChannel]
-        if let note { body["note"] = note }
-        if let maxUses { body["maxUses"] = maxUses }
-        if let contactName { body["contactName"] = contactName }
-        if let contactId { body["contactId"] = contactId }
-        if let expectedExternalUserId { body["expectedExternalUserId"] = expectedExternalUserId }
-        if let friendName { body["friendName"] = friendName }
-        if let guardianName { body["guardianName"] = guardianName }
-
-        request.httpBody = try JSONSerialization.data(withJSONObject: body)
-        let (data, response) = try await URLSession.shared.data(for: request)
-
-        if let http = response as? HTTPURLResponse {
-            if http.statusCode == 401 && !isRetry {
-                let refreshResult = await handleAuthenticationFailureAsync(responseData: data)
-                if case .success = refreshResult {
-                    return try await createInvite(sourceChannel: sourceChannel, note: note, maxUses: maxUses, contactName: contactName, contactId: contactId, expectedExternalUserId: expectedExternalUserId, friendName: friendName, guardianName: guardianName, isRetry: true)
-                }
-                return nil
-            }
-            guard (200...201).contains(http.statusCode) else { return nil }
-        }
-
-        let decoded = try decoder.decode(HTTPCreateInviteResponse.self, from: data)
-        guard let invite = decoded.invite else { return nil }
-        return (inviteId: invite.id, token: invite.token, shareUrl: invite.share?.url, inviteCode: invite.inviteCode, voiceCode: invite.voiceCode, guardianInstruction: invite.guardianInstruction, channelHandle: invite.channelHandle)
     }
 
     // MARK: - Invite Call
@@ -4319,190 +4105,6 @@ public final class HTTPTransport {
             if let orgId = UserDefaults.standard.string(forKey: "connectedOrganizationId") {
                 request.setValue(orgId, forHTTPHeaderField: "Vellum-Organization-Id")
             }
-        }
-    }
-
-    // MARK: - Memory Items
-
-    /// Fetch a paginated list of memory items with optional filters.
-    func fetchMemoryItems(
-        kind: String? = nil,
-        status: String? = "active",
-        search: String? = nil,
-        sort: String? = "lastSeenAt",
-        order: String? = "desc",
-        limit: Int = 100,
-        offset: Int = 0,
-        isRetry: Bool = false
-    ) async -> MemoryItemsListResponse? {
-        guard let url = buildURL(for: .memoryItemsList(
-            kind: kind, status: status, search: search,
-            sort: sort, order: order, limit: limit, offset: offset
-        )) else { return nil }
-
-        var request = URLRequest(url: url)
-        applyAuth(&request)
-
-        do {
-            let (data, response) = try await URLSession.shared.data(for: request)
-            if let http = response as? HTTPURLResponse {
-                if http.statusCode == 401 && !isRetry {
-                    let refreshResult = await handleAuthenticationFailureAsync(responseData: data)
-                    if case .success = refreshResult {
-                        return await fetchMemoryItems(kind: kind, status: status, search: search, sort: sort, order: order, limit: limit, offset: offset, isRetry: true)
-                    }
-                    return nil
-                }
-                guard (200...299).contains(http.statusCode) else { return nil }
-            }
-            return try decoder.decode(MemoryItemsListResponse.self, from: data)
-        } catch {
-            log.error("fetchMemoryItems failed: \(error.localizedDescription)")
-            return nil
-        }
-    }
-
-    /// Fetch a single memory item by ID.
-    func fetchMemoryItem(id: String, isRetry: Bool = false) async -> MemoryItemPayload? {
-        guard let url = buildURL(for: .memoryItemGet(id: id)) else { return nil }
-
-        var request = URLRequest(url: url)
-        applyAuth(&request)
-
-        do {
-            let (data, response) = try await URLSession.shared.data(for: request)
-            if let http = response as? HTTPURLResponse {
-                if http.statusCode == 401 && !isRetry {
-                    let refreshResult = await handleAuthenticationFailureAsync(responseData: data)
-                    if case .success = refreshResult {
-                        return await fetchMemoryItem(id: id, isRetry: true)
-                    }
-                    return nil
-                }
-                guard (200...299).contains(http.statusCode) else { return nil }
-            }
-            struct Wrapper: Decodable { let item: MemoryItemPayload }
-            return try decoder.decode(Wrapper.self, from: data).item
-        } catch {
-            log.error("fetchMemoryItem failed: \(error.localizedDescription)")
-            return nil
-        }
-    }
-
-    /// Create a new memory item.
-    func createMemoryItem(
-        kind: String,
-        subject: String,
-        statement: String,
-        importance: Double? = nil,
-        isRetry: Bool = false
-    ) async -> MemoryItemPayload? {
-        guard let url = buildURL(for: .memoryItemCreate) else { return nil }
-
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        applyAuth(&request)
-
-        var body: [String: Any] = [
-            "kind": kind,
-            "subject": subject,
-            "statement": statement
-        ]
-        if let importance { body["importance"] = importance }
-        request.httpBody = try? JSONSerialization.data(withJSONObject: body)
-
-        do {
-            let (data, response) = try await URLSession.shared.data(for: request)
-            if let http = response as? HTTPURLResponse {
-                if http.statusCode == 401 && !isRetry {
-                    let refreshResult = await handleAuthenticationFailureAsync(responseData: data)
-                    if case .success = refreshResult {
-                        return await createMemoryItem(kind: kind, subject: subject, statement: statement, importance: importance, isRetry: true)
-                    }
-                    return nil
-                }
-                guard (200...201).contains(http.statusCode) else { return nil }
-            }
-            struct Wrapper: Decodable { let item: MemoryItemPayload }
-            return try decoder.decode(Wrapper.self, from: data).item
-        } catch {
-            log.error("createMemoryItem failed: \(error.localizedDescription)")
-            return nil
-        }
-    }
-
-    /// Update an existing memory item.
-    func updateMemoryItem(
-        id: String,
-        subject: String? = nil,
-        statement: String? = nil,
-        kind: String? = nil,
-        status: String? = nil,
-        importance: Double? = nil,
-        verificationState: String? = nil,
-        isRetry: Bool = false
-    ) async -> MemoryItemPayload? {
-        guard let url = buildURL(for: .memoryItemUpdate(id: id)) else { return nil }
-
-        var request = URLRequest(url: url)
-        request.httpMethod = "PATCH"
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        applyAuth(&request)
-
-        var body: [String: Any] = [:]
-        if let subject { body["subject"] = subject }
-        if let statement { body["statement"] = statement }
-        if let kind { body["kind"] = kind }
-        if let status { body["status"] = status }
-        if let importance { body["importance"] = importance }
-        if let verificationState { body["verificationState"] = verificationState }
-        request.httpBody = try? JSONSerialization.data(withJSONObject: body)
-
-        do {
-            let (data, response) = try await URLSession.shared.data(for: request)
-            if let http = response as? HTTPURLResponse {
-                if http.statusCode == 401 && !isRetry {
-                    let refreshResult = await handleAuthenticationFailureAsync(responseData: data)
-                    if case .success = refreshResult {
-                        return await updateMemoryItem(id: id, subject: subject, statement: statement, kind: kind, status: status, importance: importance, verificationState: verificationState, isRetry: true)
-                    }
-                    return nil
-                }
-                guard (200...299).contains(http.statusCode) else { return nil }
-            }
-            struct Wrapper: Decodable { let item: MemoryItemPayload }
-            return try decoder.decode(Wrapper.self, from: data).item
-        } catch {
-            log.error("updateMemoryItem failed: \(error.localizedDescription)")
-            return nil
-        }
-    }
-
-    /// Delete a memory item by ID.
-    func deleteMemoryItem(id: String, isRetry: Bool = false) async -> Bool {
-        guard let url = buildURL(for: .memoryItemDelete(id: id)) else { return false }
-
-        var request = URLRequest(url: url)
-        request.httpMethod = "DELETE"
-        applyAuth(&request)
-
-        do {
-            let (data, response) = try await URLSession.shared.data(for: request)
-            if let http = response as? HTTPURLResponse {
-                if http.statusCode == 401 && !isRetry {
-                    let refreshResult = await handleAuthenticationFailureAsync(responseData: data)
-                    if case .success = refreshResult {
-                        return await deleteMemoryItem(id: id, isRetry: true)
-                    }
-                    return false
-                }
-                return http.statusCode == 204
-            }
-            return false
-        } catch {
-            log.error("deleteMemoryItem failed: \(error.localizedDescription)")
-            return false
         }
     }
 

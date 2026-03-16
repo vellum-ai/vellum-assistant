@@ -15,21 +15,23 @@ public final class MemoryItemsStore: ObservableObject {
     @Published public var sortField: String = "lastSeenAt"
     @Published public var sortOrder: String = "desc"
 
-    private let daemonClient: DaemonClient
+    private let memoryItemClient: MemoryItemClientProtocol
 
-    public init(daemonClient: DaemonClient) {
-        self.daemonClient = daemonClient
+    public init(memoryItemClient: MemoryItemClientProtocol) {
+        self.memoryItemClient = memoryItemClient
     }
 
     /// Load memory items using the current filter state.
     public func loadItems() async {
         isLoading = true
-        let response = await daemonClient.fetchMemoryItems(
+        let response = await memoryItemClient.fetchMemoryItems(
             kind: kindFilter,
             status: statusFilter,
             search: searchText.isEmpty ? nil : searchText,
             sort: sortField,
-            order: sortOrder
+            order: sortOrder,
+            limit: 100,
+            offset: 0
         )
         if let response {
             items = response.items
@@ -45,7 +47,7 @@ public final class MemoryItemsStore: ObservableObject {
         statement: String,
         importance: Double? = nil
     ) async -> MemoryItemPayload? {
-        let item = await daemonClient.createMemoryItem(
+        let item = await memoryItemClient.createMemoryItem(
             kind: kind,
             subject: subject,
             statement: statement,
@@ -65,7 +67,7 @@ public final class MemoryItemsStore: ObservableObject {
         importance: Double? = nil,
         verificationState: String? = nil
     ) async -> MemoryItemPayload? {
-        let item = await daemonClient.updateMemoryItem(
+        let item = await memoryItemClient.updateMemoryItem(
             id: id,
             subject: subject,
             statement: statement,
@@ -82,7 +84,7 @@ public final class MemoryItemsStore: ObservableObject {
     /// and update it in the local items array. Returns the fetched item, or nil on failure.
     @discardableResult
     public func fetchDetail(id: String) async -> MemoryItemPayload? {
-        guard let detail = await daemonClient.fetchMemoryItem(id: id) else { return nil }
+        guard let detail = await memoryItemClient.fetchMemoryItem(id: id) else { return nil }
         if let idx = items.firstIndex(where: { $0.id == id }) {
             items[idx] = detail
         }
@@ -91,7 +93,7 @@ public final class MemoryItemsStore: ObservableObject {
 
     /// Delete a memory item and refresh the list on success.
     public func deleteItem(id: String) async -> Bool {
-        let success = await daemonClient.deleteMemoryItem(id: id)
+        let success = await memoryItemClient.deleteMemoryItem(id: id)
         if success { await loadItems() }
         return success
     }

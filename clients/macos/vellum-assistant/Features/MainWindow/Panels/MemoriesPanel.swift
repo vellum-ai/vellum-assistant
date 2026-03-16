@@ -56,7 +56,7 @@ struct MemoriesPanel: View {
     init(daemonClient: DaemonClient, focusedMemoryId: Binding<String?> = .constant(nil)) {
         self.daemonClient = daemonClient
         _focusedMemoryId = focusedMemoryId
-        _store = StateObject(wrappedValue: MemoryItemsStore(daemonClient: daemonClient))
+        _store = StateObject(wrappedValue: MemoryItemsStore(memoryItemClient: MemoryItemClient()))
     }
 
     var body: some View {

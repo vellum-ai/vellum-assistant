@@ -6,6 +6,7 @@ import VellumAssistantShared
 @MainActor
 struct ContactCreateView: View {
     var daemonClient: DaemonClient?
+    var contactClient: ContactClientProtocol = ContactClient()
     @Binding var isPresented: Bool
     var onCreated: ((ContactPayload) -> Void)?
 
@@ -130,7 +131,7 @@ struct ContactCreateView: View {
     }
 
     private func submit() {
-        guard let daemonClient, canSubmit else { return }
+        guard canSubmit else { return }
         isSubmitting = true
         errorMessage = nil
 
@@ -138,7 +139,7 @@ struct ContactCreateView: View {
 
         Task {
             do {
-                let contact = try await daemonClient.createContact(
+                let contact = try await contactClient.createContact(
                     displayName: displayName.trimmingCharacters(in: .whitespacesAndNewlines),
                     notes: trimmedNotes.isEmpty ? nil : trimmedNotes,
                     channels: nil
