@@ -8,6 +8,10 @@ struct SettingsPrivacyTab: View {
     var daemonClient: DaemonClient?
     @ObservedObject var store: SettingsStore
 
+    /// Tracks the in-flight privacy sync task so rapid toggles cancel the
+    /// previous write and only the latest value reaches the daemon.
+    @State private var privacySyncTask: Task<Void, Never>?
+
     var body: some View {
         privacySection
     }
@@ -30,11 +34,7 @@ struct SettingsPrivacyTab: View {
                     get: { store.collectUsageData },
                     set: { newValue in
                         store.collectUsageData = newValue
-                        if let daemonClient {
-                            Task {
-                                try? await daemonClient.setPrivacyConfig(collectUsageData: newValue)
-                            }
-                        }
+                        syncPrivacyConfig(collectUsageData: newValue)
                     }
                 ))
             }
@@ -60,14 +60,23 @@ struct SettingsPrivacyTab: View {
                         } else {
                             MetricKitManager.closeSentry()
                         }
-                        if let daemonClient {
-                            Task {
-                                try? await daemonClient.setPrivacyConfig(sendDiagnostics: newValue)
-                            }
-                        }
+                        syncPrivacyConfig(sendDiagnostics: newValue)
                     }
                 ))
             }
+        }
+    }
+
+    // MARK: - Privacy Config Sync
+
+    /// Syncs a privacy config change to the daemon, cancelling any in-flight
+    /// sync so that only the latest toggle value wins when the user toggles
+    /// rapidly.
+    private func syncPrivacyConfig(collectUsageData: Bool? = nil, sendDiagnostics: Bool? = nil) {
+        guard let daemonClient else { return }
+        privacySyncTask?.cancel()
+        privacySyncTask = Task {
+            try? await daemonClient.setPrivacyConfig(collectUsageData: collectUsageData, sendDiagnostics: sendDiagnostics)
         }
     }
 }
