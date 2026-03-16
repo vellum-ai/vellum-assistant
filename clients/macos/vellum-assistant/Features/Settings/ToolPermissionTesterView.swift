@@ -35,7 +35,7 @@ struct ToolPermissionTesterView: View {
             // Working directory
             VStack(alignment: .leading, spacing: VSpacing.xs) {
                 fieldLabel("Working Directory")
-                TextField("Leave empty for daemon default", text: $model.workingDir)
+                TextField("Leave empty for assistant default", text: $model.workingDir)
                     .vInputStyle()
                     .font(VFont.mono)
             }

@@ -100,7 +100,7 @@ private struct VDropdownPreviewWrapper: View {
                     emptyValue: ""
                 )
 
-                TextField("Leave empty for daemon default", text: .constant(""))
+                TextField("Leave empty for assistant default", text: .constant(""))
                     .vInputStyle()
                     .font(VFont.body)
 

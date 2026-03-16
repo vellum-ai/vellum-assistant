@@ -5,7 +5,7 @@ import VellumAssistantShared
 /// Displays a QR code containing the v4 connection payload for iOS pairing.
 ///
 /// v4 payload:
-/// `{"type":"vellum-daemon","v":4,"id":"<mac-hash>","g":"<gateway-url>","pairingRequestId":"<uuid>","<redacted>":"<redacted>"}`
+/// `{"type":"vellum-assistant","v":4,"id":"<mac-hash>","g":"<gateway-url>","pairingRequestId":"<uuid>","<redacted>":"<redacted>"}`
 ///
 /// Key differences from v3:
 /// - No bearer token in QR code (secured by pairing secret + Mac approval)
@@ -58,7 +58,7 @@ struct PairingQRCodeSheet: View {
             }
 
             if daemonClient == nil {
-                errorContent("Cannot generate QR code \u{2014} daemon not connected. Please wait for the daemon to start and try again.")
+                errorContent("Cannot generate QR code \u{2014} assistant not connected. Please wait for the assistant to start and try again.")
             } else {
                 switch registrationState {
                 case .idle, .registering:
@@ -86,7 +86,7 @@ struct PairingQRCodeSheet: View {
                     }
 
                 case .failed:
-                    errorContent(registrationError ?? "Could not register pairing request. Ensure the daemon is running.")
+                    errorContent(registrationError ?? "Could not register pairing request. Ensure the assistant is running.")
                 }
 
                 // State indicator
@@ -271,7 +271,7 @@ struct PairingQRCodeSheet: View {
                 return .failure(RegistrationRequestError(message: "Registration failed (HTTP \(statusCode))."))
             }
         } catch {
-            return .failure(RegistrationRequestError(message: "Could not reach daemon: \(error.localizedDescription)"))
+            return .failure(RegistrationRequestError(message: "Could not reach assistant: \(error.localizedDescription)"))
         }
     }
 
@@ -297,7 +297,7 @@ struct PairingQRCodeSheet: View {
         guard canGenerateQR else { return nil }
 
         var payload: [String: Any] = [
-            "type": "vellum-daemon",
+            "type": "vellum-assistant",
             "v": 4,
             "id": hostId,
             "g": effectiveGatewayUrl,

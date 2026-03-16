@@ -377,7 +377,7 @@ final class ToolPermissionTesterModel: ObservableObject {
     /// may have edited in the form since then.
     func alwaysAllow(pattern: String, scope: String) {
         guard let dc = daemonClient as? DaemonClient else {
-            lastError = "Cannot add trust rule: daemon client unavailable"
+            lastError = "Cannot add trust rule: assistant not connected"
             return
         }
 

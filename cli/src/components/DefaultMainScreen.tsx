@@ -1943,7 +1943,7 @@ function ChatApp({
             .update(hostname() + userInfo().username)
             .digest("hex");
           const payload = JSON.stringify({
-            type: "vellum-daemon",
+            type: "vellum-assistant",
             v: 4,
             id: hostId,
             g: gatewayUrl,

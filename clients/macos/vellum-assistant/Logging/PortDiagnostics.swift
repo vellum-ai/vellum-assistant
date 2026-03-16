@@ -99,7 +99,7 @@ enum PortDiagnostics {
     /// lockfile-specific ports that differ from the defaults.
     private static func collectPorts() -> [(label: String, port: Int)] {
         var ports: [(label: String, port: Int)] = [
-            ("daemon (default)", defaultDaemonPort),
+            ("assistant (default)", defaultDaemonPort),
             ("gateway (default)", defaultGatewayPort),
             ("qdrant (default)", defaultQdrantPort),
         ]
@@ -109,7 +109,7 @@ enum PortDiagnostics {
         let assistants = LockfileAssistant.loadAll()
         for assistant in assistants {
             if let dp = assistant.daemonPort, !seen.contains(dp) {
-                ports.append(("daemon (\(assistant.assistantId))", dp))
+                ports.append(("assistant (\(assistant.assistantId))", dp))
             }
             if let gp = assistant.gatewayPort, !seen.contains(gp) {
                 ports.append(("gateway (\(assistant.assistantId))", gp))

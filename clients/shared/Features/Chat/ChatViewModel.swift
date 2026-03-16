@@ -2296,7 +2296,7 @@ public final class ChatViewModel: ObservableObject {
     public func respondToAlwaysAllow(requestId: String, selectedPattern: String, selectedScope: String, decision: String = "always_allow") {
         guard daemonClient.isConnected else {
             log.warning("Cannot persist always-allow: daemon not connected")
-            errorText = "Cannot send confirmation — daemon is not connected."
+            errorText = "Cannot send confirmation — assistant is not connected."
             return
         }
         do {
