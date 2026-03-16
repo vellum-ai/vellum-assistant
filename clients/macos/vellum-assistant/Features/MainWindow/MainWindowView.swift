@@ -343,12 +343,6 @@ struct MainWindowView: View {
         return false
     }
 
-    /// Navigates to the Billing settings tab.
-    private func openBillingSettings() {
-        settingsStore.pendingSettingsTab = .billing
-        windowState.selection = .panel(.settings)
-    }
-
     /// Top bar extracted to break up type-checker complexity.
     private var topBarView: some View {
         HStack(spacing: VSpacing.sm) {
@@ -610,7 +604,6 @@ struct MainWindowView: View {
                         onRetryConversationError: { viewModel.retryAfterConversationError() },
                         onCopyDebugInfo: { viewModel.copyConversationErrorDebugDetails() },
                         onDismissConversationError: { viewModel.dismissConversationError() },
-                        onAddFunds: { openBillingSettings() },
                         onSendAnyway: { viewModel.sendAnyway() },
                         onRetryLastMessage: { viewModel.retryLastMessage() },
                         onDismissError: { viewModel.dismissError() }
@@ -879,7 +872,6 @@ private struct ErrorToastOverlay: View {
     let onRetryConversationError: () -> Void
     let onCopyDebugInfo: () -> Void
     let onDismissConversationError: () -> Void
-    let onAddFunds: () -> Void
     let onSendAnyway: () -> Void
     let onRetryLastMessage: () -> Void
     let onDismissError: () -> Void
@@ -898,23 +890,15 @@ private struct ErrorToastOverlay: View {
                 .containerRelativeFrame(.horizontal) { width, _ in width * 0.7 }
             }
 
-            if let conversationError = errorManager.conversationError {
-                if conversationError.isCreditsExhausted {
-                    CreditsExhaustedBanner(
-                        onAddFunds: onAddFunds,
-                        onDismiss: onDismissConversationError
-                    )
-                    .containerRelativeFrame(.horizontal) { width, _ in width * 0.7 }
-                } else {
-                    ChatConversationErrorToast(
-                        error: conversationError,
-                        onRetry: onRetryConversationError,
-                        onCopyDebugInfo: onCopyDebugInfo,
-                        onDismiss: onDismissConversationError
-                    )
-                    .fixedSize(horizontal: true, vertical: false)
-                    .containerRelativeFrame(.horizontal) { width, _ in width * 0.7 }
-                }
+            if let conversationError = errorManager.conversationError, !conversationError.isCreditsExhausted {
+                ChatConversationErrorToast(
+                    error: conversationError,
+                    onRetry: onRetryConversationError,
+                    onCopyDebugInfo: onCopyDebugInfo,
+                    onDismiss: onDismissConversationError
+                )
+                .fixedSize(horizontal: true, vertical: false)
+                .containerRelativeFrame(.horizontal) { width, _ in width * 0.7 }
             }
 
             if let errorText = errorManager.errorText, errorManager.conversationError == nil {

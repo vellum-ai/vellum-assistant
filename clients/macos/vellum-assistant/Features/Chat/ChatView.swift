@@ -80,6 +80,15 @@ struct ChatView: View {
     /// Called to dismiss the btw overlay.
     var onDismissBtw: (() -> Void)?
 
+    // MARK: - Credits Exhausted (inline banner)
+
+    /// Non-nil when the conversation ended due to credits exhaustion.
+    var creditsExhaustedError: ConversationError? = nil
+    /// Opens the billing / add-funds flow.
+    var onAddFunds: (() -> Void)? = nil
+    /// Dismisses the credits-exhausted banner.
+    var onDismissCreditsExhausted: (() -> Void)? = nil
+
     // MARK: - Pagination
 
     var displayedMessageCount: Int = .max
@@ -218,6 +227,9 @@ struct ChatView: View {
                             onSurfaceRefetch: onSurfaceRefetch,
                             onRetryFailedMessage: onRetryFailedMessage,
                             subagentDetailStore: subagentDetailStore,
+                            creditsExhaustedError: creditsExhaustedError,
+                            onAddFunds: onAddFunds,
+                            onDismissCreditsExhausted: onDismissCreditsExhausted,
                             displayedMessageCount: displayedMessageCount,
                             hasMoreMessages: hasMoreMessages,
                             isLoadingMoreMessages: isLoadingMoreMessages,

@@ -699,6 +699,12 @@ struct ActiveChatViewWrapper: View {
             btwResponse: viewModel.btwResponse,
             btwLoading: viewModel.btwLoading,
             onDismissBtw: { viewModel.dismissBtw() },
+            creditsExhaustedError: viewModel.errorManager.conversationError?.isCreditsExhausted == true ? viewModel.errorManager.conversationError : nil,
+            onAddFunds: {
+                settingsStore.pendingSettingsTab = .billing
+                windowState.selection = .panel(.settings)
+            },
+            onDismissCreditsExhausted: { viewModel.dismissConversationError() },
             displayedMessageCount: viewModel.displayedMessageCount,
             hasMoreMessages: viewModel.hasMoreMessages,
             isLoadingMoreMessages: viewModel.isLoadingMoreMessages,
