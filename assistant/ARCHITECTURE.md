@@ -1719,13 +1719,13 @@ graph TB
 
 Every event published through the hub is wrapped in an `AssistantEvent` (defined in `runtime/assistant-event.ts`):
 
-| Field         | Type                | Description                                           |
-| ------------- | ------------------- | ----------------------------------------------------- |
-| `id`          | `string` (UUID)     | Globally unique event identifier                      |
-| `assistantId` | `string`            | Logical assistant identifier (`"self"` for HTTP runs) |
-| `sessionId`   | `string?`           | Resolved conversation ID when available               |
-| `emittedAt`   | `string` (ISO-8601) | Server-side timestamp                                 |
-| `message`     | `ServerMessage`     | The outbound message payload                          |
+| Field            | Type                | Description                                           |
+| ---------------- | ------------------- | ----------------------------------------------------- |
+| `id`             | `string` (UUID)     | Globally unique event identifier                      |
+| `assistantId`    | `string`            | Logical assistant identifier (`"self"` for HTTP runs) |
+| `conversationId` | `string?`           | Resolved conversation ID when available               |
+| `emittedAt`      | `string` (ISO-8601) | Server-side timestamp                                 |
+| `message`        | `ServerMessage`     | The outbound message payload                          |
 
 ### SSE Frame Format
 
