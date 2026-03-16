@@ -2,6 +2,7 @@ import {
   setPlatformAssistantId,
   setPlatformBaseUrl,
   setPlatformOrganizationId,
+  setPlatformUserId,
 } from "../../config/env.js";
 import {
   API_KEY_PROVIDERS,
@@ -176,6 +177,10 @@ export async function handleAddSecret(
         setPlatformOrganizationId(trimmed || undefined);
         setSentryOrganizationId(trimmed || undefined);
       }
+      if (service === "vellum" && field === "platform_user_id") {
+        const trimmed = value.trim();
+        setPlatformUserId(trimmed || undefined);
+      }
       if (isManagedProxyCredential(service, field)) {
         await initializeProviders(getConfig());
         if (service === "vellum" && field === "assistant_api_key") {
@@ -305,6 +310,9 @@ export async function handleDeleteSecret(req: Request): Promise<Response> {
       if (service === "vellum" && field === "platform_organization_id") {
         setPlatformOrganizationId(undefined);
         setSentryOrganizationId(undefined);
+      }
+      if (service === "vellum" && field === "platform_user_id") {
+        setPlatformUserId(undefined);
       }
       if (isManagedProxyCredential(service, field)) {
         await initializeProviders(getConfig());

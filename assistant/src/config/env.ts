@@ -174,6 +174,20 @@ export function getPlatformOrganizationId(): string {
   );
 }
 
+let _platformUserIdOverride: string | undefined;
+
+export function setPlatformUserId(value: string | undefined): void {
+  _platformUserIdOverride = value;
+}
+
+/**
+ * PLATFORM_USER_ID — UUID of the user who owns this assistant.
+ * Used for telemetry and platform API calls.
+ */
+export function getPlatformUserId(): string {
+  return str("PLATFORM_USER_ID") ?? _platformUserIdOverride ?? "";
+}
+
 /**
  * PLATFORM_INTERNAL_API_KEY — static internal gateway key for authenticating
  * with the platform's internal gateway callback route registration endpoint.

@@ -190,6 +190,10 @@ public final class LocalAssistantBootstrapService {
                 log.error("Failed to inject platform base URL into daemon on existing-key path: \(error.localizedDescription)")
                 throw LocalBootstrapError.daemonInjectionFailed
             }
+            try? await injectPlatformOrganizationIdIntoDaemon(id: organizationId)
+            if let uid = try? await resolveUserId() {
+                try? await injectPlatformUserIdIntoDaemon(id: uid)
+            }
             return .registeredWithExistingKey(assistantId: platformId)
         }
 
@@ -250,6 +254,10 @@ public final class LocalAssistantBootstrapService {
             log.error("Failed to inject platform base URL into daemon on provision path: \(error.localizedDescription)")
             throw LocalBootstrapError.daemonInjectionFailed
         }
+        try? await injectPlatformOrganizationIdIntoDaemon(id: organizationId)
+        if let uid = try? await resolveUserId() {
+            try? await injectPlatformUserIdIntoDaemon(id: uid)
+        }
 
         return .registeredAndProvisioned(assistantId: resolvedPlatformId)
     }
@@ -305,6 +313,30 @@ public final class LocalAssistantBootstrapService {
         }
     }
 
+    /// Inject the platform organization ID into the daemon's secret store via the gateway.
+    private func injectPlatformOrganizationIdIntoDaemon(id: String) async throws {
+        let response = try await GatewayHTTPClient.post(
+            path: "secrets",
+            json: ["type": "credential", "name": "vellum:platform_organization_id", "value": id],
+            timeout: 10
+        )
+        guard response.isSuccess else {
+            throw LocalBootstrapError.daemonInjectionFailed
+        }
+    }
+
+    /// Inject the platform user ID into the daemon's secret store via the gateway.
+    private func injectPlatformUserIdIntoDaemon(id: String) async throws {
+        let response = try await GatewayHTTPClient.post(
+            path: "secrets",
+            json: ["type": "credential", "name": "vellum:platform_user_id", "value": id],
+            timeout: 10
+        )
+        guard response.isSuccess else {
+            throw LocalBootstrapError.daemonInjectionFailed
+        }
+    }
+
     /// Clears all managed proxy credentials from the daemon's secret store
     /// by issuing `DELETE /v1/secrets` for each vellum-namespaced credential.
     ///
@@ -320,8 +352,10 @@ public final class LocalAssistantBootstrapService {
     ) async -> Bool {
         let credentialNames = [
             "vellum:assistant_api_key",
-            "vellum:platform_base_url",
             "vellum:platform_assistant_id",
+            "vellum:platform_base_url",
+            "vellum:platform_organization_id",
+            "vellum:platform_user_id",
         ]
         var allCleared = true
         for name in credentialNames {
