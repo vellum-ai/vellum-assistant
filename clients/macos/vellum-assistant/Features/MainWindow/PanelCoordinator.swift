@@ -712,7 +712,7 @@ struct ActiveChatViewWrapper: View {
             isBootstrapping: isBootstrapping,
             isBootstrapTimedOut: isBootstrapTimedOut,
             onBootstrapSendLogs: {
-                AppDelegate.shared?.showLogReportWindow()
+                AppDelegate.shared?.showLogReportWindow(reason: .connectionIssue)
             }
         )
         .environment(\.cmdEnterToSend, settingsStore.cmdEnterToSend)
