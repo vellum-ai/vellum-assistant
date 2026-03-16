@@ -128,7 +128,7 @@ function registerPendingInteraction(
   } as unknown as Conversation;
 
   pendingInteractions.register(requestId, {
-    session: mockSession,
+    conversation: mockSession,
     conversationId,
     kind: "confirmation",
     confirmationDetails: {

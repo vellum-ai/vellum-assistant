@@ -410,7 +410,7 @@ function makeHubPublisher(
     // Register pending interactions for approval events
     if (msg.type === "confirmation_request") {
       pendingInteractions.register(msg.requestId, {
-        session,
+        conversation: session,
         conversationId,
         kind: "confirmation",
         confirmationDetails: {
@@ -465,25 +465,25 @@ function makeHubPublisher(
       }
     } else if (msg.type === "secret_request") {
       pendingInteractions.register(msg.requestId, {
-        session,
+        conversation: session,
         conversationId,
         kind: "secret",
       });
     } else if (msg.type === "host_bash_request") {
       pendingInteractions.register(msg.requestId, {
-        session,
+        conversation: session,
         conversationId,
         kind: "host_bash",
       });
     } else if (msg.type === "host_file_request") {
       pendingInteractions.register(msg.requestId, {
-        session,
+        conversation: session,
         conversationId,
         kind: "host_file",
       });
     } else if (msg.type === "host_cu_request") {
       pendingInteractions.register(msg.requestId, {
-        session,
+        conversation: session,
         conversationId,
         kind: "host_cu",
       });
