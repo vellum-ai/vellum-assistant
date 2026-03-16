@@ -244,7 +244,7 @@ final class ChatViewModelTests: XCTestCase {
 
         // User initiates cancel, then server acknowledges
         viewModel.isCancelling = true
-        viewModel.handleServerMessage(.generationCancelled(GenerationCancelledMessage(sessionId: nil)))
+        viewModel.handleServerMessage(.generationCancelled(GenerationCancelledMessage(conversationId: nil)))
 
         XCTAssertFalse(viewModel.isSending)
         XCTAssertFalse(viewModel.isThinking)
@@ -256,7 +256,7 @@ final class ChatViewModelTests: XCTestCase {
         viewModel.isThinking = true
 
         viewModel.isCancelling = true
-        viewModel.handleServerMessage(.generationCancelled(GenerationCancelledMessage(sessionId: nil)))
+        viewModel.handleServerMessage(.generationCancelled(GenerationCancelledMessage(conversationId: nil)))
 
         XCTAssertFalse(viewModel.isSending)
         XCTAssertFalse(viewModel.isThinking)
@@ -581,7 +581,7 @@ final class ChatViewModelTests: XCTestCase {
         XCTAssertFalse(viewModel.messages[0].isStreaming)
 
         // Daemon acknowledges cancellation
-        viewModel.handleServerMessage(.generationCancelled(GenerationCancelledMessage(sessionId: nil)))
+        viewModel.handleServerMessage(.generationCancelled(GenerationCancelledMessage(conversationId: nil)))
         XCTAssertFalse(viewModel.isSending)
     }
 
@@ -601,7 +601,7 @@ final class ChatViewModelTests: XCTestCase {
         XCTAssertEqual(viewModel.messages[0].text, "Partial")
 
         // Daemon acknowledges cancellation — clears isCancelling
-        viewModel.handleServerMessage(.generationCancelled(GenerationCancelledMessage(sessionId: nil)))
+        viewModel.handleServerMessage(.generationCancelled(GenerationCancelledMessage(conversationId: nil)))
         XCTAssertFalse(viewModel.isSending)
 
         // After acknowledgment, new deltas should work normally
@@ -908,7 +908,7 @@ final class ChatViewModelTests: XCTestCase {
 
         // User initiates cancel, then server acknowledges
         viewModel.isCancelling = true
-        viewModel.handleServerMessage(.generationCancelled(GenerationCancelledMessage(sessionId: nil)))
+        viewModel.handleServerMessage(.generationCancelled(GenerationCancelledMessage(conversationId: nil)))
 
         let messageBAfterCancel = viewModel.messages.first(where: { $0.text == "Message B" })!
         XCTAssertEqual(messageBAfterCancel.status, .sent, "Message B should be .sent after generationCancelled, not .processing")
@@ -1192,7 +1192,7 @@ final class ChatViewModelTests: XCTestCase {
     func testTextDeltaFromDifferentSessionIsIgnored() {
         viewModel.conversationId = "my-session"
         viewModel.isThinking = true
-        viewModel.handleServerMessage(.assistantTextDelta(AssistantTextDeltaMessage(text: "foreign", sessionId: "other-session")))
+        viewModel.handleServerMessage(.assistantTextDelta(AssistantTextDeltaMessage(text: "foreign", conversationId: "other-session")))
         // Should still be thinking — delta was ignored
         XCTAssertTrue(viewModel.isThinking)
         XCTAssertEqual(viewModel.messages.count, 0) // No messages
@@ -1201,7 +1201,7 @@ final class ChatViewModelTests: XCTestCase {
     func testTextDeltaFromSameSessionIsAccepted() {
         viewModel.conversationId = "my-session"
         viewModel.isThinking = true
-        viewModel.handleServerMessage(.assistantTextDelta(AssistantTextDeltaMessage(text: "hello", sessionId: "my-session")))
+        viewModel.handleServerMessage(.assistantTextDelta(AssistantTextDeltaMessage(text: "hello", conversationId: "my-session")))
         XCTAssertFalse(viewModel.isThinking)
         XCTAssertEqual(viewModel.messages.count, 1)
         XCTAssertEqual(viewModel.messages[0].text, "hello")
@@ -1210,7 +1210,7 @@ final class ChatViewModelTests: XCTestCase {
     func testTextDeltaWithNilSessionIdIsAccepted() {
         viewModel.conversationId = "my-session"
         viewModel.isThinking = true
-        viewModel.handleServerMessage(.assistantTextDelta(AssistantTextDeltaMessage(text: "hello", sessionId: nil)))
+        viewModel.handleServerMessage(.assistantTextDelta(AssistantTextDeltaMessage(text: "hello", conversationId: nil)))
         XCTAssertFalse(viewModel.isThinking)
         XCTAssertEqual(viewModel.messages.count, 1)
     }
@@ -1219,7 +1219,7 @@ final class ChatViewModelTests: XCTestCase {
         viewModel.conversationId = "my-session"
         viewModel.isSending = true
         viewModel.isThinking = true
-        viewModel.handleServerMessage(.messageComplete(MessageCompleteMessage(sessionId: "other-session")))
+        viewModel.handleServerMessage(.messageComplete(MessageCompleteMessage(conversationId: "other-session")))
         // Should still be sending/thinking — message was ignored
         XCTAssertTrue(viewModel.isSending)
         XCTAssertTrue(viewModel.isThinking)
@@ -1229,7 +1229,7 @@ final class ChatViewModelTests: XCTestCase {
         viewModel.conversationId = "my-session"
         viewModel.isSending = true
         viewModel.isThinking = true
-        viewModel.handleServerMessage(.messageComplete(MessageCompleteMessage(sessionId: "my-session")))
+        viewModel.handleServerMessage(.messageComplete(MessageCompleteMessage(conversationId: "my-session")))
         XCTAssertFalse(viewModel.isSending)
         XCTAssertFalse(viewModel.isThinking)
     }
@@ -1677,7 +1677,7 @@ final class ChatViewModelTests: XCTestCase {
         viewModel.isCancelling = true
 
         viewModel.handleServerMessage(.generationCancelled(
-            GenerationCancelledMessage(sessionId: "sess-1")
+            GenerationCancelledMessage(conversationId: "sess-1")
         ))
 
         XCTAssertFalse(viewModel.isThinking,
@@ -1704,7 +1704,7 @@ final class ChatViewModelTests: XCTestCase {
             data: "iVBORw0KGgo=", extractedText: nil, sizeBytes: nil, thumbnailData: nil
         )
         viewModel.handleServerMessage(.messageComplete(
-            MessageCompleteMessage(sessionId: nil, attachments: [attachment])
+            MessageCompleteMessage(conversationId: nil, attachments: [attachment])
         ))
 
         XCTAssertEqual(viewModel.messages.count, 1, "Should add attachments to existing message, not create new")
@@ -1724,7 +1724,7 @@ final class ChatViewModelTests: XCTestCase {
             data: "JVBER", extractedText: nil, sizeBytes: nil, thumbnailData: nil
         )
         viewModel.handleServerMessage(.messageComplete(
-            MessageCompleteMessage(sessionId: nil, attachments: [attachment])
+            MessageCompleteMessage(conversationId: nil, attachments: [attachment])
         ))
 
         XCTAssertEqual(viewModel.messages.count, 1, "Should create new assistant message for attachment-only turn")
@@ -1772,7 +1772,7 @@ final class ChatViewModelTests: XCTestCase {
 
         // Complete with empty attachments array
         viewModel.handleServerMessage(.messageComplete(
-            MessageCompleteMessage(sessionId: nil, attachments: [])
+            MessageCompleteMessage(conversationId: nil, attachments: [])
         ))
 
         // Should have no messages — no extra empty assistant message
@@ -2661,7 +2661,7 @@ final class ChatViewModelTests: XCTestCase {
         viewModel.pendingSendDirectAttachments = nil
 
         // Simulate generationCancelled arriving
-        let cancelled = GenerationCancelledMessage(sessionId: "sess-1")
+        let cancelled = GenerationCancelledMessage(conversationId: "sess-1")
         viewModel.handleServerMessage(.generationCancelled(cancelled))
 
         // After cancellation, the pending text should have been dispatched

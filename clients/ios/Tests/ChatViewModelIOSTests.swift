@@ -252,7 +252,7 @@ final class ChatViewModelIOSTests: XCTestCase {
 
         // User initiates cancel, then server acknowledges
         viewModel.isCancelling = true
-        viewModel.handleServerMessage(.generationCancelled(GenerationCancelledMessage(sessionId: nil)))
+        viewModel.handleServerMessage(.generationCancelled(GenerationCancelledMessage(conversationId: nil)))
 
         XCTAssertFalse(viewModel.isSending)
         XCTAssertFalse(viewModel.isThinking)

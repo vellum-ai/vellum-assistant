@@ -86,7 +86,7 @@ final class ConversationManagerUnseenStateTests: XCTestCase {
         initialVm.messages.append(ChatMessage(role: .user, text: "Seed"))
 
         initialVm.handleServerMessage(.assistantTextDelta(
-            AssistantTextDeltaMessage(text: "First chunk", sessionId: "session-initial")
+            AssistantTextDeltaMessage(text: "First chunk", conversationId: "session-initial")
         ))
         waitForPropagation()
         XCTAssertFalse(conversationManager.conversations[initialIndex].hasUnseenLatestAssistantMessage)
@@ -104,10 +104,10 @@ final class ConversationManagerUnseenStateTests: XCTestCase {
         conversationManager.selectConversation(id: secondaryThreadId)
 
         initialVm.handleServerMessage(.assistantTextDelta(
-            AssistantTextDeltaMessage(text: " + second chunk", sessionId: "session-initial")
+            AssistantTextDeltaMessage(text: " + second chunk", conversationId: "session-initial")
         ))
         initialVm.handleServerMessage(.messageComplete(
-            MessageCompleteMessage(sessionId: "session-initial")
+            MessageCompleteMessage(conversationId: "session-initial")
         ))
 
         waitForPropagation()
@@ -131,8 +131,8 @@ final class ConversationManagerUnseenStateTests: XCTestCase {
         conversationManager.conversations[index].hasUnseenLatestAssistantMessage = false
         vm.conversationId = "session-realtime"
 
-        vm.handleServerMessage(.assistantTextDelta(AssistantTextDeltaMessage(text: "Streaming reply", sessionId: "session-realtime")))
-        vm.handleServerMessage(.messageComplete(MessageCompleteMessage(sessionId: "session-realtime")))
+        vm.handleServerMessage(.assistantTextDelta(AssistantTextDeltaMessage(text: "Streaming reply", conversationId: "session-realtime")))
+        vm.handleServerMessage(.messageComplete(MessageCompleteMessage(conversationId: "session-realtime")))
 
         waitForPropagation()
 
@@ -338,7 +338,7 @@ final class ConversationManagerUnseenStateTests: XCTestCase {
         vm.conversationId = "session-live-unread"
 
         vm.handleServerMessage(.assistantTextDelta(
-            AssistantTextDeltaMessage(text: "Live reply", sessionId: "session-live-unread")
+            AssistantTextDeltaMessage(text: "Live reply", conversationId: "session-live-unread")
         ))
         waitForPropagation()
 
@@ -576,7 +576,7 @@ final class ConversationManagerUnseenStateTests: XCTestCase {
         vm.conversationId = "session-streaming"
 
         // First delta creates a new message — should emit one seen signal
-        vm.handleServerMessage(.assistantTextDelta(AssistantTextDeltaMessage(text: "chunk1", sessionId: "session-streaming")))
+        vm.handleServerMessage(.assistantTextDelta(AssistantTextDeltaMessage(text: "chunk1", conversationId: "session-streaming")))
         waitForPropagation()
 
         let signalsAfterFirstDelta = sentMessages.compactMap { $0 as? ConversationSeenSignal }
@@ -584,9 +584,9 @@ final class ConversationManagerUnseenStateTests: XCTestCase {
         let countAfterFirst = signalsAfterFirstDelta.count
 
         // Subsequent deltas on the same message should NOT emit additional seen signals
-        vm.handleServerMessage(.assistantTextDelta(AssistantTextDeltaMessage(text: " chunk2", sessionId: "session-streaming")))
-        vm.handleServerMessage(.assistantTextDelta(AssistantTextDeltaMessage(text: " chunk3", sessionId: "session-streaming")))
-        vm.handleServerMessage(.assistantTextDelta(AssistantTextDeltaMessage(text: " chunk4", sessionId: "session-streaming")))
+        vm.handleServerMessage(.assistantTextDelta(AssistantTextDeltaMessage(text: " chunk2", conversationId: "session-streaming")))
+        vm.handleServerMessage(.assistantTextDelta(AssistantTextDeltaMessage(text: " chunk3", conversationId: "session-streaming")))
+        vm.handleServerMessage(.assistantTextDelta(AssistantTextDeltaMessage(text: " chunk4", conversationId: "session-streaming")))
         waitForPropagation()
 
         let signalsAfterMoreDeltas = sentMessages.compactMap { $0 as? ConversationSeenSignal }
@@ -595,7 +595,7 @@ final class ConversationManagerUnseenStateTests: XCTestCase {
                        "Mid-stream text deltas should not emit additional seen signals (was O(n), should be O(1))")
 
         // Stream completion should emit one more seen signal
-        vm.handleServerMessage(.messageComplete(MessageCompleteMessage(sessionId: "session-streaming")))
+        vm.handleServerMessage(.messageComplete(MessageCompleteMessage(conversationId: "session-streaming")))
         waitForPropagation()
 
         let signalsAfterComplete = sentMessages.compactMap { $0 as? ConversationSeenSignal }
@@ -616,8 +616,8 @@ final class ConversationManagerUnseenStateTests: XCTestCase {
         conversationManager.conversations[index].hasUnseenLatestAssistantMessage = true
         vm.conversationId = "session-active"
 
-        vm.handleServerMessage(.assistantTextDelta(AssistantTextDeltaMessage(text: "Visible reply", sessionId: "session-active")))
-        vm.handleServerMessage(.messageComplete(MessageCompleteMessage(sessionId: "session-active")))
+        vm.handleServerMessage(.assistantTextDelta(AssistantTextDeltaMessage(text: "Visible reply", conversationId: "session-active")))
+        vm.handleServerMessage(.messageComplete(MessageCompleteMessage(conversationId: "session-active")))
 
         waitForPropagation()
 
