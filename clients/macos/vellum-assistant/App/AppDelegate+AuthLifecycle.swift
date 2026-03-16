@@ -234,6 +234,14 @@ extension AppDelegate {
             if !wasManaged {
                 // Self-hosted (local or remote): clear auth state but keep the
                 // app running. The user can sign in again from Settings > General.
+
+                // Restore connectedAssistantId — authManager.logout() clears it
+                // from UserDefaults, but the app stays running in this path and
+                // subsystems (avatar, gateway resolution, API key sync) need it.
+                if let connectedAssistantId {
+                    UserDefaults.standard.set(connectedAssistantId, forKey: "connectedAssistantId")
+                }
+
                 actorTokenBootstrapTask?.cancel()
                 actorTokenBootstrapTask = nil
                 ActorTokenManager.deleteToken()
