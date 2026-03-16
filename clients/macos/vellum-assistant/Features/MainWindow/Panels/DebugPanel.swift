@@ -29,6 +29,7 @@ struct DebugPanel: View {
                         subtitle: "Events will appear as the session runs",
                         icon: "waveform.path"
                     )
+                    .containerRelativeFrame([.horizontal, .vertical])
                 }
             } else {
                 VEmptyState(
@@ -36,6 +37,7 @@ struct DebugPanel: View {
                     subtitle: "Start a conversation to see trace events",
                     icon: "ant"
                 )
+                .containerRelativeFrame([.horizontal, .vertical])
             }
         }
         .onAppear { traceStore.isObserved = true }
