@@ -43,6 +43,10 @@ struct AppsGridView: View {
     /// Maximum width of the centered content area.
     private let maxContentWidth: CGFloat = 1400
 
+    private var isLoading: Bool {
+        !hasFetchedLocalApps || !hasFetchedShared
+    }
+
     var body: some View {
         Group {
             if appListManager.apps.isEmpty && sharedApps.isEmpty && hasFetchedShared && hasFetchedLocalApps {
@@ -57,12 +61,18 @@ struct AppsGridView: View {
                         Spacer()
                     }
                     .padding(.bottom, VSpacing.md)
+                    .padding(.horizontal, VSpacing.xl)
+                    .padding(.top, VSpacing.xl)
 
                     Divider().background(VColor.borderBase)
+                        .padding(.horizontal, VSpacing.xl)
 
-                    mainContent
+                    if isLoading && appListManager.apps.isEmpty && sharedApps.isEmpty {
+                        loadingSkeleton
+                    } else {
+                        mainContent
+                    }
                 }
-                .padding(VSpacing.xl)
             }
         }
         .background(VColor.surfaceBase)
@@ -130,6 +140,59 @@ struct AppsGridView: View {
             .frame(maxWidth: maxContentWidth)
             .frame(maxWidth: .infinity)
             .padding(.top, VSpacing.lg)
+            .padding(.horizontal, VSpacing.xl)
+            .padding(.bottom, VSpacing.xl)
+        }
+    }
+
+    // MARK: - Loading Skeleton
+
+    private var loadingSkeleton: some View {
+        VStack(spacing: VSpacing.xxl) {
+            // Disabled search bar
+            VSearchBar(placeholder: "Search your library", text: .constant(""))
+                .disabled(true)
+                .opacity(0.5)
+
+            // Skeleton section mimicking "Pinned" / "Recents"
+            skeletonSection
+        }
+        .frame(maxWidth: maxContentWidth)
+        .frame(maxWidth: .infinity)
+        .padding(.top, VSpacing.lg)
+        .padding(.horizontal, VSpacing.xl)
+    }
+
+    private var skeletonSection: some View {
+        VStack(alignment: .leading, spacing: VSpacing.md) {
+            // Section title skeleton
+            VSkeletonBone(width: 80, height: 14)
+
+            // Row of two skeleton app cards
+            HStack(spacing: VSpacing.xl) {
+                skeletonAppCard
+                skeletonAppCard
+                // Spacers to match the 5-column grid — cards only fill first 2 slots
+                Spacer()
+                Spacer()
+                Spacer()
+            }
+        }
+    }
+
+    private var skeletonAppCard: some View {
+        VStack(alignment: .leading, spacing: VSpacing.sm) {
+            // Preview rectangle matching 16:10 aspect ratio
+            VSkeletonBone(height: 0, radius: VRadius.lg)
+                .aspectRatio(16.0 / 10.0, contentMode: .fit)
+
+            // Name line
+            VStack(alignment: .leading, spacing: 4) {
+                VSkeletonBone(width: 120, height: 12)
+                // Date line
+                VSkeletonBone(width: 80, height: 10)
+            }
+            .padding(.horizontal, VSpacing.xs)
         }
     }
 
