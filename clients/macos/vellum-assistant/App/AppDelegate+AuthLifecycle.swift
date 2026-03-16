@@ -21,8 +21,20 @@ extension AppDelegate {
                 log.info("[authFlow] → proceedToApp()")
                 proceedToApp()
             } else {
-                log.info("[authFlow] → showAuthWindow()")
-                showAuthWindow()
+                // Check if the lockfile has a non-managed assistant we can connect to
+                // without authentication. Local/remote assistants run independently
+                // of the platform auth session, so the app can open in a logged-out
+                // state and the user can sign in from Settings > General.
+                let storedId = UserDefaults.standard.string(forKey: "connectedAssistantId")
+                let assistant = storedId.flatMap { LockfileAssistant.loadByName($0) }
+                    ?? LockfileAssistant.loadLatest()
+                if let assistant, !assistant.isManaged {
+                    log.info("[authFlow] Lockfile has non-managed assistant \(assistant.assistantId) — proceeding to app without auth")
+                    proceedToApp()
+                } else {
+                    log.info("[authFlow] → showAuthWindow()")
+                    showAuthWindow()
+                }
             }
         }
     }
