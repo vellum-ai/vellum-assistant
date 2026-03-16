@@ -147,13 +147,18 @@ if [ "$CLI_REMOVED" = false ]; then
     echo "       ⏭️  No CLI symlinks found, skipping"
 fi
 
-# 13. Remove Vellum.app
-echo "13/$TOTAL_STEPS — Removing /Applications/Vellum.app..."
-if [ -d /Applications/Vellum.app ]; then
-    rm -rf /Applications/Vellum.app
-    echo "       ✅ Removed /Applications/Vellum.app"
-else
-    echo "       ⏭️  No Vellum.app found, skipping"
+# 13. Remove Vellum apps
+echo "13/$TOTAL_STEPS — Removing Vellum apps from /Applications..."
+VELLUM_APP_REMOVED=false
+for app in "/Applications/Vellum.app" "/Applications/Vellum (Staging).app"; do
+    if [ -d "$app" ]; then
+        rm -rf "$app"
+        echo "       ✅ Removed $app"
+        VELLUM_APP_REMOVED=true
+    fi
+done
+if [ "$VELLUM_APP_REMOVED" = false ]; then
+    echo "       ⏭️  No Vellum apps found, skipping"
 fi
 
 # 14. Remove ms-playwright browser installations
