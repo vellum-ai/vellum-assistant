@@ -67,7 +67,7 @@ public struct VConversationIcon: View {
     // MARK: - Color Palette
 
     /// Conversation icon background colors from the design token palette.
-    private static let backgrounds: [Color] = VColor.threadIconBackgrounds
+    private static let backgrounds: [Color] = VColor.conversationIconBackgrounds
 
     // MARK: - Hash
 
