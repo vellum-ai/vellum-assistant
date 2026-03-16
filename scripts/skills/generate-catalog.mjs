@@ -38,14 +38,14 @@ function parseFrontmatter(content) {
 }
 
 /**
- * Minimal YAML parser for flat key-value pairs and nested maps.
+ * Minimal YAML parser for flat key-value pairs, nested maps, and arrays.
  * Handles string values (quoted or unquoted), inline JSON objects/arrays,
- * and multiple levels of nesting.
+ * YAML list syntax (`- item`), and multiple levels of nesting.
  */
 function parseSimpleYaml(yaml) {
   const result = {};
   const lines = yaml.split("\n");
-  // Stack of { indent, obj } to track nesting context
+  // Stack of { indent, obj, key } to track nesting context
   const stack = [{ indent: -1, obj: result, key: null }];
 
   for (const line of lines) {
@@ -55,6 +55,22 @@ function parseSimpleYaml(yaml) {
 
     // Calculate indentation (number of leading spaces)
     const indent = line.match(/^(\s*)/)[1].length;
+
+    // Check for YAML list item: `- value`
+    const listMatch = line.match(/^(\s*)-\s+(.*)/);
+    if (listMatch) {
+      const listValue = listMatch[2].trim();
+      // Pop stack to find the parent array at the right indentation level
+      while (stack.length > 1 && stack[stack.length - 1].indent >= indent) {
+        stack.pop();
+      }
+      const parent = stack[stack.length - 1];
+      if (Array.isArray(parent.obj)) {
+        parent.obj.push(stripQuotes(listValue));
+      }
+      continue;
+    }
+
     const match = line.match(/^(\s*)(\S+):\s*(.*)/);
     if (!match) continue;
 
@@ -68,9 +84,18 @@ function parseSimpleYaml(yaml) {
     const parent = stack[stack.length - 1].obj;
 
     if (value === "" || value === "|" || value === ">") {
-      // Start of a nested object
-      parent[key] = {};
-      stack.push({ indent, obj: parent[key], key });
+      // Start of a nested object or array — peek ahead to determine which
+      const nextNonEmpty = lines
+        .slice(lines.indexOf(line) + 1)
+        .find((l) => l.trim() !== "" && !l.trim().startsWith("#"));
+      if (nextNonEmpty && nextNonEmpty.match(/^\s*-\s+/)) {
+        // Next meaningful line is a list item -> initialize as array
+        parent[key] = [];
+        stack.push({ indent, obj: parent[key], key });
+      } else {
+        parent[key] = {};
+        stack.push({ indent, obj: parent[key], key });
+      }
     } else if (
       (value.startsWith("{") && value.endsWith("}")) ||
       (value.startsWith("[") && value.endsWith("]"))

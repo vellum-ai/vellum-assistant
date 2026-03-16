@@ -1766,13 +1766,18 @@ public final class HTTPTransport {
                       let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
                       let errorCategory = json["error"] as? String,
                       errorCategory == "secret_blocked" {
-                // Surface secret-block errors through the .error path so
-                // ChatViewModel's secret_blocked handler can offer "Send Anyway".
+                // HTTP mode cannot handle secret-blocked retries (no bypassSecretCheck
+                // support), so surface as a non-retryable conversation error instead
+                // of routing through .error(category: "secret_blocked") which would
+                // activate ChatViewModel's "Send Anyway" UI and create an unrecoverable loop.
                 let message = (json["message"] as? String) ?? "Message blocked — contains secrets"
                 log.warning("Message blocked by secret-ingress check")
-                onMessage?(.error(ErrorMessage(
-                    message: message,
-                    category: "secret_blocked"
+                onMessage?(.conversationError(ConversationErrorMessage(
+                    conversationId: sessionId,
+                    code: .providerApi,
+                    userMessage: message,
+                    retryable: false,
+                    failedMessageContent: content
                 )))
             } else {
                 let errorBody = String(data: data, encoding: .utf8) ?? "unknown"

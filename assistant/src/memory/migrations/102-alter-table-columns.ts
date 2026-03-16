@@ -256,6 +256,11 @@ export function addCoreColumns(database: DrizzleDb): void {
   } catch {
     /* already exists */
   }
+  try {
+    database.run(/*sql*/ `ALTER TABLE attachments ADD COLUMN file_path TEXT`);
+  } catch {
+    /* already exists */
+  }
 
   // cron_jobs
   try {

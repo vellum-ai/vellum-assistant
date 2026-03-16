@@ -1305,6 +1305,7 @@ jobs:
         run: |
           DISPLAY_VERSION="${{ steps.version.outputs.display_version }}" \
           BUILD_VERSION="${{ steps.version.outputs.build_version }}" \
+          SU_PUBLIC_ED_KEY="${{ secrets.SPARKLE_ED_PUBLIC_KEY }}" \
           SIGN_IDENTITY="Developer ID Application" \
           RELEASE_ARCH_FLAGS="--arch x86_64" \
           ./build.sh release

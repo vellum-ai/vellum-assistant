@@ -415,7 +415,11 @@ function formatBytes(bytes: number): string {
 }
 
 /** Directory prefixes to skip when collecting workspace files. */
-const WORKSPACE_SKIP_DIRS = new Set(["embedding-models", "data/qdrant"]);
+const WORKSPACE_SKIP_DIRS = new Set([
+  "embedding-models",
+  "data/qdrant",
+  "data/attachments",
+]);
 
 /** Files at the workspace root to skip (already covered by sanitized fields). */
 const WORKSPACE_SKIP_ROOT_FILES = new Set(["config.json"]);

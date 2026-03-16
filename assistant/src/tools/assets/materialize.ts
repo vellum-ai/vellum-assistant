@@ -48,7 +48,7 @@ function formatBytes(bytes: number): string {
 }
 
 /**
- * Load an attachment row (including base64 data) by its primary key.
+ * Load attachment metadata by its primary key.
  *
  * Not scoped by assistantId because attachment access is enforced by
  * conversation visibility checks in execute().
@@ -58,7 +58,6 @@ function loadAttachmentById(attachmentId: string): {
   originalFilename: string;
   mimeType: string;
   sizeBytes: number;
-  dataBase64: string;
 } | null {
   const db = getDb();
   const row = db
@@ -67,7 +66,6 @@ function loadAttachmentById(attachmentId: string): {
       originalFilename: attachments.originalFilename,
       mimeType: attachments.mimeType,
       sizeBytes: attachments.sizeBytes,
-      dataBase64: attachments.dataBase64,
     })
     .from(attachments)
     .where(eq(attachments.id, attachmentId))

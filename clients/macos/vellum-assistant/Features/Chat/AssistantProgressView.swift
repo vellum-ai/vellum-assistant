@@ -344,7 +344,9 @@ struct AssistantProgressView: View {
     /// from zero regardless of how long the view has been alive.
     private var processingLabel: some View {
         let initialLabel = ChatBubble.friendlyProcessingLabel(processingStatusText)
-        let labels = [
+        // Pin the label when compacting — don't cycle to generic labels.
+        let pinLabel = processingStatusText?.lowercased().contains("compacting") == true
+        let labels: [String] = pinLabel ? [initialLabel] : [
             initialLabel,
             "Putting this together",
             "Finalizing your response",
