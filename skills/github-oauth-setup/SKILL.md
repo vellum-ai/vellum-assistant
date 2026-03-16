@@ -6,6 +6,7 @@ metadata:
   emoji: "🔑"
   vellum:
     display-name: "GitHub OAuth Setup"
+    feature-flag: "integration-github"
     includes: ["collaborative-oauth-flow"]
 ---
 

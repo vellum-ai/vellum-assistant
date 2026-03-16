@@ -6,6 +6,7 @@ metadata:
   emoji: "🔑"
   vellum:
     display-name: "Linear OAuth Setup"
+    feature-flag: "integration-linear"
     includes: ["collaborative-oauth-flow"]
 ---
 

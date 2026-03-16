@@ -6,6 +6,7 @@ metadata:
   emoji: "🔑"
   vellum:
     display-name: "Twitter / X OAuth Setup"
+    feature-flag: "integration-twitter"
     includes: ["collaborative-oauth-flow"]
 ---
 

@@ -6,6 +6,7 @@ metadata:
   emoji: "🔑"
   vellum:
     display-name: "Dropbox OAuth Setup"
+    feature-flag: "integration-dropbox"
     includes: ["collaborative-oauth-flow"]
 ---
 

@@ -6,6 +6,7 @@ metadata:
   emoji: "🔑"
   vellum:
     display-name: "Spotify OAuth Setup"
+    feature-flag: "integration-spotify"
     includes: ["collaborative-oauth-flow"]
 ---
 

@@ -6,6 +6,7 @@ metadata:
   emoji: "🔑"
   vellum:
     display-name: "Airtable OAuth Setup"
+    feature-flag: "integration-airtable"
     includes: ["collaborative-oauth-flow"]
 ---
 

@@ -6,6 +6,7 @@ metadata:
   emoji: "🔑"
   vellum:
     display-name: "Figma OAuth Setup"
+    feature-flag: "integration-figma"
     includes: ["collaborative-oauth-flow"]
 ---
 

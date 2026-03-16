@@ -6,6 +6,7 @@ metadata:
   emoji: "🔑"
   vellum:
     display-name: "Discord OAuth Setup"
+    feature-flag: "integration-discord"
     includes: ["collaborative-oauth-flow"]
 ---
 

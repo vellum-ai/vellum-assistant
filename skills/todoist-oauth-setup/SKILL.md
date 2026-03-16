@@ -6,6 +6,7 @@ metadata:
   emoji: "🔑"
   vellum:
     display-name: "Todoist OAuth Setup"
+    feature-flag: "integration-todoist"
     includes: ["collaborative-oauth-flow"]
 ---
 

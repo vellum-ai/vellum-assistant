@@ -6,6 +6,7 @@ metadata:
   emoji: "🔑"
   vellum:
     display-name: "HubSpot OAuth Setup"
+    feature-flag: "integration-hubspot"
     includes: ["collaborative-oauth-flow"]
 ---
 
