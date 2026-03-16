@@ -38,9 +38,6 @@ private let runtimeLog = Logger(
 
 /// Errors emitted by `AppleContainersPodRuntime`.
 public enum AppleContainersPodRuntimeError: LocalizedError {
-    /// The kernel images are not ready — call
-    /// `KataKernelStore.ensureImagesReady()` first.
-    case kernelImagesNotReady
     /// One or more required host directories could not be created.
     case hostDirectorySetupFailed(path: String, underlying: Error)
     /// The OCI image pull failed for the given service.
@@ -57,8 +54,6 @@ public enum AppleContainersPodRuntimeError: LocalizedError {
 
     public var errorDescription: String? {
         switch self {
-        case .kernelImagesNotReady:
-            return "Kata kernel images not ready. Call KataKernelStore.ensureImagesReady() first."
         case .hostDirectorySetupFailed(let path, let err):
             return "Could not create host directory '\(path)': \(err.localizedDescription)"
         case .imagePullFailed(let service, let err):
@@ -162,8 +157,18 @@ public final class AppleContainersPodRuntime: @unchecked Sendable {
         lock.unlock()
 
         // Wait for the assistant to signal readiness.
+        // If readiness fails (timeout or early container exit), retire the VM
+        // immediately so it does not hold port 7830 as an orphan.
         runtimeLog.info("Waiting for assistant readiness sentinel...")
-        try await waitForReadiness()
+        do {
+            try await waitForReadiness()
+        } catch {
+            runtimeLog.error(
+                "Readiness wait failed — retiring orphaned pod: \(error.localizedDescription, privacy: .public)"
+            )
+            try? await self.retire()
+            throw error
+        }
 
         runtimeLog.info(
             "Pod runtime ready for '\(self.definition.instanceName, privacy: .private)'"
