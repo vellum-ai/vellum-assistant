@@ -439,7 +439,8 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
             return
         }
 
-        let thread = ConversationModel(title: title, conversationId: conversationId)
+        var thread = ConversationModel(title: title, conversationId: conversationId)
+        thread.hasUnseenLatestAssistantMessage = true
         let viewModel = makeViewModel()
         viewModel.conversationId = conversationId
         // Mark history as loaded since this thread streams live — there is no
@@ -473,6 +474,7 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
         var thread = ConversationModel(title: title, conversationId: conversationId)
         thread.scheduleJobId = scheduleJobId
         thread.source = "schedule"
+        thread.hasUnseenLatestAssistantMessage = true
         let viewModel = makeViewModel()
         viewModel.conversationId = conversationId
         viewModel.isHistoryLoaded = true
