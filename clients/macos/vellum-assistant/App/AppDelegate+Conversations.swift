@@ -186,7 +186,7 @@ extension AppDelegate {
         proxy.onCancel = { [weak self] in
             guard let self else { return }
             do {
-                try self.daemonClient.send(CancelMessage(sessionId: conversationId))
+                try self.daemonClient.send(CancelMessage(conversationId: conversationId))
             } catch {
                 log.error("Failed to send cancel for host CU session \(conversationId): \(error)")
             }

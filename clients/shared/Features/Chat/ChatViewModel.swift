@@ -1693,7 +1693,7 @@ public final class ChatViewModel: ObservableObject {
         }
 
         do {
-            try daemonClient.send(CancelMessage(sessionId: conversationId!))
+            try daemonClient.send(CancelMessage(conversationId: conversationId!))
         } catch {
             log.error("Failed to send cancel: \(error.localizedDescription)")
             // Cancel failed to send, so no generationCancelled or

@@ -263,8 +263,8 @@ extension UserMessage {
 public typealias CancelMessage = CancelRequest
 
 extension CancelRequest {
-    public init(sessionId: String) {
-        self.init(type: "cancel", sessionId: sessionId)
+    public init(conversationId: String) {
+        self.init(type: "cancel", sessionId: conversationId)
     }
 }
 
