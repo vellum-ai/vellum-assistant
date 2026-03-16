@@ -734,8 +734,8 @@ extension AppDelegate {
         } catch {
             return false
         }
-        guard let data = try? pipe.fileHandleForReading.readDataToEndOfFile(),
-              let command = String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines),
+        let data = pipe.fileHandleForReading.readDataToEndOfFile()
+        guard let command = String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines),
               !command.isEmpty else {
             return false
         }
