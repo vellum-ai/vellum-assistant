@@ -546,6 +546,9 @@ function readSanitizedConfig(): Record<string, unknown> | undefined {
     const raw = readFileSync(configPath, "utf-8");
     const config = JSON.parse(raw) as Record<string, unknown>;
 
+    // Strip legacy apiKeys (removed from schema but may still exist in old config files)
+    delete config.apiKeys;
+
     // Strip ingress webhook secret
     if (config.ingress && typeof config.ingress === "object") {
       const ingress = config.ingress as Record<string, unknown>;

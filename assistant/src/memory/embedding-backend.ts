@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 
 import { getOllamaBaseUrlEnv } from "../config/env.js";
 import type { AssistantConfig } from "../config/types.js";
-import { getSecureKeyAsync } from "../security/secure-keys.js";
+import { getProviderKeyAsync } from "../security/secure-keys.js";
 import { getLogger } from "../util/logger.js";
 import { GeminiEmbeddingBackend } from "./embedding-gemini.js";
 import { OllamaEmbeddingBackend } from "./embedding-ollama.js";
@@ -250,7 +250,7 @@ export async function selectEmbeddingBackend(
     };
   }
   if (requested === "ollama") {
-    const ollamaKey = (await getSecureKeyAsync("ollama")) ?? undefined;
+    const ollamaKey = (await getProviderKeyAsync("ollama")) ?? undefined;
     return {
       backend: getCachedOrCreate(
         "ollama",
@@ -286,7 +286,7 @@ export async function selectEmbeddingBackend(
           reason: null,
         };
       case "openai": {
-        const openaiKey = await getSecureKeyAsync("openai");
+        const openaiKey = await getProviderKeyAsync("openai");
         if (!openaiKey) continue;
         return {
           backend: getCachedOrCreate(
@@ -302,7 +302,7 @@ export async function selectEmbeddingBackend(
         };
       }
       case "gemini": {
-        const geminiKey = await getSecureKeyAsync("gemini");
+        const geminiKey = await getProviderKeyAsync("gemini");
         if (!geminiKey) continue;
         return {
           backend: getCachedOrCreate(
@@ -324,7 +324,7 @@ export async function selectEmbeddingBackend(
       }
       case "ollama": {
         if (!(await isOllamaConfigured(config))) continue;
-        const ollamaKey = (await getSecureKeyAsync("ollama")) ?? undefined;
+        const ollamaKey = (await getProviderKeyAsync("ollama")) ?? undefined;
         return {
           backend: getCachedOrCreate(
             "ollama",
@@ -539,7 +539,7 @@ async function selectFallbackBackends(
     if (provider === exclude) continue;
     switch (provider) {
       case "openai": {
-        const openaiKey = await getSecureKeyAsync("openai");
+        const openaiKey = await getProviderKeyAsync("openai");
         if (openaiKey) {
           backends.push(
             getCachedOrCreate(
@@ -556,7 +556,7 @@ async function selectFallbackBackends(
         break;
       }
       case "gemini": {
-        const geminiKey = await getSecureKeyAsync("gemini");
+        const geminiKey = await getProviderKeyAsync("gemini");
         if (geminiKey) {
           backends.push(
             getCachedOrCreate(
@@ -579,7 +579,7 @@ async function selectFallbackBackends(
       }
       case "ollama":
         if (await isOllamaConfigured(config)) {
-          const ollamaKey = (await getSecureKeyAsync("ollama")) ?? undefined;
+          const ollamaKey = (await getProviderKeyAsync("ollama")) ?? undefined;
           backends.push(
             getCachedOrCreate(
               "ollama",
@@ -627,7 +627,7 @@ export async function selectedBackendSupportsMultimodal(
 async function isOllamaConfigured(config: AssistantConfig): Promise<boolean> {
   return (
     config.provider === "ollama" ||
-    Boolean(await getSecureKeyAsync("ollama")) ||
+    Boolean(await getProviderKeyAsync("ollama")) ||
     Boolean(getOllamaBaseUrlEnv())
   );
 }
