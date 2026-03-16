@@ -274,10 +274,10 @@ function makeSession(
  * Seed a pending confirmation directly in the prompter's internal map.
  */
 function seedPendingConfirmation(
-  session: Conversation,
+  conversation: Conversation,
   requestId: string,
 ): void {
-  const prompter = session["prompter"] as unknown as {
+  const prompter = conversation["prompter"] as unknown as {
     pending: Map<
       string,
       {
@@ -299,13 +299,13 @@ function seedPendingConfirmation(
  * confirmation details.
  */
 function registerPendingInteraction(
-  session: Conversation,
+  conversation: Conversation,
   requestId: string,
   conversationId: string,
   confirmationDetails?: ConfirmationDetails,
 ): void {
   pendingInteractions.register(requestId, {
-    conversation: session,
+    conversation,
     conversationId,
     kind: "confirmation",
     confirmationDetails,

@@ -242,7 +242,7 @@ function makePendingInteractionRegistrar(
 
 export class DaemonServer {
   private conversations = new Map<string, Conversation>();
-  private sessionOptions = new Map<string, ConversationCreateOptions>();
+  private conversationOptions = new Map<string, ConversationCreateOptions>();
   private conversationCreating = new Map<string, Promise<Conversation>>();
   private sharedRequestTimestamps: number[] = [];
   private httpPort: number | undefined;
@@ -294,7 +294,7 @@ export class DaemonServer {
   }
 
   private applyTransportMetadata(
-    _session: Conversation,
+    _conversation: Conversation,
     options: ConversationCreateOptions | undefined,
   ): void {
     const transport = options?.transport;
@@ -632,7 +632,7 @@ export class DaemonServer {
       conversation.dispose();
     }
     this.conversations.clear();
-    this.sessionOptions.clear();
+    this.conversationOptions.clear();
     return count;
   }
 
@@ -647,7 +647,7 @@ export class DaemonServer {
     getSubagentManager().abortAllForParent(conversationId);
     conversation.dispose();
     this.conversations.delete(conversationId);
-    this.sessionOptions.delete(conversationId);
+    this.conversationOptions.delete(conversationId);
   }
 
   private evictConversationsForReload(): void {
@@ -686,8 +686,8 @@ export class DaemonServer {
     const sendToClient = () => {};
 
     if (options && Object.values(options).some((v) => v !== undefined)) {
-      this.sessionOptions.set(conversationId, {
-        ...this.sessionOptions.get(conversationId),
+      this.conversationOptions.set(conversationId, {
+        ...this.conversationOptions.get(conversationId),
         ...options,
       });
     }
@@ -707,7 +707,7 @@ export class DaemonServer {
         return conversation;
       }
 
-      const storedOptions = this.sessionOptions.get(conversationId);
+      const storedOptions = this.conversationOptions.get(conversationId);
 
       const createPromise = (async () => {
         const config = getConfig();
@@ -737,7 +737,7 @@ export class DaemonServer {
         const sharedCesClient = this.cesClientPromise
           ? await this.cesClientPromise
           : undefined;
-        const newSession = new Conversation(
+        const newConversation = new Conversation(
           conversationId,
           provider,
           systemPrompt,
@@ -748,27 +748,27 @@ export class DaemonServer {
           memoryPolicy,
           sharedCesClient,
         );
-        newSession.updateClient(sendToClient, true);
-        await newSession.loadFromDb();
+        newConversation.updateClient(sendToClient, true);
+        await newConversation.loadFromDb();
         // Restore trust/auth context and assistant ID from stored options so
         // that evicted sessions rehydrated by undo/regenerate don't run with
         // unscoped history.  Without this, an untrusted actor could operate
         // on the full conversation after eviction.
         if (storedOptions?.assistantId) {
-          newSession.setAssistantId(storedOptions.assistantId);
+          newConversation.setAssistantId(storedOptions.assistantId);
         }
         if (storedOptions?.trustContext) {
-          newSession.setTrustContext(storedOptions.trustContext);
+          newConversation.setTrustContext(storedOptions.trustContext);
         }
         if (storedOptions?.authContext) {
-          newSession.setAuthContext(storedOptions.authContext);
+          newConversation.setAuthContext(storedOptions.authContext);
         }
         if (storedOptions?.trustContext || storedOptions?.authContext) {
-          await newSession.ensureActorScopedHistory();
+          await newConversation.ensureActorScopedHistory();
         }
-        this.applyTransportMetadata(newSession, storedOptions);
-        this.conversations.set(conversationId, newSession);
-        return newSession;
+        this.applyTransportMetadata(newConversation, storedOptions);
+        this.conversations.set(conversationId, newConversation);
+        return newConversation;
       })();
 
       this.conversationCreating.set(conversationId, createPromise);

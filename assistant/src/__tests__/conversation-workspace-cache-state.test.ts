@@ -176,7 +176,7 @@ import { Conversation } from "../daemon/conversation.js";
 // Helpers
 // ---------------------------------------------------------------------------
 
-function makeSession(): Conversation {
+function makeConversation(): Conversation {
   const provider = {
     name: "mock",
     async sendMessage(): Promise<ProviderResponse> {
@@ -203,59 +203,59 @@ function makeSession(): Conversation {
 // ---------------------------------------------------------------------------
 
 describe("Conversation workspace cache state", () => {
-  let session: Conversation;
+  let conversation: Conversation;
 
   beforeEach(() => {
-    session = makeSession();
+    conversation = makeConversation();
   });
 
   test("starts with dirty=true and null context", () => {
-    expect(session.isWorkspaceTopLevelDirty()).toBe(true);
-    expect(session.getWorkspaceTopLevelContext()).toBeNull();
+    expect(conversation.isWorkspaceTopLevelDirty()).toBe(true);
+    expect(conversation.getWorkspaceTopLevelContext()).toBeNull();
   });
 
   test("refreshWorkspaceTopLevelContextIfNeeded populates context and clears dirty", () => {
-    session.refreshWorkspaceTopLevelContextIfNeeded();
+    conversation.refreshWorkspaceTopLevelContextIfNeeded();
 
-    expect(session.isWorkspaceTopLevelDirty()).toBe(false);
-    expect(session.getWorkspaceTopLevelContext()).not.toBeNull();
-    expect(session.getWorkspaceTopLevelContext()!).toContain(
+    expect(conversation.isWorkspaceTopLevelDirty()).toBe(false);
+    expect(conversation.getWorkspaceTopLevelContext()).not.toBeNull();
+    expect(conversation.getWorkspaceTopLevelContext()!).toContain(
       "<workspace_top_level>",
     );
-    expect(session.getWorkspaceTopLevelContext()!).toContain(
+    expect(conversation.getWorkspaceTopLevelContext()!).toContain(
       "</workspace_top_level>",
     );
   });
 
   test("refreshWorkspaceTopLevelContextIfNeeded no-ops when not dirty and cache exists", () => {
-    session.refreshWorkspaceTopLevelContextIfNeeded();
-    const first = session.getWorkspaceTopLevelContext();
+    conversation.refreshWorkspaceTopLevelContextIfNeeded();
+    const first = conversation.getWorkspaceTopLevelContext();
 
-    session.refreshWorkspaceTopLevelContextIfNeeded();
-    const second = session.getWorkspaceTopLevelContext();
+    conversation.refreshWorkspaceTopLevelContextIfNeeded();
+    const second = conversation.getWorkspaceTopLevelContext();
 
     // Same reference — no recomputation
     expect(first).toBe(second);
   });
 
   test("markWorkspaceTopLevelDirty sets dirty flag", () => {
-    session.refreshWorkspaceTopLevelContextIfNeeded();
-    expect(session.isWorkspaceTopLevelDirty()).toBe(false);
+    conversation.refreshWorkspaceTopLevelContextIfNeeded();
+    expect(conversation.isWorkspaceTopLevelDirty()).toBe(false);
 
-    session.markWorkspaceTopLevelDirty();
-    expect(session.isWorkspaceTopLevelDirty()).toBe(true);
+    conversation.markWorkspaceTopLevelDirty();
+    expect(conversation.isWorkspaceTopLevelDirty()).toBe(true);
   });
 
   test("refresh after marking dirty produces fresh context", () => {
-    session.refreshWorkspaceTopLevelContextIfNeeded();
+    conversation.refreshWorkspaceTopLevelContextIfNeeded();
 
-    session.markWorkspaceTopLevelDirty();
-    session.refreshWorkspaceTopLevelContextIfNeeded();
+    conversation.markWorkspaceTopLevelDirty();
+    conversation.refreshWorkspaceTopLevelContextIfNeeded();
 
-    expect(session.getWorkspaceTopLevelContext()).not.toBeNull();
-    expect(session.getWorkspaceTopLevelContext()!).toContain(
+    expect(conversation.getWorkspaceTopLevelContext()).not.toBeNull();
+    expect(conversation.getWorkspaceTopLevelContext()!).toContain(
       "<workspace_top_level>",
     );
-    expect(session.isWorkspaceTopLevelDirty()).toBe(false);
+    expect(conversation.isWorkspaceTopLevelDirty()).toBe(false);
   });
 });

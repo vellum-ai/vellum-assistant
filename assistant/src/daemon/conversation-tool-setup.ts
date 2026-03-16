@@ -25,7 +25,7 @@ import type { Message, ToolDefinition } from "../providers/types.js";
 import type { TrustClass } from "../runtime/actor-trust-resolver.js";
 import { getEffectiveMode } from "../runtime/conversation-approval-overrides.js";
 import { coreAppProxyTools } from "../tools/apps/definitions.js";
-import { registerSessionSender } from "../tools/browser/browser-screencast.js";
+import { registerConversationSender } from "../tools/browser/browser-screencast.js";
 import type { ToolExecutor } from "../tools/executor.js";
 import {
   getAllToolDefinitions,
@@ -149,7 +149,9 @@ export function createToolExecutor(
   toolUseId?: string,
 ) => Promise<ToolExecutionResult> {
   // Register the conversation's sendToClient for browser screencast surface messages
-  registerSessionSender(ctx.conversationId, (msg) => ctx.sendToClient(msg));
+  registerConversationSender(ctx.conversationId, (msg) =>
+    ctx.sendToClient(msg),
+  );
 
   return async (
     name: string,

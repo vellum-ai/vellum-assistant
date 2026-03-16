@@ -40,7 +40,7 @@ mock.module("../services/published-app-updater.js", () => ({
 
 // Mock browser-screencast registration (no-op)
 mock.module("../tools/browser/browser-screencast.js", () => ({
-  registerSessionSender: mock(() => {}),
+  registerConversationSender: mock(() => {}),
 }));
 
 // ---------------------------------------------------------------------------
