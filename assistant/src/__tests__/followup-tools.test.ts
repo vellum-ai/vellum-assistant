@@ -79,7 +79,7 @@ describe("followup_create tool", () => {
     const result = await executeFollowupCreate(
       {
         channel: "email",
-        thread_id: "thread-123",
+        conversation_id: "thread-123",
       },
       ctx,
     );
@@ -95,7 +95,7 @@ describe("followup_create tool", () => {
     const result = await executeFollowupCreate(
       {
         channel: "slack",
-        thread_id: "slack-thread-1",
+        conversation_id: "slack-thread-1",
         expected_response_hours: 24,
       },
       ctx,
@@ -109,7 +109,7 @@ describe("followup_create tool", () => {
     const result = await executeFollowupCreate(
       {
         channel: "email",
-        thread_id: "thread-456",
+        conversation_id: "thread-456",
         reminder_schedule_id: "sched-abc",
       },
       ctx,
@@ -122,7 +122,7 @@ describe("followup_create tool", () => {
   test("rejects missing channel", async () => {
     const result = await executeFollowupCreate(
       {
-        thread_id: "thread-123",
+        conversation_id: "thread-123",
       },
       ctx,
     );
@@ -135,7 +135,7 @@ describe("followup_create tool", () => {
     const result = await executeFollowupCreate(
       {
         channel: "   ",
-        thread_id: "thread-123",
+        conversation_id: "thread-123",
       },
       ctx,
     );
@@ -144,7 +144,7 @@ describe("followup_create tool", () => {
     expect(result.content).toContain("channel is required");
   });
 
-  test("rejects missing thread_id", async () => {
+  test("rejects missing conversation_id", async () => {
     const result = await executeFollowupCreate(
       {
         channel: "email",
@@ -153,14 +153,14 @@ describe("followup_create tool", () => {
     );
 
     expect(result.isError).toBe(true);
-    expect(result.content).toContain("thread_id is required");
+    expect(result.content).toContain("conversation_id is required");
   });
 
   test("rejects non-positive expected_response_hours", async () => {
     const result = await executeFollowupCreate(
       {
         channel: "email",
-        thread_id: "thread-123",
+        conversation_id: "thread-123",
         expected_response_hours: -1,
       },
       ctx,
@@ -176,7 +176,7 @@ describe("followup_create tool", () => {
     const result = await executeFollowupCreate(
       {
         channel: "email",
-        thread_id: "thread-123",
+        conversation_id: "thread-123",
         contact_id: "nonexistent-contact",
       },
       ctx,
@@ -201,11 +201,11 @@ describe("followup_list tool", () => {
 
   test("lists all follow-ups", async () => {
     await executeFollowupCreate(
-      { channel: "email", thread_id: "thread-1" },
+      { channel: "email", conversation_id: "thread-1" },
       ctx,
     );
     await executeFollowupCreate(
-      { channel: "slack", thread_id: "thread-2" },
+      { channel: "slack", conversation_id: "thread-2" },
       ctx,
     );
 
@@ -219,7 +219,7 @@ describe("followup_list tool", () => {
 
   test("filters by status", async () => {
     await executeFollowupCreate(
-      { channel: "email", thread_id: "thread-1" },
+      { channel: "email", conversation_id: "thread-1" },
       ctx,
     );
 
@@ -231,11 +231,11 @@ describe("followup_list tool", () => {
 
   test("filters by channel", async () => {
     await executeFollowupCreate(
-      { channel: "email", thread_id: "thread-1" },
+      { channel: "email", conversation_id: "thread-1" },
       ctx,
     );
     await executeFollowupCreate(
-      { channel: "slack", thread_id: "thread-2" },
+      { channel: "slack", conversation_id: "thread-2" },
       ctx,
     );
 
@@ -263,7 +263,7 @@ describe("followup_resolve tool", () => {
     const createResult = await executeFollowupCreate(
       {
         channel: "email",
-        thread_id: "thread-1",
+        conversation_id: "thread-1",
       },
       ctx,
     );
@@ -276,11 +276,11 @@ describe("followup_resolve tool", () => {
     expect(result.content).toContain("Status: resolved");
   });
 
-  test("resolves by channel and thread_id", async () => {
+  test("resolves by channel and conversation_id", async () => {
     await executeFollowupCreate(
       {
         channel: "email",
-        thread_id: "thread-1",
+        conversation_id: "thread-1",
       },
       ctx,
     );
@@ -288,7 +288,7 @@ describe("followup_resolve tool", () => {
     const result = await executeFollowupResolve(
       {
         channel: "email",
-        thread_id: "thread-1",
+        conversation_id: "thread-1",
       },
       ctx,
     );
@@ -299,18 +299,18 @@ describe("followup_resolve tool", () => {
 
   test("resolves multiple follow-ups by thread", async () => {
     await executeFollowupCreate(
-      { channel: "email", thread_id: "shared-thread" },
+      { channel: "email", conversation_id: "shared-thread" },
       ctx,
     );
     await executeFollowupCreate(
-      { channel: "email", thread_id: "shared-thread" },
+      { channel: "email", conversation_id: "shared-thread" },
       ctx,
     );
 
     const result = await executeFollowupResolve(
       {
         channel: "email",
-        thread_id: "shared-thread",
+        conversation_id: "shared-thread",
       },
       ctx,
     );
@@ -323,7 +323,7 @@ describe("followup_resolve tool", () => {
     const result = await executeFollowupResolve(
       {
         channel: "email",
-        thread_id: "nonexistent",
+        conversation_id: "nonexistent",
       },
       ctx,
     );
@@ -339,12 +339,12 @@ describe("followup_resolve tool", () => {
     expect(result.content).toContain("not found");
   });
 
-  test("rejects when neither id nor channel+thread_id provided", async () => {
+  test("rejects when neither id nor channel+conversation_id provided", async () => {
     const result = await executeFollowupResolve({}, ctx);
 
     expect(result.isError).toBe(true);
     expect(result.content).toContain(
-      "Either id or both channel and thread_id are required",
+      "Either id or both channel and conversation_id are required",
     );
   });
 });

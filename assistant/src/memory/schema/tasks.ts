@@ -65,7 +65,7 @@ export const workItems = sqliteTable("work_items", {
 export const followups = sqliteTable("followups", {
   id: text("id").primaryKey(),
   channel: text("channel").notNull(), // 'email', 'slack', 'whatsapp', etc.
-  threadId: text("thread_id").notNull(), // external thread/conversation identifier
+  conversationId: text("conversation_id").notNull(), // external conversation identifier
   contactId: text("contact_id").references(() => contacts.id, {
     onDelete: "set null",
   }),

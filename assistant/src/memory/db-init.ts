@@ -82,9 +82,11 @@ import {
   migrateReminderRoutingIntent,
   migrateRemindersToSchedules,
   migrateRenameConversationTypeColumn,
+  migrateRenameFollowupsThreadIdColumn,
   migrateRenameGuardianVerificationValues,
   migrateRenameInboxThreadStateTable,
   migrateRenameNotificationThreadColumns,
+  migrateRenameSequenceEnrollmentsThreadIdColumn,
   migrateRenameVerificationSessionIdColumn,
   migrateRenameVerificationTable,
   migrateRenameVoiceToPhone,
@@ -407,6 +409,12 @@ export function initializeDb(): void {
 
   // 68. Rename notification_deliveries thread columns → conversation columns
   migrateRenameNotificationThreadColumns(database);
+
+  // 69. Rename followups.thread_id → conversation_id
+  migrateRenameFollowupsThreadIdColumn(database);
+
+  // 70. Rename sequence_enrollments.thread_id → conversation_id
+  migrateRenameSequenceEnrollmentsThreadIdColumn(database);
 
   validateMigrationState(database);
 

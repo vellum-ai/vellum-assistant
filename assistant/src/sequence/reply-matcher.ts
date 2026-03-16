@@ -4,7 +4,7 @@
  *
  * Called from the watcher engine after new events are stored.
  * Matches by sender email against active enrollment contact_email
- * AND thread_id — both must match for a reply to trigger an exit.
+ * AND conversationId — both must match for a reply to trigger an exit.
  */
 
 import { getLogger } from "../util/logger.js";
@@ -54,7 +54,7 @@ export interface ReplyMatchResult {
   contactEmail: string;
   sequenceId: string;
   sequenceName: string;
-  threadId?: string;
+  conversationId?: string;
 }
 
 /**
@@ -77,15 +77,18 @@ export function checkForSequenceReplies(
       const seq = getSequence(enrollment.sequenceId);
       if (!seq || !seq.exitOnReply) continue;
 
-      // Only match when the enrollment has a thread ID and it matches the
-      // incoming payload. Enrollments that haven't sent their first email
-      // yet (threadId is null) are not eligible for reply-based exit —
-      // otherwise any unrelated inbound email from the contact would
-      // prematurely kill the enrollment.
-      const threadMatch =
-        enrollment.threadId != null && enrollment.threadId === payload.threadId;
+      // Only match when the enrollment has a conversation ID and it matches
+      // the incoming payload's thread ID. Enrollments that haven't sent their
+      // first email yet (conversationId is null) are not eligible for
+      // reply-based exit — otherwise any unrelated inbound email from the
+      // contact would prematurely kill the enrollment.
+      // Note: payload.threadId is the external provider's thread identifier
+      // (e.g. Gmail API thread ID) which maps to enrollment.conversationId.
+      const conversationMatch =
+        enrollment.conversationId != null &&
+        enrollment.conversationId === payload.threadId;
 
-      if (!threadMatch) continue;
+      if (!conversationMatch) continue;
 
       recordEvent(
         enrollment.sequenceId,
@@ -94,7 +97,7 @@ export function checkForSequenceReplies(
         enrollment.currentStep,
         {
           senderEmail,
-          threadId: payload.threadId,
+          conversationId: payload.threadId,
         },
       );
       exitEnrollment(enrollment.id, "replied");
@@ -103,7 +106,7 @@ export function checkForSequenceReplies(
         {
           enrollmentId: enrollment.id,
           senderEmail,
-          threadId: payload.threadId,
+          conversationId: payload.threadId,
         },
         "Sequence enrollment exited on reply",
       );
@@ -113,7 +116,7 @@ export function checkForSequenceReplies(
         contactEmail: enrollment.contactEmail,
         sequenceId: enrollment.sequenceId,
         sequenceName: seq.name,
-        threadId: payload.threadId,
+        conversationId: payload.threadId,
       });
     }
   }

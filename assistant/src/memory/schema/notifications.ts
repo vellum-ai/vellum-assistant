@@ -70,7 +70,7 @@ export const sequenceEnrollments = sqliteTable(
     contactName: text("contact_name"),
     currentStep: integer("current_step").notNull().default(0),
     status: text("status").notNull().default("active"), // active | paused | completed | replied | cancelled | failed
-    threadId: text("thread_id"),
+    conversationId: text("conversation_id"),
     nextStepAt: integer("next_step_at"), // epoch ms
     context: text("context"), // JSON
     createdAt: integer("created_at").notNull(),

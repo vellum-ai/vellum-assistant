@@ -19,7 +19,7 @@ import {
   getEnrollment,
   getSequence,
   rescheduleEnrollment,
-  updateEnrollmentThreadId,
+  updateEnrollmentConversationId,
 } from "./store.js";
 import type { Sequence, SequenceEnrollment, SequenceStep } from "./types.js";
 
@@ -166,13 +166,13 @@ async function processEnrollment(
   await processMessage(conversation.id, prompt);
 
   // Try to extract the email thread ID from conversation tool results so
-  // subsequent steps can reply in the same thread.
-  const threadId =
+  // subsequent steps can reply in the same conversation.
+  const extractedConversationId =
     extractThreadIdFromConversation(conversation.id) ?? undefined;
-  if (threadId) {
+  if (extractedConversationId) {
     log.info(
-      { enrollmentId: enrollment.id, threadId },
-      "Captured thread ID from step execution",
+      { enrollmentId: enrollment.id, conversationId: extractedConversationId },
+      "Captured conversation ID from step execution",
     );
   }
 
@@ -181,7 +181,8 @@ async function processEnrollment(
   // null so it won't be re-claimed. The approval/send flow is responsible
   // for advancing the enrollment once the draft is approved.
   if (step.requireApproval) {
-    if (threadId) updateEnrollmentThreadId(enrollment.id, threadId);
+    if (extractedConversationId)
+      updateEnrollmentConversationId(enrollment.id, extractedConversationId);
     log.info(
       {
         enrollmentId: enrollment.id,
@@ -203,7 +204,7 @@ async function processEnrollment(
   const nextStepIndex = enrollment.currentStep + 1;
   if (nextStepIndex >= sequence.steps.length) {
     // This was the final step
-    advanceEnrollment(enrollment.id, threadId, null);
+    advanceEnrollment(enrollment.id, extractedConversationId, null);
     recordEvent(sequence.id, enrollment.id, "complete", step.index);
     exitEnrollment(enrollment.id, "completed");
     log.info(
@@ -213,7 +214,7 @@ async function processEnrollment(
   } else {
     const nextStep = sequence.steps[nextStepIndex];
     const nextStepAt = Date.now() + nextStep.delaySeconds * 1000;
-    advanceEnrollment(enrollment.id, threadId, nextStepAt);
+    advanceEnrollment(enrollment.id, extractedConversationId, nextStepAt);
     log.info(
       {
         enrollmentId: enrollment.id,
@@ -264,9 +265,9 @@ function buildStepPrompt(
     parts.push(`Send an email with subject "${step.subjectTemplate}".`);
   }
 
-  if (step.replyToThread && enrollment.threadId) {
+  if (step.replyInSameConversation && enrollment.conversationId) {
     parts.push(
-      `Reply in the existing thread (thread ID: ${enrollment.threadId}).`,
+      `Reply in the existing conversation (conversation ID: ${enrollment.conversationId}).`,
     );
   }
 

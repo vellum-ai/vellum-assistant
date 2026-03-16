@@ -8,7 +8,9 @@ import type { ToolContext, ToolExecutionResult } from "../types.js";
 const VALID_STATUSES = ["pending", "resolved", "overdue", "nudged"] as const;
 
 function formatFollowUpSummary(f: FollowUp): string {
-  const parts = [`- **${f.channel}** thread:${f.threadId} (ID: ${f.id})`];
+  const parts = [
+    `- **${f.channel}** conversation:${f.conversationId} (ID: ${f.id})`,
+  ];
   parts.push(
     `  Status: ${f.status} | Sent: ${new Date(f.sentAt).toISOString()}`,
   );

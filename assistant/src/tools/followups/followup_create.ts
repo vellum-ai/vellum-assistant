@@ -7,7 +7,7 @@ function formatFollowUp(f: FollowUp): string {
   const lines = [
     `Follow-up ${f.id}`,
     `  Channel: ${f.channel}`,
-    `  Thread: ${f.threadId}`,
+    `  Conversation: ${f.conversationId}`,
     `  Status: ${f.status}`,
     `  Sent at: ${new Date(f.sentAt).toISOString()}`,
   ];
@@ -34,14 +34,15 @@ export async function executeFollowupCreate(
     };
   }
 
-  const threadId = input.thread_id as string | undefined;
+  const conversationId = input.conversation_id as string | undefined;
   if (
-    !threadId ||
-    typeof threadId !== "string" ||
-    threadId.trim().length === 0
+    !conversationId ||
+    typeof conversationId !== "string" ||
+    conversationId.trim().length === 0
   ) {
     return {
-      content: "Error: thread_id is required and must be a non-empty string",
+      content:
+        "Error: conversation_id is required and must be a non-empty string",
       isError: true,
     };
   }
@@ -81,7 +82,7 @@ export async function executeFollowupCreate(
 
     const followUp = createFollowUp({
       channel: channel.trim(),
-      threadId: threadId.trim(),
+      conversationId: conversationId.trim(),
       contactId: contactId ?? null,
       sentAt: now,
       expectedResponseBy,

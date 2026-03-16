@@ -12,7 +12,7 @@ function parseFollowUp(row: typeof followups.$inferSelect): FollowUp {
   return {
     id: row.id,
     channel: row.channel,
-    threadId: row.threadId,
+    conversationId: row.conversationId,
     contactId: row.contactId,
     sentAt: row.sentAt,
     expectedResponseBy: row.expectedResponseBy,
@@ -34,7 +34,7 @@ export function createFollowUp(input: FollowUpCreateInput): FollowUp {
     .values({
       id,
       channel: input.channel,
-      threadId: input.threadId,
+      conversationId: input.conversationId,
       contactId: input.contactId ?? null,
       sentAt: input.sentAt ?? now,
       expectedResponseBy: input.expectedResponseBy ?? null,
@@ -104,18 +104,21 @@ export function resolveFollowUp(id: string): FollowUp {
   return getFollowUp(id)!;
 }
 
-export function resolveByThread(channel: string, threadId: string): FollowUp[] {
+export function resolveByConversation(
+  channel: string,
+  conversationId: string,
+): FollowUp[] {
   const db = getDb();
   const now = Date.now();
 
-  // Find ALL pending/overdue/nudged follow-ups matching this thread
+  // Find ALL pending/overdue/nudged follow-ups matching this conversation
   const rows = db
     .select()
     .from(followups)
     .where(
       and(
         eq(followups.channel, channel),
-        eq(followups.threadId, threadId),
+        eq(followups.conversationId, conversationId),
         or(
           eq(followups.status, "pending"),
           eq(followups.status, "overdue"),

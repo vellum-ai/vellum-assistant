@@ -27,7 +27,8 @@ export async function run(
       delaySeconds: (s.delay_seconds as number) ?? 0,
       subjectTemplate: (s.subject as string) ?? `Step ${i + 1}`,
       bodyPrompt: (s.body_prompt as string) ?? "",
-      replyToThread: (s.reply_to_thread as boolean) ?? i > 0,
+      replyInSameConversation:
+        (s.reply_in_same_conversation as boolean) ?? i > 0,
       requireApproval: (s.require_approval as boolean) ?? false,
     }));
 
