@@ -191,7 +191,7 @@ if [ "$RUN_CLEANUP" = true ]; then
   remote_scp "$CLEANUP_SCRIPT" "${SCP_HOST}:${REMOTE_CLEANUP}"
 
   echo "Running cleanup script on ${SCP_HOST}..."
-  remote_ssh "${SCP_HOST}" "bash '${REMOTE_CLEANUP}'; rm -f '${REMOTE_CLEANUP}'"
+  remote_ssh "${SCP_HOST}" "bash '${REMOTE_CLEANUP}'; rc=\$?; rm -f '${REMOTE_CLEANUP}'; exit \$rc"
 
   echo "Cleanup complete on ${SCP_HOST}."
 fi
