@@ -13,6 +13,7 @@ extension AppDelegate {
     func startAuthenticatedFlow() {
         Task {
             await authManager.checkSession()
+            SentryDeviceInfo.updateUserTag(authManager.currentUser?.id)
             let isAuthed = authManager.isAuthenticated
             let hasKey = APIKeyManager.hasAnyKey()
             log.info("[authFlow] isAuthenticated=\(isAuthed) hasAnyKey=\(hasKey)")
@@ -316,10 +317,12 @@ extension AppDelegate {
                     log.info("Local assistant API key provisioned: \(id, privacy: .public)")
                 }
                 self.localBootstrapDidComplete = true
+                SentryDeviceInfo.updateOrganizationTag(UserDefaults.standard.string(forKey: "connectedOrganizationId"))
                 NotificationCenter.default.post(name: .localBootstrapCompleted, object: nil)
             } catch {
                 log.error("Failed to provision local assistant API key: \(error.localizedDescription)")
                 self.localBootstrapDidComplete = true
+                SentryDeviceInfo.updateOrganizationTag(UserDefaults.standard.string(forKey: "connectedOrganizationId"))
                 NotificationCenter.default.post(name: .localBootstrapCompleted, object: nil)
                 self.mainWindow?.windowState.showToast(
                     message: "Failed to set up Vellum credentials. You may need to sign out and sign in again.",
@@ -359,6 +362,7 @@ extension AppDelegate {
         SentryDeviceInfo.updateAssistantTag(assistant.assistantId)
         // Clear stale org ID so the next bootstrap re-resolves it for the new assistant
         UserDefaults.standard.removeObject(forKey: "connectedOrganizationId")
+        SentryDeviceInfo.updateOrganizationTag(nil)
         // Clear stale actor token for the previous assistant
         actorTokenBootstrapTask?.cancel()
         actorTokenBootstrapTask = nil
@@ -519,6 +523,8 @@ extension AppDelegate {
         UserDefaults.standard.removeObject(forKey: "connectedAssistantId")
         SentryDeviceInfo.updateAssistantTag(nil)
         UserDefaults.standard.removeObject(forKey: "connectedOrganizationId")
+        SentryDeviceInfo.updateOrganizationTag(nil)
+        SentryDeviceInfo.updateUserTag(nil)
         UserDefaults.standard.removeObject(forKey: "lastActivePanel")
 
         daemonClient.disconnect()
