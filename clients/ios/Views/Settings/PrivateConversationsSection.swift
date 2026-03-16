@@ -2,42 +2,42 @@
 import SwiftUI
 import VellumAssistantShared
 
-/// Manages private (temporary) threads on iOS, mirroring the macOS private thread
-/// workflow. Private threads are backed by daemon sessions with conversationType "private"
-/// so they are excluded from normal session restoration and the main thread list.
-struct PrivateThreadsSection: View {
-    /// Shared with the main ThreadListView so both views read from and write to the
-    /// same in-memory thread list. This prevents the dual-store data-loss bug where
+/// Manages private (temporary) conversations on iOS, mirroring the macOS private conversation
+/// workflow. Private conversations are backed by daemon sessions with conversationType "private"
+/// so they are excluded from normal session restoration and the main conversation list.
+struct PrivateConversationsSection: View {
+    /// Shared with the main ConversationListView so both views read from and write to the
+    /// same in-memory conversation list. This prevents the dual-store data-loss bug where
     /// two independent stores each overwrite the other's UserDefaults changes.
-    @ObservedObject var store: IOSThreadStore
+    @ObservedObject var store: IOSConversationStore
     @State private var showingCreateSheet = false
-    @State private var newThreadName = ""
-    @State private var renamingThread: IOSThread?
+    @State private var newConversationName = ""
+    @State private var renamingConversation: IOSConversation?
     @State private var renameText = ""
-    @State private var threadToDelete: IOSThread?
+    @State private var conversationToDelete: IOSConversation?
     @State private var showingDeleteConfirmation = false
 
     var body: some View {
         Form {
-            if store.privateThreads.isEmpty {
+            if store.privateConversations.isEmpty {
                 Section {
-                    Text("No private threads yet.")
+                    Text("No private conversations yet.")
                         .foregroundStyle(.secondary)
-                    Text("Private threads are excluded from your main chat history. Use them for sensitive conversations that you don't want mixed with your regular threads.")
+                    Text("Private conversations are excluded from your main chat history. Use them for sensitive conversations that you don't want mixed with your regular conversations.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
             } else {
                 Section {
-                    ForEach(store.privateThreads) { thread in
+                    ForEach(store.privateConversations) { conversation in
                         NavigationLink {
-                            privateThreadChatView(for: thread)
+                            privateConversationChatView(for: conversation)
                         } label: {
-                            privateThreadRow(thread)
+                            privateConversationRow(conversation)
                         }
                         .swipeActions(edge: .trailing) {
                             Button(role: .destructive) {
-                                threadToDelete = thread
+                                conversationToDelete = conversation
                                 showingDeleteConfirmation = true
                             } label: {
                                 Label { Text("Delete") } icon: { VIconView(.trash, size: 14) }
@@ -45,8 +45,8 @@ struct PrivateThreadsSection: View {
                         }
                         .swipeActions(edge: .leading) {
                             Button {
-                                renamingThread = thread
-                                renameText = thread.title
+                                renamingConversation = conversation
+                                renameText = conversation.title
                             } label: {
                                 Label { Text("Rename") } icon: { VIconView(.pencil, size: 14) }
                             }
@@ -54,98 +54,98 @@ struct PrivateThreadsSection: View {
                         }
                     }
                 } header: {
-                    Text("Private Threads")
+                    Text("Private Conversations")
                 } footer: {
-                    Text("These threads are not included in your regular chat history and are excluded from session restoration.")
+                    Text("These conversations are not included in your regular chat history and are excluded from session restoration.")
                 }
             }
 
             Section {
                 Button {
-                    newThreadName = ""
+                    newConversationName = ""
                     showingCreateSheet = true
                 } label: {
-                    Label { Text("New Private Thread") } icon: { VIconView(.shield, size: 14) }
+                    Label { Text("New Private Conversation") } icon: { VIconView(.shield, size: 14) }
                 }
             }
         }
-        .navigationTitle("Private Threads")
+        .navigationTitle("Private Conversations")
         .navigationBarTitleDisplayMode(.inline)
         .sheet(isPresented: $showingCreateSheet) {
-            createThreadSheet
+            createConversationSheet
         }
-        .alert("Rename Thread", isPresented: Binding(
-            get: { renamingThread != nil },
-            set: { if !$0 { renamingThread = nil } }
+        .alert("Rename Conversation", isPresented: Binding(
+            get: { renamingConversation != nil },
+            set: { if !$0 { renamingConversation = nil } }
         )) {
-            TextField("Thread name", text: $renameText)
-            Button("Cancel", role: .cancel) { renamingThread = nil }
+            TextField("Conversation name", text: $renameText)
+            Button("Cancel", role: .cancel) { renamingConversation = nil }
             Button("Save") {
-                if let thread = renamingThread, !renameText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                    store.updateTitle(renameText.trimmingCharacters(in: .whitespacesAndNewlines), for: thread.id)
+                if let conversation = renamingConversation, !renameText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    store.updateTitle(renameText.trimmingCharacters(in: .whitespacesAndNewlines), for: conversation.id)
                 }
-                renamingThread = nil
+                renamingConversation = nil
             }
         } message: {
-            Text("Enter a new name for this private thread.")
+            Text("Enter a new name for this private conversation.")
         }
-        .alert("Delete Thread", isPresented: $showingDeleteConfirmation) {
-            Button("Cancel", role: .cancel) { threadToDelete = nil }
+        .alert("Delete Conversation", isPresented: $showingDeleteConfirmation) {
+            Button("Cancel", role: .cancel) { conversationToDelete = nil }
             Button("Delete", role: .destructive) {
-                if let thread = threadToDelete {
-                    store.deleteThread(thread)
+                if let conversation = conversationToDelete {
+                    store.deleteConversation(conversation)
                 }
-                threadToDelete = nil
+                conversationToDelete = nil
             }
         } message: {
-            if let thread = threadToDelete {
-                Text("Delete \"\(thread.title)\"? This cannot be undone.")
+            if let conversation = conversationToDelete {
+                Text("Delete \"\(conversation.title)\"? This cannot be undone.")
             }
         }
     }
 
-    // MARK: - Thread Row
+    // MARK: - Conversation Row
 
-    private func privateThreadRow(_ thread: IOSThread) -> some View {
+    private func privateConversationRow(_ conversation: IOSConversation) -> some View {
         HStack {
             VIconView(.shield, size: 12)
                 .foregroundStyle(VColor.primaryBase)
             VStack(alignment: .leading, spacing: 2) {
-                Text(thread.title)
+                Text(conversation.title)
                     .lineLimit(1)
-                Text(relativeDate(thread.lastActivityAt))
+                Text(relativeDate(conversation.lastActivityAt))
                     .font(.caption2)
                     .foregroundStyle(.secondary)
             }
         }
     }
 
-    // MARK: - Thread Chat
+    // MARK: - Conversation Chat
 
     @ViewBuilder
-    private func privateThreadChatView(for thread: IOSThread) -> some View {
-        ThreadChatView(
-            viewModel: store.viewModel(for: thread.id),
-            threadTitle: thread.title
+    private func privateConversationChatView(for conversation: IOSConversation) -> some View {
+        ConversationChatView(
+            viewModel: store.viewModel(for: conversation.id),
+            conversationTitle: conversation.title
         )
         .onAppear {
-            store.loadHistoryIfNeeded(for: thread.id)
+            store.loadHistoryIfNeeded(for: conversation.id)
         }
     }
 
     // MARK: - Create Sheet
 
-    private var createThreadSheet: some View {
+    private var createConversationSheet: some View {
         NavigationStack {
             Form {
                 Section {
-                    TextField("Thread name", text: $newThreadName)
+                    TextField("Conversation name", text: $newConversationName)
                         .autocapitalization(.words)
                 } footer: {
-                    Text("Give this private thread a name so you can identify it later.")
+                    Text("Give this private conversation a name so you can identify it later.")
                 }
             }
-            .navigationTitle("New Private Thread")
+            .navigationTitle("New Private Conversation")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
@@ -155,8 +155,8 @@ struct PrivateThreadsSection: View {
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Create") {
-                        let name = newThreadName.trimmingCharacters(in: .whitespacesAndNewlines)
-                        _ = store.newPrivateThread(name: name.isEmpty ? "Private Thread" : name)
+                        let name = newConversationName.trimmingCharacters(in: .whitespacesAndNewlines)
+                        _ = store.newPrivateConversation(name: name.isEmpty ? "Private Conversation" : name)
                         showingCreateSheet = false
                     }
                 }
@@ -172,7 +172,7 @@ struct PrivateThreadsSection: View {
 #if DEBUG
 #Preview {
     NavigationStack {
-        PrivateThreadsSection(store: IOSThreadStore(daemonClient: MockDaemonClient()))
+        PrivateConversationsSection(store: IOSConversationStore(daemonClient: MockDaemonClient()))
     }
 }
 #endif

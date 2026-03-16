@@ -9,16 +9,16 @@ struct ContentView: View {
     @State private var connectPhase: ConnectPhase = .initial
     @State private var selectedTab: Tab = .chats
     @State private var navigateToConnect = false
-    /// Single thread store shared between the Chats tab (ThreadListView) and the
-    /// Private Threads settings panel (PrivateThreadsSection). Keeping one store
+    /// Single conversation store shared between the Chats tab (ConversationListView) and the
+    /// Private Conversations settings panel (PrivateConversationsSection). Keeping one store
     /// prevents the dual-store data-loss race where two independent stores each
     /// overwrite the other's UserDefaults writes in standalone mode.
-    @StateObject private var threadStore: IOSThreadStore
+    @StateObject private var conversationStore: IOSConversationStore
 
     init(authManager: AuthManager, ambientAgent: AmbientAgentManager, daemonClient: any DaemonClientProtocol) {
         self.authManager = authManager
         self.ambientAgent = ambientAgent
-        _threadStore = StateObject(wrappedValue: IOSThreadStore(daemonClient: daemonClient))
+        _conversationStore = StateObject(wrappedValue: IOSConversationStore(daemonClient: daemonClient))
     }
 
     private enum Tab { case chats, things, intelligence, settings }
@@ -67,11 +67,11 @@ struct ContentView: View {
         .onChange(of: clientProvider.isConnected) { _, connected in
             if connected { connectPhase = .ready }
         }
-        // When rebuildClient() replaces the DaemonClient, re-bind the thread store
+        // When rebuildClient() replaces the DaemonClient, re-bind the conversation store
         // to the new client so it doesn't keep targeting the old disconnected daemon.
         // ObjectIdentifier changes whenever the client object is replaced.
         .onChange(of: ObjectIdentifier(clientProvider.client as AnyObject)) { _, _ in
-            threadStore.rebindDaemonClient(clientProvider.client)
+            conversationStore.rebindDaemonClient(clientProvider.client)
         }
     }
 
@@ -187,7 +187,7 @@ struct ContentView: View {
 
     private var tabContent: some View {
         TabView(selection: $selectedTab) {
-            ChatsTabView(store: threadStore, onConnectTapped: navigateToConnectSettings)
+            ChatsTabView(store: conversationStore, onConnectTapped: navigateToConnectSettings)
                 .environmentObject(clientProvider)
                 .id(ObjectIdentifier(clientProvider.client as AnyObject))
                 .tag(Tab.chats)
@@ -211,7 +211,7 @@ struct ContentView: View {
                     Label { Text("Intelligence") } icon: { VIconView(.brain, size: 12) }
                 }
 
-            SettingsView(authManager: authManager, navigateToConnect: $navigateToConnect, threadStore: threadStore)
+            SettingsView(authManager: authManager, navigateToConnect: $navigateToConnect, conversationStore: conversationStore)
                 .environmentObject(clientProvider)
                 .tag(Tab.settings)
                 .tabItem {

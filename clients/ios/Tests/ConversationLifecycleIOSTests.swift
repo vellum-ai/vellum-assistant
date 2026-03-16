@@ -5,12 +5,12 @@ import XCTest
 @testable import vellum_assistant_ios
 #endif
 
-/// Integration tests for thread lifecycle behaviors from the iOS perspective.
+/// Integration tests for conversation lifecycle behaviors from the iOS perspective.
 /// Since ThreadModel and ThreadManager are macOS-only, these tests verify the
-/// shared conversation lifecycle mechanics that underpin thread management:
+/// shared conversation lifecycle mechanics that underpin conversation management:
 /// conversation creation, conversation info backfill, bootstrap correlation, and conversation reuse.
 @MainActor
-final class ThreadLifecycleIOSTests: XCTestCase {
+final class ConversationLifecycleIOSTests: XCTestCase {
 
     private var mockClient: MockDaemonClient!
     private let connectedCacheKey = "ios_connected_threads_cache_v1"
@@ -43,7 +43,7 @@ final class ThreadLifecycleIOSTests: XCTestCase {
         return try! JSONDecoder().decode(ConversationListResponseMessage.self, from: data)
     }
 
-    // MARK: - Conversation Create (Thread Bootstrap)
+    // MARK: - Conversation Create (Conversation Bootstrap)
 
     func testCreateConversationIfNeededSetsBootstrapState() {
         let vm = ChatViewModel(daemonClient: mockClient)
@@ -106,7 +106,7 @@ final class ThreadLifecycleIOSTests: XCTestCase {
         XCTAssertEqual(conversationCreates.first?.conversationType, "private")
     }
 
-    // MARK: - Conversation Info Backfill (Thread Conversation Assignment)
+    // MARK: - Conversation Info Backfill (Conversation Assignment)
 
     func testConversationInfoBackfillsConversationId() {
         let vm = ChatViewModel(daemonClient: mockClient)
@@ -131,10 +131,10 @@ final class ThreadLifecycleIOSTests: XCTestCase {
         let correlationId = conversationCreates.first?.correlationId
 
         // Simulate daemon responding with conversation_info
-        let info = ConversationInfoMessage(conversationId: "ios-thread-sess-42", title: "Thread", correlationId: correlationId)
+        let info = ConversationInfoMessage(conversationId: "ios-conv-sess-42", title: "Conversation", correlationId: correlationId)
         vm.handleServerMessage(.conversationInfo(info))
 
-        XCTAssertEqual(vm.conversationId, "ios-thread-sess-42")
+        XCTAssertEqual(vm.conversationId, "ios-conv-sess-42")
         XCTAssertFalse(vm.isBootstrapping, "Should no longer be bootstrapping after conversation_info")
         XCTAssertFalse(vm.isSending, "Should reset isSending after message-less conversation create")
     }
@@ -190,19 +190,19 @@ final class ThreadLifecycleIOSTests: XCTestCase {
         let conversationCreates = mockClient.sentMessages.compactMap { $0 as? ConversationCreateMessage }
         let correlationId = conversationCreates.first?.correlationId
 
-        let info = ConversationInfoMessage(conversationId: "callback-thread-sess", title: "Callback", correlationId: correlationId)
+        let info = ConversationInfoMessage(conversationId: "callback-conv-sess", title: "Callback", correlationId: correlationId)
         vm.handleServerMessage(.conversationInfo(info))
 
-        XCTAssertEqual(capturedSessionId, "callback-thread-sess")
+        XCTAssertEqual(capturedSessionId, "callback-conv-sess")
     }
 
-    // MARK: - Thread Lifecycle: Create, Use, Archive Pattern
+    // MARK: - Conversation Lifecycle: Create, Use, Archive Pattern
 
     func testNewSessionReceivesAndCompletesMessages() {
         let vm = ChatViewModel(daemonClient: mockClient)
 
         // Step 1: User sends first message (triggers bootstrap)
-        vm.inputText = "Hello new thread"
+        vm.inputText = "Hello new conversation"
         vm.sendMessage()
         XCTAssertEqual(vm.messages.count, 1)
         XCTAssertTrue(vm.isSending)
@@ -227,9 +227,9 @@ final class ThreadLifecycleIOSTests: XCTestCase {
         let correlationId = conversationCreates.first?.correlationId
 
         // Step 2: Conversation info arrives with matching correlation ID
-        let info = ConversationInfoMessage(conversationId: "thread-sess-1", title: "New Thread", correlationId: correlationId)
+        let info = ConversationInfoMessage(conversationId: "conv-sess-1", title: "New Conversation", correlationId: correlationId)
         vm.handleServerMessage(.conversationInfo(info))
-        XCTAssertEqual(vm.conversationId, "thread-sess-1")
+        XCTAssertEqual(vm.conversationId, "conv-sess-1")
 
         // Step 3: Assistant responds
         vm.handleServerMessage(.assistantTextDelta(AssistantTextDeltaMessage(text: "Welcome!")))
@@ -272,26 +272,26 @@ final class ThreadLifecycleIOSTests: XCTestCase {
         XCTAssertEqual(vm.messages[3].text, "Second answer")
     }
 
-    // MARK: - Separate Sessions (Thread Isolation)
+    // MARK: - Separate Sessions (Conversation Isolation)
 
     func testSeparateViewModelsHaveIndependentState() {
         let vm1 = ChatViewModel(daemonClient: mockClient)
         let vm2 = ChatViewModel(daemonClient: mockClient)
 
-        vm1.conversationId = "sess-thread-1"
-        vm2.conversationId = "sess-thread-2"
+        vm1.conversationId = "sess-conv-1"
+        vm2.conversationId = "sess-conv-2"
 
-        vm1.inputText = "Thread 1 message"
+        vm1.inputText = "Conversation 1 message"
         vm1.sendMessage()
 
-        vm2.inputText = "Thread 2 message"
+        vm2.inputText = "Conversation 2 message"
         vm2.sendMessage()
 
         XCTAssertEqual(vm1.messages.count, 1)
-        XCTAssertEqual(vm1.messages[0].text, "Thread 1 message")
+        XCTAssertEqual(vm1.messages[0].text, "Conversation 1 message")
 
         XCTAssertEqual(vm2.messages.count, 1)
-        XCTAssertEqual(vm2.messages[0].text, "Thread 2 message")
+        XCTAssertEqual(vm2.messages[0].text, "Conversation 2 message")
     }
 
     func testConversationBoundDeltasOnlyAffectMatchingViewModel() {
@@ -302,7 +302,7 @@ final class ThreadLifecycleIOSTests: XCTestCase {
         vm2.conversationId = "sess-b"
 
         // Delta for conversation A
-        let deltaA = AssistantTextDeltaMessage(text: "For A", conversationId: "sess-a")
+        let deltaA = AssistantTextDeltaMessage(text: "For A", sessionId: "sess-a")
         vm1.handleServerMessage(.assistantTextDelta(deltaA))
         vm1.flushStreamingBuffer()
         vm2.handleServerMessage(.assistantTextDelta(deltaA))
@@ -339,12 +339,12 @@ final class ThreadLifecycleIOSTests: XCTestCase {
     }
 
     #if canImport(UIKit)
-    func testConnectedThreadsRetainPinAndAttentionMetadataAcrossCacheReload() {
+    func testConnectedConversationsRetainPinAndAttentionMetadataAcrossCacheReload() {
         let daemonClient = DaemonClient()
-        let store = IOSThreadStore(daemonClient: daemonClient)
+        let store = IOSConversationStore(daemonClient: daemonClient)
         let response = makeConversationListResponse(conversations: [[
             "id": "connected-session-1",
-            "title": "Connected thread",
+            "title": "Connected conversation",
             "createdAt": 1_000,
             "updatedAt": 2_000,
             "displayOrder": 7,
@@ -358,45 +358,45 @@ final class ThreadLifecycleIOSTests: XCTestCase {
 
         daemonClient.onConversationListResponse?(response)
 
-        guard let storedThread = store.threads.first(where: { $0.conversationId == "connected-session-1" }) else {
-            XCTFail("Expected connected thread")
+        guard let storedConversation = store.conversations.first(where: { $0.conversationId == "connected-session-1" }) else {
+            XCTFail("Expected connected conversation")
             return
         }
 
-        XCTAssertTrue(storedThread.isPinned)
-        XCTAssertEqual(storedThread.displayOrder, 7)
-        XCTAssertTrue(storedThread.hasUnseenLatestAssistantMessage)
-        XCTAssertEqual(storedThread.latestAssistantMessageAt?.timeIntervalSince1970, 5.0)
-        XCTAssertEqual(storedThread.lastSeenAssistantMessageAt?.timeIntervalSince1970, 4.0)
+        XCTAssertTrue(storedConversation.isPinned)
+        XCTAssertEqual(storedConversation.displayOrder, 7)
+        XCTAssertTrue(storedConversation.hasUnseenLatestAssistantMessage)
+        XCTAssertEqual(storedConversation.latestAssistantMessageAt?.timeIntervalSince1970, 5.0)
+        XCTAssertEqual(storedConversation.lastSeenAssistantMessageAt?.timeIntervalSince1970, 4.0)
 
-        let reloadedStore = IOSThreadStore(daemonClient: daemonClient)
-        guard let cachedThread = reloadedStore.threads.first(where: { $0.conversationId == "connected-session-1" }) else {
-            XCTFail("Expected cached connected thread")
+        let reloadedStore = IOSConversationStore(daemonClient: daemonClient)
+        guard let cachedConversation = reloadedStore.conversations.first(where: { $0.conversationId == "connected-session-1" }) else {
+            XCTFail("Expected cached connected conversation")
             return
         }
 
-        XCTAssertTrue(cachedThread.isPinned)
-        XCTAssertEqual(cachedThread.displayOrder, 7)
-        XCTAssertTrue(cachedThread.hasUnseenLatestAssistantMessage)
-        XCTAssertEqual(cachedThread.latestAssistantMessageAt?.timeIntervalSince1970, 5.0)
-        XCTAssertEqual(cachedThread.lastSeenAssistantMessageAt?.timeIntervalSince1970, 4.0)
+        XCTAssertTrue(cachedConversation.isPinned)
+        XCTAssertEqual(cachedConversation.displayOrder, 7)
+        XCTAssertTrue(cachedConversation.hasUnseenLatestAssistantMessage)
+        XCTAssertEqual(cachedConversation.latestAssistantMessageAt?.timeIntervalSince1970, 5.0)
+        XCTAssertEqual(cachedConversation.lastSeenAssistantMessageAt?.timeIntervalSince1970, 4.0)
     }
 
-    func testConnectedThreadMergeAppliesMetadataWhenMatchedViaViewModelSessionId() {
+    func testConnectedConversationMergeAppliesMetadataWhenMatchedViaViewModelSessionId() {
         let daemonClient = DaemonClient()
-        let store = IOSThreadStore(daemonClient: daemonClient)
+        let store = IOSConversationStore(daemonClient: daemonClient)
 
-        guard let placeholderThread = store.threads.first else {
-            XCTFail("Expected placeholder thread")
+        guard let placeholderConversation = store.conversations.first else {
+            XCTFail("Expected placeholder conversation")
             return
         }
 
-        let viewModel = store.viewModel(for: placeholderThread.id)
+        let viewModel = store.viewModel(for: placeholderConversation.id)
         viewModel.conversationId = "connected-session-vm"
 
         let response = makeConversationListResponse(conversations: [[
             "id": "connected-session-vm",
-            "title": "Connected thread",
+            "title": "Connected conversation",
             "createdAt": 1_000,
             "updatedAt": 2_000,
             "displayOrder": 9,
@@ -410,21 +410,21 @@ final class ThreadLifecycleIOSTests: XCTestCase {
 
         daemonClient.onConversationListResponse?(response)
 
-        XCTAssertEqual(store.threads.count, 1)
-        guard let updatedThread = store.threads.first else {
-            XCTFail("Expected merged thread")
+        XCTAssertEqual(store.conversations.count, 1)
+        guard let updatedConversation = store.conversations.first else {
+            XCTFail("Expected merged conversation")
             return
         }
 
-        XCTAssertEqual(updatedThread.conversationId, "connected-session-vm")
-        XCTAssertTrue(updatedThread.isPinned)
-        XCTAssertEqual(updatedThread.displayOrder, 9)
-        XCTAssertTrue(updatedThread.hasUnseenLatestAssistantMessage)
-        XCTAssertEqual(updatedThread.latestAssistantMessageAt?.timeIntervalSince1970, 5.0)
-        XCTAssertEqual(updatedThread.lastSeenAssistantMessageAt?.timeIntervalSince1970, 4.0)
+        XCTAssertEqual(updatedConversation.conversationId, "connected-session-vm")
+        XCTAssertTrue(updatedConversation.isPinned)
+        XCTAssertEqual(updatedConversation.displayOrder, 9)
+        XCTAssertTrue(updatedConversation.hasUnseenLatestAssistantMessage)
+        XCTAssertEqual(updatedConversation.latestAssistantMessageAt?.timeIntervalSince1970, 5.0)
+        XCTAssertEqual(updatedConversation.lastSeenAssistantMessageAt?.timeIntervalSince1970, 4.0)
     }
 
-    func testOpeningUnreadConnectedThreadMarksItSeenAndEmitsSignal() {
+    func testOpeningUnreadConnectedConversationMarksItSeenAndEmitsSignal() {
         let daemonClient = DaemonClient()
         var sentSignals: [ConversationSeenSignal] = []
         daemonClient.sendOverride = { message in
@@ -433,10 +433,10 @@ final class ThreadLifecycleIOSTests: XCTestCase {
             }
         }
 
-        let store = IOSThreadStore(daemonClient: daemonClient)
+        let store = IOSConversationStore(daemonClient: daemonClient)
         let response = makeConversationListResponse(conversations: [[
             "id": "connected-session-2",
-            "title": "Unread thread",
+            "title": "Unread conversation",
             "createdAt": 1_000,
             "updatedAt": 2_000,
             "assistantAttention": [
@@ -447,19 +447,19 @@ final class ThreadLifecycleIOSTests: XCTestCase {
         ]])
 
         daemonClient.onConversationListResponse?(response)
-        guard let storedThread = store.threads.first(where: { $0.conversationId == "connected-session-2" }) else {
-            XCTFail("Expected unread connected thread")
+        guard let storedConversation = store.conversations.first(where: { $0.conversationId == "connected-session-2" }) else {
+            XCTFail("Expected unread connected conversation")
             return
         }
 
-        store.markConversationSeenIfNeeded(threadId: storedThread.id)
+        store.markConversationSeenIfNeeded(threadId: storedConversation.id)
 
-        guard let updatedThread = store.threads.first(where: { $0.id == storedThread.id }) else {
-            XCTFail("Expected updated thread")
+        guard let updatedConversation = store.conversations.first(where: { $0.id == storedConversation.id }) else {
+            XCTFail("Expected updated conversation")
             return
         }
 
-        XCTAssertFalse(updatedThread.hasUnseenLatestAssistantMessage)
+        XCTAssertFalse(updatedConversation.hasUnseenLatestAssistantMessage)
         XCTAssertEqual(sentSignals.count, 1)
         XCTAssertEqual(sentSignals[0].conversationId, "connected-session-2")
         XCTAssertEqual(sentSignals[0].sourceChannel, "vellum")
@@ -468,16 +468,16 @@ final class ThreadLifecycleIOSTests: XCTestCase {
         XCTAssertEqual(sentSignals[0].source, "ui-navigation")
         XCTAssertEqual(sentSignals[0].evidenceText, "User opened conversation in app")
 
-        let reloadedStore = IOSThreadStore(daemonClient: daemonClient)
-        guard let cachedThread = reloadedStore.threads.first(where: { $0.conversationId == "connected-session-2" }) else {
-            XCTFail("Expected cached connected thread")
+        let reloadedStore = IOSConversationStore(daemonClient: daemonClient)
+        guard let cachedConversation = reloadedStore.conversations.first(where: { $0.conversationId == "connected-session-2" }) else {
+            XCTFail("Expected cached connected conversation")
             return
         }
 
-        XCTAssertFalse(cachedThread.hasUnseenLatestAssistantMessage)
+        XCTAssertFalse(cachedConversation.hasUnseenLatestAssistantMessage)
     }
 
-    func testOpeningAlreadySeenConnectedThreadDoesNotEmitSignal() {
+    func testOpeningAlreadySeenConnectedConversationDoesNotEmitSignal() {
         let daemonClient = DaemonClient()
         var sentSignals: [ConversationSeenSignal] = []
         daemonClient.sendOverride = { message in
@@ -486,10 +486,10 @@ final class ThreadLifecycleIOSTests: XCTestCase {
             }
         }
 
-        let store = IOSThreadStore(daemonClient: daemonClient)
+        let store = IOSConversationStore(daemonClient: daemonClient)
         let response = makeConversationListResponse(conversations: [[
             "id": "connected-session-3",
-            "title": "Seen thread",
+            "title": "Seen conversation",
             "createdAt": 1_000,
             "updatedAt": 2_000,
             "assistantAttention": [
@@ -500,18 +500,18 @@ final class ThreadLifecycleIOSTests: XCTestCase {
         ]])
 
         daemonClient.onConversationListResponse?(response)
-        guard let storedThread = store.threads.first(where: { $0.conversationId == "connected-session-3" }) else {
-            XCTFail("Expected connected thread")
+        guard let storedConversation = store.conversations.first(where: { $0.conversationId == "connected-session-3" }) else {
+            XCTFail("Expected connected conversation")
             return
         }
 
-        store.markConversationSeenIfNeeded(threadId: storedThread.id)
+        store.markConversationSeenIfNeeded(threadId: storedConversation.id)
 
         XCTAssertTrue(sentSignals.isEmpty)
-        XCTAssertFalse(store.threads.first(where: { $0.id == storedThread.id })?.hasUnseenLatestAssistantMessage ?? true)
+        XCTAssertFalse(store.conversations.first(where: { $0.id == storedConversation.id })?.hasUnseenLatestAssistantMessage ?? true)
     }
 
-    func testMarkingSeenConnectedThreadUnreadUpdatesLocalStateAndEmitsSignal() {
+    func testMarkingSeenConnectedConversationUnreadUpdatesLocalStateAndEmitsSignal() {
         let daemonClient = DaemonClient()
         var sentSignals: [ConversationUnreadSignal] = []
         daemonClient.sendOverride = { message in
@@ -520,10 +520,10 @@ final class ThreadLifecycleIOSTests: XCTestCase {
             }
         }
 
-        let store = IOSThreadStore(daemonClient: daemonClient)
+        let store = IOSConversationStore(daemonClient: daemonClient)
         let response = makeConversationListResponse(conversations: [[
             "id": "connected-session-4",
-            "title": "Seen thread",
+            "title": "Seen conversation",
             "createdAt": 1_000,
             "updatedAt": 2_000,
             "assistantAttention": [
@@ -534,20 +534,20 @@ final class ThreadLifecycleIOSTests: XCTestCase {
         ]])
 
         daemonClient.onConversationListResponse?(response)
-        guard let storedThread = store.threads.first(where: { $0.conversationId == "connected-session-4" }) else {
-            XCTFail("Expected connected thread")
+        guard let storedConversation = store.conversations.first(where: { $0.conversationId == "connected-session-4" }) else {
+            XCTFail("Expected connected conversation")
             return
         }
 
-        store.markThreadUnread(storedThread)
+        store.markConversationUnread(storedConversation)
         waitForAsyncMutation()
 
-        guard let updatedThread = store.threads.first(where: { $0.id == storedThread.id }) else {
-            XCTFail("Expected updated thread")
+        guard let updatedConversation = store.conversations.first(where: { $0.id == storedConversation.id }) else {
+            XCTFail("Expected updated conversation")
             return
         }
 
-        XCTAssertTrue(updatedThread.hasUnseenLatestAssistantMessage)
+        XCTAssertTrue(updatedConversation.hasUnseenLatestAssistantMessage)
         XCTAssertEqual(sentSignals.count, 1)
         XCTAssertEqual(sentSignals[0].conversationId, "connected-session-4")
         XCTAssertEqual(sentSignals[0].sourceChannel, "vellum")
@@ -556,16 +556,16 @@ final class ThreadLifecycleIOSTests: XCTestCase {
         XCTAssertEqual(sentSignals[0].source, "ui-navigation")
         XCTAssertEqual(sentSignals[0].evidenceText, "User selected Mark as unread")
 
-        let reloadedStore = IOSThreadStore(daemonClient: daemonClient)
-        guard let cachedThread = reloadedStore.threads.first(where: { $0.conversationId == "connected-session-4" }) else {
-            XCTFail("Expected cached connected thread")
+        let reloadedStore = IOSConversationStore(daemonClient: daemonClient)
+        guard let cachedConversation = reloadedStore.conversations.first(where: { $0.conversationId == "connected-session-4" }) else {
+            XCTFail("Expected cached connected conversation")
             return
         }
 
-        XCTAssertTrue(cachedThread.hasUnseenLatestAssistantMessage)
+        XCTAssertTrue(cachedConversation.hasUnseenLatestAssistantMessage)
     }
 
-    func testMarkingAlreadyUnreadConnectedThreadUnreadDoesNothing() {
+    func testMarkingAlreadyUnreadConnectedConversationUnreadDoesNothing() {
         let daemonClient = DaemonClient()
         var sentSignals: [ConversationUnreadSignal] = []
         daemonClient.sendOverride = { message in
@@ -574,10 +574,10 @@ final class ThreadLifecycleIOSTests: XCTestCase {
             }
         }
 
-        let store = IOSThreadStore(daemonClient: daemonClient)
+        let store = IOSConversationStore(daemonClient: daemonClient)
         let response = makeConversationListResponse(conversations: [[
             "id": "connected-session-5",
-            "title": "Unread thread",
+            "title": "Unread conversation",
             "createdAt": 1_000,
             "updatedAt": 2_000,
             "assistantAttention": [
@@ -588,29 +588,29 @@ final class ThreadLifecycleIOSTests: XCTestCase {
         ]])
 
         daemonClient.onConversationListResponse?(response)
-        guard let storedThread = store.threads.first(where: { $0.conversationId == "connected-session-5" }) else {
-            XCTFail("Expected unread connected thread")
+        guard let storedConversation = store.conversations.first(where: { $0.conversationId == "connected-session-5" }) else {
+            XCTFail("Expected unread connected conversation")
             return
         }
 
-        store.markThreadUnread(storedThread)
+        store.markConversationUnread(storedConversation)
 
         XCTAssertTrue(sentSignals.isEmpty)
-        XCTAssertTrue(store.threads.first(where: { $0.id == storedThread.id })?.hasUnseenLatestAssistantMessage ?? false)
+        XCTAssertTrue(store.conversations.first(where: { $0.id == storedConversation.id })?.hasUnseenLatestAssistantMessage ?? false)
     }
 
-    func testMarkingSeenConnectedThreadUnreadRollsBackWhenSendFails() {
+    func testMarkingSeenConnectedConversationUnreadRollsBackWhenSendFails() {
         let daemonClient = DaemonClient()
         daemonClient.sendOverride = { _ in
-            throw NSError(domain: "ThreadLifecycleIOSTests", code: 1, userInfo: [
+            throw NSError(domain: "ConversationLifecycleIOSTests", code: 1, userInfo: [
                 NSLocalizedDescriptionKey: "offline"
             ])
         }
 
-        let store = IOSThreadStore(daemonClient: daemonClient)
+        let store = IOSConversationStore(daemonClient: daemonClient)
         let response = makeConversationListResponse(conversations: [[
             "id": "connected-session-unread-failure",
-            "title": "Seen thread",
+            "title": "Seen conversation",
             "createdAt": 1_000,
             "updatedAt": 2_000,
             "assistantAttention": [
@@ -621,24 +621,24 @@ final class ThreadLifecycleIOSTests: XCTestCase {
         ]])
 
         daemonClient.onConversationListResponse?(response)
-        guard let storedThread = store.threads.first(where: { $0.conversationId == "connected-session-unread-failure" }) else {
-            XCTFail("Expected connected thread")
+        guard let storedConversation = store.conversations.first(where: { $0.conversationId == "connected-session-unread-failure" }) else {
+            XCTFail("Expected connected conversation")
             return
         }
 
-        store.markThreadUnread(storedThread)
+        store.markConversationUnread(storedConversation)
         waitForAsyncMutation()
 
-        guard let updatedThread = store.threads.first(where: { $0.id == storedThread.id }) else {
-            XCTFail("Expected updated thread")
+        guard let updatedConversation = store.conversations.first(where: { $0.id == storedConversation.id }) else {
+            XCTFail("Expected updated conversation")
             return
         }
 
-        XCTAssertFalse(updatedThread.hasUnseenLatestAssistantMessage)
-        XCTAssertEqual(updatedThread.lastSeenAssistantMessageAt?.timeIntervalSince1970, 5.0)
+        XCTAssertFalse(updatedConversation.hasUnseenLatestAssistantMessage)
+        XCTAssertEqual(updatedConversation.lastSeenAssistantMessageAt?.timeIntervalSince1970, 5.0)
     }
 
-    func testMarkingThreadWithoutAssistantReplyUnreadDoesNothing() {
+    func testMarkingConversationWithoutAssistantReplyUnreadDoesNothing() {
         let daemonClient = DaemonClient()
         var sentSignals: [ConversationUnreadSignal] = []
         daemonClient.sendOverride = { message in
@@ -647,7 +647,7 @@ final class ThreadLifecycleIOSTests: XCTestCase {
             }
         }
 
-        let store = IOSThreadStore(daemonClient: daemonClient)
+        let store = IOSConversationStore(daemonClient: daemonClient)
         let response = makeConversationListResponse(conversations: [[
             "id": "connected-session-6",
             "title": "No assistant reply yet",
@@ -659,18 +659,18 @@ final class ThreadLifecycleIOSTests: XCTestCase {
         ]])
 
         daemonClient.onConversationListResponse?(response)
-        guard let storedThread = store.threads.first(where: { $0.conversationId == "connected-session-6" }) else {
-            XCTFail("Expected connected thread")
+        guard let storedConversation = store.conversations.first(where: { $0.conversationId == "connected-session-6" }) else {
+            XCTFail("Expected connected conversation")
             return
         }
 
-        store.markThreadUnread(storedThread)
+        store.markConversationUnread(storedConversation)
 
         XCTAssertTrue(sentSignals.isEmpty)
-        XCTAssertFalse(store.threads.first(where: { $0.id == storedThread.id })?.hasUnseenLatestAssistantMessage ?? true)
+        XCTAssertFalse(store.conversations.first(where: { $0.id == storedConversation.id })?.hasUnseenLatestAssistantMessage ?? true)
     }
 
-    func testMarkingThreadWithLoadedAssistantReplyUnreadUsesLocalMessageTimestamp() {
+    func testMarkingConversationWithLoadedAssistantReplyUnreadUsesLocalMessageTimestamp() {
         let daemonClient = DaemonClient()
         var sentSignals: [ConversationUnreadSignal] = []
         daemonClient.sendOverride = { message in
@@ -679,7 +679,7 @@ final class ThreadLifecycleIOSTests: XCTestCase {
             }
         }
 
-        let store = IOSThreadStore(daemonClient: daemonClient)
+        let store = IOSConversationStore(daemonClient: daemonClient)
         let response = makeConversationListResponse(conversations: [[
             "id": "connected-session-live-assistant",
             "title": "Live assistant reply",
@@ -691,12 +691,12 @@ final class ThreadLifecycleIOSTests: XCTestCase {
         ]])
 
         daemonClient.onConversationListResponse?(response)
-        guard let storedThread = store.threads.first(where: { $0.conversationId == "connected-session-live-assistant" }) else {
-            XCTFail("Expected connected thread")
+        guard let storedConversation = store.conversations.first(where: { $0.conversationId == "connected-session-live-assistant" }) else {
+            XCTFail("Expected connected conversation")
             return
         }
 
-        let vm = store.viewModel(for: storedThread.id)
+        let vm = store.viewModel(for: storedConversation.id)
         vm.handleServerMessage(.assistantTextDelta(AssistantTextDeltaMessage(
             text: "Fresh assistant reply",
             conversationId: "connected-session-live-assistant"
@@ -706,36 +706,36 @@ final class ThreadLifecycleIOSTests: XCTestCase {
             conversationId: "connected-session-live-assistant"
         )))
 
-        store.markThreadUnread(storedThread)
+        store.markConversationUnread(storedConversation)
         waitForAsyncMutation()
 
-        guard let updatedThread = store.threads.first(where: { $0.id == storedThread.id }) else {
-            XCTFail("Expected updated thread")
+        guard let updatedConversation = store.conversations.first(where: { $0.id == storedConversation.id }) else {
+            XCTFail("Expected updated conversation")
             return
         }
 
-        XCTAssertTrue(updatedThread.hasUnseenLatestAssistantMessage)
-        XCTAssertNil(updatedThread.lastSeenAssistantMessageAt)
-        XCTAssertNotNil(updatedThread.latestAssistantMessageAt)
+        XCTAssertTrue(updatedConversation.hasUnseenLatestAssistantMessage)
+        XCTAssertNil(updatedConversation.lastSeenAssistantMessageAt)
+        XCTAssertNotNil(updatedConversation.latestAssistantMessageAt)
         XCTAssertEqual(sentSignals.count, 1)
 
-        let reloadedStore = IOSThreadStore(daemonClient: daemonClient)
-        guard let cachedThread = reloadedStore.threads.first(where: { $0.conversationId == "connected-session-live-assistant" }) else {
-            XCTFail("Expected cached connected thread")
+        let reloadedStore = IOSConversationStore(daemonClient: daemonClient)
+        guard let cachedConversation = reloadedStore.conversations.first(where: { $0.conversationId == "connected-session-live-assistant" }) else {
+            XCTFail("Expected cached connected conversation")
             return
         }
 
-        XCTAssertTrue(cachedThread.hasUnseenLatestAssistantMessage)
-        XCTAssertNotNil(cachedThread.latestAssistantMessageAt)
+        XCTAssertTrue(cachedConversation.hasUnseenLatestAssistantMessage)
+        XCTAssertNotNil(cachedConversation.latestAssistantMessageAt)
     }
 
     func testConversationListRefreshPreservesLocalSeenUntilDaemonCatchesUp() {
         let daemonClient = DaemonClient()
-        let store = IOSThreadStore(daemonClient: daemonClient)
+        let store = IOSConversationStore(daemonClient: daemonClient)
 
         let initialResponse = makeConversationListResponse(conversations: [[
             "id": "connected-session-refresh-seen",
-            "title": "Unread thread",
+            "title": "Unread conversation",
             "createdAt": 1_000,
             "updatedAt": 2_000,
             "assistantAttention": [
@@ -746,16 +746,16 @@ final class ThreadLifecycleIOSTests: XCTestCase {
         ]])
         daemonClient.onConversationListResponse?(initialResponse)
 
-        guard let storedThread = store.threads.first(where: { $0.conversationId == "connected-session-refresh-seen" }) else {
-            XCTFail("Expected connected thread")
+        guard let storedConversation = store.conversations.first(where: { $0.conversationId == "connected-session-refresh-seen" }) else {
+            XCTFail("Expected connected conversation")
             return
         }
 
-        store.markConversationSeenIfNeeded(threadId: storedThread.id)
+        store.markConversationSeenIfNeeded(threadId: storedConversation.id)
 
         let staleResponse = makeConversationListResponse(conversations: [[
             "id": "connected-session-refresh-seen",
-            "title": "Unread thread",
+            "title": "Unread conversation",
             "createdAt": 1_000,
             "updatedAt": 2_100,
             "assistantAttention": [
@@ -767,17 +767,17 @@ final class ThreadLifecycleIOSTests: XCTestCase {
         daemonClient.onConversationListResponse?(staleResponse)
 
         XCTAssertFalse(
-            store.threads.first(where: { $0.conversationId == "connected-session-refresh-seen" })?.hasUnseenLatestAssistantMessage ?? true
+            store.conversations.first(where: { $0.conversationId == "connected-session-refresh-seen" })?.hasUnseenLatestAssistantMessage ?? true
         )
     }
 
     func testConversationListRefreshPreservesLocalUnreadUntilDaemonCatchesUp() {
         let daemonClient = DaemonClient()
-        let store = IOSThreadStore(daemonClient: daemonClient)
+        let store = IOSConversationStore(daemonClient: daemonClient)
 
         let initialResponse = makeConversationListResponse(conversations: [[
             "id": "connected-session-refresh-unread",
-            "title": "Seen thread",
+            "title": "Seen conversation",
             "createdAt": 1_000,
             "updatedAt": 2_000,
             "assistantAttention": [
@@ -788,16 +788,16 @@ final class ThreadLifecycleIOSTests: XCTestCase {
         ]])
         daemonClient.onConversationListResponse?(initialResponse)
 
-        guard let storedThread = store.threads.first(where: { $0.conversationId == "connected-session-refresh-unread" }) else {
-            XCTFail("Expected connected thread")
+        guard let storedConversation = store.conversations.first(where: { $0.conversationId == "connected-session-refresh-unread" }) else {
+            XCTFail("Expected connected conversation")
             return
         }
 
-        store.markThreadUnread(storedThread)
+        store.markConversationUnread(storedConversation)
 
         let staleResponse = makeConversationListResponse(conversations: [[
             "id": "connected-session-refresh-unread",
-            "title": "Seen thread",
+            "title": "Seen conversation",
             "createdAt": 1_000,
             "updatedAt": 2_100,
             "assistantAttention": [
@@ -809,11 +809,11 @@ final class ThreadLifecycleIOSTests: XCTestCase {
         daemonClient.onConversationListResponse?(staleResponse)
 
         XCTAssertTrue(
-            store.threads.first(where: { $0.conversationId == "connected-session-refresh-unread" })?.hasUnseenLatestAssistantMessage ?? false
+            store.conversations.first(where: { $0.conversationId == "connected-session-refresh-unread" })?.hasUnseenLatestAssistantMessage ?? false
         )
     }
 
-    func testPinningConnectedThreadUpdatesLocalStateAndEmitsReorder() {
+    func testPinningConnectedConversationUpdatesLocalStateAndEmitsReorder() {
         let daemonClient = DaemonClient()
         var reorderRequests: [ReorderConversationsRequest] = []
         daemonClient.sendOverride = { message in
@@ -822,11 +822,11 @@ final class ThreadLifecycleIOSTests: XCTestCase {
             }
         }
 
-        let store = IOSThreadStore(daemonClient: daemonClient)
+        let store = IOSConversationStore(daemonClient: daemonClient)
         let response = makeConversationListResponse(conversations: [
             [
                 "id": "connected-session-pinned",
-                "title": "Pinned thread",
+                "title": "Pinned conversation",
                 "createdAt": 1_000,
                 "updatedAt": 2_000,
                 "displayOrder": 0,
@@ -834,27 +834,27 @@ final class ThreadLifecycleIOSTests: XCTestCase {
             ],
             [
                 "id": "connected-session-unpinned",
-                "title": "Unpinned thread",
+                "title": "Unpinned conversation",
                 "createdAt": 1_000,
                 "updatedAt": 3_000,
             ],
         ])
 
         daemonClient.onConversationListResponse?(response)
-        guard let thread = store.threads.first(where: { $0.conversationId == "connected-session-unpinned" }) else {
-            XCTFail("Expected unpinned connected thread")
+        guard let conversation = store.conversations.first(where: { $0.conversationId == "connected-session-unpinned" }) else {
+            XCTFail("Expected unpinned connected conversation")
             return
         }
 
-        store.pinThread(thread)
+        store.pinConversation(conversation)
 
-        guard let updatedThread = store.threads.first(where: { $0.id == thread.id }) else {
-            XCTFail("Expected updated thread")
+        guard let updatedConversation = store.conversations.first(where: { $0.id == conversation.id }) else {
+            XCTFail("Expected updated conversation")
             return
         }
 
-        XCTAssertTrue(updatedThread.isPinned)
-        XCTAssertEqual(updatedThread.displayOrder, 1)
+        XCTAssertTrue(updatedConversation.isPinned)
+        XCTAssertEqual(updatedConversation.displayOrder, 1)
         XCTAssertEqual(reorderRequests.count, 1)
 
         let updatesBySessionId = Dictionary(
@@ -866,13 +866,13 @@ final class ThreadLifecycleIOSTests: XCTestCase {
         XCTAssertEqual(updatesBySessionId["connected-session-unpinned"]?.isPinned, true)
     }
 
-    func testPinningConnectedThreadSurvivesStaleSessionRefresh() {
+    func testPinningConnectedConversationSurvivesStaleSessionRefresh() {
         let daemonClient = DaemonClient()
-        let store = IOSThreadStore(daemonClient: daemonClient)
+        let store = IOSConversationStore(daemonClient: daemonClient)
         let response = makeConversationListResponse(conversations: [
             [
                 "id": "connected-session-pinned",
-                "title": "Pinned thread",
+                "title": "Pinned conversation",
                 "createdAt": 1_000,
                 "updatedAt": 2_000,
                 "displayOrder": 0,
@@ -880,31 +880,31 @@ final class ThreadLifecycleIOSTests: XCTestCase {
             ],
             [
                 "id": "connected-session-unpinned",
-                "title": "Unpinned thread",
+                "title": "Unpinned conversation",
                 "createdAt": 1_000,
                 "updatedAt": 3_000,
             ],
         ])
 
         daemonClient.onConversationListResponse?(response)
-        guard let thread = store.threads.first(where: { $0.conversationId == "connected-session-unpinned" }) else {
-            XCTFail("Expected unpinned connected thread")
+        guard let conversation = store.conversations.first(where: { $0.conversationId == "connected-session-unpinned" }) else {
+            XCTFail("Expected unpinned connected conversation")
             return
         }
 
-        store.pinThread(thread)
+        store.pinConversation(conversation)
         daemonClient.onConversationListResponse?(response)
 
-        guard let updatedThread = store.threads.first(where: { $0.id == thread.id }) else {
-            XCTFail("Expected updated thread")
+        guard let updatedConversation = store.conversations.first(where: { $0.id == conversation.id }) else {
+            XCTFail("Expected updated conversation")
             return
         }
 
-        XCTAssertTrue(updatedThread.isPinned)
-        XCTAssertEqual(updatedThread.displayOrder, 1)
+        XCTAssertTrue(updatedConversation.isPinned)
+        XCTAssertEqual(updatedConversation.displayOrder, 1)
     }
 
-    func testUnpinningConnectedThreadRecompactsPinnedOrderAndEmitsReorder() {
+    func testUnpinningConnectedConversationRecompactsPinnedOrderAndEmitsReorder() {
         let daemonClient = DaemonClient()
         var reorderRequests: [ReorderConversationsRequest] = []
         daemonClient.sendOverride = { message in
@@ -913,11 +913,11 @@ final class ThreadLifecycleIOSTests: XCTestCase {
             }
         }
 
-        let store = IOSThreadStore(daemonClient: daemonClient)
+        let store = IOSConversationStore(daemonClient: daemonClient)
         let response = makeConversationListResponse(conversations: [
             [
                 "id": "connected-session-first",
-                "title": "First pinned thread",
+                "title": "First pinned conversation",
                 "createdAt": 1_000,
                 "updatedAt": 2_000,
                 "displayOrder": 0,
@@ -925,7 +925,7 @@ final class ThreadLifecycleIOSTests: XCTestCase {
             ],
             [
                 "id": "connected-session-second",
-                "title": "Second pinned thread",
+                "title": "Second pinned conversation",
                 "createdAt": 1_000,
                 "updatedAt": 3_000,
                 "displayOrder": 1,
@@ -934,23 +934,23 @@ final class ThreadLifecycleIOSTests: XCTestCase {
         ])
 
         daemonClient.onConversationListResponse?(response)
-        guard let thread = store.threads.first(where: { $0.conversationId == "connected-session-first" }) else {
-            XCTFail("Expected pinned connected thread")
+        guard let conversation = store.conversations.first(where: { $0.conversationId == "connected-session-first" }) else {
+            XCTFail("Expected pinned connected conversation")
             return
         }
 
-        store.unpinThread(thread)
+        store.unpinConversation(conversation)
 
-        guard let firstThread = store.threads.first(where: { $0.conversationId == "connected-session-first" }),
-              let secondThread = store.threads.first(where: { $0.conversationId == "connected-session-second" }) else {
-            XCTFail("Expected connected threads")
+        guard let firstConversation = store.conversations.first(where: { $0.conversationId == "connected-session-first" }),
+              let secondConversation = store.conversations.first(where: { $0.conversationId == "connected-session-second" }) else {
+            XCTFail("Expected connected conversations")
             return
         }
 
-        XCTAssertFalse(firstThread.isPinned)
-        XCTAssertNil(firstThread.displayOrder)
-        XCTAssertTrue(secondThread.isPinned)
-        XCTAssertEqual(secondThread.displayOrder, 0)
+        XCTAssertFalse(firstConversation.isPinned)
+        XCTAssertNil(firstConversation.displayOrder)
+        XCTAssertTrue(secondConversation.isPinned)
+        XCTAssertEqual(secondConversation.displayOrder, 0)
         XCTAssertEqual(reorderRequests.count, 1)
 
         let updatesBySessionId = Dictionary(
@@ -962,14 +962,14 @@ final class ThreadLifecycleIOSTests: XCTestCase {
         XCTAssertEqual(updatesBySessionId["connected-session-second"]?.isPinned, true)
     }
 
-    func testPinningStandaloneThreadDoesNothing() {
-        let store = IOSThreadStore(daemonClient: mockClient)
-        let thread = store.threads[0]
+    func testPinningStandaloneConversationDoesNothing() {
+        let store = IOSConversationStore(daemonClient: mockClient)
+        let conversation = store.conversations[0]
 
-        store.pinThread(thread)
+        store.pinConversation(conversation)
 
-        XCTAssertFalse(store.threads[0].isPinned)
-        XCTAssertNil(store.threads[0].displayOrder)
+        XCTAssertFalse(store.conversations[0].isPinned)
+        XCTAssertNil(store.conversations[0].displayOrder)
     }
 
     private func waitForAsyncMutation() {

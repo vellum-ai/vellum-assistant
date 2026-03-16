@@ -3,13 +3,13 @@ import SwiftUI
 import UIKit
 import VellumAssistantShared
 
-func sortThreadsForDisplay(
-    _ threads: [IOSThread],
+func sortConversationsForDisplay(
+    _ conversations: [IOSConversation],
     isConnectedMode: Bool
-) -> [IOSThread] {
-    guard isConnectedMode else { return threads }
+) -> [IOSConversation] {
+    guard isConnectedMode else { return conversations }
 
-    return threads.sorted { a, b in
+    return conversations.sorted { a, b in
         if a.isPinned && b.isPinned {
             if a.displayOrder == nil && b.displayOrder == nil {
                 return a.lastActivityAt > b.lastActivityAt
@@ -32,15 +32,15 @@ func sortThreadsForDisplay(
 // MARK: - Tab Entry Point
 
 /// The tab-level Chats entry point. Switches between connected and disconnected
-/// states so ThreadListView only mounts when a live DaemonClient is available.
+/// states so ConversationListView only mounts when a live DaemonClient is available.
 struct ChatsTabView: View {
     @EnvironmentObject var clientProvider: ClientProvider
-    @ObservedObject var store: IOSThreadStore
+    @ObservedObject var store: IOSConversationStore
     var onConnectTapped: (() -> Void)?
 
     var body: some View {
         if clientProvider.isConnected {
-            ThreadListView(store: store)
+            ConversationListView(store: store)
         } else {
             ChatsDisconnectedView(onConnectTapped: onConnectTapped)
         }
@@ -81,52 +81,52 @@ struct ChatsDisconnectedView: View {
     }
 }
 
-// MARK: - ThreadListView
+// MARK: - ConversationListView
 
-struct ThreadListView: View {
+struct ConversationListView: View {
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
-    @ObservedObject var store: IOSThreadStore
+    @ObservedObject var store: IOSConversationStore
     @State private var navigationPath: [UUID] = []
-    @State private var selectedThreadId: UUID?
+    @State private var selectedConversationId: UUID?
     @State private var searchText: String = ""
-    @State private var renamingThreadId: UUID?
+    @State private var renamingConversationId: UUID?
     @State private var renameText: String = ""
     @State private var showArchived: Bool = false
 
-    private var activeThreads: [IOSThread] {
-        // Exclude private threads — they are managed separately via the Private Threads
+    private var activeConversations: [IOSConversation] {
+        // Exclude private conversations — they are managed separately via the Private Conversations
         // settings panel and must not appear in the main chat list.
-        sortThreadsForDisplay(
-            store.threads.filter { !$0.isArchived && !$0.isPrivate },
+        sortConversationsForDisplay(
+            store.conversations.filter { !$0.isArchived && !$0.isPrivate },
             isConnectedMode: store.isConnectedMode
         )
     }
 
-    /// Active threads that are NOT from a schedule.
-    private var regularThreads: [IOSThread] {
-        activeThreads.filter { !$0.isScheduleThread }
+    /// Active conversations that are NOT from a schedule.
+    private var regularConversations: [IOSConversation] {
+        activeConversations.filter { !$0.isScheduleConversation }
     }
 
-    /// Active threads created by a schedule trigger (including one-shot/reminders).
-    private var scheduleThreads: [IOSThread] {
-        activeThreads.filter { $0.isScheduleThread }
+    /// Active conversations created by a schedule trigger (including one-shot/reminders).
+    private var scheduleConversations: [IOSConversation] {
+        activeConversations.filter { $0.isScheduleConversation }
     }
 
-    /// Groups schedule threads by their scheduleJobId for collapsible display.
-    private var scheduleThreadGroups: [(key: String, label: String, threads: [IOSThread])] {
-        var grouped: [String: [IOSThread]] = [:]
+    /// Groups schedule conversations by their scheduleJobId for collapsible display.
+    private var scheduleConversationGroups: [(key: String, label: String, conversations: [IOSConversation])] {
+        var grouped: [String: [IOSConversation]] = [:]
         var order: [String] = []
-        for thread in filteredScheduleThreads {
-            let key = thread.scheduleJobId ?? thread.conversationId ?? thread.id.uuidString
+        for conversation in filteredScheduleConversations {
+            let key = conversation.scheduleJobId ?? conversation.conversationId ?? conversation.id.uuidString
             if grouped[key] == nil {
                 order.append(key)
             }
-            grouped[key, default: []].append(thread)
+            grouped[key, default: []].append(conversation)
         }
         return order.compactMap { key in
-            guard let threads = grouped[key], let first = threads.first else { return nil }
+            guard let conversations = grouped[key], let first = conversations.first else { return nil }
             let label: String
-            if threads.count > 1 {
+            if conversations.count > 1 {
                 let base = first.title
                 if let colonRange = base.range(of: ":") {
                     label = String(base[base.startIndex..<colonRange.lowerBound])
@@ -136,51 +136,51 @@ struct ThreadListView: View {
             } else {
                 label = first.title
             }
-            return (key: key, label: label, threads: threads)
+            return (key: key, label: label, conversations: conversations)
         }
     }
 
-    private var archivedThreads: [IOSThread] {
-        sortThreadsForDisplay(
-            store.threads.filter { $0.isArchived && !$0.isPrivate },
+    private var archivedConversations: [IOSConversation] {
+        sortConversationsForDisplay(
+            store.conversations.filter { $0.isArchived && !$0.isPrivate },
             isConnectedMode: store.isConnectedMode
         )
     }
 
-    private var filteredActiveThreads: [IOSThread] {
-        guard !searchText.isEmpty else { return activeThreads }
-        return activeThreads.filter { $0.title.localizedCaseInsensitiveContains(searchText) }
+    private var filteredActiveConversations: [IOSConversation] {
+        guard !searchText.isEmpty else { return activeConversations }
+        return activeConversations.filter { $0.title.localizedCaseInsensitiveContains(searchText) }
     }
 
-    private var filteredRegularThreads: [IOSThread] {
-        guard !searchText.isEmpty else { return regularThreads }
-        return regularThreads.filter { $0.title.localizedCaseInsensitiveContains(searchText) }
+    private var filteredRegularConversations: [IOSConversation] {
+        guard !searchText.isEmpty else { return regularConversations }
+        return regularConversations.filter { $0.title.localizedCaseInsensitiveContains(searchText) }
     }
 
-    private var filteredScheduleThreads: [IOSThread] {
-        guard !searchText.isEmpty else { return scheduleThreads }
-        return scheduleThreads.filter { $0.title.localizedCaseInsensitiveContains(searchText) }
+    private var filteredScheduleConversations: [IOSConversation] {
+        guard !searchText.isEmpty else { return scheduleConversations }
+        return scheduleConversations.filter { $0.title.localizedCaseInsensitiveContains(searchText) }
     }
 
-    private var filteredArchivedThreads: [IOSThread] {
-        guard !searchText.isEmpty else { return archivedThreads }
-        return archivedThreads.filter { $0.title.localizedCaseInsensitiveContains(searchText) }
+    private var filteredArchivedConversations: [IOSConversation] {
+        guard !searchText.isEmpty else { return archivedConversations }
+        return archivedConversations.filter { $0.title.localizedCaseInsensitiveContains(searchText) }
     }
 
     var body: some View {
-        if store.isLoadingInitialThreads {
+        if store.isLoadingInitialConversations {
             loadingView
         } else if horizontalSizeClass == .regular {
             NavigationSplitView {
-                threadList
+                conversationList
             } detail: {
                 detailView
             }
         } else {
             NavigationStack(path: $navigationPath) {
-                threadList
-                    .navigationDestination(for: UUID.self) { threadId in
-                        threadDetailContent(for: threadId)
+                conversationList
+                    .navigationDestination(for: UUID.self) { conversationLocalId in
+                        conversationDetailContent(for: conversationLocalId)
                     }
             }
         }
@@ -200,26 +200,26 @@ struct ThreadListView: View {
     // MARK: - Detail Views
 
     @ViewBuilder
-    private func threadDetailContent(for threadId: UUID) -> some View {
-        if let thread = store.threads.first(where: { $0.id == threadId }) {
-            ThreadChatView(
-                viewModel: store.viewModel(for: threadId),
-                threadTitle: thread.title
+    private func conversationDetailContent(for conversationLocalId: UUID) -> some View {
+        if let conversation = store.conversations.first(where: { $0.id == conversationLocalId }) {
+            ConversationChatView(
+                viewModel: store.viewModel(for: conversationLocalId),
+                conversationTitle: conversation.title
             )
             .onAppear {
-                store.loadHistoryIfNeeded(for: threadId)
-                store.markConversationSeenIfNeeded(threadId: threadId, isExplicitOpen: true)
-                store.viewModel(for: threadId).consumeDeepLinkIfNeeded()
+                store.loadHistoryIfNeeded(for: conversationLocalId)
+                store.markConversationSeenIfNeeded(threadId: conversationLocalId, isExplicitOpen: true)
+                store.viewModel(for: conversationLocalId).consumeDeepLinkIfNeeded()
             }
-            .onChange(of: thread.hasUnseenLatestAssistantMessage) { _, hasUnseen in
+            .onChange(of: conversation.hasUnseenLatestAssistantMessage) { _, hasUnseen in
                 guard hasUnseen else { return }
                 // The detail view can stay mounted across reconnects, so re-run
-                // the explicit seen path when the visible thread flips unread.
-                store.markConversationSeenIfNeeded(threadId: threadId)
+                // the explicit seen path when the visible conversation flips unread.
+                store.markConversationSeenIfNeeded(threadId: conversationLocalId)
             }
             .onOpenURL { _ in
                 DispatchQueue.main.async {
-                    store.viewModel(for: threadId).consumeDeepLinkIfNeeded()
+                    store.viewModel(for: conversationLocalId).consumeDeepLinkIfNeeded()
                 }
             }
         } else {
@@ -230,94 +230,94 @@ struct ThreadListView: View {
 
     @ViewBuilder
     private var detailView: some View {
-        if let selectedId = selectedThreadId {
-            threadDetailContent(for: selectedId)
+        if let selectedId = selectedConversationId {
+            conversationDetailContent(for: selectedId)
         } else {
             Text("Select a chat")
                 .foregroundStyle(.secondary)
         }
     }
 
-    // MARK: - Thread List
+    // MARK: - Conversation List
 
-    private func archiveActiveThread(_ thread: IOSThread) {
-        store.archiveThread(thread)
-        if horizontalSizeClass == .regular && selectedThreadId == thread.id {
-            selectedThreadId = activeThreads.first?.id
+    private func archiveActiveConversation(_ conversation: IOSConversation) {
+        store.archiveConversation(conversation)
+        if horizontalSizeClass == .regular && selectedConversationId == conversation.id {
+            selectedConversationId = activeConversations.first?.id
         }
     }
 
-    private func beginRenaming(_ thread: IOSThread) {
-        renamingThreadId = thread.id
-        renameText = thread.title
+    private func beginRenaming(_ conversation: IOSConversation) {
+        renamingConversationId = conversation.id
+        renameText = conversation.title
     }
 
-    private func canToggleThreadPin(_ thread: IOSThread) -> Bool {
-        store.isConnectedMode && thread.conversationId != nil
+    private func canToggleConversationPin(_ conversation: IOSConversation) -> Bool {
+        store.isConnectedMode && conversation.conversationId != nil
     }
 
-    private func canMarkThreadUnread(_ thread: IOSThread) -> Bool {
+    private func canMarkConversationUnread(_ conversation: IOSConversation) -> Bool {
         store.isConnectedMode &&
-            thread.conversationId != nil &&
-            !thread.hasUnseenLatestAssistantMessage &&
-            thread.latestAssistantMessageAt != nil
+            conversation.conversationId != nil &&
+            !conversation.hasUnseenLatestAssistantMessage &&
+            conversation.latestAssistantMessageAt != nil
     }
 
-    private func scheduleGroupHasUnread(_ group: (key: String, label: String, threads: [IOSThread])) -> Bool {
-        store.isConnectedMode && group.threads.contains(where: \.hasUnseenLatestAssistantMessage)
+    private func scheduleGroupHasUnread(_ group: (key: String, label: String, conversations: [IOSConversation])) -> Bool {
+        store.isConnectedMode && group.conversations.contains(where: \.hasUnseenLatestAssistantMessage)
     }
 
-    private func scheduleGroupHasPinned(_ group: (key: String, label: String, threads: [IOSThread])) -> Bool {
-        store.isConnectedMode && group.threads.contains(where: \.isPinned)
+    private func scheduleGroupHasPinned(_ group: (key: String, label: String, conversations: [IOSConversation])) -> Bool {
+        store.isConnectedMode && group.conversations.contains(where: \.isPinned)
     }
 
     @ViewBuilder
-    private func connectedThreadContextMenu(_ thread: IOSThread) -> some View {
-        if canToggleThreadPin(thread) {
+    private func connectedConversationContextMenu(_ conversation: IOSConversation) -> some View {
+        if canToggleConversationPin(conversation) {
             Button {
-                if thread.isPinned {
-                    store.unpinThread(thread)
+                if conversation.isPinned {
+                    store.unpinConversation(conversation)
                 } else {
-                    store.pinThread(thread)
+                    store.pinConversation(conversation)
                 }
             } label: {
                 Label {
-                    Text(thread.isPinned ? "Unpin thread" : "Pin thread")
+                    Text(conversation.isPinned ? "Unpin conversation" : "Pin conversation")
                 } icon: {
-                    VIconView(thread.isPinned ? .pinOff : .pin, size: 14)
+                    VIconView(conversation.isPinned ? .pinOff : .pin, size: 14)
                 }
             }
         }
 
         Button {
-            beginRenaming(thread)
+            beginRenaming(conversation)
         } label: {
-            Label { Text("Rename thread") } icon: { VIconView(.pencil, size: 14) }
+            Label { Text("Rename conversation") } icon: { VIconView(.pencil, size: 14) }
         }
 
         Button {
-            archiveActiveThread(thread)
+            archiveActiveConversation(conversation)
         } label: {
-            Label { Text("Archive thread") } icon: { VIconView(.archive, size: 14) }
+            Label { Text("Archive conversation") } icon: { VIconView(.archive, size: 14) }
         }
 
         Button {
-            store.markThreadUnread(thread)
+            store.markConversationUnread(conversation)
         } label: {
             Label { Text("Mark as unread") } icon: { VIconView(.circle, size: 14) }
         }
-        .disabled(!canMarkThreadUnread(thread))
+        .disabled(!canMarkConversationUnread(conversation))
     }
 
     @ViewBuilder
     private func maybeConnectedContextMenu<Content: View>(
-        thread: IOSThread,
+        conversation: IOSConversation,
         @ViewBuilder content: () -> Content
     ) -> some View {
         if store.isConnectedMode {
             content()
                 .contextMenu {
-                    connectedThreadContextMenu(thread)
+                    connectedConversationContextMenu(conversation)
                 }
         } else {
             content()
@@ -326,14 +326,14 @@ struct ThreadListView: View {
 
     @ViewBuilder
     private func connectedScheduleGroupContextMenu(
-        _ group: (key: String, label: String, threads: [IOSThread])
+        _ group: (key: String, label: String, conversations: [IOSConversation])
     ) -> some View {
-        ForEach(group.threads) { thread in
+        ForEach(group.conversations) { conversation in
             Menu {
-                connectedThreadContextMenu(thread)
+                connectedConversationContextMenu(conversation)
             } label: {
                 Label {
-                    Text(thread.title)
+                    Text(conversation.title)
                 } icon: {
                     VIconView(.messageCircle, size: 14)
                 }
@@ -343,7 +343,7 @@ struct ThreadListView: View {
 
     @ViewBuilder
     private func maybeConnectedScheduleGroupContextMenu<Content: View>(
-        group: (key: String, label: String, threads: [IOSThread]),
+        group: (key: String, label: String, conversations: [IOSConversation]),
         @ViewBuilder content: () -> Content
     ) -> some View {
         if store.isConnectedMode {
@@ -356,25 +356,25 @@ struct ThreadListView: View {
         }
     }
 
-    private var threadList: some View {
-        List(selection: horizontalSizeClass == .regular ? $selectedThreadId : nil) {
-            // Regular (non-schedule) threads
-            ForEach(filteredRegularThreads) { thread in
-                maybeConnectedContextMenu(thread: thread) {
-                    NavigationLink(value: thread.id) {
-                        threadRow(thread)
+    private var conversationList: some View {
+        List(selection: horizontalSizeClass == .regular ? $selectedConversationId : nil) {
+            // Regular (non-schedule) conversations
+            ForEach(filteredRegularConversations) { conversation in
+                maybeConnectedContextMenu(conversation: conversation) {
+                    NavigationLink(value: conversation.id) {
+                        conversationRow(conversation)
                     }
                     .swipeActions(edge: .trailing) {
                         Button(role: .destructive) {
-                            store.deleteThread(thread)
-                            if horizontalSizeClass == .regular && selectedThreadId == thread.id {
-                                selectedThreadId = activeThreads.first?.id
+                            store.deleteConversation(conversation)
+                            if horizontalSizeClass == .regular && selectedConversationId == conversation.id {
+                                selectedConversationId = activeConversations.first?.id
                             }
                         } label: {
                             Label { Text("Delete") } icon: { VIconView(.trash, size: 14) }
                         }
                         Button {
-                            archiveActiveThread(thread)
+                            archiveActiveConversation(conversation)
                         } label: {
                             Label { Text("Archive") } icon: { VIconView(.archive, size: 14) }
                         }
@@ -382,7 +382,7 @@ struct ThreadListView: View {
                     }
                     .swipeActions(edge: .leading) {
                         Button {
-                            beginRenaming(thread)
+                            beginRenaming(conversation)
                         } label: {
                             Label { Text("Rename") } icon: { VIconView(.pencil, size: 14) }
                         }
@@ -391,29 +391,29 @@ struct ThreadListView: View {
                 }
             }
 
-            // Scheduled threads grouped by scheduleJobId
-            if !filteredScheduleThreads.isEmpty {
+            // Scheduled conversations grouped by scheduleJobId
+            if !filteredScheduleConversations.isEmpty {
                 scheduledSection
             }
 
-            if !archivedThreads.isEmpty {
+            if !archivedConversations.isEmpty {
                 Section {
                     DisclosureGroup("Archived", isExpanded: $showArchived) {
-                        ForEach(filteredArchivedThreads) { thread in
-                            NavigationLink(value: thread.id) {
-                                threadRow(thread)
+                        ForEach(filteredArchivedConversations) { conversation in
+                            NavigationLink(value: conversation.id) {
+                                conversationRow(conversation)
                             }
                             .swipeActions(edge: .trailing) {
                                 Button(role: .destructive) {
-                                    store.deleteThread(thread)
-                                    if horizontalSizeClass == .regular && selectedThreadId == thread.id {
-                                        selectedThreadId = activeThreads.first?.id
+                                    store.deleteConversation(conversation)
+                                    if horizontalSizeClass == .regular && selectedConversationId == conversation.id {
+                                        selectedConversationId = activeConversations.first?.id
                                     }
                                 } label: {
                                     Label { Text("Delete") } icon: { VIconView(.trash, size: 14) }
                                 }
                                 Button {
-                                    store.unarchiveThread(thread)
+                                    store.unarchiveConversation(conversation)
                                 } label: {
                                     Label { Text("Unarchive") } icon: { VIconView(.inbox, size: 14) }
                                 }
@@ -426,10 +426,10 @@ struct ThreadListView: View {
 
             // Load-more trigger: appears when the daemon has additional sessions beyond
             // the current page. Becomes visible as the user scrolls toward the bottom.
-            if store.hasMoreThreads || store.isLoadingMoreThreads {
+            if store.hasMoreConversations || store.isLoadingMoreConversations {
                 HStack {
                     Spacer()
-                    if store.isLoadingMoreThreads {
+                    if store.isLoadingMoreConversations {
                         VLoadingIndicator(size: 18)
                     } else {
                         // Invisible sentinel: triggers the next page fetch on appear.
@@ -439,7 +439,7 @@ struct ThreadListView: View {
                 }
                 .listRowSeparator(.hidden)
                 .onAppear {
-                    store.loadMoreThreads()
+                    store.loadMoreConversations()
                 }
             }
         }
@@ -448,11 +448,11 @@ struct ThreadListView: View {
         .toolbar {
             ToolbarItem(placement: .navigationBarTrailing) {
                 Button {
-                    let thread = store.newThread()
+                    let conversation = store.newConversation()
                     if horizontalSizeClass == .regular {
-                        selectedThreadId = thread.id
+                        selectedConversationId = conversation.id
                     } else {
-                        navigationPath = [thread.id]
+                        navigationPath = [conversation.id]
                     }
                 } label: {
                     VIconView(.squarePen, size: 20)
@@ -460,16 +460,16 @@ struct ThreadListView: View {
             }
         }
         .alert("Rename Chat", isPresented: Binding(
-            get: { renamingThreadId != nil },
-            set: { if !$0 { renamingThreadId = nil } }
+            get: { renamingConversationId != nil },
+            set: { if !$0 { renamingConversationId = nil } }
         )) {
             TextField("Title", text: $renameText)
-            Button("Cancel", role: .cancel) { renamingThreadId = nil }
+            Button("Cancel", role: .cancel) { renamingConversationId = nil }
             Button("Save") {
-                if let id = renamingThreadId, !renameText.isEmpty {
+                if let id = renamingConversationId, !renameText.isEmpty {
                     store.updateTitle(renameText, for: id)
                 }
-                renamingThreadId = nil
+                renamingConversationId = nil
             }
         } message: {
             Text("Enter a new name for this chat")
@@ -480,31 +480,31 @@ struct ThreadListView: View {
 
     private var scheduledSection: some View {
         Section("Scheduled") {
-            ForEach(scheduleThreadGroups, id: \.key) { group in
+            ForEach(scheduleConversationGroups, id: \.key) { group in
                 scheduleGroupRow(group)
             }
         }
     }
 
     @ViewBuilder
-    private func scheduleGroupRow(_ group: (key: String, label: String, threads: [IOSThread])) -> some View {
-        if group.threads.count == 1, let thread = group.threads.first {
-            // Single-thread group: render inline
-            maybeConnectedContextMenu(thread: thread) {
-                NavigationLink(value: thread.id) {
-                    threadRow(thread)
+    private func scheduleGroupRow(_ group: (key: String, label: String, conversations: [IOSConversation])) -> some View {
+        if group.conversations.count == 1, let conversation = group.conversations.first {
+            // Single-conversation group: render inline
+            maybeConnectedContextMenu(conversation: conversation) {
+                NavigationLink(value: conversation.id) {
+                    conversationRow(conversation)
                 }
                 .swipeActions(edge: .trailing) {
                     Button(role: .destructive) {
-                        store.deleteThread(thread)
-                        if horizontalSizeClass == .regular && selectedThreadId == thread.id {
-                            selectedThreadId = activeThreads.first?.id
+                        store.deleteConversation(conversation)
+                        if horizontalSizeClass == .regular && selectedConversationId == conversation.id {
+                            selectedConversationId = activeConversations.first?.id
                         }
                     } label: {
                         Label { Text("Delete") } icon: { VIconView(.trash, size: 14) }
                     }
                     Button {
-                        archiveActiveThread(thread)
+                        archiveActiveConversation(conversation)
                     } label: {
                         Label { Text("Archive") } icon: { VIconView(.archive, size: 14) }
                     }
@@ -512,7 +512,7 @@ struct ThreadListView: View {
                 }
                 .swipeActions(edge: .leading) {
                     Button {
-                        beginRenaming(thread)
+                        beginRenaming(conversation)
                     } label: {
                         Label { Text("Rename") } icon: { VIconView(.pencil, size: 14) }
                     }
@@ -520,26 +520,26 @@ struct ThreadListView: View {
                 }
             }
         } else {
-            // Multi-thread group: DisclosureGroup with fully-tappable label.
+            // Multi-conversation group: DisclosureGroup with fully-tappable label.
             // Context menu is on the label only so tap-to-expand (on the disclosure chevron)
             // and long-press-for-menu remain distinct gestures.
             DisclosureGroup {
-                ForEach(group.threads) { thread in
-                    maybeConnectedContextMenu(thread: thread) {
-                        NavigationLink(value: thread.id) {
-                            threadRow(thread)
+                ForEach(group.conversations) { conversation in
+                    maybeConnectedContextMenu(conversation: conversation) {
+                        NavigationLink(value: conversation.id) {
+                            conversationRow(conversation)
                         }
                         .swipeActions(edge: .trailing) {
                             Button(role: .destructive) {
-                                store.deleteThread(thread)
-                                if horizontalSizeClass == .regular && selectedThreadId == thread.id {
-                                    selectedThreadId = activeThreads.first?.id
+                                store.deleteConversation(conversation)
+                                if horizontalSizeClass == .regular && selectedConversationId == conversation.id {
+                                    selectedConversationId = activeConversations.first?.id
                                 }
                             } label: {
                                 Label { Text("Delete") } icon: { VIconView(.trash, size: 14) }
                             }
                             Button {
-                                archiveActiveThread(thread)
+                                archiveActiveConversation(conversation)
                             } label: {
                                 Label { Text("Archive") } icon: { VIconView(.archive, size: 14) }
                             }
@@ -547,7 +547,7 @@ struct ThreadListView: View {
                         }
                         .swipeActions(edge: .leading) {
                             Button {
-                                beginRenaming(thread)
+                                beginRenaming(conversation)
                             } label: {
                                 Label { Text("Rename") } icon: { VIconView(.pencil, size: 14) }
                             }
@@ -572,7 +572,7 @@ struct ThreadListView: View {
                             VBadge(style: .dot, color: VColor.systemNegativeHover)
                                 .accessibilityLabel("Unread")
                         }
-                        Text("\(group.threads.count)")
+                        Text("\(group.conversations.count)")
                             .font(.system(size: 10, weight: .medium))
                             .foregroundStyle(.secondary)
                             .padding(.horizontal, 6)
@@ -589,35 +589,35 @@ struct ThreadListView: View {
         }
     }
 
-    // MARK: - Thread Row
+    // MARK: - Conversation Row
 
-    private func threadRow(_ thread: IOSThread) -> some View {
+    private func conversationRow(_ conversation: IOSConversation) -> some View {
         VStack(alignment: .leading, spacing: 2) {
             HStack {
                 VIconView(.messageCircle, size: 12)
                     .foregroundStyle(.secondary)
-                Text(thread.title)
+                Text(conversation.title)
                     .fontWeight(
-                        store.isConnectedMode && thread.hasUnseenLatestAssistantMessage
+                        store.isConnectedMode && conversation.hasUnseenLatestAssistantMessage
                             ? .semibold
                             : .regular
                     )
                     .lineLimit(1)
-                if store.isConnectedMode && thread.isPinned {
+                if store.isConnectedMode && conversation.isPinned {
                     VIconView(.pin, size: 10)
                         .foregroundColor(VColor.primaryBase)
                         .accessibilityLabel("Pinned")
                 }
-                if store.isConnectedMode && thread.hasUnseenLatestAssistantMessage {
+                if store.isConnectedMode && conversation.hasUnseenLatestAssistantMessage {
                     VBadge(style: .dot, color: VColor.systemNegativeHover)
                         .accessibilityLabel("Unread")
                 }
                 Spacer()
-                Text(relativeDate(thread.lastActivityAt))
+                Text(relativeDate(conversation.lastActivityAt))
                     .font(.caption2)
                     .foregroundStyle(.tertiary)
             }
-            if let preview = store.lastMessagePreview(for: thread.id) {
+            if let preview = store.lastMessagePreview(for: conversation.id) {
                 Text(preview)
                     .font(.caption)
                     .foregroundStyle(.secondary)
@@ -631,12 +631,12 @@ struct ThreadListView: View {
     }
 }
 
-// MARK: - ThreadChatView
+// MARK: - ConversationChatView
 
-/// Thin wrapper around ChatContentView for a thread-owned ChatViewModel.
-struct ThreadChatView: View {
+/// Thin wrapper around ChatContentView for a conversation-owned ChatViewModel.
+struct ConversationChatView: View {
     @ObservedObject var viewModel: ChatViewModel
-    var threadTitle: String?
+    var conversationTitle: String?
 
     @EnvironmentObject var clientProvider: ClientProvider
     @AppStorage(UserDefaultsKeys.developerModeEnabled) private var developerModeEnabled: Bool = false
@@ -721,7 +721,7 @@ struct ThreadChatView: View {
         )
         return ChatTranscriptFormatter.threadMarkdown(
             messages: viewModel.messages,
-            threadTitle: threadTitle,
+            threadTitle: conversationTitle,
             participantNames: names
         )
     }

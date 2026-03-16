@@ -3,33 +3,33 @@ import Combine
 import SwiftUI
 import VellumAssistantShared
 
-// MARK: - IOSThread
+// MARK: - IOSConversation
 
-/// Represents a single chat thread on iOS.
-struct IOSThread: Identifiable {
+/// Represents a single chat conversation on iOS.
+struct IOSConversation: Identifiable {
     let id: UUID
     var title: String
     let createdAt: Date
     /// Tracks the most recent activity (message sent/received). Defaults to createdAt.
     var lastActivityAt: Date
-    /// When non-nil, this thread is backed by a daemon session (Connected mode).
+    /// When non-nil, this conversation is backed by a daemon session (Connected mode).
     var conversationId: String?
     var isArchived: Bool
     var isPinned: Bool
     var displayOrder: Int?
-    /// Private threads are excluded from the normal thread list and persist only
+    /// Private conversations are excluded from the normal conversation list and persist only
     /// for the current session. They match the macOS "temporary chat" behavior.
     var isPrivate: Bool
-    /// The schedule job ID that created this thread, if any.
-    /// Threads sharing the same scheduleJobId belong to the same schedule group.
+    /// The schedule job ID that created this conversation, if any.
+    /// Conversations sharing the same scheduleJobId belong to the same schedule group.
     var scheduleJobId: String?
     var hasUnseenLatestAssistantMessage: Bool
     var latestAssistantMessageAt: Date?
     var lastSeenAssistantMessageAt: Date?
 
-    /// Whether this thread was created by a schedule trigger (including one-shot/reminders).
-    /// Keeps legacy "Reminder: " prefix check for threads created before unification.
-    var isScheduleThread: Bool {
+    /// Whether this conversation was created by a schedule trigger (including one-shot/reminders).
+    /// Keeps legacy "Reminder: " prefix check for conversations created before unification.
+    var isScheduleConversation: Bool {
         if scheduleJobId != nil { return true }
         return title.hasPrefix("Schedule: ") || title.hasPrefix("Schedule (manual): ") || title.hasPrefix("Reminder: ")
     }
@@ -39,7 +39,7 @@ struct IOSThread: Identifiable {
         self.title = title
         self.createdAt = createdAt
         self.lastActivityAt = lastActivityAt ?? createdAt
-        self.conversationId = sessionId
+        self.conversationId = conversationId
         self.isArchived = isArchived
         self.isPinned = isPinned
         self.displayOrder = displayOrder
@@ -51,10 +51,10 @@ struct IOSThread: Identifiable {
     }
 }
 
-// MARK: - PersistedThread
+// MARK: - PersistedConversation
 
-/// Codable representation of IOSThread for UserDefaults persistence.
-private struct PersistedThread: Codable {
+/// Codable representation of IOSConversation for UserDefaults persistence.
+private struct PersistedConversation: Codable {
     var id: UUID
     var title: String
     var createdAt: Date
@@ -70,43 +70,43 @@ private struct PersistedThread: Codable {
     var lastSeenAssistantMessageAt: Date?
 }
 
-// MARK: - IOSThreadStore
+// MARK: - IOSConversationStore
 
-/// Manages a list of chat threads for iOS.
+/// Manages a list of chat conversations for iOS.
 ///
-/// In Standalone mode: threads are persisted locally via UserDefaults.
-/// In Connected mode: threads are loaded from the daemon (shared with macOS).
-/// Each thread owns an independent ChatViewModel instance.
+/// In Standalone mode: conversations are persisted locally via UserDefaults.
+/// In Connected mode: conversations are loaded from the daemon (shared with macOS).
+/// Each conversation owns an independent ChatViewModel instance.
 @MainActor
-class IOSThreadStore: ObservableObject {
-    @Published var threads: [IOSThread] = []
+class IOSConversationStore: ObservableObject {
+    @Published var conversations: [IOSConversation] = []
     @Published var isConnectedMode: Bool = false
-    /// True while an additional page of threads is being fetched from the daemon.
-    @Published var isLoadingMoreThreads: Bool = false
+    /// True while an additional page of conversations is being fetched from the daemon.
+    @Published var isLoadingMoreConversations: Bool = false
     /// Whether the daemon indicated more sessions exist beyond what is currently loaded.
-    @Published var hasMoreThreads: Bool = false
-    /// True while the first page of threads is being fetched from the daemon.
-    /// Used by the UI to show a loading indicator instead of a placeholder thread.
-    @Published var isLoadingInitialThreads: Bool = false
+    @Published var hasMoreConversations: Bool = false
+    /// True while the first page of conversations is being fetched from the daemon.
+    /// Used by the UI to show a loading indicator instead of a placeholder conversation.
+    @Published var isLoadingInitialConversations: Bool = false
 
-    /// ViewModels keyed by thread ID, created lazily on first access.
+    /// ViewModels keyed by conversation ID, created lazily on first access.
     private var viewModels: [UUID: ChatViewModel] = [:]
     private var daemonClient: any DaemonClientProtocol
     private static let persistenceKey = "ios_threads_v1"
     private static let connectedCacheKey = "ios_connected_threads_cache_v1"
     private var cancellables: Set<AnyCancellable> = []
-    /// Maps daemon session IDs to thread IDs for history loading.
+    /// Maps daemon session IDs to conversation IDs for history loading.
     private var pendingHistoryByConversationId: [String: UUID] = [:]
-    /// Tracks thread IDs that already have an activity-tracking observer to avoid duplicates.
-    private var observedActivityThreadIds: Set<UUID> = []
-    /// Number of threads per page when listing sessions from the daemon.
-    private static let threadPageSize = 50
+    /// Tracks conversation IDs that already have an activity-tracking observer to avoid duplicates.
+    private var observedActivityConversationIds: Set<UUID> = []
+    /// Number of conversations per page when listing sessions from the daemon.
+    private static let conversationPageSize = 50
     private static let attentionSignalType = "ios_conversation_opened"
-    /// Current offset used for the next page fetch; advances by `threadPageSize` on each load.
-    private var threadListOffset: Int = 0
+    /// Current offset used for the next page fetch; advances by `conversationPageSize` on each load.
+    private var conversationListOffset: Int = 0
     /// Reconnect-generation counter. Incremented only when pagination is reset due to a
     /// reconnect (or a `rebindDaemonClient` call). Never incremented on ordinary
-    /// `loadMoreThreads` calls.
+    /// `loadMoreConversations` calls.
     ///
     /// Because the daemon does not echo a request ID back in session-list responses, we
     /// cannot correlate individual responses to individual requests within the same
@@ -121,7 +121,7 @@ class IOSThreadStore: ObservableObject {
     /// discard stale responses from the previous connection.
     private var expectedConversationListGeneration: UInt64 = 0
     /// ConversationIds that the user has locally edited (renamed/archived/unarchived)
-    /// since the cache was loaded. Only these threads preserve local overrides
+    /// since the cache was loaded. Only these conversations preserve local overrides
     /// when the daemon response arrives; all others accept daemon data.
     private var locallyEditedConversationIds: Set<String> = []
     /// ConversationIds where the user explicitly pinned or unpinned. Used to preserve
@@ -144,133 +144,133 @@ class IOSThreadStore: ObservableObject {
 
     private func applyConversationMetadata(
         _ session: ConversationListResponseItem,
-        to thread: inout IOSThread
+        to conversation: inout IOSConversation
     ) {
-        thread.isPinned = session.isPinned ?? false
-        thread.displayOrder = session.displayOrder.map { Int($0) }
-        thread.hasUnseenLatestAssistantMessage =
+        conversation.isPinned = session.isPinned ?? false
+        conversation.displayOrder = session.displayOrder.map { Int($0) }
+        conversation.hasUnseenLatestAssistantMessage =
             session.assistantAttention?.hasUnseenLatestAssistantMessage ?? false
-        thread.latestAssistantMessageAt = assistantTimestamp(
+        conversation.latestAssistantMessageAt = assistantTimestamp(
             session.assistantAttention?.latestAssistantMessageAt
         )
-        thread.lastSeenAssistantMessageAt = assistantTimestamp(
+        conversation.lastSeenAssistantMessageAt = assistantTimestamp(
             session.assistantAttention?.lastSeenAssistantMessageAt
         )
     }
 
-    private func existingThreadIndex(forConversationId conversationId: String) -> Int? {
-        if let threadIndex = threads.firstIndex(where: { $0.conversationId == sessionId }) {
-            return threadIndex
+    private func existingConversationIndex(forConversationId conversationId: String) -> Int? {
+        if let conversationIndex = conversations.firstIndex(where: { $0.conversationId == conversationId }) {
+            return conversationIndex
         }
-        return threads.firstIndex(where: { viewModels[$0.id]?.conversationId == sessionId })
+        return conversations.firstIndex(where: { viewModels[$0.id]?.conversationId == conversationId })
     }
 
-    private func mergeThreadMetadata(from restored: IOSThread, into thread: inout IOSThread) {
-        thread.conversationId = restored.conversationId ?? thread.conversationId
-        thread.scheduleJobId = restored.scheduleJobId ?? thread.scheduleJobId
-        let hasLocalPinEdit = thread.conversationId.map { locallyEditedPinConversationIds.contains($0) } ?? false
+    private func mergeConversationMetadata(from restored: IOSConversation, into conversation: inout IOSConversation) {
+        conversation.conversationId = restored.conversationId ?? conversation.conversationId
+        conversation.scheduleJobId = restored.scheduleJobId ?? conversation.scheduleJobId
+        let hasLocalPinEdit = conversation.conversationId.map { locallyEditedPinConversationIds.contains($0) } ?? false
         if !hasLocalPinEdit {
-            thread.isPinned = restored.isPinned
-            thread.displayOrder = restored.displayOrder
-        } else if restored.isPinned == thread.isPinned {
+            conversation.isPinned = restored.isPinned
+            conversation.displayOrder = restored.displayOrder
+        } else if restored.isPinned == conversation.isPinned {
             // Server has acknowledged our pin change — stop suppressing updates so
             // pin/order changes from other clients are reflected on the next refresh.
-            if let sid = thread.conversationId {
+            if let sid = conversation.conversationId {
                 locallyEditedPinConversationIds.remove(sid)
             }
-            thread.isPinned = restored.isPinned
-            thread.displayOrder = restored.displayOrder
+            conversation.isPinned = restored.isPinned
+            conversation.displayOrder = restored.displayOrder
         }
-        thread.hasUnseenLatestAssistantMessage = restored.hasUnseenLatestAssistantMessage
-        thread.latestAssistantMessageAt = restored.latestAssistantMessageAt
-        thread.lastSeenAssistantMessageAt = restored.lastSeenAssistantMessageAt
-        applyPendingAttentionOverride(to: &thread)
+        conversation.hasUnseenLatestAssistantMessage = restored.hasUnseenLatestAssistantMessage
+        conversation.latestAssistantMessageAt = restored.latestAssistantMessageAt
+        conversation.lastSeenAssistantMessageAt = restored.lastSeenAssistantMessageAt
+        applyPendingAttentionOverride(to: &conversation)
     }
 
-    private func applyPendingAttentionOverride(to thread: inout IOSThread) {
-        guard let conversationId = thread.conversationId,
-              let override = pendingAttentionOverrides[sessionId] else { return }
+    private func applyPendingAttentionOverride(to conversation: inout IOSConversation) {
+        guard let conversationId = conversation.conversationId,
+              let override = pendingAttentionOverrides[conversationId] else { return }
 
         switch override {
         case .seen(let targetLatestAssistantMessageAt):
-            if !thread.hasUnseenLatestAssistantMessage {
+            if !conversation.hasUnseenLatestAssistantMessage {
                 pendingAttentionOverrides.removeValue(forKey: conversationId)
                 return
             }
             if let targetLatestAssistantMessageAt,
-               let serverLatestAssistantMessageAt = thread.latestAssistantMessageAt,
+               let serverLatestAssistantMessageAt = conversation.latestAssistantMessageAt,
                serverLatestAssistantMessageAt > targetLatestAssistantMessageAt {
                 pendingAttentionOverrides.removeValue(forKey: conversationId)
                 return
             }
 
             if let targetLatestAssistantMessageAt,
-               thread.latestAssistantMessageAt == nil {
-                thread.latestAssistantMessageAt = targetLatestAssistantMessageAt
+               conversation.latestAssistantMessageAt == nil {
+                conversation.latestAssistantMessageAt = targetLatestAssistantMessageAt
             }
-            thread.hasUnseenLatestAssistantMessage = false
-            thread.lastSeenAssistantMessageAt = thread.latestAssistantMessageAt
+            conversation.hasUnseenLatestAssistantMessage = false
+            conversation.lastSeenAssistantMessageAt = conversation.latestAssistantMessageAt
 
         case .unread(let targetLatestAssistantMessageAt):
-            if thread.hasUnseenLatestAssistantMessage {
+            if conversation.hasUnseenLatestAssistantMessage {
                 pendingAttentionOverrides.removeValue(forKey: conversationId)
                 return
             }
             if let targetLatestAssistantMessageAt,
-               let serverLatestAssistantMessageAt = thread.latestAssistantMessageAt,
+               let serverLatestAssistantMessageAt = conversation.latestAssistantMessageAt,
                serverLatestAssistantMessageAt > targetLatestAssistantMessageAt {
                 pendingAttentionOverrides.removeValue(forKey: conversationId)
                 return
             }
 
             if let targetLatestAssistantMessageAt,
-               thread.latestAssistantMessageAt == nil {
-                thread.latestAssistantMessageAt = targetLatestAssistantMessageAt
+               conversation.latestAssistantMessageAt == nil {
+                conversation.latestAssistantMessageAt = targetLatestAssistantMessageAt
             }
-            thread.hasUnseenLatestAssistantMessage = true
-            thread.lastSeenAssistantMessageAt = nil
+            conversation.hasUnseenLatestAssistantMessage = true
+            conversation.lastSeenAssistantMessageAt = nil
         }
     }
 
-    private func latestLoadedAssistantMessageTimestamp(for threadId: UUID) -> Date? {
-        viewModels[threadId]?.messages.last(where: { $0.role == .assistant })?.timestamp
+    private func latestLoadedAssistantMessageTimestamp(for conversationLocalId: UUID) -> Date? {
+        viewModels[conversationLocalId]?.messages.last(where: { $0.role == .assistant })?.timestamp
     }
 
-    private func canMarkThreadUnread(at index: Int) -> Bool {
-        guard !threads[index].hasUnseenLatestAssistantMessage else { return false }
-        return threads[index].latestAssistantMessageAt != nil
-            || latestLoadedAssistantMessageTimestamp(for: threads[index].id) != nil
+    private func canMarkConversationUnread(at index: Int) -> Bool {
+        guard !conversations[index].hasUnseenLatestAssistantMessage else { return false }
+        return conversations[index].latestAssistantMessageAt != nil
+            || latestLoadedAssistantMessageTimestamp(for: conversations[index].id) != nil
     }
 
     init(daemonClient: any DaemonClientProtocol) {
         self.daemonClient = daemonClient
 
         if let daemon = daemonClient as? DaemonClient {
-            // Connected mode — show cached threads instantly or spinner on first launch
+            // Connected mode — show cached conversations instantly or spinner on first launch
             isConnectedMode = true
             let cached = Self.loadConnectedCache()
             if cached.isEmpty {
-                isLoadingInitialThreads = true
-                threads = [IOSThread()]
+                isLoadingInitialConversations = true
+                conversations = [IOSConversation()]
             } else {
-                isLoadingInitialThreads = false
-                threads = cached
+                isLoadingInitialConversations = false
+                conversations = cached
             }
             setupDaemonCallbacks(daemon)
         } else {
             // Standalone mode — load from local persistence
             let loaded = Self.load()
             if loaded.isEmpty {
-                let thread = IOSThread()
-                threads = [thread]
+                let conversation = IOSConversation()
+                conversations = [conversation]
                 save()
             } else {
-                threads = loaded
+                conversations = loaded
             }
         }
     }
 
-    // MARK: - Daemon Thread Sync
+    // MARK: - Daemon Conversation Sync
 
     private func setupDaemonCallbacks(_ daemon: DaemonClient) {
         daemon.onConversationListResponse = { [weak self] response in
@@ -288,31 +288,31 @@ class IOSThreadStore: ObservableObject {
         daemon.onScheduleConversationCreated = { [weak self] msg in
             guard let self else { return }
             // Avoid duplicates
-            guard !self.threads.contains(where: { $0.conversationId == msg.conversationId }) else { return }
-            let thread = IOSThread(
+            guard !self.conversations.contains(where: { $0.conversationId == msg.conversationId }) else { return }
+            let conversation = IOSConversation(
                 title: msg.title,
                 conversationId: msg.conversationId,
                 scheduleJobId: msg.scheduleJobId
             )
-            // Remove the empty placeholder thread if it's still present (race:
+            // Remove the empty placeholder conversation if it's still present (race:
             // schedule_conversation_created can arrive before the first conversation_list_response).
-            if self.threads.count == 1,
-               self.threads[0].conversationId == nil,
-               self.viewModels[self.threads[0].id]?.messages.isEmpty ?? true,
-               self.viewModels[self.threads[0].id]?.conversationId == nil {
-                self.viewModels.removeValue(forKey: self.threads[0].id)
-                self.threads = [thread]
+            if self.conversations.count == 1,
+               self.conversations[0].conversationId == nil,
+               self.viewModels[self.conversations[0].id]?.messages.isEmpty ?? true,
+               self.viewModels[self.conversations[0].id]?.conversationId == nil {
+                self.viewModels.removeValue(forKey: self.conversations[0].id)
+                self.conversations = [conversation]
             } else {
-                self.threads.insert(thread, at: 0)
+                self.conversations.insert(conversation, at: 0)
             }
-            self.isLoadingInitialThreads = false
+            self.isLoadingInitialConversations = false
             self.saveConnectedCache()
         }
 
         // Fetch session list once connected. Try immediately if already connected,
         // otherwise wait for the daemonDidReconnect notification.
         if daemon.isConnected {
-            threadListOffset = 0
+            conversationListOffset = 0
             conversationListGeneration += 1
             sendPageOneConversationList(daemon: daemon)
         }
@@ -321,8 +321,8 @@ class IOSThreadStore: ObservableObject {
             .sink { [weak self, weak daemon] _ in
                 guard let self, let daemon else { return }
                 // Reset pagination state so the list refreshes from page 1.
-                self.threadListOffset = 0
-                self.hasMoreThreads = false
+                self.conversationListOffset = 0
+                self.hasMoreConversations = false
                 // Bump the generation counter WITHOUT touching expectedConversationListGeneration.
                 // There is now a gap where conversationListGeneration = N but
                 // expectedConversationListGeneration = N-1.  Any in-flight response from the
@@ -351,7 +351,7 @@ class IOSThreadStore: ObservableObject {
     /// throws, the expected generation is not advanced and the guard stays closed.
     private func sendPageOneConversationList(daemon: DaemonClient) {
         do {
-            try daemon.sendConversationList(offset: 0, limit: Self.threadPageSize)
+            try daemon.sendConversationList(offset: 0, limit: Self.conversationPageSize)
             expectedConversationListGeneration = conversationListGeneration
         } catch {
             // Send failed — leave expectedConversationListGeneration unchanged so the
@@ -367,7 +367,7 @@ class IOSThreadStore: ObservableObject {
     /// method swaps the client reference, cancels Combine subscriptions that captured the old
     /// client, drops stale ChatViewModels (they reference the old client via `ChatViewModel`'s
     /// own stored reference), resets pagination, and re-registers daemon callbacks on the new
-    /// client so the thread list is refreshed from the new connection.
+    /// client so the conversation list is refreshed from the new connection.
     func rebindDaemonClient(_ newClient: any DaemonClientProtocol) {
         // Drop Combine subscriptions tied to the old DaemonClient so the reconnect
         // publisher from setupDaemonCallbacks doesn't fire against the wrong daemon.
@@ -378,7 +378,7 @@ class IOSThreadStore: ObservableObject {
         // in fire-and-forget Tasks and are not cancelled by disconnect.  Without this,
         // a response arriving after the rebind would invoke the closures registered by
         // the previous setupDaemonCallbacks call, which capture [weak self] and would
-        // still call back into this store — potentially corrupting the thread list with
+        // still call back into this store — potentially corrupting the conversation list with
         // stale sessions from the old connection.
         if let oldDaemon = daemonClient as? DaemonClient {
             oldDaemon.onConversationListResponse = nil
@@ -393,43 +393,43 @@ class IOSThreadStore: ObservableObject {
         // Existing ViewModels hold a reference to the old, disconnected client inside
         // ChatViewModel.  Discard them so new ones are created with the new client.
         viewModels.removeAll()
-        observedActivityThreadIds.removeAll()
+        observedActivityConversationIds.removeAll()
         pendingHistoryByConversationId.removeAll()
         pendingAttentionOverrides.removeAll()
 
         if let daemon = newClient as? DaemonClient {
-            // Connected mode — show cached threads instantly or spinner on first launch.
+            // Connected mode — show cached conversations instantly or spinner on first launch.
             isConnectedMode = true
             locallyEditedConversationIds.removeAll()
             locallyEditedPinConversationIds.removeAll()
             let cached = Self.loadConnectedCache()
             if cached.isEmpty {
-                isLoadingInitialThreads = true
-                threads = [IOSThread()]
+                isLoadingInitialConversations = true
+                conversations = [IOSConversation()]
             } else {
-                isLoadingInitialThreads = false
-                threads = cached
+                isLoadingInitialConversations = false
+                conversations = cached
             }
-            threadListOffset = 0
+            conversationListOffset = 0
             conversationListGeneration += 1
-            hasMoreThreads = false
-            isLoadingMoreThreads = false
+            hasMoreConversations = false
+            isLoadingMoreConversations = false
             setupDaemonCallbacks(daemon)
         } else {
-            // Switched back to standalone mode — reload persisted threads.
+            // Switched back to standalone mode — reload persisted conversations.
             isConnectedMode = false
-            isLoadingInitialThreads = false
+            isLoadingInitialConversations = false
             locallyEditedConversationIds.removeAll()
             locallyEditedPinConversationIds.removeAll()
             pendingAttentionOverrides.removeAll()
             clearConnectedCache()
             let loaded = Self.load()
             if loaded.isEmpty {
-                let thread = IOSThread()
-                threads = [thread]
+                let conversation = IOSConversation()
+                conversations = [conversation]
                 save()
             } else {
-                threads = loaded
+                conversations = loaded
             }
         }
     }
@@ -451,16 +451,16 @@ class IOSThreadStore: ObservableObject {
         // Handle confirmed-empty first-page response: clear stale cached sessions.
         // Only clear when hasMore is explicitly false (authoritative empty result).
         // Transient failures (HTTP errors, decode errors) emit hasMore: nil and must
-        // not wipe the cache — the user should keep seeing cached threads.
-        if filteredConversations.isEmpty && threadListOffset == 0 && response.hasMore == false {
-            let keepThreads = threads.filter { $0.conversationId == nil || $0.isPrivate }
-            for thread in threads where thread.conversationId != nil && !thread.isPrivate {
-                viewModels.removeValue(forKey: thread.id)
+        // not wipe the cache — the user should keep seeing cached conversations.
+        if filteredConversations.isEmpty && conversationListOffset == 0 && response.hasMore == false {
+            let keepConversations = conversations.filter { $0.conversationId == nil || $0.isPrivate }
+            for conversation in conversations where conversation.conversationId != nil && !conversation.isPrivate {
+                viewModels.removeValue(forKey: conversation.id)
             }
-            threads = keepThreads.isEmpty ? [IOSThread()] : keepThreads
-            isLoadingInitialThreads = false
-            isLoadingMoreThreads = false
-            hasMoreThreads = response.hasMore ?? false
+            conversations = keepConversations.isEmpty ? [IOSConversation()] : keepConversations
+            isLoadingInitialConversations = false
+            isLoadingMoreConversations = false
+            hasMoreConversations = response.hasMore ?? false
             clearConnectedCache()
             locallyEditedConversationIds.removeAll()
             locallyEditedPinConversationIds.removeAll()
@@ -470,68 +470,68 @@ class IOSThreadStore: ObservableObject {
 
         guard !filteredConversations.isEmpty else {
             // Empty non-first page means nothing more to append.
-            isLoadingMoreThreads = false
-            isLoadingInitialThreads = false
-            hasMoreThreads = response.hasMore ?? false
+            isLoadingMoreConversations = false
+            isLoadingInitialConversations = false
+            hasMoreConversations = response.hasMore ?? false
             return
         }
 
-        hasMoreThreads = response.hasMore ?? false
-        isLoadingMoreThreads = false
-        isLoadingInitialThreads = false
+        hasMoreConversations = response.hasMore ?? false
+        isLoadingMoreConversations = false
+        isLoadingInitialConversations = false
 
-        var restoredThreads: [IOSThread] = []
+        var restoredConversations: [IOSConversation] = []
         for session in filteredConversations {
             let effectiveCreatedAt = session.createdAt ?? session.updatedAt
-            var thread = IOSThread(
+            var conversation = IOSConversation(
                 title: session.title,
                 createdAt: Date(timeIntervalSince1970: TimeInterval(effectiveCreatedAt) / 1000.0),
                 lastActivityAt: Date(timeIntervalSince1970: TimeInterval(session.updatedAt) / 1000.0),
                 conversationId: session.id,
                 scheduleJobId: session.scheduleJobId
             )
-            applyConversationMetadata(session, to: &thread)
+            applyConversationMetadata(session, to: &conversation)
             let vm = ChatViewModel(daemonClient: daemonClient)
             vm.conversationId = session.id
-            viewModels[thread.id] = vm
-            restoredThreads.append(thread)
+            viewModels[conversation.id] = vm
+            restoredConversations.append(conversation)
         }
 
         // First page: three-case merge logic.
-        if threadListOffset == 0 {
-            let isSinglePlaceholder = threads.count == 1
-                && threads[0].conversationId == nil
-                && viewModels[threads[0].id]?.messages.isEmpty ?? true
-                && viewModels[threads[0].id]?.conversationId == nil
+        if conversationListOffset == 0 {
+            let isSinglePlaceholder = conversations.count == 1
+                && conversations[0].conversationId == nil
+                && viewModels[conversations[0].id]?.messages.isEmpty ?? true
+                && viewModels[conversations[0].id]?.conversationId == nil
 
-            // All non-private threads are cached (have conversationId, no VM created yet).
-            let allAreCached = !threads.isEmpty
-                && threads.filter({ !$0.isPrivate }).allSatisfy {
+            // All non-private conversations are cached (have conversationId, no VM created yet).
+            let allAreCached = !conversations.isEmpty
+                && conversations.filter({ !$0.isPrivate }).allSatisfy {
                     $0.conversationId != nil && viewModels[$0.id] == nil
                 }
 
-            if isSinglePlaceholder, let defaultThread = threads.first {
+            if isSinglePlaceholder, let defaultConversation = conversations.first {
                 // Case 1: Single empty placeholder — replace entirely.
-                viewModels.removeValue(forKey: defaultThread.id)
-                threads = restoredThreads
+                viewModels.removeValue(forKey: defaultConversation.id)
+                conversations = restoredConversations
             } else if allAreCached {
-                // Case 2: All threads are from cache (no VMs, no user interaction).
-                // Replace with daemon data, preserving local overrides and private threads.
-                let privateThreads = threads.filter { $0.isPrivate }
+                // Case 2: All conversations are from cache (no VMs, no user interaction).
+                // Replace with daemon data, preserving local overrides and private conversations.
+                let privateConversations = conversations.filter { $0.isPrivate }
 
-                var localOverrides: [String: IOSThread] = [:]
-                for thread in threads {
-                    if let sid = thread.conversationId, locallyEditedConversationIds.contains(sid) {
-                        localOverrides[sid] = thread
+                var localOverrides: [String: IOSConversation] = [:]
+                for conversation in conversations {
+                    if let sid = conversation.conversationId, locallyEditedConversationIds.contains(sid) {
+                        localOverrides[sid] = conversation
                     }
                 }
 
-                var merged: [IOSThread] = []
-                for var restored in restoredThreads {
+                var merged: [IOSConversation] = []
+                for var restored in restoredConversations {
                     if let local = localOverrides[restored.conversationId ?? ""] {
                         let sid = restored.conversationId ?? ""
                         let useLocalPin = locallyEditedPinConversationIds.contains(sid)
-                        restored = IOSThread(
+                        restored = IOSConversation(
                             id: restored.id,
                             title: local.title,
                             createdAt: restored.createdAt,
@@ -550,87 +550,87 @@ class IOSThreadStore: ObservableObject {
                     merged.append(restored)
                 }
 
-                threads = merged + privateThreads
+                conversations = merged + privateConversations
                 locallyEditedConversationIds.removeAll()
                 locallyEditedPinConversationIds.removeAll()
             } else {
-                // Case 3: User is active (VMs exist or local threads present).
+                // Case 3: User is active (VMs exist or local conversations present).
                 // Do not clear locallyEditedConversationIds — title/archive edits persist until
                 // rebind (which resets all local-edit tracking).
-                // Deduplicate: only prepend restored threads whose sessionId
-                // doesn't already exist in the current thread list.
+                // Deduplicate: only prepend restored conversations whose sessionId
+                // doesn't already exist in the current conversation list.
                 let existingConversationIds: Set<String> = Set(
-                    threads.compactMap { thread -> String? in
-                        if let sid = thread.conversationId { return sid }
-                        return viewModels[thread.id]?.conversationId
+                    conversations.compactMap { conversation -> String? in
+                        if let sid = conversation.conversationId { return sid }
+                        return viewModels[conversation.id]?.conversationId
                     }
                 )
-                var newThreads: [IOSThread] = []
-                for restored in restoredThreads {
+                var newConversations: [IOSConversation] = []
+                for restored in restoredConversations {
                     if let sid = restored.conversationId, existingConversationIds.contains(sid) {
-                        if let existingIndex = existingThreadIndex(forConversationId: sid) {
-                            var mergedThread = threads[existingIndex]
-                            mergeThreadMetadata(from: restored, into: &mergedThread)
-                            threads[existingIndex] = mergedThread
+                        if let existingIndex = existingConversationIndex(forConversationId: sid) {
+                            var mergedConversation = conversations[existingIndex]
+                            mergeConversationMetadata(from: restored, into: &mergedConversation)
+                            conversations[existingIndex] = mergedConversation
                         }
                         viewModels.removeValue(forKey: restored.id)
                     } else {
-                        var mergedThread = restored
-                        applyPendingAttentionOverride(to: &mergedThread)
-                        newThreads.append(mergedThread)
+                        var mergedConversation = restored
+                        applyPendingAttentionOverride(to: &mergedConversation)
+                        newConversations.append(mergedConversation)
                     }
                 }
-                threads = newThreads + threads
+                conversations = newConversations + conversations
             }
             saveConnectedCache()
         } else {
             // Subsequent pages: append only sessions not already in the list.
-            let existingConversationIds: Set<String> = Set(threads.compactMap { thread -> String? in
-                if let sid = thread.conversationId { return sid }
-                return viewModels[thread.id]?.conversationId
+            let existingConversationIds: Set<String> = Set(conversations.compactMap { conversation -> String? in
+                if let sid = conversation.conversationId { return sid }
+                return viewModels[conversation.id]?.conversationId
             })
-            for restored in restoredThreads {
+            for restored in restoredConversations {
                 if let sid = restored.conversationId, existingConversationIds.contains(sid) {
-                    if let existingIndex = existingThreadIndex(forConversationId: sid) {
-                        var mergedThread = threads[existingIndex]
-                        mergeThreadMetadata(from: restored, into: &mergedThread)
-                        threads[existingIndex] = mergedThread
+                    if let existingIndex = existingConversationIndex(forConversationId: sid) {
+                        var mergedConversation = conversations[existingIndex]
+                        mergeConversationMetadata(from: restored, into: &mergedConversation)
+                        conversations[existingIndex] = mergedConversation
                     }
                     viewModels.removeValue(forKey: restored.id)
                 } else {
-                    var mergedThread = restored
-                    applyPendingAttentionOverride(to: &mergedThread)
-                    threads.append(mergedThread)
+                    var mergedConversation = restored
+                    applyPendingAttentionOverride(to: &mergedConversation)
+                    conversations.append(mergedConversation)
                 }
             }
             saveConnectedCache()
         }
     }
 
-    /// Load the next page of threads from the daemon (Connected mode only).
-    func loadMoreThreads() {
+    /// Load the next page of conversations from the daemon (Connected mode only).
+    func loadMoreConversations() {
         guard isConnectedMode,
               let daemon = daemonClient as? DaemonClient,
-              !isLoadingMoreThreads,
-              hasMoreThreads else { return }
-        isLoadingMoreThreads = true
-        let nextOffset = threadListOffset + Self.threadPageSize
-        threadListOffset = nextOffset
+              !isLoadingMoreConversations,
+              hasMoreConversations else { return }
+        isLoadingMoreConversations = true
+        let nextOffset = conversationListOffset + Self.conversationPageSize
+        conversationListOffset = nextOffset
         // Do not touch conversationListGeneration or expectedConversationListGeneration here.
         // The generation counter tracks reconnect boundaries only; within a single
         // connection all responses are accepted (the daemon doesn't echo request IDs).
         do {
-            try daemon.sendConversationList(offset: nextOffset, limit: Self.threadPageSize)
+            try daemon.sendConversationList(offset: nextOffset, limit: Self.conversationPageSize)
         } catch {
             // Request failed before being sent — roll back pagination state.
-            isLoadingMoreThreads = false
-            threadListOffset -= Self.threadPageSize
+            isLoadingMoreConversations = false
+            conversationListOffset -= Self.conversationPageSize
         }
     }
 
     private func handleHistoryResponse(_ response: HistoryResponse) {
-        guard let threadId = pendingHistoryByConversationId.removeValue(forKey: response.sessionId) else { return }
-        guard let vm = viewModels[threadId] else { return }
+        guard let conversationLocalId = pendingHistoryByConversationId.removeValue(forKey: response.sessionId) else { return }
+        guard let vm = viewModels[conversationLocalId] else { return }
 
         let isPaginationLoad = vm.isHistoryLoaded && vm.isLoadingMoreMessages
 
@@ -667,15 +667,15 @@ class IOSThreadStore: ObservableObject {
         }
     }
 
-    /// Load history for a daemon-backed thread when first selected.
-    func loadHistoryIfNeeded(for threadId: UUID) {
-        guard let thread = threads.first(where: { $0.id == threadId }),
-              let conversationId = thread.conversationId,
+    /// Load history for a daemon-backed conversation when first selected.
+    func loadHistoryIfNeeded(for conversationLocalId: UUID) {
+        guard let conversation = conversations.first(where: { $0.id == conversationLocalId }),
+              let conversationId = conversation.conversationId,
               let daemon = daemonClient as? DaemonClient,
-              let vm = viewModels[threadId],
+              let vm = viewModels[conversationLocalId],
               !vm.isHistoryLoaded else { return }
 
-        pendingHistoryByConversationId[sessionId] = threadId
+        pendingHistoryByConversationId[conversationId] = conversationLocalId
 
         // Wire up the "load more" callback for pagination.
         vm.onLoadMoreHistory = { [weak self] conversationId, beforeTimestamp in
@@ -686,16 +686,16 @@ class IOSThreadStore: ObservableObject {
     }
 
     /// Mark a connected conversation as seen when the user explicitly opens it.
-    /// If the thread has a pending .unread override (user chose "Mark as unread"),
-    /// only an explicit open (e.g. tapping/selecting the thread) clears that
+    /// If the conversation has a pending .unread override (user chose "Mark as unread"),
+    /// only an explicit open (e.g. tapping/selecting the conversation) clears that
     /// override — passive onChange callbacks leave it intact so the user's
     /// "mark as unread" action isn't immediately undone.
     func markConversationSeenIfNeeded(threadId: UUID, isExplicitOpen: Bool = false) {
         guard isConnectedMode,
-              let idx = threads.firstIndex(where: { $0.id == threadId }),
-              let conversationId = threads[idx].conversationId,
-              threads[idx].hasUnseenLatestAssistantMessage else { return }
-        if case .unread = pendingAttentionOverrides[sessionId] {
+              let idx = conversations.firstIndex(where: { $0.id == threadId }),
+              let conversationId = conversations[idx].conversationId,
+              conversations[idx].hasUnseenLatestAssistantMessage else { return }
+        if case .unread = pendingAttentionOverrides[conversationId] {
             if isExplicitOpen {
                 pendingAttentionOverrides.removeValue(forKey: conversationId)
             } else {
@@ -703,11 +703,11 @@ class IOSThreadStore: ObservableObject {
             }
         }
 
-        pendingAttentionOverrides[sessionId] = .seen(
-            latestAssistantMessageAt: threads[idx].latestAssistantMessageAt
+        pendingAttentionOverrides[conversationId] = .seen(
+            latestAssistantMessageAt: conversations[idx].latestAssistantMessageAt
         )
-        threads[idx].hasUnseenLatestAssistantMessage = false
-        threads[idx].lastSeenAssistantMessageAt = threads[idx].latestAssistantMessageAt
+        conversations[idx].hasUnseenLatestAssistantMessage = false
+        conversations[idx].lastSeenAssistantMessageAt = conversations[idx].latestAssistantMessageAt
         saveConnectedCache()
 
         let signal = ConversationSeenSignal(
@@ -724,68 +724,68 @@ class IOSThreadStore: ObservableObject {
     /// Request an older page of history for pagination.
     private func requestPaginatedHistory(conversationId: String, beforeTimestamp: Double) {
         guard let daemon = daemonClient as? DaemonClient,
-              let thread = threads.first(where: { $0.conversationId == sessionId }) else {
+              let conversation = conversations.first(where: { $0.conversationId == conversationId }) else {
             // Clear loading state so the user isn't stuck with a permanent spinner.
-            // The daemon cast may fail (e.g. HTTP transport) while the thread is still findable.
-            if let thread = threads.first(where: { $0.conversationId == sessionId }),
-               let vm = viewModels[thread.id] {
+            // The daemon cast may fail (e.g. HTTP transport) while the conversation is still findable.
+            if let conversation = conversations.first(where: { $0.conversationId == conversationId }),
+               let vm = viewModels[conversation.id] {
                 vm.isLoadingMoreMessages = false
             }
             return
         }
-        pendingHistoryByConversationId[sessionId] = thread.id
+        pendingHistoryByConversationId[conversationId] = conversation.id
         do {
             try daemon.sendHistoryRequest(conversationId: conversationId, limit: 50, beforeTimestamp: beforeTimestamp, mode: "light", maxToolResultChars: 1000)
         } catch {
             pendingHistoryByConversationId.removeValue(forKey: conversationId)
-            if let vm = viewModels[thread.id] {
+            if let vm = viewModels[conversation.id] {
                 vm.isLoadingMoreMessages = false
             }
         }
     }
 
-    /// Return the ChatViewModel for the given thread, creating it if necessary.
-    func viewModel(for threadId: UUID) -> ChatViewModel {
-        if let existing = viewModels[threadId] {
-            wireReconnectCallback(vm: existing, threadId: threadId)
-            observeForActivityTracking(vm: existing, threadId: threadId)
+    /// Return the ChatViewModel for the given conversation, creating it if necessary.
+    func viewModel(for conversationLocalId: UUID) -> ChatViewModel {
+        if let existing = viewModels[conversationLocalId] {
+            wireReconnectCallback(vm: existing, conversationLocalId: conversationLocalId)
+            observeForActivityTracking(vm: existing, conversationLocalId: conversationLocalId)
             return existing
         }
         let vm = ChatViewModel(daemonClient: daemonClient)
-        viewModels[threadId] = vm
+        viewModels[conversationLocalId] = vm
 
-        // Copy sessionId from the thread so the VM joins the existing
+        // Copy conversationId from the conversation so the VM joins the existing
         // daemon session instead of bootstrapping a new one.
-        if let thread = threads.first(where: { $0.id == threadId }) {
-            vm.conversationId = thread.conversationId
+        if let conversation = conversations.first(where: { $0.id == conversationLocalId }) {
+            vm.conversationId = conversation.conversationId
         }
 
-        wireReconnectCallback(vm: vm, threadId: threadId)
+        wireReconnectCallback(vm: vm, conversationLocalId: conversationLocalId)
 
-        // Only auto-title threads without a daemon session (new local threads).
-        // Daemon threads already have titles from the session list.
-        if threads.first(where: { $0.id == threadId })?.conversationId == nil {
-            observeForTitleGeneration(vm: vm, threadId: threadId)
+        // Only auto-title conversations without a daemon session (new local conversations).
+        // Daemon conversations already have titles from the session list.
+        if conversations.first(where: { $0.id == conversationLocalId })?.conversationId == nil {
+            observeForTitleGeneration(vm: vm, conversationLocalId: conversationLocalId)
         }
-        observeForActivityTracking(vm: vm, threadId: threadId)
+        observeForActivityTracking(vm: vm, conversationLocalId: conversationLocalId)
         return vm
     }
 
     /// Wire the reconnect history callback so the store registers in
     /// pendingHistoryByConversationId and the response is properly routed back.
-    private func wireReconnectCallback(vm: ChatViewModel, threadId: UUID) {
+    private func wireReconnectCallback(vm: ChatViewModel, conversationLocalId: UUID) {
         guard vm.onReconnectHistoryNeeded == nil else { return }
         vm.onReconnectHistoryNeeded = { [weak self, weak vm] sessionId in
             guard let self, let _ = vm, let daemon = self.daemonClient as? DaemonClient else { return }
-            self.pendingHistoryByConversationId[sessionId] = threadId
-            try? daemon.sendHistoryRequest(conversationId: conversationId, limit: 50, mode: "light", maxToolResultChars: 1000)
+            self.pendingHistoryByConversationId[sessionId] = conversationLocalId
+            try? daemon.sendHistoryRequest(conversationId: sessionId, limit: 50, mode: "light", maxToolResultChars: 1000)
         }
     }
 
-    /// Watch for the first completed assistant reply to auto-title the thread.
-    private func observeForTitleGeneration(vm: ChatViewModel, threadId: UUID) {
-        // Find the thread's default title; skip if already customized.
-        guard threads.first(where: { $0.id == threadId })?.title == "New Chat" else { return }
+    /// Watch for the first completed assistant reply to auto-title the conversation.
+    private func observeForTitleGeneration(vm: ChatViewModel, conversationLocalId: UUID) {
+        // Find the conversation's default title; skip if already customized.
+        guard conversations.first(where: { $0.id == conversationLocalId })?.title == "New Chat" else { return }
 
         vm.messageManager.$messages
             .dropFirst()
@@ -804,11 +804,11 @@ class IOSThreadStore: ObservableObject {
                 guard let self else { return }
                 Task {
                     if let title = await TitleGenerator.shared.generateTitle(
-                        for: threadId,
+                        for: conversationLocalId,
                         firstUserMessage: firstUserMessage
                     ) {
                         await MainActor.run {
-                            self.updateTitle(title, for: threadId)
+                            self.updateTitle(title, for: conversationLocalId)
                         }
                     }
                 }
@@ -818,10 +818,10 @@ class IOSThreadStore: ObservableObject {
 
     /// Update lastActivityAt whenever the message count changes (not on every streaming delta).
     /// Skips updates while the VM is loading history so that hydrating old messages
-    /// doesn't stamp the thread as recently active.
-    private func observeForActivityTracking(vm: ChatViewModel, threadId: UUID) {
-        guard !observedActivityThreadIds.contains(threadId) else { return }
-        observedActivityThreadIds.insert(threadId)
+    /// doesn't stamp the conversation as recently active.
+    private func observeForActivityTracking(vm: ChatViewModel, conversationLocalId: UUID) {
+        guard !observedActivityConversationIds.contains(conversationLocalId) else { return }
+        observedActivityConversationIds.insert(conversationLocalId)
 
         vm.messageManager.$messages
             .dropFirst()
@@ -829,84 +829,84 @@ class IOSThreadStore: ObservableObject {
             .removeDuplicates()
             .sink { [weak self, weak vm] _ in
                 guard let vm, !vm.isLoadingHistory else { return }
-                self?.touchLastActivity(for: threadId)
+                self?.touchLastActivity(for: conversationLocalId)
             }
             .store(in: &cancellables)
     }
 
-    /// Private threads are excluded from the session list response filter, so they
-    /// won't appear in the normal active thread list.
-    var privateThreads: [IOSThread] {
-        threads.filter { $0.isPrivate }
+    /// Private conversations are excluded from the session list response filter, so they
+    /// won't appear in the normal active conversation list.
+    var privateConversations: [IOSConversation] {
+        conversations.filter { $0.isPrivate }
     }
 
     @discardableResult
-    func newThread() -> IOSThread {
-        let thread = IOSThread()
-        threads.append(thread)
+    func newConversation() -> IOSConversation {
+        let conversation = IOSConversation()
+        conversations.append(conversation)
         save()
-        return thread
+        return conversation
     }
 
-    /// Create a new private thread with the given name. The thread is immediately
+    /// Create a new private conversation with the given name. The conversation is immediately
     /// backed by a daemon session with conversationType "private" so it is persisted on
     /// the daemon side and excluded from normal conversation restoration.
     @discardableResult
-    func newPrivateThread(name: String = "Private Thread") -> IOSThread {
-        let thread = IOSThread(title: name, isPrivate: true)
-        threads.append(thread)
+    func newPrivateConversation(name: String = "Private Conversation") -> IOSConversation {
+        let conversation = IOSConversation(title: name, isPrivate: true)
+        conversations.append(conversation)
         // Get or create the view model after appending so activity tracking
-        // can find the thread in self.threads.
-        let vm = viewModel(for: thread.id)
+        // can find the conversation in self.conversations.
+        let vm = viewModel(for: conversation.id)
         vm.createConversationIfNeeded(conversationType: "private")
         save()
-        return thread
+        return conversation
     }
 
-    func deleteThread(_ thread: IOSThread) {
-        viewModels.removeValue(forKey: thread.id)
-        if let sid = thread.conversationId {
+    func deleteConversation(_ conversation: IOSConversation) {
+        viewModels.removeValue(forKey: conversation.id)
+        if let sid = conversation.conversationId {
             locallyEditedConversationIds.remove(sid)
             locallyEditedPinConversationIds.remove(sid)
             pendingAttentionOverrides.removeValue(forKey: sid)
         }
-        threads.removeAll { $0.id == thread.id }
-        // Always keep at least one active (non-archived) non-private thread.
-        // Private threads are managed separately and should not prevent the
-        // regular thread list from being empty.
-        if threads.filter({ !$0.isArchived && !$0.isPrivate }).isEmpty {
-            newThread()
+        conversations.removeAll { $0.id == conversation.id }
+        // Always keep at least one active (non-archived) non-private conversation.
+        // Private conversations are managed separately and should not prevent the
+        // regular conversation list from being empty.
+        if conversations.filter({ !$0.isArchived && !$0.isPrivate }).isEmpty {
+            newConversation()
         } else {
             save()
         }
         saveConnectedCache()
     }
 
-    func updateTitle(_ title: String, for threadId: UUID) {
-        guard let idx = threads.firstIndex(where: { $0.id == threadId }) else { return }
-        threads[idx].title = title
-        if let sid = threads[idx].conversationId { locallyEditedConversationIds.insert(sid) }
+    func updateTitle(_ title: String, for conversationLocalId: UUID) {
+        guard let idx = conversations.firstIndex(where: { $0.id == conversationLocalId }) else { return }
+        conversations[idx].title = title
+        if let sid = conversations[idx].conversationId { locallyEditedConversationIds.insert(sid) }
         save()
         saveConnectedCache()
     }
 
-    func archiveThread(_ thread: IOSThread) {
-        guard let idx = threads.firstIndex(where: { $0.id == thread.id }) else { return }
-        threads[idx].isArchived = true
-        if let sid = threads[idx].conversationId { locallyEditedConversationIds.insert(sid) }
+    func archiveConversation(_ conversation: IOSConversation) {
+        guard let idx = conversations.firstIndex(where: { $0.id == conversation.id }) else { return }
+        conversations[idx].isArchived = true
+        if let sid = conversations[idx].conversationId { locallyEditedConversationIds.insert(sid) }
         save()
         saveConnectedCache()
     }
 
-    func pinThread(_ thread: IOSThread) {
+    func pinConversation(_ conversation: IOSConversation) {
         guard isConnectedMode,
-              let idx = threads.firstIndex(where: { $0.id == thread.id }),
-              threads[idx].conversationId != nil,
-              !threads[idx].isPinned else { return }
+              let idx = conversations.firstIndex(where: { $0.id == conversation.id }),
+              conversations[idx].conversationId != nil,
+              !conversations[idx].isPinned else { return }
 
-        threads[idx].isPinned = true
-        threads[idx].displayOrder = Int.max
-        if let sid = threads[idx].conversationId {
+        conversations[idx].isPinned = true
+        conversations[idx].displayOrder = Int.max
+        if let sid = conversations[idx].conversationId {
             locallyEditedConversationIds.insert(sid)
             locallyEditedPinConversationIds.insert(sid)
         }
@@ -915,15 +915,15 @@ class IOSThreadStore: ObservableObject {
         saveConnectedCache()
     }
 
-    func unpinThread(_ thread: IOSThread) {
+    func unpinConversation(_ conversation: IOSConversation) {
         guard isConnectedMode,
-              let idx = threads.firstIndex(where: { $0.id == thread.id }),
-              threads[idx].conversationId != nil,
-              threads[idx].isPinned else { return }
+              let idx = conversations.firstIndex(where: { $0.id == conversation.id }),
+              conversations[idx].conversationId != nil,
+              conversations[idx].isPinned else { return }
 
-        threads[idx].isPinned = false
-        threads[idx].displayOrder = nil
-        if let sid = threads[idx].conversationId {
+        conversations[idx].isPinned = false
+        conversations[idx].displayOrder = nil
+        if let sid = conversations[idx].conversationId {
             locallyEditedConversationIds.insert(sid)
             locallyEditedPinConversationIds.insert(sid)
         }
@@ -932,26 +932,26 @@ class IOSThreadStore: ObservableObject {
         saveConnectedCache()
     }
 
-    func markThreadUnread(_ thread: IOSThread) {
+    func markConversationUnread(_ conversation: IOSConversation) {
         guard isConnectedMode,
-              let idx = threads.firstIndex(where: { $0.id == thread.id }),
-              let conversationId = threads[idx].conversationId,
-              canMarkThreadUnread(at: idx) else { return }
+              let idx = conversations.firstIndex(where: { $0.id == conversation.id }),
+              let conversationId = conversations[idx].conversationId,
+              canMarkConversationUnread(at: idx) else { return }
 
         let latestAssistantMessageAt =
-            threads[idx].latestAssistantMessageAt
-            ?? latestLoadedAssistantMessageTimestamp(for: threads[idx].id)
+            conversations[idx].latestAssistantMessageAt
+            ?? latestLoadedAssistantMessageTimestamp(for: conversations[idx].id)
         guard let latestAssistantMessageAt else { return }
 
-        let previousLastSeenAssistantMessageAt = threads[idx].lastSeenAssistantMessageAt
-        let previousOverride = pendingAttentionOverrides[sessionId]
+        let previousLastSeenAssistantMessageAt = conversations[idx].lastSeenAssistantMessageAt
+        let previousOverride = pendingAttentionOverrides[conversationId]
 
-        pendingAttentionOverrides[sessionId] = .unread(
+        pendingAttentionOverrides[conversationId] = .unread(
             latestAssistantMessageAt: latestAssistantMessageAt
         )
-        threads[idx].latestAssistantMessageAt = latestAssistantMessageAt
-        threads[idx].hasUnseenLatestAssistantMessage = true
-        threads[idx].lastSeenAssistantMessageAt = nil
+        conversations[idx].latestAssistantMessageAt = latestAssistantMessageAt
+        conversations[idx].hasUnseenLatestAssistantMessage = true
+        conversations[idx].lastSeenAssistantMessageAt = nil
         saveConnectedCache()
 
         let signal = ConversationUnreadSignal(
@@ -968,7 +968,7 @@ class IOSThreadStore: ObservableObject {
                 try await self.daemonClient.sendConversationUnread(signal)
             } catch {
                 self.rollbackUnreadMutationIfNeeded(
-                    threadId: thread.id,
+                    conversationLocalId: conversation.id,
                     conversationId: conversationId,
                     latestAssistantMessageAt: latestAssistantMessageAt,
                     previousLastSeenAssistantMessageAt: previousLastSeenAssistantMessageAt,
@@ -978,46 +978,46 @@ class IOSThreadStore: ObservableObject {
         }
     }
 
-    func unarchiveThread(_ thread: IOSThread) {
-        guard let idx = threads.firstIndex(where: { $0.id == thread.id }) else { return }
-        threads[idx].isArchived = false
-        if let sid = threads[idx].conversationId { locallyEditedConversationIds.insert(sid) }
+    func unarchiveConversation(_ conversation: IOSConversation) {
+        guard let idx = conversations.firstIndex(where: { $0.id == conversation.id }) else { return }
+        conversations[idx].isArchived = false
+        if let sid = conversations[idx].conversationId { locallyEditedConversationIds.insert(sid) }
         save()
         saveConnectedCache()
     }
 
-    /// Update lastActivityAt to now for the given thread.
-    func touchLastActivity(for threadId: UUID) {
-        guard let idx = threads.firstIndex(where: { $0.id == threadId }) else { return }
-        threads[idx].lastActivityAt = Date()
+    /// Update lastActivityAt to now for the given conversation.
+    func touchLastActivity(for conversationLocalId: UUID) {
+        guard let idx = conversations.firstIndex(where: { $0.id == conversationLocalId }) else { return }
+        conversations[idx].lastActivityAt = Date()
         save()
     }
 
     private func rollbackUnreadMutationIfNeeded(
-        threadId: UUID,
+        conversationLocalId: UUID,
         conversationId: String,
         latestAssistantMessageAt: Date,
         previousLastSeenAssistantMessageAt: Date?,
         previousOverride: PendingAttentionOverride?
     ) {
-        guard let idx = threads.firstIndex(where: { $0.id == threadId }),
-              threads[idx].conversationId == conversationId,
-              case .unread(let pendingLatestAssistantMessageAt) = pendingAttentionOverrides[sessionId],
+        guard let idx = conversations.firstIndex(where: { $0.id == conversationLocalId }),
+              conversations[idx].conversationId == conversationId,
+              case .unread(let pendingLatestAssistantMessageAt) = pendingAttentionOverrides[conversationId],
               pendingLatestAssistantMessageAt == latestAssistantMessageAt else { return }
 
         if let previousOverride {
-            pendingAttentionOverrides[sessionId] = previousOverride
+            pendingAttentionOverrides[conversationId] = previousOverride
         } else {
             pendingAttentionOverrides.removeValue(forKey: conversationId)
         }
-        threads[idx].hasUnseenLatestAssistantMessage = false
-        threads[idx].lastSeenAssistantMessageAt = previousLastSeenAssistantMessageAt
+        conversations[idx].hasUnseenLatestAssistantMessage = false
+        conversations[idx].lastSeenAssistantMessageAt = previousLastSeenAssistantMessageAt
         saveConnectedCache()
     }
 
-    /// Returns the last message text for a thread, if available.
-    func lastMessagePreview(for threadId: UUID) -> String? {
-        guard let vm = viewModels[threadId],
+    /// Returns the last message text for a conversation, if available.
+    func lastMessagePreview(for conversationLocalId: UUID) -> String? {
+        guard let vm = viewModels[conversationLocalId],
               let last = vm.messages.last else { return nil }
         let text = last.text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else { return nil }
@@ -1025,25 +1025,25 @@ class IOSThreadStore: ObservableObject {
     }
 
     private func recompactPinnedDisplayOrders() {
-        let pinned = threads.enumerated()
+        let pinned = conversations.enumerated()
             .filter { $0.element.isPinned }
             .sorted { ($0.element.displayOrder ?? Int.max) < ($1.element.displayOrder ?? Int.max) }
 
         for (order, item) in pinned.enumerated() {
-            threads[item.offset].displayOrder = order
+            conversations[item.offset].displayOrder = order
         }
     }
 
     private func sendReorderConversations() {
-        let updates = threads.compactMap { thread -> ReorderConversationsRequestUpdate? in
-            guard let conversationId = thread.conversationId, !thread.isArchived, !thread.isPrivate else {
+        let updates = conversations.compactMap { conversation -> ReorderConversationsRequestUpdate? in
+            guard let conversationId = conversation.conversationId, !conversation.isArchived, !conversation.isPrivate else {
                 return nil
             }
 
             return ReorderConversationsRequestUpdate(
                 conversationId: conversationId,
-                displayOrder: thread.displayOrder.map(Double.init),
-                isPinned: thread.isPinned
+                displayOrder: conversation.displayOrder.map(Double.init),
+                isPinned: conversation.isPinned
             )
         }
         guard !updates.isEmpty else { return }
@@ -1062,13 +1062,13 @@ class IOSThreadStore: ObservableObject {
 
     private func saveConnectedCache() {
         guard isConnectedMode else { return }
-        let cacheable = threads.filter { $0.conversationId != nil && !$0.isPrivate }
+        let cacheable = conversations.filter { $0.conversationId != nil && !$0.isPrivate }
         guard !cacheable.isEmpty else {
             UserDefaults.standard.removeObject(forKey: Self.connectedCacheKey)
             return
         }
         let persisted = cacheable.map {
-            PersistedThread(
+            PersistedConversation(
                 id: $0.id,
                 title: $0.title,
                 createdAt: $0.createdAt,
@@ -1089,14 +1089,14 @@ class IOSThreadStore: ObservableObject {
         }
     }
 
-    private static func loadConnectedCache() -> [IOSThread] {
+    private static func loadConnectedCache() -> [IOSConversation] {
         guard let data = UserDefaults.standard.data(forKey: connectedCacheKey),
-              let persisted = try? JSONDecoder().decode([PersistedThread].self, from: data) else {
+              let persisted = try? JSONDecoder().decode([PersistedConversation].self, from: data) else {
             return []
         }
         return persisted.compactMap { p in
             guard p.conversationId != nil, !(p.isPrivate ?? false) else { return nil }
-            return IOSThread(
+            return IOSConversation(
                 id: p.id,
                 title: p.title,
                 createdAt: p.createdAt,
@@ -1119,20 +1119,20 @@ class IOSThreadStore: ObservableObject {
     }
 
     private func save() {
-        // Don't persist daemon-synced threads — they're loaded on connect.
+        // Don't persist daemon-synced conversations — they're loaded on connect.
         guard !isConnectedMode else { return }
-        let persisted = threads.map { PersistedThread(id: $0.id, title: $0.title, createdAt: $0.createdAt, lastActivityAt: $0.lastActivityAt, isArchived: $0.isArchived, isPrivate: $0.isPrivate, conversationId: $0.conversationId, scheduleJobId: $0.scheduleJobId) }
+        let persisted = conversations.map { PersistedConversation(id: $0.id, title: $0.title, createdAt: $0.createdAt, lastActivityAt: $0.lastActivityAt, isArchived: $0.isArchived, isPrivate: $0.isPrivate, conversationId: $0.conversationId, scheduleJobId: $0.scheduleJobId) }
         if let data = try? JSONEncoder().encode(persisted) {
             UserDefaults.standard.set(data, forKey: Self.persistenceKey)
         }
     }
 
-    private static func load() -> [IOSThread] {
+    private static func load() -> [IOSConversation] {
         guard let data = UserDefaults.standard.data(forKey: persistenceKey),
-              let persisted = try? JSONDecoder().decode([PersistedThread].self, from: data) else {
+              let persisted = try? JSONDecoder().decode([PersistedConversation].self, from: data) else {
             return []
         }
-        return persisted.map { IOSThread(id: $0.id, title: $0.title, createdAt: $0.createdAt, lastActivityAt: $0.lastActivityAt, conversationId: $0.conversationId, isArchived: $0.isArchived ?? false, isPrivate: $0.isPrivate ?? false, scheduleJobId: $0.scheduleJobId) }
+        return persisted.map { IOSConversation(id: $0.id, title: $0.title, createdAt: $0.createdAt, lastActivityAt: $0.lastActivityAt, conversationId: $0.conversationId, isArchived: $0.isArchived ?? false, isPrivate: $0.isPrivate ?? false, scheduleJobId: $0.scheduleJobId) }
     }
 }
 #endif
