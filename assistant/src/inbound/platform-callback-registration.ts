@@ -24,18 +24,26 @@ import {
   getPlatformInternalApiKey,
 } from "../config/env.js";
 import { getIsContainerized } from "../config/env-registry.js";
+import { isManagedProxyEnabledSync } from "../providers/managed-proxy/context.js";
 import { getLogger } from "../util/logger.js";
 
 const log = getLogger("platform-callback-registration");
 
 /**
- * Whether this is a platform-managed deployment.
- * True when PLATFORM_BASE_URL and PLATFORM_ASSISTANT_ID are both set,
- * regardless of containerization. Use this to gate behaviour that depends
- * on platform-managed credentials and OAuth flows.
+ * Whether this is a platform-managed deployment with usable managed credentials.
+ *
+ * True when PLATFORM_BASE_URL and PLATFORM_ASSISTANT_ID are both set **and**
+ * the managed proxy prerequisites (including the assistant API key) were
+ * satisfied the last time `resolveManagedProxyContext()` ran. This prevents
+ * the system prompt from claiming managed credentials are available during
+ * partial/failed platform bootstrap where the API key is missing.
  */
 export function isPlatformManaged(): boolean {
-  return !!getPlatformBaseUrl() && !!getPlatformAssistantId();
+  return (
+    !!getPlatformBaseUrl() &&
+    !!getPlatformAssistantId() &&
+    isManagedProxyEnabledSync()
+  );
 }
 
 /**
