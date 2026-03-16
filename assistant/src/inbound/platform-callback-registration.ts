@@ -49,10 +49,16 @@ export function isPlatformManaged(): boolean {
 /**
  * Whether the daemon should register callback routes with the platform.
  * True when IS_CONTAINERIZED, PLATFORM_BASE_URL, and PLATFORM_ASSISTANT_ID
- * are all set.
+ * are all set. Intentionally does **not** require the managed proxy API key
+ * so that callback-only flows (OAuth transport, Telegram/Twilio callback
+ * registration) work during partial bootstrap before the key is injected.
  */
 export function shouldUsePlatformCallbacks(): boolean {
-  return getIsContainerized() && isPlatformManaged();
+  return (
+    getIsContainerized() &&
+    !!getPlatformBaseUrl() &&
+    !!getPlatformAssistantId()
+  );
 }
 
 interface RegisterCallbackRouteResponse {
