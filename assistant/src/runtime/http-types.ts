@@ -145,7 +145,7 @@ export type MessageProcessor = (
 /**
  * Dependencies for the POST /v1/messages handler.
  *
- * The handler needs direct access to the session so it can check busy state,
+ * The handler needs direct access to the conversation so it can check busy state,
  * persist user messages, fire the agent loop, or queue messages when busy.
  * Hub publishing wires outbound events to the SSE stream.
  */
@@ -219,7 +219,7 @@ export interface RuntimeHttpServerOptions {
     | undefined;
   /** Dependencies for conversation management HTTP routes (switch, rename, clear, cancel, undo, regenerate). */
   conversationManagementDeps?: ConversationManagementDeps;
-  /** Lazy factory for model config set context (session eviction, config reload suppression). */
+  /** Lazy factory for model config set context (conversation eviction, config reload suppression). */
   getModelSetContext?: () => import("../daemon/handlers/config-model.js").ModelSetContext;
   /** Provider for watch observation dependencies (watch routes). */
   getWatchDeps?: () => import("./routes/watch-routes.js").WatchDeps;

@@ -153,7 +153,7 @@ export class CredentialBroker {
     return existed;
   }
 
-  /** Revoke all tokens (e.g. on session teardown). */
+  /** Revoke all tokens (e.g. on conversation teardown). */
   revokeAll(): void {
     const count = this.tokens.size;
     this.tokens.clear();

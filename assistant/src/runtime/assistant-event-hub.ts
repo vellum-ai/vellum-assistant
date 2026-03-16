@@ -13,7 +13,7 @@ import type { AssistantEvent } from "./assistant-event.js";
 export type AssistantEventFilter = {
   /** Only deliver events for this assistant. */
   assistantId: string;
-  /** When set, further restrict to this session. */
+  /** When set, further restrict to this conversation. */
   conversationId?: string;
 };
 
