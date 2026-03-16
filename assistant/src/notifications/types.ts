@@ -63,7 +63,7 @@ export interface ChannelDestination {
 export interface DestinationBindingContext {
   /** The channel this binding belongs to (e.g. "telegram", "slack"). */
   sourceChannel: NotificationChannel;
-  /** The channel-specific chat/thread identifier (e.g. Telegram chat ID, phone number). */
+  /** The channel-specific chat/conversation identifier (e.g. Telegram chat ID, phone number). */
   externalChatId: string;
   /** Optional external user identifier within the chat. */
   externalUserId?: string;

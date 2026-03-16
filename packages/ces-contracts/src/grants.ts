@@ -91,7 +91,7 @@ export const TemporaryGrantDecisionSchema = z.object({
    * The type of grant to create. Determines persistence behaviour:
    * - `allow_once`: Temporary single-use grant (consumed after one use)
    * - `allow_10m`: Temporary timed grant (10-minute TTL)
-   * - `allow_conversation`: Temporary conversation-scoped grant (lives for session)
+   * - `allow_conversation`: Temporary conversation-scoped grant (lives for conversation)
    * - `always_allow`: Persistent grant (survives restart)
    *
    * When omitted, defaults to `always_allow` for backwards compatibility.
@@ -118,14 +118,14 @@ export type GrantStatus = (typeof GrantStatus)[keyof typeof GrantStatus];
 /**
  * A persistent grant record stored by CES.
  *
- * Grants authorize a specific agent session to use a credential for a
+ * Grants authorize a specific agent connection to use a credential for a
  * constrained purpose. They are never sent to the assistant with secret
  * values — only metadata.
  */
 export const PersistentGrantRecordSchema = z.object({
   /** Unique grant identifier. */
   grantId: z.string(),
-  /** The agent session that holds this grant. */
+  /** The CES connection that created this grant. */
   sessionId: z.string(),
   /** The credential handle this grant authorizes. */
   credentialHandle: z.string(),
@@ -172,7 +172,7 @@ export const AuditRecordSummarySchema = z.object({
   toolName: z.string(),
   /** Target of the operation (URL for HTTP, command summary for commands). */
   target: z.string(),
-  /** The agent session that triggered materialization. */
+  /** The CES connection that triggered materialization. */
   sessionId: z.string(),
   /** Whether the execution succeeded. */
   success: z.boolean(),

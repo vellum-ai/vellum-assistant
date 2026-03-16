@@ -8,7 +8,7 @@
  * the undo, and writes `signals/conversation-undo.result` so the CLI
  * receives feedback.
  *
- * Because the signal handler needs access to the daemon's session map, the
+ * Because the signal handler needs access to the daemon's conversation map, the
  * daemon registers a callback at startup via
  * {@link registerConversationUndoCallback}.
  */
@@ -31,7 +31,7 @@ let _undoLastMessage: UndoCallback | null = null;
 
 /**
  * Register the undo callback. Called once by the daemon server at startup
- * so the signal handler can reach the session map.
+ * so the signal handler can reach the conversation map.
  */
 export function registerConversationUndoCallback(cb: UndoCallback): void {
   _undoLastMessage = cb;
@@ -41,7 +41,7 @@ export function registerConversationUndoCallback(cb: UndoCallback): void {
 
 /**
  * Read the `signals/conversation-undo` file and undo the last message in
- * the session. Writes `signals/conversation-undo.result` with the outcome
+ * the conversation. Writes `signals/conversation-undo.result` with the outcome
  * so the CLI can display feedback. Called by ConfigWatcher when the signal
  * file is written.
  */

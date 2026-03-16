@@ -292,9 +292,9 @@ export const ApprovalRequiredSchema = z.object({
   proposalHash: z.string(),
   /** Human-readable rendering of the proposal. */
   renderedProposal: z.string(),
-  /** The agent session requesting approval. */
+  /** The CES connection requesting approval. */
   sessionId: z.string(),
-  /** The conversation/thread ID for thread-scoped grants. */
+  /** The conversation ID for conversation-scoped grants. */
   conversationId: z.string().optional(),
 });
 export type ApprovalRequired = z.infer<typeof ApprovalRequiredSchema>;
@@ -314,9 +314,9 @@ export type ApprovalRequiredResponse = z.infer<
 export const RecordGrantSchema = z.object({
   /** The grant decision from the guardian. */
   decision: TemporaryGrantDecisionSchema,
-  /** The agent session this grant applies to. */
+  /** The CES connection this grant applies to. */
   sessionId: z.string(),
-  /** The conversation/thread ID for thread-scoped grants. */
+  /** The conversation ID for conversation-scoped grants. */
   conversationId: z.string().optional(),
 });
 export type RecordGrant = z.infer<typeof RecordGrantSchema>;
@@ -336,7 +336,7 @@ export type RecordGrantResponse = z.infer<typeof RecordGrantResponseSchema>;
 // ---------------------------------------------------------------------------
 
 export const ListGrantsSchema = z.object({
-  /** Filter by session ID. */
+  /** Filter by CES connection ID. */
   sessionId: z.string().optional(),
   /** Filter by credential handle. */
   credentialHandle: z.string().optional(),
@@ -378,7 +378,7 @@ export type RevokeGrantResponse = z.infer<typeof RevokeGrantResponseSchema>;
 // ---------------------------------------------------------------------------
 
 export const ListAuditRecordsSchema = z.object({
-  /** Filter by session ID. */
+  /** Filter by CES connection ID. */
   sessionId: z.string().optional(),
   /** Filter by credential handle. */
   credentialHandle: z.string().optional(),
