@@ -328,8 +328,8 @@ const ACTOR_ENDPOINTS: Array<{ endpoint: string; scopes: Scope[] }> = [
   { endpoint: "model:PUT", scopes: ["settings.write"] },
   { endpoint: "model/image-gen", scopes: ["settings.write"] },
 
-  // Session management
-  { endpoint: "sessions/reorder", scopes: ["chat.write"] },
+  // Conversation management
+  { endpoint: "conversations/reorder", scopes: ["chat.write"] },
 
   // Conversation search
   { endpoint: "conversations/search", scopes: ["chat.read"] },
