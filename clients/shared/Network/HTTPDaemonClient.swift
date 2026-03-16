@@ -3152,7 +3152,7 @@ public final class HTTPTransport {
     }
 
     /// Update the privacy config via the gateway's PATCH /v1/config/privacy endpoint.
-    func setPrivacyConfig(collectUsageData: Bool, featureFlagToken: String) async throws {
+    func setPrivacyConfig(collectUsageData: Bool?, sendDiagnostics: Bool?, featureFlagToken: String) async throws {
         guard let url = buildURL(for: .privacyConfig) else {
             throw HTTPTransportError.invalidURL
         }
@@ -3163,7 +3163,9 @@ public final class HTTPTransport {
         request.setValue("Bearer \(featureFlagToken)", forHTTPHeaderField: "Authorization")
         request.timeoutInterval = 10
 
-        let body: [String: Any] = ["collectUsageData": collectUsageData]
+        var body: [String: Any] = [:]
+        if let collectUsageData { body["collectUsageData"] = collectUsageData }
+        if let sendDiagnostics { body["sendDiagnostics"] = sendDiagnostics }
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
 
         let (_, response) = try await URLSession.shared.data(for: request)
