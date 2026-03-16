@@ -545,8 +545,10 @@ describe("session-agent-loop", () => {
       const ctx = makeCtx({ agentLoopRun });
       await runAgentLoopImpl(ctx, "run ls", "msg-1", (msg) => events.push(msg));
 
-      const sessionError = events.find((e) => e.type === "conversation_error");
-      expect(sessionError).toBeDefined();
+      const conversationError = events.find(
+        (e) => e.type === "conversation_error",
+      );
+      expect(conversationError).toBeDefined();
     });
 
     test("non-error agent loop completion does not emit conversation_error", async () => {
@@ -579,8 +581,10 @@ describe("session-agent-loop", () => {
       const ctx = makeCtx({ agentLoopRun });
       await runAgentLoopImpl(ctx, "hello", "msg-1", (msg) => events.push(msg));
 
-      const sessionError = events.find((e) => e.type === "conversation_error");
-      expect(sessionError).toBeUndefined();
+      const conversationError = events.find(
+        (e) => e.type === "conversation_error",
+      );
+      expect(conversationError).toBeUndefined();
       const complete = events.find((e) => e.type === "message_complete");
       expect(complete).toBeDefined();
     });
@@ -818,8 +822,10 @@ describe("session-agent-loop", () => {
 
       await runAgentLoopImpl(ctx, "hello", "msg-1", (msg) => events.push(msg));
 
-      const sessionError = events.find((e) => e.type === "conversation_error");
-      expect(sessionError).toBeDefined();
+      const conversationError = events.find(
+        (e) => e.type === "conversation_error",
+      );
+      expect(conversationError).toBeDefined();
     });
 
     test("bounded convergence loop applies reducer tiers and recovers", async () => {
@@ -896,8 +902,10 @@ describe("session-agent-loop", () => {
 
       expect(reducerCalls).toBeGreaterThanOrEqual(1);
       expect(callCount).toBe(2);
-      const sessionError = events.find((e) => e.type === "conversation_error");
-      expect(sessionError).toBeUndefined();
+      const conversationError = events.find(
+        (e) => e.type === "conversation_error",
+      );
+      expect(conversationError).toBeUndefined();
       const complete = events.find((e) => e.type === "message_complete");
       expect(complete).toBeDefined();
     });
@@ -951,8 +959,10 @@ describe("session-agent-loop", () => {
       await runAgentLoopImpl(ctx, "hello", "msg-1", (msg) => events.push(msg));
 
       // Should NOT emit conversation_error
-      const sessionError = events.find((e) => e.type === "conversation_error");
-      expect(sessionError).toBeUndefined();
+      const conversationError = events.find(
+        (e) => e.type === "conversation_error",
+      );
+      expect(conversationError).toBeUndefined();
 
       // Should emit a graceful assistant text delta instead
       const textDeltas = events.filter(
@@ -1057,8 +1067,10 @@ describe("session-agent-loop", () => {
       await runAgentLoopImpl(ctx, "hello", "msg-1", (msg) => events.push(msg));
 
       // Should not produce conversation_error since auto-compress recovered
-      const sessionError = events.find((e) => e.type === "conversation_error");
-      expect(sessionError).toBeUndefined();
+      const conversationError = events.find(
+        (e) => e.type === "conversation_error",
+      );
+      expect(conversationError).toBeUndefined();
       const complete = events.find((e) => e.type === "message_complete");
       expect(complete).toBeDefined();
     });
@@ -1250,8 +1262,10 @@ describe("session-agent-loop", () => {
       const ctx = makeCtx({ agentLoopRun });
       await runAgentLoopImpl(ctx, "hello", "msg-1", (msg) => events.push(msg));
 
-      const sessionError = events.find((e) => e.type === "conversation_error");
-      expect(sessionError).toBeDefined();
+      const conversationError = events.find(
+        (e) => e.type === "conversation_error",
+      );
+      expect(conversationError).toBeDefined();
     });
   });
 
@@ -1507,8 +1521,10 @@ describe("session-agent-loop", () => {
       const cancelled = events.find((e) => e.type === "generation_cancelled");
       expect(cancelled).toBeDefined();
       // Should NOT emit a conversation_error for user cancellation
-      const sessionError = events.find((e) => e.type === "conversation_error");
-      expect(sessionError).toBeUndefined();
+      const conversationError = events.find(
+        (e) => e.type === "conversation_error",
+      );
+      expect(conversationError).toBeUndefined();
     });
 
     test("skips resolveAssistantAttachments when cancelled", async () => {

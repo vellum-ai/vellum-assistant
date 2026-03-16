@@ -599,10 +599,10 @@ describe("provider ordering error retry", () => {
     expect(agentLoopRunCount).toBe(2);
 
     // The error must be surfaced to clients via conversation_error, not silently swallowed.
-    const sessionError = events.find((e) => e.type === "conversation_error") as
-      | { code?: string }
-      | undefined;
-    expect(sessionError).toBeDefined();
-    expect(sessionError?.code).toBe("CONTEXT_TOO_LARGE");
+    const conversationError = events.find(
+      (e) => e.type === "conversation_error",
+    ) as { code?: string } | undefined;
+    expect(conversationError).toBeDefined();
+    expect(conversationError?.code).toBe("CONTEXT_TOO_LARGE");
   });
 });

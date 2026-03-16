@@ -700,8 +700,10 @@ describe("session-agent-loop overflow recovery (JARVIS-110)", () => {
 
       // BUG: Currently a conversation_error IS emitted instead of retrying.
       // After PR 2 fix, there should be no conversation_error.
-      const sessionError = events.find((e) => e.type === "conversation_error");
-      expect(sessionError).toBeUndefined();
+      const conversationError = events.find(
+        (e) => e.type === "conversation_error",
+      );
+      expect(conversationError).toBeUndefined();
     },
   );
 
@@ -807,8 +809,10 @@ describe("session-agent-loop overflow recovery (JARVIS-110)", () => {
       // The reducer should be called in the convergence loop
       expect(reducerCalled).toBe(true);
       // Should recover without conversation_error
-      const sessionError = events.find((e) => e.type === "conversation_error");
-      expect(sessionError).toBeUndefined();
+      const conversationError = events.find(
+        (e) => e.type === "conversation_error",
+      );
+      expect(conversationError).toBeUndefined();
       expect(callCount).toBe(2);
     },
   );
@@ -941,8 +945,10 @@ describe("session-agent-loop overflow recovery (JARVIS-110)", () => {
       expect(capturedTargetTokens!).toBe(expectedCorrectedTarget);
 
       // Should recover without conversation_error
-      const sessionError = events.find((e) => e.type === "conversation_error");
-      expect(sessionError).toBeUndefined();
+      const conversationError = events.find(
+        (e) => e.type === "conversation_error",
+      );
+      expect(conversationError).toBeUndefined();
       expect(callCount).toBe(2);
     },
   );
@@ -1037,8 +1043,10 @@ describe("session-agent-loop overflow recovery (JARVIS-110)", () => {
       expect(reducerCalled).toBe(true);
       // Should succeed
       expect(callCount).toBe(1);
-      const sessionError = events.find((e) => e.type === "conversation_error");
-      expect(sessionError).toBeUndefined();
+      const conversationError = events.find(
+        (e) => e.type === "conversation_error",
+      );
+      expect(conversationError).toBeUndefined();
       const complete = events.find((e) => e.type === "message_complete");
       expect(complete).toBeDefined();
     },
@@ -1230,8 +1238,10 @@ describe("session-agent-loop overflow recovery (JARVIS-110)", () => {
       expect(emergencyCompactCalled).toBe(true);
 
       // BUG: Currently a conversation_error IS emitted.
-      const sessionError = events.find((e) => e.type === "conversation_error");
-      expect(sessionError).toBeUndefined();
+      const conversationError = events.find(
+        (e) => e.type === "conversation_error",
+      );
+      expect(conversationError).toBeUndefined();
     },
   );
 
@@ -1406,8 +1416,10 @@ describe("session-agent-loop overflow recovery (JARVIS-110)", () => {
       expect(agentLoopCallCount).toBe(2);
 
       // No conversation_error should be emitted
-      const sessionError = events.find((e) => e.type === "conversation_error");
-      expect(sessionError).toBeUndefined();
+      const conversationError = events.find(
+        (e) => e.type === "conversation_error",
+      );
+      expect(conversationError).toBeUndefined();
 
       // A context_compacted event should have been emitted
       const compacted = events.find((e) => e.type === "context_compacted");
@@ -1593,8 +1605,10 @@ describe("session-agent-loop overflow recovery (JARVIS-110)", () => {
       expect(agentLoopCallCount).toBe(2);
 
       // No conversation_error
-      const sessionError = events.find((e) => e.type === "conversation_error");
-      expect(sessionError).toBeUndefined();
+      const conversationError = events.find(
+        (e) => e.type === "conversation_error",
+      );
+      expect(conversationError).toBeUndefined();
     },
   );
 
