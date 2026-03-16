@@ -177,6 +177,7 @@ struct JSONTreeView: View {
                 .padding(VSpacing.md)
             }
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }
 
     @ViewBuilder
