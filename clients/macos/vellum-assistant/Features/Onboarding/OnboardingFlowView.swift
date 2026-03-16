@@ -75,25 +75,37 @@ struct OnboardingFlowView: View {
                         } else {
                             switch state.currentStep {
                             case 0:
-                                WakeUpStepView(
-                                    state: state,
-                                    authManager: managedSignInEnabled ? authManager : nil,
-                                    isAdvancing: isAdvancingFromWakeUp,
-                                    managedSignInEnabled: managedSignInEnabled,
-                                    onStartWithAPIKey: {
-                                        guard !isAdvancingFromWakeUp else { return }
-                                        isAdvancingFromWakeUp = true
-                                        state.hasHatched = true
-                                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-                                            state.advance()
-                                        }
-                                    },
-                                    onContinueWithVellum: {
-                                        Task {
-                                            await continueWithManagedAssistant()
-                                        }
+                                if managedSignInEnabled && authManager.isAuthenticated {
+                                    // Already authenticated — show a brief loading
+                                    // state while the .task advances to Setup.
+                                    HStack(spacing: VSpacing.sm) {
+                                        ProgressView()
+                                            .controlSize(.small)
+                                            .progressViewStyle(.circular)
                                     }
-                                )
+
+                                    Spacer()
+                                } else {
+                                    WakeUpStepView(
+                                        state: state,
+                                        authManager: managedSignInEnabled ? authManager : nil,
+                                        isAdvancing: isAdvancingFromWakeUp,
+                                        managedSignInEnabled: managedSignInEnabled,
+                                        onStartWithAPIKey: {
+                                            guard !isAdvancingFromWakeUp else { return }
+                                            isAdvancingFromWakeUp = true
+                                            state.hasHatched = true
+                                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                                                state.advance()
+                                            }
+                                        },
+                                        onContinueWithVellum: {
+                                            Task {
+                                                await continueWithManagedAssistant()
+                                            }
+                                        }
+                                    )
+                                }
                             case 1:
                                 APIKeyStepView(
                                     state: state,
