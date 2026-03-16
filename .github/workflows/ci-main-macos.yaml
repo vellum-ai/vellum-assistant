@@ -8,9 +8,6 @@ on:
       - 'clients/macos/**'
       - 'clients/shared/**'
       - 'clients/Package.swift'
-      - 'clients/.periphery.yml'
-      - 'clients/.periphery_baseline.json'
-      - 'clients/scripts/periphery-scan.sh'
       - 'assistant/**'
       - 'cli/**'
       - 'gateway/**'
@@ -106,21 +103,6 @@ jobs:
         working-directory: clients/macos
         run: ./build.sh test
 
-      - name: Lint unused code (informational)
-        if: always()
-        continue-on-error: true
-        working-directory: clients
-        run: bash scripts/periphery-scan.sh
-
-      - name: Upload baseline artifact
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: periphery-baseline
-          path: clients/.periphery_baseline.json
-          if-no-files-found: ignore
-          retention-days: 7
-          include-hidden-files: true
 
   build-app:
     name: Build macOS App
