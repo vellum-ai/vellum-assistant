@@ -28,7 +28,8 @@ enum SyntaxLanguage: String, CaseIterable {
             break
         }
 
-        switch mimeType {
+        let mime = mimeType.lowercased()
+        switch mime {
         case "application/json":
             return .json
         case "application/javascript", "text/javascript":
