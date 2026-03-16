@@ -192,6 +192,7 @@ jobs:
           echo "status=$STATUS" >> $GITHUB_OUTPUT
 
       - uses: act10ns/slack@v2
+        if: steps.slack-id.outputs.status != 'cancelled'
         continue-on-error: true
         env:
           SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
