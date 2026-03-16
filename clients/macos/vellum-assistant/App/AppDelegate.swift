@@ -428,7 +428,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
     public func performZoomOut() { zoomManager.zoomOut() }
     public func performZoomReset() { zoomManager.resetZoom() }
 
-    public func createNewThread() {
+    public func createNewConversation() {
         showMainWindow()
         mainWindow?.conversationManager.createConversation()
     }

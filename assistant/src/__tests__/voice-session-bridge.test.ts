@@ -92,7 +92,7 @@ function makeStreamingSession(events: ServerMessage[]): Conversation {
  */
 function injectDeps(sessionFactory: () => Conversation): void {
   setVoiceBridgeDeps({
-    getOrCreateSession: async () => sessionFactory(),
+    getOrCreateConversation: async () => sessionFactory(),
     resolveAttachments: () => [],
     deriveDefaultStrictSideEffects: () => false,
   });

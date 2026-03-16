@@ -181,8 +181,8 @@ export interface RuntimeHttpServerOptions {
   sendMessageDeps?: SendMessageDeps;
   /** Context provider for skill management HTTP routes. */
   getSkillContext?: () => SkillOperationContext;
-  /** Lookup an active session by ID (for surface actions and content fetches). */
-  findConversation?: (sessionId: string) =>
+  /** Lookup an active conversation by ID (for surface actions and content fetches). */
+  findConversation?: (conversationId: string) =>
     | {
         handleSurfaceAction(
           surfaceId: string,
@@ -203,7 +203,7 @@ export interface RuntimeHttpServerOptions {
         removeQueuedMessage?: (requestId: string) => boolean;
       }
     | undefined;
-  /** Lookup an active session by surfaceId (fallback when sessionId is absent). */
+  /** Lookup an active conversation by surfaceId (fallback when conversationId is absent). */
   findConversationBySurfaceId?: (surfaceId: string) =>
     | {
         handleSurfaceAction(

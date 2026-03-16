@@ -1133,14 +1133,14 @@ export class DaemonServer {
   }
 
   /**
-   * Look up an active session by ID without creating one.
+   * Look up an active conversation by ID without creating one.
    */
   findConversation(conversationId: string): Conversation | undefined {
     return this.conversations.get(conversationId);
   }
 
   /**
-   * Look up an active session that owns a given surfaceId.
+   * Look up an active conversation that owns a given surfaceId.
    */
   findConversationBySurfaceId(surfaceId: string): Conversation | undefined {
     for (const s of this.conversations.values()) {

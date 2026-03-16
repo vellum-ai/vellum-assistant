@@ -197,7 +197,7 @@ extension AppDelegate {
         fnVLocalMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown, handler: handler)
     }
 
-    /// Registers Cmd+N as a local shortcut to create a new thread.
+    /// Registers Cmd+N as a local shortcut to create a new conversation.
     func registerCmdNMonitor() {
         let handler: (NSEvent) -> NSEvent? = { [weak self] event in
             let mods = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
@@ -207,7 +207,7 @@ extension AppDelegate {
             }
             Task { @MainActor in
                 guard self?.isBootstrapping != true else { return }
-                self?.createNewThread()
+                self?.createNewConversation()
             }
             return nil
         }

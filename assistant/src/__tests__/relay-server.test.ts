@@ -366,7 +366,7 @@ describe("relay-server", () => {
     mockConfig.calls.verification.codeLength = 6;
     mockConfig.calls.callerIdentity.userNumber = undefined;
     setVoiceBridgeDeps({
-      getOrCreateSession: async (conversationId) => {
+      getOrCreateConversation: async (conversationId) => {
         const session = {
           callSessionId: undefined as string | undefined,
           currentRequestId: undefined as string | undefined,

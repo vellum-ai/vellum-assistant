@@ -36,7 +36,7 @@ const log = getLogger("voice-session-bridge");
 // ---------------------------------------------------------------------------
 
 export interface VoiceBridgeDeps {
-  getOrCreateSession: (
+  getOrCreateConversation: (
     conversationId: string,
     transport?: {
       channelId: ChannelId;
@@ -291,7 +291,10 @@ export async function startVoiceTurn(
   const transport = {
     channelId: "phone" as ChannelId,
   };
-  const session = await deps.getOrCreateSession(opts.conversationId, transport);
+  const session = await deps.getOrCreateConversation(
+    opts.conversationId,
+    transport,
+  );
 
   if (session.isProcessing()) {
     // Voice barge-in can race with turn teardown. Wait briefly for the

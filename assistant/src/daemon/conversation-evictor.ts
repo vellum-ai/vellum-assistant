@@ -2,7 +2,7 @@ import { getLogger } from "../util/logger.js";
 
 const log = getLogger("conversation-evictor");
 
-/** Minimal interface a session must satisfy to be evictable. */
+/** Minimal interface a conversation must satisfy to be evictable. */
 export interface EvictableConversation {
   isProcessing(): boolean;
   dispose(): void;

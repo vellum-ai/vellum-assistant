@@ -224,7 +224,7 @@ function setupBridgeDeps(
   let currentSession: ReturnType<typeof createMockSession>["session"] | null =
     null;
   setVoiceBridgeDeps({
-    getOrCreateSession: async () => {
+    getOrCreateConversation: async () => {
       currentSession = sessionFactory();
       return currentSession as any;
     },
