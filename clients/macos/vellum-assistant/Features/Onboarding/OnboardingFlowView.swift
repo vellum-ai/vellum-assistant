@@ -119,8 +119,12 @@ struct OnboardingFlowView: View {
                     )
                     .id(isBootstrappingManaged ? -1 : state.currentStep)
 
-                    // Bottom padding so content isn't flush with window edge
-                    Color.clear.frame(height: VSpacing.xxl)
+                    // Bottom padding so content isn't flush with window edge.
+                    // Skip for step 0 (WakeUpStepView) where the characters
+                    // graphic is designed to sit flush at the window bottom.
+                    if state.currentStep != 0 || isBootstrappingManaged {
+                        Color.clear.frame(height: VSpacing.xxl)
+                    }
                 }
                 .frame(maxWidth: .infinity, minHeight: geometry.size.height)
                 }
