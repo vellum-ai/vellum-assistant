@@ -191,6 +191,73 @@ struct MessageListView: View {
         return textLen + (last?.toolCalls.count ?? 0) + (last?.inlineSurfaces.count ?? 0)
     }
 
+    /// Computes all expensive derived values once per body evaluation.
+    /// Moving these out of the LazyVStack closure ensures O(n) scans
+    /// (timestamp indices, subagent grouping, turn detection) run once
+    /// per body evaluation rather than being re-evaluated on layout passes.
+    private var precomputedState: PrecomputedMessageListState {
+        let displayMessages = visibleMessages
+        let activePendingRequestId = PendingConfirmationFocusSelector.activeRequestId(from: displayMessages)
+        let latestAssistantId = displayMessages.last(where: { $0.role == .assistant })?.id
+        let anchoredThinkingIndex = resolvedThinkingAnchorIndex(for: displayMessages)
+        let subagentsByParent: [UUID: [SubagentInfo]] = Dictionary(
+            grouping: activeSubagents.filter { $0.parentMessageId != nil },
+            by: { $0.parentMessageId! }
+        )
+        let orphanSubagents = activeSubagents.filter { $0.parentMessageId == nil }
+        let showTimestamp = timestampIndices(for: displayMessages)
+        let lastVisible = displayMessages.last
+        let currentTurnMessages: ArraySlice<ChatMessage> = {
+            if isSending, let last = displayMessages.last, last.role == .user {
+                let lastNonUser = displayMessages.last(where: {
+                    $0.role != .user
+                })
+                let isActivelyProcessing = lastNonUser?.isStreaming == true
+                    || lastNonUser?.confirmation?.state == .pending
+                if !isActivelyProcessing {
+                    return displayMessages[displayMessages.endIndex...]
+                }
+            }
+            let lastTurnStart = displayMessages.indices.reversed().first(where: { idx in
+                displayMessages[idx].role == .user
+                    && displayMessages.index(after: idx) < displayMessages.endIndex
+                    && displayMessages[displayMessages.index(after: idx)].role != .user
+            })
+            if let idx = lastTurnStart {
+                return displayMessages[displayMessages.index(after: idx)...]
+            }
+            return displayMessages[displayMessages.startIndex...]
+        }()
+        let hasActiveToolCall = currentTurnMessages.contains(where: {
+            $0.toolCalls.contains(where: { !$0.isComplete })
+        })
+        let wouldShowThinking = isSending
+            && (isThinking || !(lastVisible?.isStreaming == true))
+            && !hasActiveToolCall
+        let lastVisibleIsAssistant = lastVisible?.role == .assistant
+        let canInlineProcessing = wouldShowThinking && lastVisibleIsAssistant
+        let shouldShowThinkingIndicator = wouldShowThinking && !canInlineProcessing
+        let effectiveStatusText = isCompacting ? "Compacting context\u{2026}" : assistantStatusText
+
+        return PrecomputedMessageListState(
+            displayMessages: displayMessages,
+            activePendingRequestId: activePendingRequestId,
+            latestAssistantId: latestAssistantId,
+            anchoredThinkingIndex: anchoredThinkingIndex,
+            subagentsByParent: subagentsByParent,
+            orphanSubagents: orphanSubagents,
+            showTimestamp: showTimestamp,
+            lastVisible: lastVisible,
+            currentTurnMessages: currentTurnMessages,
+            hasActiveToolCall: hasActiveToolCall,
+            wouldShowThinking: wouldShowThinking,
+            lastVisibleIsAssistant: lastVisibleIsAssistant,
+            canInlineProcessing: canInlineProcessing,
+            shouldShowThinkingIndicator: shouldShowThinkingIndicator,
+            effectiveStatusText: effectiveStatusText
+        )
+    }
+
     /// Pre-compute which message indices should show a timestamp divider.
     /// Avoids creating a Calendar instance per-message inside the ForEach body.
     private func timestampIndices(for list: [ChatMessage]) -> Set<Int> {
@@ -519,64 +586,20 @@ struct MessageListView: View {
                             }
                     }
 
-                    let displayMessages = visibleMessages
-                    let activePendingRequestId = PendingConfirmationFocusSelector.activeRequestId(from: displayMessages)
-                    let latestAssistantId = displayMessages.last(where: { $0.role == .assistant })?.id
-                    let anchoredThinkingIndex = resolvedThinkingAnchorIndex(for: displayMessages)
-                    // Pre-compute subagent lookup to avoid O(n*m) filtering inside ForEach
-                    let subagentsByParent: [UUID: [SubagentInfo]] = Dictionary(grouping: activeSubagents.filter { $0.parentMessageId != nil }, by: { $0.parentMessageId! })
-                    let orphanSubagents = activeSubagents.filter { $0.parentMessageId == nil }
-                    let showTimestamp = timestampIndices(for: displayMessages)
-                    let lastVisible = displayMessages.last
-                    let currentTurnMessages: ArraySlice<ChatMessage> = {
-                        if isSending, let last = displayMessages.last, last.role == .user {
-                            let lastNonUser = displayMessages.last(where: {
-                                $0.role != .user
-                            })
-                            let isActivelyProcessing = lastNonUser?.isStreaming == true
-                                || lastNonUser?.confirmation?.state == .pending
-                            if !isActivelyProcessing {
-                                return displayMessages[displayMessages.endIndex...]
-                            }
-                        }
-                        let lastTurnStart = displayMessages.indices.reversed().first(where: { idx in
-                            displayMessages[idx].role == .user
-                                && displayMessages.index(after: idx) < displayMessages.endIndex
-                                && displayMessages[displayMessages.index(after: idx)].role != .user
-                        })
-                        if let idx = lastTurnStart {
-                            return displayMessages[displayMessages.index(after: idx)...]
-                        }
-                        return displayMessages[displayMessages.startIndex...]
-                    }()
-                    let hasActiveToolCall = currentTurnMessages.contains(where: {
-                        $0.toolCalls.contains(where: { !$0.isComplete })
-                    })
-                    // Determine whether a standalone thinking row would be shown
-                    // (before considering inlining).
-                    let wouldShowThinking = isSending
-                        && (isThinking || !(lastVisible?.isStreaming == true))
-                        && !hasActiveToolCall
-                    // When the last visible message is an assistant bubble, render
-                    // the indicator inline inside that bubble's trailingStatus
-                    // instead of spawning a standalone row (duplicate avatar).
-                    let lastVisibleIsAssistant = lastVisible?.role == .assistant
-                    let canInlineProcessing = wouldShowThinking && lastVisibleIsAssistant
-                    let shouldShowThinkingIndicator = wouldShowThinking && !canInlineProcessing
-                    let effectiveStatusText = isCompacting ? "Compacting context\u{2026}" : assistantStatusText
-                    ForEach(Array(zip(displayMessages.indices, displayMessages)), id: \.1.id) { index, message in
+                    let state = precomputedState
+                    ForEach(Array(zip(state.displayMessages.indices, state.displayMessages)), id: \.1.id) { index, message in
                         MessageCellView(
                             message: message,
                             index: index,
-                            displayMessages: displayMessages,
-                            showTimestamp: showTimestamp,
-                            activePendingRequestId: activePendingRequestId,
-                            latestAssistantId: latestAssistantId,
-                            anchoredThinkingIndex: anchoredThinkingIndex,
-                            subagentsByParent: subagentsByParent,
-                            canInlineProcessing: canInlineProcessing,
-                            shouldShowThinkingIndicator: shouldShowThinkingIndicator,
-                            assistantStatusText: effectiveStatusText,
+                            displayMessages: state.displayMessages,
+                            showTimestamp: state.showTimestamp,
+                            activePendingRequestId: state.activePendingRequestId,
+                            latestAssistantId: state.latestAssistantId,
+                            anchoredThinkingIndex: state.anchoredThinkingIndex,
+                            subagentsByParent: state.subagentsByParent,
+                            canInlineProcessing: state.canInlineProcessing,
+                            shouldShowThinkingIndicator: state.shouldShowThinkingIndicator,
+                            assistantStatusText: state.effectiveStatusText,
                             dismissedDocumentSurfaceIds: dismissedDocumentSurfaceIds,
                             activeSurfaceId: activeSurfaceId,
                             mediaEmbedSettings: mediaEmbedSettings,
@@ -601,7 +624,7 @@ struct MessageListView: View {
                         )
                     }
 
-                    ForEach(orphanSubagents) { subagent in
+                    ForEach(state.orphanSubagents) { subagent in
                         SubagentEventsReader(
                             store: subagentDetailStore,
                             subagent: subagent,
@@ -613,11 +636,11 @@ struct MessageListView: View {
                             .transition(.opacity.combined(with: .move(edge: .bottom)))
                     }
 
-                    if shouldShowThinkingIndicator && anchoredThinkingIndex == nil {
+                    if state.shouldShowThinkingIndicator && state.anchoredThinkingIndex == nil {
                         if isCompacting {
                             compactingIndicatorRow()
                         } else {
-                            thinkingIndicatorRow(displayMessages: displayMessages)
+                            thinkingIndicatorRow(displayMessages: state.displayMessages)
                         }
                     }
 
@@ -633,7 +656,7 @@ struct MessageListView: View {
                             }
                         }
 
-                    if !displayMessages.isEmpty && ConversationAvatarFollower.bottomInset > 0 {
+                    if !state.displayMessages.isEmpty && ConversationAvatarFollower.bottomInset > 0 {
                         Color.clear
                             .frame(height: ConversationAvatarFollower.bottomInset)
                             .accessibilityHidden(true)
@@ -1400,4 +1423,30 @@ private struct AnchorMinYKey: PreferenceKey {
         // value of .infinity) don't overwrite the anchor's actual Y position.
         value = min(value, nextValue())
     }
+}
+
+// MARK: - Precomputed Message List State
+
+/// Holds derived values computed once per body evaluation so they are not
+/// redundantly recalculated inside the LazyVStack ForEach body.
+/// Note: `LazyVStack` already gates child view evaluation, so each cell is
+/// only built when it scrolls into the prefetch window. The primary gain here
+/// is avoiding repeated O(n) scans (timestamp indices, subagent grouping,
+/// current-turn detection) on every layout pass.
+struct PrecomputedMessageListState {
+    let displayMessages: [ChatMessage]
+    let activePendingRequestId: String?
+    let latestAssistantId: UUID?
+    let anchoredThinkingIndex: Int?
+    let subagentsByParent: [UUID: [SubagentInfo]]
+    let orphanSubagents: [SubagentInfo]
+    let showTimestamp: Set<Int>
+    let lastVisible: ChatMessage?
+    let currentTurnMessages: ArraySlice<ChatMessage>
+    let hasActiveToolCall: Bool
+    let wouldShowThinking: Bool
+    let lastVisibleIsAssistant: Bool
+    let canInlineProcessing: Bool
+    let shouldShowThinkingIndicator: Bool
+    let effectiveStatusText: String?
 }
