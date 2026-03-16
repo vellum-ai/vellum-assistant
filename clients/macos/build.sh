@@ -1169,13 +1169,19 @@ if [ "$RELEASE_APP_MODE" = true ]; then
     # Use create-dmg if available for a production-like DMG, otherwise fall
     # back to hdiutil which is always available on macOS.
     if command -v create-dmg &>/dev/null; then
-        # Generate DMG background if the script exists
-        DMG_BG_SCRIPT="$SCRIPT_DIR/dmg/generate-background.swift"
+        # Use pre-generated DMG background if available
+        DMG_BG_FILE="$SCRIPT_DIR/dmg/dmg-background@2x.png"
         DMG_BG_ARGS=()
-        if [ -f "$DMG_BG_SCRIPT" ]; then
-            swift "$DMG_BG_SCRIPT" "$DMG_BUILD_DIR/dmg-background@2x.png" 2>/dev/null || true
-            if [ -f "$DMG_BUILD_DIR/dmg-background@2x.png" ]; then
-                DMG_BG_ARGS=(--background "$DMG_BUILD_DIR/dmg-background@2x.png")
+        if [ -f "$DMG_BG_FILE" ]; then
+            DMG_BG_ARGS=(--background "$DMG_BG_FILE")
+        else
+            # Fall back to generating at runtime if the pre-rendered file is missing
+            DMG_BG_SCRIPT="$SCRIPT_DIR/dmg/generate-background.swift"
+            if [ -f "$DMG_BG_SCRIPT" ]; then
+                swift "$DMG_BG_SCRIPT" "$DMG_BUILD_DIR/dmg-background@2x.png" 2>/dev/null || true
+                if [ -f "$DMG_BUILD_DIR/dmg-background@2x.png" ]; then
+                    DMG_BG_ARGS=(--background "$DMG_BUILD_DIR/dmg-background@2x.png")
+                fi
             fi
         fi
 
