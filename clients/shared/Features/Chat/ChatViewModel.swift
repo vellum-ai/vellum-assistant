@@ -21,18 +21,11 @@ protocol SurfaceClientProtocol {
 
 @MainActor
 struct SurfaceClient: SurfaceClientProtocol {
-    private static let queryValueAllowed: CharacterSet = {
-        var cs = CharacterSet.urlQueryAllowed
-        cs.remove(charactersIn: "&=+#")
-        return cs
-    }()
-
     nonisolated init() {}
 
     func fetchSurfaceData(surfaceId: String, conversationId: String) async -> SurfaceData? {
-        let qEncoded = conversationId.addingPercentEncoding(withAllowedCharacters: Self.queryValueAllowed) ?? conversationId
         let response = try? await GatewayHTTPClient.get(
-            path: "assistants/{assistantId}/surfaces/\(surfaceId)?conversationId=\(qEncoded)", timeout: 10
+            path: "assistants/{assistantId}/surfaces/\(surfaceId)?conversationId=\(conversationId)", timeout: 10
         )
         if let statusCode = response?.statusCode, !(200..<300).contains(statusCode) {
             log.error("Fetch surface \(surfaceId) failed (HTTP \(statusCode))")
@@ -323,7 +316,7 @@ public final class ChatViewModel: ObservableObject {
 
     public let subagentDetailStore = SubagentDetailStore()
     let daemonClient: any DaemonClientProtocol
-    private let surfaceClient: any SurfaceClientProtocol
+    private let surfaceClient: any SurfaceClientProtocol = SurfaceClient()
     /// Tracks the action submitted for each guardian decision requestId so the
     /// response handler can display the correct resolved state (the server does
     /// not echo back the action in its acknowledgement).
@@ -839,9 +832,8 @@ public final class ChatViewModel: ObservableObject {
     /// Set via the onPageChanged callback when the user navigates within a multi-page app.
     public var currentPage: String?
 
-    public init(daemonClient: any DaemonClientProtocol, surfaceClient: any SurfaceClientProtocol = SurfaceClient(), onToolCallsComplete: ((_ toolCalls: [ToolCallData]) -> Void)? = nil) {
+    public init(daemonClient: any DaemonClientProtocol, onToolCallsComplete: ((_ toolCalls: [ToolCallData]) -> Void)? = nil) {
         self.daemonClient = daemonClient
-        self.surfaceClient = surfaceClient
         self.onToolCallsComplete = onToolCallsComplete
 
         // Coalesce sub-manager objectWillChange signals through a single
