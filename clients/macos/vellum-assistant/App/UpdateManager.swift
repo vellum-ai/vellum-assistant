@@ -70,6 +70,7 @@ public final class UpdateManager: NSObject, ObservableObject, SPUUpdaterDelegate
             return h
         }
         guard let handler else { return }
+        isDeferredUpdateReady = false
         log.info("Installing deferred update now")
         onWillInstallUpdate?()
         handler()
