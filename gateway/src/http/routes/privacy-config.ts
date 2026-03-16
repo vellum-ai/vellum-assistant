@@ -68,10 +68,34 @@ export function createPrivacyConfigPatchHandler() {
       );
     }
 
-    const { collectUsageData } = body as { collectUsageData?: unknown };
-    if (typeof collectUsageData !== "boolean") {
+    const { collectUsageData, sendDiagnostics } = body as {
+      collectUsageData?: unknown;
+      sendDiagnostics?: unknown;
+    };
+
+    const hasCollectUsageData = "collectUsageData" in (body as object);
+    const hasSendDiagnostics = "sendDiagnostics" in (body as object);
+
+    if (!hasCollectUsageData && !hasSendDiagnostics) {
+      return Response.json(
+        {
+          error:
+            'At least one of "collectUsageData" or "sendDiagnostics" must be provided',
+        },
+        { status: 400 },
+      );
+    }
+
+    if (hasCollectUsageData && typeof collectUsageData !== "boolean") {
       return Response.json(
         { error: '"collectUsageData" must be a boolean' },
+        { status: 400 },
+      );
+    }
+
+    if (hasSendDiagnostics && typeof sendDiagnostics !== "boolean") {
+      return Response.json(
+        { error: '"sendDiagnostics" must be a boolean' },
         { status: 400 },
       );
     }
@@ -91,11 +115,20 @@ export function createPrivacyConfigPatchHandler() {
           }
 
           const config = result.data;
-          config.collectUsageData = collectUsageData;
+          if (hasCollectUsageData) {
+            config.collectUsageData = collectUsageData;
+          }
+          if (hasSendDiagnostics) {
+            config.sendDiagnostics = sendDiagnostics;
+          }
           writeConfigFileAtomic(config);
 
-          log.info({ collectUsageData }, "Privacy config updated");
-          resolve(Response.json({ collectUsageData }));
+          const responseData = {
+            collectUsageData: config.collectUsageData,
+            sendDiagnostics: config.sendDiagnostics,
+          };
+          log.info(responseData, "Privacy config updated");
+          resolve(Response.json(responseData));
         } catch (err) {
           log.error({ err }, "Failed to update privacy config");
           resolve(
