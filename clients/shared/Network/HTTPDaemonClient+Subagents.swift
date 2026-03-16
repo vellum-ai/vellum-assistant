@@ -26,12 +26,12 @@ extension HTTPTransport {
         }
     }
 
-    // MARK: - Session ID Translation
+    // MARK: - Conversation ID Translation
 
-    /// Given a client-local session ID, find the corresponding server conversation ID
+    /// Given a client-local conversation ID, find the corresponding server conversation ID
     /// by doing a reverse lookup in `serverToLocalConversationMap`. Returns the original ID
     /// if no mapping exists (the ID is already a server conversation ID, e.g. restored conversations).
-    func serverSessionId(forLocal localId: String) -> String {
+    func serverConversationId(forLocal localId: String) -> String {
         for (serverId, mappedLocalId) in serverToLocalConversationMap {
             if mappedLocalId == localId {
                 return serverId
@@ -85,11 +85,11 @@ extension HTTPTransport {
         applyAuth(&request)
 
         // The abort endpoint requires a conversationId in the body.
-        // Translate client-local session ID → server conversation ID so the
+        // Translate client-local conversation ID → server conversation ID so the
         // server's ownership check (parentConversationId) passes.
         var body: [String: Any] = [:]
         if let conversationId = conversationId {
-            body["conversationId"] = serverSessionId(forLocal: conversationId)
+            body["conversationId"] = serverConversationId(forLocal: conversationId)
         }
 
         do {
@@ -122,11 +122,11 @@ extension HTTPTransport {
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         applyAuth(&request)
 
-        // Translate client-local session ID → server conversation ID so the
+        // Translate client-local conversation ID → server conversation ID so the
         // server's ownership check (parentConversationId) passes.
         var body: [String: Any] = ["content": content]
         if let conversationId = conversationId {
-            body["conversationId"] = serverSessionId(forLocal: conversationId)
+            body["conversationId"] = serverConversationId(forLocal: conversationId)
         }
 
         do {
