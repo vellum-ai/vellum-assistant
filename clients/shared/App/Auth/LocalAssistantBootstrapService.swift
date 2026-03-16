@@ -284,17 +284,24 @@ public final class LocalAssistantBootstrapService {
     /// Uses a direct HTTP call to the daemon (not GatewayHTTPClient) because
     /// this is called during logout teardown when gateway routing may no
     /// longer be available.
+    ///
+    /// Returns `true` if all credentials were successfully cleared (or didn't exist).
+    @discardableResult
     public static func clearDaemonCredentials(
         daemonBaseURL: String,
         daemonToken: String
-    ) async {
+    ) async -> Bool {
         let credentialNames = [
             "vellum:assistant_api_key",
             "vellum:platform_base_url",
             "vellum:platform_assistant_id",
         ]
+        var allCleared = true
         for name in credentialNames {
-            guard let url = URL(string: "\(daemonBaseURL)/v1/secrets") else { continue }
+            guard let url = URL(string: "\(daemonBaseURL)/v1/secrets") else {
+                allCleared = false
+                continue
+            }
             var request = URLRequest(url: url)
             request.httpMethod = "DELETE"
             request.timeoutInterval = 5
@@ -302,9 +309,26 @@ public final class LocalAssistantBootstrapService {
             request.setValue("application/json", forHTTPHeaderField: "Content-Type")
             let body: [String: String] = ["type": "credential", "name": name]
             request.httpBody = try? JSONSerialization.data(withJSONObject: body)
-            _ = try? await URLSession.shared.data(for: request)
+            do {
+                let (_, response) = try await URLSession.shared.data(for: request)
+                let statusCode = (response as? HTTPURLResponse)?.statusCode ?? 0
+                if statusCode == 200 || statusCode == 404 {
+                    log.info("Cleared daemon credential: \(name, privacy: .public) (status \(statusCode))")
+                } else {
+                    log.warning("Failed to clear daemon credential: \(name, privacy: .public) (status \(statusCode))")
+                    allCleared = false
+                }
+            } catch {
+                log.warning("Failed to clear daemon credential: \(name, privacy: .public) — \(error.localizedDescription)")
+                allCleared = false
+            }
         }
-        log.info("Cleared managed proxy credentials from daemon")
+        if allCleared {
+            log.info("All managed proxy credentials cleared from daemon")
+        } else {
+            log.warning("Some managed proxy credentials could not be cleared from daemon")
+        }
+        return allCleared
     }
 
     /// Resolves the current user ID from the auth session.
