@@ -469,19 +469,11 @@ struct AgentPanelContent: View {
     private func skillFileContentPane(file: SkillFileEntry, content: String) -> some View {
         VStack(alignment: .leading, spacing: 0) {
             // File header
-            HStack(spacing: VSpacing.sm) {
-                VIconView(fileIcon(for: file.mimeType), size: 12)
-                    .foregroundColor(VColor.primaryBase)
-                Text(file.path)
-                    .font(VFont.captionMedium)
-                    .foregroundColor(VColor.contentDefault)
-                Spacer()
-                Text(formatFileSize(file.size))
-                    .font(VFont.small)
-                    .foregroundColor(VColor.contentTertiary)
-            }
-            .padding(.horizontal, VSpacing.md)
-            .padding(.vertical, VSpacing.sm)
+            FileContentHeaderBar(
+                icon: fileIcon(for: file.mimeType),
+                fileName: file.path,
+                fileSize: formatFileSize(file.size)
+            )
 
             Divider().background(VColor.borderBase)
 

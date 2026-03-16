@@ -34,3 +34,26 @@ struct ReadOnlyCodeContent: View {
         }
     }
 }
+
+/// Header bar showing file icon, name, and size for file content viewers.
+struct FileContentHeaderBar: View {
+    let icon: VIcon
+    let fileName: String
+    let fileSize: String
+
+    var body: some View {
+        HStack(spacing: VSpacing.sm) {
+            VIconView(icon, size: 12)
+                .foregroundColor(VColor.primaryBase)
+            Text(fileName)
+                .font(VFont.captionMedium)
+                .foregroundColor(VColor.contentDefault)
+            Spacer()
+            Text(fileSize)
+                .font(VFont.small)
+                .foregroundColor(VColor.contentTertiary)
+        }
+        .padding(.horizontal, VSpacing.md)
+        .padding(.vertical, VSpacing.sm)
+    }
+}
