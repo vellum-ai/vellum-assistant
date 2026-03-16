@@ -31,6 +31,8 @@ export interface IndexMessageInput {
    * profile mutations are triggered.
    */
   provenanceTrustClass?: TrustClass;
+  /** When true, the message was auto-sent by the client (e.g. wake-up greeting) and should not trigger memory extraction. */
+  automated?: boolean;
 }
 
 export interface IndexMessageResult {
@@ -135,7 +137,7 @@ export async function indexMessageNow(
       );
     }
 
-    if (shouldExtract && isTrustedActor) {
+    if (shouldExtract && isTrustedActor && !input.automated) {
       enqueueMemoryJob(
         "extract_items",
         { messageId: input.messageId, scopeId: input.scopeId ?? "default" },
@@ -163,7 +165,11 @@ export async function indexMessageNow(
     );
   }
 
-  const extractionGated = !isTrustedActor;
+  if (input.automated && shouldExtract) {
+    log.info("Skipping extraction jobs for automated message");
+  }
+
+  const extractionGated = !isTrustedActor || !!input.automated;
   const enqueuedJobs =
     segments.length -
     skippedEmbedJobs +

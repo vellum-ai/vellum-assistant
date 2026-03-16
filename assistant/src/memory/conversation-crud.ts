@@ -63,6 +63,7 @@ export const messageMetadataSchema = z
     provenanceSourceChannel: channelIdSchema.optional(),
     provenanceGuardianExternalUserId: z.string().optional(),
     provenanceRequesterIdentifier: z.string().optional(),
+    automated: z.boolean().optional(),
   })
   .passthrough();
 
@@ -491,6 +492,7 @@ export async function addMessage(
       const provenanceTrustClass = parsed?.success
         ? parsed.data.provenanceTrustClass
         : undefined;
+      const automated = parsed?.success ? parsed.data.automated : undefined;
       await indexMessageNow(
         {
           messageId: message.id,
@@ -500,6 +502,7 @@ export async function addMessage(
           createdAt: message.createdAt,
           scopeId,
           provenanceTrustClass,
+          automated,
         },
         config.memory,
       );
