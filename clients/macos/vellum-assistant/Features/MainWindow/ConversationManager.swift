@@ -1090,20 +1090,20 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
     private func sendReorderConversations() {
         let visible = visibleConversations
         var updates: [ReorderConversationsRequestUpdate] = []
-        for thread in visible {
-            guard let conversationId = thread.conversationId else { continue }
+        for conversation in visible {
+            guard let conversationId = conversation.conversationId else { continue }
             let order: Double?
-            if thread.isPinned {
+            if conversation.isPinned {
                 // Pinned conversations always need a persisted displayOrder derived from
                 // their pinnedOrder so their user-defined order survives restarts.
-                order = Double(thread.pinnedOrder ?? 0)
+                order = Double(conversation.pinnedOrder ?? 0)
             } else {
-                order = thread.displayOrder.map { Double($0) }
+                order = conversation.displayOrder.map { Double($0) }
             }
             updates.append(ReorderConversationsRequestUpdate(
                 conversationId: conversationId,
                 displayOrder: order,
-                isPinned: thread.isPinned
+                isPinned: conversation.isPinned
             ))
         }
         guard !updates.isEmpty else { return }

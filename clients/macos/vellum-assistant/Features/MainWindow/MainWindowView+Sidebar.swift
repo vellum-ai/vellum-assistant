@@ -201,7 +201,7 @@ extension MainWindowView {
             // Divider between nav items and conversations
             sidebarSectionDivider(isExpanded: true)
 
-            // MARK: Threads (scrollable)
+            // MARK: Conversations (scrollable)
             SidebarConversationsHeader(
                 hasUnseenConversations: conversationManager.unseenVisibleConversationCount > 0,
                 isLoading: showDaemonLoading,
