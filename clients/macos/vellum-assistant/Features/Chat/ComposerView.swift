@@ -76,6 +76,7 @@ struct ComposerView: View {
     @State private var avatarSeed: String = "default"
     /// Snapshot of inputText captured when dictation starts, used to restore on cancel.
     @State private var preDictationText: String = ""
+    @State private var showVoiceModeHover: Bool = false
     /// Live amplitude from VoiceInputManager, bypassing ChatViewModel's 100ms coalescing.
     @State private var liveAmplitude: Float = 0
     @State private var isComposerDropTargeted = false
@@ -497,6 +498,17 @@ struct ComposerView: View {
                     )
                     .disabled(!hasAPIKey)
                     .transition(.scale.combined(with: .opacity))
+                    .popover(isPresented: $showVoiceModeHover, arrowEdge: .top) {
+                        Text("Start a live voice conversation with your assistant. Unlike the mic button, this is a real-time back-and-forth voice call.")
+                            .font(VFont.caption)
+                            .multilineTextAlignment(.leading)
+                            .frame(width: 200)
+                            .fixedSize(horizontal: false, vertical: true)
+                            .padding(VSpacing.sm)
+                    }
+                    .onHover { hovering in
+                        showVoiceModeHover = hovering
+                    }
                 } else {
                     VButton(
                         label: isRecording ? "Stop recording" : "Start voice input",
