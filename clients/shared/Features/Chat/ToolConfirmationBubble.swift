@@ -371,21 +371,20 @@ public struct ToolConfirmationBubble: View {
     private var buttonRow: some View {
         let actions = topLevelActions
         VStack(alignment: .leading, spacing: VSpacing.sm) {
-            // Top group: recommended actions
-            if hasTemporaryOptions {
+            // Top group: recommended actions — only shown when allow10m is available
+            // (pairs "Allow for 10 minutes" with "Don't Allow" under "Recommended")
+            if hasAllow10m {
                 VStack(alignment: .leading, spacing: VSpacing.xs) {
                     Text("Recommended")
                         .font(VFont.captionMedium)
                         .foregroundColor(VColor.contentDefault)
                     HStack(spacing: VSpacing.xs) {
-                        if hasAllow10m {
-                            confirmationButton(
-                                "Allow for 10 minutes",
-                                isPrimary: true,
-                                isDanger: false,
-                                isKeyboardSelected: keyboardModel?.selectedAction == .allow10m
-                            ) { markCommandExplanationSeen(); onTemporaryAllow?(confirmation.requestId, "allow_10m") }
-                        }
+                        confirmationButton(
+                            "Allow for 10 minutes",
+                            isPrimary: true,
+                            isDanger: false,
+                            isKeyboardSelected: keyboardModel?.selectedAction == .allow10m
+                        ) { markCommandExplanationSeen(); onTemporaryAllow?(confirmation.requestId, "allow_10m") }
                         confirmationButton(
                             "Don\u{2019}t Allow",
                             isPrimary: false,
@@ -397,7 +396,7 @@ public struct ToolConfirmationBubble: View {
             }
             // Bottom group: more options
             VStack(alignment: .leading, spacing: VSpacing.xs) {
-                if hasTemporaryOptions {
+                if hasAllow10m {
                     Text("More Options")
                         .font(VFont.captionMedium)
                         .foregroundColor(VColor.contentDefault)
@@ -405,7 +404,7 @@ public struct ToolConfirmationBubble: View {
                 HStack(spacing: VSpacing.xs) {
                     confirmationButton(
                         "Allow Once",
-                        isPrimary: !hasTemporaryOptions,
+                        isPrimary: !hasAllow10m,
                         isDanger: false,
                         isKeyboardSelected: keyboardModel?.selectedAction == .allowOnce
                     ) { markCommandExplanationSeen(); onAllow() }
@@ -418,7 +417,7 @@ public struct ToolConfirmationBubble: View {
                             isKeyboardSelected: keyboardModel?.selectedAction == .allowConversation
                         ) { markCommandExplanationSeen(); onTemporaryAllow?(confirmation.requestId, "allow_conversation") }
                     }
-                    if !hasTemporaryOptions {
+                    if !hasAllow10m {
                         confirmationButton(
                             "Don\u{2019}t Allow",
                             isPrimary: false,
