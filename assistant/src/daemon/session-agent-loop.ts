@@ -1196,6 +1196,21 @@ export async function runAgentLoopImpl(
           reqId,
           onCheckpoint,
         );
+
+        // If the rerun still yields at checkpoint, the turn is still
+        // incomplete — continue reducing through the remaining tiers
+        // instead of silently dropping the incomplete state.
+        if (yieldedForBudget && !abortController.signal.aborted) {
+          rlog.warn(
+            {
+              phase: "convergence",
+              attempt: convergenceAttempts,
+              appliedTiers: reducerState.appliedTiers,
+            },
+            "Post-convergence rerun still yielded at checkpoint — continuing reduction",
+          );
+          state.contextTooLargeDetected = true;
+        }
       }
 
       // All reducer tiers exhausted but provider still rejects —

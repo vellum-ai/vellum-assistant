@@ -1754,4 +1754,165 @@ describe("session-agent-loop overflow recovery (JARVIS-110)", () => {
     // have been triggered (contextTooLargeDetected set to true)
     expect(convergenceReducerCalled).toBe(true);
   });
+
+  // ── Test 9 ────────────────────────────────────────────────────────
+  // When the convergence loop reruns the agent loop and it still yields
+  // at checkpoint (yieldedForBudget), the loop must continue reducing
+  // through additional tiers instead of silently dropping the incomplete
+  // turn.
+  test("post-convergence yieldedForBudget continues reduction", async () => {
+    const events: ServerMessage[] = [];
+
+    // Budget = 200_000 * 0.95 = 190_000
+    // Mid-loop threshold = 190_000 * 0.85 = 161_500
+    let estimateCallCount = 0;
+    mockEstimateTokens = () => {
+      estimateCallCount++;
+      // Preflight: below budget
+      if (estimateCallCount === 1) return 100_000;
+      // Every checkpoint call: above threshold — always triggers yield
+      return 170_000;
+    };
+
+    let agentLoopCallCount = 0;
+    const agentLoopRun: AgentLoopRun = async (
+      messages,
+      onEvent,
+      _signal,
+      _requestId,
+      onCheckpoint,
+    ) => {
+      agentLoopCallCount++;
+
+      const withProgress: Message[] = [
+        ...messages,
+        {
+          role: "assistant" as const,
+          content: [
+            { type: "text", text: `Tool call ${agentLoopCallCount}` },
+            {
+              type: "tool_use",
+              id: `tu-${agentLoopCallCount}`,
+              name: "bash",
+              input: { command: "ls" },
+            },
+          ] as ContentBlock[],
+        },
+        {
+          role: "user" as const,
+          content: [
+            {
+              type: "tool_result",
+              tool_use_id: `tu-${agentLoopCallCount}`,
+              content: "output",
+              is_error: false,
+            },
+          ] as ContentBlock[],
+        },
+      ];
+
+      onEvent({
+        type: "message_complete",
+        message: {
+          role: "assistant",
+          content: [
+            { type: "text", text: `Tool call ${agentLoopCallCount}` },
+            {
+              type: "tool_use",
+              id: `tu-${agentLoopCallCount}`,
+              name: "bash",
+              input: { command: "ls" },
+            },
+          ],
+        },
+      });
+      onEvent({
+        type: "usage",
+        inputTokens: 100,
+        outputTokens: 50,
+        model: "test-model",
+        providerDurationMs: 100,
+      });
+
+      // Always yield at checkpoint — simulates reduction not helping enough
+      if (onCheckpoint) {
+        const decision = onCheckpoint({
+          turnIndex: 0,
+          toolCount: 1,
+          hasToolUse: true,
+          history: withProgress,
+        });
+        if (decision === "yield") {
+          return withProgress;
+        }
+      }
+
+      return withProgress;
+    };
+
+    // Convergence reducer: first call returns non-exhausted, second returns exhausted
+    let reducerCallCount = 0;
+    mockReducerStepFn = (msgs: Message[]) => {
+      reducerCallCount++;
+      if (reducerCallCount === 1) {
+        return {
+          messages: msgs,
+          tier: "forced_compaction",
+          state: {
+            appliedTiers: ["forced_compaction"],
+            injectionMode: "full",
+            exhausted: false,
+          },
+          estimatedTokens: 80_000,
+        };
+      }
+      // Second call: exhausted
+      return {
+        messages: msgs,
+        tier: "tool_result_truncation",
+        state: {
+          appliedTiers: ["forced_compaction", "tool_result_truncation"],
+          injectionMode: "full",
+          exhausted: true,
+        },
+        estimatedTokens: 60_000,
+      };
+    };
+
+    const ctx = makeCtx({
+      agentLoopRun,
+      contextWindowManager: {
+        shouldCompact: () => ({ needed: false, estimatedTokens: 0 }),
+        maybeCompact: async () => ({
+          compacted: true,
+          messages: [
+            {
+              role: "user" as const,
+              content: [{ type: "text", text: "Hello" }],
+            },
+          ] as Message[],
+          compactedPersistedMessages: 5,
+          summaryText: "Compaction summary",
+          previousEstimatedInputTokens: 170_000,
+          estimatedInputTokens: 165_000,
+          maxInputTokens: 200_000,
+          thresholdTokens: 160_000,
+          compactedMessages: 10,
+          summaryCalls: 1,
+          summaryInputTokens: 500,
+          summaryOutputTokens: 200,
+          summaryModel: "mock-model",
+        }),
+      } as unknown as AgentLoopSessionContext["contextWindowManager"],
+    });
+
+    await runAgentLoopImpl(ctx, "hello", "msg-1", (msg) => events.push(msg));
+
+    // Reducer should have been called twice: once for first convergence tier,
+    // once more after yieldedForBudget triggered re-entry
+    expect(reducerCallCount).toBe(2);
+
+    // Agent loop: 1 initial + 3 mid-loop re-entries + 2 convergence re-runs = 7 calls
+    expect(agentLoopCallCount).toBe(7);
+  });
 });
