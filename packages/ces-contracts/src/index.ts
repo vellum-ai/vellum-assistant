@@ -72,7 +72,11 @@ export type RpcEnvelope = z.infer<typeof RpcEnvelopeSchema>;
 // RPC error (defined in error.ts to avoid circular deps with rpc.ts)
 // ---------------------------------------------------------------------------
 
-export { RpcErrorSchema, type RpcError } from "./error.js";
+export {
+  RpcErrorSchema,
+  type RpcError,
+  MANAGED_LOCAL_STATIC_REJECTION_ERROR,
+} from "./error.js";
 
 // ---------------------------------------------------------------------------
 // Tool request / response base shapes
