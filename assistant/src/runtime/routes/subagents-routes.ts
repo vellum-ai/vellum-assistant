@@ -209,7 +209,7 @@ export function subagentRouteDefinitions(): RouteDefinition[] {
 
         // Ownership check
         const state = manager.getState(params.id);
-        if (!state || state.config.parentSessionId !== conversationId) {
+        if (!state || state.config.parentConversationId !== conversationId) {
           return httpError(
             "NOT_FOUND",
             `Subagent "${params.id}" not found or in terminal state.`,

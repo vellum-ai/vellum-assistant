@@ -10,7 +10,10 @@ export async function executeSubagentStatus(
 
   if (subagentId) {
     const state = manager.getState(subagentId);
-    if (!state || state.config.parentSessionId !== context.conversationId) {
+    if (
+      !state ||
+      state.config.parentConversationId !== context.conversationId
+    ) {
       return {
         content: `No subagent found with ID "${subagentId}".`,
         isError: true,

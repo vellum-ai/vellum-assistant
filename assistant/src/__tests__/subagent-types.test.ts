@@ -32,7 +32,7 @@ describe("SubagentConfig type shape", () => {
   test("can create a valid config object", () => {
     const config: SubagentConfig = {
       id: "test-id",
-      parentSessionId: "parent-id",
+      parentConversationId: "parent-id",
       label: "Test subagent",
       objective: "Do something",
     };
@@ -44,7 +44,7 @@ describe("SubagentConfig type shape", () => {
   test("supports optional fields", () => {
     const config: SubagentConfig = {
       id: "test-id",
-      parentSessionId: "parent-id",
+      parentConversationId: "parent-id",
       label: "Test subagent",
       objective: "Do something",
       context: "Extra context",
@@ -62,7 +62,7 @@ describe("SubagentState type shape", () => {
     const state: SubagentState = {
       config: {
         id: "test-id",
-        parentSessionId: "parent-id",
+        parentConversationId: "parent-id",
         label: "Test",
         objective: "Do something",
       },

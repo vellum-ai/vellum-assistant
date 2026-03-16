@@ -66,7 +66,7 @@ function injectFakeSubagent(
     parentSendToClient: parentSendToClient ?? (() => {}),
   });
 
-  const parentId = state.config.parentSessionId;
+  const parentId = state.config.parentConversationId;
   if (!parentToChildren.has(parentId)) {
     parentToChildren.set(parentId, new Set());
   }
@@ -80,7 +80,7 @@ function makeState(
   return {
     config: {
       id: subagentId,
-      parentSessionId: "parent-sess-1",
+      parentConversationId: "parent-sess-1",
       label: "Test subagent",
       objective: "Do something",
     },
@@ -99,9 +99,10 @@ describe("SubagentManager abort notification", () => {
     const state = makeState(subagentId);
     injectFakeSubagent(manager, subagentId, state);
 
-    const notifications: { parentSessionId: string; message: string }[] = [];
-    manager.onSubagentFinished = (parentSessionId, message) => {
-      notifications.push({ parentSessionId, message });
+    const notifications: { parentConversationId: string; message: string }[] =
+      [];
+    manager.onSubagentFinished = (parentConversationId, message) => {
+      notifications.push({ parentConversationId, message });
     };
 
     const clientMessages: ServerMessage[] = [];
@@ -209,10 +210,10 @@ describe("SubagentManager abort notification", () => {
     expect(notified).toBe(false);
   });
 
-  test("abort rejects when callerSessionId does not match parent", () => {
+  test("abort rejects when callerConversationId does not match parent", () => {
     const manager = new SubagentManager();
     const subagentId = "sub-1";
-    const state = makeState(subagentId); // parentSessionId = 'parent-sess-1'
+    const state = makeState(subagentId); // parentConversationId = 'parent-sess-1'
     injectFakeSubagent(manager, subagentId, state);
 
     const result = manager.abort(subagentId, () => {}, "different-session");
@@ -221,7 +222,7 @@ describe("SubagentManager abort notification", () => {
     expect(state.status).toBe("running"); // unchanged
   });
 
-  test("abort succeeds when callerSessionId matches parent", () => {
+  test("abort succeeds when callerConversationId matches parent", () => {
     const manager = new SubagentManager();
     const subagentId = "sub-1";
     const state = makeState(subagentId);
@@ -233,13 +234,13 @@ describe("SubagentManager abort notification", () => {
     expect(state.status).toBe("aborted");
   });
 
-  test("abort succeeds without callerSessionId (no ownership check)", () => {
+  test("abort succeeds without callerConversationId (no ownership check)", () => {
     const manager = new SubagentManager();
     const subagentId = "sub-1";
     const state = makeState(subagentId);
     injectFakeSubagent(manager, subagentId, state);
 
-    // No callerSessionId — internal calls (eviction, abortAllForParent) skip ownership check
+    // No callerConversationId — internal calls (eviction, abortAllForParent) skip ownership check
     const result = manager.abort(subagentId, () => {});
 
     expect(result).toBe(true);
@@ -277,9 +278,10 @@ describe("SubagentManager notifyParent (via runSubagent)", () => {
     managed.session.persistUserMessage = () => "msg-1";
     managed.session.runAgentLoop = async () => {};
 
-    const notifications: { parentSessionId: string; message: string }[] = [];
-    manager.onSubagentFinished = (parentSessionId, message) => {
-      notifications.push({ parentSessionId, message });
+    const notifications: { parentConversationId: string; message: string }[] =
+      [];
+    manager.onSubagentFinished = (parentConversationId, message) => {
+      notifications.push({ parentConversationId, message });
     };
 
     await asInternals(manager).runSubagent(subagentId, "Do something");
@@ -291,7 +293,7 @@ describe("SubagentManager notifyParent (via runSubagent)", () => {
       estimatedCost: 0.005,
     });
     expect(notifications).toHaveLength(1);
-    expect(notifications[0].parentSessionId).toBe("parent-sess-1");
+    expect(notifications[0].parentConversationId).toBe("parent-sess-1");
     expect(notifications[0].message).toContain(
       '[Subagent "Test subagent" completed]',
     );
@@ -312,9 +314,10 @@ describe("SubagentManager notifyParent (via runSubagent)", () => {
       throw new Error("API rate limit exceeded");
     };
 
-    const notifications: { parentSessionId: string; message: string }[] = [];
-    manager.onSubagentFinished = (parentSessionId, message) => {
-      notifications.push({ parentSessionId, message });
+    const notifications: { parentConversationId: string; message: string }[] =
+      [];
+    manager.onSubagentFinished = (parentConversationId, message) => {
+      notifications.push({ parentConversationId, message });
     };
 
     await asInternals(manager).runSubagent(subagentId, "Do something");
@@ -345,9 +348,10 @@ describe("SubagentManager notifyParent (via runSubagent)", () => {
       throw new Error("Conversation aborted");
     };
 
-    const notifications: { parentSessionId: string; message: string }[] = [];
-    manager.onSubagentFinished = (parentSessionId, message) => {
-      notifications.push({ parentSessionId, message });
+    const notifications: { parentConversationId: string; message: string }[] =
+      [];
+    manager.onSubagentFinished = (parentConversationId, message) => {
+      notifications.push({ parentConversationId, message });
     };
 
     await asInternals(manager).runSubagent(subagentId, "Do something");
@@ -424,9 +428,10 @@ describe("SubagentManager abort race guard", () => {
       { role: "assistant", content: [{ type: "text", text: "Done!" }] },
     ];
 
-    const notifications: { parentSessionId: string; message: string }[] = [];
-    manager.onSubagentFinished = (parentSessionId, message) => {
-      notifications.push({ parentSessionId, message });
+    const notifications: { parentConversationId: string; message: string }[] =
+      [];
+    manager.onSubagentFinished = (parentConversationId, message) => {
+      notifications.push({ parentConversationId, message });
     };
 
     await asInternals(manager).runSubagent(subagentId, "Do something");

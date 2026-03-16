@@ -7,7 +7,7 @@ import type { UsageStats } from "./shared.js";
 export interface SubagentSpawned {
   type: "subagent_spawned";
   subagentId: string;
-  parentSessionId: string;
+  parentConversationId: string;
   label: string;
   objective: string;
 }
@@ -41,7 +41,7 @@ export interface SubagentAbortRequest {
 
 export interface SubagentStatusRequest {
   type: "subagent_status";
-  /** If omitted, returns all subagents for the session. */
+  /** If omitted, returns all subagents for the conversation. */
   subagentId?: string;
 }
 

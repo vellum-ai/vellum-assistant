@@ -28,7 +28,7 @@ export interface SubagentConfig {
   /** Unique subagent identifier (UUID). */
   id: string;
   /** The parent Conversation's conversationId. */
-  parentSessionId: string;
+  parentConversationId: string;
   /** Human-readable label (e.g. "Research competitor pricing"). */
   label: string;
   /** The task objective for this subagent. */
@@ -37,7 +37,7 @@ export interface SubagentConfig {
   context?: string;
   /** Optional system prompt override. Falls back to a default subagent prompt. */
   systemPromptOverride?: string;
-  /** Optional skill IDs to pre-activate on the subagent session. */
+  /** Optional skill IDs to pre-activate on the subagent conversation. */
   preactivatedSkillIds?: string[];
   /** Whether the parent should present the result to the user. Defaults to true. */
   sendResultToUser?: boolean;
@@ -48,7 +48,7 @@ export interface SubagentConfig {
 export interface SubagentState {
   config: SubagentConfig;
   status: SubagentStatus;
-  /** The subagent's own conversationId (different from parentSessionId). */
+  /** The subagent's own conversationId (different from parentConversationId). */
   conversationId: string;
   /** Error message if status is 'failed'. */
   error?: string;

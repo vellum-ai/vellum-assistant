@@ -4113,14 +4113,14 @@ public struct SubagentMessageRequest: Codable, Sendable {
 public struct SubagentSpawned: Codable, Sendable {
     public let type: String
     public let subagentId: String
-    public let parentSessionId: String
+    public let parentConversationId: String
     public let label: String
     public let objective: String
 
-    public init(type: String, subagentId: String, parentSessionId: String, label: String, objective: String) {
+    public init(type: String, subagentId: String, parentConversationId: String, label: String, objective: String) {
         self.type = type
         self.subagentId = subagentId
-        self.parentSessionId = parentSessionId
+        self.parentConversationId = parentConversationId
         self.label = label
         self.objective = objective
     }

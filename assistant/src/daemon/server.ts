@@ -318,15 +318,15 @@ export class DaemonServer {
       );
     };
     getSubagentManager().onSubagentFinished = async (
-      parentSessionId,
+      parentConversationId,
       message,
       sendToClient,
       notification,
     ) => {
-      const parentSession = this.conversations.get(parentSessionId);
+      const parentSession = this.conversations.get(parentConversationId);
       if (!parentSession) {
         log.warn(
-          { parentSessionId },
+          { parentConversationId },
           "Subagent finished but parent session not found",
         );
         return;
@@ -353,7 +353,7 @@ export class DaemonServer {
           .runAgentLoop(message, messageId, sendToClient)
           .catch((err) => {
             log.error(
-              { parentSessionId, err },
+              { parentConversationId, err },
               "Failed to process subagent notification in parent",
             );
           });

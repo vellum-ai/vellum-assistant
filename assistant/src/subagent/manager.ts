@@ -65,7 +65,7 @@ export interface SubagentNotificationInfo {
 }
 
 export type ParentNotifyCallback = (
-  parentSessionId: string,
+  parentConversationId: string,
   message: string,
   sendToClient: (msg: ServerMessage) => void,
   notification: SubagentNotificationInfo,
@@ -74,7 +74,7 @@ export type ParentNotifyCallback = (
 export class SubagentManager {
   /** subagentId → ManagedSubagent */
   private subagents = new Map<string, ManagedSubagent>();
-  /** parentSessionId → Set<subagentId> */
+  /** parentConversationId → Set<subagentId> */
   private parentToChildren = new Map<string, Set<string>>();
 
   /**
@@ -111,7 +111,7 @@ export class SubagentManager {
 
     // Depth check: prevent subagents from spawning nested subagents.
     const isParentASubagent = [...this.subagents.values()].some(
-      (s) => s.state.conversationId === config.parentSessionId,
+      (s) => s.state.conversationId === config.parentConversationId,
     );
     if (isParentASubagent) {
       throw new Error(
@@ -206,16 +206,16 @@ export class SubagentManager {
     this.subagents.set(subagentId, managed);
 
     // Track parent → child relationship.
-    if (!this.parentToChildren.has(config.parentSessionId)) {
-      this.parentToChildren.set(config.parentSessionId, new Set());
+    if (!this.parentToChildren.has(config.parentConversationId)) {
+      this.parentToChildren.set(config.parentConversationId, new Set());
     }
-    this.parentToChildren.get(config.parentSessionId)!.add(subagentId);
+    this.parentToChildren.get(config.parentConversationId)!.add(subagentId);
 
     // Notify client that a subagent was spawned.
     parentSendToClient({
       type: "subagent_spawned",
       subagentId,
-      parentSessionId: config.parentSessionId,
+      parentConversationId: config.parentConversationId,
       label: config.label,
       objective: config.objective,
     } as ServerMessage);
@@ -223,7 +223,7 @@ export class SubagentManager {
     log.info(
       {
         subagentId,
-        parentSessionId: config.parentSessionId,
+        parentConversationId: config.parentConversationId,
         label: config.label,
       },
       "Subagent spawned",
@@ -293,22 +293,22 @@ export class SubagentManager {
   abort(
     subagentId: string,
     parentSendToClient?: (msg: ServerMessage) => void,
-    callerSessionId?: string,
+    callerConversationId?: string,
     options?: { suppressNotification?: boolean },
   ): boolean {
     const managed = this.subagents.get(subagentId);
     if (!managed) return false;
     if (TERMINAL_STATUSES.has(managed.state.status)) return false;
-    // If a caller session is specified, verify ownership.
+    // If a caller conversation is specified, verify ownership.
     if (
-      callerSessionId &&
-      managed.state.config.parentSessionId !== callerSessionId
+      callerConversationId &&
+      managed.state.config.parentConversationId !== callerConversationId
     ) {
       log.warn(
         {
           subagentId,
-          callerSessionId,
-          parentSessionId: managed.state.config.parentSessionId,
+          callerConversationId,
+          parentConversationId: managed.state.config.parentConversationId,
         },
         "Abort rejected: caller does not own this subagent",
       );
@@ -336,7 +336,7 @@ export class SubagentManager {
           // notification routes to the parent session's socket, not the
           // aborting socket (which may be a different conversation after switching).
           this.onSubagentFinished(
-            managed.state.config.parentSessionId,
+            managed.state.config.parentConversationId,
             message,
             managed.parentSendToClient,
             {
@@ -363,10 +363,10 @@ export class SubagentManager {
    * Called when the parent session is aborted or evicted.
    */
   abortAllForParent(
-    parentSessionId: string,
+    parentConversationId: string,
     parentSendToClient?: (msg: ServerMessage) => void,
   ): number {
-    const children = this.parentToChildren.get(parentSessionId);
+    const children = this.parentToChildren.get(parentConversationId);
     if (!children) return 0;
 
     let count = 0;
@@ -427,8 +427,8 @@ export class SubagentManager {
     return this.subagents.get(subagentId)?.state;
   }
 
-  getChildrenOf(parentSessionId: string): SubagentState[] {
-    const children = this.parentToChildren.get(parentSessionId);
+  getChildrenOf(parentConversationId: string): SubagentState[] {
+    const children = this.parentToChildren.get(parentConversationId);
     if (!children) return [];
     return [...children]
       .map((id) => this.subagents.get(id)?.state)
@@ -447,10 +447,10 @@ export class SubagentManager {
    * Called when the parent client reconnects to a new socket.
    */
   updateParentSender(
-    parentSessionId: string,
+    parentConversationId: string,
     newSendToClient: (msg: ServerMessage) => void,
   ): void {
-    const children = this.parentToChildren.get(parentSessionId);
+    const children = this.parentToChildren.get(parentConversationId);
     if (!children) return;
 
     for (const childId of children) {
@@ -479,7 +479,7 @@ export class SubagentManager {
     this.subagents.delete(subagentId);
 
     // Remove from parent tracking.
-    const parentId = managed.state.config.parentSessionId;
+    const parentId = managed.state.config.parentConversationId;
     const siblings = this.parentToChildren.get(parentId);
     if (siblings) {
       siblings.delete(subagentId);
@@ -569,7 +569,7 @@ export class SubagentManager {
 
     try {
       this.onSubagentFinished(
-        config.parentSessionId,
+        config.parentConversationId,
         message,
         parentSendToClient,
         notification,

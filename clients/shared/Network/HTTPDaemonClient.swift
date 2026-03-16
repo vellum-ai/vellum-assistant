@@ -1535,15 +1535,15 @@ public final class HTTPTransport {
                 with: "\"conversationId\": \"\(localId)\""
             )
         }
-        if let parentSessionId = extractJsonStringValue(from: jsonString, key: "parentSessionId"),
-           let localId = serverToLocalConversationMap[parentSessionId] {
+        if let parentConversationId = extractJsonStringValue(from: jsonString, key: "parentConversationId"),
+           let localId = serverToLocalConversationMap[parentConversationId] {
             jsonString = jsonString.replacingOccurrences(
-                of: "\"parentSessionId\":\"\(parentSessionId)\"",
-                with: "\"parentSessionId\":\"\(localId)\""
+                of: "\"parentConversationId\":\"\(parentConversationId)\"",
+                with: "\"parentConversationId\":\"\(localId)\""
             )
             jsonString = jsonString.replacingOccurrences(
-                of: "\"parentSessionId\": \"\(parentSessionId)\"",
-                with: "\"parentSessionId\": \"\(localId)\""
+                of: "\"parentConversationId\": \"\(parentConversationId)\"",
+                with: "\"parentConversationId\": \"\(localId)\""
             )
         }
 
