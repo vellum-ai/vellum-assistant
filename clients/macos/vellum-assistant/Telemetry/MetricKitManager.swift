@@ -204,10 +204,13 @@ import os
         event.tags = [
             "daemon_error_category": error.category,
         ]
-        event.extra = [
+        var extra: [String: Any] = [
             "error_message": error.message,
-            "error_detail": error.detail,
         ]
+        if let detail = error.detail {
+            extra["error_detail"] = detail
+        }
+        event.extra = extra
         event.fingerprint = ["daemon_startup_failure", error.category]
         captureSentryEvent(event)
     }
