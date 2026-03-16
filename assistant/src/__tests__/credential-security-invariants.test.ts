@@ -204,8 +204,6 @@ describe("Invariant 2: no generic plaintext secret read API", () => {
     // Hard boundary: only these production files may import from secure-keys.
     // Any new import must be reviewed for secret-leak risk and added here.
     const ALLOWED_IMPORTERS = new Set([
-      "security/credential-key.ts", // credential key builder + migration
-      "config/loader.ts", // config management (API keys)
       "tools/credentials/vault.ts", // credential store tool
       "tools/credentials/broker.ts", // brokered credential access
       "tools/network/web-search.ts", // web search API key lookup
@@ -214,7 +212,6 @@ describe("Invariant 2: no generic plaintext secret read API", () => {
       "security/token-manager.ts", // OAuth token refresh flow
       "email/providers/index.ts", // email provider API key lookup
       "tools/network/script-proxy/session-manager.ts", // proxy credential injection at runtime
-      "messaging/registry.ts", // checks stored credentials for connected providers
       "calls/call-domain.ts", // caller identity resolution (user phone number lookup)
       "calls/twilio-config.ts", // call infrastructure credential lookup
       "calls/twilio-provider.ts", // call infrastructure credential lookup
@@ -225,7 +222,6 @@ describe("Invariant 2: no generic plaintext secret read API", () => {
       "messaging/providers/telegram-bot/adapter.ts", // Telegram bot token lookup for connectivity check
       "runtime/channel-readiness-service.ts", // channel readiness probes for Telegram connectivity
       "messaging/providers/whatsapp/adapter.ts", // WhatsApp credential lookup for connectivity check
-      "schedule/integration-status.ts", // integration status checks for scheduled reports
       "daemon/handlers/config-slack-channel.ts", // Slack channel config credential management
       "providers/managed-proxy/context.ts", // managed proxy API key lookup for provider initialization
       "mcp/mcp-oauth-provider.ts", // MCP OAuth token/client/discovery persistence
@@ -247,12 +243,10 @@ describe("Invariant 2: no generic plaintext secret read API", () => {
       "config/bundled-skills/media-processing/tools/analyze-keyframes.ts", // keyframe analysis tool API key lookup
       "config/bundled-skills/media-processing/tools/extract-keyframes.ts", // keyframe extraction tool API key lookup
       "providers/registry.ts", // provider registry API key lookup for initialization
+      "providers/provider-availability.ts", // provider availability API key check
       "media/app-icon-generator.ts", // app icon generation API key lookup
       "media/avatar-router.ts", // avatar generation API key lookup
       "memory/embedding-backend.ts", // embedding backend API key lookup
-      "daemon/handlers/config-model.ts", // model config handler API key lookup
-      "daemon/conversation-slash.ts", // session slash command API key lookup
-      "daemon/conversation-process.ts", // session process API key lookup
       "daemon/lifecycle.ts", // CLI edge token persistence at startup
       "daemon/providers-setup.ts", // provider initialization API key lookup
       "tools/claude-code/claude-code.ts", // Claude Code tool API key lookup
