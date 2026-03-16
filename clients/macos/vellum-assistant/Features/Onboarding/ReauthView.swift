@@ -13,10 +13,7 @@ struct ReauthView: View {
     @State private var didComplete = false
 
     private var hasNonManagedAssistant: Bool {
-        let storedId = UserDefaults.standard.string(forKey: "connectedAssistantId")
-        let assistant = storedId.flatMap { LockfileAssistant.loadByName($0) }
-            ?? LockfileAssistant.loadLatest()
-        return assistant != nil && !assistant!.isManaged
+        LockfileAssistant.loadAll().contains { !$0.isManaged }
     }
 
     private static let appIcon: NSImage? = {
