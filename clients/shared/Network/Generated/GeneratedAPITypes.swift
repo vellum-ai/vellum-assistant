@@ -336,10 +336,13 @@ public struct AppsListRequest: Codable, Sendable {
 public struct AppsListResponse: Codable, Sendable {
     public let type: String
     public let apps: [AppsListResponseApp]
+    /// Whether the response came from a successful fetch (true) or an error fallback (false).
+    public let success: Bool
 
-    public init(type: String, apps: [AppsListResponseApp]) {
+    public init(type: String, apps: [AppsListResponseApp], success: Bool = true) {
         self.type = type
         self.apps = apps
+        self.success = success
     }
 }
 

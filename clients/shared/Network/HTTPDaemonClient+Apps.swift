@@ -105,7 +105,8 @@ extension HTTPTransport {
         guard let url = buildURL(for: .appsList) else {
             onMessage?(.appsListResponse(AppsListResponse(
                 type: "apps_list_response",
-                apps: []
+                apps: [],
+                success: false
             )))
             return
         }
@@ -124,7 +125,8 @@ extension HTTPTransport {
                     } else {
                         onMessage?(.appsListResponse(AppsListResponse(
                             type: "apps_list_response",
-                            apps: []
+                            apps: [],
+                            success: false
                         )))
                     }
                     return
@@ -133,7 +135,8 @@ extension HTTPTransport {
                     log.error("Fetch apps list failed (\(http.statusCode))")
                     onMessage?(.appsListResponse(AppsListResponse(
                         type: "apps_list_response",
-                        apps: []
+                        apps: [],
+                        success: false
                     )))
                     return
                 }
@@ -160,7 +163,8 @@ extension HTTPTransport {
             log.error("Fetch apps list error: \(error.localizedDescription)")
             onMessage?(.appsListResponse(AppsListResponse(
                 type: "apps_list_response",
-                apps: []
+                apps: [],
+                success: false
             )))
         }
     }
