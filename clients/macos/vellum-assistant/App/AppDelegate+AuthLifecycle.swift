@@ -156,10 +156,16 @@ extension AppDelegate {
                 log.warning("No actor token available during logout — skipping daemon credential cleanup")
             }
 
-            // Clear the locally-cached credential from Keychain
+            // Clear locally-cached credentials from Keychain for all local assistants
+            let keychainStorage = KeychainCredentialStorage()
+            for assistant in LockfileAssistant.loadAll() where !assistant.isRemote && !assistant.isManaged {
+                let credentialAccount = LocalAssistantBootstrapService.credentialAccount(for: assistant.assistantId)
+                _ = keychainStorage.delete(account: credentialAccount)
+            }
+            // Also clear for the connected assistant in case it's not in the lockfile
             if let assistantId = connectedAssistantId {
                 let credentialAccount = LocalAssistantBootstrapService.credentialAccount(for: assistantId)
-                _ = KeychainCredentialStorage().delete(account: credentialAccount)
+                _ = keychainStorage.delete(account: credentialAccount)
             }
 
             // Reset dock icon to default before tearing down UI
