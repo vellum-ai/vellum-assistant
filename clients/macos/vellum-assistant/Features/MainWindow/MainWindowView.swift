@@ -408,11 +408,11 @@ struct MainWindowView: View {
             Spacer()
             if updateManager.isUpdateAvailable {
                 VButton(
-                    label: "Update",
+                    label: updateManager.isDeferredUpdateReady ? "Restart to update" : "Update",
                     leftIcon: VIcon.arrowUp.rawValue,
                     style: .primary,
                     size: .pill,
-                    tooltip: "A new version is available"
+                    tooltip: updateManager.isDeferredUpdateReady ? "Restart to install the latest version" : "A new version is available"
                 ) {
                     if updateManager.isDeferredUpdateReady {
                         NSApp.terminate(nil)
@@ -421,6 +421,7 @@ struct MainWindowView: View {
                     }
                 }
                 .transition(.opacity.combined(with: .scale(scale: 0.9)))
+                .animation(VAnimation.fast, value: updateManager.isUpdateAvailable)
             }
             PTTKeyIndicator {
                 settingsStore.pendingSettingsTab = .voice
