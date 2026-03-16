@@ -14,6 +14,28 @@ import UIKit
 
 private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "ChatViewModel")
 
+@MainActor
+protocol SurfaceClientProtocol {
+    func fetchSurfaceData(surfaceId: String, conversationId: String) async -> SurfaceData?
+}
+
+@MainActor
+struct SurfaceClient: SurfaceClientProtocol {
+    nonisolated init() {}
+
+    func fetchSurfaceData(surfaceId: String, conversationId: String) async -> SurfaceData? {
+        let response = try? await GatewayHTTPClient.get(
+            path: "assistants/{assistantId}/surfaces/\(surfaceId)?conversationId=\(conversationId)", timeout: 10
+        )
+        if let statusCode = response?.statusCode, !(200..<300).contains(statusCode) {
+            log.error("Fetch surface \(surfaceId) failed (HTTP \(statusCode))")
+            return nil
+        }
+        guard let data = response?.data else { return nil }
+        return Surface.parseSurfaceDataFromResponse(data)
+    }
+}
+
 /// Facade that owns the three focused sub-managers and forwards all property
 /// accesses to them via computed properties.  Existing call sites require no
 /// changes because the public API surface is identical to the previous monolith.
@@ -294,6 +316,7 @@ public final class ChatViewModel: ObservableObject {
 
     public let subagentDetailStore = SubagentDetailStore()
     let daemonClient: any DaemonClientProtocol
+    private let surfaceClient: any SurfaceClientProtocol
     /// Tracks the action submitted for each guardian decision requestId so the
     /// response handler can display the correct resolved state (the server does
     /// not echo back the action in its acknowledgement).
@@ -809,8 +832,9 @@ public final class ChatViewModel: ObservableObject {
     /// Set via the onPageChanged callback when the user navigates within a multi-page app.
     public var currentPage: String?
 
-    public init(daemonClient: any DaemonClientProtocol, onToolCallsComplete: ((_ toolCalls: [ToolCallData]) -> Void)? = nil) {
+    public init(daemonClient: any DaemonClientProtocol, surfaceClient: any SurfaceClientProtocol = SurfaceClient(), onToolCallsComplete: ((_ toolCalls: [ToolCallData]) -> Void)? = nil) {
         self.daemonClient = daemonClient
+        self.surfaceClient = surfaceClient
         self.onToolCallsComplete = onToolCallsComplete
 
         // Coalesce sub-manager objectWillChange signals through a single
@@ -1579,7 +1603,7 @@ public final class ChatViewModel: ObservableObject {
     /// Lazily created manager that serializes surface content fetches.
     private lazy var surfaceRefetchManager = SurfaceRefetchManager { [weak self] surfaceId, conversationId in
         guard let self else { return nil }
-        return await self.daemonClient.fetchSurfaceData(surfaceId: surfaceId, conversationId: conversationId)
+        return await self.surfaceClient.fetchSurfaceData(surfaceId: surfaceId, conversationId: conversationId)
     }
 
     /// In-flight refetch tasks, keyed by surface ID for cancellation.

@@ -288,7 +288,6 @@ public final class HTTPTransport {
         case contactsInvitesCreate
         case contactsInvitesCall(id: String)
         case channelsReadiness
-        case surfaceContent(surfaceId: String, conversationId: String)
         case workspaceTree(path: String, showHidden: Bool)
         case workspaceFile(path: String, showHidden: Bool)
         case workspaceFileContent(path: String, showHidden: Bool)
@@ -555,10 +554,6 @@ public final class HTTPTransport {
             return ("/v1/contacts/invites/\(encoded)/call", nil)
         case .channelsReadiness:
             return ("/v1/channels/readiness", nil)
-        case .surfaceContent(let surfaceId, let conversationId):
-            let sEncoded = surfaceId.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? surfaceId
-            let qEncoded = conversationId.addingPercentEncoding(withAllowedCharacters: Self.queryValueAllowed) ?? conversationId
-            return ("/v1/surfaces/\(sEncoded)", "conversationId=\(qEncoded)")
         case .workspaceTree(let path, let showHidden):
             let encoded = path.addingPercentEncoding(withAllowedCharacters: Self.queryValueAllowed) ?? path
             var params: [String] = []
@@ -971,10 +966,6 @@ public final class HTTPTransport {
             return ("\(prefix)/contacts/invites/\(encoded)/call/", nil)
         case .channelsReadiness:
             return ("\(prefix)/channels/readiness/", nil)
-        case .surfaceContent(let surfaceId, let conversationId):
-            let sEncoded = surfaceId.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? surfaceId
-            let qEncoded = conversationId.addingPercentEncoding(withAllowedCharacters: Self.queryValueAllowed) ?? conversationId
-            return ("\(prefix)/surfaces/\(sEncoded)/", "conversationId=\(qEncoded)")
         case .workspaceTree(let path, let showHidden):
             let encoded = path.addingPercentEncoding(withAllowedCharacters: Self.queryValueAllowed) ?? path
             var params: [String] = []
@@ -2722,47 +2713,6 @@ public final class HTTPTransport {
             }
         } catch {
             log.error("HTTPTransport: surface action error: \(error.localizedDescription)")
-        }
-    }
-
-    // MARK: - Surface Content Fetch
-
-    /// Fetch the full surface payload from the daemon for a stripped surface.
-    /// Returns the parsed `SurfaceData` on success, or `nil` if the surface
-    /// was not found or the response could not be parsed.
-    func fetchSurfaceData(surfaceId: String, conversationId: String, isRetry: Bool = false) async -> SurfaceData? {
-        guard let url = buildURL(for: .surfaceContent(surfaceId: surfaceId, conversationId: conversationId)) else { return nil }
-
-        var request = URLRequest(url: url)
-        request.httpMethod = "GET"
-        applyAuth(&request)
-
-        do {
-            let (data, response) = try await URLSession.shared.data(for: request)
-
-            if let http = response as? HTTPURLResponse {
-                if http.statusCode == 401 && !isRetry {
-                    let refreshResult = await handleAuthenticationFailureAsync(responseData: data)
-                    if case .success = refreshResult {
-                        return await fetchSurfaceData(surfaceId: surfaceId, conversationId: conversationId, isRetry: true)
-                    }
-                    return nil
-                }
-                guard (200...299).contains(http.statusCode) else {
-                    log.error("HTTPTransport: surface content fetch failed (\(http.statusCode))")
-                    return nil
-                }
-            }
-
-            guard let surfaceData = Surface.parseSurfaceDataFromResponse(data) else {
-                log.error("HTTPTransport: surface content response could not be parsed")
-                return nil
-            }
-
-            return surfaceData
-        } catch {
-            log.error("HTTPTransport: surface content fetch error: \(error.localizedDescription)")
-            return nil
         }
     }
 
