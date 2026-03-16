@@ -821,8 +821,10 @@ export async function hatch(): Promise<void> {
     process.exit(1);
   }
 
-  if (watch && remote !== "local") {
-    console.error("Error: --watch is only supported for local hatch targets.");
+  if (watch && remote !== "local" && remote !== "docker") {
+    console.error(
+      "Error: --watch is only supported for local and docker hatch targets.",
+    );
     process.exit(1);
   }
 
@@ -842,7 +844,7 @@ export async function hatch(): Promise<void> {
   }
 
   if (remote === "docker") {
-    await hatchDocker(species, detached, name);
+    await hatchDocker(species, detached, name, watch);
     return;
   }
 
