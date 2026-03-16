@@ -321,12 +321,13 @@ export async function runDaemon(): Promise<void> {
       });
     }
 
-    // If the user has opted out of usage data collection or we are in dev mode,
-    // stop Sentry and skip telemetry. Early-startup crashes before this point
-    // are still captured.
+    // Privacy gating: Sentry crash/error reporting is gated by sendDiagnostics,
+    // while the usage telemetry reporter is gated by collectUsageData. Both are
+    // disabled in dev mode. Early-startup crashes before this point are still captured.
     const isDevMode = process.env.VELLUM_DEV === "1";
+    const sendDiagnostics = !isDevMode && config.sendDiagnostics;
     const collectUsageData = !isDevMode && config.collectUsageData;
-    if (!collectUsageData) {
+    if (!sendDiagnostics) {
       await closeSentry();
     }
 

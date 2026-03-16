@@ -37,7 +37,7 @@ function redactObject(obj: unknown): unknown {
 /**
  * Call after dotenv has loaded so SENTRY_DSN is available.
  * Always initializes Sentry to capture early startup crashes. If the user
- * later opts out via the collectUsageData config key (or VELLUM_DEV=1),
+ * later opts out via the sendDiagnostics config key (or VELLUM_DEV=1),
  * call closeSentry() after config is loaded to stop future event capturing.
  */
 export function initSentry(): void {
@@ -86,7 +86,7 @@ export function initSentry(): void {
 
 /**
  * Stop capturing future Sentry events. Called after config loads when the
- * user has opted out of crash reporting so that early-startup crashes are
+ * user has disabled sendDiagnostics so that early-startup crashes are
  * still captured but subsequent events are suppressed.
  */
 export async function closeSentry(): Promise<void> {
