@@ -22,7 +22,7 @@ export interface AssistantEvent {
   id: string;
   /** The assistant this event belongs to. */
   assistantId: string;
-  /** Resolved conversation/session id when available. */
+  /** Resolved conversation id when available. */
   conversationId?: string;
   /** ISO-8601 timestamp of when the event was emitted. */
   emittedAt: string;
@@ -37,7 +37,7 @@ export interface AssistantEvent {
  *
  * @param assistantId  The logical assistant identifier (e.g. from the daemon or HTTP route).
  * @param message      The outbound server message payload.
- * @param conversationId    Optional conversation/session id — pass when known.
+ * @param conversationId    Optional conversation id — pass when known.
  */
 export function buildAssistantEvent(
   assistantId: string,

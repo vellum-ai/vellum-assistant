@@ -4,7 +4,7 @@ import type { ChannelId } from "./types.js";
  * Channel-discriminated inbound event model.
  *
  * Every normalized inbound event carries explicit `conversationExternalId`
- * (delivery/thread address) and `actorExternalId` (sender identity) fields.
+ * (delivery/conversation address) and `actorExternalId` (sender identity) fields.
  * The discriminated union is keyed by `sourceChannel`.
  */
 
