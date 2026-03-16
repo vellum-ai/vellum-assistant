@@ -45,19 +45,19 @@ extension MainWindowView {
         conversationManager.visibleConversations.filter { $0.isScheduleConversation }
     }
 
-    var displayedThreads: [ConversationModel] {
+    var displayedConversations: [ConversationModel] {
         let all = regularConversations
-        return sidebar.showAllThreads ? all : Array(all.prefix(5))
+        return sidebar.showAllConversations ? all : Array(all.prefix(5))
     }
 
-    var displayedScheduleThreads: [ConversationModel] {
+    var displayedScheduleConversations: [ConversationModel] {
         let all = scheduleConversations
-        return sidebar.showAllScheduleThreads ? all : Array(all.prefix(3))
+        return sidebar.showAllScheduleConversations ? all : Array(all.prefix(3))
     }
 
     /// Groups schedule conversations by their scheduleJobId.
-    /// Threads without a scheduleJobId are placed in individual groups keyed by their session ID.
-    var scheduleThreadGroups: [(key: String, label: String, conversations: [ConversationModel])] {
+    /// Conversations without a scheduleJobId are placed in individual groups keyed by their session ID.
+    var scheduleConversationGroups: [(key: String, label: String, conversations: [ConversationModel])] {
         var grouped: [String: [ConversationModel]] = [:]
         var order: [String] = []
         for thread in scheduleConversations {
@@ -87,8 +87,8 @@ extension MainWindowView {
     }
 
     var displayedScheduleGroups: [(key: String, label: String, conversations: [ConversationModel])] {
-        let all = scheduleThreadGroups
-        if sidebar.showAllScheduleThreads { return all }
+        let all = scheduleConversationGroups
+        if sidebar.showAllScheduleConversations { return all }
         // Auto-expand if any hidden group has unread conversations.
         let visible = Array(all.prefix(3))
         let hidden = all.dropFirst(3)
@@ -124,22 +124,22 @@ extension MainWindowView {
         .clipShape(RoundedRectangle(cornerRadius: VRadius.xl))
         .clipped()
         .alert("Rename Conversation", isPresented: Binding(
-            get: { sidebar.renamingThreadId != nil },
-            set: { if !$0 { sidebar.renamingThreadId = nil } }
+            get: { sidebar.renamingConversationId != nil },
+            set: { if !$0 { sidebar.renamingConversationId = nil } }
         )) {
             TextField("Title", text: Binding(
                 get: { sidebar.renameText },
                 set: { sidebar.renameText = $0 }
             ))
-            Button("Cancel", role: .cancel) { sidebar.renamingThreadId = nil }
+            Button("Cancel", role: .cancel) { sidebar.renamingConversationId = nil }
             Button("Save") {
-                if let id = sidebar.renamingThreadId {
+                if let id = sidebar.renamingConversationId {
                     conversationManager.renameConversation(id: id, title: sidebar.renameText)
                 }
-                sidebar.renamingThreadId = nil
+                sidebar.renamingConversationId = nil
             }
         } message: {
-            Text("Enter a new name for this thread")
+            Text("Enter a new name for this conversation")
         }
     }
 
@@ -229,11 +229,11 @@ extension MainWindowView {
 
             ScrollView {
                 VStack(spacing: 0) {
-                    if showDaemonLoading && displayedThreads.isEmpty {
+                    if showDaemonLoading && displayedConversations.isEmpty {
                         DaemonLoadingThreadsSkeleton()
                     }
 
-                    ForEach(displayedThreads) { thread in
+                    ForEach(displayedConversations) { thread in
                         SidebarThreadItem(
                             thread: thread,
                             conversationManager: conversationManager,
@@ -243,7 +243,7 @@ extension MainWindowView {
                         )
                             .padding(.bottom, SidebarLayoutMetrics.listRowGap)
                             .overlay(alignment: sidebar.dropIndicatorAtBottom ? .bottom : .top) {
-                                if sidebar.dropTargetThreadId == thread.id {
+                                if sidebar.dropTargetConversationId == thread.id {
                                     Rectangle()
                                         .fill(VColor.primaryBase)
                                         .frame(height: 2)
@@ -251,32 +251,32 @@ extension MainWindowView {
                                 }
                             }
                             .dropDestination(for: String.self) { items, _ in
-                                sidebar.dropTargetThreadId = nil
-                                sidebar.draggingThreadId = nil
+                                sidebar.dropTargetConversationId = nil
+                                sidebar.draggingConversationId = nil
                                 guard let droppedId = items.first,
                                       let sourceUUID = UUID(uuidString: droppedId),
                                       sourceUUID != thread.id else { return false }
                                 return conversationManager.moveThread(sourceId: sourceUUID, targetId: thread.id)
                             } isTargeted: { isTargeted in
-                                if isTargeted && thread.id != sidebar.draggingThreadId {
-                                    sidebar.dropTargetThreadId = thread.id
-                                    if let dragId = sidebar.draggingThreadId {
+                                if isTargeted && thread.id != sidebar.draggingConversationId {
+                                    sidebar.dropTargetConversationId = thread.id
+                                    if let dragId = sidebar.draggingConversationId {
                                         let visible = conversationManager.visibleConversations
                                         let sIdx = visible.firstIndex(where: { $0.id == dragId }) ?? 0
                                         let tIdx = visible.firstIndex(where: { $0.id == thread.id }) ?? 0
                                         sidebar.dropIndicatorAtBottom = sIdx < tIdx
                                     }
-                                } else if !isTargeted && sidebar.dropTargetThreadId == thread.id {
-                                    sidebar.dropTargetThreadId = nil
+                                } else if !isTargeted && sidebar.dropTargetConversationId == thread.id {
+                                    sidebar.dropTargetConversationId = nil
                                 }
                             }
                     }
 
                     if regularConversations.count > 5 {
                         Button {
-                            withAnimation(VAnimation.standard) { sidebar.showAllThreads.toggle() }
+                            withAnimation(VAnimation.standard) { sidebar.showAllConversations.toggle() }
                         } label: {
-                            Text(sidebar.showAllThreads ? "Show less" : "Show more")
+                            Text(sidebar.showAllConversations ? "Show less" : "Show more")
                                 .font(VFont.caption)
                                 .foregroundColor(VColor.primaryBase)
                                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -313,7 +313,7 @@ extension MainWindowView {
                                 )
                                     .padding(.bottom, SidebarLayoutMetrics.listRowGap)
                                     .overlay(alignment: sidebar.dropIndicatorAtBottom ? .bottom : .top) {
-                                        if sidebar.dropTargetThreadId == thread.id {
+                                        if sidebar.dropTargetConversationId == thread.id {
                                             Rectangle()
                                                 .fill(VColor.primaryBase)
                                                 .frame(height: 2)
@@ -393,7 +393,7 @@ extension MainWindowView {
                                         )
                                             .padding(.bottom, SidebarLayoutMetrics.listRowGap)
                                             .overlay(alignment: sidebar.dropIndicatorAtBottom ? .bottom : .top) {
-                                                if sidebar.dropTargetThreadId == thread.id {
+                                                if sidebar.dropTargetConversationId == thread.id {
                                                     Rectangle()
                                                         .fill(VColor.primaryBase)
                                                         .frame(height: 2)
@@ -422,11 +422,11 @@ extension MainWindowView {
                             }
                         }
 
-                        if scheduleThreadGroups.count > 3 {
+                        if scheduleConversationGroups.count > 3 {
                             Button {
-                                withAnimation(VAnimation.standard) { sidebar.showAllScheduleThreads.toggle() }
+                                withAnimation(VAnimation.standard) { sidebar.showAllScheduleConversations.toggle() }
                             } label: {
-                                Text(sidebar.showAllScheduleThreads ? "Show less" : "Show more")
+                                Text(sidebar.showAllScheduleConversations ? "Show less" : "Show more")
                                     .font(VFont.caption)
                                     .foregroundColor(VColor.primaryBase)
                                     .frame(maxWidth: .infinity, alignment: .leading)

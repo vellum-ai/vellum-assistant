@@ -34,43 +34,43 @@ final class SharingState {
 @Observable
 @MainActor
 final class SidebarInteractionState {
-    var isHoveredThread: UUID?
+    var isHoveredConversation: UUID?
     var isHoveredApp: String?
-    var threadPendingDeletion: UUID?
-    var renamingThreadId: UUID?
+    var conversationPendingDeletion: UUID?
+    var renamingConversationId: UUID?
     var renameText: String = ""
-    var showAllThreads: Bool = false
-    var showAllScheduleThreads: Bool = false
+    var showAllConversations: Bool = false
+    var showAllScheduleConversations: Bool = false
     /// Set of schedule group keys (scheduleJobId values) that are currently expanded.
     var expandedScheduleGroups: Set<String> = []
     var showAllApps: Bool = false
     var showPreferencesDrawer: Bool = false
 
-    /// Updates thread hover state and clears stale pending-deletion when hover
-    /// moves to a different thread. Centralises the invariant so callers don't
+    /// Updates conversation hover state and clears stale pending-deletion when hover
+    /// moves to a different conversation. Centralises the invariant so callers don't
     /// need to coordinate.
-    func setThreadHover(threadId: UUID?, hovering: Bool) {
+    func setConversationHover(conversationId: UUID?, hovering: Bool) {
         if hovering {
-            // Moving to a new thread clears pending archive of the old one
-            if let pending = threadPendingDeletion, pending != threadId {
-                threadPendingDeletion = nil
+            // Moving to a new conversation clears pending archive of the old one
+            if let pending = conversationPendingDeletion, pending != conversationId {
+                conversationPendingDeletion = nil
             }
-            isHoveredThread = threadId
+            isHoveredConversation = conversationId
         } else {
-            if isHoveredThread == threadId {
-                isHoveredThread = nil
+            if isHoveredConversation == conversationId {
+                isHoveredConversation = nil
             }
-            // Leaving a pending-deletion thread clears the confirmation
-            if threadPendingDeletion == threadId {
-                threadPendingDeletion = nil
+            // Leaving a pending-deletion conversation clears the confirmation
+            if conversationPendingDeletion == conversationId {
+                conversationPendingDeletion = nil
             }
         }
     }
 
     /// Conversation ID that is currently the drop target during a drag-and-drop reorder.
-    var dropTargetThreadId: UUID?
+    var dropTargetConversationId: UUID?
     /// Conversation ID currently being dragged (set on drag start, cleared on drop).
-    var draggingThreadId: UUID?
+    var draggingConversationId: UUID?
     /// Whether the drop indicator should appear at the bottom of the target (true)
     /// or the top (false). Set based on drag direction.
     var dropIndicatorAtBottom: Bool = false

@@ -9,7 +9,7 @@ struct ScheduleReorderDropDelegate: DropDelegate {
     let conversationManager: ConversationManager
 
     func validateDrop(info: DropInfo) -> Bool {
-        guard let dragId = sidebar.draggingThreadId,
+        guard let dragId = sidebar.draggingConversationId,
               dragId != targetThread.id,
               let sourceThread = conversationManager.visibleConversations.first(where: { $0.id == dragId }),
               sourceThread.isScheduleConversation,
@@ -23,14 +23,14 @@ struct ScheduleReorderDropDelegate: DropDelegate {
     }
 
     func dropEntered(info: DropInfo) {
-        guard let dragId = sidebar.draggingThreadId,
+        guard let dragId = sidebar.draggingConversationId,
               dragId != targetThread.id,
               let sourceThread = conversationManager.visibleConversations.first(where: { $0.id == dragId }),
               sourceThread.isScheduleConversation,
               sourceThread.scheduleJobId == targetThread.scheduleJobId
         else { return }
 
-        sidebar.dropTargetThreadId = targetThread.id
+        sidebar.dropTargetConversationId = targetThread.id
         let visible = conversationManager.visibleConversations
         let sIdx = visible.firstIndex(where: { $0.id == dragId }) ?? 0
         let tIdx = visible.firstIndex(where: { $0.id == targetThread.id }) ?? 0
@@ -38,15 +38,15 @@ struct ScheduleReorderDropDelegate: DropDelegate {
     }
 
     func dropExited(info: DropInfo) {
-        if sidebar.dropTargetThreadId == targetThread.id {
-            sidebar.dropTargetThreadId = nil
+        if sidebar.dropTargetConversationId == targetThread.id {
+            sidebar.dropTargetConversationId = nil
         }
     }
 
     func performDrop(info: DropInfo) -> Bool {
-        let sourceId = sidebar.draggingThreadId
-        sidebar.dropTargetThreadId = nil
-        sidebar.draggingThreadId = nil
+        let sourceId = sidebar.draggingConversationId
+        sidebar.dropTargetConversationId = nil
+        sidebar.draggingConversationId = nil
         guard let sourceId = sourceId, sourceId != targetThread.id else { return false }
         return conversationManager.moveThread(sourceId: sourceId, targetId: targetThread.id)
     }
@@ -63,7 +63,7 @@ struct ScheduleGroupHeaderDropDelegate: DropDelegate {
 
     func validateDrop(info: DropInfo) -> Bool {
         guard let firstThread = firstThread,
-              let dragId = sidebar.draggingThreadId,
+              let dragId = sidebar.draggingConversationId,
               dragId != firstThread.id,
               let sourceThread = conversationManager.visibleConversations.first(where: { $0.id == dragId }),
               sourceThread.isScheduleConversation,
@@ -78,27 +78,27 @@ struct ScheduleGroupHeaderDropDelegate: DropDelegate {
 
     func dropEntered(info: DropInfo) {
         guard let firstThread = firstThread,
-              let dragId = sidebar.draggingThreadId,
+              let dragId = sidebar.draggingConversationId,
               dragId != firstThread.id,
               let sourceThread = conversationManager.visibleConversations.first(where: { $0.id == dragId }),
               sourceThread.isScheduleConversation,
               sourceThread.scheduleJobId == firstThread.scheduleJobId
         else { return }
 
-        sidebar.dropTargetThreadId = firstThread.id
+        sidebar.dropTargetConversationId = firstThread.id
         sidebar.dropIndicatorAtBottom = false
     }
 
     func dropExited(info: DropInfo) {
-        if let firstThread = firstThread, sidebar.dropTargetThreadId == firstThread.id {
-            sidebar.dropTargetThreadId = nil
+        if let firstThread = firstThread, sidebar.dropTargetConversationId == firstThread.id {
+            sidebar.dropTargetConversationId = nil
         }
     }
 
     func performDrop(info: DropInfo) -> Bool {
-        let sourceId = sidebar.draggingThreadId
-        sidebar.dropTargetThreadId = nil
-        sidebar.draggingThreadId = nil
+        let sourceId = sidebar.draggingConversationId
+        sidebar.dropTargetConversationId = nil
+        sidebar.draggingConversationId = nil
         guard let firstThread = firstThread,
               let sourceId = sourceId,
               sourceId != firstThread.id
