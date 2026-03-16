@@ -317,6 +317,9 @@ final class AppleContainersLauncher: LocalAssistantLauncher {
         //
         // We use a `CheckedContinuation` so the main actor is suspended (not
         // blocked) while waiting for the reply, avoiding a deadlock.
+        // How long to wait for the factory provider to reply before giving up.
+        let makeRuntimeTimeoutSeconds: UInt64 = 5
+
         let adapter: NSObject = try await withCheckedThrowingContinuation { continuation in
             let replyName = Notification.Name("com.vellum.AppleContainersMakeRuntime")
             // Wrap the observer token in an @unchecked Sendable box so we can
@@ -337,6 +340,18 @@ final class AppleContainersLauncher: LocalAssistantLauncher {
                 } else {
                     continuation.resume(throwing: AppleContainersLauncherError.runtimeUnavailable)
                 }
+            }
+
+            // Timeout task: if handleRuntimeRequest() fails a guard and never
+            // posts the reply notification the continuation would leak and
+            // hatch() would hang forever.  This task resumes the continuation
+            // with an error after a short deadline so the hang is bounded.
+            Task { @MainActor in
+                try? await Task.sleep(nanoseconds: makeRuntimeTimeoutSeconds * 1_000_000_000)
+                guard once.trySet() else { return }
+                if let obs = tokenBox.value { NotificationCenter.default.removeObserver(obs) }
+                log.error("AppleContainersLauncher: makePodRuntimeHandle timed out waiting for MakeRuntime reply")
+                continuation.resume(throwing: AppleContainersLauncherError.runtimeUnavailable)
             }
 
             let userInfo: [AnyHashable: Any] = [

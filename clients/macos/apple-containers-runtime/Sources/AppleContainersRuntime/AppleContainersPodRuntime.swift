@@ -52,6 +52,8 @@ public enum AppleContainersPodRuntimeError: LocalizedError {
     /// The assistant process did not emit the readiness sentinel within the
     /// allowed timeout.
     case readinessTimeout(seconds: Int)
+    /// The assistant container exited before emitting the readiness sentinel.
+    case containerExitedBeforeReady
 
     public var errorDescription: String? {
         switch self {
@@ -67,6 +69,8 @@ public enum AppleContainersPodRuntimeError: LocalizedError {
             return "Pod failed to start: \(err.localizedDescription)"
         case .readinessTimeout(let seconds):
             return "Assistant did not become ready within \(seconds) seconds."
+        case .containerExitedBeforeReady:
+            return "Assistant container exited before emitting the readiness sentinel."
         }
     }
 }
@@ -131,9 +135,11 @@ public final class AppleContainersPodRuntime: @unchecked Sendable {
     ///
     /// - Throws: `AppleContainersPodRuntimeError` on any failure.
     public func hatch() async throws {
-        guard kernelStore.isCached else {
-            throw AppleContainersPodRuntimeError.kernelImagesNotReady
-        }
+        // Ensure kernel and init images are available before doing anything
+        // else.  ensureImagesReady() is idempotent — it returns immediately
+        // when the images are already cached, so calling it here adds no
+        // overhead on subsequent hatches.
+        try await kernelStore.ensureImagesReady()
 
         runtimeLog.info(
             "Hatching pod for '\(self.definition.instanceName, privacy: .private)' " +
@@ -285,10 +291,21 @@ public final class AppleContainersPodRuntime: @unchecked Sendable {
             podConfig.memoryInBytes = 2048 * 1024 * 1024  // 2 GiB for three services
         }
 
-        // Shared virtiofs mounts available to all containers.
+        // Virtiofs mounts shared across the assistant and gateway containers.
+        // Both services need read-write access to /data.
         let sharedMounts: [Mount] = [
             .share(source: def.hostDataDirectory.path,
                    destination: VellumPodMount.dataDirectory),
+            .share(source: def.hostCesBootstrapDirectory.path,
+                   destination: VellumPodMount.cesBootstrapDirectory),
+        ]
+
+        // The credential-executor container mounts /data read-only to match
+        // the Docker topology (docker.ts mounts the data volume `:ro` for CES).
+        let cesMounts: [Mount] = [
+            .share(source: def.hostDataDirectory.path,
+                   destination: VellumPodMount.dataDirectory,
+                   options: ["ro"]),
             .share(source: def.hostCesBootstrapDirectory.path,
                    destination: VellumPodMount.cesBootstrapDirectory),
         ]
@@ -320,11 +337,12 @@ public final class AppleContainersPodRuntime: @unchecked Sendable {
         }
 
         // Register the credential-executor container.
+        // /data is mounted read-only to match the Docker topology.
         try await pod.addContainer(
             "\(def.instanceName)-credential-executor",
             rootfs: rootfsMounts[.credentialExecutor]!
         ) { containerConfig in
-            containerConfig.mounts = sharedMounts + LinuxContainer.defaultMounts()
+            containerConfig.mounts = cesMounts + LinuxContainer.defaultMounts()
             containerConfig.process.environmentVariables = buildEnv(def.cesEnvironment())
         }
 
@@ -372,6 +390,8 @@ public final class AppleContainersPodRuntime: @unchecked Sendable {
             }
 
             // Log-watch task — reads lines until the sentinel appears.
+            // If the stream ends (container exited) before the sentinel is
+            // found, throw so hatch() fails rather than silently succeeding.
             group.addTask {
                 for await line in reader {
                     runtimeLog.debug(
@@ -382,6 +402,9 @@ public final class AppleContainersPodRuntime: @unchecked Sendable {
                         return
                     }
                 }
+                // Stream ended without the sentinel — the container exited.
+                runtimeLog.error("Assistant container exited before emitting readiness sentinel.")
+                throw AppleContainersPodRuntimeError.containerExitedBeforeReady
             }
 
             // The first task to finish (readiness or timeout) cancels the other.
