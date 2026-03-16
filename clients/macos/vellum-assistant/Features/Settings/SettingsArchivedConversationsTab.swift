@@ -1,7 +1,7 @@
 import SwiftUI
 import VellumAssistantShared
 
-struct SettingsArchivedThreadsTab: View {
+struct SettingsArchivedConversationsTab: View {
     @ObservedObject var conversationManager: ConversationManager
 
     var body: some View {
@@ -18,7 +18,7 @@ struct SettingsArchivedThreadsTab: View {
                         if index > 0 {
                             SettingsDivider()
                         }
-                        ArchivedThreadRow(thread: thread) {
+                        ArchivedConversationRow(conversation: thread) {
                             conversationManager.unarchiveConversation(id: thread.id)
                         }
                     }
@@ -34,8 +34,8 @@ struct SettingsArchivedThreadsTab: View {
 
 // MARK: - Archived Conversation Row
 
-private struct ArchivedThreadRow: View {
-    let thread: ConversationModel
+private struct ArchivedConversationRow: View {
+    let conversation: ConversationModel
     let onUnarchive: () -> Void
 
     private static let dateFormatter: DateFormatter = {
@@ -47,13 +47,13 @@ private struct ArchivedThreadRow: View {
     var body: some View {
         HStack(alignment: .center, spacing: VSpacing.md) {
             VStack(alignment: .leading, spacing: VSpacing.xs) {
-                Text(thread.title)
+                Text(conversation.title)
                     .font(VFont.body)
                     .foregroundColor(VColor.contentDefault)
                     .lineLimit(1)
                     .truncationMode(.tail)
 
-                Text("\(Self.dateFormatter.string(from: thread.createdAt)) · \(thread.source ?? "vellum-assistant")")
+                Text("\(Self.dateFormatter.string(from: conversation.createdAt)) · \(conversation.source ?? "vellum-assistant")")
                     .font(VFont.caption)
                     .foregroundColor(VColor.contentTertiary)
                     .lineLimit(1)

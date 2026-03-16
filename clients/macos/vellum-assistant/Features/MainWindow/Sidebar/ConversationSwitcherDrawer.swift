@@ -1,7 +1,7 @@
 import SwiftUI
 import VellumAssistantShared
 
-struct ThreadSwitcherDrawer: View {
+struct ConversationSwitcherDrawer: View {
     let regularConversations: [ConversationModel]
     let activeConversationId: UUID?
     @ObservedObject var conversationManager: ConversationManager
@@ -24,8 +24,8 @@ struct ThreadSwitcherDrawer: View {
                 .padding(.horizontal, VSpacing.xs)
 
             ForEach(regularConversations) { thread in
-                SidebarThreadItem(
-                    thread: thread,
+                SidebarConversationItem(
+                    conversation: thread,
                     conversationManager: conversationManager,
                     windowState: windowState,
                     sidebar: sidebar,

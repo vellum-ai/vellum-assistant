@@ -1,7 +1,7 @@
 import SwiftUI
 import VellumAssistantShared
 
-struct SidebarThreadsHeader: View {
+struct SidebarConversationsHeader: View {
     let hasUnseenThreads: Bool
     var isLoading: Bool = false
     let onMarkAllSeen: () -> Void

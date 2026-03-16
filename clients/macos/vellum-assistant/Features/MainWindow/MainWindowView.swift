@@ -569,7 +569,7 @@ struct MainWindowView: View {
                 }
                 .overlay(alignment: .topLeading) {
                     if showConversationSwitcher {
-                        ThreadSwitcherDrawer(
+                        ConversationSwitcherDrawer(
                             regularConversations: regularConversations,
                             activeConversationId: conversationManager.activeConversationId,
                             conversationManager: conversationManager,

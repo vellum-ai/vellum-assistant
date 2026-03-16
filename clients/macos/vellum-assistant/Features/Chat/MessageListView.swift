@@ -790,7 +790,7 @@ struct MessageListView: View {
                         hasReceivedScrollEvent = true
                     }
                 )
-                ThreadScrollbarVisibilityController(shouldShow: shouldShowThreadScrollbar)
+                ConversationScrollbarVisibilityController(shouldShow: shouldShowThreadScrollbar)
             }
             .onPreferenceChange(ScrollViewportHeightKey.self) { height in
                 os_signpost(.begin, log: PerfSignposts.log, name: "anchorPreferenceChange")
@@ -1427,7 +1427,7 @@ private struct MessageCellView: View, Equatable {
     }
 }
 
-private struct ThreadScrollbarVisibilityController: NSViewRepresentable, Equatable {
+private struct ConversationScrollbarVisibilityController: NSViewRepresentable, Equatable {
     let shouldShow: Bool
 
     func makeCoordinator() -> Coordinator {

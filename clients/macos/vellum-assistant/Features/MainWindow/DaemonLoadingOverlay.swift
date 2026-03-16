@@ -17,7 +17,7 @@ struct DaemonLoadingChatSkeleton: View {
 
 /// Skeleton thread rows shown in the sidebar while conversations are loading.
 /// Mimics 5 thread rows matching the height of nav items like "Things".
-struct DaemonLoadingThreadsSkeleton: View {
+struct DaemonLoadingConversationsSkeleton: View {
     var body: some View {
         VStack(spacing: SidebarLayoutMetrics.listRowGap) {
             ForEach(0..<5, id: \.self) { _ in

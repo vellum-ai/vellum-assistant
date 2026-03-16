@@ -317,7 +317,7 @@ struct SettingsPanel: View {
         case .billing:
             SettingsBillingTab(authManager: authManager)
         case .archivedConversations:
-            SettingsArchivedThreadsTab(conversationManager: conversationManager)
+            SettingsArchivedConversationsTab(conversationManager: conversationManager)
         case .developer:
             SettingsDeveloperTab(store: store, daemonClient: daemonClient, authManager: authManager, onClose: onClose)
         }

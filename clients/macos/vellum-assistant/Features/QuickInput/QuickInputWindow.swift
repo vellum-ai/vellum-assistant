@@ -50,7 +50,7 @@ final class QuickInputWindow {
     /// Callback invoked when the user selects an existing conversation (navigates to it).
     var onSelectConversation: ((UUID) -> Void)?
     /// Recent conversations to show in the dropdown.
-    var recentConversations: [QuickInputThread] = []
+    var recentConversations: [QuickInputConversation] = []
     /// When true, show a screen recording permission prompt below the bar.
     var showScreenPermissionPrompt = false
 
