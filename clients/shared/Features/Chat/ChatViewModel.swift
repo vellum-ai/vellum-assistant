@@ -389,6 +389,7 @@ public final class ChatViewModel: ObservableObject {
     }
     private(set) var lastFailedMessageDisplayText: String?
     private(set) var lastFailedMessageAttachments: [UserMessageAttachment]?
+    private(set) var lastFailedMessageAutomated: Bool = false
     /// Set only when a send operation (bootstrapConversation or sendUserMessage) fails.
     /// Used by `isRetryableError` to ensure the retry button only appears for
     /// actual send failures, not for unrelated errors (attachment validation,
@@ -1099,6 +1100,7 @@ public final class ChatViewModel: ObservableObject {
                 lastFailedMessageText = nil
                 lastFailedMessageDisplayText = nil
                 lastFailedMessageAttachments = nil
+                lastFailedMessageAutomated = false
                 lastFailedSendError = nil
                 connectionDiagnosticHint = nil
                 secretBlockedMessageText = nil
@@ -1152,6 +1154,7 @@ public final class ChatViewModel: ObservableObject {
         lastFailedMessageText = nil
         lastFailedMessageDisplayText = nil
         lastFailedMessageAttachments = nil
+        lastFailedMessageAutomated = false
         lastFailedSendError = nil
         connectionDiagnosticHint = nil
         secretBlockedMessageText = nil
@@ -1298,6 +1301,7 @@ public final class ChatViewModel: ObservableObject {
                     self.lastFailedMessageText = self.pendingUserMessage
                     self.lastFailedMessageDisplayText = self.pendingUserMessageDisplayText
                     self.lastFailedMessageAttachments = self.pendingUserAttachments
+                    self.lastFailedMessageAutomated = self.pendingUserMessageAutomated
                     self.lastFailedSendError = "Failed to connect to the assistant."
                     self.connectionDiagnosticHint = Self.connectionDiagnosticHint(for: error)
                     self.pendingUserMessage = nil
@@ -1326,6 +1330,7 @@ public final class ChatViewModel: ObservableObject {
                 self.lastFailedMessageText = self.pendingUserMessage
                 self.lastFailedMessageDisplayText = self.pendingUserMessageDisplayText
                 self.lastFailedMessageAttachments = self.pendingUserAttachments
+                self.lastFailedMessageAutomated = self.pendingUserMessageAutomated
                 self.lastFailedSendError = "Failed to create session."
                 self.pendingUserMessage = nil
                 self.pendingUserMessageDisplayText = nil
@@ -1350,7 +1355,7 @@ public final class ChatViewModel: ObservableObject {
             // "pending" indicator and is flushed automatically on reconnect.
             if queuedMessageId == nil {
                 log.info("Buffering message in offline queue (session: \(conversationId))")
-                OfflineMessageQueue.shared.enqueue(conversationId: conversationId, text: text, displayText: displayText, attachments: attachments)
+                OfflineMessageQueue.shared.enqueue(conversationId: conversationId, text: text, displayText: displayText, attachments: attachments, automated: automated)
                 // Mark the corresponding chat message as offline-pending so the UI
                 // can show a visual indicator. Find the last user message with this
                 // text — it is the one just appended by sendMessage().
@@ -1367,6 +1372,7 @@ public final class ChatViewModel: ObservableObject {
             lastFailedMessageText = text
             lastFailedMessageDisplayText = displayText
             lastFailedMessageAttachments = attachments
+            lastFailedMessageAutomated = automated
             // Only update UI error state for the primary send (not a queued
             // retry). A queued retry failing must not clobber the active turn's
             // isSending/isThinking flags or show an error banner over it.
@@ -1415,6 +1421,7 @@ public final class ChatViewModel: ObservableObject {
             lastFailedMessageText = text
             lastFailedMessageDisplayText = displayText
             lastFailedMessageAttachments = attachments
+            lastFailedMessageAutomated = automated
             // Only update UI error state for the primary send (not a queued
             // retry). A queued retry failing must not clobber the active turn's
             // isSending/isThinking flags or show an error banner over it.
@@ -1480,7 +1487,7 @@ public final class ChatViewModel: ObservableObject {
         // via the normal error retry path, rather than duplicating on the next flush.
         for queued in mine {
             queue.remove(id: queued.id)
-            sendUserMessage(queued.text, displayText: queued.displayText, attachments: queued.messageAttachments)
+            sendUserMessage(queued.text, displayText: queued.displayText, attachments: queued.messageAttachments, automated: queued.automated)
         }
     }
 
@@ -1991,6 +1998,7 @@ public final class ChatViewModel: ObservableObject {
         lastFailedMessageText = nil
         lastFailedMessageDisplayText = nil
         lastFailedMessageAttachments = nil
+        lastFailedMessageAutomated = false
         lastFailedSendError = nil
         connectionDiagnosticHint = nil
         secretBlockedMessageText = nil
@@ -2054,6 +2062,7 @@ public final class ChatViewModel: ObservableObject {
         if let lastMsg = messages.last, lastMsg.role == .user {
             lastFailedMessageText = lastMsg.text
             lastFailedMessageDisplayText = nil
+            lastFailedMessageAutomated = lastMsg.isHidden
             // Preserve attachments so they are resent with the retry.
             // ChatAttachment.data may already be cleared for older messages,
             // but for a just-sent 429'd message it is still populated.
@@ -2162,17 +2171,20 @@ public final class ChatViewModel: ObservableObject {
         guard let text = lastFailedMessageText else { return }
         let displayText = lastFailedMessageDisplayText
         let attachments = lastFailedMessageAttachments
+        let automated = lastFailedMessageAutomated
 
         // Clear failed message state and error
         lastFailedMessageText = nil
         lastFailedMessageDisplayText = nil
         lastFailedMessageAttachments = nil
+        lastFailedMessageAutomated = false
         lastFailedSendError = nil
         errorText = nil
         connectionDiagnosticHint = nil
 
         if conversationId == nil {
             pendingUserMessageDisplayText = displayText
+            pendingUserMessageAutomated = automated
             bootstrapConversation(userMessage: text, attachments: attachments)
         } else {
             // When retrying while another turn is in progress, the retried
@@ -2192,7 +2204,7 @@ public final class ChatViewModel: ObservableObject {
                     messages[idx].status = .queued(position: 0)
                 }
             }
-            sendUserMessage(text, displayText: displayText, attachments: attachments, queuedMessageId: queuedMessageId)
+            sendUserMessage(text, displayText: displayText, attachments: attachments, queuedMessageId: queuedMessageId, automated: automated)
         }
     }
 
@@ -2236,9 +2248,10 @@ public final class ChatViewModel: ObservableObject {
 
         // Resend — bootstrap a new session if needed (mirrors retryLastMessage)
         if conversationId == nil {
+            pendingUserMessageAutomated = message.isHidden
             bootstrapConversation(userMessage: message.text, attachments: userAttachments)
         } else {
-            sendUserMessage(message.text, attachments: userAttachments)
+            sendUserMessage(message.text, attachments: userAttachments, automated: message.isHidden)
         }
     }
 
