@@ -70,12 +70,10 @@ struct ImproveExperienceStepView: View {
                 )
 
                 // ToS consent checkbox
-                HStack(alignment: .top, spacing: VSpacing.md) {
-                    Toggle("Agree to Terms of Service and Privacy Policy", isOn: $tosAccepted)
-                        .toggleStyle(.checkbox)
-                        .labelsHidden()
-                        .padding(.top, VSpacing.xxs)
+                HStack {
                     tosConsentText
+                    Spacer()
+                    VCheckbox(isOn: $tosAccepted)
                 }
                 .padding(VSpacing.lg)
                 .overlay(
@@ -150,5 +148,42 @@ struct ImproveExperienceStepView: View {
             // Users who skipped step 2 (API key) go back to step 1
             state.currentStep -= skippedAPIKeyEntry ? 2 : 1
         }
+    }
+}
+
+// MARK: - Checkbox
+
+/// A styled checkbox matching the V* component aesthetic: primary-filled with
+/// white checkmark when checked, outlined rounded square when unchecked.
+private struct VCheckbox: View {
+    @Binding var isOn: Bool
+
+    private let size: CGFloat = 20
+    private let cornerRadius: CGFloat = VRadius.sm
+
+    var body: some View {
+        Button {
+            isOn.toggle()
+        } label: {
+            ZStack {
+                if isOn {
+                    RoundedRectangle(cornerRadius: cornerRadius)
+                        .fill(VColor.primaryBase)
+                        .frame(width: size, height: size)
+
+                    Image(systemName: "checkmark")
+                        .font(.system(size: 12, weight: .bold))
+                        .foregroundColor(.white)
+                } else {
+                    RoundedRectangle(cornerRadius: cornerRadius)
+                        .stroke(VColor.borderBase, lineWidth: 1.5)
+                        .frame(width: size, height: size)
+                }
+            }
+        }
+        .buttonStyle(.plain)
+        .animation(VAnimation.fast, value: isOn)
+        .accessibilityLabel("Agree to Terms of Service and Privacy Policy")
+        .accessibilityAddTraits(isOn ? .isSelected : [])
     }
 }
