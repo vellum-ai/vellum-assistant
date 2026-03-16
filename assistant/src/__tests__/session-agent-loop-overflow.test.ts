@@ -1912,7 +1912,7 @@ describe("session-agent-loop overflow recovery (JARVIS-110)", () => {
     // once more after yieldedForBudget triggered re-entry
     expect(reducerCallCount).toBe(2);
 
-    // Agent loop: 1 initial + 3 mid-loop re-entries + 2 convergence re-runs = 7 calls
-    expect(agentLoopCallCount).toBe(7);
+    // Agent loop: 1 initial + 3 mid-loop re-entries + 2 convergence re-runs = 6 calls
+    expect(agentLoopCallCount).toBe(6);
   });
 });
