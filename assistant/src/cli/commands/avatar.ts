@@ -152,7 +152,9 @@ Examples:
         log.info(`Files written to: ${avatarDir}`);
         log.info(`  character-traits.json`);
         log.info(`  avatar-image.png`);
-        log.info(`  character-ascii.txt`);
+        if (result.asciiWritten) {
+          log.info(`  character-ascii.txt`);
+        }
       },
     );
 
