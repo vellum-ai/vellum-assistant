@@ -567,9 +567,14 @@ export function listConnections(
       .select()
       .from(oauthConnections)
       .where(eq(oauthConnections.providerKey, providerKey))
+      .orderBy(oauthConnections.providerKey, oauthConnections.id)
       .all();
   } else {
-    rows = db.select().from(oauthConnections).all();
+    rows = db
+      .select()
+      .from(oauthConnections)
+      .orderBy(oauthConnections.providerKey, oauthConnections.id)
+      .all();
   }
 
   if (clientId) {
