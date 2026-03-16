@@ -68,12 +68,12 @@ struct ImproveExperienceStepView: View {
 
                 // ToS consent checkbox
                 HStack(alignment: .top, spacing: VSpacing.sm) {
-                    Image(systemName: tosAccepted ? "checkmark.square.fill" : "square")
-                        .font(.system(size: 18))
-                        .foregroundColor(tosAccepted ? VColor.primaryBase : VColor.contentTertiary)
-                        .onTapGesture {
-                            tosAccepted.toggle()
-                        }
+                    Button(action: { tosAccepted.toggle() }) {
+                        Image(systemName: tosAccepted ? "checkmark.square.fill" : "square")
+                            .font(.system(size: 18))
+                            .foregroundColor(tosAccepted ? VColor.primaryBase : VColor.contentTertiary)
+                    }
+                    .buttonStyle(.plain)
 
                     tosConsentText
                 }
@@ -113,25 +113,14 @@ struct ImproveExperienceStepView: View {
     // MARK: - ToS Consent Text
 
     private var tosConsentText: some View {
-        (
-            Text("I agree to the ")
-                .font(VFont.caption)
-                .foregroundColor(VColor.contentSecondary)
-            + Text("[Terms of Service](https://www.vellum.ai/docs/vellum-terms-of-use)")
-                .font(VFont.caption)
-                .foregroundColor(VColor.primaryBase)
-            + Text(" and ")
-                .font(VFont.caption)
-                .foregroundColor(VColor.contentSecondary)
-            + Text("[Privacy Policy](https://www.vellum.ai/docs/vellum-privacy-policy)")
-                .font(VFont.caption)
-                .foregroundColor(VColor.primaryBase)
-        )
-        .environment(\.openURL, OpenURLAction { url in
-            NSWorkspace.shared.open(url)
-            return .handled
-        })
-        .tint(VColor.primaryBase)
+        Text(.init("I agree to the [Terms of Service](https://www.vellum.ai/docs/vellum-terms-of-use) and [Privacy Policy](https://www.vellum.ai/docs/vellum-privacy-policy)."))
+            .font(VFont.caption)
+            .foregroundColor(VColor.contentSecondary)
+            .tint(VColor.primaryBase)
+            .environment(\.openURL, OpenURLAction { url in
+                NSWorkspace.shared.open(url)
+                return .handled
+            })
     }
 
     // MARK: - Actions
@@ -141,7 +130,9 @@ struct ImproveExperienceStepView: View {
         UserDefaults.standard.set(sendDiagnostics, forKey: "sendDiagnostics")
         UserDefaults.standard.set(true, forKey: "tosAccepted")
 
-        if !sendDiagnostics {
+        if sendDiagnostics {
+            MetricKitManager.startSentry()
+        } else {
             MetricKitManager.closeSentry()
         }
 
