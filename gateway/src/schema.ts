@@ -1170,6 +1170,10 @@ export function buildSchema(): Record<string, unknown> {
           },
           responses: {
             "200": { description: "Invite call initiated" },
+            "400": {
+              description:
+                "Bad request — invite not found or validation failure",
+            },
             "401": {
               description: "Unauthorized — missing or invalid bearer token",
             },
