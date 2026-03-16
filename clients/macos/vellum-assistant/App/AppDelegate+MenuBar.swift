@@ -338,11 +338,6 @@ extension AppDelegate {
         restartItem.image = VIcon.refreshCw.nsImage
         menu.addItem(restartItem)
 
-        let logoutItem = NSMenuItem(title: "Sign Out", action: #selector(performLogout), keyEquivalent: "")
-        logoutItem.target = self
-        logoutItem.image = VIcon.logOut.nsImage
-        menu.addItem(logoutItem)
-
         let quitItem = NSMenuItem(title: "Quit", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
         quitItem.image = VIcon.power.nsImage
         menu.addItem(quitItem)
