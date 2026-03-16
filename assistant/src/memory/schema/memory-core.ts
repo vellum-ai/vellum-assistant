@@ -158,6 +158,7 @@ export const threadStarters = sqliteTable(
     generationBatch: integer("generation_batch").notNull(),
     scopeId: text("scope_id").notNull().default("default"),
     sourceMemoryKinds: text("source_memory_kinds"),
+    category: text("category"),
     createdAt: integer("created_at").notNull(),
   },
   (table) => [

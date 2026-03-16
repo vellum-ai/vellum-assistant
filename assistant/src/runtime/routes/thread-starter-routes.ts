@@ -31,6 +31,7 @@ function handleListThreadStarters(url: URL): Response {
       id: threadStarters.id,
       label: threadStarters.label,
       prompt: threadStarters.prompt,
+      category: threadStarters.category,
       batch: threadStarters.generationBatch,
     })
     .from(threadStarters)

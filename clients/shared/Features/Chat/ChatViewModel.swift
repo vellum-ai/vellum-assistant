@@ -20,6 +20,7 @@ public struct ThreadStarter: Identifiable, Codable {
     public let id: String
     public let label: String
     public let prompt: String
+    public let category: String?
     public let batch: Int
 }
 

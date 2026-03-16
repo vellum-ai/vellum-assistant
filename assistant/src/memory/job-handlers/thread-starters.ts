@@ -125,9 +125,24 @@ function buildSkillsSummary(): string {
 
 // ── LLM generation ────────────────────────────────────────────────
 
+/** Capability categories matching the Intelligence page taxonomy. */
+export const THREAD_STARTER_CATEGORIES = [
+  "communication",
+  "productivity",
+  "development",
+  "media",
+  "automation",
+  "web_social",
+  "knowledge",
+  "integration",
+] as const;
+
+export type ThreadStarterCategory = (typeof THREAD_STARTER_CATEGORIES)[number];
+
 interface GeneratedStarter {
   label: string;
   prompt: string;
+  category: string;
 }
 
 async function generateStarters(scopeId: string): Promise<GeneratedStarter[]> {
@@ -150,6 +165,7 @@ async function generateStarters(scopeId: string): Promise<GeneratedStarter[]> {
 Given the user's accumulated memories and the assistant's available skills, generate 4-6 thread starters. Each starter has:
 - label: Short chip text (max 50 chars). Start with a verb. Be specific and actionable.
 - prompt: The full message that will be sent when clicked (1-2 natural sentences).
+- category: One of: ${THREAD_STARTER_CATEGORIES.join(", ")}. Pick the best-fit capability category.
 
 Rules:
 - Cross user context (who they are, what they work on) with assistant capabilities (skills).
@@ -191,8 +207,13 @@ ${skills}`;
                       type: "string",
                       description: "Full message sent on click (1-2 sentences)",
                     },
+                    category: {
+                      type: "string",
+                      enum: [...THREAD_STARTER_CATEGORIES],
+                      description: "Capability category for grouping",
+                    },
                   },
-                  required: ["label", "prompt"],
+                  required: ["label", "prompt", "category"],
                 },
               },
             },
@@ -235,6 +256,11 @@ ${skills}`;
       .map((s) => ({
         label: truncate(s.label, 50, ""),
         prompt: truncate(s.prompt, 500, ""),
+        category:
+          typeof s.category === "string" &&
+          (THREAD_STARTER_CATEGORIES as readonly string[]).includes(s.category)
+            ? s.category
+            : "productivity",
       }));
   } catch (err) {
     cleanup();
@@ -284,6 +310,7 @@ export async function generateThreadStartersJob(job: MemoryJob): Promise<void> {
         id: uuid(),
         label: starter.label,
         prompt: starter.prompt,
+        category: starter.category,
         generationBatch: nextBatch,
         scopeId,
         sourceMemoryKinds: sourceKinds,

@@ -22,4 +22,11 @@ export function migrateCreateThreadStartersTable(database: DrizzleDb): void {
   } catch {
     // Index already exists
   }
+
+  // Add capability category column (nullable for backwards compatibility)
+  try {
+    raw.exec(/*sql*/ `ALTER TABLE thread_starters ADD COLUMN category TEXT`);
+  } catch {
+    // Column already exists
+  }
 }

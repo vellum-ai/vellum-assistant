@@ -200,6 +200,7 @@ struct ThreadStarterChip: View {
                 .padding(.vertical, VSpacing.sm)
         }
         .buttonStyle(.plain)
+        .contentShape(Rectangle())
         .background(
             RoundedRectangle(cornerRadius: VRadius.md)
                 .fill(isHovered ? VColor.surfaceOverlay : VColor.surfaceActive)
