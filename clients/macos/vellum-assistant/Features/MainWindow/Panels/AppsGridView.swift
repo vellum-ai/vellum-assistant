@@ -101,10 +101,15 @@ struct AppsGridView: View {
 
     // MARK: - Main Content
 
+    /// Horizontal inset applied to each child inside the ScrollView so the
+    /// scrollbar indicator stays flush against the trailing edge.
+    private let scrollContentInset = EdgeInsets(top: 0, leading: VSpacing.xl, bottom: 0, trailing: VSpacing.xl)
+
     private var mainContent: some View {
         ScrollView {
             VStack(spacing: VSpacing.xxl) {
                 searchBar
+                    .padding(scrollContentInset)
 
                 let pinned = filteredPinnedApps
                 let recents = filteredRecentApps
@@ -112,14 +117,17 @@ struct AppsGridView: View {
 
                 if !pinned.isEmpty {
                     appSection(title: "Pinned", apps: pinned)
+                        .padding(scrollContentInset)
                 }
 
                 if !recents.isEmpty {
                     appSection(title: "Recents", apps: recents)
+                        .padding(scrollContentInset)
                 }
 
                 if !shared.isEmpty {
                     sharedSection(title: "Shared", apps: shared)
+                        .padding(scrollContentInset)
                 } else if isLoadingShared {
                     ProgressView()
                         .controlSize(.small)
@@ -137,7 +145,6 @@ struct AppsGridView: View {
                     .padding(.top, VSpacing.xxxl)
                 }
             }
-            .padding(.horizontal, VSpacing.xl)
             .frame(maxWidth: .infinity)
             .padding(.top, VSpacing.lg)
             .padding(.bottom, VSpacing.xl)
