@@ -295,7 +295,7 @@ private struct WorkspaceTreeSidebar: View {
                         Spacer()
                     }
                 } else {
-                    ScrollView([.vertical, .horizontal]) {
+                    ScrollView(.vertical) {
                         LazyVStack(alignment: .leading, spacing: 0) {
                             if let rootEntries = state.directoryCache[""] {
                                 ForEach(rootEntries) { entry in
@@ -311,7 +311,6 @@ private struct WorkspaceTreeSidebar: View {
                         }
                         .padding(.vertical, VSpacing.xs)
                     }
-                    .defaultScrollAnchor(.topLeading)
                     .background {
                         GeometryReader { geo in
                             Color.clear
