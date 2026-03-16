@@ -144,6 +144,14 @@
       "label": "Billing Settings Tab",
       "description": "Show the Billing tab in Settings when signed in, displaying credits balance and top-up",
       "defaultEnabled": false
+    },
+    {
+      "id": "managed-sign-in",
+      "scope": "macos",
+      "key": "managed_sign_in_enabled",
+      "label": "Managed Sign In",
+      "description": "Enable managed (organization-hosted) sign-in flow in the onboarding experience",
+      "defaultEnabled": false
     }
   ]
 }
