@@ -99,12 +99,12 @@ struct SettingsBillingTab: View {
                         .foregroundColor(VColor.contentDefault)
                 }
                 VStack(alignment: .leading, spacing: VSpacing.xs) {
-                    Text("Pending Charges")
+                    Text(summary.is_degraded ? "Pending Charges (estimated)" : "Pending Charges")
                         .font(VFont.inputLabel)
                         .foregroundColor(VColor.contentSecondary)
                     Text("$\(summary.pending_compute_usd)")
                         .font(VFont.bodyMedium)
-                        .foregroundColor(VColor.contentDefault)
+                        .foregroundColor(summary.is_degraded ? VColor.contentSecondary : VColor.contentDefault)
                 }
             }
         }
