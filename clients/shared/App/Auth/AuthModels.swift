@@ -199,6 +199,13 @@ public struct EnsureSelfHostedLocalRegistrationRequest: Codable, Sendable {
 public struct EnsureSelfHostedLocalRegistrationResponse: Codable, Sendable {
     public let assistant: SelfHostedAssistantInfo
     public let registration: SelfHostedRegistrationInfo
+    public let assistantApiKey: String?
+
+    enum CodingKeys: String, CodingKey {
+        case assistant
+        case registration
+        case assistantApiKey = "assistant_api_key"
+    }
 }
 
 public struct SelfHostedAssistantInfo: Codable, Sendable {

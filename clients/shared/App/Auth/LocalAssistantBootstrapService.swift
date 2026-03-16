@@ -133,6 +133,14 @@ public final class LocalAssistantBootstrapService {
                     log.warning("Could not resolve user ID — platform assistant ID mapping not persisted")
                 }
             }
+
+            // Cache the API key from the registration response so Step 2 can re-sync
+            // without an unnecessary reprovision round-trip.
+            if let rawKey = registration.assistantApiKey, !rawKey.isEmpty {
+                let credentialAccount = Self.credentialAccount(for: runtimeAssistantId)
+                _ = credentialStorage?.set(account: credentialAccount, value: rawKey)
+                log.info("Cached API key from ensure-registration response")
+            }
         } catch let error as PlatformAPIError {
             if case .serverError(let statusCode, _) = error, statusCode == 409 {
                 // Try to resolve platform assistant ID from cache for key re-sync
