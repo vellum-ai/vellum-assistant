@@ -21,6 +21,7 @@ interface SessionEntry {
   sendToVellum: (msg: ServerMessage) => void;
   currentPrompt: Promise<unknown> | null;
   parentSessionId: string;
+  cwd: string;
 }
 
 export class AcpSessionManager {
@@ -103,6 +104,7 @@ export class AcpSessionManager {
       sendToVellum,
       currentPrompt: null,
       parentSessionId,
+      cwd,
     };
 
     this.sessions.set(acpSessionId, entry);
@@ -291,7 +293,10 @@ export class AcpSessionManager {
           if (this.onAcpSessionFinished) {
             const agentLabel = current.state.agentId;
             const responseText = current.clientHandler.responseText;
-            const notifyMessage = `[ACP agent "${agentLabel}" completed]\n\n${responseText}`;
+            const sessionId = current.state.acpSessionId;
+            const notifyMessage =
+              `[ACP agent "${agentLabel}" completed]\n\n${responseText}\n\n` +
+              `To resume: cd ${current.cwd} && claude --resume ${sessionId}`;
             this.onAcpSessionFinished(
               current.parentSessionId,
               notifyMessage,
