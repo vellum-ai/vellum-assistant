@@ -245,7 +245,6 @@ describe("provider operations", () => {
             required: ["repo"],
             allowAdditionalScopes: true,
           }),
-          userinfoUrl: "https://api.github.com/user/custom",
           baseUrl: "https://custom.github.com/api",
         })
         .where(eq(oauthProviders.providerKey, "github"))
@@ -258,9 +257,6 @@ describe("provider operations", () => {
         "user",
         "gist",
       ]);
-      expect(beforeReseed!.userinfoUrl).toBe(
-        "https://api.github.com/user/custom",
-      );
       expect(beforeReseed!.baseUrl).toBe("https://custom.github.com/api");
 
       // Re-seed with updated implementation fields
@@ -290,13 +286,13 @@ describe("provider operations", () => {
         required: ["repo"],
         allowAdditionalScopes: true,
       });
-      expect(row!.userinfoUrl).toBe("https://api.github.com/user/custom");
       expect(row!.baseUrl).toBe("https://custom.github.com/api");
 
       // Implementation fields should be overwritten from the seed data
       expect(row!.authUrl).toBe("https://github.com/authorize-v2");
       expect(row!.tokenUrl).toBe("https://github.com/token-v2");
       expect(row!.tokenEndpointAuthMethod).toBe("client_secret_basic");
+      expect(row!.userinfoUrl).toBe("https://api.github.com/user-v2");
       expect(JSON.parse(row!.extraParams!)).toEqual({ prompt: "login" });
       expect(row!.callbackTransport).toBe("gateway");
       expect(row!.pingUrl).toBe("https://api.github.com/user-v2");

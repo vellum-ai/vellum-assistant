@@ -44,10 +44,10 @@ export type OAuthConnectionRow = typeof oauthConnections.$inferSelect;
 /**
  * Seed well-known provider profiles into the database. Uses INSERT … ON
  * CONFLICT DO UPDATE so that implementation fields (authUrl, tokenUrl,
- * tokenEndpointAuthMethod, extraParams, callbackTransport, pingUrl)
- * propagate to existing installations on every startup, while
- * user-customizable fields (defaultScopes, scopePolicy, userinfoUrl,
- * baseUrl) are only written on the initial insert.
+ * tokenEndpointAuthMethod, userinfoUrl, extraParams, callbackTransport,
+ * pingUrl) propagate to existing installations on every startup, while
+ * user-customizable fields (defaultScopes, scopePolicy, baseUrl) are
+ * only written on the initial insert.
  */
 export function seedProviders(
   profiles: Array<{
@@ -100,6 +100,7 @@ export function seedProviders(
           authUrl,
           tokenUrl,
           tokenEndpointAuthMethod,
+          userinfoUrl,
           extraParams,
           callbackTransport,
           pingUrl,
