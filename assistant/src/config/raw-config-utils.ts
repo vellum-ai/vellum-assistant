@@ -13,9 +13,17 @@ export function setServiceField(
   field: string,
   value: unknown,
 ): void {
-  const services =
-    (raw.services as Record<string, Record<string, unknown>>) ?? {};
-  const svc = services[service] ?? {};
+  const services: Record<string, Record<string, unknown>> = raw.services !=
+    null &&
+  typeof raw.services === "object" &&
+  !Array.isArray(raw.services)
+    ? (raw.services as Record<string, Record<string, unknown>>)
+    : {};
+  const existing = services[service];
+  const svc: Record<string, unknown> =
+    existing != null && typeof existing === "object" && !Array.isArray(existing)
+      ? existing
+      : {};
   svc[field] = value;
   services[service] = svc;
   raw.services = services;
