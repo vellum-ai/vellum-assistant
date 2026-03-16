@@ -4,6 +4,7 @@ import {
   loadRawConfig,
   saveRawConfig,
 } from "../../config/loader.js";
+import { setServiceField } from "../../config/raw-config-utils.js";
 import { initializeProviders } from "../../providers/registry.js";
 import { getSecureKeyAsync } from "../../security/secure-keys.js";
 import { MODEL_TO_PROVIDER } from "../conversation-slash.js";
@@ -16,24 +17,6 @@ import {
   type HandlerContext,
   log,
 } from "./shared.js";
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-function setServiceField(
-  raw: Record<string, unknown>,
-  service: string,
-  field: string,
-  value: unknown,
-): void {
-  const services =
-    (raw.services as Record<string, Record<string, unknown>>) ?? {};
-  const svc = services[service] ?? {};
-  svc[field] = value;
-  services[service] = svc;
-  raw.services = services;
-}
 
 // ---------------------------------------------------------------------------
 // Shared business logic (transport-agnostic)
