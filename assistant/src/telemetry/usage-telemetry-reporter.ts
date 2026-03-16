@@ -38,7 +38,7 @@ const CHECKPOINT_KEY_TURN_WATERMARK_ID = "telemetry:turns:last_reported_id";
 const REPORT_INTERVAL_MS = 5 * 60 * 1000;
 const BATCH_SIZE = 500;
 const MAX_CONSECUTIVE_BATCHES = 10;
-const TELEMETRY_PATH = "/v1/assistants/self-hosted-local/telemetry/ingest/";
+const TELEMETRY_PATH = "/v1/assistants/telemetry/ingest/";
 
 // ---------------------------------------------------------------------------
 // Reporter
