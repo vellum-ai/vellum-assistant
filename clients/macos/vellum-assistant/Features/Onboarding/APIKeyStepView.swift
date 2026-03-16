@@ -10,6 +10,10 @@ struct APIKeyStepView: View {
     @State private var showTitle = false
     @State private var showContent = false
 
+    private var userHostedEnabled: Bool {
+        MacOSClientFeatureFlagManager.shared.isEnabled("user_hosted_enabled")
+    }
+
     var body: some View {
         Text("Setup")
             .font(.system(size: 32, weight: .regular, design: .serif))
@@ -64,26 +68,39 @@ struct APIKeyStepView: View {
 
     // MARK: - Hosting Cards
 
+    private var availableHostingModes: [OnboardingState.HostingMode] {
+        var modes: [OnboardingState.HostingMode] = []
+        if !state.skippedAuth {
+            modes.append(.vellumCloud)
+        }
+        modes.append(.local)
+        if userHostedEnabled {
+            modes.append(contentsOf: [.gcp, .aws, .docker, .customHardware])
+        }
+        return modes
+    }
+
     private var hostingCards: some View {
         VStack(spacing: VSpacing.sm) {
-            if !state.skippedAuth {
+            ForEach(availableHostingModes, id: \.rawValue) { mode in
                 hostingCard(
-                    icon: .cloud,
-                    title: "Vellum Cloud",
-                    subtitle: "Hosted and managed by Vellum",
-                    mode: .vellumCloud,
-                    comingSoon: true
+                    icon: iconForMode(mode),
+                    title: mode.displayName,
+                    subtitle: mode.subtitle,
+                    mode: mode,
+                    comingSoon: mode == .vellumCloud
                 )
             }
+        }
+    }
 
-            hostingCard(
-                icon: .laptop,
-                title: "Local",
-                subtitle: "Run on your machine",
-                mode: .local,
-                comingSoon: false
-            )
-
+    private func iconForMode(_ mode: OnboardingState.HostingMode) -> VIcon {
+        switch mode {
+        case .vellumCloud: return .cloud
+        case .local: return .laptop
+        case .docker: return .package
+        case .gcp, .aws: return .globe
+        case .customHardware: return .hardDrive
         }
     }
 
@@ -162,7 +179,7 @@ struct APIKeyStepView: View {
     // MARK: - Helpers
 
     private var canContinue: Bool {
-        state.selectedHostingMode == .local
+        state.selectedHostingMode != .vellumCloud
     }
 
     private var continueButtonTitle: String {
@@ -178,11 +195,9 @@ struct APIKeyStepView: View {
         state.cloudProvider = state.selectedHostingMode.rawValue
 
         if isAuthenticated {
-            // Authenticated user selecting Local: skip API key, go straight to hatching
             saveModelToConfig("claude-opus-4-6")
             state.isHatching = true
         } else {
-            // Skipped auth: advance to API key entry (step 2)
             state.advance()
         }
     }
