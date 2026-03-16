@@ -46,19 +46,34 @@ extension AppDelegate {
             return
         }
 
-        OnboardingState.clearPersistedState()
-        let state = OnboardingState()
-        state.shouldPersist = false
-        let authView = OnboardingFlowView(
-            state: state,
-            daemonClient: daemonClient,
-            authManager: authManager,
-            managedBootstrapEnabled: true,
-            onComplete: { [weak self] in
-                self?.proceedToApp()
-            },
-            onOpenSettings: {}
-        )
+        let hasAssistants = lockfileHasAssistants()
+        let authView: AnyView
+
+        if hasAssistants {
+            // Returning user with existing assistant — show clean sign-in, not full onboarding
+            authView = AnyView(ReauthView(
+                authManager: authManager,
+                onComplete: { [weak self] in
+                    self?.proceedToApp()
+                }
+            ))
+        } else {
+            // No assistants — show full onboarding (shouldn't normally happen via this path,
+            // but included as a safety net)
+            OnboardingState.clearPersistedState()
+            let state = OnboardingState()
+            state.shouldPersist = false
+            authView = AnyView(OnboardingFlowView(
+                state: state,
+                daemonClient: daemonClient,
+                authManager: authManager,
+                managedBootstrapEnabled: true,
+                onComplete: { [weak self] in
+                    self?.proceedToApp()
+                },
+                onOpenSettings: {}
+            ))
+        }
 
         let hostingController = NSHostingController(rootView: authView)
 
