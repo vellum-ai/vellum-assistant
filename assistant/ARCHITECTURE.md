@@ -829,28 +829,28 @@ sequenceDiagram
     Daemon->>DC: conversation_error {sessionId, code,<br/>userMessage, retryable, debugDetails?}
     DC->>DC: broadcast to all subscribers
     DC->>VM: subscribe() stream delivers message
-    VM->>VM: set sessionError property<br/>clear isThinking / isCancelling
-    VM-->>UI: @Published sessionError observed
+    VM->>VM: set conversationError property<br/>clear isThinking / isCancelling
+    VM-->>UI: @Published conversationError observed
 
-    UI->>UI: show sessionErrorToast<br/>[Retry] [Dismiss] [Copy Debug Info?]
+    UI->>UI: show conversationErrorToast<br/>[Retry] [Dismiss] [Copy Debug Info?]
 
     alt User taps Retry (retryable == true)
-        UI->>VM: retryAfterSessionError()
-        VM->>VM: dismissSessionError()<br/>+ regenerateLastMessage()
+        UI->>VM: retryAfterConversationError()
+        VM->>VM: dismissConversationError()<br/>+ regenerateLastMessage()
         VM->>DC: regenerate {sessionId}
         DC->>Daemon: HTTP POST /v1/messages
     else User taps Dismiss
-        UI->>VM: dismissSessionError()
-        VM->>VM: clear sessionError + errorText
+        UI->>VM: dismissConversationError()
+        VM->>VM: clear conversationError + errorText
     end
 ```
 
 1. **Daemon** encounters a session-scoped failure, classifies it via `classifyConversationError()`, and sends a `conversation_error` SSE event with the session ID, typed error code, user-facing message, retryable flag, and optional debug details. Session-scoped failures emit _only_ `conversation_error` (never the generic `error` type) to prevent cross-session bleed.
-2. **ChatViewModel** receives the error via DaemonClient's `subscribe()` stream (each view model gets an independent stream), sets the `sessionError` property, and transitions out of the streaming/loading state so the UI is interactive. If the error arrives during an active cancel (`wasCancelling == true`), it is suppressed — cancel only shows `generation_cancelled` behavior.
-3. **ChatView** observes the published `sessionError` and displays an actionable toast with a category-specific icon and accent color:
-   - **Retry** (shown when `retryable` is true): calls `retryAfterSessionError()`, which clears the error and sends a `regenerate` message to the daemon.
+2. **ChatViewModel** receives the error via DaemonClient's `subscribe()` stream (each view model gets an independent stream), sets the `conversationError` property, and transitions out of the streaming/loading state so the UI is interactive. If the error arrives during an active cancel (`wasCancelling == true`), it is suppressed — cancel only shows `generation_cancelled` behavior.
+3. **ChatView** observes the published `conversationError` and displays an actionable toast with a category-specific icon and accent color:
+   - **Retry** (shown when `retryable` is true): calls `retryAfterConversationError()`, which clears the error and sends a `regenerate` message to the daemon.
    - **Copy Debug Info** (shown when `debugDetails` is non-nil): copies structured debug information to the clipboard for bug reports.
-   - **Dismiss (X)**: calls `dismissSessionError()` to clear the error without retrying.
+   - **Dismiss (X)**: calls `dismissConversationError()` to clear the error without retrying.
 4. If the error is not retryable, the Retry button is hidden and the user can only dismiss.
 
 ---

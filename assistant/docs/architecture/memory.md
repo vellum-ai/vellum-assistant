@@ -75,7 +75,7 @@ graph TB
         OVF_T4["Tier 4: Injection downgrade<br/>→ minimal mode"]
         OVF_POLICY["Overflow policy resolver<br/>auto_compress / request_approval / fail_gracefully"]
         OVF_APPROVE["Approval gate<br/>PermissionPrompter"]
-        OVF_DENY["Graceful deny message<br/>(not session_error)"]
+        OVF_DENY["Graceful deny message<br/>(not conversation_error)"]
     end
 
     MSG_IN --> STORE
@@ -149,7 +149,7 @@ Normal context compaction (the "Context Window Management" subgraph above) runs 
 
 When compaction alone is insufficient — either because the conversation grew too fast between turns or because a single turn contains extremely large payloads — the overflow recovery pipeline takes over. The pipeline's first tier (forced compaction) reuses the same `maybeCompact()` summarization machinery but with emergency parameters: `force: true` bypasses cooldown guards, `minKeepRecentUserTurns: 0` allows summarizing even the most recent history, and `targetInputTokensOverride` sets a tighter budget. Subsequent tiers (tool-result truncation, media stubbing, injection downgrade) apply progressively more aggressive payload reduction without involving the summarizer.
 
-If all four reducer tiers are exhausted, the overflow policy resolver determines whether to compress the latest user turn. In interactive sessions, the user is prompted for approval before this lossy step. If the user declines, the session emits a graceful assistant explanation message rather than a `session_error`, ending the turn cleanly. Non-interactive sessions auto-compress without prompting.
+If all four reducer tiers are exhausted, the overflow policy resolver determines whether to compress the latest user turn. In interactive sessions, the user is prompted for approval before this lossy step. If the user declines, the session emits a graceful assistant explanation message rather than a `conversation_error`, ending the turn cleanly. Non-interactive sessions auto-compress without prompting.
 
 The key distinction: normal compaction is a cost-optimized background process that preserves conversational quality; overflow recovery is a convergence mechanism that prioritizes session survival over context richness. Both share the same summarization infrastructure but operate under different pressure thresholds and constraints.
 
