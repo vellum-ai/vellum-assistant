@@ -1275,7 +1275,7 @@ jobs:
             clients/macos/dist/vellum-assistant.zip
             clients/macos/dist/appcast.xml
           if-no-files-found: error
-          retention-days: 1
+          retention-days: 7
 
       - name: Cleanup keychain and keys
         if: always()
@@ -1572,7 +1572,7 @@ jobs:
           name: macos-build-x64
           path: clients/macos/build/vellum-assistant-x64.dmg
           if-no-files-found: error
-          retention-days: 1
+          retention-days: 7
 
       - name: Cleanup keychain and keys
         if: always()
