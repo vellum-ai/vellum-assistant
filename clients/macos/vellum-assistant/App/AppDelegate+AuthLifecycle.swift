@@ -315,9 +315,12 @@ extension AppDelegate {
                 case .registeredAndProvisioned(let id):
                     log.info("Local assistant API key provisioned: \(id, privacy: .public)")
                 }
+                self.localBootstrapDidComplete = true
                 NotificationCenter.default.post(name: .localBootstrapCompleted, object: nil)
             } catch {
                 log.error("Failed to provision local assistant API key: \(error.localizedDescription)")
+                self.localBootstrapDidComplete = true
+                NotificationCenter.default.post(name: .localBootstrapCompleted, object: nil)
                 self.mainWindow?.windowState.showToast(
                     message: "Failed to set up Vellum credentials. You may need to sign out and sign in again.",
                     style: .error

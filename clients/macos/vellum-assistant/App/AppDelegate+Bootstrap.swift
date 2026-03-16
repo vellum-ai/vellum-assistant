@@ -72,6 +72,10 @@ extension AppDelegate {
     /// or until the timeout expires. This ensures managed-proxy credentials are provisioned
     /// before the wake-up greeting triggers an LLM call.
     func awaitLocalBootstrapCompleted(timeout: TimeInterval) async {
+        if localBootstrapDidComplete {
+            log.info("Local bootstrap already completed — skipping wait")
+            return
+        }
         await withTaskGroup(of: Void.self) { group in
             group.addTask {
                 for await _ in NotificationCenter.default.notifications(named: .localBootstrapCompleted) {
