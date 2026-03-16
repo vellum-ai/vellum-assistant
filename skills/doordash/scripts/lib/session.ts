@@ -81,7 +81,10 @@ export async function importFromCredentialStore(
   const { stdout } = await execFileAsync("assistant", [
     "credentials",
     "reveal",
-    `${targetDomain}:session:cookies`,
+    "--service",
+    targetDomain,
+    "--field",
+    "session:cookies",
   ]);
   const cookies = JSON.parse(stdout.trim()) as ExtractedCredential[];
   if (!cookies.length) {
