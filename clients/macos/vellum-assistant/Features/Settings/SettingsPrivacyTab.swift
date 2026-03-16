@@ -1,41 +1,40 @@
 import SwiftUI
 import VellumAssistantShared
 
-/// Privacy settings tab — lets the user opt out of crash reporting and
-/// error diagnostics sent to help improve the app.
+/// Privacy settings tab — lets the user control usage analytics and
+/// crash/error diagnostics independently.
 @MainActor
 struct SettingsPrivacyTab: View {
     var daemonClient: DaemonClient?
     @ObservedObject var store: SettingsStore
 
-    @State private var collectUsageData: Bool = UserDefaults.standard.object(forKey: "collectUsageDataEnabled") as? Bool ?? true
-
     var body: some View {
-        diagnosticsSection
+        privacySection
     }
 
-    // MARK: - Diagnostics Section
+    // MARK: - Privacy Section
 
-    private var diagnosticsSection: some View {
-        SettingsCard(title: "Diagnostics") {
+    private var privacySection: some View {
+        SettingsCard(title: "Privacy") {
             HStack {
                 VStack(alignment: .leading, spacing: VSpacing.xs) {
-                    Text("Collect usage data")
+                    Text("Share usage analytics")
                         .font(VFont.body)
                         .foregroundColor(VColor.contentSecondary)
-                    Text("Send crash reports and error diagnostics to help improve the app. No personal data or message content is ever sent.")
+                    Text("Send anonymized usage metrics (e.g. token counts, feature adoption) to help us improve the product. No personal data or message content is included.")
                         .font(VFont.caption)
                         .foregroundColor(VColor.contentTertiary)
                 }
                 Spacer()
                 VToggle(isOn: Binding(
-                    get: { collectUsageData },
+                    get: { store.collectUsageData },
                     set: { newValue in
-                        collectUsageData = newValue
-                        if !newValue {
-                            store.sendPerformanceReports = false
+                        store.collectUsageData = newValue
+                        if let daemonClient {
+                            Task {
+                                try? await daemonClient.setPrivacyConfig(collectUsageData: newValue)
+                            }
                         }
-                        setCollectUsageData(newValue)
                     }
                 ))
             }
@@ -44,42 +43,30 @@ struct SettingsPrivacyTab: View {
 
             HStack {
                 VStack(alignment: .leading, spacing: VSpacing.xs) {
-                    Text("Share performance metrics")
+                    Text("Send diagnostics")
                         .font(VFont.body)
-                        .foregroundColor(collectUsageData ? VColor.contentSecondary : VColor.contentTertiary)
-                    Text(collectUsageData
-                         ? "Send anonymised performance metrics (hang rate, scroll speed) to help us improve responsiveness. No personal data or message content is included."
-                         : "Requires \"Collect usage data\" to be enabled.")
+                        .foregroundColor(VColor.contentSecondary)
+                    Text("Share crash reports, error diagnostics, and performance metrics (hang rate, responsiveness) to help us improve stability. No personal data or message content is included.")
                         .font(VFont.caption)
                         .foregroundColor(VColor.contentTertiary)
                 }
                 Spacer()
                 VToggle(isOn: Binding(
-                    get: { store.sendPerformanceReports },
-                    set: { store.sendPerformanceReports = $0 }
+                    get: { store.sendDiagnostics },
+                    set: { newValue in
+                        store.sendDiagnostics = newValue
+                        if newValue {
+                            MetricKitManager.startSentry()
+                        } else {
+                            MetricKitManager.closeSentry()
+                        }
+                        if let daemonClient {
+                            Task {
+                                try? await daemonClient.setPrivacyConfig(sendDiagnostics: newValue)
+                            }
+                        }
+                    }
                 ))
-                .disabled(!collectUsageData)
-            }
-        }
-    }
-
-    // MARK: - Privacy Config
-
-    private func setCollectUsageData(_ enabled: Bool) {
-        // UserDefaults is the source of truth
-        UserDefaults.standard.set(enabled, forKey: "collectUsageDataEnabled")
-
-        // Apply Sentry state immediately
-        if enabled {
-            MetricKitManager.startSentry()
-        } else {
-            MetricKitManager.closeSentry()
-        }
-
-        // Best-effort sync to daemon config for next restart
-        if let daemonClient {
-            Task {
-                try? await daemonClient.setPrivacyConfig(collectUsageData: enabled)
             }
         }
     }
