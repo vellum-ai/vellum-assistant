@@ -172,13 +172,13 @@ export async function runDaemon(): Promise<void> {
     }
     log.info("Daemon startup: DB initialized");
 
-    // Purge private (temporary) conversations from the previous session.
+    // Purge private (temporary) conversations from the previous daemon run.
     // These are ephemeral by design and should not survive daemon restarts.
     const { count: purgedCount, deletedMemory } = purgePrivateConversations();
     if (purgedCount > 0) {
       log.info(
         { purgedCount },
-        `Purged ${purgedCount} private conversation(s) from previous session`,
+        `Purged ${purgedCount} private conversation(s) from previous daemon run`,
       );
       // Qdrant may not be ready at startup, so enqueue vector cleanup jobs
       // rather than attempting direct deletion.
