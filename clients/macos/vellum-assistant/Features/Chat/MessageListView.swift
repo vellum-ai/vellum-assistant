@@ -551,6 +551,8 @@ struct MessageListView: View {
         ScrollViewReader { proxy in
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: VSpacing.md) {
+                    let _ = os_signpost(.event, log: PerfSignposts.log, name: "messageListBodyEvaluated",
+                                        "count=%d", messages.count)
                     // MARK: - Pagination sentinel
 
                     if isLoadingMoreMessages {
@@ -699,10 +701,6 @@ struct MessageListView: View {
                 .padding(.bottom, VSpacing.md)
                 .frame(maxWidth: VSpacing.chatColumnMaxWidth)
                 .frame(maxWidth: .infinity)
-                .background { Color.clear.onAppear {
-                    os_signpost(.event, log: PerfSignposts.log, name: "messageListBodyEvaluated",
-                                "count=%d", messages.count)
-                }}
             }
             .scrollContentBackground(.hidden)
             .coordinateSpace(name: "chatScrollView")
