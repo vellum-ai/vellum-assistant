@@ -34,6 +34,16 @@ export interface LocalInstanceResources {
   [key: string]: unknown;
 }
 
+/**
+ * Which local launcher owns this assistant entry.
+ *
+ * - `"process"` (default) — standard `vellum-cli hatch` / PID-file lifecycle.
+ * - `"apple-containers"` — reserved for the Apple Containers path; lifecycle
+ *   is managed by the macOS app via `LinuxPod` and must not be touched by the
+ *   CLI's PID-based helpers.
+ */
+export type LocalRuntimeBackend = "process" | "apple-containers";
+
 export interface AssistantEntry {
   assistantId: string;
   runtimeUrl: string;
@@ -54,6 +64,13 @@ export interface AssistantEntry {
   volume?: string;
   /** Per-instance resource config. Present for local entries in multi-instance setups. */
   resources?: LocalInstanceResources;
+  /**
+   * Which local launcher owns this assistant.
+   * Defaults to `"process"` when absent (existing entries, normal hatch path).
+   * `"apple-containers"` is reserved for the Apple Containers runtime — the CLI
+   * must not attempt PID-based lifecycle operations on such entries.
+   */
+  runtimeBackend?: LocalRuntimeBackend;
   [key: string]: unknown;
 }
 

@@ -1,6 +1,18 @@
 #if os(macOS)
 import Foundation
 
+/// Which local launcher owns a `LockfileAssistant` entry.
+///
+/// - `process`: Standard `vellum-cli hatch` / PID-file lifecycle (default for
+///   all existing and new process-backed local assistants).
+/// - `appleContainers`: Reserved for the Apple Containers runtime path.
+///   Lifecycle is managed by the macOS app via `LinuxPod`; the CLI must not
+///   attempt PID-based operations on such entries.
+public enum LocalRuntimeBackend: String {
+    case process = "process"
+    case appleContainers = "apple-containers"
+}
+
 public struct LockfileAssistant {
     public let assistantId: String
     public let runtimeUrl: String?
@@ -15,6 +27,9 @@ public struct LockfileAssistant {
     public let daemonPort: Int?
     public let gatewayPort: Int?
     public let instanceDir: String?
+    /// Which local launcher owns this assistant.
+    /// Defaults to `.process` when the field is absent in the lockfile.
+    public let runtimeBackend: LocalRuntimeBackend
 
     public init(
         assistantId: String,
@@ -29,7 +44,8 @@ public struct LockfileAssistant {
         baseDataDir: String?,
         daemonPort: Int?,
         gatewayPort: Int?,
-        instanceDir: String?
+        instanceDir: String?,
+        runtimeBackend: LocalRuntimeBackend = .process
     ) {
         self.assistantId = assistantId
         self.runtimeUrl = runtimeUrl
@@ -44,6 +60,7 @@ public struct LockfileAssistant {
         self.daemonPort = daemonPort
         self.gatewayPort = gatewayPort
         self.instanceDir = instanceDir
+        self.runtimeBackend = runtimeBackend
     }
 
     /// Whether this assistant is running remotely (not on the local machine).
@@ -107,6 +124,15 @@ public struct LockfileAssistant {
         return sorted.compactMap { entry -> LockfileAssistant? in
             guard let assistantId = entry["assistantId"] as? String else { return nil }
             let resources = entry["resources"] as? [String: Any]
+            // Parse runtimeBackend — unknown values fall back to .process so a
+            // future or mistyped value never misclassifies an entry as process-backed.
+            let runtimeBackend: LocalRuntimeBackend
+            if let raw = entry["runtimeBackend"] as? String,
+               let parsed = LocalRuntimeBackend(rawValue: raw) {
+                runtimeBackend = parsed
+            } else {
+                runtimeBackend = .process
+            }
             return LockfileAssistant(
                 assistantId: assistantId,
                 runtimeUrl: entry["runtimeUrl"] as? String,
@@ -120,7 +146,8 @@ public struct LockfileAssistant {
                 baseDataDir: entry["baseDataDir"] as? String,
                 daemonPort: resources?["daemonPort"] as? Int,
                 gatewayPort: resources?["gatewayPort"] as? Int,
-                instanceDir: resources?["instanceDir"] as? String
+                instanceDir: resources?["instanceDir"] as? String,
+                runtimeBackend: runtimeBackend
             )
         }
     }
