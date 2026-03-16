@@ -12,6 +12,13 @@ struct ReauthView: View {
     @State private var showContent = false
     @State private var didComplete = false
 
+    private var hasNonManagedAssistant: Bool {
+        let storedId = UserDefaults.standard.string(forKey: "connectedAssistantId")
+        let assistant = storedId.flatMap { LockfileAssistant.loadByName($0) }
+            ?? LockfileAssistant.loadLatest()
+        return assistant != nil && !assistant!.isManaged
+    }
+
     private static let appIcon: NSImage? = {
         guard let path = ResourceBundle.bundle.path(forResource: "vellum-app-icon", ofType: "png") else { return nil }
         return NSImage(contentsOfFile: path)
@@ -75,6 +82,18 @@ struct ReauthView: View {
                         .font(VFont.caption)
                         .foregroundColor(VColor.systemNegativeStrong)
                         .multilineTextAlignment(.center)
+                }
+
+                if hasNonManagedAssistant {
+                    Button {
+                        onComplete()
+                    } label: {
+                        Text("Skip")
+                            .font(VFont.caption)
+                            .foregroundColor(VColor.contentSecondary)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Skip")
                 }
             }
             .frame(maxWidth: 280)
