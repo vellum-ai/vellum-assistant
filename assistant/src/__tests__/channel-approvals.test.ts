@@ -89,7 +89,7 @@ function registerPendingConfirmation(
   } as unknown as Conversation;
 
   pendingInteractions.register(requestId, {
-    session: mockSession,
+    conversation: mockSession,
     conversationId,
     kind: "confirmation",
     confirmationDetails: {
@@ -304,7 +304,7 @@ describe("handleChannelDecision", () => {
     expect(result.applied).toBe(true);
     expect(result.requestId).toBe("req-1");
     expect(
-      interaction!.session.handleConfirmationResponse,
+      interaction!.conversation.handleConfirmationResponse,
     ).toHaveBeenCalledWith("req-1", "allow");
   });
 
@@ -320,7 +320,7 @@ describe("handleChannelDecision", () => {
     expect(result.applied).toBe(true);
     expect(result.requestId).toBe("req-1");
     expect(
-      interaction!.session.handleConfirmationResponse,
+      interaction!.conversation.handleConfirmationResponse,
     ).toHaveBeenCalledWith("req-1", "deny");
   });
 
@@ -339,10 +339,10 @@ describe("handleChannelDecision", () => {
     expect(result.applied).toBe(true);
     expect(result.requestId).toBe("req-newer");
     expect(
-      newerInteraction!.session.handleConfirmationResponse,
+      newerInteraction!.conversation.handleConfirmationResponse,
     ).toHaveBeenCalledWith("req-newer", "allow");
     expect(
-      olderInteraction!.session.handleConfirmationResponse,
+      olderInteraction!.conversation.handleConfirmationResponse,
     ).not.toHaveBeenCalled();
   });
 
@@ -393,7 +393,7 @@ describe("handleChannelDecision", () => {
 
     // The session is approved with "allow"
     expect(
-      interaction!.session.handleConfirmationResponse,
+      interaction!.conversation.handleConfirmationResponse,
     ).toHaveBeenCalledWith("req-1", "allow");
 
     addRuleSpy.mockRestore();
@@ -420,7 +420,7 @@ describe("handleChannelDecision", () => {
     // The decision should still be applied as a one-time approval
     expect(result.applied).toBe(true);
     expect(
-      interaction!.session.handleConfirmationResponse,
+      interaction!.conversation.handleConfirmationResponse,
     ).toHaveBeenCalledWith("req-1", "allow");
 
     addRuleSpy.mockRestore();
@@ -446,7 +446,7 @@ describe("handleChannelDecision", () => {
     // The current invocation should still be approved (one-time allow)
     expect(result.applied).toBe(true);
     expect(
-      interaction!.session.handleConfirmationResponse,
+      interaction!.conversation.handleConfirmationResponse,
     ).toHaveBeenCalledWith("req-1", "allow");
 
     addRuleSpy.mockRestore();

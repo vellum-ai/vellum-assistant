@@ -305,7 +305,7 @@ function registerPendingInteraction(
   confirmationDetails?: ConfirmationDetails,
 ): void {
   pendingInteractions.register(requestId, {
-    session,
+    conversation: session,
     conversationId,
     kind: "confirmation",
     confirmationDetails,
