@@ -13,6 +13,11 @@ struct DrawerMenuView: View {
     @State private var isLowBalance = false
     @State private var isZeroBalance = false
 
+    private var isBillingVisible: Bool {
+        authManager.isAuthenticated &&
+        MacOSClientFeatureFlagManager.shared.isEnabled("settings_billing_enabled")
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: VSpacing.xs) {
             DrawerThemeToggle()
@@ -31,10 +36,12 @@ struct DrawerMenuView: View {
                             VColor.contentDefault
                         )
                     Spacer()
-                    Button("Add funds") { onOpenBilling() }
-                        .font(VFont.captionMedium)
-                        .foregroundColor(VColor.primaryBase)
-                        .buttonStyle(.plain)
+                    if isBillingVisible {
+                        Button("Add funds") { onOpenBilling() }
+                            .font(VFont.captionMedium)
+                            .foregroundColor(VColor.primaryBase)
+                            .buttonStyle(.plain)
+                    }
                 }
                 .padding(.horizontal, VSpacing.sm)
 
