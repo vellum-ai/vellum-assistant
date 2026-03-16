@@ -504,7 +504,7 @@ When the current assistant is managed (`isCurrentAssistantManaged == true`), the
 
 ### 401 Handling in Managed Mode
 
-When a managed-mode HTTP request receives a 401, the `HTTPDaemonClient` does not attempt the bearer token refresh flow (which is designed for local actor tokens). Instead, it emits a `session_error` event so the app can prompt re-authentication through the platform.
+When a managed-mode HTTP request receives a 401, the `HTTPDaemonClient` does not attempt the bearer token refresh flow (which is designed for local actor tokens). Instead, it emits a `conversation_error` event so the app can prompt re-authentication through the platform.
 
 ### Key Files
 
