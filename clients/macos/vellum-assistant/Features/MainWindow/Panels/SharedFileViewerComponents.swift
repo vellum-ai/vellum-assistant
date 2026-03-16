@@ -42,7 +42,7 @@ struct ReadOnlyCodeContent: View {
                 .textSelection(.enabled)
                 .fixedSize(horizontal: true, vertical: false)
                 .padding(VSpacing.md)
-                .frame(alignment: .topLeading)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         }
     }
 }
