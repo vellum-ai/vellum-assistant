@@ -14,6 +14,9 @@ const VALID_EVENTS = new Set<string>([
   "daemon-stop",
   "conversation-start",
   "conversation-end",
+  // Legacy aliases — existing user hooks may still reference the old names.
+  "session-start",
+  "session-end",
   "pre-llm-call",
   "post-llm-call",
   "pre-tool-execute",

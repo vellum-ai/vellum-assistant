@@ -32,10 +32,21 @@ struct OfflineQueuedMessage: Codable, Identifiable {
         }
     }
 
+    // Legacy coding key for pre-rename persisted messages.
+    private enum LegacyCodingKeys: String, CodingKey {
+        case sessionId
+    }
+
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         id = try container.decode(UUID.self, forKey: .id)
-        conversationId = try container.decodeIfPresent(String.self, forKey: .conversationId)
+        // Fall back to the legacy "sessionId" key for messages queued before the rename.
+        if let cid = try container.decodeIfPresent(String.self, forKey: .conversationId) {
+            conversationId = cid
+        } else {
+            let legacy = try decoder.container(keyedBy: LegacyCodingKeys.self)
+            conversationId = try legacy.decodeIfPresent(String.self, forKey: .sessionId)
+        }
         text = try container.decode(String.self, forKey: .text)
         displayText = try container.decodeIfPresent(String.self, forKey: .displayText)
         attachments = try container.decode([OfflineQueuedAttachment].self, forKey: .attachments)

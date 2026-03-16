@@ -5,6 +5,9 @@ export type HookEventName =
   // Conversation lifecycle
   | "conversation-start"
   | "conversation-end"
+  // Legacy aliases (backwards compat for existing user hooks)
+  | "session-start"
+  | "session-end"
   // LLM call lifecycle
   | "pre-llm-call"
   | "post-llm-call"

@@ -15,6 +15,16 @@ import type {
 
 const log = getLogger("hooks-manager");
 
+/**
+ * Legacy event name aliases so existing user hooks that reference the old
+ * session-based names still fire when the corresponding conversation event
+ * is triggered.
+ */
+const LEGACY_EVENT_ALIASES: Partial<Record<HookEventName, HookEventName[]>> = {
+  "conversation-start": ["session-start"],
+  "conversation-end": ["session-end"],
+};
+
 export class HookManager {
   private hooks: DiscoveredHook[] = [];
   private eventIndex = new Map<HookEventName, DiscoveredHook[]>();
@@ -50,8 +60,23 @@ export class HookManager {
     event: HookEventName,
     data: Record<string, unknown>,
   ): Promise<HookTriggerResult> {
-    const hooks = this.eventIndex.get(event);
-    if (!hooks || hooks.length === 0) return { blocked: false };
+    // Collect hooks registered under the canonical event name and any
+    // legacy aliases (e.g. session-start -> conversation-start).
+    const primaryHooks = this.eventIndex.get(event) ?? [];
+    const legacyAliases = LEGACY_EVENT_ALIASES[event] ?? [];
+    const aliasHooks = legacyAliases.flatMap(
+      (alias) => this.eventIndex.get(alias) ?? [],
+    );
+    // Deduplicate in case a hook subscribes to both old and new names.
+    const seen = new Set<string>();
+    const hooks: DiscoveredHook[] = [];
+    for (const h of [...primaryHooks, ...aliasHooks]) {
+      if (!seen.has(h.name)) {
+        seen.add(h.name);
+        hooks.push(h);
+      }
+    }
+    if (hooks.length === 0) return { blocked: false };
 
     const isPreEvent = event.startsWith("pre-");
     const eventData: HookEventData = { ...data, event };
