@@ -419,7 +419,7 @@ export function buildChannelAwarenessSection(): string {
     "",
     "### Channel command handling",
     "Some channel turns include a `<channel_command_context>` block indicating the user triggered a bot command (e.g. Telegram `/start`).",
-    "When `command_type` is `start`: generate a warm, brief greeting (1-3 sentences). Treat `/start` verbatim as a hello. Do NOT reset conversation or mention slash commands. If a `payload` is present, acknowledge it warmly.",
+    "When `command_type` is `start`: generate a warm, brief greeting (1-3 sentences). Treat `/start` verbatim as a hello. Do NOT reset conversation or mention slash commands. If a `payload` is present, acknowledge it warmly. Respond in the same language as the user's locale if available from channel context, otherwise default to English.",
   ].join("\n");
 }
 
