@@ -32,7 +32,7 @@ final class CollapsedConversationSwitcherPresentationTests: XCTestCase {
         let sut = CollapsedConversationSwitcherPresentation(regularConversations: conversations, activeConversationId: id)
 
         XCTAssertTrue(sut.showsSwitcher)
-        XCTAssertEqual(sut.totalRegularThreadCount, 1)
+        XCTAssertEqual(sut.totalRegularConversationCount, 1)
         XCTAssertTrue(sut.switchTargets.isEmpty)
     }
 
@@ -53,7 +53,7 @@ final class CollapsedConversationSwitcherPresentationTests: XCTestCase {
         let conversations = [makeConversation(), makeConversation(), makeConversation()]
         let sut = CollapsedConversationSwitcherPresentation(regularConversations: conversations, activeConversationId: nil)
 
-        XCTAssertEqual(sut.totalRegularThreadCount, 3)
+        XCTAssertEqual(sut.totalRegularConversationCount, 3)
     }
 
     func testBadgeText_normalCount() {

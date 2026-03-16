@@ -332,7 +332,7 @@ final class HTTPDaemonClientUnreadTests: XCTestCase {
         XCTAssertEqual(metadata["attempt"] as? Int, 1)
     }
 
-    func testSessionListResponsePreservesPinMetadataFromHTTPTransport() async throws {
+    func testConversationListResponsePreservesPinMetadataFromHTTPTransport() async throws {
         let responseExpectation = expectation(description: "session list response")
         var capturedResponse: ConversationListResponseMessage?
 
@@ -377,8 +377,8 @@ final class HTTPDaemonClientUnreadTests: XCTestCase {
 
         await fulfillment(of: [responseExpectation], timeout: 1.0)
 
-        let session = try XCTUnwrap(capturedResponse?.conversations.first)
-        XCTAssertEqual(session.displayOrder, 7)
-        XCTAssertEqual(session.isPinned, true)
+        let conversation = try XCTUnwrap(capturedResponse?.conversations.first)
+        XCTAssertEqual(conversation.displayOrder, 7)
+        XCTAssertEqual(conversation.isPinned, true)
     }
 }

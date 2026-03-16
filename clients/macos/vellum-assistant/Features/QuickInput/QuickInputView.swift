@@ -125,9 +125,9 @@ struct QuickInputView: View {
                     if !recentConversations.isEmpty {
                         Divider()
 
-                        ForEach(recentConversations) { thread in
-                            Button(thread.title) {
-                                onSelectConversation?(thread.id, thread.title)
+                        ForEach(recentConversations) { conversation in
+                            Button(conversation.title) {
+                                onSelectConversation?(conversation.id, conversation.title)
                             }
                         }
                     }

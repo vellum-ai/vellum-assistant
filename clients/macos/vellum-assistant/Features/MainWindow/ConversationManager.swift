@@ -6,7 +6,7 @@ import os
 import Combine
 
 private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "ConversationManager")
-private let archivedSessionsKey = "archivedConversationIds"
+private let archivedConversationsKey = "archivedConversationIds"
 
 // MARK: - Conversation Client Protocol
 
@@ -679,7 +679,7 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
         // with the daemon's row numbering regardless of client-side filtering.
         serverOffset += response.conversations.count
 
-        let recentSessions = response.conversations.filter {
+        let recentConversations = response.conversations.filter {
             $0.conversationType != "private" && $0.channelBinding?.sourceChannel == nil
         }
 
@@ -687,13 +687,13 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
         // persisted displayOrder values in the incoming batch, so legacy conversations
         // (nil displayOrder) don't collide with explicit or already-loaded ones.
         let existingMax = conversations.compactMap(\.pinnedOrder).max() ?? -1
-        let batchMax = recentSessions
+        let batchMax = recentConversations
             .filter { $0.isPinned ?? false }
             .compactMap { $0.displayOrder.map { Int($0) } }
             .max() ?? -1
         var nextPinnedOrder = max(existingMax, batchMax) + 1
 
-        for session in recentSessions {
+        for session in recentConversations {
             // If a local conversation already exists, merge server pin/order metadata.
             if let existingIdx = conversations.firstIndex(where: { $0.conversationId == session.id }) {
                 let isPinned = session.isPinned ?? false
@@ -800,7 +800,7 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
         }
 
         // Slow path: fetch the conversation via the gateway and insert it locally
-        guard let session = await conversationClient.fetchConversationById(conversationId) else {
+        guard let conversation = await conversationClient.fetchConversationById(conversationId) else {
             return false
         }
 
@@ -811,45 +811,45 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
         }
 
         // Don't insert external-channel or private conversations into the main sidebar
-        if session.conversationType == "private" || session.channelBinding?.sourceChannel != nil {
+        if conversation.conversationType == "private" || conversation.channelBinding?.sourceChannel != nil {
             return false
         }
 
-        let effectiveCreatedAt = session.createdAt ?? session.updatedAt
-        let conversation = ConversationModel(
-            title: session.title,
+        let effectiveCreatedAt = conversation.createdAt ?? conversation.updatedAt
+        let conversationModel = ConversationModel(
+            title: conversation.title,
             createdAt: Date(timeIntervalSince1970: TimeInterval(effectiveCreatedAt) / 1000.0),
-            conversationId: session.id,
-            isPinned: session.isPinned ?? false,
-            pinnedOrder: (session.isPinned ?? false) ? session.displayOrder.map { Int($0) } : nil,
-            displayOrder: session.displayOrder.map { Int($0) },
-            lastInteractedAt: Date(timeIntervalSince1970: TimeInterval(session.updatedAt) / 1000.0),
+            conversationId: conversation.id,
+            isPinned: conversation.isPinned ?? false,
+            pinnedOrder: (conversation.isPinned ?? false) ? conversation.displayOrder.map { Int($0) } : nil,
+            displayOrder: conversation.displayOrder.map { Int($0) },
+            lastInteractedAt: Date(timeIntervalSince1970: TimeInterval(conversation.updatedAt) / 1000.0),
             kind: .standard,
-            source: session.source,
-            scheduleJobId: session.scheduleJobId,
-            hasUnseenLatestAssistantMessage: session.assistantAttention?.hasUnseenLatestAssistantMessage ?? false,
-            latestAssistantMessageAt: session.assistantAttention?.latestAssistantMessageAt.map {
+            source: conversation.source,
+            scheduleJobId: conversation.scheduleJobId,
+            hasUnseenLatestAssistantMessage: conversation.assistantAttention?.hasUnseenLatestAssistantMessage ?? false,
+            latestAssistantMessageAt: conversation.assistantAttention?.latestAssistantMessageAt.map {
                 Date(timeIntervalSince1970: TimeInterval($0) / 1000.0)
             },
-            lastSeenAssistantMessageAt: session.assistantAttention?.lastSeenAssistantMessageAt.map {
+            lastSeenAssistantMessageAt: conversation.assistantAttention?.lastSeenAssistantMessageAt.map {
                 Date(timeIntervalSince1970: TimeInterval($0) / 1000.0)
             }
         )
 
         let viewModel = makeViewModel()
-        viewModel.conversationId = session.id
+        viewModel.conversationId = conversation.id
         // Leave isHistoryLoaded false so history is fetched when the conversation activates
         viewModel.startMessageLoop()
 
-        conversations.insert(conversation, at: 0)
-        chatViewModels[conversation.id] = viewModel
-        subscribeToBusyState(for: conversation.id, viewModel: viewModel)
-        subscribeToAssistantActivity(for: conversation.id, viewModel: viewModel)
-        subscribeToInteractionState(for: conversation.id, viewModel: viewModel)
-        touchVMAccessOrder(conversation.id)
+        conversations.insert(conversationModel, at: 0)
+        chatViewModels[conversationModel.id] = viewModel
+        subscribeToBusyState(for: conversationModel.id, viewModel: viewModel)
+        subscribeToAssistantActivity(for: conversationModel.id, viewModel: viewModel)
+        subscribeToInteractionState(for: conversationModel.id, viewModel: viewModel)
+        touchVMAccessOrder(conversationModel.id)
         evictStaleCachedViewModels()
 
-        selectConversation(id: conversation.id)
+        selectConversation(id: conversationModel.id)
         return true
     }
 
@@ -1730,10 +1730,10 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
 
     private var archivedConversationIds: Set<String> {
         get {
-            Set(UserDefaults.standard.stringArray(forKey: archivedSessionsKey) ?? [])
+            Set(UserDefaults.standard.stringArray(forKey: archivedConversationsKey) ?? [])
         }
         set {
-            UserDefaults.standard.set(Array(newValue), forKey: archivedSessionsKey)
+            UserDefaults.standard.set(Array(newValue), forKey: archivedConversationsKey)
         }
     }
 

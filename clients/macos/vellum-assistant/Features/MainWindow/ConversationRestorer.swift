@@ -180,7 +180,7 @@ final class ConversationRestorer {
         // Filter out private conversations and conversations bound to external channels
         // (e.g. Telegram). External channel-bound conversations belong to their own
         // lane and should not appear in the desktop conversation list.
-        let recentSessions = response.conversations.filter {
+        let recentConversations = response.conversations.filter {
             $0.conversationType != "private" && $0.channelBinding?.sourceChannel == nil
         }
 
@@ -191,12 +191,12 @@ final class ConversationRestorer {
         var restoredConversations: [ConversationModel] = []
         // Seed the fallback counter past the highest persisted pinned order
         // so legacy conversations (nil displayOrder) don't collide with explicit ones.
-        let maxPersistedPinnedOrder = recentSessions
+        let maxPersistedPinnedOrder = recentConversations
             .filter { $0.isPinned ?? false }
             .compactMap { $0.displayOrder.map { Int($0) } }
             .max() ?? -1
         var pinnedCount = maxPersistedPinnedOrder + 1
-        for session in recentSessions {
+        for session in recentConversations {
             // If a local conversation already exists (e.g. created by
             // createNotificationConversation before the session list response arrived),
             // merge server pin/order metadata into it instead of creating a duplicate.

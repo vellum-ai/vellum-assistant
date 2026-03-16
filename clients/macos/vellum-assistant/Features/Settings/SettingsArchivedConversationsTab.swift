@@ -14,12 +14,12 @@ struct SettingsArchivedConversationsTab: View {
                 )
             } else {
                 VStack(alignment: .leading, spacing: 0) {
-                    ForEach(Array(conversationManager.archivedConversations.enumerated()), id: \.element.id) { index, thread in
+                    ForEach(Array(conversationManager.archivedConversations.enumerated()), id: \.element.id) { index, conversation in
                         if index > 0 {
                             SettingsDivider()
                         }
-                        ArchivedConversationRow(conversation: thread) {
-                            conversationManager.unarchiveConversation(id: thread.id)
+                        ArchivedConversationRow(conversation: conversation) {
+                            conversationManager.unarchiveConversation(id: conversation.id)
                         }
                     }
                 }
