@@ -14,7 +14,9 @@
  */
 import type { SkillToolScript } from "../tools/skills/script-contract.js";
 // ── acp ─────────────────────────────────────────────────────────────────────────
+import * as acpAbort from "./bundled-skills/acp/tools/acp-abort.js";
 import * as acpSpawn from "./bundled-skills/acp/tools/acp-spawn.js";
+import * as acpStatus from "./bundled-skills/acp/tools/acp-status.js";
 // ── app-builder ────────────────────────────────────────────────────────────────
 import * as appCreate from "./bundled-skills/app-builder/tools/app-create.js";
 import * as appDelete from "./bundled-skills/app-builder/tools/app-delete.js";
@@ -186,6 +188,8 @@ import * as watcherUpdate from "./bundled-skills/watcher/tools/watcher-update.js
 export const bundledToolRegistry = new Map<string, SkillToolScript>([
   // acp
   ["acp:tools/acp-spawn.ts", acpSpawn],
+  ["acp:tools/acp-status.ts", acpStatus],
+  ["acp:tools/acp-abort.ts", acpAbort],
 
   // app-builder
   ["app-builder:tools/app-create.ts", appCreate],
