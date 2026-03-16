@@ -6,8 +6,7 @@ import os
 import Combine
 
 private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "ConversationManager")
-// Keep the legacy UserDefaults key so existing persisted archive
-// state is preserved across the session-to-conversation rename.
+// Legacy UserDefaults key preserved from the session-to-conversation rename.
 private let archivedConversationsKey = "archivedSessionIds"
 
 // MARK: - Conversation Client Protocol
@@ -43,8 +42,8 @@ struct ConversationClient: ConversationClientProtocol {
 
 @MainActor
 final class ConversationManager: ObservableObject, ConversationRestorerDelegate {
-    @AppStorage("restoreRecentThreads") private(set) var restoreRecentConversations = true
-    @AppStorage("lastActiveThreadId") private var lastActiveConversationIdString: String?
+    @AppStorage("restoreRecentConversations") private(set) var restoreRecentConversations = true
+    @AppStorage("lastActiveConversationId") private var lastActiveConversationIdString: String?
     @AppStorage("completedConversationCount") private var completedConversationCount: Int = 0
     @Published var conversations: [ConversationModel] = []
     @Published var hasMoreConversations: Bool = false
@@ -229,7 +228,21 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
         return getOrCreateViewModel(for: activeConversationId)
     }
 
+    /// One-time migration: rename legacy "thread" @AppStorage keys to "conversation" keys.
+    static func migrateStorageKeysIfNeeded() {
+        let defaults = UserDefaults.standard
+        if let value = defaults.object(forKey: "restoreRecentThreads"), defaults.object(forKey: "restoreRecentConversations") == nil {
+            defaults.set(value, forKey: "restoreRecentConversations")
+            defaults.removeObject(forKey: "restoreRecentThreads")
+        }
+        if let value = defaults.string(forKey: "lastActiveThreadId"), defaults.string(forKey: "lastActiveConversationId") == nil {
+            defaults.set(value, forKey: "lastActiveConversationId")
+            defaults.removeObject(forKey: "lastActiveThreadId")
+        }
+    }
+
     init(daemonClient: DaemonClient, conversationClient: ConversationClientProtocol = ConversationClient(), activityNotificationService: ActivityNotificationService? = nil, isFirstLaunch: Bool = false) {
+        Self.migrateStorageKeysIfNeeded()
         self.daemonClient = daemonClient
         self.conversationClient = conversationClient
         self.activityNotificationService = activityNotificationService
