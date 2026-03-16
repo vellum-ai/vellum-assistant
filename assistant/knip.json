@@ -6,5 +6,9 @@
     "src/daemon/main.ts"
   ],
   "project": ["src/**/*.ts", "src/**/*.tsx", "scripts/**/*.ts"],
-  "ignoreDependencies": []
+  "ignoreDependencies": [
+    "@vellumai/ces-contracts",
+    "@vellumai/credential-storage",
+    "@vellumai/egress-proxy"
+  ]
 }
