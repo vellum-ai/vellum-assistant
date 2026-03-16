@@ -142,7 +142,7 @@ Swift does not allow `private` members to be accessed from a different file, eve
 ### Comment Quality
 - Comments and docstrings must describe the code's intent and behavior, not its refactoring history.
 - Do not leave breadcrumb comments like `// moved to X.swift` or `// extracted from Y()`. These become stale and clutter the code.
-- Good: `/// Cancellable task for the delayed hover trigger on the collapsed thread section.`
+- Good: `/// Cancellable task for the delayed hover trigger on the collapsed conversation section.`
 - Bad: `// conversationItem — moved to Sidebar/SidebarConversationItem.swift (standalone view)`
 
 ---
