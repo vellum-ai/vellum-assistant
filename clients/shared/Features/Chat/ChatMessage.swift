@@ -808,7 +808,7 @@ public struct ToolCallData: Identifiable, Equatable {
     public var completedAt: Date?
     /// The tool_use block ID from the daemon, for correlating confirmations to tool calls.
     public var toolUseId: String?
-    /// Persisted confirmation decision for this tool call (survives app restart / thread switch).
+    /// Persisted confirmation decision for this tool call (survives app restart / conversation switch).
     public var confirmationDecision: ToolConfirmationState?
     /// Friendly label for the confirmation (e.g. "Edit File", "Run Command").
     public var confirmationLabel: String?

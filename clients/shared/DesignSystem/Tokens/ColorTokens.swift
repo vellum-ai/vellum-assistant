@@ -353,8 +353,8 @@ public enum VColor {
     public static let funTeal   = Color(hex: 0x0E9B8B)
     public static let funGreen  = Color(hex: 0x4C9B50)
 
-    /// Deterministic thread icon background palette — semantic compositions of existing tokens.
-    public static let threadIconBackgrounds: [Color] = [
+    /// Deterministic conversation icon background palette — semantic compositions of existing tokens.
+    public static let conversationIconBackgrounds: [Color] = [
         primaryBase, primaryHover, primaryActive,
         systemPositiveStrong, systemNegativeStrong, systemMidStrong,
         contentSecondary, contentTertiary,

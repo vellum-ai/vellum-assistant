@@ -145,19 +145,19 @@ struct NavigationGallerySection: View {
                 HStack(spacing: VSpacing.lg) {
                     VStack(alignment: .leading, spacing: VSpacing.xs) {
                         Text("Default").font(VFont.caption).foregroundColor(VColor.contentTertiary)
-                        VTab(label: "Thread 1", style: .flat, onSelect: {})
+                        VTab(label: "Conversation 1", style: .flat, onSelect: {})
                     }
                     VStack(alignment: .leading, spacing: VSpacing.xs) {
                         Text("Selected").font(VFont.caption).foregroundColor(VColor.contentTertiary)
-                        VTab(label: "Thread 1", isSelected: true, style: .flat, onSelect: {})
+                        VTab(label: "Conversation 1", isSelected: true, style: .flat, onSelect: {})
                     }
                     VStack(alignment: .leading, spacing: VSpacing.xs) {
                         Text("Closeable").font(VFont.caption).foregroundColor(VColor.contentTertiary)
-                        VTab(label: "Thread 2", style: .flat, onSelect: {}, onClose: {})
+                        VTab(label: "Conversation 2", style: .flat, onSelect: {}, onClose: {})
                     }
                     VStack(alignment: .leading, spacing: VSpacing.xs) {
                         Text("Selected + Closeable").font(VFont.caption).foregroundColor(VColor.contentTertiary)
-                        VTab(label: "Thread 2", isSelected: true, style: .flat, onSelect: {}, onClose: {})
+                        VTab(label: "Conversation 2", isSelected: true, style: .flat, onSelect: {}, onClose: {})
                     }
                 }
             }

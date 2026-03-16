@@ -72,26 +72,26 @@ public struct SubagentConversationView: View {
     }
 
     public var body: some View {
-        threadContent(phase: 0)
+        conversationContent(phase: 0)
     }
 
     @ViewBuilder
-    private func threadContent(phase: Int) -> some View {
+    private func conversationContent(phase: Int) -> some View {
         HStack(alignment: .center, spacing: 0) {
-            // L-shaped connector: vertical line from parent → curves right into the thread bar
+            // L-shaped connector: vertical line from parent → curves right into the conversation bar
             LConnector()
                 .stroke(statusColor.opacity(0.4), style: StrokeStyle(lineWidth: 2, lineCap: .round))
                 .frame(width: 14, height: 28)
                 .padding(.trailing, VSpacing.xs)
 
-            // Thread indicator content
-            threadBar(phase: phase)
+            // Conversation indicator content
+            conversationBar(phase: phase)
         }
     }
 
-    // MARK: - Thread Bar
+    // MARK: - Conversation Bar
 
-    private func threadBar(phase: Int) -> some View {
+    private func conversationBar(phase: Int) -> some View {
         HStack(spacing: VSpacing.sm) {
             // Label (clickable, turns blue on hover like Slack)
             Text(subagent.label)
@@ -132,7 +132,7 @@ public struct SubagentConversationView: View {
                     .accessibilityLabel("Abort subagent")
             }
 
-            // View thread arrow
+            // View conversation arrow
             VIconView(.chevronRight, size: 9)
                 .foregroundColor(isHovered ? VColor.primaryBase : VColor.contentTertiary)
         }
@@ -251,7 +251,7 @@ public struct SubagentEventsReader: View {
 // MARK: - L-Shaped Connector
 
 /// Draws a smooth L-shaped path: vertical line down from top-left, then curves
-/// right toward the thread bar. Uses a quarter-circle arc for a polished look.
+/// right toward the conversation bar. Uses a quarter-circle arc for a polished look.
 private struct LConnector: Shape {
     func path(in rect: CGRect) -> Path {
         let radius: CGFloat = 6
