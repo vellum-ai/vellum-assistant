@@ -331,12 +331,6 @@ public struct FileUploadSurfaceView: View {
         return UTType(mimeType: mimePattern)
     }
 
-    private func formatFileSize(_ bytes: Int) -> String {
-        let formatter = ByteCountFormatter()
-        formatter.countStyle = .file
-        return formatter.string(fromByteCount: Int64(bytes))
-    }
-
     private func extractText(from file: SelectedFile) -> String? {
         let textTypes = ["text/plain", "text/csv", "text/html", "text/markdown",
                          "application/json", "application/xml"]
