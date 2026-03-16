@@ -25,7 +25,7 @@ struct SurfaceClient: SurfaceClientProtocol {
 
     func fetchSurfaceData(surfaceId: String, conversationId: String) async -> SurfaceData? {
         let response = try? await GatewayHTTPClient.get(
-            path: "assistants/{assistantId}/surfaces/\(surfaceId)?conversationId=\(conversationId)", timeout: 10
+            path: "assistants/{assistantId}/surfaces/\(surfaceId)", params: ["conversationId": conversationId], timeout: 10
         )
         if let statusCode = response?.statusCode, !(200..<300).contains(statusCode) {
             log.error("Fetch surface \(surfaceId) failed (HTTP \(statusCode))")

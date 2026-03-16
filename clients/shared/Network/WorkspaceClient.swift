@@ -14,25 +14,13 @@ protocol WorkspaceClientProtocol {
 struct WorkspaceClient: WorkspaceClientProtocol {
     nonisolated init() {}
 
-    /// A restricted character set for encoding query parameter values.
-    /// `.urlQueryAllowed` permits `&`, `=`, `+`, and `#` which are
-    /// query-string metacharacters. File paths containing these characters
-    /// would break parameter parsing, so we exclude them.
-    private static let queryValueAllowed: CharacterSet = {
-        var cs = CharacterSet.urlQueryAllowed
-        cs.remove(charactersIn: "&=+#")
-        return cs
-    }()
-
     func fetchWorkspaceTree(path: String, showHidden: Bool) async -> WorkspaceTreeResponse? {
-        let encoded = path.addingPercentEncoding(withAllowedCharacters: Self.queryValueAllowed) ?? path
-        var params: [String] = []
-        if !path.isEmpty { params.append("path=\(encoded)") }
-        if showHidden { params.append("showHidden=true") }
-        let query = params.isEmpty ? "" : "?\(params.joined(separator: "&"))"
+        var params: [String: String] = [:]
+        if !path.isEmpty { params["path"] = path }
+        if showHidden { params["showHidden"] = "true" }
 
         let response = try? await GatewayHTTPClient.get(
-            path: "assistants/{assistantId}/workspace/tree\(query)", timeout: 10
+            path: "assistants/{assistantId}/workspace/tree", params: params, timeout: 10
         )
         if let statusCode = response?.statusCode, !(200..<300).contains(statusCode) {
             log.error("Fetch workspace tree failed (HTTP \(statusCode))")
