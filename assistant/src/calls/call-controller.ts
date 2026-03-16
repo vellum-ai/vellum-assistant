@@ -1,7 +1,7 @@
 /**
- * Session-backed voice call controller.
+ * Conversation-backed voice call controller.
  *
- * Routes voice turns through the daemon session pipeline via
+ * Routes voice turns through the daemon conversation pipeline via
  * voice-session-bridge instead of calling provider.sendMessage() directly.
  * This gives voice calls access to tools, memory, skills, and runtime
  * injections while preserving all existing call UX behavior (control markers,
@@ -118,10 +118,10 @@ export class CallController {
   /** Conversation ID for the voice session. */
   private conversationId: string;
   /**
-   * Track whether the last message sent to the session was a user message
+   * Track whether the last message sent to the conversation was a user message
    * whose assistant response has not yet been received. This is used to
    * prevent sending consecutive user messages that would violate role
-   * alternation in the underlying session pipeline.
+   * alternation in the underlying conversation pipeline.
    */
   private lastSentWasOpener = false;
   /**
@@ -434,7 +434,7 @@ export class CallController {
   }
 
   /**
-   * Execute a single voice turn through the session pipeline and stream
+   * Execute a single voice turn through the conversation pipeline and stream
    * the response back through the relay.
    */
   private runTurn(content: string): Promise<void> {
@@ -507,7 +507,7 @@ export class CallController {
   }
 
   /**
-   * Stream TTS tokens from the session pipeline, buffering to strip
+   * Stream TTS tokens from the conversation pipeline, buffering to strip
    * control markers before they reach the relay. Returns the full
    * accumulated response text for post-turn marker detection.
    */

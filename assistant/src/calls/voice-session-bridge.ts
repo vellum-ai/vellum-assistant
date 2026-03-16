@@ -1,8 +1,8 @@
 /**
- * Bridge between voice relay and the daemon session pipeline.
+ * Bridge between voice relay and the daemon conversation pipeline.
  *
  * Provides a `startVoiceTurn()` function that manages a voice turn
- * directly through the session, translating agent-loop events into
+ * directly through the conversation, translating agent-loop events into
  * simple callbacks suitable for real-time TTS streaming.
  *
  * Dependency injection follows the same module-level setter pattern used by
@@ -220,9 +220,9 @@ function buildVoiceCallControlPrompt(opts: {
 // ---------------------------------------------------------------------------
 
 /**
- * Execute a single voice turn through the daemon session pipeline.
+ * Execute a single voice turn through the daemon conversation pipeline.
  *
- * Manages the session directly with voice-specific defaults:
+ * Manages the conversation directly with voice-specific defaults:
  *   - sourceChannel: 'phone'
  *   - event sink wired to the provided callbacks
  *   - abort propagated from the returned handle
@@ -267,7 +267,7 @@ export async function startVoiceTurn(
   const forceStrictSideEffects = isGuardian ? undefined : true;
 
   // Replace the [CALL_OPENING] marker with a neutral instruction before
-  // persisting. The marker must not appear as a user message in session
+  // persisting. The marker must not appear as a user message in conversation
   // history — after a barge-in interruption the next turn would replay
   // the stale marker and potentially retrigger opener behavior.
   const persistedContent =
@@ -287,7 +287,7 @@ export async function startVoiceTurn(
     isCallerGuardian,
   });
 
-  // Get or create the session
+  // Get or create the conversation
   const transport = {
     channelId: "phone" as ChannelId,
   };
@@ -304,20 +304,20 @@ export async function startVoiceTurn(
     let waited = 0;
     while (conversation.isProcessing() && waited < maxWaitMs) {
       if (opts.signal?.aborted) {
-        throw new Error("Turn aborted while waiting for session");
+        throw new Error("Turn aborted while waiting for conversation");
       }
       await new Promise((resolve) => setTimeout(resolve, pollIntervalMs));
       waited += pollIntervalMs;
     }
     if (opts.signal?.aborted) {
-      throw new Error("Turn aborted while waiting for session");
+      throw new Error("Turn aborted while waiting for conversation");
     }
     if (conversation.isProcessing()) {
-      throw new Error("Session is already processing a message");
+      throw new Error("Conversation is already processing a message");
     }
   }
 
-  // Configure session for this voice turn
+  // Configure conversation for this voice turn
   const strictSideEffects =
     forceStrictSideEffects ??
     deps.deriveDefaultStrictSideEffects(opts.conversationId);

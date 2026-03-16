@@ -4,7 +4,7 @@
  * (which lives in the dedicated voice conversation).
  *
  * Trust-aware: trusted audiences get pointer messages routed through the
- * daemon session as a conversation turn (the assistant generates the text).
+ * daemon conversation as a conversation turn (the assistant generates the text).
  * Untrusted/unknown audiences always receive deterministic fallback text
  * written directly to the conversation store.
  */
@@ -34,7 +34,7 @@ export type PointerEvent =
 export type PointerAudienceMode = "auto" | "trusted" | "untrusted";
 
 /**
- * Daemon-injected function that sends a message through the daemon session
+ * Daemon-injected function that sends a message through the daemon conversation
  * pipeline (persistAndProcessMessage), letting the assistant generate the
  * pointer text as a natural conversation turn.
  *
@@ -157,7 +157,7 @@ export async function addPointerMessage(
     (audienceMode === "auto" && resolvePointerAudienceTrust(conversationId));
 
   if (trustedAudience && pointerMessageProcessor) {
-    // Route through the daemon session — the assistant generates the
+    // Route through the daemon conversation — the assistant generates the
     // pointer text as a natural conversation turn, shaped by context,
     // identity, and preferences.
     const instruction = buildPointerInstruction(context);
