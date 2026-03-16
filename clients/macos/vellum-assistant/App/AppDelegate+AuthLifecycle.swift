@@ -153,7 +153,9 @@ extension AppDelegate {
                     daemonToken: token
                 )
             } else {
-                log.warning("No actor token available during logout — skipping daemon credential cleanup")
+                log.warning("No actor token available during logout — stopping daemon to ensure stale credentials are not retained")
+                daemonClient.disconnect()
+                assistantCli.stop()
             }
 
             // Clear locally-cached credentials from Keychain for all local assistants
