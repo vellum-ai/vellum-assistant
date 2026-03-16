@@ -6,19 +6,9 @@ import os
 
 private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "ActivityNotificationService")
 
-/// Protocol for sending activity completion notifications.
-public protocol ActivityNotificationServiceProtocol {
-    func notifyConversationComplete(
-        summary: String,
-        steps: Int,
-        toolCalls: [ToolCallData],
-        conversationId: String
-    ) async
-}
-
 /// Service for sending push notifications when computer-use sessions complete.
 @MainActor
-public final class ActivityNotificationService: ActivityNotificationServiceProtocol {
+public final class ActivityNotificationService {
     private let settingsStore: SettingsStore
 
     public init(settingsStore: SettingsStore) {

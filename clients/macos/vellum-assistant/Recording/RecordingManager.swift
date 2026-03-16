@@ -4,12 +4,6 @@ import os
 
 private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "RecordingManager")
 
-/// The type of owner that initiated a recording.
-enum RecordingOwner: Equatable, Sendable {
-    /// Standalone recording triggered via the daemon's recording_start message.
-    case standalone
-}
-
 /// State machine for the recording lifecycle.
 enum RecordingState: Equatable, Sendable {
     case idle
