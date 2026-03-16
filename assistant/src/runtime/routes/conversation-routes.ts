@@ -35,6 +35,7 @@ import {
   createCanonicalGuardianRequest,
   generateCanonicalRequestCode,
   listPendingRequestsByConversationScope,
+  resolveCanonicalGuardianRequest,
 } from "../../memory/canonical-guardian-store.js";
 import {
   addMessage,
@@ -811,6 +812,11 @@ export async function handleSendMessage(
             state: "denied" as const,
             source: "auto_deny" as const,
           });
+          // Sync canonical guardian request status so stale "pending" DB
+          // records don't get matched by later guardian reply routing.
+          resolveCanonicalGuardianRequest(interaction.requestId, "pending", {
+            status: "denied",
+          });
         }
       }
       conversation.denyAllPendingConfirmations();
@@ -841,6 +847,11 @@ export async function handleSendMessage(
           requestId: interaction.requestId,
           state: "denied" as const,
           source: "auto_deny" as const,
+        });
+        // Sync canonical guardian request status so stale "pending" DB
+        // records don't get matched by later guardian reply routing.
+        resolveCanonicalGuardianRequest(interaction.requestId, "pending", {
+          status: "denied",
         });
       }
     }
