@@ -278,7 +278,7 @@ When adding a new HTTP endpoint call:
 
 1. Create or extend a focused protocol (e.g. `ConversationClientProtocol`) describing the operation.
 2. Implement it in a struct that calls `GatewayHTTPClient.get/post/delete(path:timeout:)`. Path encoding and `{assistantId}` substitution are handled automatically by `GatewayHTTPClient.buildRequest()` — do not percent-encode paths manually.
-3. Inject the struct via an init parameter with a default value for testability.
+3. Instantiate the struct inline as a private property on the consuming type (e.g. `private let surfaceClient: any SurfaceClientProtocol = SurfaceClient()`).
 4. If migrating an existing method, remove it from `DaemonClient` and `HTTPTransport` and clean up any unused `Endpoint` enum cases.
 
 See `clients/ARCHITECTURE.md` § "GatewayHTTPClient Migration" for the full pattern and migration tracker.
