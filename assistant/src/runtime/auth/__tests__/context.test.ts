@@ -27,7 +27,7 @@ describe("buildAuthContext", () => {
       expect(result.context.principalType).toBe("actor");
       expect(result.context.assistantId).toBe("self");
       expect(result.context.actorPrincipalId).toBe("principal-abc");
-      expect(result.context.sessionId).toBeUndefined();
+      expect(result.context.conversationId).toBeUndefined();
       expect(result.context.scopeProfile).toBe("actor_client_v1");
       expect(result.context.policyEpoch).toBe(1);
       expect(result.context.scopes.has("chat.read")).toBe(true);
@@ -61,7 +61,7 @@ describe("buildAuthContext", () => {
     if (result.ok) {
       expect(result.context.principalType).toBe("local");
       expect(result.context.assistantId).toBe("self");
-      expect(result.context.sessionId).toBe("session-123");
+      expect(result.context.conversationId).toBe("session-123");
       expect(result.context.scopes.has("local.all")).toBe(true);
     }
   });

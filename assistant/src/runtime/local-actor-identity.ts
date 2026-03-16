@@ -32,12 +32,12 @@ const log = getLogger("local-actor-identity");
  * routes receive from JWT verification, keeping downstream code
  * transport-agnostic.
  */
-export function buildLocalAuthContext(sessionId: string): AuthContext {
+export function buildLocalAuthContext(conversationId: string): AuthContext {
   return {
-    subject: `local:self:${sessionId}`,
+    subject: `local:self:${conversationId}`,
     principalType: "local",
     assistantId: DAEMON_INTERNAL_ASSISTANT_ID,
-    sessionId,
+    conversationId,
     scopeProfile: "local_v1",
     scopes: resolveScopeProfile("local_v1"),
     policyEpoch: CURRENT_POLICY_EPOCH,
@@ -112,8 +112,8 @@ export function resolveLocalTrustContext(
  * downstream code to resolve guardian context using the same
  * `authContext.actorPrincipalId` path as HTTP sessions.
  */
-export function resolveLocalAuthContext(sessionId: string): AuthContext {
-  const authContext = buildLocalAuthContext(sessionId);
+export function resolveLocalAuthContext(conversationId: string): AuthContext {
+  const authContext = buildLocalAuthContext(conversationId);
 
   // Enrich with the guardian principal ID from contacts-first path
   const guardianResult = findGuardianForChannel("vellum");

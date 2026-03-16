@@ -78,7 +78,7 @@ export function mintExchangeToken(
         exchangeSub = "svc:gateway:self";
         break;
       case "local":
-        exchangeSub = `local:self:${parsed.sessionId}`;
+        exchangeSub = `local:self:${parsed.conversationId}`;
         break;
       default:
         exchangeSub = "svc:gateway:self";

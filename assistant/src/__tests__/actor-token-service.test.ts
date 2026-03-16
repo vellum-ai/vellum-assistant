@@ -430,9 +430,9 @@ describe("resolveLocalAuthContext", () => {
     expect(ctx.actorPrincipalId).toMatch(/^vellum-principal-/);
   });
 
-  test("sessionId matches the provided argument", () => {
+  test("conversationId matches the provided argument", () => {
     const ctx = resolveLocalAuthContext("my-session");
-    expect(ctx.sessionId).toBe("my-session");
+    expect(ctx.conversationId).toBe("my-session");
   });
 });
 

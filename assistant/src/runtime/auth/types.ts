@@ -73,7 +73,7 @@ export interface AuthContext {
   principalType: PrincipalType;
   assistantId: string;
   actorPrincipalId?: string;
-  sessionId?: string;
+  conversationId?: string;
   scopeProfile: ScopeProfile;
   scopes: ReadonlySet<Scope>;
   policyEpoch: number;
