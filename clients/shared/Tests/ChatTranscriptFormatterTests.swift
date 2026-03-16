@@ -19,11 +19,11 @@ final class ChatTranscriptFormatterTests: XCTestCase {
 
         let result = ChatTranscriptFormatter.conversationMarkdown(
             messages: messages,
-            conversationTitle: "Test Thread",
+            conversationTitle: "Test Conversation",
             participantNames: names
         )
 
-        XCTAssertTrue(result.hasPrefix("# Test Thread"))
+        XCTAssertTrue(result.hasPrefix("# Test Conversation"))
         XCTAssertTrue(result.contains("### Noa"))
         XCTAssertTrue(result.contains("Hello!"))
         XCTAssertTrue(result.contains("### Aria"))
@@ -69,7 +69,7 @@ final class ChatTranscriptFormatterTests: XCTestCase {
     func testThreadMarkdownEmptyInputReturnsEmptyString() {
         let result = ChatTranscriptFormatter.conversationMarkdown(
             messages: [],
-            conversationTitle: "Empty Thread",
+            conversationTitle: "Empty Conversation",
             participantNames: names
         )
 
@@ -84,7 +84,7 @@ final class ChatTranscriptFormatterTests: XCTestCase {
 
         let result = ChatTranscriptFormatter.conversationMarkdown(
             messages: messages,
-            conversationTitle: "Thread",
+            conversationTitle: "Conversation",
             participantNames: names
         )
 

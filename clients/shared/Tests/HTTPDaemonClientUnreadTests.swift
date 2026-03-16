@@ -311,7 +311,7 @@ final class HTTPDaemonClientUnreadTests: XCTestCase {
                 sourceChannel: "vellum",
                 signalType: "macos_conversation_seen",
                 confidence: "explicit",
-                source: "thread-selection",
+                source: "conversation-selection",
                 metadata: [
                     "view": AnyCodable("inbox"),
                     "attempt": AnyCodable(1),
@@ -348,7 +348,7 @@ final class HTTPDaemonClientUnreadTests: XCTestCase {
               "conversations": [
                 {
                   "id": "session-123",
-                  "title": "Pinned thread",
+                  "title": "Pinned conversation",
                   "createdAt": 1000,
                   "updatedAt": 2000,
                   "displayOrder": 7,
