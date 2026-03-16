@@ -33,6 +33,7 @@ final class WorkspaceBrowserState {
     var pendingSwitchPath: String?
     var pendingHiddenFilesToggle: Bool?
     var showingDirtyAlert: Bool = false
+    var viewMode: FileViewMode = .source
     var showHiddenFiles: Bool = UserDefaults.standard.bool(forKey: "showHiddenFiles")
     var hiddenFilesToggleRequestId: UInt64 = 0
 
@@ -44,6 +45,7 @@ final class WorkspaceBrowserState {
 
     func loadFile(path targetPath: String, using daemonClient: DaemonClient) async {
         selectedFilePath = targetPath
+        viewMode = .source
         isLoadingFile = true
         selectedFileDetail = nil
         isDirty = false
@@ -58,6 +60,12 @@ final class WorkspaceBrowserState {
             isDirty = false
             isSaving = false
             isLoadingFile = false
+
+            // Default read-only markdown files to preview mode
+            let ext = (targetPath as NSString).pathExtension.lowercased()
+            if (ext == "md" || ext == "markdown") && isHiddenPath(targetPath) {
+                viewMode = .preview
+            }
         }
         fileLoadTask = task
     }
@@ -741,20 +749,66 @@ private struct WorkspaceFileViewer: View {
 
     @ViewBuilder
     private func textViewer(_ detail: WorkspaceFileResponse, readOnly: Bool) -> some View {
-        if readOnly {
-            ReadOnlyCodeContent(content: detail.content ?? "")
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-        } else {
-            TextEditor(text: $state.editableContent)
-                .font(VFont.mono)
-                .foregroundColor(VColor.contentDefault)
-                .scrollContentBackground(.hidden)
-                .padding(VSpacing.md)
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .onChange(of: state.editableContent) { _, newValue in
-                    state.isDirty = newValue != state.originalContent
-                }
+        let modes = availableViewModes(for: detail.name, mimeType: detail.mimeType)
+        let effectiveMode = modes.contains(state.viewMode) ? state.viewMode : (modes.first ?? .source)
+
+        if modes.count > 1 {
+            HStack(spacing: 0) {
+                VSegmentedControl(
+                    items: modes.map { (label: viewModeLabel($0), tag: $0) },
+                    selection: $state.viewMode,
+                    style: .pill
+                )
+                .frame(width: CGFloat(modes.count) * 100)
+                Spacer()
+            }
+            .padding(.horizontal, VSpacing.md)
+            .padding(.vertical, VSpacing.sm)
         }
+
+        switch effectiveMode {
+        case .source:
+            sourceView(detail)
+        case .preview:
+            previewView(detail)
+        case .tree:
+            treeView(detail)
+        }
+    }
+
+    private func sourceView(_ detail: WorkspaceFileResponse) -> some View {
+        let readOnly = isHiddenPath(detail.path)
+        let language = SyntaxLanguage.detect(fileName: detail.name, mimeType: detail.mimeType)
+        return Group {
+            if readOnly {
+                HighlightedTextView(
+                    text: .constant(detail.content ?? ""),
+                    language: language,
+                    isEditable: false
+                )
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else {
+                HighlightedTextView(
+                    text: $state.editableContent,
+                    language: language,
+                    isEditable: true,
+                    onTextChange: { newValue in
+                        state.isDirty = newValue != state.originalContent
+                    }
+                )
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
+        }
+    }
+
+    private func previewView(_ detail: WorkspaceFileResponse) -> some View {
+        MarkdownPreviewView(content: state.editableContent)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    private func treeView(_ detail: WorkspaceFileResponse) -> some View {
+        JSONTreeView(content: state.editableContent)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     private func saveFile(path: String) async {

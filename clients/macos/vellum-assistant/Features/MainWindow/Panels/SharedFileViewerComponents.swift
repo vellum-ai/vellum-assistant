@@ -1,6 +1,34 @@
 import SwiftUI
 import VellumAssistantShared
 
+// MARK: - File View Mode
+
+enum FileViewMode: String, Hashable {
+    case source
+    case preview
+    case tree
+}
+
+func availableViewModes(for fileName: String, mimeType: String) -> [FileViewMode] {
+    let ext = (fileName as NSString).pathExtension.lowercased()
+    let mime = mimeType.lowercased()
+    if ext == "md" || ext == "markdown" || mime == "text/markdown" {
+        return [.source, .preview]
+    }
+    if ext == "json" || mime == "application/json" {
+        return [.source, .tree]
+    }
+    return [.source]
+}
+
+func viewModeLabel(_ mode: FileViewMode) -> String {
+    switch mode {
+    case .source: return "Source"
+    case .preview: return "Preview"
+    case .tree: return "Tree"
+    }
+}
+
 /// Formats a byte count into a human-readable size string.
 /// Shows raw bytes for sizes < 1 KB (e.g. "500 B"), then "KB" / "MB" / "GB" with one decimal place.
 func formatFileSize(_ bytes: Int) -> String {
