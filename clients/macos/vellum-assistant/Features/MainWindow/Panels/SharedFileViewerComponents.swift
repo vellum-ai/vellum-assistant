@@ -11,10 +11,11 @@ enum FileViewMode: String, Hashable {
 
 func availableViewModes(for fileName: String, mimeType: String) -> [FileViewMode] {
     let ext = (fileName as NSString).pathExtension.lowercased()
-    if ext == "md" || ext == "markdown" || mimeType == "text/markdown" {
+    let mime = mimeType.lowercased()
+    if ext == "md" || ext == "markdown" || mime == "text/markdown" {
         return [.source, .preview]
     }
-    if ext == "json" || mimeType == "application/json" {
+    if ext == "json" || mime == "application/json" {
         return [.source, .tree]
     }
     return [.source]
