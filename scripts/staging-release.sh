@@ -1,0 +1,142 @@
+#!/usr/bin/env bash
+#
+# staging-release.sh — Build a staging release DMG and upload it to a Mac mini.
+#
+# Runs `./build.sh release` with BUNDLE_DISPLAY_NAME="Vellum (Staging)" so
+# that "(Staging)" appears in the About Vellum modal, then packages the
+# resulting .app into a DMG and SCPs it to a Mac mini.
+#
+# Configuration is read from scripts/.env (see scripts/.env.example).
+#
+# Usage:
+#   ./scripts/staging-release.sh
+
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+ENV_FILE="${SCRIPT_DIR}/.env"
+
+if [ -f "$ENV_FILE" ]; then
+  set -a
+  # shellcheck source=/dev/null
+  source "$ENV_FILE"
+  set +a
+fi
+
+# ---------------------------------------------------------------------------
+# Configuration (override via scripts/.env or environment)
+# ---------------------------------------------------------------------------
+
+# SSH host of the Mac mini (required). Can include the user, e.g. user@host.
+MAC_MINI_HOST="${MAC_MINI_HOST:?MAC_MINI_HOST is required -- set it in scripts/.env}"
+
+# SSH user. Only needed if MAC_MINI_HOST doesn't already include a user@ prefix.
+MAC_MINI_USER="${MAC_MINI_USER:-}"
+
+# Remote directory on the Mac mini where the DMG will be placed.
+MAC_MINI_DMG_DEST="${MAC_MINI_DMG_DEST:-~/Downloads}"
+
+# ---------------------------------------------------------------------------
+# Derived values
+# ---------------------------------------------------------------------------
+
+if [ -n "$MAC_MINI_USER" ]; then
+  SCP_HOST="${MAC_MINI_USER}@${MAC_MINI_HOST}"
+else
+  SCP_HOST="${MAC_MINI_HOST}"
+fi
+
+MACOS_BUILD_DIR="$SCRIPT_DIR/../clients/macos"
+
+# ---------------------------------------------------------------------------
+# 1. Build the staging release
+# ---------------------------------------------------------------------------
+
+export BUNDLE_DISPLAY_NAME="Vellum (Staging)"
+
+echo "Building staging release (arm64)..."
+"$MACOS_BUILD_DIR/build.sh" release
+
+# ---------------------------------------------------------------------------
+# 2. Package the .app into a DMG
+# ---------------------------------------------------------------------------
+
+APP_DIR="$MACOS_BUILD_DIR/dist/${BUNDLE_DISPLAY_NAME}.app"
+if [ ! -d "$APP_DIR" ]; then
+  echo "ERROR: Built app not found at $APP_DIR"
+  exit 1
+fi
+
+DMG_BUILD_DIR="$MACOS_BUILD_DIR/build"
+DMG_PATH="$DMG_BUILD_DIR/vellum-assistant-staging.dmg"
+DMG_STAGING="$DMG_BUILD_DIR/dmg-staging"
+
+mkdir -p "$DMG_BUILD_DIR"
+rm -rf "$DMG_STAGING" "$DMG_PATH"
+mkdir -p "$DMG_STAGING"
+
+echo "Creating staging DMG..."
+cp -R "$APP_DIR" "$DMG_STAGING/"
+ln -s /Applications "$DMG_STAGING/Applications"
+
+if command -v create-dmg &>/dev/null; then
+  # Generate DMG background if the script exists
+  DMG_BG_SCRIPT="$MACOS_BUILD_DIR/dmg/generate-background.swift"
+  DMG_BG_ARGS=()
+  if [ -f "$DMG_BG_SCRIPT" ]; then
+    swift "$DMG_BG_SCRIPT" "$DMG_BUILD_DIR/dmg-background@2x.png" 2>/dev/null || true
+    if [ -f "$DMG_BUILD_DIR/dmg-background@2x.png" ]; then
+      DMG_BG_ARGS=(--background "$DMG_BUILD_DIR/dmg-background@2x.png")
+    fi
+  fi
+
+  create-dmg \
+    --volname "Vellum (Staging)" \
+    "${DMG_BG_ARGS[@]}" \
+    --window-pos 200 120 \
+    --window-size 660 400 \
+    --icon-size 128 \
+    --text-size 10 \
+    --icon "${BUNDLE_DISPLAY_NAME}.app" 175 190 \
+    --icon "Applications" 530 190 \
+    --hide-extension "${BUNDLE_DISPLAY_NAME}.app" \
+    --no-internet-enable \
+    "$DMG_PATH" \
+    "$DMG_STAGING/" \
+  || {
+    EXIT_CODE=$?
+    if [ $EXIT_CODE -eq 2 ] && [ -f "$DMG_PATH" ]; then
+      echo "create-dmg exited with warning (code 2), but DMG was created successfully"
+    else
+      echo "create-dmg failed with exit code $EXIT_CODE"
+      exit $EXIT_CODE
+    fi
+  }
+else
+  echo "(create-dmg not found, using hdiutil -- install via 'brew install create-dmg' for nicer DMGs)"
+  hdiutil create -volname "Vellum (Staging)" -srcfolder "$DMG_STAGING" -ov -format UDZO "$DMG_PATH"
+fi
+
+echo "DMG created: $DMG_PATH"
+ls -lh "$DMG_PATH"
+
+# Sign the DMG if a real signing identity is available
+SIGN_IDENTITY="${SIGN_IDENTITY:-}"
+if [ -n "$SIGN_IDENTITY" ] && [ "$SIGN_IDENTITY" != "-" ]; then
+  echo "Signing DMG..."
+  codesign --sign "$SIGN_IDENTITY" --timestamp "$DMG_PATH" 2>/dev/null || \
+    codesign --sign "$SIGN_IDENTITY" "$DMG_PATH"
+  codesign --verify --verbose "$DMG_PATH"
+  echo "DMG signature verified"
+fi
+
+rm -rf "$DMG_STAGING"
+
+# ---------------------------------------------------------------------------
+# 3. Upload to Mac mini
+# ---------------------------------------------------------------------------
+
+echo "Uploading DMG to ${SCP_HOST}:${MAC_MINI_DMG_DEST} ..."
+scp "$DMG_PATH" "${SCP_HOST}:${MAC_MINI_DMG_DEST}/"
+
+echo "Done! Staging DMG uploaded to ${SCP_HOST}:${MAC_MINI_DMG_DEST}/vellum-assistant-staging.dmg"
