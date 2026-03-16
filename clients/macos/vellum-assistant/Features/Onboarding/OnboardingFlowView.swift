@@ -168,6 +168,9 @@ struct OnboardingFlowView: View {
         .onChange(of: state.currentStep) { _, newStep in
             if newStep == 0 {
                 isAdvancingFromWakeUp = false
+                if managedSignInEnabled && authManager.isAuthenticated {
+                    state.advance()
+                }
             }
             if newStep > maxOnboardingStep {
                 onComplete()
