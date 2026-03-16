@@ -17,6 +17,10 @@ on:
       - 'packages/**'
       - '.github/workflows/ci-main-macos.yaml'
 
+concurrency:
+  group: ci-main-macos
+  cancel-in-progress: true
+
 jobs:
   changes:
     name: Detect Path Changes
