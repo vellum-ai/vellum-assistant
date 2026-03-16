@@ -29,6 +29,41 @@ import { getLogger } from "../util/logger.js";
 
 const log = getLogger("platform-callback-registration");
 
+// ── Webhook callback route registry ─────────────────────────────────────────
+//
+// Every webhook-based integration that receives inbound provider callbacks
+// (Telegram updates, Twilio voice/status webhooks, OAuth redirects, etc.)
+// MUST declare its route here. The daemon calls
+// `reconcilePlatformCallbackRoutes()` on startup to register all declared
+// routes with the platform so the gateway proxy knows how to forward them.
+//
+// When adding a new webhook integration, add an entry to this array and
+// the corresponding route to the gateway's route table.
+
+export interface WebhookCallbackRoute {
+  /** Path portion after the ingress base URL (e.g. "webhooks/telegram"). */
+  callbackPath: string;
+  /** Route type identifier matching the platform's type field. */
+  type: string;
+}
+
+/**
+ * Canonical list of all webhook callback routes that must be registered
+ * with the platform for containerized deployments. Each entry corresponds
+ * to a gateway route that receives inbound provider webhooks.
+ */
+export const WEBHOOK_CALLBACK_ROUTES: readonly WebhookCallbackRoute[] = [
+  { callbackPath: "webhooks/telegram", type: "telegram" },
+  { callbackPath: "webhooks/twilio/voice", type: "twilio_voice" },
+  { callbackPath: "webhooks/twilio/status", type: "twilio_status" },
+  {
+    callbackPath: "webhooks/twilio/connect-action",
+    type: "twilio_connect_action",
+  },
+  { callbackPath: "webhooks/whatsapp", type: "whatsapp" },
+  { callbackPath: "webhooks/oauth/callback", type: "oauth" },
+] as const;
+
 /**
  * Whether this is a platform-managed deployment with usable managed credentials.
  *
@@ -55,9 +90,7 @@ export function isPlatformManaged(): boolean {
  */
 export function shouldUsePlatformCallbacks(): boolean {
   return (
-    getIsContainerized() &&
-    !!getPlatformBaseUrl() &&
-    !!getPlatformAssistantId()
+    getIsContainerized() && !!getPlatformBaseUrl() && !!getPlatformAssistantId()
   );
 }
 
@@ -149,6 +182,56 @@ export async function registerCallbackRoute(
  * @param queryParams - Optional query parameters to append to the resolved URL.
  * @returns The resolved callback URL.
  */
+/**
+ * Register all declared webhook callback routes with the platform.
+ *
+ * Called on daemon startup so the platform gateway knows how to forward
+ * inbound provider webhooks for every integration, not just the ones
+ * whose config was touched during the current process lifetime.
+ *
+ * Each route is registered independently so a transient failure for one
+ * integration does not block the others.
+ */
+export async function reconcilePlatformCallbackRoutes(): Promise<void> {
+  if (!shouldUsePlatformCallbacks()) {
+    return;
+  }
+
+  log.info(
+    { routeCount: WEBHOOK_CALLBACK_ROUTES.length },
+    "Reconciling platform callback routes on startup",
+  );
+
+  const results = await Promise.allSettled(
+    WEBHOOK_CALLBACK_ROUTES.map((route) =>
+      registerCallbackRoute(route.callbackPath, route.type),
+    ),
+  );
+
+  let registered = 0;
+  for (let i = 0; i < results.length; i++) {
+    const result = results[i];
+    const route = WEBHOOK_CALLBACK_ROUTES[i];
+    if (result.status === "fulfilled") {
+      registered++;
+    } else {
+      log.warn(
+        {
+          err: result.reason,
+          callbackPath: route.callbackPath,
+          type: route.type,
+        },
+        "Failed to register platform callback route during startup reconciliation",
+      );
+    }
+  }
+
+  log.info(
+    { registered, total: WEBHOOK_CALLBACK_ROUTES.length },
+    "Platform callback route reconciliation complete",
+  );
+}
+
 export async function resolveCallbackUrl(
   directUrl: () => string,
   callbackPath: string,

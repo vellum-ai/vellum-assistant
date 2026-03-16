@@ -20,6 +20,7 @@ import { loadConfig } from "../config/loader.js";
 import { HeartbeatService } from "../heartbeat/heartbeat-service.js";
 import { getHookManager } from "../hooks/manager.js";
 import { installTemplates } from "../hooks/templates.js";
+import { reconcilePlatformCallbackRoutes } from "../inbound/platform-callback-registration.js";
 import { closeSentry, initSentry } from "../instrument.js";
 import { disableLogfire, initLogfire } from "../logfire.js";
 import { getMcpServerManager } from "../mcp/manager.js";
@@ -319,6 +320,18 @@ export async function runDaemon(): Promise<void> {
     }
 
     await initializeProvidersAndTools(config);
+
+    // Register all webhook callback routes with the platform so the gateway
+    // proxy knows how to forward inbound provider webhooks after a restart.
+    // Non-fatal — failures are logged but do not block startup.
+    try {
+      await reconcilePlatformCallbackRoutes();
+    } catch (err) {
+      log.warn(
+        { err },
+        "Platform callback route reconciliation failed — continuing startup",
+      );
+    }
 
     // Start the DaemonServer (conversation manager) before Qdrant so HTTP
     // routes can begin accepting requests while Qdrant initializes.

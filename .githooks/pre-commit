@@ -97,13 +97,14 @@ declare -a SAFE_LINE_PATTERNS=(
     "[.?]+[a-zA-Z0-9_]*[Cc]lient[Ss]ecret([^\"'/]*$|[^\"'/]*//.*)$"
     # TS/JS: secret/key variable assigned from a function call.
     # E.g. `const clientSecret = getSecureKeyAsync(keyVault)` or
+    # `const apiKey = getPlatformInternalApiKey()` or
     # `getSecureKeyAsync('credential:integration:twitter:client_secret')` or
     # `getSecureKeyAsync(credentialKey(service, "client_secret"))`.
     # Allows: no quoted args, quoted args containing `:` (key paths), or
     # nested function calls like `credentialKey(...)` whose quoted args are
     # short identifier-like strings (field names, not real secrets).
     # Raw alphanumeric strings like `"sk_live_..."` are still rejected.
-    "(client[_-]?[Ss]ecret|[Pp]rivate[_-]?[Kk]ey)[[:space:]]*=[[:space:]]*(await[[:space:]]+)?(get[A-Za-z]*|create[A-Za-z]*|load[A-Za-z]*|read[A-Za-z]*|delete[A-Za-z]*|set[A-Za-z]*)\(([^\"']*$|[^\"']*[\"'][^\"']*:[^\"']*[\"'][^\"']*$|[a-zA-Z_][a-zA-Z0-9_]*\([^)]*[\"'][a-z_]+[\"'][^)]*\)[^\"']*$)"
+    "(client[_-]?[Ss]ecret|[Pp]rivate[_-]?[Kk]ey|[Aa]pi[_-]?[Kk]ey)[[:space:]]*=[[:space:]]*(await[[:space:]]+)?(get[A-Za-z]*|create[A-Za-z]*|load[A-Za-z]*|read[A-Za-z]*|delete[A-Za-z]*|set[A-Za-z]*)\(([^\"']*$|[^\"']*[\"'][^\"']*:[^\"']*[\"'][^\"']*$|[a-zA-Z_][a-zA-Z0-9_]*\([^)]*[\"'][a-z_]+[\"'][^)]*\)[^\"']*$)"
     # TS/JS: property key followed by type annotation or opening brace.
     # E.g. `requiresClientSecret: boolean;` or `client_secret: {`.
     "[Cc]lient[_-]?[Ss]ecret['\"]?:[[:space:]]*(boolean|number)[[:space:]]*[;,]?"
