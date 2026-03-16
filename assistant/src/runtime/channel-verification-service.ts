@@ -114,7 +114,7 @@ function generateNumericSecret(digits: number = 6): string {
  */
 export function createInboundVerificationSession(
   channel: string,
-  sessionId?: string,
+  conversationId?: string,
 ): CreateVerificationSessionResult {
   // High-entropy hex for unbound inbound challenges — 6-digit numeric
   // codes are only safe when identity binding provides a second factor.
@@ -128,7 +128,7 @@ export function createInboundVerificationSession(
     channel,
     challengeHash,
     expiresAt,
-    createdBySessionId: sessionId,
+    createdByConversationId: conversationId,
   });
 
   const ttlSeconds = CHALLENGE_TTL_MS / 1000;

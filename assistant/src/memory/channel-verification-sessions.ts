@@ -59,7 +59,7 @@ export interface VerificationSession {
   challengeHash: string;
   expiresAt: number;
   status: SessionStatus;
-  createdBySessionId: string | null;
+  createdByConversationId: string | null;
   consumedByExternalUserId: string | null;
   consumedByChatId: string | null;
   // Outbound session: expected-identity binding
@@ -96,7 +96,7 @@ function rowToSession(
     challengeHash: row.challengeHash,
     expiresAt: row.expiresAt,
     status: row.status as SessionStatus,
-    createdBySessionId: row.createdBySessionId,
+    createdByConversationId: row.createdByConversationId,
     consumedByExternalUserId: row.consumedByExternalUserId,
     consumedByChatId: row.consumedByChatId,
     expectedExternalUserId: row.expectedExternalUserId ?? null,
@@ -127,7 +127,7 @@ export function createInboundSession(params: {
   channel: string;
   challengeHash: string;
   expiresAt: number;
-  createdBySessionId?: string;
+  createdByConversationId?: string;
 }): VerificationSession {
   const db = getDb();
   const now = Date.now();
@@ -150,7 +150,7 @@ export function createInboundSession(params: {
     challengeHash: params.challengeHash,
     expiresAt: params.expiresAt,
     status: "pending" as const,
-    createdBySessionId: params.createdBySessionId ?? null,
+    createdByConversationId: params.createdByConversationId ?? null,
     consumedByExternalUserId: null,
     consumedByChatId: null,
     expectedExternalUserId: null,
@@ -278,7 +278,7 @@ export function createVerificationSession(params: {
   challengeHash: string;
   expiresAt: number;
   status: SessionStatus;
-  createdBySessionId?: string;
+  createdByConversationId?: string;
   expectedExternalUserId?: string | null;
   expectedChatId?: string | null;
   expectedPhoneE164?: string | null;
@@ -313,7 +313,7 @@ export function createVerificationSession(params: {
     challengeHash: params.challengeHash,
     expiresAt: params.expiresAt,
     status: params.status as string,
-    createdBySessionId: params.createdBySessionId ?? null,
+    createdByConversationId: params.createdByConversationId ?? null,
     consumedByExternalUserId: null,
     consumedByChatId: null,
     expectedExternalUserId: params.expectedExternalUserId ?? null,
