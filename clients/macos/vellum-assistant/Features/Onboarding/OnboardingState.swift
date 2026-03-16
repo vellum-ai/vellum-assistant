@@ -47,6 +47,18 @@ final class OnboardingState {
         case vellumCloud = "vellum-cloud"
         case local = "local"
     }
+
+    /// The local runtime backend selected during onboarding or hatch-new flows.
+    /// Persisted so subsequent launches continue using the same launcher.
+    var selectedRuntimeBackend: LocalRuntimeBackend = .process
+
+    /// UserDefaults key written by the developer settings tab before opening a
+    /// new-hatch onboarding window. `OnboardingState.init()` consumes this key
+    /// so the window's state reflects the chosen backend from the start.
+    /// This key is intentionally NOT cleared by `clearPersistedState()` so that
+    /// it survives the state reset triggered by `hatchNewAssistant()`.
+    static let pendingHatchBackendKey = "onboarding.pendingRuntimeBackend"
+
     var hasHatched: Bool = false
     var interviewCompleted: Bool = false
     var cloudProvider: String = "local"
@@ -130,6 +142,10 @@ final class OnboardingState {
             hasHatched = UserDefaults.standard.bool(forKey: "onboarding.hatched")
             interviewCompleted = UserDefaults.standard.bool(forKey: "onboarding.interviewCompleted")
             cloudProvider = UserDefaults.standard.string(forKey: "onboarding.cloudProvider") ?? "local"
+            if let rawBackend = UserDefaults.standard.string(forKey: "onboarding.runtimeBackend"),
+               let backend = LocalRuntimeBackend(rawValue: rawBackend) {
+                selectedRuntimeBackend = backend
+            }
         }
         if let rawVariant = UserDefaults.standard.string(forKey: "onboarding.variant"),
            let variant = OnboardingVariant(rawValue: rawVariant) {
@@ -160,6 +176,15 @@ final class OnboardingState {
         if UserDefaults.standard.object(forKey: "sendDiagnostics") == nil {
             UserDefaults.standard.set(true, forKey: "sendDiagnostics")
         }
+
+        // Consume the one-shot pending backend selection written by the settings
+        // tab before opening a new-hatch window. Clear it immediately so it does
+        // not affect subsequent launches.
+        if let rawPending = UserDefaults.standard.string(forKey: Self.pendingHatchBackendKey),
+           let pending = LocalRuntimeBackend(rawValue: rawPending) {
+            selectedRuntimeBackend = pending
+            UserDefaults.standard.removeObject(forKey: Self.pendingHatchBackendKey)
+        }
     }
 
     func advance(by steps: Int = 1) {
@@ -177,6 +202,7 @@ final class OnboardingState {
         UserDefaults.standard.set(hasHatched, forKey: "onboarding.hatched")
         UserDefaults.standard.set(interviewCompleted, forKey: "onboarding.interviewCompleted")
         UserDefaults.standard.set(cloudProvider, forKey: "onboarding.cloudProvider")
+        UserDefaults.standard.set(selectedRuntimeBackend.rawValue, forKey: "onboarding.runtimeBackend")
         UserDefaults.standard.set(onboardingVariant.rawValue, forKey: "onboarding.variant")
         UserDefaults.standard.set(Double(firstMeetingCrackProgress), forKey: "onboarding.firstMeetingCrackProgress")
         UserDefaults.standard.set(Self.currentFlowVersion, forKey: "onboarding.flowVersion")
@@ -200,6 +226,7 @@ final class OnboardingState {
 
         // Reset cloud credentials (in-memory only; not persisted)
         cloudProvider = "local"
+        selectedRuntimeBackend = .process
         gcpProjectId = ""
         gcpZone = "us-central1-a"
         gcpServiceAccountKey = ""
@@ -215,7 +242,7 @@ final class OnboardingState {
     }
 
     static func clearPersistedState() {
-        for key in ["onboarding.step", "onboarding.name", "onboarding.key", "onboarding.hatched", "onboarding.interviewCompleted", "onboarding.variant", "onboarding.firstMeetingCrackProgress", "onboarding.flowVersion", "onboarding.cloudProvider"] {
+        for key in ["onboarding.step", "onboarding.name", "onboarding.key", "onboarding.hatched", "onboarding.interviewCompleted", "onboarding.variant", "onboarding.firstMeetingCrackProgress", "onboarding.flowVersion", "onboarding.cloudProvider", "onboarding.runtimeBackend"] {
             UserDefaults.standard.removeObject(forKey: key)
         }
     }
