@@ -3,11 +3,13 @@
  * triggers a callback when Telegram or Twilio credentials are added,
  * updated, or removed.
  *
- * Uses fs.watch() on the metadata file with debouncing to avoid
- * rapid re-reads from atomic rename writes.
+ * Watches the parent directory rather than the file itself because
+ * metadata.json is rewritten via atomic rename. File-scoped fs.watch()
+ * subscriptions can stay attached to the old inode after the first write,
+ * causing later credential changes to be missed until restart.
  */
 
-import { existsSync, mkdirSync, watch, type FSWatcher } from "node:fs";
+import { mkdirSync, watch, type FSWatcher } from "node:fs";
 import { dirname } from "node:path";
 import { getLogger } from "./logger.js";
 import {
@@ -41,7 +43,6 @@ export type CredentialChangeCallback = (event: CredentialChangeEvent) => void;
 
 export class CredentialWatcher {
   private watcher: FSWatcher | null = null;
-  private watchingDirectory = false;
   private debounceTimer: ReturnType<typeof setTimeout> | null = null;
   private lastSerialized: Map<string, string> = new Map();
   private polling = false;
@@ -57,23 +58,18 @@ export class CredentialWatcher {
   async start(): Promise<void> {
     await this.pollOnce();
 
-    this.watchingDirectory = !existsSync(this.metadataPath);
-    const watchTarget = this.watchingDirectory
-      ? dirname(this.metadataPath)
-      : this.metadataPath;
+    const watchTarget = dirname(this.metadataPath);
 
     // Ensure the directory exists so fs.watch() doesn't throw ENOENT
     // on a fresh hatch where no credentials have been written yet.
-    if (this.watchingDirectory) {
-      mkdirSync(watchTarget, { recursive: true });
-    }
+    mkdirSync(watchTarget, { recursive: true });
 
     try {
       this.watcher = watch(
         watchTarget,
         { persistent: false },
         (_event, filename) => {
-          if (this.watchingDirectory && filename !== "metadata.json") {
+          if (filename && filename !== "metadata.json") {
             return;
           }
           this.scheduleCheck();
@@ -108,30 +104,7 @@ export class CredentialWatcher {
     this.debounceTimer = setTimeout(() => {
       this.debounceTimer = null;
       void this.pollOnce();
-
-      if (this.watchingDirectory && existsSync(this.metadataPath)) {
-        this.upgradeWatcher();
-      }
     }, DEBOUNCE_MS);
-  }
-
-  private upgradeWatcher(): void {
-    if (this.watcher) {
-      this.watcher.close();
-      this.watcher = null;
-    }
-
-    if (!existsSync(this.metadataPath)) return;
-
-    try {
-      this.watcher = watch(this.metadataPath, { persistent: false }, () => {
-        this.scheduleCheck();
-      });
-      this.watchingDirectory = false;
-      log.debug("Upgraded watcher to metadata file");
-    } catch (err) {
-      log.warn({ err }, "Failed to upgrade credential file watcher");
-    }
   }
 
   private async pollOnce(): Promise<void> {

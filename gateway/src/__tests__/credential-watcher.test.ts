@@ -14,7 +14,7 @@ import {
   pbkdf2Sync,
   randomBytes as cryptoRandomBytes,
 } from "node:crypto";
-import { mkdirSync, writeFileSync, rmSync } from "node:fs";
+import { mkdirSync, renameSync, writeFileSync, rmSync } from "node:fs";
 import { hostname, tmpdir, userInfo } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -114,39 +114,47 @@ function writeEncryptedStore(botToken: string, webhookSecret: string): void {
   writeFileSync(storePath, JSON.stringify(store));
 }
 
+function metadataRecord(
+  credentialId: string,
+  service: string,
+  field: string,
+): Record<string, unknown> {
+  return {
+    credentialId,
+    service,
+    field,
+    allowedTools: [],
+    allowedDomains: [],
+    createdAt: Date.now(),
+    updatedAt: Date.now(),
+  };
+}
+
 /**
- * Write credential metadata so readTelegramCredentials() knows to look
- * for bot_token and webhook_secret.
+ * Write credential metadata using the same atomic rename pattern as the
+ * production metadata store.
  */
-function writeCredentialMetadata(): void {
+function writeCredentialMetadata(
+  credentials: Record<string, unknown>[] = [
+    metadataRecord("test-bt", "telegram", "bot_token"),
+    metadataRecord("test-ws", "telegram", "webhook_secret"),
+  ],
+): void {
   const dir = join(testDir, ".vellum", "workspace", "data", "credentials");
   mkdirSync(dir, { recursive: true });
+  const metadataPath = join(dir, "metadata.json");
+  const tmpPath = join(
+    dir,
+    `.tmp-${cryptoRandomBytes(4).toString("hex")}-metadata.json`,
+  );
   writeFileSync(
-    join(dir, "metadata.json"),
+    tmpPath,
     JSON.stringify({
       version: 2,
-      credentials: [
-        {
-          credentialId: "test-bt",
-          service: "telegram",
-          field: "bot_token",
-          allowedTools: [],
-          allowedDomains: [],
-          createdAt: Date.now(),
-          updatedAt: Date.now(),
-        },
-        {
-          credentialId: "test-ws",
-          service: "telegram",
-          field: "webhook_secret",
-          allowedTools: [],
-          allowedDomains: [],
-          createdAt: Date.now(),
-          updatedAt: Date.now(),
-        },
-      ],
+      credentials,
     }),
   );
+  renameSync(tmpPath, metadataPath);
 }
 
 // ---------------------------------------------------------------------------
@@ -157,11 +165,11 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const gatewayRoot = join(__dirname, "..", "..");
 const gatewayEntry = join(gatewayRoot, "src", "index.ts");
 
-const port = 49152 + Math.floor(Math.random() * 16383);
-
 let gatewayProc: ChildProcess | null = null;
+let port = 0;
 
 async function startGateway(): Promise<void> {
+  port = 49152 + Math.floor(Math.random() * 16383);
   gatewayProc = spawn("bun", ["run", gatewayEntry], {
     env: {
       ...process.env,
@@ -233,6 +241,49 @@ describe("gateway telegram hot-reload (e2e)", () => {
     // We expect 401 (webhook secret verification failed) rather than 503
     // (not configured). Getting past the 503 gate proves the gateway
     // hot-reloaded the credentials from the credential store.
+    const after = await fetch(`${base}/webhooks/telegram`, {
+      method: "POST",
+    });
+    expect(after.status).toBe(401);
+  }, 15_000);
+
+  test("gateway keeps reloading credentials after multiple atomic metadata rewrites when metadata.json already existed at startup", async () => {
+    mkdirSync(testDir, { recursive: true });
+
+    // Start in file-watch mode by creating metadata.json before boot, but
+    // omit Telegram entries so the integration is initially unconfigured.
+    writeCredentialMetadata([metadataRecord("baseline", "github", "token")]);
+    writeEncryptedStore("fake-bot-token:ABC123", "fake-webhook-secret");
+
+    await startGateway();
+
+    const base = `http://localhost:${port}`;
+
+    const before = await fetch(`${base}/webhooks/telegram`, {
+      method: "POST",
+    });
+    expect(before.status).toBe(503);
+
+    // First rewrite after startup stales a file-scoped fs.watch() subscription
+    // on macOS when metadata.json is atomically replaced.
+    writeCredentialMetadata([
+      metadataRecord("baseline", "github", "token"),
+      metadataRecord("other", "openai", "api_key"),
+    ]);
+
+    await new Promise((resolve) => setTimeout(resolve, 1200));
+
+    // Second rewrite adds Telegram credentials. The gateway must still see
+    // this update without requiring a restart.
+    writeCredentialMetadata([
+      metadataRecord("baseline", "github", "token"),
+      metadataRecord("other", "openai", "api_key"),
+      metadataRecord("test-bt", "telegram", "bot_token"),
+      metadataRecord("test-ws", "telegram", "webhook_secret"),
+    ]);
+
+    await new Promise((resolve) => setTimeout(resolve, 2000));
+
     const after = await fetch(`${base}/webhooks/telegram`, {
       method: "POST",
     });
