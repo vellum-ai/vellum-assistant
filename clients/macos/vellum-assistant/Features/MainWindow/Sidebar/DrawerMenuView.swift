@@ -12,9 +12,11 @@ struct DrawerMenuView: View {
     @State private var effectiveBalance: String?
     @State private var isLowBalance = false
     @State private var isZeroBalance = false
+    @State private var bootstrapGeneration: Int = 0
 
     private var isBillingVisible: Bool {
-        authManager.isAuthenticated &&
+        let _ = bootstrapGeneration  // Force recomputation when bootstrap completes
+        return authManager.isAuthenticated &&
         MacOSClientFeatureFlagManager.shared.isEnabled("settings_billing_enabled") &&
         UserDefaults.standard.string(forKey: "connectedOrganizationId") != nil
     }
@@ -74,6 +76,9 @@ struct DrawerMenuView: View {
         .clipShape(RoundedRectangle(cornerRadius: VRadius.lg))
         .shadow(color: VColor.auxBlack.opacity(0.1), radius: 1.5, x: 0, y: 1)
         .shadow(color: VColor.auxBlack.opacity(0.1), radius: 6, x: 0, y: 4)
+        .onReceive(NotificationCenter.default.publisher(for: .localBootstrapCompleted)) { _ in
+            bootstrapGeneration += 1
+        }
         .task {
             await loadBalance()
         }
