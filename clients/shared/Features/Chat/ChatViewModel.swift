@@ -14,6 +14,20 @@ import UIKit
 
 private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "ChatViewModel")
 
+// MARK: - Thread Starter Types
+
+public struct ThreadStarter: Identifiable, Codable {
+    public let id: String
+    public let label: String
+    public let prompt: String
+    public let batch: Int
+}
+
+struct ThreadStartersResponse: Codable {
+    let starters: [ThreadStarter]
+    let total: Int
+}
+
 @MainActor
 protocol SurfaceClientProtocol {
     func fetchSurfaceData(surfaceId: String, conversationId: String) async -> SurfaceData?
@@ -594,6 +608,11 @@ public final class ChatViewModel: ObservableObject {
     @Published public var isGeneratingGreeting: Bool = false
     /// The in-flight greeting streaming task, stored for cancellation.
     private var greetingTask: Task<Void, Never>?
+
+    // MARK: - Thread Starters
+
+    /// Personalized suggestion chips shown on the empty conversation page.
+    @Published public var threadStarters: [ThreadStarter] = []
 
     private static let fallbackGreetings = [
         "What are we working on?",
@@ -1270,6 +1289,24 @@ public final class ChatViewModel: ObservableObject {
         greetingTask = nil
         emptyStateGreeting = nil
         isGeneratingGreeting = false
+    }
+
+    /// Fetch personalized thread starters from the daemon for the empty conversation state.
+    public func fetchThreadStarters() {
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            do {
+                let response = try await GatewayHTTPClient.get(
+                    path: "thread-starters",
+                    params: ["limit": "4"]
+                )
+                guard response.isSuccess else { return }
+                let decoded = try JSONDecoder().decode(ThreadStartersResponse.self, from: response.data)
+                self.threadStarters = decoded.starters
+            } catch {
+                // Silently fail — thread starters are a nice-to-have
+            }
+        }
     }
 
     private func bootstrapConversation(userMessage: String?, attachments: [UserMessageAttachment]?) {

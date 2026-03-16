@@ -25,7 +25,8 @@ export type MemoryJobType =
   | "delete_qdrant_vectors"
   | "media_processing"
   | "embed_media"
-  | "embed_attachment";
+  | "embed_attachment"
+  | "generate_thread_starters";
 
 const EMBED_JOB_TYPES: MemoryJobType[] = [
   "embed_segment",

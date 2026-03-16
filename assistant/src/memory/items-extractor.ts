@@ -20,6 +20,7 @@ import { withQdrantBreaker } from "./qdrant-circuit-breaker.js";
 import { getQdrantClient } from "./qdrant-client.js";
 import { memoryItems, memoryItemSources, messages } from "./schema.js";
 import { isConversationFailed } from "./task-memory-cleanup.js";
+import { maybeEnqueueThreadStartersJob } from "./thread-starters-cadence.js";
 import { clampUnitInterval } from "./validation.js";
 
 const log = getLogger("memory-items-extractor");
@@ -713,6 +714,19 @@ export async function extractAndUpsertMemoryItemsForMessage(
     { messageId, extracted: extracted.length, upserted },
     "Extracted memory items from message",
   );
+
+  // Trigger thread starters generation when new items are upserted
+  if (upserted > 0) {
+    try {
+      maybeEnqueueThreadStartersJob(effectiveScopeId);
+    } catch (err) {
+      log.warn(
+        { err: err instanceof Error ? err.message : String(err) },
+        "Failed to check thread starters cadence",
+      );
+    }
+  }
+
   return upserted;
 }
 

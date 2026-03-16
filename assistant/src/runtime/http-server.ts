@@ -160,6 +160,7 @@ import { skillRouteDefinitions } from "./routes/skills-routes.js";
 import { subagentRouteDefinitions } from "./routes/subagents-routes.js";
 import { surfaceActionRouteDefinitions } from "./routes/surface-action-routes.js";
 import { surfaceContentRouteDefinitions } from "./routes/surface-content-routes.js";
+import { threadStarterRouteDefinitions } from "./routes/thread-starter-routes.js";
 import { trustRulesRouteDefinitions } from "./routes/trust-rules-routes.js";
 import { usageRouteDefinitions } from "./routes/usage-routes.js";
 import { watchRouteDefinitions } from "./routes/watch-routes.js";
@@ -740,6 +741,7 @@ export class RuntimeHttpServer {
       ...usageRouteDefinitions(),
       ...workspaceRouteDefinitions(),
       ...memoryItemRouteDefinitions(),
+      ...threadStarterRouteDefinitions(),
       ...settingsRouteDefinitions(),
       ...avatarRouteDefinitions(),
       ...scheduleRouteDefinitions({

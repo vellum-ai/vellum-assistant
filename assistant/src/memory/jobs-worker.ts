@@ -22,6 +22,7 @@ import {
 } from "./job-handlers/index-maintenance.js";
 import { mediaProcessingJob } from "./job-handlers/media-processing.js";
 import { buildConversationSummaryJob } from "./job-handlers/summarization.js";
+import { generateThreadStartersJob } from "./job-handlers/thread-starters.js";
 import {
   BackendUnavailableError,
   classifyError,
@@ -305,6 +306,9 @@ async function processJob(
       return;
     case "embed_attachment":
       await embedAttachmentJob(job, config);
+      return;
+    case "generate_thread_starters":
+      await generateThreadStartersJob(job);
       return;
     default:
       throw new Error(

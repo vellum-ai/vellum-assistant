@@ -29,6 +29,8 @@ struct ChatEmptyStateView: View {
     var conversationId: UUID?
     var daemonGreeting: String? = nil
     var onRequestGreeting: (() -> Void)? = nil
+    var threadStarters: [ThreadStarter] = []
+    var onSelectStarter: ((ThreadStarter) -> Void)? = nil
 
     @State private var visible = false
     @State private var placeholder: String = placeholderTexts.randomElement()!
@@ -118,6 +120,20 @@ struct ChatEmptyStateView: View {
             .opacity(visible ? 1 : 0)
             .offset(y: visible ? 0 : 10)
 
+            if !threadStarters.isEmpty {
+                LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: VSpacing.sm) {
+                    ForEach(threadStarters.prefix(4)) { starter in
+                        ThreadStarterChip(label: starter.label, fullPrompt: starter.prompt) {
+                            onSelectStarter?(starter)
+                        }
+                    }
+                }
+                .frame(maxWidth: VSpacing.chatBubbleMaxWidth)
+                .padding(.top, VSpacing.md)
+                .opacity(visible ? 1 : 0)
+                .offset(y: visible ? 0 : 10)
+            }
+
             Spacer()
             Spacer()
             Spacer()
@@ -136,6 +152,40 @@ struct ChatEmptyStateView: View {
         }
     }
 
+}
+
+// MARK: - Thread Starter Chip
+
+struct ThreadStarterChip: View {
+    let label: String
+    let fullPrompt: String
+    let action: () -> Void
+
+    @State private var isHovered = false
+
+    var body: some View {
+        Button(action: action) {
+            Text(label)
+                .font(VFont.body)
+                .foregroundColor(VColor.contentSecondary)
+                .lineLimit(2)
+                .multilineTextAlignment(.leading)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, VSpacing.md)
+                .padding(.vertical, VSpacing.sm)
+        }
+        .buttonStyle(.plain)
+        .background(
+            RoundedRectangle(cornerRadius: VRadius.md)
+                .fill(isHovered ? VColor.surfaceActive : VColor.surfaceLift)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: VRadius.md)
+                .stroke(VColor.borderBase, lineWidth: 0.5)
+        )
+        .onHover { isHovered = $0 }
+        .help(fullPrompt)
+    }
 }
 
 // MARK: - Temporary Chat Empty State

@@ -690,7 +690,15 @@ struct ActiveChatViewWrapper: View {
             onVoiceModeToggle: onVoiceModeToggle,
             conversationId: conversationId,
             daemonGreeting: viewModel.emptyStateGreeting,
-            onRequestGreeting: { [weak viewModel] in viewModel?.generateGreeting() },
+            onRequestGreeting: { [weak viewModel] in
+                viewModel?.generateGreeting()
+                viewModel?.fetchThreadStarters()
+            },
+            threadStarters: viewModel.threadStarters,
+            onSelectStarter: { [weak viewModel] starter in
+                viewModel?.inputText = starter.prompt
+                viewModel?.sendMessage()
+            },
             anchorMessageId: $anchorMessageId,
             highlightedMessageId: $highlightedMessageId,
             btwResponse: viewModel.btwResponse,

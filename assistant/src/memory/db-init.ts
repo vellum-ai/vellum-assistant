@@ -49,6 +49,7 @@ import {
   migrateContactsNotesColumn,
   migrateContactsRolePrincipal,
   migrateConversationsThreadTypeIndex,
+  migrateCreateThreadStartersTable,
   migrateDropAccountsTable,
   migrateDropAssistantIdColumns,
   migrateDropConflicts,
@@ -423,6 +424,9 @@ export function initializeDb(): void {
 
   // 72. Rename integration:gmail → integration:google across OAuth tables
   migrateRenameGmailProviderKeyToGoogle(database);
+
+  // 73. Create thread_starters table for personalized empty-thread suggestions
+  migrateCreateThreadStartersTable(database);
 
   validateMigrationState(database);
 
