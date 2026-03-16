@@ -148,7 +148,7 @@ export async function executeBrowserNavigate(
   let routeHandler: RouteHandler | null = null;
   let blockedUrl: string | null = null;
 
-  // Start screencast if a sender is registered for this session
+  // Start screencast if a sender is registered for this conversation
   const sender = getSender(context.conversationId);
   if (sender) {
     await ensureScreencast(context.conversationId);
@@ -621,7 +621,10 @@ export async function executeBrowserClose(
       };
     }
     await browserManager.closeSessionPage(context.conversationId);
-    return { content: "Browser page closed for this session.", isError: false };
+    return {
+      content: "Browser page closed for this conversation.",
+      isError: false,
+    };
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     log.error({ err }, "Close failed");

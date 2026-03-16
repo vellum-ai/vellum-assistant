@@ -418,7 +418,7 @@ class BrowserManager {
       await this.positionWindowSidebar();
     }
 
-    log.debug({ conversationId }, "Session page created");
+    log.debug({ conversationId }, "Conversation page created");
     return page;
   }
 
@@ -442,10 +442,11 @@ class BrowserManager {
     // Reject any pending download waiters
     const pending = this.pendingDownloads.get(conversationId);
     if (pending) {
-      for (const waiter of pending) waiter.reject(new Error("Session closed"));
+      for (const waiter of pending)
+        waiter.reject(new Error("Browser page closed"));
       this.pendingDownloads.delete(conversationId);
     }
-    log.debug({ conversationId }, "Session page closed");
+    log.debug({ conversationId }, "Conversation page closed");
   }
 
   async closeAllPages(): Promise<void> {
