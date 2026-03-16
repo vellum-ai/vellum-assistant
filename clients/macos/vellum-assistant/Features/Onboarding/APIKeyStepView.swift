@@ -197,6 +197,7 @@ struct APIKeyStepView: View {
             state.skippedAPIKeyEntry = true
             state.advance(by: 2)
         } else {
+            state.skippedAPIKeyEntry = false
             state.advance()
         }
     }
