@@ -5,6 +5,9 @@ import VellumAssistantShared
 /// category, describe the issue, and provide an email for follow-up.
 @MainActor
 struct LogReportFormView: View {
+    enum Field { case email, name, message }
+
+    let authManager: AuthManager
     let onSend: (LogReportFormData) -> Void
     let onCancel: () -> Void
 
@@ -12,6 +15,7 @@ struct LogReportFormView: View {
     @State private var name: String = ""
     @State private var message: String = ""
     @AppStorage("logReportEmail") private var email: String = ""
+    @FocusState private var focusedField: Field?
 
     private var canSend: Bool {
         selectedReason != nil && !email.isEmpty
@@ -30,6 +34,21 @@ struct LogReportFormView: View {
         .padding(VSpacing.xl)
         .background(VColor.surfaceOverlay)
         .frame(width: 480)
+        .onAppear {
+            if email.isEmpty, let userEmail = authManager.currentUser?.email {
+                email = userEmail
+            }
+            if name.isEmpty, let displayName = authManager.currentUser?.display {
+                name = displayName
+            }
+            if email.isEmpty {
+                focusedField = .email
+            } else if name.isEmpty {
+                focusedField = .name
+            } else {
+                focusedField = .message
+            }
+        }
     }
 
     // MARK: - Sections
@@ -68,6 +87,7 @@ struct LogReportFormView: View {
                 text: $name,
                 leadingIcon: VIcon.user.rawValue
             )
+            .focused($focusedField, equals: .name)
         }
     }
 
@@ -82,6 +102,7 @@ struct LogReportFormView: View {
                 minHeight: 60,
                 maxHeight: 80
             )
+            .focused($focusedField, equals: .message)
         }
     }
 
@@ -95,6 +116,7 @@ struct LogReportFormView: View {
                 text: $email,
                 leadingIcon: VIcon.mail.rawValue
             )
+            .focused($focusedField, equals: .email)
         }
     }
 

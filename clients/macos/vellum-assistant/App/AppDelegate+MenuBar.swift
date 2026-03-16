@@ -513,6 +513,7 @@ extension AppDelegate {
         }
 
         let view = LogReportFormView(
+            authManager: authManager,
             onSend: { [weak self] formData in
                 self?.dismissLogReportWindow()
                 var formData = formData
