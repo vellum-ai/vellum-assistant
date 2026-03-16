@@ -123,7 +123,6 @@ final class AvatarAppearanceManager {
         loadAvatarComponents()
         watchAvatarFile()
         watchTraitsFile()
-        updateDockName()
 
         // Fire-and-forget: fetch character component definitions from the
         // daemon and populate AvatarComponentStore.shared so downstream
@@ -152,7 +151,6 @@ final class AvatarAppearanceManager {
                 self.cachedFallbackName = nil
                 self.cachedFullFallbackAvatar = nil
                 self.cachedFullFallbackName = nil
-                self.updateDockName()
             }
         }
     }
@@ -250,8 +248,6 @@ final class AvatarAppearanceManager {
     /// bundle icon without deleting any files on disk.
     /// Called during logout, retire, and switch-assistant flows.
     func resetForDisconnect() {
-        assistantName = "V"
-        updateDockName()
         customAvatarImage = nil
         characterBodyShape = nil
         characterEyeStyle = nil
@@ -454,19 +450,7 @@ final class AvatarAppearanceManager {
         source.resume()
     }
 
-    // MARK: - Dock Name & Icon
-
-    /// Updates the process name so the dock tooltip shows the assistant's name
-    /// instead of the static "Vellum". Falls back to "Vellum" when no real
-    /// assistant name is available (placeholder, bootstrap sentinel, or initial).
-    private func updateDockName() {
-        let name = assistantName
-        if name == "V" || name == AssistantDisplayName.placeholder {
-            ProcessInfo.processInfo.processName = "Vellum"
-        } else {
-            ProcessInfo.processInfo.processName = name
-        }
-    }
+    // MARK: - Dock Icon
 
     /// Updates the application dock icon to match the current avatar.
     /// When a custom avatar exists, renders it inside a macOS-style squircle mask.
