@@ -704,18 +704,14 @@ private struct WorkspaceFileViewer: View {
                         .font(VFont.caption)
                         .foregroundColor(VColor.contentTertiary)
                 } else if isText && state.isDirty {
-                    Button {
+                    VButton(
+                        label: "Save",
+                        style: .primary,
+                        size: .compact,
+                        isDisabled: state.isSaving
+                    ) {
                         Task { await saveFile(path: detail.path) }
-                    } label: {
-                        HStack(spacing: VSpacing.xs) {
-                            if state.isSaving {
-                                ProgressView().controlSize(.small)
-                            }
-                            Text("Save")
-                                .font(VFont.bodyMedium)
-                        }
                     }
-                    .disabled(state.isSaving)
                     .keyboardShortcut("s", modifiers: .command)
                 }
             }
