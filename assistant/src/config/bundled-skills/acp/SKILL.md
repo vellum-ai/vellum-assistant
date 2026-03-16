@@ -40,7 +40,12 @@ When the user first tries to use ACP and it's not configured, set it up automati
    }
    ```
 
-3. Then retry the `acp_spawn` call.
+3. **Restart the daemon** so the new config is picked up (config is cached at startup):
+   ```bash
+   vellum sleep && vellum wake
+   ```
+
+4. Then retry the `acp_spawn` call.
 
 ## Critical: correct agent command
 
