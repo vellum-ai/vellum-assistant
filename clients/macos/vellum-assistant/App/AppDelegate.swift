@@ -199,7 +199,6 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
         // lifecycle.ts (init at top, close after config load if flag disabled).
         // Gated on sendDiagnostics: if disabled, Sentry is never initialized.
         let sendDiagnostics = UserDefaults.standard.object(forKey: "sendDiagnostics") as? Bool
-            ?? UserDefaults.standard.object(forKey: "sendPerformanceReports") as? Bool
             ?? true
         if sendDiagnostics {
             let appVersion = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "unknown"

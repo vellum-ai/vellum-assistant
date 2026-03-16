@@ -146,7 +146,6 @@ struct SettingsDeveloperTab: View {
 
             // Sentry setup
             isSentryEnabled = UserDefaults.standard.object(forKey: "sendDiagnostics") as? Bool
-                ?? UserDefaults.standard.object(forKey: "sendPerformanceReports") as? Bool
                 ?? true
         }
         .alert("Retire Assistant", isPresented: $showingRetireConfirmation) {

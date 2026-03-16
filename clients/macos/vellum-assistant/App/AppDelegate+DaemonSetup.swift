@@ -439,7 +439,6 @@ extension AppDelegate {
                 ?? UserDefaults.standard.object(forKey: "collectUsageDataEnabled") as? Bool
                 ?? true
             let sendDiagnostics = UserDefaults.standard.object(forKey: "sendDiagnostics") as? Bool
-                ?? UserDefaults.standard.object(forKey: "sendPerformanceReports") as? Bool
                 ?? true
 
             // Apply Sentry state based on sendDiagnostics
