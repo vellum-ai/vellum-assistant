@@ -410,13 +410,13 @@ struct ComposerView: View {
         .padding(.leading, VSpacing.md)
         .padding(.trailing, VSpacing.sm)
         .background(
-            RoundedRectangle(cornerRadius: VRadius.lg)
+            RoundedRectangle(cornerRadius: VRadius.window)
                 .fill(VColor.surfaceOverlay)
         )
-        .clipShape(RoundedRectangle(cornerRadius: VRadius.lg))
+        .clipShape(RoundedRectangle(cornerRadius: VRadius.window))
         .overlay {
             if isComposerDropTargeted {
-                RoundedRectangle(cornerRadius: VRadius.lg)
+                RoundedRectangle(cornerRadius: VRadius.window)
                     .fill(VColor.surfaceActive)
                     .overlay {
                         HStack(spacing: VSpacing.sm) {
@@ -436,7 +436,7 @@ struct ComposerView: View {
     @ViewBuilder
     private var textEntryComposer: some View {
         standardComposerShell {
-            HStack(alignment: isSending ? .center : .bottom, spacing: VSpacing.xs) {
+            HStack(alignment: isSending ? .center : .bottom, spacing: 10) {
                 composerTextField
                     .frame(minHeight: composerActionButtonSize)
                 composerActionButtons
@@ -446,7 +446,7 @@ struct ComposerView: View {
 
     @ViewBuilder
     private var composerActionButtons: some View {
-        HStack(spacing: 2) {
+        HStack(spacing: VSpacing.lg) {
             if isSending && !hasPendingConfirmation {
                 VButton(
                     label: "Stop generation",
@@ -510,7 +510,7 @@ struct ComposerView: View {
                 }
             }
         }
-        .frame(minWidth: composerActionButtonSize * 3 + 2 * 2)
+        .frame(minWidth: composerActionButtonSize * 3 + VSpacing.lg * 2)
     }
 
     // MARK: - Dictation Inline Mode
