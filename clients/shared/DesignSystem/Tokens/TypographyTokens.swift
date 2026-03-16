@@ -92,6 +92,9 @@ public enum VFont {
     /// Large monospaced font for displaying invite codes
     public static let inviteCode = Font.system(size: 28, weight: .medium, design: .monospaced)
 
+    /// Rounded system font for identity intro text
+    public static let introHeadline = Font.system(size: adaptiveSize(22), weight: .regular, design: .rounded)
+
     /// Display font (used for panel headers like "AGENT", "GENERATED CONTENT")
     public static let display    = Font.custom("Inter-SemiBold", size: adaptiveSize(18))
     public static let panelTitle   = Font.custom("Inter-Medium", size: adaptiveSize(24))
