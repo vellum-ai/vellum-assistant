@@ -175,6 +175,26 @@ extension AppDelegate {
                 _ = keychainStorage.delete(account: credentialAccount)
             }
 
+            // Stop all non-current local daemons to clear in-memory managed proxy
+            // credentials. Assistant switches intentionally leave old daemons running
+            // for fast switching, but on full logout there's no reason to keep them
+            // alive with potentially stale state.
+            for assistant in LockfileAssistant.loadAll() where !assistant.isRemote && !assistant.isManaged {
+                if assistant.assistantId != connectedAssistantId {
+                    if let instanceDir = assistant.instanceDir {
+                        let env = ["BASE_DATA_DIR": instanceDir]
+                        let pidPath = VellumAssistantShared.resolvePidPath(environment: env)
+                        if let data = try? Data(contentsOf: URL(fileURLWithPath: pidPath)),
+                           let pidString = String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines),
+                           let pid = pid_t(pidString),
+                           kill(pid, 0) == 0 {
+                            kill(pid, SIGTERM)
+                            log.info("Stopped daemon for assistant \(assistant.assistantId, privacy: .public) (pid \(pid))")
+                        }
+                    }
+                }
+            }
+
             // Reset dock icon to default before tearing down UI
             AvatarAppearanceManager.shared.resetForDisconnect()
 
