@@ -78,7 +78,7 @@ Session cookies are stored in the encrypted credential store under the key `amaz
 - **Always use a host shell** (not a sandboxed shell) for these commands.
 - **Do NOT use the browser skill.** All Amazon interaction goes through the bundled scripts, not browser automation.
 - **Rate limiting.** Amazon may rate-limit rapid sequential requests. Wait 8-10 seconds between cart operations. If you get a 403 error, wait 15-20 seconds and retry.
-- **Always-allow tip.** At the start of an ordering flow, suggest the user enable "always allow" for the Amazon script commands: "Tip: You can type 'a' to always allow Amazon commands for this session so you won't be prompted each time."
+- **Always-allow tip.** At the start of an ordering flow, suggest the user enable "always allow" for the Amazon script commands: "Tip: You can type 'a' to always allow Amazon commands for this conversation so you won't be prompted each time."
 - **Fresh slot required.** Amazon Fresh orders require a delivery slot to be selected before checkout. If the user skips this step, remind them to run `bun run {baseDir}/scripts/amazon.ts fresh delivery-slots --json` and select a slot.
 
 ## Command Reference
