@@ -590,19 +590,19 @@ export async function startCli(): Promise<void> {
     });
   }
 
-  function renderSessionPicker(
-    sessions: Array<{ id: string; title: string; updatedAt: number }>,
+  function renderConversationPicker(
+    conversations: Array<{ id: string; title: string; updatedAt: number }>,
   ): void {
-    process.stdout.write("\n  Recent sessions:\n");
-    for (let i = 0; i < sessions.length; i++) {
-      const s = sessions[i];
-      const ago = timeAgo(s.updatedAt);
-      const title = truncate(s.title, 50);
+    process.stdout.write("\n  Recent conversations:\n");
+    for (let i = 0; i < conversations.length; i++) {
+      const c = conversations[i];
+      const ago = timeAgo(c.updatedAt);
+      const title = truncate(c.title, 50);
       const padding = " ".repeat(Math.max(1, 55 - title.length));
       process.stdout.write(`  [${i + 1}] ${title}${padding}${ago}\n`);
     }
-    process.stdout.write("  [n] New session\n\n");
-    process.stdout.write("  Pick a session> ");
+    process.stdout.write("  [n] New conversation\n\n");
+    process.stdout.write("  Pick a conversation> ");
 
     rl.once("line", async (answer) => {
       const trimmed = answer.trim().toLowerCase();
@@ -613,7 +613,7 @@ export async function startCli(): Promise<void> {
         pendingSessionPick = false;
         reconnectEvents();
         process.stdout.write(
-          `\n  New session started.\n  Type your message. Ctrl+D to detach.\n\n`,
+          `\n  New conversation started.\n  Type your message. Ctrl+D to detach.\n\n`,
         );
         prompt();
         return;
@@ -621,14 +621,14 @@ export async function startCli(): Promise<void> {
       const parsed = parseInt(trimmed, 10);
       if (Number.isNaN(parsed)) {
         process.stdout.write('  Invalid input — enter a number or "n".\n');
-        renderSessionPicker(sessions);
+        renderConversationPicker(conversations);
         return;
       }
       const idx = parsed - 1;
-      if (idx >= 0 && idx < sessions.length) {
-        const selected = sessions[idx];
+      if (idx >= 0 && idx < conversations.length) {
+        const selected = conversations[idx];
         if (selected.id === conversationId) {
-          // Already on this session
+          // Already on this conversation
           pendingSessionPick = false;
           process.stdout.write(
             `\n  Conversation: ${selected.title}\n  Type your message. Ctrl+D to detach.\n\n`,
@@ -638,8 +638,8 @@ export async function startCli(): Promise<void> {
           try {
             const conversation = getConversation(selected.id);
             if (!conversation) {
-              process.stdout.write("  Failed to switch session.\n");
-              renderSessionPicker(sessions);
+              process.stdout.write("  Failed to switch conversation.\n");
+              renderConversationPicker(conversations);
               return;
             }
             const newKey = `builtin-cli:${selected.id}`;
@@ -653,13 +653,13 @@ export async function startCli(): Promise<void> {
             );
             prompt();
           } catch {
-            process.stdout.write("  Failed to switch session.\n");
-            renderSessionPicker(sessions);
+            process.stdout.write("  Failed to switch conversation.\n");
+            renderConversationPicker(conversations);
           }
         }
       } else {
         process.stdout.write("  Invalid selection.\n");
-        renderSessionPicker(sessions);
+        renderConversationPicker(conversations);
       }
     });
   }
@@ -879,10 +879,12 @@ export async function startCli(): Promise<void> {
 
       case "conversation_list_response":
         if (pendingSessionPick) {
-          renderSessionPicker(msg.conversations);
+          renderConversationPicker(msg.conversations);
         } else {
-          for (const session of msg.conversations) {
-            process.stdout.write(`  ${session.id}  ${session.title}\n`);
+          for (const conversation of msg.conversations) {
+            process.stdout.write(
+              `  ${conversation.id}  ${conversation.title}\n`,
+            );
           }
           prompt();
         }
@@ -903,7 +905,7 @@ export async function startCli(): Promise<void> {
               const formatted = formatConversationForExport(msg.messages);
               copyToClipboard(formatted);
               process.stdout.write(
-                `\n  Copied session (${msg.messages.length} messages) to clipboard.\n\n`,
+                `\n  Copied conversation (${msg.messages.length} messages) to clipboard.\n\n`,
               );
             } catch (err) {
               process.stdout.write(
@@ -916,7 +918,7 @@ export async function startCli(): Promise<void> {
         }
         process.stdout.write("\n");
         if (msg.messages.length === 0) {
-          process.stdout.write("  No messages in this session.\n");
+          process.stdout.write("  No messages in this conversation.\n");
         } else {
           for (const m of msg.messages) {
             const label = m.role === "user" ? "you" : "assistant";
@@ -1018,19 +1020,19 @@ export async function startCli(): Promise<void> {
       return;
     }
 
-    if (content === "/sessions") {
+    if (content === "/sessions" || content === "/conversations") {
       pendingSessionPick = true;
       try {
         const rows = listConversations(20);
-        const sessions = rows.map((r) => ({
+        const conversations = rows.map((r) => ({
           id: r.id,
           title: r.title || "Untitled",
           updatedAt: r.updatedAt,
         }));
-        renderSessionPicker(sessions);
+        renderConversationPicker(conversations);
       } catch {
         pendingSessionPick = false;
-        process.stdout.write("[Failed to fetch sessions]\n");
+        process.stdout.write("[Failed to fetch conversations]\n");
         prompt();
       }
       return;
@@ -1052,7 +1054,7 @@ export async function startCli(): Promise<void> {
       return;
     }
 
-    if (content === "/copy-session") {
+    if (content === "/copy-session" || content === "/copy-conversation") {
       try {
         const mapping = getConversationByKey(conversationKey);
         if (!mapping) {
@@ -1080,7 +1082,7 @@ export async function startCli(): Promise<void> {
             const formatted = formatConversationForExport(rendered);
             copyToClipboard(formatted);
             process.stdout.write(
-              `\n  Copied session (${rawMessages.length} messages) to clipboard.\n\n`,
+              `\n  Copied conversation (${rawMessages.length} messages) to clipboard.\n\n`,
             );
           } catch (err) {
             process.stdout.write(
@@ -1101,7 +1103,7 @@ export async function startCli(): Promise<void> {
       conversationId = "";
       reconnectEvents();
       process.stdout.write(
-        `\n  New session started.\n  Type your message. Ctrl+D to detach.\n\n`,
+        `\n  New conversation started.\n  Type your message. Ctrl+D to detach.\n\n`,
       );
       prompt();
       return;
@@ -1161,11 +1163,11 @@ export async function startCli(): Promise<void> {
         const mapping = getConversationByKey(conversationKey);
         process.stdout.write("\n");
         if (!mapping) {
-          process.stdout.write("  No messages in this session.\n");
+          process.stdout.write("  No messages in this conversation.\n");
         } else {
           const rawMessages = getMessages(mapping.conversationId);
           if (rawMessages.length === 0) {
-            process.stdout.write("  No messages in this session.\n");
+            process.stdout.write("  No messages in this conversation.\n");
           } else {
             for (const msg of rawMessages) {
               let parsedContent: unknown;
@@ -1193,7 +1195,7 @@ export async function startCli(): Promise<void> {
 
     if (content === "/undo") {
       if (!conversationId) {
-        process.stdout.write("\n  No active session.\n\n");
+        process.stdout.write("\n  No active conversation.\n\n");
         prompt();
         return;
       }
@@ -1283,8 +1285,10 @@ export async function startCli(): Promise<void> {
 
     if (content === "/help") {
       process.stdout.write("\n  Available commands:\n");
-      process.stdout.write("  /new              Start a new session\n");
-      process.stdout.write("  /sessions         Switch between sessions\n");
+      process.stdout.write("  /new              Start a new conversation\n");
+      process.stdout.write(
+        "  /conversations    Switch between conversations\n",
+      );
       process.stdout.write("  /clear            Clear the screen\n");
       process.stdout.write("  /model [name]     Show or change the model\n");
       process.stdout.write("  /history          Show conversation history\n");
@@ -1299,7 +1303,7 @@ export async function startCli(): Promise<void> {
         "  /copy-code        Copy last code block to clipboard\n",
       );
       process.stdout.write(
-        "  /copy-session     Copy entire session to clipboard\n",
+        "  /copy-conversation Copy entire conversation to clipboard\n",
       );
       process.stdout.write("  /help             Show this help\n");
       process.stdout.write("\n");
