@@ -368,11 +368,10 @@ final class AssistantCli {
         proc.executableURL = binaryURL
         let cliRemote = config.remote == "customHardware" ? "custom" : config.remote
         var hatchArgs = ["hatch", "--remote", cliRemote]
-        #if DEBUG
-        if cliRemote == "docker" {
-            hatchArgs.append("--watch")
-        }
-        #endif
+        // NOTE: --watch requires the CLI to locate the source repo via
+        // findRepoRoot(), which fails when the CLI binary is bundled
+        // inside the macOS app (import.meta.dir and cwd won't be inside
+        // the vellum-assistant repository). Omit it for now.
         proc.arguments = hatchArgs
 
         let stdoutPipe = Pipe()
