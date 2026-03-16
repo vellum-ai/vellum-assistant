@@ -44,6 +44,7 @@ struct MainWindowView: View {
     @ObservedObject var documentManager: DocumentManager
     let onMicrophoneToggle: () -> Void
     @ObservedObject var voiceModeManager: VoiceModeManager
+    @ObservedObject var updateManager: UpdateManager
 
     /// Callback to send the wake-up greeting after the "coming alive" transition.
     /// Nil for returning users (no transition).
@@ -56,7 +57,7 @@ struct MainWindowView: View {
     /// Whether the daemon-loading skeleton overlay is currently showing.
     @State var showDaemonLoading: Bool
 
-    init(conversationManager: ConversationManager, appListManager: AppListManager, zoomManager: ZoomManager, conversationZoomManager: ConversationZoomManager, traceStore: TraceStore, usageDashboardStore: UsageDashboardStore, daemonClient: DaemonClient, surfaceManager: SurfaceManager, ambientAgent: AmbientAgent, settingsStore: SettingsStore, authManager: AuthManager, windowState: MainWindowState, documentManager: DocumentManager, onMicrophoneToggle: @escaping () -> Void = {}, voiceModeManager: VoiceModeManager, onSendWakeUp: (() -> Void)? = nil) {
+    init(conversationManager: ConversationManager, appListManager: AppListManager, zoomManager: ZoomManager, conversationZoomManager: ConversationZoomManager, traceStore: TraceStore, usageDashboardStore: UsageDashboardStore, daemonClient: DaemonClient, surfaceManager: SurfaceManager, ambientAgent: AmbientAgent, settingsStore: SettingsStore, authManager: AuthManager, windowState: MainWindowState, documentManager: DocumentManager, onMicrophoneToggle: @escaping () -> Void = {}, voiceModeManager: VoiceModeManager, updateManager: UpdateManager, onSendWakeUp: (() -> Void)? = nil) {
         self.conversationManager = conversationManager
         self.appListManager = appListManager
         self.zoomManager = zoomManager
@@ -72,6 +73,7 @@ struct MainWindowView: View {
         self.documentManager = documentManager
         self.onMicrophoneToggle = onMicrophoneToggle
         self.voiceModeManager = voiceModeManager
+        self.updateManager = updateManager
         self.onSendWakeUp = onSendWakeUp
         self._showComingAlive = State(initialValue: onSendWakeUp != nil)
         // Show skeleton loading only for normal launches (not post-onboarding where
@@ -404,6 +406,22 @@ struct MainWindowView: View {
                 })
             }
             Spacer()
+            if updateManager.isUpdateAvailable {
+                VButton(
+                    label: "Update",
+                    leftIcon: VIcon.arrowUp.rawValue,
+                    style: .primary,
+                    size: .pill,
+                    tooltip: "A new version is available"
+                ) {
+                    if updateManager.isDeferredUpdateReady {
+                        NSApp.terminate(nil)
+                    } else {
+                        updateManager.checkForUpdates()
+                    }
+                }
+                .transition(.opacity.combined(with: .scale(scale: 0.9)))
+            }
             PTTKeyIndicator {
                 settingsStore.pendingSettingsTab = .voice
                 windowState.selection = .panel(.settings)
