@@ -58,7 +58,7 @@ import {
 import type { ServerMessage, UiSurfaceShow } from "./message-protocol.js";
 import { runPostExecutionSideEffects } from "./tool-side-effects.js";
 
-const log = getLogger("session-tool-setup");
+const log = getLogger("conversation-tool-setup");
 
 /**
  * Resolve the effective trust class for tool execution.
@@ -66,7 +66,7 @@ const log = getLogger("session-tool-setup");
  * When HTTP auth is disabled (dev bypass), always returns `'guardian'`
  * so that control-plane gates don't block local development.
  *
- * When no trust context is available (e.g. desktop-only sessions that
+ * When no trust context is available (e.g. desktop-only conversations that
  * don't go through channel trust resolution), defaults to `'unknown'`
  * to fail-closed.
  */
@@ -95,15 +95,15 @@ export interface ToolSetupContext extends SurfaceConversationContext {
   allowedToolNames?: Set<string>;
   /** Conversation memory policy — used to propagate scopeId and strictSideEffects into ToolContext. */
   memoryPolicy: { scopeId: string; strictSideEffects: boolean };
-  /** True when the session has no connected client (HTTP-only path). */
+  /** True when the conversation has no connected client (HTTP-only path). */
   hasNoClient?: boolean;
-  /** When true, the session is executing a task run and must not become interactive. */
+  /** When true, the conversation is executing a task run and must not become interactive. */
   headlessLock?: boolean;
-  /** When set, this session is executing a task run. Used to retrieve ephemeral permission rules. */
+  /** When set, this conversation is executing a task run. Used to retrieve ephemeral permission rules. */
   taskRunId?: string;
-  /** Guardian runtime context for the session — trustClass is propagated into ToolContext for control-plane policy enforcement. */
+  /** Guardian runtime context for the conversation — trustClass is propagated into ToolContext for control-plane policy enforcement. */
   trustContext?: TrustContext;
-  /** Voice/call session ID, if the session originates from a call. Propagated into ToolContext for scoped grant consumption. */
+  /** Voice/call session ID, if the conversation originates from a call. Propagated into ToolContext for scoped grant consumption. */
   callSessionId?: string;
   /** Optional proxy for delegating host_bash execution to a connected client. */
   hostBashProxy?: import("./host-bash-proxy.js").HostBashProxy;
@@ -148,7 +148,7 @@ export function createToolExecutor(
   onOutput?: (chunk: string) => void,
   toolUseId?: string,
 ) => Promise<ToolExecutionResult> {
-  // Register the session's sendToClient for browser screencast surface messages
+  // Register the conversation's sendToClient for browser screencast surface messages
   registerSessionSender(ctx.conversationId, (msg) => ctx.sendToClient(msg));
 
   return async (
@@ -455,7 +455,7 @@ export function createProxyApprovalCallback(
 
     const scopeOptions = generateScopeOptions(ctx.workingDir);
 
-    // Non-interactive sessions have no client to prompt — fast-deny to avoid
+    // Non-interactive conversations have no client to prompt — fast-deny to avoid
     // blocking for the full permission timeout before auto-denying.
     if (ctx.hasNoClient) {
       return false;
@@ -534,7 +534,7 @@ export function createProxyApprovalCallback(
 /**
  * Bundled skills that must always be active regardless of conversation
  * history or explicit preactivation. Without this, their tools are
- * unavailable in fresh sessions until `skill_load` is called.
+ * unavailable in fresh conversations until `skill_load` is called.
  */
 const DEFAULT_PREACTIVATED_SKILL_IDS = ["tasks", "notifications"];
 
@@ -576,7 +576,7 @@ const PLATFORM_TOOL_NAMES = new Set(["request_system_permission"]);
 
 /**
  * Determine whether a tool should be included in the LLM tool definitions
- * for the current turn based on session context. Tools not active for the
+ * for the current turn based on conversation context. Tools not active for the
  * current context are omitted from the definitions sent to the provider,
  * reducing noise and preventing the model from attempting calls that would
  * fail.
@@ -612,11 +612,11 @@ export function isToolActiveForContext(
  * allowedToolNames so newly-activated skill tools aren't blocked by
  * the executor's stale gate.
  *
- * Core (non-MCP) tool definitions are captured at session creation and
+ * Core (non-MCP) tool definitions are captured at conversation creation and
  * reused on each turn. MCP tool definitions are re-read from the global
- * registry on each turn so that tools registered after session creation
+ * registry on each turn so that tools registered after conversation creation
  * (e.g. via `vellum mcp reload`) are automatically picked up without
- * requiring session disposal or app restart.
+ * requiring conversation disposal or app restart.
  */
 export function createResolveToolsCallback(
   toolDefs: ToolDefinition[],
@@ -647,14 +647,14 @@ export function createResolveToolsCallback(
       return [];
     }
 
-    // Filter core tools based on current session context so that tools
+    // Filter core tools based on current conversation context so that tools
     // irrelevant to this turn (e.g. UI tools when no client is connected)
     // are omitted from the definitions sent to the provider.
     const filteredCoreDefs = coreToolDefs.filter((d) =>
       isToolActiveForContext(d.name, ctx),
     );
 
-    // Re-read MCP tool definitions from the registry each turn so sessions
+    // Re-read MCP tool definitions from the registry each turn so conversations
     // automatically pick up tools added/removed by `vellum mcp reload`.
     const currentMcpDefs = getMcpToolDefinitions();
     log.debug(

@@ -36,7 +36,7 @@ import type {
   UsageStats,
 } from "./message-protocol.js";
 
-const log = getLogger("session-lifecycle");
+const log = getLogger("conversation-lifecycle");
 
 function parseProvenanceTrustClass(
   metadata: string | null,

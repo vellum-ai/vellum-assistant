@@ -134,7 +134,7 @@ import type {
 
 // === SubagentEvent -- defined here because it references ServerMessage ===
 
-/** Wraps any ServerMessage emitted by a subagent session for routing to the client. */
+/** Wraps any ServerMessage emitted by a subagent conversation for routing to the client. */
 export interface SubagentEvent {
   type: "subagent_event";
   subagentId: string;

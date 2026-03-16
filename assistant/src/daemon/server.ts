@@ -260,7 +260,7 @@ export class DaemonServer {
 
   // CES (Credential Execution Service) — process-level singleton.
   // The CES sidecar accepts exactly one bootstrap connection, so we must
-  // hold that connection at the server level rather than per-session.
+  // hold that connection at the server level rather than per-conversation.
   private cesProcessManager?: CesProcessManager;
   private cesClientPromise?: Promise<CesClient | undefined>;
   private cesInitAbortController?: AbortController;
@@ -330,17 +330,17 @@ export class DaemonServer {
       sendToClient,
       notification,
     ) => {
-      const parentSession = this.conversations.get(parentConversationId);
-      if (!parentSession) {
+      const parentConversation = this.conversations.get(parentConversationId);
+      if (!parentConversation) {
         log.warn(
           { parentConversationId },
-          "Subagent finished but parent session not found",
+          "Subagent finished but parent conversation not found",
         );
         return;
       }
       const requestId = `subagent-notify-${Date.now()}`;
       const metadata = { subagentNotification: notification };
-      const enqueueResult = parentSession.enqueueMessage(
+      const enqueueResult = parentConversation.enqueueMessage(
         message,
         [],
         sendToClient,
@@ -350,13 +350,13 @@ export class DaemonServer {
         metadata,
       );
       if (!enqueueResult.queued && !enqueueResult.rejected) {
-        const messageId = await parentSession.persistUserMessage(
+        const messageId = await parentConversation.persistUserMessage(
           message,
           [],
           undefined,
           metadata,
         );
-        parentSession
+        parentConversation
           .runAgentLoop(message, messageId, sendToClient)
           .catch((err) => {
             log.error(
@@ -434,7 +434,7 @@ export class DaemonServer {
   }
 
   broadcast(msg: ServerMessage): void {
-    const conversationId = extractSessionId(msg);
+    const conversationId = extractConversationId(msg);
     this.publishAssistantEvent(msg, conversationId);
   }
 
@@ -474,10 +474,10 @@ export class DaemonServer {
     });
 
     registerCancelCallback((conversationId) => {
-      const session = this.conversations.get(conversationId);
-      if (!session) return false;
+      const conversation = this.conversations.get(conversationId);
+      if (!conversation) return false;
       this.evictor.touch(conversationId);
-      session.abort();
+      conversation.abort();
       getSubagentManager().abortAllForParent(conversationId);
       return true;
     });
@@ -490,12 +490,12 @@ export class DaemonServer {
       const { conversationId } = getOrCreateConversation(
         params.conversationKey,
       );
-      const session = await this.getOrCreateConversation(conversationId);
-      if (session.isProcessing()) {
+      const conversation = await this.getOrCreateConversation(conversationId);
+      if (conversation.isProcessing()) {
         const requestId = crypto.randomUUID();
         const resolvedChannel = resolveTurnChannel(params.sourceChannel);
         const resolvedInterface = resolveTurnInterface(params.sourceInterface);
-        const result = session.enqueueMessage(
+        const result = conversation.enqueueMessage(
           params.content,
           [],
           () => {},
@@ -612,8 +612,8 @@ export class DaemonServer {
       this.unsubscribeContactChange = null;
     }
 
-    for (const session of this.conversations.values()) {
-      session.dispose();
+    for (const conversation of this.conversations.values()) {
+      conversation.dispose();
     }
     this.conversations.clear();
 
@@ -667,8 +667,8 @@ export class DaemonServer {
       this.evictor.remove(id);
       subagentManager.abortAllForParent(id);
     }
-    for (const session of this.conversations.values()) {
-      session.dispose();
+    for (const conversation of this.conversations.values()) {
+      conversation.dispose();
     }
     this.conversations.clear();
     this.sessionOptions.clear();
@@ -680,25 +680,25 @@ export class DaemonServer {
    * conversation map. No-op if no conversation exists for the given ID.
    */
   destroyConversation(conversationId: string): void {
-    const session = this.conversations.get(conversationId);
-    if (!session) return;
+    const conversation = this.conversations.get(conversationId);
+    if (!conversation) return;
     this.evictor.remove(conversationId);
     getSubagentManager().abortAllForParent(conversationId);
-    session.dispose();
+    conversation.dispose();
     this.conversations.delete(conversationId);
     this.sessionOptions.delete(conversationId);
   }
 
   private evictConversationsForReload(): void {
     const subagentManager = getSubagentManager();
-    for (const [id, session] of this.conversations) {
-      if (!session.isProcessing()) {
+    for (const [id, conversation] of this.conversations) {
+      if (!conversation.isProcessing()) {
         subagentManager.abortAllForParent(id);
-        session.dispose();
+        conversation.dispose();
         this.conversations.delete(id);
         this.evictor.remove(id);
       } else {
-        session.markStale();
+        conversation.markStale();
       }
     }
   }
@@ -721,7 +721,7 @@ export class DaemonServer {
     conversationId: string,
     options?: ConversationCreateOptions,
   ): Promise<Conversation> {
-    let session = this.conversations.get(conversationId);
+    let conversation = this.conversations.get(conversationId);
     const sendToClient = () => {};
 
     if (options && Object.values(options).some((v) => v !== undefined)) {
@@ -731,16 +731,19 @@ export class DaemonServer {
       });
     }
 
-    if (!session || (session.isStale() && !session.isProcessing())) {
-      if (session) {
+    if (
+      !conversation ||
+      (conversation.isStale() && !conversation.isProcessing())
+    ) {
+      if (conversation) {
         getSubagentManager().abortAllForParent(conversationId);
-        session.dispose();
+        conversation.dispose();
       }
 
       const pending = this.conversationCreating.get(conversationId);
       if (pending) {
-        session = await pending;
-        return session;
+        conversation = await pending;
+        return conversation;
       }
 
       const storedOptions = this.sessionOptions.get(conversationId);
@@ -809,16 +812,16 @@ export class DaemonServer {
 
       this.conversationCreating.set(conversationId, createPromise);
       try {
-        session = await createPromise;
+        conversation = await createPromise;
       } finally {
         this.conversationCreating.delete(conversationId);
       }
       this.evictor.touch(conversationId);
     } else {
-      this.applyTransportMetadata(session, options);
+      this.applyTransportMetadata(conversation, options);
       this.evictor.touch(conversationId);
     }
-    return session;
+    return conversation;
   }
 
   // ── Handler context ────────────────────────────────────────────────
@@ -861,7 +864,7 @@ export class DaemonServer {
 
   // ── HTTP message processing ─────────────────────────────────────────
 
-  private async prepareSessionForMessage(
+  private async prepareConversationForMessage(
     conversationId: string,
     content: string,
     attachmentIds: string[] | undefined,
@@ -869,7 +872,7 @@ export class DaemonServer {
     sourceChannel: string | undefined,
     sourceInterface: string | undefined,
   ): Promise<{
-    session: Conversation;
+    conversation: Conversation;
     attachments: {
       id: string;
       filename: string;
@@ -885,9 +888,12 @@ export class DaemonServer {
       );
     }
 
-    const session = await this.getOrCreateConversation(conversationId, options);
+    const conversation = await this.getOrCreateConversation(
+      conversationId,
+      options,
+    );
 
-    if (session.isProcessing()) {
+    if (conversation.isProcessing()) {
       throw new Error("Conversation is already processing a message");
     }
 
@@ -896,13 +902,13 @@ export class DaemonServer {
       options?.transport?.channelId,
     );
     const resolvedInterface = resolveTurnInterface(sourceInterface);
-    session.setAssistantId(
+    conversation.setAssistantId(
       options?.assistantId ?? DAEMON_INTERNAL_ASSISTANT_ID,
     );
-    session.setTrustContext(options?.trustContext ?? null);
-    session.setAuthContext(options?.authContext ?? null);
-    await session.ensureActorScopedHistory();
-    session.setChannelCapabilities(
+    conversation.setTrustContext(options?.trustContext ?? null);
+    conversation.setAuthContext(options?.authContext ?? null);
+    await conversation.ensureActorScopedHistory();
+    conversation.setChannelCapabilities(
       resolveChannelCapabilities(
         sourceChannel,
         sourceInterface,
@@ -911,45 +917,45 @@ export class DaemonServer {
       ),
     );
     // Only create the host bash proxy for desktop client interfaces that can
-    // execute commands on the user's machine. Non-desktop sessions (CLI,
+    // execute commands on the user's machine. Non-desktop conversations (CLI,
     // channels, headless) fall back to local execution.
     // Guard: don't replace an active proxy during concurrent turn races —
     // another request may have started processing between the isProcessing()
     // check above and the await on ensureActorScopedHistory().
     if (resolvedInterface === "macos" || resolvedInterface === "ios") {
-      if (!session.isProcessing() || !session.hostBashProxy) {
-        session.setHostBashProxy(
-          new HostBashProxy(session.getCurrentSender(), (requestId) => {
+      if (!conversation.isProcessing() || !conversation.hostBashProxy) {
+        conversation.setHostBashProxy(
+          new HostBashProxy(conversation.getCurrentSender(), (requestId) => {
             pendingInteractions.resolve(requestId);
           }),
         );
       }
-      if (!session.isProcessing() || !session.hostFileProxy) {
-        session.setHostFileProxy(
-          new HostFileProxy(session.getCurrentSender(), (requestId) => {
+      if (!conversation.isProcessing() || !conversation.hostFileProxy) {
+        conversation.setHostFileProxy(
+          new HostFileProxy(conversation.getCurrentSender(), (requestId) => {
             pendingInteractions.resolve(requestId);
           }),
         );
       }
-      if (!session.isProcessing() || !session.hostCuProxy) {
-        session.setHostCuProxy(
-          new HostCuProxy(session.getCurrentSender(), (requestId) => {
+      if (!conversation.isProcessing() || !conversation.hostCuProxy) {
+        conversation.setHostCuProxy(
+          new HostCuProxy(conversation.getCurrentSender(), (requestId) => {
             pendingInteractions.resolve(requestId);
           }),
         );
       }
-      session.addPreactivatedSkillId("computer-use");
-    } else if (!session.isProcessing()) {
-      session.setHostBashProxy(undefined);
-      session.setHostFileProxy(undefined);
-      session.setHostCuProxy(undefined);
+      conversation.addPreactivatedSkillId("computer-use");
+    } else if (!conversation.isProcessing()) {
+      conversation.setHostBashProxy(undefined);
+      conversation.setHostFileProxy(undefined);
+      conversation.setHostCuProxy(undefined);
     }
-    session.setCommandIntent(options?.commandIntent ?? null);
-    session.setTurnChannelContext({
+    conversation.setCommandIntent(options?.commandIntent ?? null);
+    conversation.setTurnChannelContext({
       userMessageChannel: resolvedChannel,
       assistantMessageChannel: resolvedChannel,
     });
-    session.setTurnInterfaceContext({
+    conversation.setTurnInterfaceContext({
       userMessageInterface: resolvedInterface,
       assistantMessageInterface: resolvedInterface,
     });
@@ -963,7 +969,7 @@ export class DaemonServer {
         }))
       : [];
 
-    return { session, attachments };
+    return { conversation, attachments };
   }
 
   async persistAndProcessMessage(
@@ -974,25 +980,29 @@ export class DaemonServer {
     sourceChannel?: string,
     sourceInterface?: string,
   ): Promise<{ messageId: string }> {
-    const { session, attachments } = await this.prepareSessionForMessage(
-      conversationId,
-      content,
-      attachmentIds,
-      options,
-      sourceChannel,
-      sourceInterface,
-    );
+    const { conversation, attachments } =
+      await this.prepareConversationForMessage(
+        conversationId,
+        content,
+        attachmentIds,
+        options,
+        sourceChannel,
+        sourceInterface,
+      );
 
     const requestId = crypto.randomUUID();
-    const messageId = await session.persistUserMessage(
+    const messageId = await conversation.persistUserMessage(
       content,
       attachments,
       requestId,
     );
 
     // Register pending interactions so channel approval interception can
-    // find the session by requestId when confirmation/secret events fire.
-    const registrar = makePendingInteractionRegistrar(session, conversationId);
+    // find the conversation by requestId when confirmation/secret events fire.
+    const registrar = makePendingInteractionRegistrar(
+      conversation,
+      conversationId,
+    );
     const onEvent = options?.onEvent
       ? (msg: ServerMessage) => {
           registrar(msg);
@@ -1007,10 +1017,10 @@ export class DaemonServer {
         }
       : registrar;
     if (options?.isInteractive === true) {
-      session.updateClient(onEvent, false);
+      conversation.updateClient(onEvent, false);
     }
 
-    session
+    conversation
       .runAgentLoop(content, messageId, onEvent, {
         isInteractive: options?.isInteractive ?? false,
         isUserMessage: true,
@@ -1018,9 +1028,9 @@ export class DaemonServer {
       .finally(() => {
         if (
           options?.isInteractive === true &&
-          session.getCurrentSender() === onEvent
+          conversation.getCurrentSender() === onEvent
         ) {
-          session.updateClient(() => {}, true);
+          conversation.updateClient(() => {}, true);
         }
       })
       .catch((err) => {
@@ -1038,21 +1048,24 @@ export class DaemonServer {
     sourceChannel?: string,
     sourceInterface?: string,
   ): Promise<{ messageId: string }> {
-    const { session, attachments } = await this.prepareSessionForMessage(
-      conversationId,
-      content,
-      attachmentIds,
-      options,
-      sourceChannel,
-      sourceInterface,
-    );
+    const { conversation, attachments } =
+      await this.prepareConversationForMessage(
+        conversationId,
+        content,
+        attachmentIds,
+        options,
+        sourceChannel,
+        sourceInterface,
+      );
 
     const slashResult = await resolveSlash(content);
 
     if (slashResult.kind === "unknown") {
-      const serverTurnCtx = session.getTurnChannelContext();
-      const serverInterfaceCtx = session.getTurnInterfaceContext();
-      const serverProvenance = provenanceFromTrustContext(session.trustContext);
+      const serverTurnCtx = conversation.getTurnChannelContext();
+      const serverInterfaceCtx = conversation.getTurnInterfaceContext();
+      const serverProvenance = provenanceFromTrustContext(
+        conversation.trustContext,
+      );
       const serverChannelMeta = {
         ...serverProvenance,
         ...(serverTurnCtx
@@ -1076,7 +1089,7 @@ export class DaemonServer {
         JSON.stringify(userMsg.content),
         serverChannelMeta,
       );
-      session.getMessages().push(userMsg);
+      conversation.getMessages().push(userMsg);
 
       if (serverTurnCtx) {
         try {
@@ -1112,22 +1125,25 @@ export class DaemonServer {
         JSON.stringify(assistantMsg.content),
         serverChannelMeta,
       );
-      session.getMessages().push(assistantMsg);
+      conversation.getMessages().push(assistantMsg);
       return { messageId: persisted.id };
     }
 
     const resolvedContent = slashResult.content;
 
     const requestId = crypto.randomUUID();
-    const messageId = await session.persistUserMessage(
+    const messageId = await conversation.persistUserMessage(
       resolvedContent,
       attachments,
       requestId,
     );
 
     // Register pending interactions so channel approval interception can
-    // find the session by requestId when confirmation/secret events fire.
-    const registrar = makePendingInteractionRegistrar(session, conversationId);
+    // find the conversation by requestId when confirmation/secret events fire.
+    const registrar = makePendingInteractionRegistrar(
+      conversation,
+      conversationId,
+    );
     const onEvent = options?.onEvent
       ? (msg: ServerMessage) => {
           registrar(msg);
@@ -1142,20 +1158,20 @@ export class DaemonServer {
         }
       : registrar;
     if (options?.isInteractive === true) {
-      session.updateClient(onEvent, false);
+      conversation.updateClient(onEvent, false);
     }
 
     try {
-      await session.runAgentLoop(resolvedContent, messageId, onEvent, {
+      await conversation.runAgentLoop(resolvedContent, messageId, onEvent, {
         isInteractive: options?.isInteractive ?? false,
         isUserMessage: true,
       });
     } finally {
       if (
         options?.isInteractive === true &&
-        session.getCurrentSender() === onEvent
+        conversation.getCurrentSender() === onEvent
       ) {
-        session.updateClient(() => {}, true);
+        conversation.updateClient(() => {}, true);
       }
     }
 
@@ -1163,7 +1179,7 @@ export class DaemonServer {
   }
 
   /**
-   * Expose session lookup for the POST /v1/messages handler.
+   * Expose conversation lookup for the POST /v1/messages handler.
    * The handler manages busy-state checking and queueing itself.
    */
   async getConversationForMessages(
@@ -1183,14 +1199,14 @@ export class DaemonServer {
    * Look up an active conversation that owns a given surfaceId.
    */
   findConversationBySurfaceId(surfaceId: string): Conversation | undefined {
-    for (const s of this.conversations.values()) {
-      if (s.surfaceState.has(surfaceId)) return s;
+    for (const c of this.conversations.values()) {
+      if (c.surfaceState.has(surfaceId)) return c;
     }
     return undefined;
   }
 
   /**
-   * Expose the handler context for use by session management HTTP routes.
+   * Expose the handler context for use by conversation management HTTP routes.
    * The context is built on-the-fly so it always reflects the current server state.
    */
   getHandlerContext(): HandlerContext {
@@ -1199,7 +1215,7 @@ export class DaemonServer {
 }
 
 /** Extract conversationId from a ServerMessage if present. */
-function extractSessionId(msg: ServerMessage): string | undefined {
+function extractConversationId(msg: ServerMessage): string | undefined {
   const record = msg as unknown as Record<string, unknown>;
   if ("conversationId" in msg && typeof record.conversationId === "string") {
     return record.conversationId as string;

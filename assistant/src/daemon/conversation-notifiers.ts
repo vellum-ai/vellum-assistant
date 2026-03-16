@@ -51,7 +51,7 @@ export interface NotifierConversationContext {
 }
 
 /**
- * Register watch and call notifiers for a session. Call once during
+ * Register watch and call notifiers for a conversation. Call once during
  * construction; the notifier callbacks close over `ctx` so they see
  * live sendToClient/messages values.
  */
@@ -170,7 +170,7 @@ export function registerConversationNotifiers(
 
 /**
  * Unregister watch notifiers and prune watch sessions. Called during
- * abort when the session is actively processing.
+ * abort when the conversation is actively processing.
  */
 export function unregisterWatchNotifiers(conversationId: string): void {
   unregisterWatchStartNotifier(conversationId);

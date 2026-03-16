@@ -29,7 +29,7 @@ import {
 import { createSkillToolsFromManifest } from "../tools/skills/skill-tool-factory.js";
 import { getLogger } from "../util/logger.js";
 
-const log = getLogger("session-skill-tools");
+const log = getLogger("conversation-skill-tools");
 
 // ---------------------------------------------------------------------------
 // Public types
@@ -46,7 +46,7 @@ export interface SkillToolProjection {
  * Conversation-scoped cache for skill projection. Avoids re-scanning the entire
  * conversation history and re-reading the filesystem on every agent turn.
  *
- * Each session should own its own cache instance to prevent cross-session
+ * Each conversation should own its own cache instance to prevent cross-conversation
  * state bleed.
  */
 export interface SkillProjectionCache {
@@ -63,7 +63,7 @@ export interface SkillProjectionCache {
     /** The accumulated active skill entries. */
     entries: ActiveSkillEntry[];
   };
-  /** Cached skill catalog. Invalidated when the session is marked stale
+  /** Cached skill catalog. Invalidated when the conversation is marked stale
    *  (e.g. skill directories changed on disk while a run is in progress). */
   catalog?: SkillSummary[];
 }
@@ -73,9 +73,9 @@ export interface ProjectSkillToolsOptions {
   preactivatedSkillIds?: string[];
   /**
    * Conversation-scoped tracking map of previously active skill IDs to their
-   * version hashes. Each session should own its own map to prevent
-   * cross-session state bleed when the daemon serves multiple concurrent
-   * sessions. When a skill's hash changes between turns, its tools are
+   * version hashes. Each conversation should own its own map to prevent
+   * cross-conversation state bleed when the daemon serves multiple concurrent
+   * conversations. When a skill's hash changes between turns, its tools are
    * unregistered and re-registered with the updated definitions.
    */
   previouslyActiveSkillIds?: Map<string, string>;
@@ -122,7 +122,7 @@ function loadManifestForSkill(skill: SkillSummary): SkillToolManifest | null {
 /**
  * Return active skill entries, using the projection cache when available.
  *
- * History is append-only within a session (messages are only added, never
+ * History is append-only within a conversation (messages are only added, never
  * mutated in place). If history.length hasn't changed since the last scan,
  * the cached result is returned immediately. If new messages were appended,
  * only the delta is scanned and merged. If history shrank (e.g. compression
@@ -192,8 +192,8 @@ function getCachedActiveSkills(
 /**
  * Return the skill catalog, caching it across agent turns.
  *
- * The cache is invalidated when the session is marked stale (e.g. skill
- * directories changed on disk while the session is still processing).
+ * The cache is invalidated when the conversation is marked stale (e.g. skill
+ * directories changed on disk while the conversation is still processing).
  */
 function getCachedCatalog(cache?: SkillProjectionCache): SkillSummary[] {
   if (!cache) return loadSkillCatalog();
@@ -209,7 +209,7 @@ function getCachedCatalog(cache?: SkillProjectionCache): SkillSummary[] {
 // ---------------------------------------------------------------------------
 
 /**
- * Compute the set of active skill tools for the current session turn.
+ * Compute the set of active skill tools for the current conversation turn.
  *
  * 1. Derives active skill IDs from conversation history markers.
  * 2. Merges with any preactivated IDs (union).
@@ -240,7 +240,7 @@ export function projectSkillTools(
   const contextIds = contextEntries.map((e) => e.id);
   const allCandidateIds = new Set<string>([...contextIds, ...preactivated]);
 
-  // Load the catalog (cached for session lifetime) and index by ID
+  // Load the catalog (cached for conversation lifetime) and index by ID
   const catalog = getCachedCatalog(options?.cache);
   const catalogById = new Map<string, SkillSummary>();
   for (const skill of catalog) {
@@ -398,7 +398,7 @@ export function projectSkillTools(
     }
   }
 
-  // Update the session-scoped tracking map in-place — only include skills
+  // Update the conversation-scoped tracking map in-place — only include skills
   // that were successfully processed so failed skills can be retried next turn.
   prevActive.clear();
   for (const [id, hash] of successfulEntries) {
@@ -413,7 +413,7 @@ export function projectSkillTools(
 
 /**
  * Reset the projection state and unregister all skill tools tracked in the
- * given map. Used for session teardown and tests.
+ * given map. Used for conversation teardown and tests.
  */
 export function resetSkillToolProjection(
   trackedIds?: Map<string, string>,

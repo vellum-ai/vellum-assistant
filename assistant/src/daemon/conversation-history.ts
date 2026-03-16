@@ -17,7 +17,7 @@ import { getLogger } from "../util/logger.js";
 import type { ServerMessage } from "./message-protocol.js";
 import type { TraceEmitter } from "./trace-emitter.js";
 
-const log = getLogger("session-history");
+const log = getLogger("conversation-history");
 
 // ── Helpers ──────────────────────────────────────────────────────────
 
@@ -369,14 +369,14 @@ export interface HistoryConversationContext {
  * Remove the last user+assistant exchange from memory and DB.
  * Returns the number of messages removed.
  */
-export function undo(session: HistoryConversationContext): number {
-  if (session.processing) return 0;
+export function undo(conversation: HistoryConversationContext): number {
+  if (conversation.processing) return 0;
 
-  const lastUserIdx = findLastUndoableUserMessageIndex(session.messages);
+  const lastUserIdx = findLastUndoableUserMessageIndex(conversation.messages);
   if (lastUserIdx === -1) return 0;
 
-  const removed = session.messages.length - lastUserIdx;
-  session.messages = session.messages.slice(0, lastUserIdx);
+  const removed = conversation.messages.length - lastUserIdx;
+  conversation.messages = conversation.messages.slice(0, lastUserIdx);
 
   // Also remove from DB. We may need to call deleteLastExchange multiple
   // times because the DB stores tool_result user messages as separate rows.
@@ -391,15 +391,15 @@ export function undo(session: HistoryConversationContext): number {
   // deleteLastExchange when the loop peeled back tool_result messages.
   let hadToolResult = false;
   do {
-    deleteLastExchange(session.conversationId);
-    if (isLastUserMessageToolResult(session.conversationId)) {
+    deleteLastExchange(conversation.conversationId);
+    if (isLastUserMessageToolResult(conversation.conversationId)) {
       hadToolResult = true;
     } else {
       break;
     }
   } while (true);
   if (hadToolResult) {
-    deleteLastExchange(session.conversationId);
+    deleteLastExchange(conversation.conversationId);
   }
 
   return removed;
@@ -413,14 +413,14 @@ export function undo(session: HistoryConversationContext): number {
  * Qdrant, then re-run the agent loop with the same user message.
  */
 export async function regenerate(
-  session: HistoryConversationContext,
+  conversation: HistoryConversationContext,
   onEvent: (msg: ServerMessage) => void,
   requestId?: string,
 ): Promise<void> {
-  if (session.processing) {
+  if (conversation.processing) {
     onEvent({ type: "error", message: "Cannot regenerate while processing" });
     if (requestId) {
-      session.traceEmitter.emit(
+      conversation.traceEmitter.emit(
         "request_error",
         "Cannot regenerate while processing",
         {
@@ -435,24 +435,28 @@ export async function regenerate(
 
   // Find the last undoable user message — everything after it is the
   // assistant's exchange that we want to regenerate.
-  const lastUserIdx = findLastUndoableUserMessageIndex(session.messages);
+  const lastUserIdx = findLastUndoableUserMessageIndex(conversation.messages);
   if (lastUserIdx === -1) {
     onEvent({ type: "error", message: "No messages to regenerate" });
     if (requestId) {
-      session.traceEmitter.emit("request_error", "No messages to regenerate", {
-        requestId,
-        status: "error",
-        attributes: { reason: "no_messages" },
-      });
+      conversation.traceEmitter.emit(
+        "request_error",
+        "No messages to regenerate",
+        {
+          requestId,
+          status: "error",
+          attributes: { reason: "no_messages" },
+        },
+      );
     }
     return;
   }
 
   // There must be at least one message after the user message (the assistant reply).
-  if (lastUserIdx >= session.messages.length - 1) {
+  if (lastUserIdx >= conversation.messages.length - 1) {
     onEvent({ type: "error", message: "No assistant response to regenerate" });
     if (requestId) {
-      session.traceEmitter.emit(
+      conversation.traceEmitter.emit(
         "request_error",
         "No assistant response to regenerate",
         {
@@ -466,11 +470,11 @@ export async function regenerate(
   }
 
   // Remove the assistant's exchange from in-memory history (keep the user message).
-  session.messages = session.messages.slice(0, lastUserIdx + 1);
+  conversation.messages = conversation.messages.slice(0, lastUserIdx + 1);
 
   // Find DB message IDs to delete: get all messages from the DB, then
   // identify the ones that come after the last user message.
-  const dbMessages = getMessages(session.conversationId);
+  const dbMessages = getMessages(conversation.conversationId);
 
   // Walk backwards to find the last real (non-tool_result) user message in the DB.
   let dbUserMsgIdx = -1;
@@ -495,7 +499,7 @@ export async function regenerate(
   if (dbUserMsgIdx === -1) {
     onEvent({ type: "error", message: "No user message found in DB" });
     if (requestId) {
-      session.traceEmitter.emit(
+      conversation.traceEmitter.emit(
         "request_error",
         "No user message found in DB",
         {
@@ -526,12 +530,12 @@ export async function regenerate(
 
   // Clean up Qdrant vectors (fire-and-forget).
   cleanupQdrantVectors(
-    session.conversationId,
+    conversation.conversationId,
     allSegmentIds,
     allOrphanedItemIds,
   ).catch((err) => {
     log.warn(
-      { err, conversationId: session.conversationId },
+      { err, conversationId: conversation.conversationId },
       "Qdrant cleanup after regenerate failed (non-fatal)",
     );
   });
@@ -539,7 +543,7 @@ export async function regenerate(
   // Re-extract the user message content for the agent loop.
   // Use all content blocks (text, image, file) so attachments are
   // preserved — not just text blocks.
-  const userMessage = session.messages[lastUserIdx];
+  const userMessage = conversation.messages[lastUserIdx];
   const textBlocks = userMessage.content.filter((b) => b.type === "text");
   const content = textBlocks
     .map((b) => (b as { type: "text"; text: string }).text)
@@ -549,17 +553,17 @@ export async function regenerate(
   onEvent({
     type: "undo_complete",
     removedCount: messagesToDelete.length,
-    conversationId: session.conversationId,
+    conversationId: conversation.conversationId,
   });
 
   // Set up processing state manually and call runAgentLoop directly,
   // bypassing processMessage to avoid duplicating the user message
   // in both this.messages and the DB.
-  session.processing = true;
-  session.abortController = new AbortController();
-  session.currentRequestId = requestId ?? uuid();
+  conversation.processing = true;
+  conversation.abortController = new AbortController();
+  conversation.currentRequestId = requestId ?? uuid();
 
-  await session.runAgentLoop(content, existingUserMessageId, onEvent, {
+  await conversation.runAgentLoop(content, existingUserMessageId, onEvent, {
     skipPreMessageRollback: true,
     isUserMessage: true,
   });

@@ -14,7 +14,7 @@ export interface TraceEmitOptions {
 }
 
 /**
- * Per-session utility that builds and sends TraceEvent messages to the client.
+ * Per-conversation utility that builds and sends TraceEvent messages to the client.
  * Maintains a monotonic sequence counter so the UI can reconstruct event order
  * even if timestamps collide.
  */
