@@ -720,6 +720,18 @@ private struct WorkspaceFileViewer: View {
                 fileName: detail.name,
                 fileSize: formatFileSize(detail.size)
             ) {
+                if isText {
+                    let modes = availableViewModes(for: detail.name, mimeType: detail.mimeType)
+                    if modes.count > 1 {
+                        VSegmentedControl(
+                            items: modes.map { (label: viewModeLabel($0), tag: $0) },
+                            selection: $state.viewMode,
+                            style: .pill
+                        )
+                        .frame(width: CGFloat(modes.count) * 80)
+                    }
+                }
+
                 if isText && readOnly {
                     Text("Read-only")
                         .font(VFont.caption)
@@ -770,20 +782,6 @@ private struct WorkspaceFileViewer: View {
         let modes = availableViewModes(for: detail.name, mimeType: detail.mimeType)
         let effectiveMode = modes.contains(state.viewMode) ? state.viewMode : (modes.first ?? .source)
 
-        if modes.count > 1 {
-            HStack(spacing: 0) {
-                VSegmentedControl(
-                    items: modes.map { (label: viewModeLabel($0), tag: $0) },
-                    selection: $state.viewMode,
-                    style: .pill
-                )
-                .frame(width: CGFloat(modes.count) * 100)
-                Spacer()
-            }
-            .padding(.horizontal, VSpacing.md)
-            .padding(.vertical, VSpacing.sm)
-        }
-
         switch effectiveMode {
         case .source:
             sourceView(detail)
@@ -821,12 +819,12 @@ private struct WorkspaceFileViewer: View {
 
     private func previewView(_ detail: WorkspaceFileResponse) -> some View {
         MarkdownPreviewView(content: state.editableContent)
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }
 
     private func treeView(_ detail: WorkspaceFileResponse) -> some View {
         JSONTreeView(content: state.editableContent)
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }
 
     private func saveFile(path: String) async {
