@@ -31,6 +31,9 @@ struct ContactDetailView: View {
     @State private var inviteInProgress: String?
     @State private var inviteCallInProgress = false
     @State private var inviteCallTriggered = false
+    /// The invite ID for which the call was triggered, used to correlate
+    /// async call completion with the currently displayed invite.
+    @State private var inviteCallInviteId: String?
     @State private var inviteResult: (
         type: String,
         inviteId: String,
@@ -712,7 +715,7 @@ struct ContactDetailView: View {
                     if type == "phone", let result = inviteResult {
                         if inviteCallTriggered {
                             HStack(spacing: VSpacing.sm) {
-                                Image(systemName: "checkmark.circle.fill")
+                                VIconView(.circleCheck, size: 14)
                                     .foregroundColor(VColor.systemPositiveStrong)
                                 Text("Call started")
                                     .font(VFont.caption)
@@ -740,36 +743,54 @@ struct ContactDetailView: View {
             }
         } else if let shareableText = result.shareUrl ?? result.token {
             // Fallback: no invite code available, show raw token
-            HStack(spacing: VSpacing.sm) {
-                let truncated = shareableText.count > 20
-                    ? String(shareableText.prefix(20)) + "..."
-                    : shareableText
-                Text(truncated)
-                    .font(VFont.monoSmall)
-                    .foregroundColor(VColor.contentSecondary)
+            VStack(alignment: .leading, spacing: VSpacing.sm) {
+                HStack(spacing: VSpacing.sm) {
+                    let truncated = shareableText.count > 20
+                        ? String(shareableText.prefix(20)) + "..."
+                        : shareableText
+                    Text(truncated)
+                        .font(VFont.monoSmall)
+                        .foregroundColor(VColor.contentSecondary)
 
-                VButton(
-                    label: inviteCopiedType == type ? "Copied!" : "Copy",
-                    icon: VIcon.copy.rawValue,
-                    style: .outlined
-                ) {
-                    NSPasteboard.general.clearContents()
-                    NSPasteboard.general.setString(shareableText, forType: .string)
-                    inviteCopiedType = type
-                    Task {
-                        try? await Task.sleep(nanoseconds: 2_000_000_000)
-                        guard !Task.isCancelled else { return }
-                        if inviteCopiedType == type {
-                            inviteCopiedType = nil
+                    VButton(
+                        label: inviteCopiedType == type ? "Copied!" : "Copy",
+                        icon: VIcon.copy.rawValue,
+                        style: .outlined
+                    ) {
+                        NSPasteboard.general.clearContents()
+                        NSPasteboard.general.setString(shareableText, forType: .string)
+                        inviteCopiedType = type
+                        Task {
+                            try? await Task.sleep(nanoseconds: 2_000_000_000)
+                            guard !Task.isCancelled else { return }
+                            if inviteCopiedType == type {
+                                inviteCopiedType = nil
+                            }
                         }
                     }
+                }
+
+                VButton(label: "Cancel", style: .outlined) {
+                    inviteExpanded.remove(type)
+                    inviteResult = nil
+                    inviteError = nil
+                    inviteErrorChannel = nil
                 }
             }
         } else {
             // Fallback: invite was created but no displayable fields are available
-            Text("Invite created but no details available")
-                .font(VFont.caption)
-                .foregroundColor(VColor.contentSecondary)
+            VStack(alignment: .leading, spacing: VSpacing.sm) {
+                Text("Invite created but no details available")
+                    .font(VFont.caption)
+                    .foregroundColor(VColor.contentSecondary)
+
+                VButton(label: "Cancel", style: .outlined) {
+                    inviteExpanded.remove(type)
+                    inviteResult = nil
+                    inviteError = nil
+                    inviteErrorChannel = nil
+                }
+            }
         }
     }
 
@@ -1097,6 +1118,7 @@ struct ContactDetailView: View {
         inviteResult = nil
         inviteCallInProgress = false
         inviteCallTriggered = false
+        inviteCallInviteId = nil
         inviteCodeRevealed = false
         inviteHandleInput = ""
         Task {
@@ -1142,9 +1164,18 @@ struct ContactDetailView: View {
     private func triggerInviteCallAction(inviteId: String) {
         guard let daemonClient, !inviteCallInProgress else { return }
         inviteCallInProgress = true
+        inviteCallInviteId = inviteId
         Task {
             do {
                 let success = try await daemonClient.triggerInviteCall(inviteId: inviteId)
+                // Only apply success if the currently displayed invite still
+                // matches the one we triggered the call for. If the user
+                // switched to a different invite before this async request
+                // returned, discard the stale result.
+                guard inviteResult?.inviteId == inviteId else {
+                    inviteCallInProgress = false
+                    return
+                }
                 if success {
                     inviteCallTriggered = true
                 } else {
@@ -1152,6 +1183,10 @@ struct ContactDetailView: View {
                     inviteErrorChannel = "phone"
                 }
             } catch {
+                guard inviteResult?.inviteId == inviteId else {
+                    inviteCallInProgress = false
+                    return
+                }
                 inviteError = "Failed to initiate call: \(error.localizedDescription)"
                 inviteErrorChannel = "phone"
             }

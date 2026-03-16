@@ -179,7 +179,7 @@ afterAll(() => {
 
 let watcher: InstanceType<typeof ConfigWatcher>;
 let evictCallCount: number;
-const onSessionEvict = () => {
+const onConversationEvict = () => {
   evictCallCount++;
 };
 
@@ -196,8 +196,8 @@ afterEach(() => {
 });
 
 describe("ConfigWatcher workspace file handlers", () => {
-  test("SOUL.md change triggers onSessionEvict", async () => {
-    watcher.start(onSessionEvict);
+  test("SOUL.md change triggers onConversationEvict", async () => {
+    watcher.start(onConversationEvict);
     simulateFileChange(WORKSPACE_DIR, "SOUL.md");
 
     // Wait for the debounce timer to fire (default 200ms)
@@ -205,24 +205,24 @@ describe("ConfigWatcher workspace file handlers", () => {
     expect(evictCallCount).toBe(1);
   });
 
-  test("IDENTITY.md change triggers onSessionEvict", async () => {
-    watcher.start(onSessionEvict);
+  test("IDENTITY.md change triggers onConversationEvict", async () => {
+    watcher.start(onConversationEvict);
     simulateFileChange(WORKSPACE_DIR, "IDENTITY.md");
 
     await new Promise((r) => setTimeout(r, 300));
     expect(evictCallCount).toBe(1);
   });
 
-  test("USER.md change triggers onSessionEvict", async () => {
-    watcher.start(onSessionEvict);
+  test("USER.md change triggers onConversationEvict", async () => {
+    watcher.start(onConversationEvict);
     simulateFileChange(WORKSPACE_DIR, "USER.md");
 
     await new Promise((r) => setTimeout(r, 300));
     expect(evictCallCount).toBe(1);
   });
 
-  test("UPDATES.md change triggers onSessionEvict", async () => {
-    watcher.start(onSessionEvict);
+  test("UPDATES.md change triggers onConversationEvict", async () => {
+    watcher.start(onConversationEvict);
     simulateFileChange(WORKSPACE_DIR, "UPDATES.md");
 
     await new Promise((r) => setTimeout(r, 300));
@@ -233,10 +233,10 @@ describe("ConfigWatcher workspace file handlers", () => {
     let refreshCalled = false;
     watcher.refreshConfigFromSources = async () => {
       refreshCalled = true;
-      return false; // no change, so onSessionEvict should NOT be called
+      return false; // no change, so onConversationEvict should NOT be called
     };
 
-    watcher.start(onSessionEvict);
+    watcher.start(onConversationEvict);
     simulateFileChange(WORKSPACE_DIR, "config.json");
 
     await new Promise((r) => setTimeout(r, 300));
@@ -245,10 +245,10 @@ describe("ConfigWatcher workspace file handlers", () => {
     expect(evictCallCount).toBe(0);
   });
 
-  test("config.json change triggers onSessionEvict when config actually changed", async () => {
+  test("config.json change triggers onConversationEvict when config actually changed", async () => {
     watcher.refreshConfigFromSources = async () => true;
 
-    watcher.start(onSessionEvict);
+    watcher.start(onConversationEvict);
     simulateFileChange(WORKSPACE_DIR, "config.json");
 
     await new Promise((r) => setTimeout(r, 300));
@@ -263,7 +263,7 @@ describe("ConfigWatcher workspace file handlers", () => {
     };
 
     watcher.suppressConfigReload = true;
-    watcher.start(onSessionEvict);
+    watcher.start(onConversationEvict);
     simulateFileChange(WORKSPACE_DIR, "config.json");
 
     await new Promise((r) => setTimeout(r, 300));
@@ -272,7 +272,7 @@ describe("ConfigWatcher workspace file handlers", () => {
   });
 
   test("unknown file does not trigger any handler", async () => {
-    watcher.start(onSessionEvict);
+    watcher.start(onConversationEvict);
     simulateFileChange(WORKSPACE_DIR, "UNKNOWN.md");
 
     await new Promise((r) => setTimeout(r, 300));
@@ -280,7 +280,7 @@ describe("ConfigWatcher workspace file handlers", () => {
   });
 
   test("null filename does not trigger any handler", async () => {
-    watcher.start(onSessionEvict);
+    watcher.start(onConversationEvict);
     const wsWatcher = findWatcher(WORKSPACE_DIR);
     expect(wsWatcher).toBeDefined();
     wsWatcher!.callback("change", null);
@@ -292,7 +292,7 @@ describe("ConfigWatcher workspace file handlers", () => {
 
 describe("ConfigWatcher protected directory handlers", () => {
   test("trust.json change calls clearTrustCache", async () => {
-    watcher.start(onSessionEvict);
+    watcher.start(onConversationEvict);
     const protectedWatcher = findWatcher(PROTECTED_DIR);
     expect(protectedWatcher).toBeDefined();
     protectedWatcher!.callback("change", "trust.json");
@@ -305,7 +305,7 @@ describe("ConfigWatcher protected directory handlers", () => {
   });
 
   test("secret-allowlist.json change calls resetAllowlist", async () => {
-    watcher.start(onSessionEvict);
+    watcher.start(onConversationEvict);
     const protectedWatcher = findWatcher(PROTECTED_DIR);
     expect(protectedWatcher).toBeDefined();
     protectedWatcher!.callback("change", "secret-allowlist.json");
@@ -320,7 +320,7 @@ describe("ConfigWatcher protected directory handlers", () => {
 
 describe("ConfigWatcher watcher lifecycle", () => {
   test("start registers watchers for workspace and protected dirs", () => {
-    watcher.start(onSessionEvict);
+    watcher.start(onConversationEvict);
     const wsWatcher = findWatcher(WORKSPACE_DIR);
     const protWatcher = findWatcher(PROTECTED_DIR);
     expect(wsWatcher).toBeDefined();
@@ -328,7 +328,7 @@ describe("ConfigWatcher watcher lifecycle", () => {
   });
 
   test("stop cancels all debounce timers and clears watchers", () => {
-    watcher.start(onSessionEvict);
+    watcher.start(onConversationEvict);
     // Trigger a file change but don't wait for the debounce
     simulateFileChange(WORKSPACE_DIR, "SOUL.md");
     watcher.stop();
@@ -338,7 +338,7 @@ describe("ConfigWatcher watcher lifecycle", () => {
   });
 
   test("multiple prompt file changes are debounced", async () => {
-    watcher.start(onSessionEvict);
+    watcher.start(onConversationEvict);
 
     // Rapid fire multiple changes to the same file
     simulateFileChange(WORKSPACE_DIR, "SOUL.md");
@@ -351,7 +351,7 @@ describe("ConfigWatcher watcher lifecycle", () => {
   });
 
   test("changes to different files each trigger their own handler", async () => {
-    watcher.start(onSessionEvict);
+    watcher.start(onConversationEvict);
 
     simulateFileChange(WORKSPACE_DIR, "SOUL.md");
     simulateFileChange(WORKSPACE_DIR, "IDENTITY.md");

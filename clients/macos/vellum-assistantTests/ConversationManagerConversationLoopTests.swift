@@ -3,7 +3,7 @@ import XCTest
 @testable import VellumAssistantShared
 
 @MainActor
-final class ConversationManagerSessionLoopTests: XCTestCase {
+final class ConversationManagerConversationLoopTests: XCTestCase {
     private var daemonClient: DaemonClient!
     private var conversationManager: ConversationManager!
 
@@ -22,7 +22,7 @@ final class ConversationManagerSessionLoopTests: XCTestCase {
         super.tearDown()
     }
 
-    func testSelectingSessionBackedConversationStartsMessageLoop() {
+    func testSelectingConversationIdBackedConversationStartsMessageLoop() {
         guard let conversationId = conversationManager.activeConversationId,
               let vm = conversationManager.chatViewModel(for: conversationId),
               let index = conversationManager.conversations.firstIndex(where: { $0.id == conversationId }) else {
@@ -38,7 +38,7 @@ final class ConversationManagerSessionLoopTests: XCTestCase {
         XCTAssertEqual(daemonClient.subscribers.count, 1)
     }
 
-    func testSelectingSameSessionBackedConversationDoesNotDuplicateMessageLoop() {
+    func testSelectingSameConversationIdBackedConversationDoesNotDuplicateMessageLoop() {
         guard let conversationId = conversationManager.activeConversationId,
               let vm = conversationManager.chatViewModel(for: conversationId),
               let index = conversationManager.conversations.firstIndex(where: { $0.id == conversationId }) else {

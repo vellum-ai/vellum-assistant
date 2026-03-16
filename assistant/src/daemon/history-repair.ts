@@ -194,7 +194,7 @@ export function repairHistory(messages: Message[]): RepairResult {
   // or from other history reconstruction artifacts. The Anthropic API requires
   // strict user/assistant alternation, so consecutive same-role messages must
   // always be merged. Undo semantics for mixed tool_result+text messages are
-  // handled by isUndoableUserMessage in session.ts.
+  // handled by isUndoableUserMessage in conversation.ts.
   const merged: Message[] = [];
   for (const msg of result) {
     const prev = merged[merged.length - 1];

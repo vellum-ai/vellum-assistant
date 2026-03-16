@@ -449,7 +449,8 @@ export async function run(
   // Validate API key for api mode
   let openaiKey: string | undefined;
   if (mode === "api") {
-    openaiKey = await getSecureKeyAsync("openai");
+    openaiKey =
+      (await getSecureKeyAsync("openai")) ?? process.env.OPENAI_API_KEY;
     if (!openaiKey) {
       return {
         content:

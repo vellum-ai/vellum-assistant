@@ -64,7 +64,7 @@ export async function handleHostCuResult(
   // Validation passed — consume the pending interaction.
   const interaction = pendingInteractions.resolve(requestId)!;
 
-  interaction.session.resolveHostCu(requestId, {
+  interaction.conversation.resolveHostCu(requestId, {
     axTree: body.axTree,
     axDiff: body.axDiff,
     screenshot: body.screenshot,

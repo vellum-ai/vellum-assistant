@@ -556,8 +556,6 @@ if [ "$NEEDS_REBUILD" = true ]; then
         echo "Bundling CLI binary..."
         cp "$CLI_BIN" "$MACOS_DIR/vellum-cli"
         chmod +x "$MACOS_DIR/vellum-cli"
-        # Bundle production Dockerfile so Docker hatch works from the compiled binary
-        cp "$SCRIPT_DIR/../../meta/Dockerfile" "$RESOURCES_DIR/Dockerfile"
     else
         echo "No CLI binary at $CLI_BIN — skipping (dev mode)"
     fi

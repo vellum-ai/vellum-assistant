@@ -194,7 +194,7 @@ export function normalizeActivationKey(
 }
 
 /**
- * Process a voice configuration update request from a session or client.
+ * Process a voice configuration update request from a conversation or client.
  * Validates the activation key and broadcasts the change to all connected clients.
  */
 export function handleVoiceConfigUpdate(
@@ -213,4 +213,3 @@ export function handleVoiceConfigUpdate(
     "Voice config updated: activation key",
   );
 }
-

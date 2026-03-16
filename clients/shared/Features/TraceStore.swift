@@ -1,8 +1,8 @@
 import Foundation
 
-/// In-memory store for real-time execution trace events, keyed by session.
+/// In-memory store for real-time execution trace events, keyed by conversation.
 ///
-/// Events are grouped by `requestId` within each session, deduplicated by `eventId`,
+/// Events are grouped by `requestId` within each conversation, deduplicated by `eventId`,
 /// and ordered by `sequence` (with `timestampMs` and insertion order as tiebreakers).
 @MainActor
 public final class TraceStore: ObservableObject {
@@ -42,16 +42,16 @@ public final class TraceStore: ObservableObject {
 
     // MARK: - State
 
-    /// All events per session, in stable order.
+    /// All events per conversation, in stable order.
     /// Not @Published — updates are coalesced via `schedulePublish()` to avoid
     /// firing objectWillChange on every individual trace event during bursts.
     public private(set) var eventsByConversation: [String: [StoredEvent]] = [:]
 
-    /// The ID of the most recently ingested event per session. Unlike `eventsByConversation[sid]?.count`,
+    /// The ID of the most recently ingested event per conversation. Unlike `eventsByConversation[sid]?.count`,
     /// this always changes on ingestion even when the retention cap holds count constant.
-    public private(set) var latestEventIdBySession: [String: String] = [:]
+    public private(set) var latestEventIdByConversation: [String: String] = [:]
 
-    /// Set of seen eventIds per session for dedup.
+    /// Set of seen eventIds per conversation for dedup.
     private var seenIds: [String: Set<String>] = [:]
 
     /// Monotonic counter for insertion ordering tiebreaks.
@@ -71,7 +71,7 @@ public final class TraceStore: ObservableObject {
         }
     }
 
-    /// Maximum events retained per session.
+    /// Maximum events retained per conversation.
     public static let retentionCap = 5000
 
     // MARK: - Ingestion
@@ -114,14 +114,14 @@ public final class TraceStore: ObservableObject {
         }
 
         eventsByConversation[sid] = events
-        latestEventIdBySession[sid] = event.id
-        generationBySession[sid, default: 0] += 1
+        latestEventIdByConversation[sid] = event.id
+        generationByConversation[sid, default: 0] += 1
         schedulePublish()
     }
 
     // MARK: - Queries
 
-    /// Events for a session grouped by requestId. Events with nil requestId go under an empty-string key.
+    /// Events for a conversation grouped by requestId. Events with nil requestId go under an empty-string key.
     public func eventsByRequest(conversationId: String) -> [String: [StoredEvent]] {
         guard let events = eventsByConversation[conversationId] else { return [:] }
         return Dictionary(grouping: events) { $0.requestId ?? "" }
@@ -174,7 +174,7 @@ public final class TraceStore: ObservableObject {
 
     // MARK: - Derived Metrics (Cached)
 
-    /// Snapshot of aggregate metrics for a session, recomputed only when the
+    /// Snapshot of aggregate metrics for a conversation, recomputed only when the
     /// generation counter advances (i.e. new events were ingested).
     public struct ConversationMetrics {
         public let requestCount: Int
@@ -191,16 +191,16 @@ public final class TraceStore: ObservableObject {
         )
     }
 
-    /// Generation counter per session, incremented on each ingestion.
-    private var generationBySession: [String: Int] = [:]
+    /// Generation counter per conversation, incremented on each ingestion.
+    private var generationByConversation: [String: Int] = [:]
 
-    /// Cached metrics per session, keyed by the generation at which they were computed.
+    /// Cached metrics per conversation, keyed by the generation at which they were computed.
     private var metricsCache: [String: (generation: Int, metrics: ConversationMetrics)] = [:]
 
-    /// Returns cached aggregate metrics for a session, recomputing only when
+    /// Returns cached aggregate metrics for a conversation, recomputing only when
     /// the generation counter has advanced since the last call.
     public func metrics(conversationId: String) -> ConversationMetrics {
-        let currentGen = generationBySession[conversationId] ?? 0
+        let currentGen = generationByConversation[conversationId] ?? 0
         if let cached = metricsCache[conversationId], cached.generation == currentGen {
             return cached.metrics
         }
@@ -248,12 +248,12 @@ public final class TraceStore: ObservableObject {
         )
     }
 
-    /// Number of unique requestIds in a session.
+    /// Number of unique requestIds in a conversation.
     public func requestCount(conversationId: String) -> Int {
         metrics(conversationId: conversationId).requestCount
     }
 
-    /// Count of `llm_call_finished` events in a session.
+    /// Count of `llm_call_finished` events in a conversation.
     public func llmCallCount(conversationId: String) -> Int {
         metrics(conversationId: conversationId).llmCallCount
     }
@@ -273,20 +273,20 @@ public final class TraceStore: ObservableObject {
         metrics(conversationId: conversationId).averageLlmLatencyMs
     }
 
-    /// Count of `tool_failed` events in a session.
+    /// Count of `tool_failed` events in a conversation.
     public func toolFailureCount(conversationId: String) -> Int {
         metrics(conversationId: conversationId).toolFailureCount
     }
 
-    // MARK: - Session Selection
+    // MARK: - Conversation Selection
 
-    /// Returns the session ID whose last event has the highest `timestampMs`,
-    /// i.e. the most recently active session. Returns `nil` if no events exist.
+    /// Returns the conversation ID whose last event has the highest `timestampMs`,
+    /// i.e. the most recently active conversation. Returns `nil` if no events exist.
     ///
-    /// Used by developer tooling to auto-select a relevant session when no
+    /// Used by developer tooling to auto-select a relevant conversation when no
     /// explicit selection context is available (e.g. when opening the debug panel
-    /// from the Settings screen rather than from an active chat thread).
-    public var mostRecentSessionId: String? {
+    /// from the Settings screen rather than from an active conversation).
+    public var mostRecentConversationId: String? {
         eventsByConversation
             .compactMapValues { $0.last?.timestampMs }
             .max(by: { $0.value < $1.value })
@@ -295,22 +295,22 @@ public final class TraceStore: ObservableObject {
 
     // MARK: - Reset
 
-    /// Remove all events for a given session.
+    /// Remove all events for a given conversation.
     public func resetConversation(conversationId: String) {
         eventsByConversation.removeValue(forKey: conversationId)
-        latestEventIdBySession.removeValue(forKey: conversationId)
+        latestEventIdByConversation.removeValue(forKey: conversationId)
         seenIds.removeValue(forKey: conversationId)
-        generationBySession.removeValue(forKey: conversationId)
+        generationByConversation.removeValue(forKey: conversationId)
         metricsCache.removeValue(forKey: conversationId)
         schedulePublish()
     }
 
-    /// Remove all events for all sessions.
+    /// Remove all events for all conversations.
     public func resetAll() {
         eventsByConversation.removeAll()
-        latestEventIdBySession.removeAll()
+        latestEventIdByConversation.removeAll()
         seenIds.removeAll()
-        generationBySession.removeAll()
+        generationByConversation.removeAll()
         metricsCache.removeAll()
         nextInsertionIndex = 0
         schedulePublish()

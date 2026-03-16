@@ -12,6 +12,7 @@ struct SettingsBillingTab: View {
     @State private var topUpAmount: String = ""
     @State private var isProcessingTopUp: Bool = false
     @State private var topUpError: String?
+    @State private var hostWindow: NSWindow?
 
     var body: some View {
         VStack(alignment: .leading, spacing: VSpacing.lg) {
@@ -23,11 +24,14 @@ struct SettingsBillingTab: View {
         .task {
             await loadSummary()
         }
-        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+        .onReceive(NotificationCenter.default.publisher(for: NSWindow.didBecomeKeyNotification)) { notification in
+            guard let window = notification.object as? NSWindow,
+                  window === hostWindow else { return }
             Task {
                 await loadSummary()
             }
         }
+        .background(WindowReader(window: $hostWindow))
     }
 
     // MARK: - Balance Card
@@ -99,12 +103,12 @@ struct SettingsBillingTab: View {
                         .foregroundColor(VColor.contentDefault)
                 }
                 VStack(alignment: .leading, spacing: VSpacing.xs) {
-                    Text("Pending Charges")
+                    Text(summary.is_degraded ? "Pending Charges (estimated)" : "Pending Charges")
                         .font(VFont.inputLabel)
                         .foregroundColor(VColor.contentSecondary)
                     Text("$\(summary.pending_compute_usd)")
                         .font(VFont.bodyMedium)
-                        .foregroundColor(VColor.contentDefault)
+                        .foregroundColor(summary.is_degraded ? VColor.contentSecondary : VColor.contentDefault)
                 }
             }
         }
@@ -151,6 +155,22 @@ struct SettingsBillingTab: View {
         }
     }
 
+    // MARK: - Helpers
+
+    private struct WindowReader: NSViewRepresentable {
+        @Binding var window: NSWindow?
+
+        func makeNSView(context: Context) -> NSView {
+            let view = NSView()
+            DispatchQueue.main.async { self.window = view.window }
+            return view
+        }
+
+        func updateNSView(_ nsView: NSView, context: Context) {
+            DispatchQueue.main.async { self.window = nsView.window }
+        }
+    }
+
     // MARK: - Actions
 
     private func loadSummary() async {
@@ -158,11 +178,8 @@ struct SettingsBillingTab: View {
         error = nil
         do {
             var result = try await BillingService.shared.getBillingSummary()
-            // Bootstrap billing for pre-billing orgs with all-zero balances
-            if result.effective_balance_usd == "0.00" && result.settled_balance_usd == "0.00" && result.pending_compute_usd == "0.00" {
-                if let bootstrapped = try? await BillingService.shared.bootstrapBillingSummary() {
-                    result = bootstrapped
-                }
+            if let bootstrapped = await BillingService.shared.bootstrapBillingSummaryIfNeeded(summary: result) {
+                result = bootstrapped
             }
             summary = result
         } catch {

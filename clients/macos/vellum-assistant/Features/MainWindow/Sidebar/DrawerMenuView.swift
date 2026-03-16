@@ -13,12 +13,13 @@ struct DrawerMenuView: View {
     @State private var isLowBalance = false
     @State private var isZeroBalance = false
     @State private var bootstrapGeneration: Int = 0
+    @AppStorage("connectedOrganizationId") private var connectedOrgId: String?
 
     private var isBillingVisible: Bool {
         let _ = bootstrapGeneration  // Force recomputation when bootstrap completes
         return authManager.isAuthenticated &&
         MacOSClientFeatureFlagManager.shared.isEnabled("settings_billing_enabled") &&
-        UserDefaults.standard.string(forKey: "connectedOrganizationId") != nil
+        connectedOrgId != nil
     }
 
     var body: some View {
@@ -66,7 +67,7 @@ struct DrawerMenuView: View {
 
                 SidebarPrimaryRow(icon: VIcon.barChart.rawValue, label: String(localized: "Usage"), action: onUsage)
 
-                SidebarPrimaryRow(icon: VIcon.bug.rawValue, label: "Debug", action: onDebug)
+                SidebarPrimaryRow(icon: VIcon.scrollText.rawValue, label: String(localized: "Logs"), action: onDebug)
 
                 SidebarPrimaryRow(icon: VIcon.logOut.rawValue, label: String(localized: "Log Out"), action: onLogOut)
             }
@@ -82,22 +83,14 @@ struct DrawerMenuView: View {
         .task {
             await loadBalance()
         }
-        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
-            Task {
-                await loadBalance()
-            }
-        }
     }
 
     private func loadBalance() async {
         guard authManager.isAuthenticated else { return }
         do {
             var summary = try await BillingService.shared.getBillingSummary()
-            // Bootstrap billing for pre-billing orgs with all-zero balances
-            if summary.effective_balance_usd == "0.00" && summary.settled_balance_usd == "0.00" && summary.pending_compute_usd == "0.00" {
-                if let bootstrapped = try? await BillingService.shared.bootstrapBillingSummary() {
-                    summary = bootstrapped
-                }
+            if let bootstrapped = await BillingService.shared.bootstrapBillingSummaryIfNeeded(summary: summary) {
+                summary = bootstrapped
             }
             let balanceString = summary.effective_balance_usd
             effectiveBalance = balanceString

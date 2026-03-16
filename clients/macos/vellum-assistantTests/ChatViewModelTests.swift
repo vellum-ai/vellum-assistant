@@ -82,7 +82,7 @@ final class ChatViewModelTests: XCTestCase {
         XCTAssertEqual(viewModel.messages.count, 1) // first message only
     }
 
-    func testSendWhileSendingWithSessionAppendsMessage() {
+    func testSendWhileSendingWithConversationAppendsMessage() {
         // When a session exists, sending while isSending is allowed (daemon queues)
         viewModel.conversationId = "test-session"
         viewModel.isSending = true
@@ -160,16 +160,16 @@ final class ChatViewModelTests: XCTestCase {
         )
     }
 
-    // MARK: - Session Info
+    // MARK: - Conversation Info
 
-    func testSessionInfoStoresSessionId() {
+    func testConversationInfoStoresConversationId() {
         viewModel.bootstrapCorrelationId = "corr-1"
         let info = ConversationInfoMessage(conversationId: "test-123", title: "Test", correlationId: "corr-1")
         viewModel.handleServerMessage(.conversationInfo(info))
         XCTAssertEqual(viewModel.conversationId, "test-123")
     }
 
-    func testSessionInfoDoesNotOverwriteExistingSession() {
+    func testConversationInfoDoesNotOverwriteExistingConversation() {
         viewModel.conversationId = "first-session"
         let info = ConversationInfoMessage(conversationId: "second-session", title: "Test")
         viewModel.handleServerMessage(.conversationInfo(info))
@@ -646,7 +646,7 @@ final class ChatViewModelTests: XCTestCase {
         XCTAssertFalse(viewModel.isThinking)
     }
 
-    func testStopGeneratingWithNoSessionDoesNothing() {
+    func testStopGeneratingWithNoConversationDoesNothing() {
         // Not sending, no session
         viewModel.stopGenerating()
         XCTAssertFalse(viewModel.isSending)
@@ -1187,9 +1187,9 @@ final class ChatViewModelTests: XCTestCase {
         XCTAssertFalse(viewModel.isThinking)
     }
 
-    // MARK: - Session Filtering
+    // MARK: - Conversation Filtering
 
-    func testTextDeltaFromDifferentSessionIsIgnored() {
+    func testTextDeltaFromDifferentConversationIsIgnored() {
         viewModel.conversationId = "my-session"
         viewModel.isThinking = true
         viewModel.handleServerMessage(.assistantTextDelta(AssistantTextDeltaMessage(text: "foreign", conversationId: "other-session")))
@@ -1198,7 +1198,7 @@ final class ChatViewModelTests: XCTestCase {
         XCTAssertEqual(viewModel.messages.count, 0) // No messages
     }
 
-    func testTextDeltaFromSameSessionIsAccepted() {
+    func testTextDeltaFromSameConversationIsAccepted() {
         viewModel.conversationId = "my-session"
         viewModel.isThinking = true
         viewModel.handleServerMessage(.assistantTextDelta(AssistantTextDeltaMessage(text: "hello", conversationId: "my-session")))
@@ -1207,7 +1207,7 @@ final class ChatViewModelTests: XCTestCase {
         XCTAssertEqual(viewModel.messages[0].text, "hello")
     }
 
-    func testTextDeltaWithNilSessionIdIsAccepted() {
+    func testTextDeltaWithNilConversationIdIsAccepted() {
         viewModel.conversationId = "my-session"
         viewModel.isThinking = true
         viewModel.handleServerMessage(.assistantTextDelta(AssistantTextDeltaMessage(text: "hello", conversationId: nil)))
@@ -1215,7 +1215,7 @@ final class ChatViewModelTests: XCTestCase {
         XCTAssertEqual(viewModel.messages.count, 1)
     }
 
-    func testMessageCompleteFromDifferentSessionIsIgnored() {
+    func testMessageCompleteFromDifferentConversationIsIgnored() {
         viewModel.conversationId = "my-session"
         viewModel.isSending = true
         viewModel.isThinking = true
@@ -1225,7 +1225,7 @@ final class ChatViewModelTests: XCTestCase {
         XCTAssertTrue(viewModel.isThinking)
     }
 
-    func testMessageCompleteFromSameSessionIsAccepted() {
+    func testMessageCompleteFromSameConversationIsAccepted() {
         viewModel.conversationId = "my-session"
         viewModel.isSending = true
         viewModel.isThinking = true
@@ -1284,9 +1284,9 @@ final class ChatViewModelTests: XCTestCase {
         XCTAssertFalse(viewModel.messages[0].isStreaming)
     }
 
-    // MARK: - Session Isolation (Correlation ID)
+    // MARK: - Conversation Isolation (Correlation ID)
 
-    func testSessionInfoWithWrongCorrelationIdIsIgnored() {
+    func testConversationInfoWithWrongCorrelationIdIsIgnored() {
         // Simulate a ChatViewModel that has sent a session_create with a correlation ID.
         // A session_info with a different correlation ID should be ignored.
         viewModel.inputText = "Hello"
@@ -1303,7 +1303,7 @@ final class ChatViewModelTests: XCTestCase {
         XCTAssertNil(viewModel.conversationId, "Should not claim session_info with non-matching correlationId")
     }
 
-    func testSessionInfoWithNilCorrelationIdIsIgnoredWhenBootstrapping() {
+    func testConversationInfoWithNilCorrelationIdIsIgnoredWhenBootstrapping() {
         // When a ChatViewModel is bootstrapping (has a correlationId), a session_info
         // without any correlationId should also be rejected to prevent cross-contamination.
         viewModel.inputText = "Hello"
@@ -1318,7 +1318,7 @@ final class ChatViewModelTests: XCTestCase {
         XCTAssertNil(viewModel.conversationId, "Should not claim session_info without correlationId when bootstrapping with one")
     }
 
-    func testSessionInfoWithoutCorrelationIdRejectedWhenNoBootstrap() {
+    func testConversationInfoWithoutCorrelationIdRejectedWhenNoBootstrap() {
         // After removing backwards compat, session_info without a correlationId
         // is rejected even when there is no bootstrap correlationId set.
         let info = ConversationInfoMessage(conversationId: "test-session", title: "Test")
@@ -2366,9 +2366,9 @@ final class ChatViewModelTests: XCTestCase {
         XCTAssertFalse(viewModel.isSending)
     }
 
-    // MARK: - createConversationIfNeeded (Message-less Session Create)
+    // MARK: - createConversationIfNeeded (Message-less Conversation Create)
 
-    func testCreateSessionIfNeededSetsBootstrapping() {
+    func testCreateConversationIfNeededSetsBootstrapping() {
         viewModel.createConversationIfNeeded(conversationType: "private")
         XCTAssertFalse(viewModel.isSending, "Message-less session creates should not set isSending")
         XCTAssertFalse(viewModel.isThinking, "Should not show thinking for message-less session create")
@@ -2377,13 +2377,13 @@ final class ChatViewModelTests: XCTestCase {
         XCTAssertTrue(viewModel.isBootstrapping)
     }
 
-    func testCreateSessionIfNeededNoOpWhenSessionExists() {
+    func testCreateConversationIfNeededNoOpWhenConversationExists() {
         viewModel.conversationId = "existing-session"
         viewModel.createConversationIfNeeded(conversationType: "private")
         XCTAssertNil(viewModel.bootstrapCorrelationId, "Should not bootstrap when session already exists")
     }
 
-    func testCreateSessionIfNeededNoOpWhenAlreadyBootstrapping() {
+    func testCreateConversationIfNeededNoOpWhenAlreadyBootstrapping() {
         // Start a normal send which bootstraps
         viewModel.inputText = "Hello"
         viewModel.sendMessage()
@@ -2395,7 +2395,7 @@ final class ChatViewModelTests: XCTestCase {
         XCTAssertEqual(viewModel.bootstrapCorrelationId, originalCorrelationId, "Should not overwrite existing bootstrap")
     }
 
-    func testCreateSessionIfNeededSessionInfoResetsState() {
+    func testCreateConversationIfNeededConversationInfoResetsState() {
         viewModel.createConversationIfNeeded(conversationType: "private")
         let correlationId = viewModel.bootstrapCorrelationId!
 
@@ -2410,7 +2410,7 @@ final class ChatViewModelTests: XCTestCase {
         XCTAssertFalse(viewModel.isBootstrapping)
     }
 
-    func testCreateSessionIfNeededOnSessionCreatedCallback() {
+    func testCreateConversationIfNeededOnConversationCreatedCallback() {
         var callbackSessionId: String?
         viewModel.onConversationCreated = { conversationId in
             callbackSessionId = conversationId
@@ -2425,7 +2425,7 @@ final class ChatViewModelTests: XCTestCase {
         XCTAssertEqual(callbackSessionId, "callback-session", "Should fire onConversationCreated callback")
     }
 
-    func testCreateSessionIfNeededSendsConversationTypeInMessage() {
+    func testCreateConversationIfNeededSendsConversationTypeInMessage() {
         var capturedMessages: [Any] = []
         daemonClient.sendOverride = { msg in
             capturedMessages.append(msg)
@@ -2446,7 +2446,7 @@ final class ChatViewModelTests: XCTestCase {
         XCTAssertNotNil(sessionCreates.first?.correlationId, "session_create should include correlationId")
     }
 
-    func testCreateSessionIfNeededWithoutConversationType() {
+    func testCreateConversationIfNeededWithoutConversationType() {
         viewModel.createConversationIfNeeded()
         XCTAssertFalse(viewModel.isSending, "Message-less session creates should not set isSending")
         XCTAssertNil(viewModel.conversationType, "conversationType should remain nil when not specified")
@@ -2475,7 +2475,7 @@ final class ChatViewModelTests: XCTestCase {
         XCTAssertEqual(sessionCreates.first?.conversationType, "private", "Normal send should also pass conversationType")
     }
 
-    func testCreateSessionThenSendMessageUsesClaimedSession() {
+    func testCreateConversationThenSendMessageUsesClaimedConversation() {
         // Create session without message
         viewModel.createConversationIfNeeded(conversationType: "private")
         let correlationId = viewModel.bootstrapCorrelationId!

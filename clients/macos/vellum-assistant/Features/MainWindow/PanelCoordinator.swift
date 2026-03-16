@@ -72,9 +72,8 @@ extension MainWindowView {
                         windowState.selection = .app(surfaceMsg.surfaceId)
                     }
                 },
-                onNewThread: {
-                    conversationManager.openConversation(message: "What kind of apps can you build?", forceNew: true)
-                    windowState.selection = nil
+                onNewConversation: {
+                    startNewConversation()
                 }
             )
         case .intelligence:
@@ -115,14 +114,14 @@ extension MainWindowView {
                         enterAppEditing(appId: appId)
                     }
                     // Route relay_prompt actions directly as chat messages so they
-                    // reach the active session instead of being lost when the surface
-                    // was opened outside a session context (e.g. via app_open).
+                    // reach the active conversation instead of being lost when the surface
+                    // was opened outside a conversation context (e.g. via app_open).
                     if actionId == "relay_prompt" || actionId == "agent_prompt",
                        let dataDict = actionData as? [String: Any],
                        let prompt = dataDict["prompt"] as? String,
                        !prompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                        // Ensure a thread exists so the prompt doesn't silently fail
-                        // on fresh app launch before any chat thread is created.
+                        // Ensure a conversation exists so the prompt doesn't silently fail
+                        // on fresh app launch before any chat conversation is created.
                         conversationManager.openConversation(
                             message: prompt.trimmingCharacters(in: .whitespacesAndNewlines)
                         ) { vm in
@@ -271,9 +270,8 @@ extension MainWindowView {
                             windowState.selection = .app(surfaceMsg.surfaceId)
                         }
                     },
-                    onNewThread: {
-                        conversationManager.openConversation(message: "What kind of apps can you build?", forceNew: true)
-                        windowState.selection = nil
+                    onNewConversation: {
+                        startNewConversation()
                     }
                 )
                 .overlay(alignment: .topTrailing) { panelDismissButton }
@@ -318,12 +316,12 @@ extension MainWindowView {
                 fullWindowPanel(panelType)
             }
         case nil:
-            // Default: show chat for active thread
+            // Default: show chat for active conversation
             defaultChatLayout
         }
     }
 
-    /// The default chat layout used when showing a thread or no specific selection.
+    /// The default chat layout used when showing a conversation or no specific selection.
     @ViewBuilder
     var defaultChatLayout: some View {
         let config = windowState.layoutConfig
@@ -443,9 +441,8 @@ extension MainWindowView {
                         windowState.selection = .app(surfaceMsg.surfaceId)
                     }
                 },
-                onNewThread: {
-                    conversationManager.openConversation(message: "What kind of apps can you build?", forceNew: true)
-                    windowState.dismissOverlay()
+                onNewConversation: {
+                    startNewConversation()
                 }
             )
             .overlay(alignment: .topTrailing) { panelDismissButton }
@@ -1055,7 +1052,7 @@ private struct PublishedButton: View {
 // MARK: - Share Drawer
 
 /// Popover menu with "Share" and "Publish to Vercel" options.
-/// Styled to match ThreadSwitcherDrawer / DrawerMenuView.
+/// Styled to match ConversationSwitcherDrawer / DrawerMenuView.
 private struct ShareDrawer: View {
     let onShare: () -> Void
     let onPublish: () -> Void

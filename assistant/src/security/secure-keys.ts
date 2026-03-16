@@ -160,6 +160,40 @@ export async function deleteSecureKeyAsync(
 }
 
 // ---------------------------------------------------------------------------
+// Provider API key lookup — secure store + env var fallback
+// ---------------------------------------------------------------------------
+
+/**
+ * Env var names keyed by provider. The convention is `<PROVIDER>_API_KEY`.
+ * Ollama is intentionally omitted — it doesn't require an API key.
+ */
+const PROVIDER_ENV_VARS: Record<string, string> = {
+  anthropic: "ANTHROPIC_API_KEY",
+  openai: "OPENAI_API_KEY",
+  gemini: "GEMINI_API_KEY",
+  fireworks: "FIREWORKS_API_KEY",
+  openrouter: "OPENROUTER_API_KEY",
+  brave: "BRAVE_API_KEY",
+  perplexity: "PERPLEXITY_API_KEY",
+};
+
+/**
+ * Retrieve a provider API key, checking secure storage first and falling
+ * back to the corresponding `<PROVIDER>_API_KEY` environment variable.
+ *
+ * Use this instead of raw `getSecureKeyAsync` when looking up provider
+ * API keys so that env-var-only setups continue to work.
+ */
+export async function getProviderKeyAsync(
+  provider: string,
+): Promise<string | undefined> {
+  const stored = await getSecureKeyAsync(provider);
+  if (stored) return stored;
+  const envVar = PROVIDER_ENV_VARS[provider];
+  return envVar ? process.env[envVar] : undefined;
+}
+
+// ---------------------------------------------------------------------------
 // Test helpers
 // ---------------------------------------------------------------------------
 

@@ -4,16 +4,16 @@ import VellumAssistantShared
 /// Drop delegate for reordering scheduled conversations within the same schedule group.
 /// Returns `.move` operation to show a reorder cursor instead of the copy/plus icon.
 struct ScheduleReorderDropDelegate: DropDelegate {
-    let targetThread: ConversationModel
+    let targetConversation: ConversationModel
     let sidebar: SidebarInteractionState
     let conversationManager: ConversationManager
 
     func validateDrop(info: DropInfo) -> Bool {
         guard let dragId = sidebar.draggingConversationId,
-              dragId != targetThread.id,
-              let sourceThread = conversationManager.visibleConversations.first(where: { $0.id == dragId }),
-              sourceThread.isScheduleConversation,
-              sourceThread.scheduleJobId == targetThread.scheduleJobId
+              dragId != targetConversation.id,
+              let sourceConversation = conversationManager.visibleConversations.first(where: { $0.id == dragId }),
+              sourceConversation.isScheduleConversation,
+              sourceConversation.scheduleJobId == targetConversation.scheduleJobId
         else { return false }
         return true
     }
@@ -24,21 +24,21 @@ struct ScheduleReorderDropDelegate: DropDelegate {
 
     func dropEntered(info: DropInfo) {
         guard let dragId = sidebar.draggingConversationId,
-              dragId != targetThread.id,
-              let sourceThread = conversationManager.visibleConversations.first(where: { $0.id == dragId }),
-              sourceThread.isScheduleConversation,
-              sourceThread.scheduleJobId == targetThread.scheduleJobId
+              dragId != targetConversation.id,
+              let sourceConversation = conversationManager.visibleConversations.first(where: { $0.id == dragId }),
+              sourceConversation.isScheduleConversation,
+              sourceConversation.scheduleJobId == targetConversation.scheduleJobId
         else { return }
 
-        sidebar.dropTargetConversationId = targetThread.id
+        sidebar.dropTargetConversationId = targetConversation.id
         let visible = conversationManager.visibleConversations
         let sIdx = visible.firstIndex(where: { $0.id == dragId }) ?? 0
-        let tIdx = visible.firstIndex(where: { $0.id == targetThread.id }) ?? 0
+        let tIdx = visible.firstIndex(where: { $0.id == targetConversation.id }) ?? 0
         sidebar.dropIndicatorAtBottom = sIdx < tIdx
     }
 
     func dropExited(info: DropInfo) {
-        if sidebar.dropTargetConversationId == targetThread.id {
+        if sidebar.dropTargetConversationId == targetConversation.id {
             sidebar.dropTargetConversationId = nil
         }
     }
@@ -47,27 +47,27 @@ struct ScheduleReorderDropDelegate: DropDelegate {
         let sourceId = sidebar.draggingConversationId
         sidebar.dropTargetConversationId = nil
         sidebar.draggingConversationId = nil
-        guard let sourceId = sourceId, sourceId != targetThread.id else { return false }
-        return conversationManager.moveConversation(sourceId: sourceId, targetId: targetThread.id)
+        guard let sourceId = sourceId, sourceId != targetConversation.id else { return false }
+        return conversationManager.moveConversation(sourceId: sourceId, targetId: targetConversation.id)
     }
 }
 
 /// Drop delegate for the collapsed schedule group header.
-/// Targets the first thread in the group; only accepts drops from the same schedule group.
+/// Targets the first conversation in the group; only accepts drops from the same schedule group.
 struct ScheduleGroupHeaderDropDelegate: DropDelegate {
     let group: (key: String, label: String, conversations: [ConversationModel])
     let sidebar: SidebarInteractionState
     let conversationManager: ConversationManager
 
-    private var firstThread: ConversationModel? { group.conversations.first }
+    private var firstConversation: ConversationModel? { group.conversations.first }
 
     func validateDrop(info: DropInfo) -> Bool {
-        guard let firstThread = firstThread,
+        guard let firstConversation = firstConversation,
               let dragId = sidebar.draggingConversationId,
-              dragId != firstThread.id,
-              let sourceThread = conversationManager.visibleConversations.first(where: { $0.id == dragId }),
-              sourceThread.isScheduleConversation,
-              sourceThread.scheduleJobId == firstThread.scheduleJobId
+              dragId != firstConversation.id,
+              let sourceConversation = conversationManager.visibleConversations.first(where: { $0.id == dragId }),
+              sourceConversation.isScheduleConversation,
+              sourceConversation.scheduleJobId == firstConversation.scheduleJobId
         else { return false }
         return true
     }
@@ -77,20 +77,20 @@ struct ScheduleGroupHeaderDropDelegate: DropDelegate {
     }
 
     func dropEntered(info: DropInfo) {
-        guard let firstThread = firstThread,
+        guard let firstConversation = firstConversation,
               let dragId = sidebar.draggingConversationId,
-              dragId != firstThread.id,
-              let sourceThread = conversationManager.visibleConversations.first(where: { $0.id == dragId }),
-              sourceThread.isScheduleConversation,
-              sourceThread.scheduleJobId == firstThread.scheduleJobId
+              dragId != firstConversation.id,
+              let sourceConversation = conversationManager.visibleConversations.first(where: { $0.id == dragId }),
+              sourceConversation.isScheduleConversation,
+              sourceConversation.scheduleJobId == firstConversation.scheduleJobId
         else { return }
 
-        sidebar.dropTargetConversationId = firstThread.id
+        sidebar.dropTargetConversationId = firstConversation.id
         sidebar.dropIndicatorAtBottom = false
     }
 
     func dropExited(info: DropInfo) {
-        if let firstThread = firstThread, sidebar.dropTargetConversationId == firstThread.id {
+        if let firstConversation = firstConversation, sidebar.dropTargetConversationId == firstConversation.id {
             sidebar.dropTargetConversationId = nil
         }
     }
@@ -99,10 +99,10 @@ struct ScheduleGroupHeaderDropDelegate: DropDelegate {
         let sourceId = sidebar.draggingConversationId
         sidebar.dropTargetConversationId = nil
         sidebar.draggingConversationId = nil
-        guard let firstThread = firstThread,
+        guard let firstConversation = firstConversation,
               let sourceId = sourceId,
-              sourceId != firstThread.id
+              sourceId != firstConversation.id
         else { return false }
-        return conversationManager.moveConversation(sourceId: sourceId, targetId: firstThread.id)
+        return conversationManager.moveConversation(sourceId: sourceId, targetId: firstConversation.id)
     }
 }

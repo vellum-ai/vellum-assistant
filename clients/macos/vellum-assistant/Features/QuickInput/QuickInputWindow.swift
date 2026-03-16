@@ -41,8 +41,8 @@ final class QuickInputWindow {
     /// Callback invoked when the user submits a message to a new chat.
     /// Includes optional image data from a screen capture.
     var onSubmit: ((String, Data?) -> Void)?
-    /// Callback invoked when the user submits a message to an existing thread.
-    var onSubmitToThread: ((String, Data?) -> Void)?
+    /// Callback invoked when the user submits a message to an existing conversation.
+    var onSubmitToConversation: ((String, Data?) -> Void)?
     /// Callback invoked when the user taps the microphone button.
     var onMicrophoneToggle: (() -> Void)?
     /// Callback invoked when the user toggles the notification bell.
@@ -50,7 +50,7 @@ final class QuickInputWindow {
     /// Callback invoked when the user selects an existing conversation (navigates to it).
     var onSelectConversation: ((UUID) -> Void)?
     /// Recent conversations to show in the dropdown.
-    var recentConversations: [QuickInputThread] = []
+    var recentConversations: [QuickInputConversation] = []
     /// When true, show a screen recording permission prompt below the bar.
     var showScreenPermissionPrompt = false
 
@@ -171,7 +171,7 @@ final class QuickInputWindow {
                     self?.onSelectConversation?(conversationId)
                     // Small delay so the conversation switches before we send the message
                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-                        self?.onSubmitToThread?(message, self?.attachedImageData)
+                        self?.onSubmitToConversation?(message, self?.attachedImageData)
                     }
                 } else {
                     self?.onSubmit?(message, self?.attachedImageData)

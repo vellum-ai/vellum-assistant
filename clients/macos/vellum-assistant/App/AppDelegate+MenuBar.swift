@@ -464,9 +464,8 @@ extension AppDelegate {
             for await message in stream {
                 guard !Task.isCancelled else { return }
                 if case .appsListResponse(let response) = message {
-                    self.cachedApps = response.apps
-                    // Only sync if daemon returned apps — empty response may indicate an error
-                    if !response.apps.isEmpty {
+                    if response.success {
+                        self.cachedApps = response.apps
                         let daemonItems = response.apps.map {
                             AppListManager.AppItem_Daemon(
                                 id: $0.id, name: $0.name, description: $0.description,
@@ -490,13 +489,13 @@ extension AppDelegate {
     }
 
     @objc func sendCurrentConversationLogsToSentry() {
-        guard let thread = mainWindow?.conversationManager.activeConversation,
-              let conversationId = thread.conversationId else { return }
+        guard let conversation = mainWindow?.conversationManager.activeConversation,
+              let conversationId = conversation.conversationId else { return }
 
         // Defer window creation until after the status menu finishes dismissing,
         // otherwise macOS can swallow the makeKeyAndOrderFront during menu teardown.
         DispatchQueue.main.async { [weak self] in
-            self?.showLogReportWindow(scope: .conversation(conversationId: conversationId, conversationTitle: thread.title))
+            self?.showLogReportWindow(scope: .conversation(conversationId: conversationId, conversationTitle: conversation.title))
         }
     }
 

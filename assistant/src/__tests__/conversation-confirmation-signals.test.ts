@@ -264,10 +264,10 @@ function makeSession(
  * a confirmation_request message, needs allowlistOptions, etc.).
  */
 function seedPendingConfirmation(
-  session: Conversation,
+  conversation: Conversation,
   requestId: string,
 ): void {
-  const prompter = session["prompter"] as unknown as {
+  const prompter = conversation["prompter"] as unknown as {
     pending: Map<
       string,
       {

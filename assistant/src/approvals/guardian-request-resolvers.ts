@@ -217,7 +217,7 @@ const pendingInteractionResolver: GuardianRequestResolver = {
     // Map action to the permission system's UserDecision type and notify session.
     const userDecision =
       decision.action === "reject" ? ("deny" as const) : ("allow" as const);
-    resolved.session.handleConfirmationResponse(
+    resolved.conversation.handleConfirmationResponse(
       request.id,
       userDecision,
       undefined,

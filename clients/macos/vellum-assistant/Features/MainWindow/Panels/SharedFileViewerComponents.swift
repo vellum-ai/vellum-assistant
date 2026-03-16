@@ -1,6 +1,34 @@
 import SwiftUI
 import VellumAssistantShared
 
+// MARK: - File View Mode
+
+enum FileViewMode: String, Hashable {
+    case source
+    case preview
+    case tree
+}
+
+func availableViewModes(for fileName: String, mimeType: String) -> [FileViewMode] {
+    let ext = (fileName as NSString).pathExtension.lowercased()
+    let mime = mimeType.lowercased()
+    if ext == "md" || ext == "markdown" || mime == "text/markdown" {
+        return [.source, .preview]
+    }
+    if ext == "json" || mime == "application/json" {
+        return [.source, .tree]
+    }
+    return [.source]
+}
+
+func viewModeLabel(_ mode: FileViewMode) -> String {
+    switch mode {
+    case .source: return "Source"
+    case .preview: return "Preview"
+    case .tree: return "Tree"
+    }
+}
+
 /// Formats a byte count into a human-readable size string.
 /// Shows raw bytes for sizes < 1 KB (e.g. "500 B"), then "KB" / "MB" / "GB" with one decimal place.
 func formatFileSize(_ bytes: Int) -> String {
@@ -11,23 +39,6 @@ func formatFileSize(_ bytes: Int) -> String {
     if mb < 1024 { return String(format: "%.1f MB", mb) }
     let gb = mb / 1024.0
     return String(format: "%.1f GB", gb)
-}
-
-/// Empty state shown when no file is selected in a file viewer pane.
-struct FileViewerEmptyState: View {
-    var body: some View {
-        VStack {
-            Spacer()
-            VIconView(.fileText, size: 32)
-                .foregroundColor(VColor.contentTertiary)
-                .padding(.bottom, VSpacing.sm)
-            Text("Select a file to view")
-                .font(VFont.body)
-                .foregroundColor(VColor.contentTertiary)
-            Spacer()
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-    }
 }
 
 /// Scrollable read-only monospace text display for file content.
@@ -54,10 +65,18 @@ struct ReadOnlyCodeContent: View {
 }
 
 /// Header bar showing file icon, name, and size for file content viewers.
-struct FileContentHeaderBar: View {
+struct FileContentHeaderBar<Trailing: View>: View {
     let icon: VIcon
     let fileName: String
     let fileSize: String
+    let trailing: Trailing
+
+    init(icon: VIcon, fileName: String, fileSize: String, @ViewBuilder trailing: () -> Trailing = { EmptyView() }) {
+        self.icon = icon
+        self.fileName = fileName
+        self.fileSize = fileSize
+        self.trailing = trailing()
+    }
 
     var body: some View {
         HStack(spacing: VSpacing.sm) {
@@ -66,12 +85,15 @@ struct FileContentHeaderBar: View {
             Text(fileName)
                 .font(VFont.captionMedium)
                 .foregroundColor(VColor.contentDefault)
+                .lineLimit(1)
+                .truncationMode(.middle)
             Spacer()
             Text(fileSize)
                 .font(VFont.small)
                 .foregroundColor(VColor.contentTertiary)
+            trailing
         }
         .padding(.horizontal, VSpacing.md)
-        .padding(.vertical, VSpacing.sm)
+        .frame(height: 36)
     }
 }

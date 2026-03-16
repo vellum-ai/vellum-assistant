@@ -131,14 +131,16 @@ Examples:
           return;
         }
 
-        const success = writeTraitsAndRenderAvatar({
+        const result = writeTraitsAndRenderAvatar({
           bodyShape: opts.bodyShape,
           eyeStyle: opts.eyeStyle,
           color: opts.color,
         });
 
-        if (!success) {
-          log.error("Failed to write traits and render avatar.");
+        if (!result.ok) {
+          log.error(
+            `Failed to write traits and render avatar: ${result.message}`,
+          );
           process.exitCode = 1;
           return;
         }
@@ -248,8 +250,16 @@ Examples:
         return;
       }
 
+      if (!/^\d+$/.test(opts.width)) {
+        log.error(
+          `Invalid width: "${opts.width}". Must be a positive integer.`,
+        );
+        process.exitCode = 1;
+        return;
+      }
+
       const width = parseInt(opts.width, 10);
-      if (!Number.isFinite(width) || width < 1) {
+      if (width < 1) {
         log.error(
           `Invalid width: "${opts.width}". Must be a positive integer.`,
         );

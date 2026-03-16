@@ -255,10 +255,10 @@ struct TraceStoreTests {
         #expect(store.eventsByConversation.isEmpty)
     }
 
-    // MARK: - Multi-Session Isolation
+    // MARK: - Multi-Conversation Isolation
 
     @Test @MainActor
-    func sessionsAreIsolated() {
+    func conversationsAreIsolated() {
         let store = TraceStore()
         store.ingest(makeEvent(eventId: "a", conversationId: "s1", sequence: 1, kind: "tool_failed"))
         store.ingest(makeEvent(
@@ -272,13 +272,13 @@ struct TraceStoreTests {
         #expect(store.llmCallCount(conversationId: "s2") == 1)
     }
 
-    // MARK: - Session Switching Shows Correct Traces
+    // MARK: - Conversation Switching Shows Correct Traces
 
     @Test @MainActor
-    func sessionSwitchingShowsCorrectTraces() {
+    func conversationSwitchingShowsCorrectTraces() {
         let store = TraceStore()
 
-        // Populate two sessions with distinct events.
+        // Populate two conversations with distinct events.
         store.ingest(makeEvent(eventId: "s1-a", conversationId: "session-A", requestId: "rA", sequence: 1, kind: "request_received", summary: "Start A"))
         store.ingest(makeEvent(eventId: "s1-b", conversationId: "session-A", requestId: "rA", sequence: 2, kind: "llm_call_finished", summary: "LLM A"))
 
@@ -286,12 +286,12 @@ struct TraceStoreTests {
         store.ingest(makeEvent(eventId: "s2-b", conversationId: "session-B", requestId: "rB", sequence: 2, kind: "tool_started", summary: "Tool B"))
         store.ingest(makeEvent(eventId: "s2-c", conversationId: "session-B", requestId: "rB", sequence: 3, kind: "tool_failed", summary: "Fail B"))
 
-        // "Switch" to session-A — only its events are visible.
+        // "Switch" to conversation-A — only its events are visible.
         let eventsA = store.eventsByConversation["session-A"] ?? []
         #expect(eventsA.count == 2)
         #expect(eventsA.allSatisfy { $0.conversationId == "session-A" })
 
-        // "Switch" to session-B — only its events are visible.
+        // "Switch" to conversation-B — only its events are visible.
         let eventsB = store.eventsByConversation["session-B"] ?? []
         #expect(eventsB.count == 3)
         #expect(eventsB.allSatisfy { $0.conversationId == "session-B" })
@@ -303,34 +303,34 @@ struct TraceStoreTests {
         #expect(store.toolFailureCount(conversationId: "session-B") == 1)
     }
 
-    // MARK: - No Cross-Session Trace Contamination
+    // MARK: - No Cross-Conversation Trace Contamination
 
     @Test @MainActor
-    func noCrossSessionContamination() {
+    func noCrossConversationContamination() {
         let store = TraceStore()
 
-        // Session 1 events.
+        // Conversation 1 events.
         store.ingest(makeEvent(eventId: "e1", conversationId: "s1", requestId: "r1", sequence: 1, kind: "request_received"))
         store.ingest(makeEvent(eventId: "e2", conversationId: "s1", requestId: "r1", sequence: 2, kind: "llm_call_finished",
                                attributes: ["inputTokens": 100, "outputTokens": 50]))
 
-        // Session 2 events.
+        // Conversation 2 events.
         store.ingest(makeEvent(eventId: "e3", conversationId: "s2", requestId: "r2", sequence: 1, kind: "request_received"))
         store.ingest(makeEvent(eventId: "e4", conversationId: "s2", requestId: "r2", sequence: 2, kind: "tool_failed"))
 
-        // Session 1 must not see session 2's events.
+        // Conversation 1 must not see conversation 2's events.
         let grouped1 = store.eventsByRequest(conversationId: "s1")
         #expect(grouped1.count == 1)
         #expect(grouped1["r1"]?.count == 2)
         #expect(grouped1["r2"] == nil)
 
-        // Session 2 must not see session 1's events.
+        // Conversation 2 must not see conversation 1's events.
         let grouped2 = store.eventsByRequest(conversationId: "s2")
         #expect(grouped2.count == 1)
         #expect(grouped2["r2"]?.count == 2)
         #expect(grouped2["r1"] == nil)
 
-        // Adding more events to one session does not affect the other.
+        // Adding more events to one conversation does not affect the other.
         store.ingest(makeEvent(eventId: "e5", conversationId: "s1", requestId: "r1", sequence: 3, kind: "message_complete"))
         #expect(store.eventsByConversation["s1"]?.count == 3)
         #expect(store.eventsByConversation["s2"]?.count == 2)
@@ -433,7 +433,7 @@ struct TraceStoreTests {
     func daemonReconnectResetsTraceState() {
         let store = TraceStore()
 
-        // Populate with events from two sessions.
+        // Populate with events from two conversations.
         store.ingest(makeEvent(eventId: "e1", conversationId: "s1", sequence: 1))
         store.ingest(makeEvent(eventId: "e2", conversationId: "s2", sequence: 1))
         #expect(store.eventsByConversation.count == 2)
@@ -450,26 +450,26 @@ struct TraceStoreTests {
         #expect(store.eventsByConversation["s1"]?.first?.summary == "post-reset")
     }
 
-    // MARK: - Historical Traces Retained Per Session
+    // MARK: - Historical Traces Retained Per Conversation
 
     @Test @MainActor
-    func historicalTracesRetainedPerSession() {
+    func historicalTracesRetainedPerConversation() {
         let store = TraceStore()
 
-        // Build up events across multiple sessions.
+        // Build up events across multiple conversations.
         for i in 0..<10 {
             store.ingest(makeEvent(eventId: "s1-\(i)", conversationId: "s1", requestId: "r1", sequence: i))
             store.ingest(makeEvent(eventId: "s2-\(i)", conversationId: "s2", requestId: "r2", sequence: i))
             store.ingest(makeEvent(eventId: "s3-\(i)", conversationId: "s3", requestId: "r3", sequence: i))
         }
 
-        // All three sessions' traces are retained simultaneously.
+        // All three conversations' traces are retained simultaneously.
         #expect(store.eventsByConversation.count == 3)
         #expect(store.eventsByConversation["s1"]?.count == 10)
         #expect(store.eventsByConversation["s2"]?.count == 10)
         #expect(store.eventsByConversation["s3"]?.count == 10)
 
-        // Resetting one session preserves the others.
+        // Resetting one conversation preserves the others.
         store.resetConversation(conversationId: "s2")
         #expect(store.eventsByConversation.count == 2)
         #expect(store.eventsByConversation["s1"]?.count == 10)

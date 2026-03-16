@@ -8,53 +8,61 @@ metadata:
     display-name: "Notion"
 ---
 
-You have access to the Notion API via the stored OAuth token for `integration:notion`. Use `bash` with `network_mode: "proxied"` to call the Notion API — the proxy automatically injects the Bearer token for `api.notion.com`.
+You have access to the Notion API via stored credentials for `integration:notion`. Both Internal integration secrets and OAuth access tokens are supported.
 
 ## Authentication
 
-The Notion access token is stored securely and never exposed as plaintext. Use the credential proxy to inject the Bearer token automatically.
+**Step 1 — Check for credentials:**
 
-**Step 1 — Get the credential ID:**
 ```
 credential_store action=list
 ```
-Find the entry with `service: "integration:notion"` and `field: "access_token"`. Note its `credential_id`.
 
-If no such entry exists, tell the user: "Notion is not connected yet. Load the **notion-oauth-setup** skill to set it up first."
+Look for an entry with `service: "integration:notion"`. The credential may be stored under one of two fields depending on how the user set up the integration:
 
-**Step 2 — Make authenticated API calls via the proxy:**
+- `field: "internal_secret"` — Internal integration (new default setup)
+- `field: "access_token"` — OAuth/Public integration (legacy setup)
 
-Use `bash` with `network_mode: "proxied"` and `credential_ids: ["<credential_id>"]`. The proxy automatically injects `Authorization: Bearer <token>` and any required headers into requests to `api.notion.com`.
+If neither exists, tell the user: "Notion is not connected yet. Load the **notion-oauth-setup** skill to set it up first."
 
-Example:
+**Step 2 — Make authenticated API calls:**
+
+Use `bash` with `assistant credentials reveal` to inject the token into the Authorization header. Substitute the correct `--field` value based on what you found in Step 1:
+
 ```
 bash:
-  network_mode: proxied
-  credential_ids: ["<credential_id from step 1>"]
   command: |
     curl -s -X POST https://api.notion.com/v1/search \
+      -H "Authorization: Bearer $(assistant credentials reveal --service integration:notion --field internal_secret)" \
       -H "Notion-Version: 2022-06-28" \
       -H "Content-Type: application/json" \
       -d '{}'
 ```
+
+For OAuth credentials, use `--field access_token` instead.
 
 All Notion API calls go to `https://api.notion.com/v1/`. Always include the `Notion-Version: 2022-06-28` header.
 
 ## Reading Pages
 
 ### Get a page by ID
+
 ```
 GET https://api.notion.com/v1/pages/{page_id}
 ```
+
 Returns page properties. Use the page ID from a Notion URL — the last segment of the URL, e.g. for `https://notion.so/My-Page-abc123def456` the ID is `abc123def456` (formatted as UUID: `abc123de-f456-...`).
 
 ### Get page content (blocks)
+
 ```
 GET https://api.notion.com/v1/blocks/{block_id}/children?page_size=100
 ```
+
 Pages are blocks too — use the page ID as the `block_id`. Iterates through the page's child blocks. Use `start_cursor` for pagination when `has_more` is `true`.
 
 **Block types and how to render them:**
+
 - `paragraph`: Read `paragraph.rich_text[].plain_text`
 - `heading_1`, `heading_2`, `heading_3`: Read `heading_N.rich_text[].plain_text`
 - `bulleted_list_item`, `numbered_list_item`: Read `*.rich_text[].plain_text`
@@ -70,6 +78,7 @@ Pages are blocks too — use the page ID as the `block_id`. Iterates through the
 ## Searching
 
 ### Search pages and databases
+
 ```
 POST https://api.notion.com/v1/search
 {
@@ -79,6 +88,7 @@ POST https://api.notion.com/v1/search
   "page_size": 10
 }
 ```
+
 Omit `filter` to search both pages and databases. Use `filter.value: "database"` to search only databases.
 
 Returns `results[]` with `id`, `url`, `properties.title` (for pages), and `title[]` (for databases).
@@ -86,12 +96,15 @@ Returns `results[]` with `id`, `url`, `properties.title` (for pages), and `title
 ## Reading Databases
 
 ### Get database metadata
+
 ```
 GET https://api.notion.com/v1/databases/{database_id}
 ```
+
 Returns the database schema (all property definitions).
 
 ### Query a database
+
 ```
 POST https://api.notion.com/v1/databases/{database_id}/query
 {
@@ -105,9 +118,11 @@ POST https://api.notion.com/v1/databases/{database_id}/query
   "page_size": 20
 }
 ```
+
 Omit `filter` to retrieve all rows. Returns `results[]` where each item is a page (database row).
 
 **Extracting property values from database rows:**
+
 - `title`: `properties.Name.title[].plain_text`
 - `rich_text`: `properties.Notes.rich_text[].plain_text`
 - `number`: `properties.Price.number`
@@ -123,6 +138,7 @@ Omit `filter` to retrieve all rows. Returns `results[]` where each item is a pag
 ## Creating Pages
 
 ### Create a new page
+
 ```
 POST https://api.notion.com/v1/pages
 {
@@ -149,6 +165,7 @@ For database rows, use `"parent": { "database_id": "<database_id>" }` and includ
 ## Updating Pages
 
 ### Update page properties
+
 ```
 PATCH https://api.notion.com/v1/pages/{page_id}
 {
@@ -160,6 +177,7 @@ PATCH https://api.notion.com/v1/pages/{page_id}
 ```
 
 ### Append blocks to a page
+
 ```
 PATCH https://api.notion.com/v1/blocks/{block_id}/children
 {
@@ -198,6 +216,7 @@ PATCH https://api.notion.com/v1/blocks/{block_id}/children
 ```
 
 ### Update a block's content
+
 ```
 PATCH https://api.notion.com/v1/blocks/{block_id}
 {
@@ -208,6 +227,7 @@ PATCH https://api.notion.com/v1/blocks/{block_id}
 ```
 
 ### Delete (archive) a block
+
 ```
 DELETE https://api.notion.com/v1/blocks/{block_id}
 ```
@@ -215,6 +235,7 @@ DELETE https://api.notion.com/v1/blocks/{block_id}
 ## Archive / Delete Pages
 
 Notion does not permanently delete pages via the API — it archives them:
+
 ```
 PATCH https://api.notion.com/v1/pages/{page_id}
 {
@@ -228,7 +249,7 @@ When a response includes `"has_more": true`, pass `"start_cursor": response.next
 
 ## Error Handling
 
-- **401 Unauthorized**: The access token is missing or expired. Ask the user to reconnect Notion via the **notion-oauth-setup** skill.
+- **401 Unauthorized**: The token is missing, invalid, or expired. For Internal integrations, ask the user to re-run the **notion-oauth-setup** skill. For OAuth connections, the access token may need to be refreshed or re-authorized.
 - **403 Forbidden**: The integration doesn't have access to the requested page or database. Remind the user that they need to share the page/database with the "Vellum Assistant" integration in Notion (via the Share menu → "Add connections").
 - **404 Not Found**: The page or database ID doesn't exist or the integration can't see it. Verify the ID and check sharing settings.
 - **400 Bad Request**: Check the request body structure. The Notion API error response includes a `message` field with details.

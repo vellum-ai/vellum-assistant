@@ -625,22 +625,34 @@ async function hatchLocal(
     resources = await allocateLocalResources(instanceName);
   }
 
-  // Clean up stale workspace data: if the .vellum directory already exists for
-  // this instance but no lockfile entry owns it, a previous retire failed to
-  // archive it (or a managed-only retire left local data behind). Remove it so
-  // the new assistant starts with a fresh workspace.
-  if (!existingEntry) {
-    const instanceVellumDir = join(resources.instanceDir, ".vellum");
-    if (existsSync(instanceVellumDir)) {
+  // Clean up stale workspace data: if the workspace directory already exists for
+  // this instance but no local lockfile entry owns it, a previous retire failed
+  // to archive it (or a managed-only retire left local data behind). Remove the
+  // workspace subtree so the new assistant starts fresh — but preserve the rest
+  // of .vellum (e.g. protected/, credentials) which may be shared.
+  if (
+    !existingEntry ||
+    (existingEntry.cloud != null && existingEntry.cloud !== "local")
+  ) {
+    const instanceWorkspaceDir = join(
+      resources.instanceDir,
+      ".vellum",
+      "workspace",
+    );
+    if (existsSync(instanceWorkspaceDir)) {
       const ownedByOther = loadAllAssistants().some((a) => {
-        if (a.cloud !== "local" || !a.resources) return false;
-        return join(a.resources.instanceDir, ".vellum") === instanceVellumDir;
+        if ((a.cloud != null && a.cloud !== "local") || !a.resources)
+          return false;
+        return (
+          join(a.resources.instanceDir, ".vellum", "workspace") ===
+          instanceWorkspaceDir
+        );
       });
       if (!ownedByOther) {
         console.log(
-          `🧹 Removing stale workspace at ${instanceVellumDir} (not owned by any assistant)...\n`,
+          `🧹 Removing stale workspace at ${instanceWorkspaceDir} (not owned by any assistant)...\n`,
         );
-        rmSync(instanceVellumDir, { recursive: true, force: true });
+        rmSync(instanceWorkspaceDir, { recursive: true, force: true });
       }
     }
   }
@@ -785,10 +797,8 @@ export async function hatch(): Promise<void> {
     process.exit(1);
   }
 
-  if (watch && remote !== "local" && remote !== "docker") {
-    console.error(
-      "Error: --watch is only supported for local and docker hatch targets.",
-    );
+  if (watch && remote !== "local") {
+    console.error("Error: --watch is only supported for local hatch targets.");
     process.exit(1);
   }
 
@@ -808,7 +818,7 @@ export async function hatch(): Promise<void> {
   }
 
   if (remote === "docker") {
-    await hatchDocker(species, detached, name, watch);
+    await hatchDocker(species, detached, name);
     return;
   }
 

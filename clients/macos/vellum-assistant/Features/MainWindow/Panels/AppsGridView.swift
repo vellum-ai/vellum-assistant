@@ -9,7 +9,7 @@ struct AppsGridView: View {
     let onOpenApp: (String) -> Void
     /// Called when the user opens a shared app (needs surface-based navigation).
     var onOpenSharedApp: ((UiSurfaceShowMessage) -> Void)?
-    var onNewThread: (() -> Void)?
+    var onNewConversation: (() -> Void)?
 
     @State private var searchText = ""
     @State private var hoveredAppId: String?
@@ -142,7 +142,7 @@ struct AppsGridView: View {
             icon: VIcon.layoutGrid.rawValue,
             actionLabel: "New Conversation",
             actionIcon: VIcon.plus.rawValue,
-            action: { onNewThread?() }
+            action: { onNewConversation?() }
         )
     }
 
@@ -539,8 +539,7 @@ struct AppsGridView: View {
             for await message in stream {
                 guard !Task.isCancelled else { return }
                 if case .appsListResponse(let response) = message {
-                    // Only sync if daemon returned apps — empty response may indicate an error
-                    if !response.apps.isEmpty {
+                    if response.success {
                         let daemonItems = response.apps.map {
                             AppListManager.AppItem_Daemon(
                                 id: $0.id, name: $0.name, description: $0.description,

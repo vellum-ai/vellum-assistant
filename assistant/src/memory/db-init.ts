@@ -83,6 +83,7 @@ import {
   migrateRemindersToSchedules,
   migrateRenameConversationTypeColumn,
   migrateRenameFollowupsThreadIdColumn,
+  migrateRenameGmailProviderKeyToGoogle,
   migrateRenameGuardianVerificationValues,
   migrateRenameInboxThreadStateTable,
   migrateRenameNotificationThreadColumns,
@@ -419,6 +420,9 @@ export function initializeDb(): void {
 
   // 71. Rename replyToThread → replyInSameConversation in sequence steps JSON blobs
   migrateRenameSequenceStepsReplyKey(database);
+
+  // 72. Rename integration:gmail → integration:google across OAuth tables
+  migrateRenameGmailProviderKeyToGoogle(database);
 
   validateMigrationState(database);
 

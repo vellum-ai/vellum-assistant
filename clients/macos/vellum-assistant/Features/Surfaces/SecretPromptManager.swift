@@ -21,6 +21,7 @@ final class SecretPromptManager {
         panel.orderFront(nil)
     }
 
+
     /// Called when the user responds to a secret prompt.
     /// Parameters: (requestId, value?, delivery?) — value is nil if user cancelled.
     /// `delivery` is "store" (default) or "transient_send" for one-time use.
@@ -55,7 +56,7 @@ final class SecretPromptManager {
 
         let panel = NSPanel(
             contentRect: NSRect(x: 0, y: 0, width: panelWidth, height: 300),
-            styleMask: [.titled, .nonactivatingPanel, .utilityWindow, .hudWindow],
+            styleMask: [.borderless, .nonactivatingPanel],
             backing: .buffered,
             defer: false
         )
@@ -74,18 +75,25 @@ final class SecretPromptManager {
         panel.setContentSize(NSSize(width: panelWidth, height: panelHeight))
         panel.level = .floating
         panel.isMovableByWindowBackground = true
-        panel.titleVisibility = .hidden
-        panel.titlebarAppearsTransparent = true
-        panel.alphaValue = 0.95
+        panel.backgroundColor = .clear
+        panel.isOpaque = false
+        panel.hasShadow = true
+
         panel.isReleasedWhenClosed = false
         panel.collectionBehavior = [.canJoinAllSpaces, .stationary]
         panel.identifier = NSUserInterfaceItemIdentifier("SecureCredentialPanel")
 
-        // Position at top-right of screen
-        if let screen = NSScreen.main {
+        // Position centered over the main app window, or screen center as fallback
+        let appWindow = NSApp.windows.first { $0 is TitleBarZoomableWindow && $0.isVisible }
+        if let anchor = appWindow {
+            let anchorFrame = anchor.frame
+            let x = anchorFrame.midX - panelWidth / 2
+            let y = anchorFrame.midY - panelHeight / 2
+            panel.setFrameOrigin(NSPoint(x: x, y: y))
+        } else if let screen = NSScreen.main {
             let screenFrame = screen.visibleFrame
-            let x = screenFrame.maxX - panelWidth - 20
-            let y = screenFrame.maxY - panelHeight - 20
+            let x = screenFrame.midX - panelWidth / 2
+            let y = screenFrame.midY - panelHeight / 2
             panel.setFrameOrigin(NSPoint(x: x, y: y))
         }
 
@@ -192,8 +200,8 @@ struct SecretPromptView: View {
 
                 // Secure input
                 SecureField(placeholder, text: $secretValue)
-                    .textFieldStyle(.roundedBorder)
                     .font(VFont.mono)
+                    .vInputStyle()
                     .accessibilityIdentifier("secure-credential-input")
 
                 // Safety explainer
@@ -260,6 +268,7 @@ struct SecretPromptView: View {
         .frame(width: 400)
         .frame(maxHeight: 600)
         .vPanelBackground()
+        .clipShape(RoundedRectangle(cornerRadius: VRadius.window))
     }
 
     @ViewBuilder
@@ -282,8 +291,8 @@ struct SecretPromptView: View {
             }
         }
         .padding(VSpacing.sm)
-        .background(VColor.surfaceBase.opacity(0.5))
-        .cornerRadius(6)
+        .background(VColor.surfaceOverlay)
+        .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
         .textSelection(.enabled)
     }
 

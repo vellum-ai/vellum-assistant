@@ -33,7 +33,7 @@ import {
   generateVideoThumbnailFromPath,
 } from "./video-thumbnail.js";
 
-const log = getLogger("session-attachments");
+const log = getLogger("conversation-attachments");
 
 /**
  * Approve reading a host file for assistant attachment resolution.

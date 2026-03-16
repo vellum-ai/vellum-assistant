@@ -1145,7 +1145,7 @@ public final class SettingsStore: ObservableObject {
                 self.fetchChannelSetupStatus()
             } catch {
                 self.slackChannelSaveInProgress = false
-                self.slackChannelError = error.localizedDescription
+                self.slackChannelError = "Failed to disconnect: \(error.localizedDescription)"
                 self.fetchChannelSetupStatus()
                 log.error("Failed to clear Slack channel config: \(error)")
             }

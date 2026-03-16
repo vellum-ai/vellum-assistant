@@ -44,10 +44,10 @@ export type OAuthConnectionRow = typeof oauthConnections.$inferSelect;
 /**
  * Seed well-known provider profiles into the database. Uses INSERT … ON
  * CONFLICT DO UPDATE so that implementation fields (authUrl, tokenUrl,
- * tokenEndpointAuthMethod, extraParams, callbackTransport, pingUrl)
- * propagate to existing installations on every startup, while
- * user-customizable fields (defaultScopes, scopePolicy, userinfoUrl,
- * baseUrl) are only written on the initial insert.
+ * tokenEndpointAuthMethod, userinfoUrl, extraParams, callbackTransport,
+ * pingUrl) propagate to existing installations on every startup, while
+ * user-customizable fields (defaultScopes, scopePolicy, baseUrl) are
+ * only written on the initial insert.
  */
 export function seedProviders(
   profiles: Array<{
@@ -100,6 +100,7 @@ export function seedProviders(
           authUrl,
           tokenUrl,
           tokenEndpointAuthMethod,
+          userinfoUrl,
           extraParams,
           callbackTransport,
           pingUrl,
@@ -269,6 +270,9 @@ export async function upsertApp(
   if (clientSecretValue) {
     const stored = await setSecureKeyAsync(credPath, clientSecretValue);
     if (!stored) {
+      // Roll back the just-inserted row to avoid an orphaned app pointing
+      // at a non-existent client_secret in secure storage.
+      db.delete(oauthApps).where(eq(oauthApps.id, id)).run();
       throw new Error("Failed to store client_secret in secure storage");
     }
   }

@@ -7,6 +7,11 @@ metadata:
   vellum:
     display-name: "Voice Setup"
     includes: ["elevenlabs-voice"]
+    activation-hints:
+      - "Guided setup or troubleshooting (walkthrough, PTT not working, mic issues, ElevenLabs/TTS)"
+      - "Simple voice setting changes (PTT key, wake word) -> use voice_config_update directly"
+    avoid-when:
+      - 'If "voice" is in a Twilio/phone context, load phone-calls instead'
 ---
 
 You are helping the user set up and troubleshoot voice features (push-to-talk, text-to-speech) entirely within this conversation. Do NOT direct the user to the Settings page for initial setup — handle everything in-chat using the tools below.

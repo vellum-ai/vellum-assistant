@@ -33,7 +33,9 @@ final class WorkspaceBrowserState {
     var pendingSwitchPath: String?
     var pendingHiddenFilesToggle: Bool?
     var showingDirtyAlert: Bool = false
+    var viewMode: FileViewMode = .source
     var showHiddenFiles: Bool = UserDefaults.standard.bool(forKey: "showHiddenFiles")
+    var hiddenFilesToggleRequestId: UInt64 = 0
 
     func refreshDirectory(_ dirPath: String, using workspaceClient: any WorkspaceClientProtocol) async {
         if let response = await workspaceClient.fetchWorkspaceTree(path: dirPath, showHidden: showHiddenFiles) {
@@ -43,6 +45,7 @@ final class WorkspaceBrowserState {
 
     func loadFile(path targetPath: String, using daemonClient: DaemonClient) async {
         selectedFilePath = targetPath
+        viewMode = .source
         isLoadingFile = true
         selectedFileDetail = nil
         isDirty = false
@@ -57,6 +60,12 @@ final class WorkspaceBrowserState {
             isDirty = false
             isSaving = false
             isLoadingFile = false
+
+            // Default read-only markdown files to preview mode
+            let ext = (targetPath as NSString).pathExtension.lowercased()
+            if (ext == "md" || ext == "markdown") && isHiddenPath(targetPath) {
+                viewMode = .preview
+            }
         }
         fileLoadTask = task
     }
@@ -211,15 +220,16 @@ struct WorkspacePanel: View {
         state.originalContent = ""
         state.isDirty = false
         state.isLoadingTree = true
-        let expectedValue = newValue
+        state.hiddenFilesToggleRequestId &+= 1
+        let requestId = state.hiddenFilesToggleRequestId
         Task {
             if let response = await workspaceClient.fetchWorkspaceTree(path: "", showHidden: newValue) {
-                // Guard against stale response from a rapid toggle
-                guard state.showHiddenFiles == expectedValue else { return }
+                // Guard against stale response from a concurrent toggle (ABA pattern)
+                guard state.hiddenFilesToggleRequestId == requestId else { return }
                 state.directoryCache[""] = response.entries
             }
-            // Only clear loading if we're still on the expected toggle value
-            if state.showHiddenFiles == expectedValue {
+            // Only clear loading if this is still the latest request
+            if state.hiddenFilesToggleRequestId == requestId {
                 state.isLoadingTree = false
             }
         }
@@ -687,23 +697,41 @@ private struct WorkspaceFileViewer: View {
     }
 
     private var emptyState: some View {
-        FileViewerEmptyState()
+        VEmptyState(title: "Select a file to view", icon: VIcon.fileText.rawValue)
     }
 
     @ViewBuilder
     private func fileContent(_ detail: WorkspaceFileResponse) -> some View {
         let mime = detail.mimeType.lowercased()
+        let isText = !detail.isBinary && detail.content != nil
+        let readOnly = isText && isHiddenPath(detail.path)
 
         VStack(spacing: 0) {
             FileContentHeaderBar(
                 icon: fileIcon(for: mime),
                 fileName: detail.name,
                 fileSize: formatFileSize(detail.size)
-            )
+            ) {
+                if isText && readOnly {
+                    Text("Read-only")
+                        .font(VFont.caption)
+                        .foregroundColor(VColor.contentTertiary)
+                } else if isText && state.isDirty {
+                    VButton(
+                        label: "Save",
+                        style: .primary,
+                        size: .compact,
+                        isDisabled: state.isSaving
+                    ) {
+                        Task { await saveFile(path: detail.path) }
+                    }
+                    .keyboardShortcut("s", modifiers: .command)
+                }
+            }
             Divider().background(VColor.borderBase)
 
-            if !detail.isBinary, detail.content != nil {
-                textViewer(detail)
+            if isText {
+                textViewer(detail, readOnly: readOnly)
             } else if mime.hasPrefix("image/") {
                 imageViewer(detail)
             } else if mime.hasPrefix("video/") {
@@ -724,54 +752,68 @@ private struct WorkspaceFileViewer: View {
         return .file
     }
 
-    private func textViewer(_ detail: WorkspaceFileResponse) -> some View {
-        let readOnly = isHiddenPath(detail.path)
-        return VStack(spacing: 0) {
-            if readOnly {
-                HStack {
-                    Spacer()
-                    Text("Read-only")
-                        .font(VFont.caption)
-                        .foregroundColor(VColor.contentTertiary)
-                        .padding(.trailing, VSpacing.md)
-                        .padding(.vertical, VSpacing.xs)
-                }
-            } else if state.isDirty {
-                HStack {
-                    Spacer()
-                    Button {
-                        Task { await saveFile(path: detail.path) }
-                    } label: {
-                        HStack(spacing: VSpacing.xs) {
-                            if state.isSaving {
-                                ProgressView().controlSize(.small)
-                            }
-                            Text("Save")
-                                .font(VFont.bodyMedium)
-                        }
-                    }
-                    .disabled(state.isSaving)
-                    .keyboardShortcut("s", modifiers: .command)
-                    .padding(.trailing, VSpacing.md)
-                    .padding(.vertical, VSpacing.xs)
-                }
-            }
+    @ViewBuilder
+    private func textViewer(_ detail: WorkspaceFileResponse, readOnly: Bool) -> some View {
+        let modes = availableViewModes(for: detail.name, mimeType: detail.mimeType)
+        let effectiveMode = modes.contains(state.viewMode) ? state.viewMode : (modes.first ?? .source)
 
+        if modes.count > 1 {
+            HStack(spacing: 0) {
+                VSegmentedControl(
+                    items: modes.map { (label: viewModeLabel($0), tag: $0) },
+                    selection: $state.viewMode,
+                    style: .pill
+                )
+                .frame(width: CGFloat(modes.count) * 100)
+                Spacer()
+            }
+            .padding(.horizontal, VSpacing.md)
+            .padding(.vertical, VSpacing.sm)
+        }
+
+        switch effectiveMode {
+        case .source:
+            sourceView(detail)
+        case .preview:
+            previewView(detail)
+        case .tree:
+            treeView(detail)
+        }
+    }
+
+    private func sourceView(_ detail: WorkspaceFileResponse) -> some View {
+        let readOnly = isHiddenPath(detail.path)
+        let language = SyntaxLanguage.detect(fileName: detail.name, mimeType: detail.mimeType)
+        return Group {
             if readOnly {
-                ReadOnlyCodeContent(content: detail.content ?? "")
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                HighlightedTextView(
+                    text: .constant(detail.content ?? ""),
+                    language: language,
+                    isEditable: false
+                )
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
-                TextEditor(text: $state.editableContent)
-                    .font(VFont.mono)
-                    .foregroundColor(VColor.contentDefault)
-                    .scrollContentBackground(.hidden)
-                    .padding(VSpacing.md)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .onChange(of: state.editableContent) { _, newValue in
+                HighlightedTextView(
+                    text: $state.editableContent,
+                    language: language,
+                    isEditable: true,
+                    onTextChange: { newValue in
                         state.isDirty = newValue != state.originalContent
                     }
+                )
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
+    }
+
+    private func previewView(_ detail: WorkspaceFileResponse) -> some View {
+        MarkdownPreviewView(content: state.editableContent)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    private func treeView(_ detail: WorkspaceFileResponse) -> some View {
+        JSONTreeView(content: state.editableContent)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     private func saveFile(path: String) async {

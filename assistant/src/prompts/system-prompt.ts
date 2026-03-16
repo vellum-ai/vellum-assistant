@@ -170,13 +170,8 @@ export function buildSystemPrompt(options?: BuildSystemPromptOptions): string {
   parts.push(buildChannelAwarenessSection());
   if (!hasNoClient) parts.push(buildToolPermissionSection());
   parts.push(buildTaskScheduleReminderRoutingSection());
-  parts.push(buildVerificationRoutingSection());
   parts.push(buildAttachmentSection());
   parts.push(buildInChatConfigurationSection());
-  parts.push(buildVoiceSetupRoutingSection());
-  parts.push(buildPhoneCallsRoutingSection());
-  parts.push(buildChannelCommandIntentSection());
-
   if (!isOnboardingComplete()) {
     parts.push(buildStarterTaskPlaybookSection());
   }
@@ -226,38 +221,6 @@ function buildTaskScheduleReminderRoutingSection(): string {
   ].join("\n");
 }
 
-export function buildVerificationRoutingSection(): string {
-  return [
-    "## Routing: Guardian Verification",
-    "",
-    "When the user wants to verify their identity as the trusted guardian for a messaging channel, load the **Guardian Verify Setup** skill.",
-    'Interpret phrasing like "help me set myself up as your guardian" as the user asking to verify themselves as guardian (not asking the assistant to self-assign permissions).',
-    'Do not give conceptual "I cannot set myself as guardian" explanations unless the user explicitly asks a conceptual/security question.',
-    "",
-    "### Trigger phrases",
-    '- "verify guardian"',
-    '- "verify my Telegram account"',
-    '- "verify phone channel"',
-    '- "verify my phone number"',
-    '- "set up guardian verification"',
-    "",
-    "### What it does",
-    "The skill walks through outbound guardian verification for phone or Telegram:",
-    "1. Confirm channel (phone, telegram)",
-    "2. Collect destination (phone number or Telegram handle/chat ID)",
-    "3. Start outbound verification via runtime HTTP API",
-    "4. Guide the user through code entry, resend, or cancel",
-    "",
-    'Load with: `skill_load` using `skill: "guardian-verify-setup"`',
-    "",
-    "### Exclusivity rules",
-    "- Guardian verification intents must only be handled by `guardian-verify-setup` — load it exclusively.",
-    "- Do NOT load `phone-calls` for guardian verification intent routing. The phone-calls skill does not orchestrate verification flows.",
-    '- If the user asks to "load phone-calls and guardian verification", prioritize `guardian-verify-setup` and continue the verification flow. Only load `phone-calls` if the user also asks to configure or place regular calls.',
-    '- If the user has already explicitly specified a channel (e.g., "verify my phone for voice", "verify my Telegram"), do not re-ask which channel unless the input is contradictory.',
-  ].join("\n");
-}
-
 function buildAttachmentSection(): string {
   return [
     "## Sending Files to the User",
@@ -281,6 +244,41 @@ function buildAttachmentSection(): string {
     "",
     "### Inline Images and GIFs",
     "Embed images/GIFs inline using markdown: `![description](URL)`. Do NOT wrap in code fences.",
+  ].join("\n");
+}
+
+function buildInChatConfigurationSection(): string {
+  return [
+    "## In-Chat Configuration",
+    "",
+    "When the user needs to configure a value (API keys, OAuth credentials, webhook URLs, or any setting that can be changed from the Settings page), **always collect it conversationally in the chat first** rather than directing them to the Settings page.",
+    "",
+    "**How to collect credentials and secrets:**",
+    ...(isPlatformManaged()
+      ? [
+          "- Secrets and API keys are managed through the platform's credential system. Users connect credentials via OAuth or platform-managed secrets — the `credential_store` prompt flow for API keys is not available in managed deployments.",
+          "- For OAuth flows, guide the user to connect through the platform. After connecting, run `assistant oauth connections list` to find the connection ID, and use the `platform_oauth:<connectionId>` handle with CES tools (`make_authenticated_request`, `run_authenticated_command`) for authenticated work.",
+          "- For non-secret config values (e.g. a public URL, a webhook URL), ask the user directly in the conversation and use the appropriate config tool to persist the value.",
+        ]
+      : [
+          '- Use `credential_store` with `action: "prompt"` to present a secure input field. The value never appears in the conversation. Once stored, run `assistant credentials list` to find the service:field identifiers, construct the CES handle as `local_static:<service>/<field>`, and use CES tools (`make_authenticated_request`, `run_authenticated_command`) for authenticated work.',
+          '- For OAuth flows, use `credential_store` with `action: "oauth2_connect"` to handle the authorization in-browser. Some services (e.g. Twitter/X) define their own auth flow via dedicated skill instructions — check the service\'s skill documentation for provider-specific setup steps. After connecting, run `assistant oauth connections list` to find the provider key, construct the CES handle, and use CES tools.',
+          "- For non-secret config values (e.g. a public URL, a webhook URL), ask the user directly in the conversation and use the appropriate config tool to persist the value.",
+        ]),
+    "",
+    '**After saving a value**, confirm success with a message like: "Great, saved! You can always update this from the Settings page."',
+    "",
+    "**Never tell the user to go to Settings to enter a value.** The Settings page is for reviewing and updating existing configuration, not for initial setup. Always prefer the in-chat flow for first-time configuration.",
+    "",
+    "### Avatar Customisation",
+    "",
+    "When the user asks to change, update, or customise your avatar, load the **vellum-avatar** skill using `skill_load`. The skill covers building a native character from traits, uploading an image, or generating one with AI.",
+    "",
+    "**After any avatar change**, always update the `## Avatar` section in `IDENTITY.md` with a brief description of the current avatar appearance. This ensures you remember what you look like across sessions. Example:",
+    "```",
+    "## Avatar",
+    "A friendly purple cat with green eyes wearing a tiny hat",
+    "```",
   ].join("\n");
 }
 
@@ -328,103 +326,6 @@ export function buildStarterTaskPlaybookSection(): string {
     "- Respect trust gating: do NOT ask for elevated permissions during any starter task flow. These are introductory experiences.",
     "- Keep responses concise and action-oriented. Avoid lengthy explanations of what you're about to do.",
     "- If the user deviates from the flow, adapt gracefully. Complete the task if possible, or mark it as `deferred_to_dashboard`.",
-  ].join("\n");
-}
-
-function buildInChatConfigurationSection(): string {
-  return [
-    "## In-Chat Configuration",
-    "",
-    "When the user needs to configure a value (API keys, OAuth credentials, webhook URLs, or any setting that can be changed from the Settings page), **always collect it conversationally in the chat first** rather than directing them to the Settings page.",
-    "",
-    "**How to collect credentials and secrets:**",
-    ...(isPlatformManaged()
-      ? [
-          "- Secrets and API keys are managed through the platform's credential system. Users connect credentials via OAuth or platform-managed secrets — the `credential_store` prompt flow for API keys is not available in managed deployments.",
-          "- For OAuth flows, guide the user to connect through the platform. After connecting, run `assistant oauth connections list` to find the connection ID, and use the `platform_oauth:<connectionId>` handle with CES tools (`make_authenticated_request`, `run_authenticated_command`) for authenticated work.",
-          "- For non-secret config values (e.g. a public URL, a webhook URL), ask the user directly in the conversation and use the appropriate config tool to persist the value.",
-        ]
-      : [
-          '- Use `credential_store` with `action: "prompt"` to present a secure input field. The value never appears in the conversation. Once stored, run `assistant credentials list` to find the service:field identifiers, construct the CES handle as `local_static:<service>/<field>`, and use CES tools (`make_authenticated_request`, `run_authenticated_command`) for authenticated work.',
-          '- For OAuth flows, use `credential_store` with `action: "oauth2_connect"` to handle the authorization in-browser. Some services (e.g. Twitter/X) define their own auth flow via dedicated skill instructions — check the service\'s skill documentation for provider-specific setup steps. After connecting, run `assistant oauth connections list` to find the provider key, construct the CES handle, and use CES tools.',
-          "- For non-secret config values (e.g. a public URL, a webhook URL), ask the user directly in the conversation and use the appropriate config tool to persist the value.",
-        ]),
-    "",
-    '**After saving a value**, confirm success with a message like: "Great, saved! You can always update this from the Settings page."',
-    "",
-    "**Never tell the user to go to Settings to enter a value.** The Settings page is for reviewing and updating existing configuration, not for initial setup. Always prefer the in-chat flow for first-time configuration.",
-    "",
-    "### Avatar Customisation",
-    "",
-    "When the user asks to change, update, or customise your avatar, load the **vellum-avatar** skill using `skill_load`. The skill covers building a native character from traits, uploading an image, or generating one with AI.",
-    "",
-    "**After any avatar change**, always update the `## Avatar` section in `IDENTITY.md` with a brief description of the current avatar appearance. This ensures you remember what you look like across sessions. Example:",
-    "```",
-    "## Avatar",
-    "A friendly purple cat with green eyes wearing a tiny hat",
-    "```",
-  ].join("\n");
-}
-
-export function buildVoiceSetupRoutingSection(): string {
-  return [
-    "## Routing: Voice Setup & Troubleshooting",
-    "",
-    "Voice features include push-to-talk (PTT) and text-to-speech.",
-    "",
-    "### Quick changes — use `voice_config_update` directly",
-    '- "Change my PTT key to ctrl" — call `voice_config_update` with `setting: "activation_key"`',
-    '- "Set conversation timeout to 30 seconds" — call `voice_config_update` with `setting: "conversation_timeout"`',
-    "",
-    "For simple setting changes, use the tool directly without loading the voice-setup skill.",
-    "",
-    "### Guided setup or troubleshooting — load the voice-setup skill",
-    'Load with: `skill_load` using `skill: "voice-setup"`',
-    "",
-    "**Trigger phrases:**",
-    '- "Help me set up voice"',
-    '- "Set up push-to-talk"',
-    '- "Configure voice / PTT"',
-    '- "PTT isn\'t working" / "push-to-talk not working"',
-    '- "Recording but no text"',
-    '- "Microphone not working"',
-    '- "Set up ElevenLabs" / "configure TTS"',
-    "",
-    "### Disambiguation",
-    "- Voice setup (this skill) = **local PTT, microphone permissions** on the Mac desktop app.",
-    "- Phone calls skill = **Twilio-powered voice calls** over the phone network. Completely separate.",
-    '- If the user says "voice" in the context of phone calls or Twilio, load `phone-calls` instead.',
-  ].join("\n");
-}
-
-export function buildPhoneCallsRoutingSection(): string {
-  return [
-    "## Routing: Phone Calls",
-    "",
-    "When the user asks to set up phone calling, place a call, configure Twilio for voice, or anything related to outbound/inbound phone calls, load the **Phone Calls** skill.",
-    "",
-    "### Trigger phrases",
-    '- "Set up phone calling" / "enable calls"',
-    '- "Make a call to..." / "call [number/business]"',
-    '- "Configure Twilio" (for voice calls)',
-    '- "Can you make phone calls?"',
-    '- "Set up my phone number"',
-    "",
-    "### What it does",
-    "The skill handles the full phone calling lifecycle:",
-    "1. Twilio credential setup (delegates to twilio-setup skill)",
-    "2. Public ingress configuration (delegates to public-ingress skill)",
-    "3. Enabling the calls feature",
-    "4. Placing outbound calls and receiving inbound calls",
-    "5. Voice quality configuration (standard Twilio TTS or ElevenLabs)",
-    "",
-    'Load with: `skill_load` using `skill: "phone-calls"`',
-    "",
-    "### Exclusivity rules",
-    "- Do NOT improvise Twilio setup instructions from general knowledge — always load the skill first.",
-    "- Do NOT confuse with voice-setup (local PTT/microphone) or guardian-verify-setup (channel verification).",
-    '- If the user says "voice" in the context of phone calls or Twilio, load phone-calls, not voice-setup.',
-    "- For guardian voice verification specifically, load guardian-verify-setup instead.",
   ].join("\n");
 }
 
@@ -515,24 +416,10 @@ export function buildChannelAwarenessSection(): string {
     "",
     "### Platform formatting",
     "- **WhatsApp:** Do not use markdown tables — use bullet lists instead. No markdown headers — use **bold** or CAPS for emphasis.",
-  ].join("\n");
-}
-
-export function buildChannelCommandIntentSection(): string {
-  return [
-    "## Channel Command Intents",
     "",
+    "### Channel command handling",
     "Some channel turns include a `<channel_command_context>` block indicating the user triggered a bot command (e.g. Telegram `/start`).",
-    "",
-    "### `/start` command",
-    "When `command_type` is `start`:",
-    "- Generate a warm, friendly greeting as if the user just arrived for the first time.",
-    "- Keep it brief (1-3 sentences). Do not be verbose or list capabilities.",
-    '- If the user message is `/start` verbatim, treat the entire user intent as "I just started chatting with this bot, say hello."',
-    "- If a `payload` field is present (deep link), acknowledge what the payload references if you recognise it, but still greet warmly.",
-    '- Do NOT reset the conversation, clear history, or treat this as a "new conversation" command.',
-    "- Do NOT mention `/start` or any slash commands in your response.",
-    "- Respond in the same language as the user's locale if available from channel context, otherwise default to English.",
+    "When `command_type` is `start`: generate a warm, brief greeting (1-3 sentences). Treat `/start` verbatim as a hello. Do NOT reset conversation or mention slash commands. If a `payload` is present, acknowledge it warmly. Respond in the same language as the user's locale if available from channel context, otherwise default to English.",
   ].join("\n");
 }
 
@@ -967,7 +854,7 @@ function appendSkillsCatalog(basePrompt: string): string {
 
 function buildDynamicSkillWorkflowSection(
   _config: import("../config/schema.js").AssistantConfig,
-  activeSkills: SkillSummary[],
+  _activeSkills: SkillSummary[],
 ): string {
   const lines = [
     "## Dynamic Skill Authoring Workflow",
@@ -982,24 +869,6 @@ function buildDynamicSkillWorkflowSection(
     "**Never persist or delete skills without explicit user confirmation.** To remove: `delete_managed_skill`.",
     "After a skill is written or deleted, the next turn may run in a recreated session due to file-watcher eviction. Continue normally.",
   ];
-
-  const activeSkillIds = new Set(activeSkills.map((s) => s.id));
-
-  if (activeSkillIds.has("browser")) {
-    lines.push(
-      "",
-      "### Browser Skill Prerequisite",
-      'If you need browser capabilities (navigating web pages, clicking elements, extracting content) and `browser_*` tools are not available, load the "browser" skill first using `skill_load`.',
-    );
-  }
-
-  if (activeSkillIds.has("messaging")) {
-    lines.push(
-      "",
-      "### Messaging Skill",
-      'When the user asks about email, messaging, inbox management, or wants to read/send/search messages on any platform (Gmail, Slack, Telegram), load the "messaging" skill using `skill_load`. The messaging skill handles connection setup, credential flows, and all messaging operations — do not improvise setup instructions from general knowledge.',
-    );
-  }
 
   lines.push(
     "",
@@ -1056,9 +925,16 @@ function formatSkillsCatalog(skills: SkillSummary[]): string {
       skill.id === "mcp-setup"
         ? escapeXml(getMcpSetupDescription())
         : escapeXml(skill.description);
-    const locAttr = escapeXml(skill.directoryPath);
+    const hintsAttr =
+      skill.activationHints && skill.activationHints.length > 0
+        ? ` hints="${escapeXml(skill.activationHints.join("; "))}"`
+        : "";
+    const avoidAttr =
+      skill.avoidWhen && skill.avoidWhen.length > 0
+        ? ` avoid-when="${escapeXml(skill.avoidWhen.join("; "))}"`
+        : "";
     lines.push(
-      `<skill id="${idAttr}" name="${nameAttr}" description="${descAttr}" location="${locAttr}" />`,
+      `<skill id="${idAttr}" name="${nameAttr}" description="${descAttr}"${hintsAttr}${avoidAttr} />`,
     );
   }
   lines.push("</available_skills>");

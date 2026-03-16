@@ -165,11 +165,11 @@ final class ConversationLifecycleIOSTests: XCTestCase {
         XCTAssertTrue(vm.isBootstrapping, "Should still be bootstrapping")
     }
 
-    func testOnSessionCreatedCallbackFiresDuringBackfill() {
+    func testOnConversationCreatedCallbackFiresDuringBackfill() {
         let vm = ChatViewModel(daemonClient: mockClient)
-        var capturedSessionId: String?
+        var capturedConversationId: String?
         vm.onConversationCreated = { conversationId in
-            capturedSessionId = conversationId
+            capturedConversationId = conversationId
         }
         vm.createConversationIfNeeded()
 
@@ -193,12 +193,12 @@ final class ConversationLifecycleIOSTests: XCTestCase {
         let info = ConversationInfoMessage(conversationId: "callback-conv-sess", title: "Callback", correlationId: correlationId)
         vm.handleServerMessage(.conversationInfo(info))
 
-        XCTAssertEqual(capturedSessionId, "callback-conv-sess")
+        XCTAssertEqual(capturedConversationId, "callback-conv-sess")
     }
 
     // MARK: - Conversation Lifecycle: Create, Use, Archive Pattern
 
-    func testNewSessionReceivesAndCompletesMessages() {
+    func testNewConversationReceivesAndCompletesMessages() {
         let vm = ChatViewModel(daemonClient: mockClient)
 
         // Step 1: User sends first message (triggers bootstrap)
@@ -243,7 +243,7 @@ final class ConversationLifecycleIOSTests: XCTestCase {
         XCTAssertFalse(vm.messages[1].isStreaming)
     }
 
-    func testMultipleMessagesInSameSession() {
+    func testMultipleMessagesInSameConversation() {
         let vm = ChatViewModel(daemonClient: mockClient)
         vm.conversationId = "existing-sess"
 
@@ -272,7 +272,7 @@ final class ConversationLifecycleIOSTests: XCTestCase {
         XCTAssertEqual(vm.messages[3].text, "Second answer")
     }
 
-    // MARK: - Separate Sessions (Conversation Isolation)
+    // MARK: - Separate Conversations (Isolation)
 
     func testSeparateViewModelsHaveIndependentState() {
         let vm1 = ChatViewModel(daemonClient: mockClient)
@@ -314,7 +314,7 @@ final class ConversationLifecycleIOSTests: XCTestCase {
 
     // MARK: - Error Recovery in Conversation
 
-    func testErrorDuringSessionDoesNotDestroyMessages() {
+    func testErrorDuringConversationDoesNotDestroyMessages() {
         let vm = ChatViewModel(daemonClient: mockClient)
         vm.conversationId = "sess-error"
 
@@ -382,7 +382,7 @@ final class ConversationLifecycleIOSTests: XCTestCase {
         XCTAssertEqual(cachedConversation.lastSeenAssistantMessageAt?.timeIntervalSince1970, 4.0)
     }
 
-    func testConnectedConversationMergeAppliesMetadataWhenMatchedViaViewModelSessionId() {
+    func testConnectedConversationMergeAppliesMetadataWhenMatchedViaViewModelConversationId() {
         let daemonClient = DaemonClient()
         let store = IOSConversationStore(daemonClient: daemonClient)
 
@@ -857,16 +857,16 @@ final class ConversationLifecycleIOSTests: XCTestCase {
         XCTAssertEqual(updatedConversation.displayOrder, 1)
         XCTAssertEqual(reorderRequests.count, 1)
 
-        let updatesBySessionId = Dictionary(
+        let updatesByConversationId = Dictionary(
             uniqueKeysWithValues: reorderRequests[0].updates.map { ($0.conversationId, $0) }
         )
-        XCTAssertEqual(updatesBySessionId["connected-session-pinned"]?.displayOrder, 0)
-        XCTAssertEqual(updatesBySessionId["connected-session-pinned"]?.isPinned, true)
-        XCTAssertEqual(updatesBySessionId["connected-session-unpinned"]?.displayOrder, 1)
-        XCTAssertEqual(updatesBySessionId["connected-session-unpinned"]?.isPinned, true)
+        XCTAssertEqual(updatesByConversationId["connected-session-pinned"]?.displayOrder, 0)
+        XCTAssertEqual(updatesByConversationId["connected-session-pinned"]?.isPinned, true)
+        XCTAssertEqual(updatesByConversationId["connected-session-unpinned"]?.displayOrder, 1)
+        XCTAssertEqual(updatesByConversationId["connected-session-unpinned"]?.isPinned, true)
     }
 
-    func testPinningConnectedConversationSurvivesStaleSessionRefresh() {
+    func testPinningConnectedConversationSurvivesStaleConversationListRefresh() {
         let daemonClient = DaemonClient()
         let store = IOSConversationStore(daemonClient: daemonClient)
         let response = makeConversationListResponse(conversations: [
@@ -953,13 +953,13 @@ final class ConversationLifecycleIOSTests: XCTestCase {
         XCTAssertEqual(secondConversation.displayOrder, 0)
         XCTAssertEqual(reorderRequests.count, 1)
 
-        let updatesBySessionId = Dictionary(
+        let updatesByConversationId = Dictionary(
             uniqueKeysWithValues: reorderRequests[0].updates.map { ($0.conversationId, $0) }
         )
-        XCTAssertNil(updatesBySessionId["connected-session-first"]?.displayOrder)
-        XCTAssertEqual(updatesBySessionId["connected-session-first"]?.isPinned, false)
-        XCTAssertEqual(updatesBySessionId["connected-session-second"]?.displayOrder, 0)
-        XCTAssertEqual(updatesBySessionId["connected-session-second"]?.isPinned, true)
+        XCTAssertNil(updatesByConversationId["connected-session-first"]?.displayOrder)
+        XCTAssertEqual(updatesByConversationId["connected-session-first"]?.isPinned, false)
+        XCTAssertEqual(updatesByConversationId["connected-session-second"]?.displayOrder, 0)
+        XCTAssertEqual(updatesByConversationId["connected-session-second"]?.isPinned, true)
     }
 
     func testPinningStandaloneConversationDoesNothing() {

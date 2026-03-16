@@ -6,7 +6,7 @@
  * Shared by the sandbox bash tool and skill sandbox runner.
  */
 import { getGatewayInternalBaseUrl } from "../../config/env.js";
-import { getDataDir } from "../../util/platform.js";
+import { getDataDir, getWorkspaceDir } from "../../util/platform.js";
 
 const SAFE_ENV_VARS = [
   "PATH",
@@ -43,5 +43,8 @@ export function buildSanitizedEnv(): Record<string, string> {
   // Expose the runtime data directory so child processes can locate databases,
   // logs, and other instance-scoped state without re-deriving the path.
   env.VELLUM_DATA_DIR = getDataDir();
+  // Expose the workspace directory so skills and child processes can read/write
+  // workspace-scoped files (e.g. avatar traits, user data).
+  env.VELLUM_WORKSPACE_DIR = getWorkspaceDir();
   return env;
 }

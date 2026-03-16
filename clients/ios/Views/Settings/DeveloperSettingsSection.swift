@@ -26,9 +26,9 @@ private struct DeveloperSettingsSectionContent: View {
     @ObservedObject var traceStore: TraceStore
     @State private var showDebugPanel = false
     @State private var showUsageDashboard = false
-    // Captured once when the sheet opens so the panel stays on the same session
+    // Captured once when the sheet opens so the panel stays on the same conversation
     // even if newer trace events arrive while the sheet is visible.
-    @State private var selectedSessionId: String?
+    @State private var selectedConversationId: String?
     // Preserved across sheet presentations to avoid redundant network calls
     // and loading spinners each time the usage dashboard is opened.
     // Updated via .onChange(of: clientGeneration) when rebuildClient() fires.
@@ -40,7 +40,7 @@ private struct DeveloperSettingsSectionContent: View {
         _usageDashboardStore = State(initialValue: UsageDashboardStore())
     }
 
-    private var sessionCount: Int {
+    private var conversationCount: Int {
         traceStore.eventsByConversation.count
     }
 
@@ -51,7 +51,7 @@ private struct DeveloperSettingsSectionContent: View {
     var body: some View {
         Form {
             Section("Trace Store") {
-                LabeledContent("Sessions with events", value: "\(sessionCount)")
+                LabeledContent("Sessions with events", value: "\(conversationCount)")
                 LabeledContent("Total events", value: "\(totalEventCount)")
 
                 Button("Clear All Trace Events", role: .destructive) {
@@ -62,9 +62,9 @@ private struct DeveloperSettingsSectionContent: View {
 
             Section("Debug Panel") {
                 Button {
-                    // Snapshot the most recent session at open time so the panel
-                    // doesn't jump to a different session if newer events arrive.
-                    selectedSessionId = traceStore.mostRecentSessionId
+                    // Snapshot the most recent conversation at open time so the panel
+                    // doesn't jump to a different conversation if newer events arrive.
+                    selectedConversationId = traceStore.mostRecentConversationId
                     showDebugPanel = true
                 } label: {
                     Label { Text("Open Debug Panel") } icon: { VIconView(.bug, size: 14) }
@@ -88,7 +88,7 @@ private struct DeveloperSettingsSectionContent: View {
         .sheet(isPresented: $showDebugPanel) {
             DebugPanelView(
                 traceStore: traceStore,
-                conversationId: selectedSessionId,
+                conversationId: selectedConversationId,
                 onClose: { showDebugPanel = false }
             )
         }

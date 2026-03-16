@@ -13,7 +13,7 @@ function isVellumProcess(pid: number): boolean {
       timeout: 3000,
       stdio: ["ignore", "pipe", "ignore"],
     }).trim();
-    return /vellum-daemon|vellum-cli|vellum-gateway|@vellumai|\/vellum\/|\/daemon\/main/.test(
+    return /vellum-daemon|vellum-cli|vellum-gateway|@vellumai|\/\.?vellum\/|\/daemon\/main|\/\.vellum\/.*qdrant\/bin\/qdrant/.test(
       output,
     );
   } catch {

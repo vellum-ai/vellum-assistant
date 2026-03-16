@@ -1,7 +1,7 @@
 /**
  * Per-conversation temporary approval overrides.
  *
- * When a user chooses `allow_conversation` or `allow_10m`, the session records a
+ * When a user chooses `allow_conversation` or `allow_10m`, the conversation records a
  * temporary approval mode scoped to the conversation. Subsequent tool-use
  * confirmations within the same conversation can check this state to
  * auto-approve without prompting.

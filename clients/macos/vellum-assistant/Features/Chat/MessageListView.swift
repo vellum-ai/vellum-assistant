@@ -136,11 +136,11 @@ struct MessageListView: View {
     /// Suppresses bottom auto-scroll for the ~32ms layout window after pagination
     /// restores scroll position, preventing a jump back to the bottom.
     @State private var isSuppressingBottomScroll: Bool = false
-    @State private var isThreadContentHovered: Bool = false
+    @State private var isConversationContentHovered: Bool = false
     @State private var isAppActive: Bool = NSApp.isActive
     @State private var hoverExitDebounceTask: Task<Void, Never>?
-    @State private var threadSwitchSuppressionTask: Task<Void, Never>?
-    @State private var suppressScrollbarDuringThreadSwitch: Bool = false
+    @State private var conversationSwitchSuppressionTask: Task<Void, Never>?
+    @State private var suppressScrollbarDuringConversationSwitch: Bool = false
     @State private var expandSuppressionTask: Task<Void, Never>?
     /// Tracks the last pending confirmation request ID that triggered an
     /// auto-focus handoff. Used to detect nil→non-nil transitions so we
@@ -153,7 +153,7 @@ struct MessageListView: View {
     /// trigger re-renders.
     @StateObject private var anchorTracker = AnchorVisibilityTracker()
     /// Whether a physical scroll event (wheel/trackpad) has been received since
-    /// the current thread loaded. Before any scroll event, `isNearBottom`
+    /// the current conversation loaded. Before any scroll event, `isNearBottom`
     /// (which defaults to `true`) is not trusted; the button relies solely on
     /// `anchorTracker.isVisible` to decide visibility.
     @State private var hasReceivedScrollEvent: Bool = false
@@ -174,12 +174,12 @@ struct MessageListView: View {
     @State private var resizeScrollTask: Task<Void, Never>?
     /// Task that clears the highlight flash after the animation duration.
     @State private var highlightDismissTask: Task<Void, Never>?
-    /// In-flight staged scroll-to-bottom task used after thread switches and
+    /// In-flight staged scroll-to-bottom task used after conversation switches and
     /// app restarts to reliably anchor the viewport once layout settles.
     @State private var scrollRestoreTask: Task<Void, Never>?
     /// Whether the AnchorMinYKey preference has fired since the last scroll
     /// restore began. Ensures anchorTracker.isVisible reflects real geometry
-    /// rather than the manual reset applied on thread switch.
+    /// rather than the manual reset applied on conversation switch.
     @State private var hasFreshAnchorMeasurement: Bool = false
     @State private var avatarTargetY: CGFloat = .infinity
     @State private var avatarDisplayY: CGFloat = .infinity
@@ -416,8 +416,9 @@ struct MessageListView: View {
                                    entryAnimationEnabled: shouldPlayTailEntryAnimation)
                     .frame(width: ConversationAvatarFollower.avatarSize,
                            height: ConversationAvatarFollower.avatarSize)
+                    .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(.horizontal, VSpacing.xl)
-                    .frame(maxWidth: VSpacing.chatColumnMaxWidth, alignment: .leading)
+                    .frame(maxWidth: VSpacing.chatColumnMaxWidth)
                     .frame(maxWidth: .infinity)
                     .offset(y: avatarDisplayY)
                     .accessibilityHidden(true)
@@ -441,15 +442,15 @@ struct MessageListView: View {
         }
     }
 
-    private var shouldShowThreadScrollbar: Bool {
-        isAppActive && isThreadContentHovered && !suppressScrollbarDuringThreadSwitch
+    private var shouldShowConversationScrollbar: Bool {
+        isAppActive && isConversationContentHovered && !suppressScrollbarDuringConversationSwitch
     }
 
-    private func handleThreadContentHover(_ hovering: Bool) {
+    private func handleConversationContentHover(_ hovering: Bool) {
         if hovering {
             hoverExitDebounceTask?.cancel()
             hoverExitDebounceTask = nil
-            isThreadContentHovered = true
+            isConversationContentHovered = true
             return
         }
 
@@ -463,14 +464,14 @@ struct MessageListView: View {
                 return
             }
             guard !Task.isCancelled else { return }
-            isThreadContentHovered = false
+            isConversationContentHovered = false
             hoverExitDebounceTask = nil
         }
     }
 
     /// Staged scroll-to-bottom that retries after increasing delays to handle
     /// cases where SwiftUI hasn't committed the new content's layout yet (e.g.
-    /// after a thread switch or app restart). Cancelled by user scroll-up,
+    /// after a conversation switch or app restart). Cancelled by user scroll-up,
     /// user scroll-to-bottom, anchor message set, or view disappearance.
     private func restoreScrollToBottom(proxy: ScrollViewProxy) {
         scrollRestoreTask?.cancel()
@@ -483,7 +484,7 @@ struct MessageListView: View {
                 proxy.scrollTo("scroll-bottom-anchor", anchor: .bottom)
             }
 
-            // Stage 1: ~3 frames — handles most thread switches.
+            // Stage 1: ~3 frames — handles most conversation switches.
             try? await Task.sleep(nanoseconds: 50_000_000)
             guard !Task.isCancelled else { return }
             if anchorMessageId == nil {
@@ -768,7 +769,7 @@ struct MessageListView: View {
                 }
             })
             .onHover { hovering in
-                handleThreadContentHover(hovering)
+                handleConversationContentHover(hovering)
             }
             .background {
                 GeometryReader { geo in
@@ -790,7 +791,7 @@ struct MessageListView: View {
                         hasReceivedScrollEvent = true
                     }
                 )
-                ThreadScrollbarVisibilityController(shouldShow: shouldShowThreadScrollbar)
+                ConversationScrollbarVisibilityController(shouldShow: shouldShowConversationScrollbar)
             }
             .onPreferenceChange(ScrollViewportHeightKey.self) { height in
                 os_signpost(.begin, log: PerfSignposts.log, name: "anchorPreferenceChange")
@@ -891,9 +892,9 @@ struct MessageListView: View {
             .onDisappear {
                 hoverExitDebounceTask?.cancel()
                 hoverExitDebounceTask = nil
-                threadSwitchSuppressionTask?.cancel()
-                threadSwitchSuppressionTask = nil
-                suppressScrollbarDuringThreadSwitch = false
+                conversationSwitchSuppressionTask?.cancel()
+                conversationSwitchSuppressionTask = nil
+                suppressScrollbarDuringConversationSwitch = false
                 anchorTimeoutTask?.cancel()
                 anchorTimeoutTask = nil
                 resizeScrollTask?.cancel()
@@ -963,7 +964,7 @@ struct MessageListView: View {
             .onChange(of: messages.count) {
                 // Anchor scroll takes priority: when a notification deep-link
                 // set anchorMessageId, retry scrolling to it as messages load
-                // (e.g., history arrives after a thread switch). This must run
+                // (e.g., history arrives after a conversation switch). This must run
                 // before the bottom-scroll branch to avoid competing scrollTo calls.
                 if let id = anchorMessageId, messages.contains(where: { $0.id == id }) {
                     withAnimation {
@@ -1047,7 +1048,7 @@ struct MessageListView: View {
                 }
             }
             .onChange(of: conversationId) {
-                // Keep the underlying NSScrollView instance stable across thread
+                // Keep the underlying NSScrollView instance stable across conversation
                 // switches (prevents default-scroller flash), and reset view-local
                 // scroll state explicitly instead of remounting the whole view.
                 scrollDebounceTask?.cancel()
@@ -1072,10 +1073,10 @@ struct MessageListView: View {
                 hoverExitDebounceTask = nil
                 anchorTimeoutTask?.cancel()
                 anchorTimeoutTask = nil
-                threadSwitchSuppressionTask?.cancel()
-                suppressScrollbarDuringThreadSwitch = true
-                threadSwitchSuppressionTask = Task { @MainActor in
-                    // Let the newly-selected thread finish its first layout pass so
+                conversationSwitchSuppressionTask?.cancel()
+                suppressScrollbarDuringConversationSwitch = true
+                conversationSwitchSuppressionTask = Task { @MainActor in
+                    // Let the newly-selected conversation finish its first layout pass so
                     // the scroller style/metrics settle before allowing re-show.
                     do {
                         try await Task.sleep(nanoseconds: 150_000_000)
@@ -1083,10 +1084,10 @@ struct MessageListView: View {
                         return
                     }
                     guard !Task.isCancelled else { return }
-                    suppressScrollbarDuringThreadSwitch = false
-                    threadSwitchSuppressionTask = nil
+                    suppressScrollbarDuringConversationSwitch = false
+                    conversationSwitchSuppressionTask = nil
                 }
-                isThreadContentHovered = false
+                isConversationContentHovered = false
                 avatarTargetY = .infinity
                 avatarDisplayY = .infinity
                 pendingAvatarY = nil
@@ -1096,7 +1097,7 @@ struct MessageListView: View {
             }
             .onChange(of: anchorMessageId) {
                 // Only cancel scroll restore when a new anchor is set (non-nil).
-                // The nil transition fires during thread switches (stale anchor
+                // The nil transition fires during conversation switches (stale anchor
                 // cleanup) and must not cancel the restore just started.
                 if anchorMessageId != nil {
                     scrollRestoreTask?.cancel()
@@ -1180,10 +1181,10 @@ struct MessageListView: View {
                 isAppActive = false
                 hoverExitDebounceTask?.cancel()
                 hoverExitDebounceTask = nil
-                threadSwitchSuppressionTask?.cancel()
-                threadSwitchSuppressionTask = nil
-                suppressScrollbarDuringThreadSwitch = false
-                isThreadContentHovered = false
+                conversationSwitchSuppressionTask?.cancel()
+                conversationSwitchSuppressionTask = nil
+                suppressScrollbarDuringConversationSwitch = false
+                isConversationContentHovered = false
             }
         }
     }
@@ -1427,7 +1428,7 @@ private struct MessageCellView: View, Equatable {
     }
 }
 
-private struct ThreadScrollbarVisibilityController: NSViewRepresentable, Equatable {
+private struct ConversationScrollbarVisibilityController: NSViewRepresentable, Equatable {
     let shouldShow: Bool
 
     func makeCoordinator() -> Coordinator {

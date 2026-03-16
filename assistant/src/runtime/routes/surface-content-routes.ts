@@ -2,7 +2,7 @@
  * Route handler for fetching surface content by ID.
  *
  * GET /v1/surfaces/:surfaceId — return the full surface payload from the
- * session's in-memory surface state. Used by clients to re-hydrate surfaces
+ * conversation's in-memory surface state. Used by clients to re-hydrate surfaces
  * whose data was stripped during memory compaction.
  */
 import type {
@@ -15,7 +15,7 @@ import type { RouteDefinition } from "../http-router.js";
 
 const log = getLogger("surface-content-routes");
 
-/** Narrow interface for looking up surface state from a session. */
+/** Narrow interface for looking up surface state from a conversation. */
 interface SurfaceContentTarget {
   surfaceState: Map<
     string,
@@ -30,7 +30,7 @@ interface SurfaceContentTarget {
   }>;
 }
 
-export type SurfaceContentSessionLookup = (
+export type SurfaceContentConversationLookup = (
   conversationId: string,
 ) => SurfaceContentTarget | undefined;
 
@@ -39,7 +39,7 @@ export type SurfaceContentSessionLookup = (
 // ---------------------------------------------------------------------------
 
 export function surfaceContentRouteDefinitions(deps: {
-  findConversation?: SurfaceContentSessionLookup;
+  findConversation?: SurfaceContentConversationLookup;
 }): RouteDefinition[] {
   return [
     {
@@ -72,17 +72,17 @@ export function surfaceContentRouteDefinitions(deps: {
           );
         }
 
-        const session = deps.findConversation(conversationId);
-        if (!session) {
+        const conversation = deps.findConversation(conversationId);
+        if (!conversation) {
           return httpError(
             "NOT_FOUND",
-            "No active session found for this conversationId",
+            "No active conversation found for this conversationId",
             404,
           );
         }
 
-        // Look up the surface in the session's in-memory state.
-        const stored = session.surfaceState.get(surfaceId);
+        // Look up the surface in the conversation's in-memory state.
+        const stored = conversation.surfaceState.get(surfaceId);
         if (stored) {
           log.info(
             { conversationId, surfaceId },
@@ -98,7 +98,7 @@ export function surfaceContentRouteDefinitions(deps: {
 
         // Fall back to currentTurnSurfaces in case the surface hasn't been
         // committed to surfaceState yet (e.g. mid-turn).
-        const turnSurface = session.currentTurnSurfaces?.find(
+        const turnSurface = conversation.currentTurnSurfaces?.find(
           (s) => s.surfaceId === surfaceId,
         );
         if (turnSurface) {
@@ -114,7 +114,7 @@ export function surfaceContentRouteDefinitions(deps: {
           });
         }
 
-        return httpError("NOT_FOUND", "Surface not found in session", 404);
+        return httpError("NOT_FOUND", "Surface not found in conversation", 404);
       },
     },
   ];

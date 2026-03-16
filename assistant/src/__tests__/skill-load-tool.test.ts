@@ -613,7 +613,7 @@ describe("skill_load tool", () => {
     expect(result.content).not.toContain("<loaded_skill");
   });
 
-  test("skill with references/ directory appends reference file contents", async () => {
+  test("skill with references/ directory lists reference file paths", async () => {
     // Create a skill with a references/ subdirectory
     const skillDir = join(TEST_DIR, "skills", "with-refs");
     mkdirSync(skillDir, { recursive: true });
@@ -635,16 +635,19 @@ describe("skill_load tool", () => {
     const result = await executeSkillLoad({ skill: "with-refs" });
     expect(result.isError).toBe(false);
     expect(result.content).toContain("Main body.");
-    // Reference files should be appended with headers
-    expect(result.content).toContain("--- Reference: Guide ---");
-    expect(result.content).toContain("Detailed guide content.");
-    expect(result.content).toContain("--- Reference: Troubleshooting ---");
-    expect(result.content).toContain("Fix things here.");
-    // References must be appended in alphabetical order (Guide before Troubleshooting)
-    const guideIdx = result.content.indexOf("--- Reference: Guide ---");
-    const troubleshootIdx = result.content.indexOf(
-      "--- Reference: Troubleshooting ---",
+    // Should contain reference listing header
+    expect(result.content).toContain("## Reference Files");
+    // Should list full paths to reference files
+    expect(result.content).toContain(`${skillDir}/references/GUIDE.md`);
+    expect(result.content).toContain(
+      `${skillDir}/references/TROUBLESHOOTING.md`,
     );
+    // Should NOT contain the full file contents
+    expect(result.content).not.toContain("Detailed guide content.");
+    expect(result.content).not.toContain("Fix things here.");
+    // References must be listed in alphabetical order (GUIDE before TROUBLESHOOTING)
+    const guideIdx = result.content.indexOf("GUIDE.md");
+    const troubleshootIdx = result.content.indexOf("TROUBLESHOOTING.md");
     expect(guideIdx).toBeLessThan(troubleshootIdx);
   });
 
@@ -655,7 +658,7 @@ describe("skill_load tool", () => {
     const result = await executeSkillLoad({ skill: "no-refs" });
     expect(result.isError).toBe(false);
     expect(result.content).toContain("Just body.");
-    expect(result.content).not.toContain("--- Reference:");
+    expect(result.content).not.toContain("## Reference Files");
   });
 
   test("references/ directory skips symlinked markdown files that escape the skill directory", async () => {
@@ -681,7 +684,7 @@ describe("skill_load tool", () => {
     const result = await executeSkillLoad({ skill: "refs-symlink" });
     expect(result.isError).toBe(false);
     expect(result.content).toContain("Body.");
-    expect(result.content).not.toContain("--- Reference: Secret ---");
+    expect(result.content).not.toContain("secret.md");
     expect(result.content).not.toContain("TOP_SECRET_DO_NOT_LOAD");
   });
 
@@ -705,7 +708,8 @@ describe("skill_load tool", () => {
 
     const result = await executeSkillLoad({ skill: "refs-filter" });
     expect(result.isError).toBe(false);
-    expect(result.content).toContain("--- Reference: Guide ---");
+    expect(result.content).toContain("## Reference Files");
+    expect(result.content).toContain("GUIDE.md");
     expect(result.content).not.toContain("data.json");
     expect(result.content).not.toContain('"key"');
   });

@@ -7,6 +7,8 @@ metadata:
   vellum:
     display-name: "Browser"
     feature-flag: "browser"
+    activation-hints:
+      - "Load first if you need browser_* tools (navigating, clicking, extracting web content)"
 ---
 
 Use this skill to browse the web. After loading this skill, the following browser tools become available:

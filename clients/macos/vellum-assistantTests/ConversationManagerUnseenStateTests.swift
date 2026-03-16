@@ -43,7 +43,7 @@ final class ConversationManagerUnseenStateTests: XCTestCase {
         super.tearDown()
     }
 
-    func testInactiveStandardThreadMarkedUnseenWhenAssistantReplies() {
+    func testInactiveStandardConversationMarkedUnseenWhenAssistantReplies() {
         guard let initialConversationId = conversationManager.activeConversationId else {
             XCTFail("Expected an initial active conversation")
             return
@@ -73,7 +73,7 @@ final class ConversationManagerUnseenStateTests: XCTestCase {
         XCTAssertTrue(updated.hasUnseenLatestAssistantMessage)
     }
 
-    func testInactiveThreadMarkedUnseenWhenAssistantContinuesSameMessageAfterSwitch() {
+    func testInactiveConversationMarkedUnseenWhenAssistantContinuesSameMessageAfterSwitch() {
         guard let initialConversationId = conversationManager.activeConversationId,
               let initialVm = conversationManager.chatViewModel(for: initialConversationId),
               let initialIndex = conversationManager.conversations.firstIndex(where: { $0.id == initialConversationId }) else {
@@ -119,7 +119,7 @@ final class ConversationManagerUnseenStateTests: XCTestCase {
         XCTAssertTrue(updated.hasUnseenLatestAssistantMessage)
     }
 
-    func testActiveThreadEmitsSeenSignalOnNewMessageAndStreamCompletion() {
+    func testActiveConversationEmitsSeenSignalOnNewMessageAndStreamCompletion() {
         guard let conversationId = conversationManager.activeConversationId,
               let index = conversationManager.conversations.firstIndex(where: { $0.id == conversationId }),
               let vm = conversationManager.chatViewModel(for: conversationId) else {
@@ -143,7 +143,7 @@ final class ConversationManagerUnseenStateTests: XCTestCase {
         XCTAssertEqual(seenSignals.last?.conversationId, "session-realtime")
     }
 
-    func testUnseenVisibleConversationCountExcludesArchivedThreads() {
+    func testUnseenVisibleConversationCountExcludesArchivedConversations() {
         // Start with the initial conversation created by setUp
         guard let conversationId = conversationManager.activeConversationId,
               conversationManager.conversations.firstIndex(where: { $0.id == conversationId }) != nil else {
@@ -169,8 +169,8 @@ final class ConversationManagerUnseenStateTests: XCTestCase {
         XCTAssertEqual(conversationManager.unseenVisibleConversationCount, 0)
     }
 
-    func testUnseenVisibleConversationCountExcludesPrivateThreads() {
-        // Create a private conversation (this switches activeConversationId to the private thread)
+    func testUnseenVisibleConversationCountExcludesPrivateConversations() {
+        // Create a private conversation (this switches activeConversationId to the private conversation)
         conversationManager.createPrivateConversation()
         guard let privateId = conversationManager.activeConversationId,
               let idx = conversationManager.conversations.firstIndex(where: { $0.id == privateId }) else {
@@ -221,7 +221,7 @@ final class ConversationManagerUnseenStateTests: XCTestCase {
         XCTAssertEqual(conversationManager.unseenVisibleConversationCount, 2)
     }
 
-    func testSelectingThreadDecrementsUnseenCount() {
+    func testSelectingConversationDecrementsUnseenCount() {
         // Start with the initial conversation
         guard let firstId = conversationManager.activeConversationId else {
             XCTFail("Expected an initial active conversation")
@@ -304,7 +304,7 @@ final class ConversationManagerUnseenStateTests: XCTestCase {
         XCTAssertEqual(unreadSignals.last?.conversationId, "session-mark-unread")
     }
 
-    func testMarkConversationUnreadDoesNotEmitDuplicateSignalForUnreadThread() {
+    func testMarkConversationUnreadDoesNotEmitDuplicateSignalForUnreadConversation() {
         guard let conversationId = conversationManager.activeConversationId,
               let index = conversationManager.conversations.firstIndex(where: { $0.id == conversationId }) else {
             XCTFail("Expected an initial active conversation")
@@ -422,7 +422,7 @@ final class ConversationManagerUnseenStateTests: XCTestCase {
         XCTAssertEqual(seenSignals.map(\.conversationId), ["session-requeue"])
     }
 
-    func testMarkConversationUnreadIgnoresThreadsWithoutAssistantReply() {
+    func testMarkConversationUnreadIgnoresConversationsWithoutAssistantReply() {
         guard let conversationId = conversationManager.activeConversationId,
               let index = conversationManager.conversations.firstIndex(where: { $0.id == conversationId }) else {
             XCTFail("Expected an initial active conversation")
@@ -438,7 +438,7 @@ final class ConversationManagerUnseenStateTests: XCTestCase {
         conversationManager.markConversationUnread(conversationId: conversationId)
 
         let unreadSignals = sentMessages.compactMap { $0 as? ConversationUnreadSignal }
-        XCTAssertTrue(unreadSignals.isEmpty, "Threads without assistant replies should not emit unread signals")
+        XCTAssertTrue(unreadSignals.isEmpty, "Conversations without assistant replies should not emit unread signals")
         XCTAssertFalse(conversationManager.conversations[index].hasUnseenLatestAssistantMessage)
     }
 
@@ -469,19 +469,19 @@ final class ConversationManagerUnseenStateTests: XCTestCase {
                 ],
             ]]
         )
-        guard let session = staleResponse.conversations.first else {
-            XCTFail("Expected response session")
+        guard let conversation = staleResponse.conversations.first else {
+            XCTFail("Expected response conversation")
             return
         }
 
-        conversationManager.mergeAssistantAttention(from: session, intoConversationAt: index)
+        conversationManager.mergeAssistantAttention(from: conversation, intoConversationAt: index)
 
         XCTAssertFalse(
             conversationManager.conversations.first(where: { $0.conversationId == "session-refresh-seen" })?.hasUnseenLatestAssistantMessage ?? true
         )
     }
 
-    func testAppendThreadsPreservesLocalUnreadUntilDaemonAcknowledgesIt() {
+    func testAppendConversationsPreservesLocalUnreadUntilDaemonAcknowledgesIt() {
         guard let conversationId = conversationManager.activeConversationId,
               let index = conversationManager.conversations.firstIndex(where: { $0.id == conversationId }) else {
             XCTFail("Expected an initial active conversation")
@@ -516,7 +516,7 @@ final class ConversationManagerUnseenStateTests: XCTestCase {
         )
     }
 
-    func testMarkConversationUnreadRemovesPendingSeenSignalForSameSession() {
+    func testMarkConversationUnreadRemovesPendingSeenSignalForSameConversation() {
         guard let firstConversationId = conversationManager.activeConversationId,
               let firstIndex = conversationManager.conversations.firstIndex(where: { $0.id == firstConversationId }) else {
             XCTFail("Expected an initial active conversation")
@@ -563,7 +563,7 @@ final class ConversationManagerUnseenStateTests: XCTestCase {
         }))
     }
 
-    func testActiveThreadDoesNotEmitSeenSignalOnEveryStreamingDelta() {
+    func testActiveConversationDoesNotEmitSeenSignalOnEveryStreamingDelta() {
         guard let conversationId = conversationManager.activeConversationId,
               let index = conversationManager.conversations.firstIndex(where: { $0.id == conversationId }),
               let vm = conversationManager.chatViewModel(for: conversationId) else {
@@ -604,7 +604,7 @@ final class ConversationManagerUnseenStateTests: XCTestCase {
                        "Stream completion should emit exactly one additional seen signal")
     }
 
-    func testActiveThreadAssistantReplyClearsUnseenAndEmitsSeenSignal() {
+    func testActiveConversationAssistantReplyClearsUnseenAndEmitsSeenSignal() {
         guard let conversationId = conversationManager.activeConversationId,
               let index = conversationManager.conversations.firstIndex(where: { $0.id == conversationId }),
               let vm = conversationManager.chatViewModel(for: conversationId) else {
@@ -627,7 +627,7 @@ final class ConversationManagerUnseenStateTests: XCTestCase {
         XCTAssertEqual(seenSignals.last?.conversationId, "session-active")
     }
 
-    func testAppendThreadsPreservesAssistantAttentionTimestamps() {
+    func testAppendConversationsPreservesAssistantAttentionTimestamps() {
         let response = makeConversationListResponse(
             conversations: [[
                 "id": "session-paginated",
@@ -645,14 +645,14 @@ final class ConversationManagerUnseenStateTests: XCTestCase {
 
         conversationManager.appendConversations(from: response)
 
-        guard let appendedThread = conversationManager.conversations.first(where: { $0.conversationId == "session-paginated" }) else {
-            XCTFail("Expected appended thread")
+        guard let appendedConversation = conversationManager.conversations.first(where: { $0.conversationId == "session-paginated" }) else {
+            XCTFail("Expected appended conversation")
             return
         }
 
-        XCTAssertFalse(appendedThread.hasUnseenLatestAssistantMessage)
-        XCTAssertEqual(appendedThread.latestAssistantMessageAt?.timeIntervalSince1970, 9.0)
-        XCTAssertEqual(appendedThread.lastSeenAssistantMessageAt?.timeIntervalSince1970, 9.0)
+        XCTAssertFalse(appendedConversation.hasUnseenLatestAssistantMessage)
+        XCTAssertEqual(appendedConversation.latestAssistantMessageAt?.timeIntervalSince1970, 9.0)
+        XCTAssertEqual(appendedConversation.lastSeenAssistantMessageAt?.timeIntervalSince1970, 9.0)
     }
 
     func testScheduleConversationCreatedWithUnseenFlag() {

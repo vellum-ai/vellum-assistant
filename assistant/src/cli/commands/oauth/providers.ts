@@ -24,13 +24,24 @@ function resolveRedirectUri(
   if (transport === "loopback") {
     const behavior = getProviderBehavior(providerKey);
     const port = behavior?.loopbackPort;
-    if (!port) return null;
+    if (!port) {
+      // No fixed port — loopback still works at runtime with an OS-assigned
+      // port, but we can't predict the redirect URI ahead of time.  Return
+      // a sentinel so callers know the transport is loopback-dynamic rather
+      // than unsupported.
+      return "http://localhost:<dynamic>/oauth/callback";
+    }
     return `http://localhost:${port}${LOOPBACK_CALLBACK_PATH}`;
   }
-  // Gateway transport — resolve from public ingress config
+  // Gateway transport — resolve from public ingress config.
+  // Try the explicit publicBaseUrl first, then fall back to platform
+  // callback registration (containerised/managed deployments).
   try {
     return getOAuthCallbackUrl(loadConfig());
   } catch {
+    // publicBaseUrl not configured — not necessarily an error for
+    // platform-managed deployments where the callback URL is resolved
+    // dynamically at connection time via platform route registration.
     return null;
   }
 }

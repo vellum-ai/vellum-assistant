@@ -11,7 +11,7 @@ final class ChatTranscriptFormatterTests: XCTestCase {
 
     // MARK: - conversationMarkdown
 
-    func testThreadMarkdownWithTitleAndMessages() {
+    func testConversationMarkdownWithTitleAndMessages() {
         let messages = [
             ChatMessage(role: .user, text: "Hello!"),
             ChatMessage(role: .assistant, text: "Hi there!")
@@ -19,11 +19,11 @@ final class ChatTranscriptFormatterTests: XCTestCase {
 
         let result = ChatTranscriptFormatter.conversationMarkdown(
             messages: messages,
-            conversationTitle: "Test Thread",
+            conversationTitle: "Test Conversation",
             participantNames: names
         )
 
-        XCTAssertTrue(result.hasPrefix("# Test Thread"))
+        XCTAssertTrue(result.hasPrefix("# Test Conversation"))
         XCTAssertTrue(result.contains("### Noa"))
         XCTAssertTrue(result.contains("Hello!"))
         XCTAssertTrue(result.contains("### Aria"))
@@ -31,7 +31,7 @@ final class ChatTranscriptFormatterTests: XCTestCase {
         XCTAssertTrue(result.contains("---"))
     }
 
-    func testThreadMarkdownWithoutTitle() {
+    func testConversationMarkdownWithoutTitle() {
         let messages = [
             ChatMessage(role: .user, text: "Hello!")
         ]
@@ -47,7 +47,7 @@ final class ChatTranscriptFormatterTests: XCTestCase {
         XCTAssertTrue(result.contains("Hello!"))
     }
 
-    func testThreadMarkdownSkipsEmptyTextMessages() {
+    func testConversationMarkdownSkipsEmptyTextMessages() {
         let messages = [
             ChatMessage(role: .assistant, text: ""),
             ChatMessage(role: .user, text: "Real message"),
@@ -66,17 +66,17 @@ final class ChatTranscriptFormatterTests: XCTestCase {
         XCTAssertFalse(result.contains("---"))
     }
 
-    func testThreadMarkdownEmptyInputReturnsEmptyString() {
+    func testConversationMarkdownEmptyInputReturnsEmptyString() {
         let result = ChatTranscriptFormatter.conversationMarkdown(
             messages: [],
-            conversationTitle: "Empty Thread",
+            conversationTitle: "Empty Conversation",
             participantNames: names
         )
 
         XCTAssertEqual(result, "")
     }
 
-    func testThreadMarkdownAllEmptyTextReturnsEmptyString() {
+    func testConversationMarkdownAllEmptyTextReturnsEmptyString() {
         let messages = [
             ChatMessage(role: .assistant, text: ""),
             ChatMessage(role: .user, text: "  \n  "),
@@ -84,14 +84,14 @@ final class ChatTranscriptFormatterTests: XCTestCase {
 
         let result = ChatTranscriptFormatter.conversationMarkdown(
             messages: messages,
-            conversationTitle: "Thread",
+            conversationTitle: "Conversation",
             participantNames: names
         )
 
         XCTAssertEqual(result, "")
     }
 
-    func testThreadMarkdownSeparatorsBetweenMessages() {
+    func testConversationMarkdownSeparatorsBetweenMessages() {
         let messages = [
             ChatMessage(role: .user, text: "First"),
             ChatMessage(role: .assistant, text: "Second"),
@@ -108,7 +108,7 @@ final class ChatTranscriptFormatterTests: XCTestCase {
         XCTAssertEqual(separatorCount, 2)
     }
 
-    func testThreadMarkdownUsesParticipantNames() {
+    func testConversationMarkdownUsesParticipantNames() {
         let customNames = ChatTranscriptFormatter.ParticipantNames(
             assistantName: "Bot",
             userName: "Human"

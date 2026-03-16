@@ -253,7 +253,12 @@ export function upsertContact(params: {
     .run();
 
   if (params.channels) {
-    syncChannels(contactId, params.channels, now);
+    syncChannels(
+      contactId,
+      params.channels,
+      now,
+      params.reassignConflictingChannels,
+    );
   }
 
   emitContactChange();
@@ -330,6 +335,11 @@ function syncChannels(
 
     if (conflicting) {
       if (reassignConflicting) {
+        // Preserve guardian blocks: if the existing channel is blocked, do not
+        // overwrite its status/policy — a valid invite must not bypass an
+        // explicit guardian block on a different contact.
+        const isBlocked = conflicting.status === "blocked";
+
         // Reassign the channel to the target contact. Used by invite redemption
         // to bind a redeemer's existing channel identity to the invite's target.
         const reassignSet: Record<string, unknown> = {
@@ -340,16 +350,18 @@ function syncChannels(
           reassignSet.externalUserId = ch.externalUserId;
         if (ch.externalChatId !== undefined)
           reassignSet.externalChatId = ch.externalChatId;
-        if (ch.status !== undefined) reassignSet.status = ch.status;
-        if (ch.policy !== undefined) reassignSet.policy = ch.policy;
+        if (!isBlocked) {
+          if (ch.status !== undefined) reassignSet.status = ch.status;
+          if (ch.policy !== undefined) reassignSet.policy = ch.policy;
+          if (ch.revokedReason !== undefined)
+            reassignSet.revokedReason = ch.revokedReason;
+          if (ch.blockedReason !== undefined)
+            reassignSet.blockedReason = ch.blockedReason;
+        }
         if (ch.verifiedAt !== undefined) reassignSet.verifiedAt = ch.verifiedAt;
         if (ch.verifiedVia !== undefined)
           reassignSet.verifiedVia = ch.verifiedVia;
         if (ch.inviteId !== undefined) reassignSet.inviteId = ch.inviteId;
-        if (ch.revokedReason !== undefined)
-          reassignSet.revokedReason = ch.revokedReason;
-        if (ch.blockedReason !== undefined)
-          reassignSet.blockedReason = ch.blockedReason;
 
         db.update(contactChannels)
           .set(reassignSet)

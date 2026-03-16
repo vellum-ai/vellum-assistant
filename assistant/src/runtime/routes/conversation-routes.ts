@@ -410,7 +410,7 @@ function makeHubPublisher(
     // Register pending interactions for approval events
     if (msg.type === "confirmation_request") {
       pendingInteractions.register(msg.requestId, {
-        session,
+        conversation: session,
         conversationId,
         kind: "confirmation",
         confirmationDetails: {
@@ -465,25 +465,25 @@ function makeHubPublisher(
       }
     } else if (msg.type === "secret_request") {
       pendingInteractions.register(msg.requestId, {
-        session,
+        conversation: session,
         conversationId,
         kind: "secret",
       });
     } else if (msg.type === "host_bash_request") {
       pendingInteractions.register(msg.requestId, {
-        session,
+        conversation: session,
         conversationId,
         kind: "host_bash",
       });
     } else if (msg.type === "host_file_request") {
       pendingInteractions.register(msg.requestId, {
-        session,
+        conversation: session,
         conversationId,
         kind: "host_file",
       });
     } else if (msg.type === "host_cu_request") {
       pendingInteractions.register(msg.requestId, {
-        session,
+        conversation: session,
         conversationId,
         kind: "host_cu",
       });
@@ -773,7 +773,7 @@ export async function handleSendMessage(
         assistantMessageChannel: sourceChannel,
         userMessageInterface: sourceInterface,
         assistantMessageInterface: sourceInterface,
-        ...(body.automated ? { automated: true } : {}),
+        ...(body.automated === true ? { automated: true } : {}),
       },
       { isInteractive },
     );
@@ -794,7 +794,7 @@ export async function handleSendMessage(
         mapping.conversationId,
       )) {
         if (
-          interaction.session === session &&
+          interaction.conversation === session &&
           interaction.kind === "confirmation"
         ) {
           session.emitConfirmationStateChanged({
@@ -825,7 +825,7 @@ export async function handleSendMessage(
       mapping.conversationId,
     )) {
       if (
-        interaction.session === session &&
+        interaction.conversation === session &&
         interaction.kind === "confirmation"
       ) {
         session.emitConfirmationStateChanged({
@@ -877,7 +877,7 @@ export async function handleSendMessage(
         assistantMessageChannel: sourceChannel,
         userMessageInterface: sourceInterface,
         assistantMessageInterface: sourceInterface,
-        ...(body.automated ? { automated: true } : {}),
+        ...(body.automated === true ? { automated: true } : {}),
       };
       const userMsg = createUserMessage(rawContent, attachments);
       const persisted = await addMessage(
@@ -966,7 +966,7 @@ export async function handleSendMessage(
       resolvedContent,
       attachments,
       requestId,
-      body.automated ? { automated: true } : undefined,
+      body.automated === true ? { automated: true } : undefined,
     );
   } catch (err) {
     throw err;

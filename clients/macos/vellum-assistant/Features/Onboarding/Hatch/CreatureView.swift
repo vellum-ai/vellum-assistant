@@ -23,6 +23,9 @@ struct CreatureView: View {
                 .offset(y: bounceOffset)
                 .scaleEffect(appeared ? 1.0 : 0.0)
                 .opacity(appeared ? 1.0 : 0.0)
+                .onChange(of: appearance.fullAvatarImage) {
+                    avatarIsTransparent = VAvatarImage.imageHasTransparency(appearance.fullAvatarImage)
+                }
                 .onAppear {
                     avatarIsTransparent = VAvatarImage.imageHasTransparency(appearance.fullAvatarImage)
                     if animated {

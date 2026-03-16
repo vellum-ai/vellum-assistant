@@ -15,7 +15,7 @@ final class NavigationHistoryTests: XCTestCase {
         XCTAssertTrue(history.backStack.isEmpty)
     }
 
-    func testChatDefaultAndThreadWithSameIdAreEquivalent() {
+    func testChatDefaultAndConversationWithSameIdAreEquivalent() {
         let history = NavigationHistory()
         let id = UUID()
 
@@ -116,7 +116,7 @@ final class NavigationHistoryTests: XCTestCase {
     func testMaxDepthEnforced() {
         let history = NavigationHistory()
 
-        // Record 55 transitions: each from thread(i) to thread(i+1)
+        // Record 55 transitions: each from conversation(i) to conversation(i+1)
         for _ in 0..<55 {
             let fromId = UUID()
             let toId = UUID()

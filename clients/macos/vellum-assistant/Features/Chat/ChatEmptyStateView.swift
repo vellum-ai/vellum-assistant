@@ -1,7 +1,7 @@
 import SwiftUI
 import VellumAssistantShared
 
-/// Empty state shown when a ChatView thread has no messages.
+/// Empty state shown when a ChatView conversation has no messages.
 ///
 /// Manages its own animation state (fade-in/scale) and randomises
 /// the greeting + placeholder text each time it appears. Embeds
@@ -124,7 +124,9 @@ struct ChatEmptyStateView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .onAppear {
-            onRequestGreeting?()
+            if soulGreeting == nil {
+                onRequestGreeting?()
+            }
             withAnimation(.easeOut(duration: 0.5)) {
                 visible = true
             }

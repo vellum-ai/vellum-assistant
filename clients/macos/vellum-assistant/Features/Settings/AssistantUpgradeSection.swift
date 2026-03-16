@@ -196,16 +196,8 @@ struct AssistantUpgradeSection: View {
 
 struct AssistantRelease: Decodable, Identifiable {
     let version: String
-    let image: String?
-    let createdAt: String?
 
     var id: String { version }
-
-    private enum CodingKeys: String, CodingKey {
-        case version
-        case image
-        case createdAt
-    }
 }
 
 private struct ReleasesResponse: Decodable {

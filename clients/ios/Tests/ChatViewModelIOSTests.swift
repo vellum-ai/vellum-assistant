@@ -3,7 +3,7 @@ import XCTest
 
 /// Integration tests for ChatViewModel from the iOS perspective.
 /// Exercises the shared state machine: initialization, message send/receive flow,
-/// streaming deltas, session lifecycle, error handling, and attachment validation.
+/// streaming deltas, conversation lifecycle, error handling, and attachment validation.
 @MainActor
 final class ChatViewModelIOSTests: XCTestCase {
 
@@ -45,7 +45,7 @@ final class ChatViewModelIOSTests: XCTestCase {
         XCTAssertNil(viewModel.errorText)
     }
 
-    func testInitStartsWithNoSessionId() {
+    func testInitStartsWithNoConversationId() {
         XCTAssertNil(viewModel.conversationId)
     }
 
@@ -91,7 +91,7 @@ final class ChatViewModelIOSTests: XCTestCase {
         XCTAssertEqual(viewModel.messages.count, 1)
     }
 
-    func testSendWhileSendingWithSessionAppendsQueuedMessage() {
+    func testSendWhileSendingWithConversationAppendsQueuedMessage() {
         viewModel.conversationId = "test-session"
         viewModel.isSending = true
 
@@ -124,23 +124,23 @@ final class ChatViewModelIOSTests: XCTestCase {
         XCTAssertGreaterThanOrEqual(mockClient.sentMessages.count, 1)
     }
 
-    // MARK: - Session Info
+    // MARK: - Conversation Info
 
-    func testSessionInfoStoresSessionId() {
+    func testConversationInfoStoresConversationId() {
         viewModel.bootstrapCorrelationId = "corr-1"
         let info = ConversationInfoMessage(conversationId: "ios-sess-123", title: "iOS Test", correlationId: "corr-1")
         viewModel.handleServerMessage(.conversationInfo(info))
         XCTAssertEqual(viewModel.conversationId, "ios-sess-123")
     }
 
-    func testSessionInfoDoesNotOverwriteExistingSession() {
+    func testConversationInfoDoesNotOverwriteExistingConversation() {
         viewModel.conversationId = "first-session"
         let info = ConversationInfoMessage(conversationId: "second-session", title: "Test")
         viewModel.handleServerMessage(.conversationInfo(info))
         XCTAssertEqual(viewModel.conversationId, "first-session")
     }
 
-    func testSessionInfoClearsBootstrapState() {
+    func testConversationInfoClearsBootstrapState() {
         // Simulate a bootstrap scenario
         viewModel.inputText = "Hello"
         viewModel.sendMessage()
@@ -161,11 +161,11 @@ final class ChatViewModelIOSTests: XCTestCase {
         wait(for: [expectation], timeout: 2.0)
         cancelled = true
 
-        // Extract the correlation ID from the sent session_create message
-        let sessionCreates = mockClient.sentMessages.compactMap { $0 as? ConversationCreateMessage }
-        let correlationId = sessionCreates.first?.correlationId
+        // Extract the correlation ID from the sent conversation_create message
+        let conversationCreates = mockClient.sentMessages.compactMap { $0 as? ConversationCreateMessage }
+        let correlationId = conversationCreates.first?.correlationId
 
-        // Session info arrives with matching correlation ID
+        // Conversation info arrives with matching correlation ID
         let info = ConversationInfoMessage(conversationId: "new-sess", title: "Test", correlationId: correlationId)
         viewModel.handleServerMessage(.conversationInfo(info))
 
@@ -300,8 +300,8 @@ final class ChatViewModelIOSTests: XCTestCase {
         XCTAssertEqual(viewModel.messages[0].role, .user)
         XCTAssertTrue(viewModel.isSending)
 
-        // Poll until session_create appears in sentMessages (message-driven wait)
-        let expectation = XCTestExpectation(description: "session_create sent")
+        // Poll until conversation_create appears in sentMessages (message-driven wait)
+        let expectation = XCTestExpectation(description: "conversation_create sent")
         var cancelled = false
         func poll() {
             guard !cancelled else { return }
@@ -315,11 +315,11 @@ final class ChatViewModelIOSTests: XCTestCase {
         wait(for: [expectation], timeout: 2.0)
         cancelled = true
 
-        // Extract the correlation ID from the sent session_create message
-        let sessionCreates = mockClient.sentMessages.compactMap { $0 as? ConversationCreateMessage }
-        let correlationId = sessionCreates.first?.correlationId
+        // Extract the correlation ID from the sent conversation_create message
+        let conversationCreates = mockClient.sentMessages.compactMap { $0 as? ConversationCreateMessage }
+        let correlationId = conversationCreates.first?.correlationId
 
-        // 2. Session info arrives with matching correlation ID
+        // 2. Conversation info arrives with matching correlation ID
         let info = ConversationInfoMessage(conversationId: "cycle-sess", title: "iOS Chat", correlationId: correlationId)
         viewModel.handleServerMessage(.conversationInfo(info))
         XCTAssertEqual(viewModel.conversationId, "cycle-sess")
@@ -372,17 +372,17 @@ final class ChatViewModelIOSTests: XCTestCase {
         XCTAssertEqual(callCount, 1, "onFirstUserMessage should fire only once")
     }
 
-    func testOnSessionCreatedCallbackFires() {
-        var capturedSessionId: String?
+    func testOnConversationCreatedCallbackFires() {
+        var capturedConversationId: String?
         viewModel.onConversationCreated = { conversationId in
-            capturedSessionId = conversationId
+            capturedConversationId = conversationId
         }
 
         viewModel.bootstrapCorrelationId = "corr-cb"
         let info = ConversationInfoMessage(conversationId: "callback-sess", title: "Test", correlationId: "corr-cb")
         viewModel.handleServerMessage(.conversationInfo(info))
 
-        XCTAssertEqual(capturedSessionId, "callback-sess")
+        XCTAssertEqual(capturedConversationId, "callback-sess")
     }
 
     // MARK: - Cancelling Suppresses Deltas

@@ -27,11 +27,11 @@ private let log = Logger(
 enum LogExporter {
 
     /// Whether the currently connected assistant is a managed (platform-hosted) instance.
-    /// When true, thread-scoped exports are not available because the platform API
+    /// When true, conversation-scoped exports are not available because the platform API
     /// does not yet support conversation-scoped log retrieval.
+    /// Uses the cached value from AppDelegate to avoid disk I/O in hot paths (e.g. SwiftUI view bodies).
     nonisolated static var isManagedAssistant: Bool {
-        guard let id = UserDefaults.standard.string(forKey: "connectedAssistantId") else { return false }
-        return LockfileAssistant.loadByName(id)?.isManaged == true
+        AppDelegate.shared?.isCurrentAssistantManaged == true
     }
 
     /// Collects logs, archives them, and sends to Sentry as an attachment for developer debugging.
@@ -88,7 +88,7 @@ enum LogExporter {
                 tags["client"] = "macos"
             }
 
-            // Surface active session state as tags so the Sentry event itself
+            // Surface active conversation state as tags so the Sentry event itself
             // is useful for triage without downloading the log archive.
             var extra: [String: Any] = [:]
             let conversationManager = AppDelegate.shared?.mainWindow?.conversationManager
@@ -101,9 +101,9 @@ enum LogExporter {
                     // it here enables cross-project search: find the daemon error
                     // that corresponds to a macOS log report by querying
                     // conversation_id in the vellum-assistant-brain Sentry project.
-                    // For thread-scoped exports, conversation_id was already set
-                    // to the reported thread's ID above — don't overwrite it with
-                    // the active thread's session ID.
+                    // For conversation-scoped exports, conversation_id was already set
+                    // to the reported conversation's ID above — don't overwrite it with
+                    // the active conversation's ID.
                     if case .global = formData.scope {
                         tags["conversation_id"] = conversationId
                     }
@@ -123,8 +123,8 @@ enum LogExporter {
                 if let conversationId = vm.conversationId {
                     // Prefer the view model's conversationId (most up-to-date)
                     tags["conversation_id"] = conversationId
-                    // For thread-scoped exports, conversation_id reflects the
-                    // reported thread, not the active one — skip the overwrite.
+                    // For conversation-scoped exports, conversation_id reflects the
+                    // reported conversation, not the active one — skip the overwrite.
                     if case .global = formData.scope {
                         tags["conversation_id"] = conversationId
                     }

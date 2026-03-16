@@ -510,7 +510,7 @@ struct ComposerView: View {
                 }
             }
         }
-        .animation(VAnimation.fast, value: canSend)
+        .frame(minWidth: composerActionButtonSize * 3 + 2 * 2)
     }
 
     // MARK: - Dictation Inline Mode

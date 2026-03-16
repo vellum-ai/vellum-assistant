@@ -137,6 +137,11 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
     /// derived from the platform session, not local actor tokens.
     var isCurrentAssistantManaged = false
 
+    /// Set to `true` when `.localBootstrapCompleted` has been posted, so
+    /// `awaitLocalBootstrapCompleted` can return immediately if bootstrap
+    /// finished before the observer was registered.
+    var localBootstrapDidComplete = false
+
     @AppStorage("themePreference") private var themePreference: String = "system"
 
     public func applicationDidFinishLaunching(_ notification: Notification) {
@@ -326,6 +331,9 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
         }
 
         setupDaemonClient(isFirstLaunch: isFirstLaunch)
+        // Reload avatar after reconnecting so that logout→re-login cycles
+        // repopulate the dock icon (resetForDisconnect clears it on logout).
+        AvatarAppearanceManager.shared.reloadAvatar()
         setupMenuBar()
         setupFileMenu()
         registerNavigationMonitor()
@@ -350,6 +358,11 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
             ensureActorCredentials()
         }
 
+        // Reset before provisioning so a stale flag from a previous
+        // bootstrap cycle doesn't cause awaitLocalBootstrapCompleted to
+        // skip the wait for the new cycle's credentials.
+        localBootstrapDidComplete = false
+
         // Provision an AssistantAPIKey for local assistants so they can
         // call platform APIs.
         ensureLocalAssistantApiKey()
@@ -367,7 +380,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
                     // If the user is signed in with a local assistant, wait for
                     // credential provisioning to complete before sending the wake-up
                     // greeting, so the managed-proxy key is available for the LLM call.
-                    if authManager.isAuthenticated && !isCurrentAssistantManaged {
+                    if authManager.isAuthenticated && !isCurrentAssistantRemote {
                         await awaitLocalBootstrapCompleted(timeout: 30)
                     }
 

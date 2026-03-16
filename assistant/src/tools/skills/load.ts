@@ -5,7 +5,11 @@ import { isAssistantFeatureFlagEnabled } from "../../config/assistant-feature-fl
 import { getConfig } from "../../config/loader.js";
 import { skillFlagKey } from "../../config/skill-state.js";
 import type { SkillSummary, SkillToolManifest } from "../../config/skills.js";
-import { loadSkillBySelector, loadSkillCatalog } from "../../config/skills.js";
+import {
+  listReferenceFiles,
+  loadSkillBySelector,
+  loadSkillCatalog,
+} from "../../config/skills.js";
 import { RiskLevel } from "../../permissions/types.js";
 import type { ToolDefinition } from "../../providers/types.js";
 import {
@@ -277,6 +281,9 @@ export class SkillLoadTool implements Tool {
 
     const body = skill.body.length > 0 ? skill.body : "(No body content)";
 
+    // Build reference file listing (if any)
+    const referenceListing = listReferenceFiles(skill.directoryPath);
+
     // Load tool schemas for the main skill
     const mainManifest = loadToolManifest(skill.directoryPath);
     const toolSchemasSection = mainManifest
@@ -309,6 +316,12 @@ export class SkillLoadTool implements Tool {
           includedBodies.push(
             `--- Included Skill: ${childLoaded.skill.displayName} (${childId}) ---\n${childLoaded.skill.body}`,
           );
+
+          // List reference files for the included skill
+          const childRefs = listReferenceFiles(childLoaded.skill.directoryPath);
+          if (childRefs) {
+            includedBodies.push(childRefs);
+          }
 
           // Load tool schemas for the included skill (lighter sub-heading)
           const childManifest = loadToolManifest(
@@ -378,6 +391,7 @@ export class SkillLoadTool implements Tool {
         "",
         body,
         "",
+        ...(referenceListing ? [referenceListing, ""] : []),
         ...(toolSchemasSection ? [toolSchemasSection, ""] : []),
         ...(!toolSchemasSection && anyChildHasTools
           ? [

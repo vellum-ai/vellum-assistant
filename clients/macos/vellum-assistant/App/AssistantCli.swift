@@ -241,7 +241,7 @@ final class AssistantCli {
 
     /// Non-destructive stop: kills the daemon process via the CLI without
     /// deleting ~/.vellum or deregistering the assistant.
-    func stop() {
+    func stop(name: String? = nil) {
         guard let binaryURL = cliBinaryURL else {
             log.info("No bundled CLI binary found — skipping stop (dev mode)")
             // Still try to clean up via PID file in dev mode
@@ -255,7 +255,11 @@ final class AssistantCli {
         // stop must be synchronous (called from applicationWillTerminate)
         let proc = Process()
         proc.executableURL = binaryURL
-        proc.arguments = ["sleep"]
+        var sleepArgs = ["sleep"]
+        if let name, !name.isEmpty {
+            sleepArgs.append(name)
+        }
+        proc.arguments = sleepArgs
         proc.standardOutput = FileHandle.nullDevice
         proc.standardError = FileHandle.nullDevice
 

@@ -13,8 +13,8 @@ final class MockConversationRestorerDelegate: ConversationRestorerDelegate {
     var hasMoreConversations: Bool = false
     var serverOffset: Int = 0
     var viewModels: [UUID: ChatViewModel] = [:]
-    var activatedThreadId: UUID?
-    var createThreadCallCount = 0
+    var activatedConversationId: UUID?
+    var createConversationCallCount = 0
     var archivedConversationIds: Set<String> = []
     private let daemonClient: DaemonClient
 
@@ -50,16 +50,16 @@ final class MockConversationRestorerDelegate: ConversationRestorerDelegate {
     }
 
     func activateConversation(_ id: UUID) {
-        activatedThreadId = id
+        activatedConversationId = id
     }
 
     func createConversation() {
-        createThreadCallCount += 1
-        let thread = ConversationModel()
+        createConversationCallCount += 1
+        let conversation = ConversationModel()
         let vm = makeViewModel()
-        conversations.insert(thread, at: 0)
-        viewModels[thread.id] = vm
-        activatedThreadId = thread.id
+        conversations.insert(conversation, at: 0)
+        viewModels[conversation.id] = vm
+        activatedConversationId = conversation.id
     }
 
     func isConversationArchived(_ conversationId: String) -> Bool {
@@ -161,26 +161,26 @@ struct ConversationRestorerTests {
     // MARK: - History Response Routing
 
     @Test @MainActor
-    func historyResponseRoutesToCorrectThread() {
+    func historyResponseRoutesToCorrectConversation() {
         let dc = DaemonClient()
         let restorer = ConversationRestorer(daemonClient: dc)
         let delegate = MockConversationRestorerDelegate(daemonClient: dc)
 
-        // Set up two conversations with session IDs
-        let threadA = ConversationModel(title: "Conversation A", conversationId: "session-A")
-        let threadB = ConversationModel(title: "Conversation B", conversationId: "session-B")
-        delegate.conversations = [threadA, threadB]
+        // Set up two conversations with conversation IDs
+        let conversationA = ConversationModel(title: "Conversation A", conversationId: "session-A")
+        let conversationB = ConversationModel(title: "Conversation B", conversationId: "session-B")
+        delegate.conversations = [conversationA, conversationB]
 
         let vmA = delegate.makeViewModel()
         let vmB = delegate.makeViewModel()
-        delegate.viewModels[threadA.id] = vmA
-        delegate.viewModels[threadB.id] = vmB
+        delegate.viewModels[conversationA.id] = vmA
+        delegate.viewModels[conversationB.id] = vmB
 
         restorer.delegate = delegate
 
-        // Register pending history for both sessions
-        restorer.pendingHistoryByConversationId["session-A"] = threadA.id
-        restorer.pendingHistoryByConversationId["session-B"] = threadB.id
+        // Register pending history for both conversations
+        restorer.pendingHistoryByConversationId["session-A"] = conversationA.id
+        restorer.pendingHistoryByConversationId["session-B"] = conversationB.id
 
         // Deliver history for session-B
         let response = makeHistoryResponse(conversationId: "session-B", messages: [
@@ -199,7 +199,7 @@ struct ConversationRestorerTests {
 
         // session-B should be removed from pending, session-A should remain
         #expect(restorer.pendingHistoryByConversationId["session-B"] == nil)
-        #expect(restorer.pendingHistoryByConversationId["session-A"] == threadA.id)
+        #expect(restorer.pendingHistoryByConversationId["session-A"] == conversationA.id)
     }
 
     @Test @MainActor
@@ -209,10 +209,10 @@ struct ConversationRestorerTests {
         let delegate = MockConversationRestorerDelegate(daemonClient: dc)
         restorer.delegate = delegate
 
-        let thread = ConversationModel(title: "Thread", conversationId: "session-X")
-        delegate.conversations = [thread]
+        let conversation = ConversationModel(title: "Conversation", conversationId: "session-X")
+        delegate.conversations = [conversation]
         let vm = delegate.makeViewModel()
-        delegate.viewModels[thread.id] = vm
+        delegate.viewModels[conversation.id] = vm
 
         // No pending entry for "session-stale"
         let response = makeHistoryResponse(conversationId: "session-stale", messages: [
@@ -232,19 +232,19 @@ struct ConversationRestorerTests {
         let delegate = MockConversationRestorerDelegate(daemonClient: dc)
         restorer.delegate = delegate
 
-        let threadA = ConversationModel(title: "A", conversationId: "sa")
-        let threadB = ConversationModel(title: "B", conversationId: "sb")
-        delegate.conversations = [threadA, threadB]
+        let conversationA = ConversationModel(title: "A", conversationId: "sa")
+        let conversationB = ConversationModel(title: "B", conversationId: "sb")
+        delegate.conversations = [conversationA, conversationB]
 
         let vmA = delegate.makeViewModel()
         let vmB = delegate.makeViewModel()
-        delegate.viewModels[threadA.id] = vmA
-        delegate.viewModels[threadB.id] = vmB
+        delegate.viewModels[conversationA.id] = vmA
+        delegate.viewModels[conversationB.id] = vmB
 
-        // User views thread A, then quickly switches to B —
+        // User views conversation A, then quickly switches to B —
         // both history requests are in-flight with correct mapping.
-        restorer.pendingHistoryByConversationId["sa"] = threadA.id
-        restorer.pendingHistoryByConversationId["sb"] = threadB.id
+        restorer.pendingHistoryByConversationId["sa"] = conversationA.id
+        restorer.pendingHistoryByConversationId["sb"] = conversationB.id
 
         // Responses arrive out of order: B first, then A
         restorer.handleHistoryResponse(makeHistoryResponse(conversationId: "sb", messages: [
@@ -262,18 +262,18 @@ struct ConversationRestorerTests {
         #expect(vmB.isHistoryLoaded)
     }
 
-    // MARK: - Session Title Updates
+    // MARK: - Conversation Title Updates
 
     @Test @MainActor
-    func sessionTitleUpdatedUpdatesMatchingThread() {
+    func conversationTitleUpdatedUpdatesMatchingConversation() {
         let dc = DaemonClient()
         let restorer = ConversationRestorer(daemonClient: dc)
         let delegate = MockConversationRestorerDelegate(daemonClient: dc)
         restorer.delegate = delegate
 
-        let thread = ConversationModel(title: "Untitled", conversationId: "session-1")
-        delegate.conversations = [thread]
-        delegate.viewModels[thread.id] = delegate.makeViewModel()
+        let conversation = ConversationModel(title: "Untitled", conversationId: "session-1")
+        delegate.conversations = [conversation]
+        delegate.viewModels[conversation.id] = delegate.makeViewModel()
 
         restorer.handleConversationTitleUpdated(makeConversationTitleUpdated(conversationId: "session-1", title: "Plan sprint rollout"))
 
@@ -281,35 +281,35 @@ struct ConversationRestorerTests {
     }
 
     @Test @MainActor
-    func sessionTitleUpdatedIgnoresUnknownSessionId() {
+    func conversationTitleUpdatedIgnoresUnknownConversationId() {
         let dc = DaemonClient()
         let restorer = ConversationRestorer(daemonClient: dc)
         let delegate = MockConversationRestorerDelegate(daemonClient: dc)
         restorer.delegate = delegate
 
-        let thread = ConversationModel(title: "Untitled", conversationId: "session-1")
-        delegate.conversations = [thread]
-        delegate.viewModels[thread.id] = delegate.makeViewModel()
+        let conversation = ConversationModel(title: "Untitled", conversationId: "session-1")
+        delegate.conversations = [conversation]
+        delegate.viewModels[conversation.id] = delegate.makeViewModel()
 
         restorer.handleConversationTitleUpdated(makeConversationTitleUpdated(conversationId: "other-session", title: "Should not apply"))
 
         #expect(delegate.conversations[0].title == "Untitled")
     }
 
-    // MARK: - Session List Restoration
+    // MARK: - Conversation List Restoration
 
     @Test @MainActor
-    func sessionListCreatesRestoredThreads() {
+    func conversationListCreatesRestoredConversations() {
         let dc = DaemonClient()
         let restorer = ConversationRestorer(daemonClient: dc)
         let delegate = MockConversationRestorerDelegate(daemonClient: dc)
         restorer.delegate = delegate
 
-        // Start with one empty default thread
-        let defaultThread = ConversationModel()
+        // Start with one empty default conversation
+        let defaultConversation = ConversationModel()
         let defaultVm = delegate.makeViewModel()
-        delegate.conversations = [defaultThread]
-        delegate.viewModels[defaultThread.id] = defaultVm
+        delegate.conversations = [defaultConversation]
+        delegate.viewModels[defaultConversation.id] = defaultVm
 
         let response = makeConversationListResponse(conversations: [
             (id: "s1", title: "Chat 1", updatedAt: 3000),
@@ -317,11 +317,11 @@ struct ConversationRestorerTests {
         ])
         restorer.handleConversationListResponse(response)
 
-        // Default empty thread should be replaced
+        // Default empty conversation should be replaced
         #expect(delegate.conversations.count == 2)
-        #expect(delegate.viewModels[defaultThread.id] == nil)
+        #expect(delegate.viewModels[defaultConversation.id] == nil)
 
-        // Restored conversations have correct session IDs
+        // Restored conversations have correct conversation IDs
         #expect(delegate.conversations[0].conversationId == "s1")
         #expect(delegate.conversations[1].conversationId == "s2")
         #expect(delegate.conversations[0].title == "Chat 1")
@@ -330,24 +330,24 @@ struct ConversationRestorerTests {
         #expect(delegate.viewModels[delegate.conversations[0].id] == nil)
         #expect(delegate.viewModels[delegate.conversations[1].id] == nil)
 
-        // Most recent thread should be activated
-        #expect(delegate.activatedThreadId == delegate.conversations[0].id)
+        // Most recent conversation should be activated
+        #expect(delegate.activatedConversationId == delegate.conversations[0].id)
     }
 
     @Test @MainActor
-    func sessionListPreservesAssistantAttentionTimestamps() {
+    func conversationListPreservesAssistantAttentionTimestamps() {
         let dc = DaemonClient()
         let restorer = ConversationRestorer(daemonClient: dc)
         let delegate = MockConversationRestorerDelegate(daemonClient: dc)
         restorer.delegate = delegate
 
-        let defaultThread = ConversationModel()
-        delegate.conversations = [defaultThread]
-        delegate.viewModels[defaultThread.id] = delegate.makeViewModel()
+        let defaultConversation = ConversationModel()
+        delegate.conversations = [defaultConversation]
+        delegate.viewModels[defaultConversation.id] = delegate.makeViewModel()
 
         let response = makeConversationListResponse(conversationDicts: [[
             "id": "s-attention",
-            "title": "Attention thread",
+            "title": "Attention conversation",
             "createdAt": 1000,
             "updatedAt": 2000,
             "assistantAttention": [
@@ -359,26 +359,26 @@ struct ConversationRestorerTests {
 
         restorer.handleConversationListResponse(response)
 
-        guard let restoredThread = delegate.conversations.first(where: { $0.conversationId == "s-attention" }) else {
-            Issue.record("Expected restored attention thread")
+        guard let restoredConversation = delegate.conversations.first(where: { $0.conversationId == "s-attention" }) else {
+            Issue.record("Expected restored attention conversation")
             return
         }
 
-        #expect(restoredThread.hasUnseenLatestAssistantMessage)
-        #expect(restoredThread.latestAssistantMessageAt?.timeIntervalSince1970 == 4.0)
-        #expect(restoredThread.lastSeenAssistantMessageAt?.timeIntervalSince1970 == 3.0)
+        #expect(restoredConversation.hasUnseenLatestAssistantMessage)
+        #expect(restoredConversation.latestAssistantMessageAt?.timeIntervalSince1970 == 4.0)
+        #expect(restoredConversation.lastSeenAssistantMessageAt?.timeIntervalSince1970 == 3.0)
     }
 
     @Test @MainActor
-    func sessionListSkipsWhenRestoreDisabled() {
+    func conversationListSkipsWhenRestoreDisabled() {
         let dc = DaemonClient()
         let restorer = ConversationRestorer(daemonClient: dc)
         let delegate = MockConversationRestorerDelegate(daemonClient: dc)
         delegate.restoreRecentConversations = false
         restorer.delegate = delegate
 
-        let defaultThread = ConversationModel()
-        delegate.conversations = [defaultThread]
+        let defaultConversation = ConversationModel()
+        delegate.conversations = [defaultConversation]
 
         let response = makeConversationListResponse(conversations: [
             (id: "s1", title: "Chat 1", updatedAt: 1000),
@@ -387,18 +387,18 @@ struct ConversationRestorerTests {
 
         // Should not modify conversations
         #expect(delegate.conversations.count == 1)
-        #expect(delegate.conversations[0].id == defaultThread.id)
-        #expect(delegate.activatedThreadId == nil)
+        #expect(delegate.conversations[0].id == defaultConversation.id)
+        #expect(delegate.activatedConversationId == nil)
     }
 
     @Test @MainActor
-    func sessionListPreservesNonEmptyDefaultThread() {
+    func conversationListPreservesNonEmptyDefaultConversation() {
         let dc = DaemonClient()
         let restorer = ConversationRestorer(daemonClient: dc)
         let delegate = MockConversationRestorerDelegate(daemonClient: dc)
         restorer.delegate = delegate
 
-        // Default thread that has an active session (not empty)
+        // Default conversation that has an active conversation (not empty)
         let activeConversation = ConversationModel(title: "Active")
         let activeVm = delegate.makeViewModel()
         activeVm.conversationId = "active-session"
@@ -410,29 +410,29 @@ struct ConversationRestorerTests {
         ])
         restorer.handleConversationListResponse(response)
 
-        // Active thread is preserved, restored thread prepended
+        // Active conversation is preserved, restored conversation prepended
         #expect(delegate.conversations.count == 2)
         #expect(delegate.conversations[1].id == activeConversation.id)
         #expect(delegate.conversations[0].conversationId == "s1")
     }
 
     @Test @MainActor
-    func sessionListRestoresAllAndSetsOffset() {
+    func conversationListRestoresAllAndSetsOffset() {
         let dc = DaemonClient()
         let restorer = ConversationRestorer(daemonClient: dc)
         let delegate = MockConversationRestorerDelegate(daemonClient: dc)
         restorer.delegate = delegate
 
-        let defaultThread = ConversationModel()
-        delegate.conversations = [defaultThread]
-        delegate.viewModels[defaultThread.id] = delegate.makeViewModel()
+        let defaultConversation = ConversationModel()
+        delegate.conversations = [defaultConversation]
+        delegate.viewModels[defaultConversation.id] = delegate.makeViewModel()
 
-        let sessions = (0..<10).map { i in
+        let restoredConversations = (0..<10).map { i in
             (id: "s\(i)", title: "Chat \(i)", updatedAt: 10000 - i)
         }
-        restorer.handleConversationListResponse(makeConversationListResponse(conversations: sessions))
+        restorer.handleConversationListResponse(makeConversationListResponse(conversations: restoredConversations))
 
-        // Client restores all sessions from the response; pagination is server-side
+        // Client restores all conversations from the response; pagination is server-side
         #expect(delegate.conversations.count == 10)
         #expect(delegate.serverOffset == 10)
     }
@@ -440,19 +440,19 @@ struct ConversationRestorerTests {
     // MARK: - All-Archived Restore
 
     @Test @MainActor
-    func allArchivedSessionsCreatesNewThread() {
+    func allArchivedConversationsCreatesNewConversation() {
         let dc = DaemonClient()
         let restorer = ConversationRestorer(daemonClient: dc)
         let delegate = MockConversationRestorerDelegate(daemonClient: dc)
         restorer.delegate = delegate
 
-        // Mark all sessions as archived
+        // Mark all conversations as archived
         delegate.archivedConversationIds = ["s1", "s2"]
 
-        // Start with one empty default thread
-        let defaultThread = ConversationModel()
-        delegate.conversations = [defaultThread]
-        delegate.viewModels[defaultThread.id] = delegate.makeViewModel()
+        // Start with one empty default conversation
+        let defaultConversation = ConversationModel()
+        delegate.conversations = [defaultConversation]
+        delegate.viewModels[defaultConversation.id] = delegate.makeViewModel()
 
         let response = makeConversationListResponse(conversations: [
             (id: "s1", title: "Chat 1", updatedAt: 3000),
@@ -460,17 +460,17 @@ struct ConversationRestorerTests {
         ])
         restorer.handleConversationListResponse(response)
 
-        // Default thread replaced, restored conversations are archived, new thread created
-        #expect(delegate.createThreadCallCount == 1)
-        // 2 archived conversations + 1 new thread
+        // Default conversation replaced, restored conversations are archived, new conversation created
+        #expect(delegate.createConversationCallCount == 1)
+        // 2 archived conversations + 1 new conversation
         #expect(delegate.conversations.count == 3)
-        // The new thread should be active
-        #expect(delegate.activatedThreadId != nil)
-        #expect(delegate.conversations.first(where: { $0.id == delegate.activatedThreadId })?.isArchived == false)
+        // The new conversation should be active
+        #expect(delegate.activatedConversationId != nil)
+        #expect(delegate.conversations.first(where: { $0.id == delegate.activatedConversationId })?.isArchived == false)
     }
 
     @Test @MainActor
-    func allArchivedWithNonEmptyDefaultDoesNotCreateThread() {
+    func allArchivedWithNonEmptyDefaultDoesNotCreateConversation() {
         let dc = DaemonClient()
         let restorer = ConversationRestorer(daemonClient: dc)
         let delegate = MockConversationRestorerDelegate(daemonClient: dc)
@@ -478,7 +478,7 @@ struct ConversationRestorerTests {
 
         delegate.archivedConversationIds = ["s1"]
 
-        // Default thread has an active session (not empty)
+        // Default conversation has an active conversation (not empty)
         let activeConversation = ConversationModel(title: "Active")
         let activeVm = delegate.makeViewModel()
         activeVm.conversationId = "active-session"
@@ -490,8 +490,8 @@ struct ConversationRestorerTests {
         ])
         restorer.handleConversationListResponse(response)
 
-        // Default thread preserved, no new thread created
-        #expect(delegate.createThreadCallCount == 0)
+        // Default conversation preserved, no new conversation created
+        #expect(delegate.createConversationCallCount == 0)
         #expect(delegate.conversations.count == 2)
         #expect(delegate.conversations.contains(where: { $0.id == activeConversation.id }))
     }
@@ -499,25 +499,25 @@ struct ConversationRestorerTests {
     // MARK: - Conversation Type Mapping
 
     @Test @MainActor
-    func privateThreadTypeIsExcludedFromRestore() {
+    func privateConversationTypeIsExcludedFromRestore() {
         let dc = DaemonClient()
         let restorer = ConversationRestorer(daemonClient: dc)
         let delegate = MockConversationRestorerDelegate(daemonClient: dc)
         restorer.delegate = delegate
 
-        let defaultThread = ConversationModel()
-        delegate.conversations = [defaultThread]
-        delegate.viewModels[defaultThread.id] = delegate.makeViewModel()
+        let defaultConversation = ConversationModel()
+        delegate.conversations = [defaultConversation]
+        delegate.viewModels[defaultConversation.id] = delegate.makeViewModel()
 
         let response = makeConversationListResponse(conversations: [
             (id: "s1", title: "Private Chat", updatedAt: 2000, conversationType: "private"),
         ])
         restorer.handleConversationListResponse(response)
 
-        // Private sessions are filtered out; empty default is removed and a new thread created
+        // Private conversations are filtered out; empty default is removed and a new conversation created
         #expect(delegate.conversations.count == 1)
         #expect(delegate.conversations[0].kind == .standard)
-        #expect(delegate.createThreadCallCount == 1)
+        #expect(delegate.createConversationCallCount == 1)
     }
 
     @Test @MainActor
@@ -527,9 +527,9 @@ struct ConversationRestorerTests {
         let delegate = MockConversationRestorerDelegate(daemonClient: dc)
         restorer.delegate = delegate
 
-        let defaultThread = ConversationModel()
-        delegate.conversations = [defaultThread]
-        delegate.viewModels[defaultThread.id] = delegate.makeViewModel()
+        let defaultConversation = ConversationModel()
+        delegate.conversations = [defaultConversation]
+        delegate.viewModels[defaultConversation.id] = delegate.makeViewModel()
 
         let response = makeConversationListResponse(conversations: [
             (id: "s1", title: "Regular Chat", updatedAt: 2000, conversationType: nil),
@@ -547,9 +547,9 @@ struct ConversationRestorerTests {
         let delegate = MockConversationRestorerDelegate(daemonClient: dc)
         restorer.delegate = delegate
 
-        let defaultThread = ConversationModel()
-        delegate.conversations = [defaultThread]
-        delegate.viewModels[defaultThread.id] = delegate.makeViewModel()
+        let defaultConversation = ConversationModel()
+        delegate.conversations = [defaultConversation]
+        delegate.viewModels[defaultConversation.id] = delegate.makeViewModel()
 
         let response = makeConversationListResponse(conversations: [
             (id: "s1", title: "Standard Chat", updatedAt: 2000, conversationType: "standard"),
@@ -563,15 +563,15 @@ struct ConversationRestorerTests {
     // MARK: - Channel Binding Filtering
 
     @Test @MainActor
-    func telegramBoundSessionIsExcludedFromRestore() {
+    func telegramBoundConversationIsExcludedFromRestore() {
         let dc = DaemonClient()
         let restorer = ConversationRestorer(daemonClient: dc)
         let delegate = MockConversationRestorerDelegate(daemonClient: dc)
         restorer.delegate = delegate
 
-        let defaultThread = ConversationModel()
-        delegate.conversations = [defaultThread]
-        delegate.viewModels[defaultThread.id] = delegate.makeViewModel()
+        let defaultConversation = ConversationModel()
+        delegate.conversations = [defaultConversation]
+        delegate.viewModels[defaultConversation.id] = delegate.makeViewModel()
 
         let response = makeConversationListResponse(conversations: [
             (id: "s1", title: "Telegram Chat", updatedAt: 2000, conversationType: nil,
@@ -579,23 +579,23 @@ struct ConversationRestorerTests {
         ])
         restorer.handleConversationListResponse(response)
 
-        // Telegram-bound session filtered out; empty default removed; new thread created
+        // Telegram-bound conversation filtered out; empty default removed; new conversation created
         #expect(delegate.conversations.count == 1)
         #expect(delegate.conversations[0].kind == .standard)
         #expect(delegate.conversations[0].conversationId == nil)
-        #expect(delegate.createThreadCallCount == 1)
+        #expect(delegate.createConversationCallCount == 1)
     }
 
     @Test @MainActor
-    func voiceBoundSessionIsExcludedFromRestore() {
+    func voiceBoundConversationIsExcludedFromRestore() {
         let dc = DaemonClient()
         let restorer = ConversationRestorer(daemonClient: dc)
         let delegate = MockConversationRestorerDelegate(daemonClient: dc)
         restorer.delegate = delegate
 
-        let defaultThread = ConversationModel()
-        delegate.conversations = [defaultThread]
-        delegate.viewModels[defaultThread.id] = delegate.makeViewModel()
+        let defaultConversation = ConversationModel()
+        delegate.conversations = [defaultConversation]
+        delegate.viewModels[defaultConversation.id] = delegate.makeViewModel()
 
         let response = makeConversationListResponse(conversations: [
             (id: "s1", title: "Voice Call", updatedAt: 2000, conversationType: nil,
@@ -603,11 +603,11 @@ struct ConversationRestorerTests {
         ])
         restorer.handleConversationListResponse(response)
 
-        // Voice-bound session filtered out; empty default removed; new thread created
+        // Voice-bound conversation filtered out; empty default removed; new conversation created
         #expect(delegate.conversations.count == 1)
         #expect(delegate.conversations[0].kind == .standard)
         #expect(delegate.conversations[0].conversationId == nil)
-        #expect(delegate.createThreadCallCount == 1)
+        #expect(delegate.createConversationCallCount == 1)
     }
 
     @Test @MainActor
@@ -617,9 +617,9 @@ struct ConversationRestorerTests {
         let delegate = MockConversationRestorerDelegate(daemonClient: dc)
         restorer.delegate = delegate
 
-        let defaultThread = ConversationModel()
-        delegate.conversations = [defaultThread]
-        delegate.viewModels[defaultThread.id] = delegate.makeViewModel()
+        let defaultConversation = ConversationModel()
+        delegate.conversations = [defaultConversation]
+        delegate.viewModels[defaultConversation.id] = delegate.makeViewModel()
 
         let response = makeConversationListResponse(conversations: [
             (id: "s1", title: "Desktop Chat", updatedAt: 4000, conversationType: nil, channelBinding: nil),
@@ -631,13 +631,13 @@ struct ConversationRestorerTests {
         ])
         restorer.handleConversationListResponse(response)
 
-        // Only the two desktop sessions should be restored
+        // Only the two desktop conversations should be restored
         #expect(delegate.conversations.count == 2)
         #expect(delegate.conversations[0].conversationId == "s1")
         #expect(delegate.conversations[0].title == "Desktop Chat")
         #expect(delegate.conversations[1].conversationId == "s4")
         #expect(delegate.conversations[1].title == "Another Desktop Chat")
-        #expect(delegate.createThreadCallCount == 0)
+        #expect(delegate.createConversationCallCount == 0)
     }
 
     @Test @MainActor
@@ -647,9 +647,9 @@ struct ConversationRestorerTests {
         let delegate = MockConversationRestorerDelegate(daemonClient: dc)
         restorer.delegate = delegate
 
-        let defaultThread = ConversationModel()
-        delegate.conversations = [defaultThread]
-        delegate.viewModels[defaultThread.id] = delegate.makeViewModel()
+        let defaultConversation = ConversationModel()
+        delegate.conversations = [defaultConversation]
+        delegate.viewModels[defaultConversation.id] = delegate.makeViewModel()
 
         let response = makeConversationListResponse(conversations: [
             (id: "s1", title: "Desktop Chat", updatedAt: 3000, conversationType: nil, channelBinding: nil),
@@ -659,12 +659,12 @@ struct ConversationRestorerTests {
         ])
         restorer.handleConversationListResponse(response)
 
-        // Only the two desktop sessions should be restored
+        // Only the two desktop conversations should be restored
         #expect(delegate.conversations.count == 2)
         #expect(delegate.conversations[0].conversationId == "s1")
         #expect(delegate.conversations[0].title == "Desktop Chat")
         #expect(delegate.conversations[1].conversationId == "s3")
         #expect(delegate.conversations[1].title == "Another Desktop Chat")
-        #expect(delegate.createThreadCallCount == 0)
+        #expect(delegate.createConversationCallCount == 0)
     }
 }

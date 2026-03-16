@@ -4,7 +4,7 @@ import XCTest
 @MainActor
 final class MainWindowStateNavigationHistoryTests: XCTestCase {
 
-    func testBackForwardAcrossThreadPanelApp() {
+    func testBackForwardAcrossConversationPanelApp() {
         let state = MainWindowState(hasAPIKey: false)
         let id1 = UUID()
         state.selection = .conversation(id1)
@@ -39,7 +39,7 @@ final class MainWindowStateNavigationHistoryTests: XCTestCase {
         XCTAssertNil(state.selection)
     }
 
-    func testBackToChatDefaultRestoresThread() {
+    func testBackToChatDefaultRestoresConversation() {
         let state = MainWindowState(hasAPIKey: false)
         let someId = UUID()
         state.persistentConversationId = someId

@@ -42,6 +42,8 @@ const VellumMetadataSchema = z
     "display-name": z.string().optional(),
     includes: z.array(z.string()).optional(),
     "feature-flag": z.string().optional(),
+    "activation-hints": z.array(z.string()).optional(),
+    "avoid-when": z.array(z.string()).optional(),
   })
   .passthrough();
 
@@ -74,6 +76,10 @@ export interface SkillSummary {
   includes?: string[];
   /** Feature flag ID declared in frontmatter. Only skills with this field are subject to feature flag gating. */
   featureFlag?: string;
+  /** Compact routing cues projected into <available_skills> XML to guide skill selection. */
+  activationHints?: string[];
+  /** Conditions under which this skill should NOT be loaded. */
+  avoidWhen?: string[];
 }
 
 export interface SkillDefinition extends SkillSummary {
@@ -190,6 +196,17 @@ interface ParsedFrontmatter {
   emoji?: string;
   includes?: string[];
   featureFlag?: string;
+  activationHints?: string[];
+  avoidWhen?: string[];
+}
+
+function normalizeStringArray(raw: unknown): string[] | undefined {
+  if (!Array.isArray(raw)) return undefined;
+  const result = raw
+    .filter((item): item is string => typeof item === "string")
+    .map((s) => s.trim())
+    .filter((s) => s.length > 0);
+  return result.length > 0 ? result : undefined;
 }
 
 function parseFrontmatter(
@@ -252,7 +269,7 @@ function parseFrontmatter(
         if (vellum && typeof vellum === "object") {
           emoji = typeof vellum.emoji === "string" ? vellum.emoji : undefined;
         }
-        if (!emoji && parsedMeta?.emoji) {
+        if (!emoji && typeof parsedMeta?.emoji === "string") {
           emoji = parsedMeta.emoji;
         }
       }
@@ -282,6 +299,9 @@ function parseFrontmatter(
       ? vellum["display-name"]
       : undefined) ?? name;
 
+  const activationHints = normalizeStringArray(vellum?.["activation-hints"]);
+  const avoidWhen = normalizeStringArray(vellum?.["avoid-when"]);
+
   return {
     name,
     displayName,
@@ -290,6 +310,8 @@ function parseFrontmatter(
     emoji,
     includes,
     featureFlag,
+    activationHints,
+    avoidWhen,
   };
 }
 
@@ -442,6 +464,8 @@ function readSkillFromDirectory(
       toolManifest: detectToolManifest(directoryPath),
       includes: parsed.includes,
       featureFlag: parsed.featureFlag,
+      activationHints: parsed.activationHints,
+      avoidWhen: parsed.avoidWhen,
     };
   } catch (err) {
     log.warn({ err, skillFilePath }, "Failed to read skill file");
@@ -490,6 +514,8 @@ function readBundledSkillFromDirectory(
       toolManifest: detectToolManifest(directoryPath),
       includes: parsed.includes,
       featureFlag: parsed.featureFlag,
+      activationHints: parsed.activationHints,
+      avoidWhen: parsed.avoidWhen,
     };
   } catch (err) {
     log.warn({ err, skillFilePath }, "Failed to read bundled skill file");
@@ -546,6 +572,8 @@ function loadBundledSkills(): SkillSummary[] {
       toolManifest: skill.toolManifest,
       includes: skill.includes,
       featureFlag: skill.featureFlag,
+      activationHints: skill.activationHints,
+      avoidWhen: skill.avoidWhen,
     });
   }
 
@@ -680,6 +708,8 @@ function skillSummaryFromDefinition(
     toolManifest: skill.toolManifest,
     includes: skill.includes,
     featureFlag: skill.featureFlag,
+    activationHints: skill.activationHints,
+    avoidWhen: skill.avoidWhen,
   };
 }
 
@@ -905,15 +935,13 @@ function isEscapingSymlink(filePath: string, rootDir: string): boolean {
 }
 
 /**
- * Scan for a `references/` subdirectory within a skill directory and append
- * the contents of any `.md` files found there to the skill body. Each
- * reference file is labeled with a `--- Reference: <Name> ---` header.
- * Files are appended in alphabetical order for deterministic output.
- * Non-`.md` files are ignored. Symlinks that resolve outside the skill
- * directory are skipped. Errors are logged as warnings and the original body
- * is returned unchanged.
+ * Check for a `references/` subdirectory within a skill directory and return
+ * a formatted listing of available `.md` reference files with full absolute
+ * paths. Returns `null` if no references exist. Files are listed in
+ * alphabetical order. Non-`.md` files are ignored. Symlinks that resolve
+ * outside the skill directory are skipped.
  */
-function appendReferenceFiles(body: string, directoryPath: string): string {
+export function listReferenceFiles(directoryPath: string): string | null {
   try {
     const refsDir = join(directoryPath, "references");
     if (
@@ -921,7 +949,7 @@ function appendReferenceFiles(body: string, directoryPath: string): string {
       isEscapingSymlink(refsDir, directoryPath) ||
       !statSync(refsDir).isDirectory()
     ) {
-      return body;
+      return null;
     }
 
     const entries = readdirSync(refsDir);
@@ -930,23 +958,22 @@ function appendReferenceFiles(body: string, directoryPath: string): string {
       .filter((f) => !isEscapingSymlink(join(refsDir, f), directoryPath))
       .sort((a, b) => a.localeCompare(b));
 
-    if (mdFiles.length === 0) return body;
+    if (mdFiles.length === 0) return null;
 
-    let result = body;
+    const lines = [
+      "## Reference Files",
+      "",
+      "The following reference files are available in this skill's directory. Use `file_read` to load any that are relevant to the current task:",
+      "",
+    ];
     for (const filename of mdFiles) {
-      const fileContents = readFileSync(join(refsDir, filename), "utf-8");
-      const displayName = filename
-        .replace(/\.md$/i, "")
-        .replace(/[-_]/g, " ")
-        .replace(/\b\w/g, (c) => c.toUpperCase())
-        .replace(/\B\w+/g, (w) => w.toLowerCase());
-      result += `\n\n--- Reference: ${displayName} ---\n${fileContents}`;
+      lines.push(`- \`${join(refsDir, filename)}\``);
     }
 
-    return result;
+    return lines.join("\n");
   } catch (err) {
-    log.warn({ err, directoryPath }, "Failed to read reference files");
-    return body;
+    log.warn({ err, directoryPath }, "Failed to list reference files");
+    return null;
   }
 }
 
@@ -976,8 +1003,6 @@ function loadSkillDefinition(skill: SkillSummary): SkillLookupResult {
   loaded.body = loaded.body.replaceAll("{baseDir}", loaded.directoryPath);
   // Strip feature-gated sections based on assistant feature flags
   loaded.body = applyFeatureGatedSections(loaded.body);
-  // Auto-load reference files from references/ subdirectory
-  loaded.body = appendReferenceFiles(loaded.body, loaded.directoryPath);
   return { skill: loaded };
 }
 

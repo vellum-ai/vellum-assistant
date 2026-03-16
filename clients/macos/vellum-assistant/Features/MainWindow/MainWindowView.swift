@@ -89,11 +89,6 @@ struct MainWindowView: View {
     /// but requires complex window geometry inspection.
     let trafficLightPadding: CGFloat = 78
 
-    /// Whether the BOOTSTRAP.md first-run ritual is still in progress.
-    private var isBootstrapOnboardingActive: Bool {
-        FileManager.default.fileExists(atPath: NSHomeDirectory() + "/.vellum/workspace/BOOTSTRAP.md")
-    }
-
     func toggleVoiceMode() {
         if voiceModeManager.state != .off {
             voiceModeManager.deactivate()
@@ -184,7 +179,7 @@ struct MainWindowView: View {
         )
     }
 
-    func copyActiveThreadToClipboard() {
+    func copyActiveConversationToClipboard() {
         let messages = conversationManager.activeViewModel?.messages ?? []
         let title = conversationManager.activeConversation?.title
         let names = resolveParticipantNames()
@@ -199,7 +194,7 @@ struct MainWindowView: View {
         windowState.showToast(message: "Conversation copied to clipboard", style: .success)
     }
 
-    private var threadHeaderPresentation: ConversationHeaderPresentation {
+    private var conversationHeaderPresentation: ConversationHeaderPresentation {
         ConversationHeaderPresentation(
             activeConversation: conversationManager.activeConversation,
             activeViewModel: conversationManager.activeViewModel,
@@ -207,17 +202,17 @@ struct MainWindowView: View {
         )
     }
 
-    func dismissThreadDrawer() {
+    func dismissConversationDrawer() {
         withAnimation(.spring(response: 0.35, dampingFraction: 0.7)) {
             showConversationActionsDrawer = false
         }
     }
 
-    func startRenameActiveThread() {
+    func startRenameActiveConversation() {
         guard let id = conversationManager.activeConversationId,
-              let thread = conversationManager.activeConversation else { return }
+              let conversation = conversationManager.activeConversation else { return }
         sidebar.renamingConversationId = id
-        sidebar.renameText = thread.title
+        sidebar.renameText = conversation.title
     }
 
     var body: some View {
@@ -376,24 +371,24 @@ struct MainWindowView: View {
             Spacer()
             if windowState.isConversationVisible {
                 ConversationTitleActionsControl(
-                    presentation: threadHeaderPresentation,
-                    onCopy: { copyActiveThreadToClipboard(); dismissThreadDrawer() },
+                    presentation: conversationHeaderPresentation,
+                    onCopy: { copyActiveConversationToClipboard(); dismissConversationDrawer() },
                     onPin: {
                         guard let id = conversationManager.activeConversationId else { return }
-                        conversationManager.pinThread(id: id)
-                        dismissThreadDrawer()
+                        conversationManager.pinConversation(id: id)
+                        dismissConversationDrawer()
                     },
                     onUnpin: {
                         guard let id = conversationManager.activeConversationId else { return }
-                        conversationManager.unpinThread(id: id)
-                        dismissThreadDrawer()
+                        conversationManager.unpinConversation(id: id)
+                        dismissConversationDrawer()
                     },
                     onArchive: {
                         guard let id = conversationManager.activeConversationId else { return }
                         conversationManager.archiveConversation(id: id)
-                        dismissThreadDrawer()
+                        dismissConversationDrawer()
                     },
-                    onRename: { startRenameActiveThread(); dismissThreadDrawer() },
+                    onRename: { startRenameActiveConversation(); dismissConversationDrawer() },
                     showDrawer: $showConversationActionsDrawer
                 )
                 .background(GeometryReader { proxy in
@@ -408,11 +403,11 @@ struct MainWindowView: View {
             Spacer()
             if updateManager.isUpdateAvailable {
                 VButton(
-                    label: "Update",
+                    label: updateManager.isDeferredUpdateReady ? "Restart to update" : "Update",
                     leftIcon: VIcon.arrowUp.rawValue,
                     style: .primary,
                     size: .pill,
-                    tooltip: "A new version is available"
+                    tooltip: updateManager.isDeferredUpdateReady ? "Restart to install the latest version" : "A new version is available"
                 ) {
                     if updateManager.isDeferredUpdateReady {
                         NSApp.terminate(nil)
@@ -421,6 +416,7 @@ struct MainWindowView: View {
                     }
                 }
                 .transition(.opacity.combined(with: .scale(scale: 0.9)))
+                .animation(VAnimation.fast, value: updateManager.isUpdateAvailable)
             }
             PTTKeyIndicator {
                 settingsStore.pendingSettingsTab = .voice
@@ -462,7 +458,7 @@ struct MainWindowView: View {
 
                         chatContentView(geometry: geometry)
                             .clipShape(RoundedRectangle(cornerRadius: VRadius.xl))
-                            .animation(nil, value: sidebarExpanded)
+                            .animation(VAnimation.panel, value: sidebarExpanded)
                             .overlay {
                                 if showDaemonLoading && !isSettingsOpen {
                                     DaemonLoadingChatSkeleton()
@@ -490,31 +486,31 @@ struct MainWindowView: View {
                     if showConversationActionsDrawer {
                         Color.clear
                             .contentShape(Rectangle())
-                            .onTapGesture { dismissThreadDrawer() }
+                            .onTapGesture { dismissConversationDrawer() }
                     }
                 }
                 .overlay(alignment: .topLeading) {
                     if showConversationActionsDrawer {
-                        let presentation = threadHeaderPresentation
+                        let presentation = conversationHeaderPresentation
                         ConversationActionsDrawer(
                             presentation: presentation,
-                            onCopy: { copyActiveThreadToClipboard(); dismissThreadDrawer() },
+                            onCopy: { copyActiveConversationToClipboard(); dismissConversationDrawer() },
                             onPin: {
                                 guard let id = conversationManager.activeConversationId else { return }
-                                conversationManager.pinThread(id: id)
-                                dismissThreadDrawer()
+                                conversationManager.pinConversation(id: id)
+                                dismissConversationDrawer()
                             },
                             onUnpin: {
                                 guard let id = conversationManager.activeConversationId else { return }
-                                conversationManager.unpinThread(id: id)
-                                dismissThreadDrawer()
+                                conversationManager.unpinConversation(id: id)
+                                dismissConversationDrawer()
                             },
                             onArchive: {
                                 guard let id = conversationManager.activeConversationId else { return }
                                 conversationManager.archiveConversation(id: id)
-                                dismissThreadDrawer()
+                                dismissConversationDrawer()
                             },
-                            onRename: { startRenameActiveThread(); dismissThreadDrawer() }
+                            onRename: { startRenameActiveConversation(); dismissConversationDrawer() }
                         )
                         .offset(x: conversationTitleFrame.minX, y: conversationTitleFrame.maxY)
                         .zIndex(10)
@@ -569,7 +565,7 @@ struct MainWindowView: View {
                 }
                 .overlay(alignment: .topLeading) {
                     if showConversationSwitcher {
-                        ThreadSwitcherDrawer(
+                        ConversationSwitcherDrawer(
                             regularConversations: regularConversations,
                             activeConversationId: conversationManager.activeConversationId,
                             conversationManager: conversationManager,
@@ -710,7 +706,7 @@ struct MainWindowView: View {
             }
         }
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
-            conversationManager.markActiveThreadSeenIfNeeded()
+            conversationManager.markActiveConversationSeenIfNeeded()
         }
         .onChange(of: selectedConversationId) { _, newId in
             if let newId = newId {
@@ -739,7 +735,7 @@ struct MainWindowView: View {
             conversationManager.activeViewModel?.activeSurfaceId = windowState.isDynamicExpanded ? windowState.activeDynamicSurface?.surfaceId : nil
             conversationManager.activeViewModel?.isChatDockedToSide = windowState.isDynamicExpanded && windowState.isChatDockOpen
             // Consume any buffered deep-link message now that a conversation is active.
-            // Mirrors the iOS pattern (ChatTabView.onAppear, ThreadListView.onAppear)
+            // Mirrors the iOS pattern (ChatTabView.onAppear, ConversationListView.onAppear)
             // where consumeDeepLinkIfNeeded() is called when the view model becomes
             // visible. Without this, deep links arriving before the window/conversation is
             // fully initialized are silently dropped on macOS.

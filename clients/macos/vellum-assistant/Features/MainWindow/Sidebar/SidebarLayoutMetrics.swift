@@ -1,7 +1,7 @@
 import SwiftUI
 import VellumAssistantShared
 
-/// Canonical layout metrics shared across all sidebar row types (nav, pinned app, thread)
+/// Canonical layout metrics shared across all sidebar row types (nav, pinned app, conversation)
 /// and section dividers. Centralises ad-hoc spacing literals so row density and section
 /// rhythm stay consistent between expanded and collapsed modes.
 enum SidebarLayoutMetrics {
@@ -18,7 +18,7 @@ enum SidebarLayoutMetrics {
 
     // MARK: - List Row Spacing
 
-    /// Gap between consecutive thread/scheduled rows — matches nav/pinned VStack spacing.
+    /// Gap between consecutive conversation/scheduled rows — matches nav/pinned VStack spacing.
     static let listRowGap: CGFloat = VSpacing.xs  // 4pt
 
     // MARK: - Section Title

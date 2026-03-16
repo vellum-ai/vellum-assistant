@@ -17,7 +17,7 @@ extension HTTPTransport {
             guard let self else { return false }
 
             if let msg = message as? ConversationSwitchRequest {
-                Task { await self.switchSession(conversationId: msg.conversationId) }
+                Task { await self.switchConversation(conversationId: msg.conversationId) }
                 return true
             } else if let msg = message as? ConversationRenameRequest {
                 Task { await self.renameConversation(conversationId: msg.conversationId, name: msg.title) }

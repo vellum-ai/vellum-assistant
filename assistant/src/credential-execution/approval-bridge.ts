@@ -36,7 +36,7 @@ const log = getLogger("ces-approval-bridge");
  * Maps the existing confirmation transport decisions to CES grant semantics:
  * - `allow`          -> approved (single-use grant, no TTL)
  * - `allow_10m`      -> approved (temporary grant, 10-minute TTL)
- * - `allow_conversation` -> approved (conversation-scoped grant, no TTL but session-bound)
+ * - `allow_conversation` -> approved (conversation-scoped grant, no TTL but conversation-bound)
  * - `always_allow`   -> approved (persistent grant, no expiry)
  * - `deny`           -> denied
  * - `always_deny`    -> denied
@@ -77,8 +77,8 @@ function mapUserDecisionToCesDecision(
       };
     case "allow_conversation":
       // Conversation-scoped grants don't have a wall-clock TTL — they are bound
-      // to the session lifetime. CES handles the session binding; we pass
-      // no TTL so the grant remains active until the session ends.
+      // to the conversation lifetime. CES handles the conversation binding; we pass
+      // no TTL so the grant remains active until the conversation ends.
       return {
         grantDecision: "approved",
         ttl: undefined,

@@ -12,7 +12,7 @@ struct IOSConversation: Identifiable {
     let createdAt: Date
     /// Tracks the most recent activity (message sent/received). Defaults to createdAt.
     var lastActivityAt: Date
-    /// When non-nil, this conversation is backed by a daemon session (Connected mode).
+    /// When non-nil, this conversation is backed by a daemon conversation (Connected mode).
     var conversationId: String?
     var isArchived: Bool
     var isPinned: Bool
@@ -83,7 +83,7 @@ class IOSConversationStore: ObservableObject {
     @Published var isConnectedMode: Bool = false
     /// True while an additional page of conversations is being fetched from the daemon.
     @Published var isLoadingMoreConversations: Bool = false
-    /// Whether the daemon indicated more sessions exist beyond what is currently loaded.
+    /// Whether the daemon indicated more conversations exist beyond what is currently loaded.
     @Published var hasMoreConversations: Bool = false
     /// True while the first page of conversations is being fetched from the daemon.
     /// Used by the UI to show a loading indicator instead of a placeholder conversation.
@@ -95,11 +95,11 @@ class IOSConversationStore: ObservableObject {
     private static let persistenceKey = "ios_threads_v1"
     private static let connectedCacheKey = "ios_connected_threads_cache_v1"
     private var cancellables: Set<AnyCancellable> = []
-    /// Maps daemon session IDs to conversation IDs for history loading.
+    /// Maps daemon conversation IDs to local conversation IDs for history loading.
     private var pendingHistoryByConversationId: [String: UUID] = [:]
     /// Tracks conversation IDs that already have an activity-tracking observer to avoid duplicates.
     private var observedActivityConversationIds: Set<UUID> = []
-    /// Number of conversations per page when listing sessions from the daemon.
+    /// Number of conversations per page when listing conversations from the daemon.
     private static let conversationPageSize = 50
     private static let attentionSignalType = "ios_conversation_opened"
     /// Current offset used for the next page fetch; advances by `conversationPageSize` on each load.
@@ -108,7 +108,7 @@ class IOSConversationStore: ObservableObject {
     /// reconnect (or a `rebindDaemonClient` call). Never incremented on ordinary
     /// `loadMoreConversations` calls.
     ///
-    /// Because the daemon does not echo a request ID back in session-list responses, we
+    /// Because the daemon does not echo a request ID back in conversation-list responses, we
     /// cannot correlate individual responses to individual requests within the same
     /// connection.  What we *can* do is reject any response that arrived from the *old*
     /// connection after a reconnect has already started a fresh page-1 sequence.  This is
@@ -116,7 +116,7 @@ class IOSConversationStore: ObservableObject {
     /// generation in `expectedConversationListGeneration`; the response handler discards any
     /// response whose expected generation no longer matches the live counter.
     private var conversationListGeneration: UInt64 = 0
-    /// Generation captured at the time the most-recent page-1 session-list request was sent.
+    /// Generation captured at the time the most-recent page-1 conversation-list request was sent.
     /// The response handler compares this against `conversationListGeneration` to detect and
     /// discard stale responses from the previous connection.
     private var expectedConversationListGeneration: UInt64 = 0
@@ -128,7 +128,7 @@ class IOSConversationStore: ObservableObject {
     /// local pin/displayOrder when merging daemon data; title/archive-only edits
     /// must not overwrite daemon pin updates from other devices.
     private var locallyEditedPinConversationIds: Set<String> = []
-    /// Local seen/unread mutations must survive a stale session-list replay until
+    /// Local seen/unread mutations must survive a stale conversation-list replay until
     /// the daemon acknowledges them or returns a newer assistant reply.
     private var pendingAttentionOverrides: [String: PendingAttentionOverride] = [:]
 
@@ -143,18 +143,18 @@ class IOSConversationStore: ObservableObject {
     }
 
     private func applyConversationMetadata(
-        _ session: ConversationListResponseItem,
+        _ item: ConversationListResponseItem,
         to conversation: inout IOSConversation
     ) {
-        conversation.isPinned = session.isPinned ?? false
-        conversation.displayOrder = session.displayOrder.map { Int($0) }
+        conversation.isPinned = item.isPinned ?? false
+        conversation.displayOrder = item.displayOrder.map { Int($0) }
         conversation.hasUnseenLatestAssistantMessage =
-            session.assistantAttention?.hasUnseenLatestAssistantMessage ?? false
+            item.assistantAttention?.hasUnseenLatestAssistantMessage ?? false
         conversation.latestAssistantMessageAt = assistantTimestamp(
-            session.assistantAttention?.latestAssistantMessageAt
+            item.assistantAttention?.latestAssistantMessageAt
         )
         conversation.lastSeenAssistantMessageAt = assistantTimestamp(
-            session.assistantAttention?.lastSeenAssistantMessageAt
+            item.assistantAttention?.lastSeenAssistantMessageAt
         )
     }
 
@@ -310,7 +310,7 @@ class IOSConversationStore: ObservableObject {
             self.saveConnectedCache()
         }
 
-        // Fetch session list once connected. Try immediately if already connected,
+        // Fetch conversation list once connected. Try immediately if already connected,
         // otherwise wait for the daemonDidReconnect notification.
         if daemon.isConnected {
             conversationListOffset = 0
@@ -344,7 +344,7 @@ class IOSConversationStore: ObservableObject {
             .store(in: &cancellables)
     }
 
-    /// Capture the current generation as expected and send a page-1 session-list request.
+    /// Capture the current generation as expected and send a page-1 conversation-list request.
     ///
     /// `expectedConversationListGeneration` is updated here — not in the reconnect handler — so
     /// the guard window (conversationListGeneration != expectedConversationListGeneration) remains open
@@ -375,12 +375,12 @@ class IOSConversationStore: ObservableObject {
         cancellables.removeAll()
 
         // Nil out callbacks on the old daemon before replacing the reference.
-        // In-flight HTTP responses (session-list, history, subagent-detail) are launched
+        // In-flight HTTP responses (conversation-list, history, subagent-detail) are launched
         // in fire-and-forget Tasks and are not cancelled by disconnect.  Without this,
         // a response arriving after the rebind would invoke the closures registered by
         // the previous setupDaemonCallbacks call, which capture [weak self] and would
         // still call back into this store — potentially corrupting the conversation list with
-        // stale sessions from the old connection.
+        // stale conversations from the old connection.
         if let oldDaemon = daemonClient as? DaemonClient {
             oldDaemon.onConversationListResponse = nil
             oldDaemon.onHistoryResponse = nil
@@ -449,7 +449,7 @@ class IOSConversationStore: ObservableObject {
 
         let filteredConversations = response.conversations.filter { $0.conversationType != "private" }
 
-        // Handle confirmed-empty first-page response: clear stale cached sessions.
+        // Handle confirmed-empty first-page response: clear stale cached conversations.
         // Only clear when hasMore is explicitly false (authoritative empty result).
         // Transient failures (HTTP errors, decode errors) emit hasMore: nil and must
         // not wipe the cache — the user should keep seeing cached conversations.
@@ -482,18 +482,18 @@ class IOSConversationStore: ObservableObject {
         isLoadingInitialConversations = false
 
         var restoredConversations: [IOSConversation] = []
-        for session in filteredConversations {
-            let effectiveCreatedAt = session.createdAt ?? session.updatedAt
+        for item in filteredConversations {
+            let effectiveCreatedAt = item.createdAt ?? item.updatedAt
             var conversation = IOSConversation(
-                title: session.title,
+                title: item.title,
                 createdAt: Date(timeIntervalSince1970: TimeInterval(effectiveCreatedAt) / 1000.0),
-                lastActivityAt: Date(timeIntervalSince1970: TimeInterval(session.updatedAt) / 1000.0),
-                conversationId: session.id,
-                scheduleJobId: session.scheduleJobId
+                lastActivityAt: Date(timeIntervalSince1970: TimeInterval(item.updatedAt) / 1000.0),
+                conversationId: item.id,
+                scheduleJobId: item.scheduleJobId
             )
-            applyConversationMetadata(session, to: &conversation)
+            applyConversationMetadata(item, to: &conversation)
             let vm = ChatViewModel(daemonClient: daemonClient)
-            vm.conversationId = session.id
+            vm.conversationId = item.id
             viewModels[conversation.id] = vm
             restoredConversations.append(conversation)
         }
@@ -585,7 +585,7 @@ class IOSConversationStore: ObservableObject {
             }
             saveConnectedCache()
         } else {
-            // Subsequent pages: append only sessions not already in the list.
+            // Subsequent pages: append only conversations not already in the list.
             let existingConversationIds: Set<String> = Set(conversations.compactMap { conversation -> String? in
                 if let sid = conversation.conversationId { return sid }
                 return viewModels[conversation.id]?.conversationId
@@ -756,15 +756,15 @@ class IOSConversationStore: ObservableObject {
         viewModels[conversationLocalId] = vm
 
         // Copy conversationId from the conversation so the VM joins the existing
-        // daemon session instead of bootstrapping a new one.
+        // daemon conversation instead of bootstrapping a new one.
         if let conversation = conversations.first(where: { $0.id == conversationLocalId }) {
             vm.conversationId = conversation.conversationId
         }
 
         wireReconnectCallback(vm: vm, conversationLocalId: conversationLocalId)
 
-        // Only auto-title conversations without a daemon session (new local conversations).
-        // Daemon conversations already have titles from the session list.
+        // Only auto-title conversations without a daemon conversation (new local conversations).
+        // Daemon conversations already have titles from the conversation list.
         if conversations.first(where: { $0.id == conversationLocalId })?.conversationId == nil {
             observeForTitleGeneration(vm: vm, conversationLocalId: conversationLocalId)
         }
@@ -835,7 +835,7 @@ class IOSConversationStore: ObservableObject {
             .store(in: &cancellables)
     }
 
-    /// Private conversations are excluded from the session list response filter, so they
+    /// Private conversations are excluded from the conversation list response filter, so they
     /// won't appear in the normal active conversation list.
     var privateConversations: [IOSConversation] {
         conversations.filter { $0.isPrivate }
@@ -850,7 +850,7 @@ class IOSConversationStore: ObservableObject {
     }
 
     /// Create a new private conversation with the given name. The conversation is immediately
-    /// backed by a daemon session with conversationType "private" so it is persisted on
+    /// backed by a daemon conversation with conversationType "private" so it is persisted on
     /// the daemon side and excluded from normal conversation restoration.
     @discardableResult
     func newPrivateConversation(name: String = "Private Conversation") -> IOSConversation {

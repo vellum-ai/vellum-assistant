@@ -10,6 +10,11 @@ metadata:
       - "twilio-setup"
       - "public-ingress"
       - "elevenlabs-voice"
+    activation-hints:
+      - "Phone calling setup, Twilio config, placing/receiving calls"
+      - "Do NOT improvise Twilio setup from general knowledge"
+    avoid-when:
+      - "Don't confuse with voice-setup (local PTT/mic) or guardian-verify-setup"
 ---
 
 You are helping the user set up and manage phone calls via Twilio. This skill covers enabling the calls feature, placing outbound calls, receiving inbound calls, and interacting with live calls. Twilio credential storage, phone number provisioning, and public ingress are handled by the **twilio-setup** skill.
@@ -50,11 +55,11 @@ Before making real calls, offer a quick verification. Suggest a test call to the
 
 If they agree, ask for their personal phone number and place a test call with a simple task like "Introduce yourself and confirm the call system is working."
 
-## Step 4: Guardian Verification
+## Step 5: Guardian Verification
 
 The final step is for the user to verify themselves so that they are recognized when they call you. It's also a great way for them to hear what you sound like and decide if they want you to use a different voice.
 
-Load the `guardian-verify-setup` skill and follow the isntructions for guardian verification over the `phone` channel. This will require the user to provide you with their phone number and then for you to give them a call. Say something like:
+Load the `guardian-verify-setup` skill and follow the instructions for guardian verification over the `phone` channel. This will require the user to provide you with their phone number and then for you to give them a call. Say something like:
 
 > Want to do a quick verification call now so that you can hear what I sound like and also so that I recognize your number when you call me in the future?
 > I'll show a 6 digit code here in the chat and when you answer my call, enter it using your phone's keypad.

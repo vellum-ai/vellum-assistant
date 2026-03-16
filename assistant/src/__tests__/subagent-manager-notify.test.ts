@@ -6,7 +6,7 @@ import type { SubagentState } from "../subagent/types.js";
 
 /** Minimal shape matching the private ManagedSubagent interface for test injection. */
 interface FakeManagedSubagent {
-  session: {
+  conversation: {
     abort: () => void;
     dispose: () => void;
     messages: Array<{
@@ -48,7 +48,7 @@ function injectFakeSubagent(
   state: SubagentState,
   parentSendToClient?: (msg: ServerMessage) => void,
 ): void {
-  const fakeSession: FakeManagedSubagent["session"] = {
+  const fakeSession: FakeManagedSubagent["conversation"] = {
     abort: () => {},
     dispose: () => {},
     messages: [],
@@ -61,7 +61,7 @@ function injectFakeSubagent(
   const parentToChildren = internals.parentToChildren;
 
   subagents.set(subagentId, {
-    session: fakeSession,
+    conversation: fakeSession,
     state,
     parentSendToClient: parentSendToClient ?? (() => {}),
   });
@@ -273,10 +273,10 @@ describe("SubagentManager notifyParent (via runSubagent)", () => {
     const state = makeState(subagentId);
     injectFakeSubagent(manager, subagentId, state);
 
-    // Patch the fake session to simulate a successful agent loop.
+    // Patch the fake conversation to simulate a successful agent loop.
     const managed = asInternals(manager).subagents.get(subagentId)!;
-    managed.session.persistUserMessage = () => "msg-1";
-    managed.session.runAgentLoop = async () => {};
+    managed.conversation.persistUserMessage = () => "msg-1";
+    managed.conversation.runAgentLoop = async () => {};
 
     const notifications: { parentConversationId: string; message: string }[] =
       [];
@@ -306,11 +306,11 @@ describe("SubagentManager notifyParent (via runSubagent)", () => {
     const state = makeState(subagentId);
     injectFakeSubagent(manager, subagentId, state);
 
-    // Patch the fake session to simulate a failure.
+    // Patch the fake conversation to simulate a failure.
     const managed = asInternals(manager).subagents.get(subagentId)!;
 
-    managed.session.persistUserMessage = () => "msg-1";
-    managed.session.runAgentLoop = async () => {
+    managed.conversation.persistUserMessage = () => "msg-1";
+    managed.conversation.runAgentLoop = async () => {
       throw new Error("API rate limit exceeded");
     };
 
@@ -343,8 +343,8 @@ describe("SubagentManager notifyParent (via runSubagent)", () => {
 
     const managed = asInternals(manager).subagents.get(subagentId)!;
 
-    managed.session.persistUserMessage = () => "msg-1";
-    managed.session.runAgentLoop = async () => {
+    managed.conversation.persistUserMessage = () => "msg-1";
+    managed.conversation.runAgentLoop = async () => {
       throw new Error("Conversation aborted");
     };
 
@@ -419,12 +419,12 @@ describe("SubagentManager abort race guard", () => {
     const state = makeState(subagentId, { status: "aborted" });
     injectFakeSubagent(manager, subagentId, state);
 
-    // Patch session to simulate successful completion after abort.
+    // Patch conversation to simulate successful completion after abort.
     const managed = asInternals(manager).subagents.get(subagentId)!;
 
-    managed.session.persistUserMessage = () => "msg-1";
-    managed.session.runAgentLoop = async () => {};
-    managed.session.messages = [
+    managed.conversation.persistUserMessage = () => "msg-1";
+    managed.conversation.runAgentLoop = async () => {};
+    managed.conversation.messages = [
       { role: "assistant", content: [{ type: "text", text: "Done!" }] },
     ];
 

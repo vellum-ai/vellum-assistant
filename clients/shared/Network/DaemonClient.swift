@@ -520,10 +520,10 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     /// Called when the daemon sends a generic `error` message (e.g. when a handler fails).
     public var onError: ((ErrorMessage) -> Void)?
 
-    /// Called when a task run creates a conversation so the client can show it as a visible chat thread.
+    /// Called when a task run creates a conversation so the client can show it as a visible chat conversation.
     public var onTaskRunConversationCreated: ((TaskRunConversationCreated) -> Void)?
 
-    /// Called when a schedule creates a conversation so the client can show it as a visible chat thread.
+    /// Called when a schedule creates a conversation so the client can show it as a visible chat conversation.
     public var onScheduleConversationCreated: ((ScheduleConversationCreated) -> Void)?
 
     /// Called when the daemon requests pairing approval from macOS.
@@ -1516,7 +1516,7 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
         try send(IdentityGetRequestMessage())
     }
 
-    /// Request avatar generation via the daemon's set_avatar tool.
+    /// Request avatar generation via the daemon's avatar generation endpoint.
     public func sendGenerateAvatar(description: String) throws {
         try send(GenerateAvatarRequestMessage(description: description))
     }

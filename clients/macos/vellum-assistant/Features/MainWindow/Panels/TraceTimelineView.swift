@@ -57,7 +57,7 @@ struct TraceTimelineView: View {
                 .padding(.horizontal, VSpacing.lg)
                 .padding(.vertical, VSpacing.md)
             }
-            .onChange(of: traceStore.latestEventIdBySession[conversationId]) {
+            .onChange(of: traceStore.latestEventIdByConversation[conversationId]) {
                 if isNearBottom {
                     withAnimation(VAnimation.fast) {
                         proxy.scrollTo("trace-bottom", anchor: .bottom)

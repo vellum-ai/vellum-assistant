@@ -303,6 +303,9 @@ export function saveRawConfig(config: Record<string, unknown>): void {
   ensureMigratedDataDir();
   const configPath = getConfigPath();
 
+  // Strip legacy apiKeys — provider keys belong in secure storage, not plaintext config
+  delete config.apiKeys;
+
   writeFileSync(configPath, JSON.stringify(config, null, 2) + "\n");
 
   cached = null; // invalidate cache

@@ -203,7 +203,7 @@ struct TraceTimelineIOSView: View {
                 .padding(.horizontal, VSpacing.lg)
                 .padding(.vertical, VSpacing.md)
             }
-            .onChange(of: traceStore.latestEventIdBySession[conversationId]) { _, _ in
+            .onChange(of: traceStore.latestEventIdByConversation[conversationId]) { _, _ in
                 if isNearBottom {
                     withAnimation(VAnimation.fast) {
                         proxy.scrollTo("trace-bottom", anchor: .bottom)

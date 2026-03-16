@@ -97,11 +97,15 @@ export async function setSlackChannelConfig(
         const errHasAppToken = !!(await getSecureKeyAsync(
           credentialKey("slack_channel", "app_token"),
         ));
+        const errConn = getConnectionByProvider("slack_channel");
         return {
           success: false,
           hasBotToken: errHasBotToken,
           hasAppToken: errHasAppToken,
-          connected: errHasBotToken && errHasAppToken,
+          connected:
+            !!(errConn && errConn.status === "active") &&
+            errHasBotToken &&
+            errHasAppToken,
           error: `Slack API validation failed: ${
             data.error ?? "unknown error"
           }`,
@@ -121,11 +125,15 @@ export async function setSlackChannelConfig(
       const errHasAppToken = !!(await getSecureKeyAsync(
         credentialKey("slack_channel", "app_token"),
       ));
+      const errConn = getConnectionByProvider("slack_channel");
       return {
         success: false,
         hasBotToken: errHasBotToken,
         hasAppToken: errHasAppToken,
-        connected: errHasBotToken && errHasAppToken,
+        connected:
+          !!(errConn && errConn.status === "active") &&
+          errHasBotToken &&
+          errHasAppToken,
         error: `Failed to validate bot token: ${message}`,
       };
     }
@@ -141,11 +149,15 @@ export async function setSlackChannelConfig(
       const errHasAppToken = !!(await getSecureKeyAsync(
         credentialKey("slack_channel", "app_token"),
       ));
+      const errConn = getConnectionByProvider("slack_channel");
       return {
         success: false,
         hasBotToken: errHasBotToken,
         hasAppToken: errHasAppToken,
-        connected: errHasBotToken && errHasAppToken,
+        connected:
+          !!(errConn && errConn.status === "active") &&
+          errHasBotToken &&
+          errHasAppToken,
         error: "Failed to store bot token in secure storage",
       };
     }
@@ -179,11 +191,15 @@ export async function setSlackChannelConfig(
       const errHasAppToken = !!(await getSecureKeyAsync(
         credentialKey("slack_channel", "app_token"),
       ));
+      const errConn = getConnectionByProvider("slack_channel");
       return {
         success: false,
         hasBotToken: errHasBotToken,
         hasAppToken: errHasAppToken,
-        connected: errHasBotToken && errHasAppToken,
+        connected:
+          !!(errConn && errConn.status === "active") &&
+          errHasBotToken &&
+          errHasAppToken,
         error: 'Invalid app token: must start with "xapp-"',
       };
     }
@@ -199,11 +215,15 @@ export async function setSlackChannelConfig(
       const errHasAppToken = !!(await getSecureKeyAsync(
         credentialKey("slack_channel", "app_token"),
       ));
+      const errConn = getConnectionByProvider("slack_channel");
       return {
         success: false,
         hasBotToken: errHasBotToken,
         hasAppToken: errHasAppToken,
-        connected: errHasBotToken && errHasAppToken,
+        connected:
+          !!(errConn && errConn.status === "active") &&
+          errHasBotToken &&
+          errHasAppToken,
         error: "Failed to store app token in secure storage",
       };
     }
@@ -263,11 +283,13 @@ export async function clearSlackChannelConfig(): Promise<SlackChannelConfigResul
     const hasAppToken = !!(await getSecureKeyAsync(
       credentialKey("slack_channel", "app_token"),
     ));
+    const conn = getConnectionByProvider("slack_channel");
     return {
       success: false,
       hasBotToken,
       hasAppToken,
-      connected: hasBotToken && hasAppToken,
+      connected:
+        !!(conn && conn.status === "active") && hasBotToken && hasAppToken,
       error: "Failed to delete Slack channel credentials from secure storage",
     };
   }

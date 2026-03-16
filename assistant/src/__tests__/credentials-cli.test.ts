@@ -18,14 +18,6 @@ function nextUUID(): string {
   return `00000000-0000-0000-0000-${String(idCounter).padStart(12, "0")}`;
 }
 
-// Track mock call counts
-let _getSecureKeyCalls = 0;
-let _setSecureKeyCalls = 0;
-let _deleteSecureKeyCalls = 0;
-let _listMetadataCalls = 0;
-let _getMetadataCalls = 0;
-let _getMetadataByIdCalls = 0;
-
 // ---------------------------------------------------------------------------
 // Mock secure-keys
 // ---------------------------------------------------------------------------
@@ -35,14 +27,12 @@ mock.module("../security/secure-keys.js", () => ({
     account: string,
     value: string,
   ): Promise<boolean> => {
-    _setSecureKeyCalls += 1;
     secureKeyStore.set(account, value);
     return true;
   },
   deleteSecureKeyAsync: async (
     account: string,
   ): Promise<"deleted" | "not-found" | "error"> => {
-    _deleteSecureKeyCalls += 1;
     if (secureKeyStore.has(account)) {
       secureKeyStore.delete(account);
       return "deleted";
@@ -53,7 +43,6 @@ mock.module("../security/secure-keys.js", () => ({
     return [...secureKeyStore.keys()];
   },
   getSecureKeyAsync: async (account: string): Promise<string | undefined> => {
-    _getSecureKeyCalls += 1;
     return secureKeyStore.get(account);
   },
   _resetBackend: (): void => {},
@@ -119,7 +108,6 @@ mock.module("../tools/credentials/metadata-store.js", () => ({
     service: string,
     field: string,
   ): CredentialMetadata | undefined => {
-    _getMetadataCalls += 1;
     return metadataStore.find(
       (c) => c.service === service && c.field === field,
     );
@@ -127,7 +115,6 @@ mock.module("../tools/credentials/metadata-store.js", () => ({
   getCredentialMetadataById: (
     credentialId: string,
   ): CredentialMetadata | undefined => {
-    _getMetadataByIdCalls += 1;
     return metadataStore.find((c) => c.credentialId === credentialId);
   },
   deleteCredentialMetadata: (service: string, field: string): boolean => {
@@ -139,7 +126,6 @@ mock.module("../tools/credentials/metadata-store.js", () => ({
     return true;
   },
   listCredentialMetadata: (): CredentialMetadata[] => {
-    _listMetadataCalls += 1;
     return [...metadataStore];
   },
 }));
@@ -275,12 +261,6 @@ describe("assistant credentials CLI", () => {
     secureKeyStore = new Map();
     metadataStore = [];
     idCounter = 0;
-    _getSecureKeyCalls = 0;
-    _setSecureKeyCalls = 0;
-    _deleteSecureKeyCalls = 0;
-    _listMetadataCalls = 0;
-    _getMetadataCalls = 0;
-    _getMetadataByIdCalls = 0;
     disconnectOAuthProviderCalls = [];
     disconnectOAuthProviderResult = "not-found";
     process.exitCode = 0;

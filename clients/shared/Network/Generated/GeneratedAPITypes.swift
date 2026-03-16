@@ -336,10 +336,13 @@ public struct AppsListRequest: Codable, Sendable {
 public struct AppsListResponse: Codable, Sendable {
     public let type: String
     public let apps: [AppsListResponseApp]
+    /// Whether the response came from a successful fetch (true) or an error fallback (false).
+    public let success: Bool
 
-    public init(type: String, apps: [AppsListResponseApp]) {
+    public init(type: String, apps: [AppsListResponseApp], success: Bool = true) {
         self.type = type
         self.apps = apps
+        self.success = success
     }
 }
 
@@ -3193,7 +3196,7 @@ public struct SchedulesListResponseSchedule: Codable, Sendable {
     }
 }
 
-/// Server push — broadcast when a schedule creates a conversation, so the client can show it as a chat thread.
+/// Server push — broadcast when a schedule creates a conversation, so the client can show it as a chat conversation.
 public struct ScheduleConversationCreated: Codable, Sendable {
     public let type: String
     public let conversationId: String
@@ -4194,7 +4197,7 @@ public struct SurfaceAction: Codable, Sendable {
     }
 }
 
-/// Server push — broadcast when a task run creates a conversation, so the client can show it as a chat thread.
+/// Server push — broadcast when a task run creates a conversation, so the client can show it as a chat conversation.
 public struct TaskRunConversationCreated: Codable, Sendable {
     public let type: String
     public let conversationId: String

@@ -5,9 +5,9 @@ import XCTest
 @MainActor
 final class ConversationHeaderPresentationTests: XCTestCase {
 
-    // MARK: - No active thread / draft
+    // MARK: - No active conversation / draft
 
-    func testDraftShowsNewThreadTitle() {
+    func testDraftShowsNewConversationTitle() {
         let p = ConversationHeaderPresentation(
             activeConversation: nil,
             activeViewModel: nil,
@@ -19,10 +19,10 @@ final class ConversationHeaderPresentationTests: XCTestCase {
         XCTAssertFalse(p.canCopy)
     }
 
-    func testConversationNotVisibleShowsNewThread() {
-        let thread = ConversationModel(title: "My Conversation", conversationId: "session-1")
+    func testConversationNotVisibleShowsNewConversation() {
+        let conversation = ConversationModel(title: "My Conversation", conversationId: "session-1")
         let p = ConversationHeaderPresentation(
-            activeConversation: thread,
+            activeConversation: conversation,
             activeViewModel: nil,
             isConversationVisible: false
         )
@@ -30,13 +30,13 @@ final class ConversationHeaderPresentationTests: XCTestCase {
         XCTAssertFalse(p.showsActionsMenu)
     }
 
-    // MARK: - Started standard thread
+    // MARK: - Started standard conversation
 
-    func testStartedStandardThreadShowsActionsMenu() {
-        let thread = ConversationModel(title: "Test Conversation", conversationId: "session-1")
+    func testStartedStandardConversationShowsActionsMenu() {
+        let conversation = ConversationModel(title: "Test Conversation", conversationId: "session-1")
         let vm = ChatViewModel(daemonClient: DaemonClient())
         let p = ConversationHeaderPresentation(
-            activeConversation: thread,
+            activeConversation: conversation,
             activeViewModel: vm,
             isConversationVisible: true
         )
@@ -45,27 +45,27 @@ final class ConversationHeaderPresentationTests: XCTestCase {
         XCTAssertTrue(p.showsActionsMenu)
     }
 
-    // MARK: - Private thread
+    // MARK: - Private conversation
 
-    func testPrivateThreadHidesActionsMenu() {
-        let thread = ConversationModel(title: "Private Chat", conversationId: "session-2", kind: .private)
+    func testPrivateConversationHidesActionsMenu() {
+        let conversation = ConversationModel(title: "Private Chat", conversationId: "session-2", kind: .private)
         let p = ConversationHeaderPresentation(
-            activeConversation: thread,
+            activeConversation: conversation,
             activeViewModel: nil,
             isConversationVisible: true
         )
         XCTAssertTrue(p.isStarted)
-        XCTAssertTrue(p.isPrivateThread)
+        XCTAssertTrue(p.isPrivateConversation)
         XCTAssertFalse(p.showsActionsMenu)
     }
 
     // MARK: - Not started (no conversationId, no messages)
 
-    func testUnstartedThreadDoesNotShowActions() {
-        let thread = ConversationModel(title: "New Conversation")
+    func testUnstartedConversationDoesNotShowActions() {
+        let conversation = ConversationModel(title: "New Conversation")
         let vm = ChatViewModel(daemonClient: DaemonClient())
         let p = ConversationHeaderPresentation(
-            activeConversation: thread,
+            activeConversation: conversation,
             activeViewModel: vm,
             isConversationVisible: true
         )
@@ -76,10 +76,10 @@ final class ConversationHeaderPresentationTests: XCTestCase {
 
     // MARK: - Pin state
 
-    func testPinnedThreadShowsPinnedState() {
-        let thread = ConversationModel(title: "Pinned", conversationId: "s", isPinned: true)
+    func testPinnedConversationShowsPinnedState() {
+        let conversation = ConversationModel(title: "Pinned", conversationId: "s", isPinned: true)
         let p = ConversationHeaderPresentation(
-            activeConversation: thread,
+            activeConversation: conversation,
             activeViewModel: nil,
             isConversationVisible: true
         )

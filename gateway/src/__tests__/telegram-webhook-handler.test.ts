@@ -287,6 +287,41 @@ describe("telegram webhook handler: /new rejection", () => {
     expect(sendMessageCall).toBeUndefined();
   });
 
+  test("bare /start (no payload) sends ACK and forwards to runtime", async () => {
+    const config = makeConfig({
+      routingEntries: [
+        { type: "conversation_id", key: "12345", assistantId: "assistant-a" },
+      ],
+    });
+    installFetchMock();
+    const { handler } = createTelegramWebhookHandler(config, makeCaches());
+
+    const payload = makeTelegramPayload("/start", 2503);
+    const req = makeWebhookRequest(payload);
+    const res = await handler(req);
+
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.ok).toBe(true);
+
+    // Verify the runtime forward call was made with command intent
+    const runtimeCall = fetchCalls.find((c) => c.url.includes("/inbound"));
+    expect(runtimeCall).toBeDefined();
+    expect((runtimeCall!.body as any).sourceMetadata.commandIntent).toEqual({
+      type: "start",
+    });
+
+    // Allow fire-and-forget ACK call to complete
+    await new Promise((r) => setTimeout(r, 50));
+
+    // ACK is sent for bare /start (no payload)
+    const sendMessageCall = fetchCalls.find((c) =>
+      c.url.includes("/sendMessage"),
+    );
+    expect(sendMessageCall).toBeDefined();
+    expect((sendMessageCall!.body as any).text).toContain("Starting up");
+  });
+
   test("/start with routing rejection sends setup notice and does not forward", async () => {
     const config = makeConfig({ unmappedPolicy: "reject" });
     installFetchMock();

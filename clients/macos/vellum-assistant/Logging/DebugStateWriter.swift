@@ -73,16 +73,16 @@ final class DebugStateWriter {
             transport: transport
         )
 
-        let conversationSnapshots: [DebugSnapshot.ConversationInfo] = (conversationManager?.conversations ?? []).map { thread in
-            let vm = conversationManager?.chatViewModel(for: thread.id)
+        let conversationSnapshots: [DebugSnapshot.ConversationInfo] = (conversationManager?.conversations ?? []).map { conversation in
+            let vm = conversationManager?.chatViewModel(for: conversation.id)
             return DebugSnapshot.ConversationInfo(
-                id: thread.id.uuidString,
-                title: thread.title,
-                conversationId: thread.conversationId,
+                id: conversation.id.uuidString,
+                title: conversation.title,
+                conversationId: conversation.conversationId,
                 messageCount: vm?.messages.count ?? 0,
-                kind: thread.kind == .private ? "private" : "standard",
-                isArchived: thread.isArchived,
-                isPinned: thread.isPinned
+                kind: conversation.kind == .private ? "private" : "standard",
+                isArchived: conversation.isArchived,
+                isPinned: conversation.isPinned
             )
         }
 

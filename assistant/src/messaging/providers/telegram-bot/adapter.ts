@@ -69,7 +69,7 @@ export const telegramBotMessagingProvider: MessagingProvider = {
     const conn = getConnectionByProvider("telegram");
     if (!(conn && conn.status === "active")) return false;
     const botToken = await getBotToken();
-    if (botToken === undefined) return false;
+    if (!botToken) return false;
     const webhookSecret = await getSecureKeyAsync(
       credentialKey("telegram", "webhook_secret"),
     );

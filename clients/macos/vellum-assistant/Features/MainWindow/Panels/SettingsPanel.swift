@@ -69,6 +69,7 @@ struct SettingsPanel: View {
     @State private var devUnlockText: String = ""
     @State private var devUnlockMonitor: Any?
     @State private var bootstrapGeneration: Int = 0
+    @AppStorage("connectedOrganizationId") private var connectedOrgId: String?
     private static let contactsFeatureFlagKey = "feature_flags.contacts.enabled"
     private static let billingFeatureFlagKey = "settings_billing_enabled"
     private static let developerFeatureFlagKey = "feature_flags.settings-developer-nav.enabled"
@@ -273,7 +274,7 @@ struct SettingsPanel: View {
 
     private var billingVisible: Bool {
         let _ = bootstrapGeneration  // Force recomputation when bootstrap completes
-        return isBillingEnabled && authManager.isAuthenticated && UserDefaults.standard.string(forKey: "connectedOrganizationId") != nil
+        return isBillingEnabled && authManager.isAuthenticated && connectedOrgId != nil
     }
 
     private var settingsNav: some View {
@@ -317,7 +318,7 @@ struct SettingsPanel: View {
         case .billing:
             SettingsBillingTab(authManager: authManager)
         case .archivedConversations:
-            SettingsArchivedThreadsTab(conversationManager: conversationManager)
+            SettingsArchivedConversationsTab(conversationManager: conversationManager)
         case .developer:
             SettingsDeveloperTab(store: store, daemonClient: daemonClient, authManager: authManager, onClose: onClose)
         }

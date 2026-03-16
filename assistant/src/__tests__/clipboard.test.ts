@@ -2,32 +2,32 @@ import { describe, expect, test } from "bun:test";
 
 import {
   extractLastCodeBlock,
-  formatSessionForExport,
+  formatConversationForExport,
 } from "../util/clipboard.js";
 
-describe("formatSessionForExport", () => {
+describe("formatConversationForExport", () => {
   test("formats user and assistant messages", () => {
     const messages = [
       { role: "user", text: "Hello" },
       { role: "assistant", text: "Hi there!" },
     ];
-    expect(formatSessionForExport(messages)).toBe(
+    expect(formatConversationForExport(messages)).toBe(
       "you> Hello\n\nassistant> Hi there!",
     );
   });
 
   test("handles a single message", () => {
     const messages = [{ role: "user", text: "Just me" }];
-    expect(formatSessionForExport(messages)).toBe("you> Just me");
+    expect(formatConversationForExport(messages)).toBe("you> Just me");
   });
 
   test("handles empty messages array", () => {
-    expect(formatSessionForExport([])).toBe("");
+    expect(formatConversationForExport([])).toBe("");
   });
 
   test("preserves multiline message text", () => {
     const messages = [{ role: "assistant", text: "Line 1\nLine 2\nLine 3" }];
-    expect(formatSessionForExport(messages)).toBe(
+    expect(formatConversationForExport(messages)).toBe(
       "assistant> Line 1\nLine 2\nLine 3",
     );
   });
