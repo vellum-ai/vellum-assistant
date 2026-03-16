@@ -47,7 +47,7 @@ describe("VellumAcpClientHandler", () => {
       });
     });
 
-    test("dispatches user_message_chunk as agent_message_chunk", async () => {
+    test("dispatches user_message_chunk with its own updateType", async () => {
       await handler.sessionUpdate({
         sessionId: "s1",
         update: {
@@ -59,7 +59,7 @@ describe("VellumAcpClientHandler", () => {
       expect(sent).toHaveLength(1);
       expect(sent[0]).toMatchObject({
         type: "acp_session_update",
-        updateType: "agent_message_chunk",
+        updateType: "user_message_chunk",
         content: "user text",
       });
     });
