@@ -1,6 +1,4 @@
 import { spawn as nodeSpawn } from "child_process";
-import { existsSync } from "fs";
-import { dirname, join } from "path";
 
 // Direct import — bun embeds this at compile time so it works in compiled binaries.
 import cliPkg from "../../package.json";
@@ -126,54 +124,6 @@ async function ensureDockerInstalled(): Promise<void> {
   }
 }
 
-interface DockerRoot {
-  /** Directory to use as the Docker build context */
-  root: string;
-  /** Relative path from root to the directory containing the Dockerfiles */
-  dockerfileDir: string;
-}
-
-/**
- * Locate the repo root containing the Dockerfiles for watch mode.
- * In the source tree the Dockerfiles live under `meta/`.
- */
-function findDockerRoot(): DockerRoot {
-  // Source tree: cli/src/lib/ -> repo root (Dockerfiles in meta/)
-  const sourceTreeRoot = join(import.meta.dir, "..", "..", "..");
-  if (existsSync(join(sourceTreeRoot, "meta", "Dockerfile.development"))) {
-    return { root: sourceTreeRoot, dockerfileDir: "meta" };
-  }
-
-  // Walk up from cwd looking for meta/Dockerfile.development (source checkout)
-  let dir = process.cwd();
-  while (true) {
-    if (existsSync(join(dir, "meta", "Dockerfile.development"))) {
-      return { root: dir, dockerfileDir: "meta" };
-    }
-    const parent = dirname(dir);
-    if (parent === dir) break;
-    dir = parent;
-  }
-
-  // Walk up from the executable path to find the repo root. This handles the
-  // macOS app bundle case where the binary lives inside the repo at e.g.
-  // clients/macos/dist/Vellum.app/Contents/MacOS/.
-  let execDir = dirname(process.execPath);
-  while (true) {
-    if (existsSync(join(execDir, "meta", "Dockerfile.development"))) {
-      return { root: execDir, dockerfileDir: "meta" };
-    }
-    const parent = dirname(execDir);
-    if (parent === execDir) break;
-    execDir = parent;
-  }
-
-  throw new Error(
-    "Could not find Dockerfile.development. Run this command from within the " +
-      "vellum-assistant repository.",
-  );
-}
-
 /**
  * Creates a line-buffered output prefixer that prepends a tag to each
  * line from a container's stdout/stderr. Calls `onLine` for each complete
@@ -259,7 +209,6 @@ export async function hatchDocker(
   species: Species,
   detached: boolean,
   name: string | null,
-  watch: boolean,
 ): Promise<void> {
   resetLogFile("hatch.log");
 
@@ -267,134 +216,6 @@ export async function hatchDocker(
 
   const instanceName = generateInstanceName(species, name);
   const gatewayPort = DEFAULT_GATEWAY_PORT;
-
-  if (watch) {
-    // ── Watch mode: build a single dev container from the local source tree ──
-    let repoRoot: string;
-    let dockerfileDir: string;
-    try {
-      ({ root: repoRoot, dockerfileDir } = findDockerRoot());
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      const logFd = openLogFile("hatch.log");
-      writeToLogFile(
-        logFd,
-        `[docker-hatch] ${new Date().toISOString()} ERROR\n${message}\n`,
-      );
-      closeLogFile(logFd);
-      console.error(message);
-      throw err;
-    }
-
-    const dockerfile = join(dockerfileDir, "Dockerfile.development");
-    const dockerfilePath = join(repoRoot, dockerfile);
-
-    if (!existsSync(dockerfilePath)) {
-      const message = `Error: ${dockerfile} not found at ${dockerfilePath}`;
-      const logFd = openLogFile("hatch.log");
-      writeToLogFile(
-        logFd,
-        `[docker-hatch] ${new Date().toISOString()} ERROR\n${message}\n`,
-      );
-      closeLogFile(logFd);
-      console.error(message);
-      process.exit(1);
-    }
-
-    const imageTag = `vellum-assistant:${instanceName}`;
-
-    console.log(`🥚 Hatching Docker assistant: ${instanceName}`);
-    console.log(`   Species: ${species}`);
-    console.log(`   Dockerfile: ${dockerfile}`);
-    console.log(`   Mode: development (watch)`);
-    console.log("");
-
-    const logFd = openLogFile("hatch.log");
-    console.log("🔨 Building Docker image...");
-    try {
-      await exec("docker", ["build", "-f", dockerfile, "-t", imageTag, "."], {
-        cwd: repoRoot,
-      });
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      writeToLogFile(
-        logFd,
-        `[docker-build] ${new Date().toISOString()} ERROR\n${message}\n`,
-      );
-      closeLogFile(logFd);
-      throw err;
-    }
-    closeLogFile(logFd);
-    console.log("✅ Docker image built\n");
-
-    const runArgs: string[] = [
-      "run",
-      "--init",
-      "--name",
-      instanceName,
-      "-p",
-      `${gatewayPort}:${gatewayPort}`,
-    ];
-
-    for (const envVar of ["ANTHROPIC_API_KEY", "VELLUM_PLATFORM_URL"]) {
-      if (process.env[envVar]) {
-        runArgs.push("-e", `${envVar}=${process.env[envVar]}`);
-      }
-    }
-    runArgs.push("-e", `VELLUM_ASSISTANT_NAME=${instanceName}`);
-
-    // Mount source volumes for hot reloading
-    runArgs.push(
-      "-v",
-      `${join(repoRoot, "assistant", "src")}:/app/assistant/src`,
-      "-v",
-      `${join(repoRoot, "gateway", "src")}:/app/gateway/src`,
-      "-v",
-      `${join(repoRoot, "cli", "src")}:/app/cli/src`,
-    );
-
-    const runtimeUrl = `http://localhost:${gatewayPort}`;
-    const dockerEntry: AssistantEntry = {
-      assistantId: instanceName,
-      runtimeUrl,
-      cloud: "docker",
-      species,
-      hatchedAt: new Date().toISOString(),
-    };
-    saveAssistantEntry(dockerEntry);
-    setActiveAssistant(instanceName);
-
-    const containerCmd: string[] =
-      species !== "vellum"
-        ? [
-            "vellum",
-            "hatch",
-            species,
-            "--watch",
-            "--keep-alive",
-          ]
-        : [];
-
-    runArgs.push("-d");
-    console.log("🚀 Starting Docker container...");
-    await exec(
-      "docker",
-      [...runArgs, imageTag, ...containerCmd],
-      { cwd: repoRoot },
-    );
-
-    await tailContainerUntilReady({
-      containerName: instanceName,
-      detached,
-      dockerEntry,
-      instanceName,
-      runtimeUrl,
-      sentinel: "Local assistant hatched!",
-    });
-    return;
-  }
-
-  // ── Production mode: pull and run three separate containers ──
 
   const version = cliPkg.version;
   const versionTag = version ? `v${version}` : "latest";
@@ -515,7 +336,7 @@ export async function hatchDocker(
     cloud: "docker",
     species,
     hatchedAt: new Date().toISOString(),
-    dockerDataVolume: res.dataVolume,
+    volume: res.dataVolume,
   };
   saveAssistantEntry(dockerEntry);
   setActiveAssistant(instanceName);
