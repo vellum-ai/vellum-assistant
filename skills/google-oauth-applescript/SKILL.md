@@ -138,6 +138,8 @@ host_bash:
 > - **Non-sensitive:** `userinfo.email`, `contacts.readonly`
 > - **Sensitive:** `calendar.readonly`, `calendar.events`, `gmail.send`
 > - **Restricted:** `gmail.modify`, `gmail.readonly`
+>
+> **Quick note:** The `gmail.modify` and `gmail.send` scopes are what allow me to draft and send emails on your behalf. If you'd rather I only have read access to your email for now, you can uncheck those two — everything else will still work fine, and you can always come back and add them later.
 
 **Milestone (5 of 9):** "Over halfway — the fiddliest part is behind us."
 

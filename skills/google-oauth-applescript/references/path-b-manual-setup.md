@@ -85,6 +85,8 @@ Tell the user:
 >   - Click **Update** at the bottom of the panel
 >   - Back on the main page, scroll down and click **Save**
 >
+> **Quick note:** The `gmail.modify` and `gmail.send` scopes are what allow me to draft and send emails on your behalf. If you'd rather I only have read access to your email for now, you can remove those two from the list before pasting — everything else will still work fine, and you can always add them later.
+>
 > Let me know when all parts are done.
 
 ## Path B Step 5: Create Web Application Credentials
