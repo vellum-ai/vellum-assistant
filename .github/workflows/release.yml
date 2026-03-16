@@ -24,7 +24,7 @@ jobs:
     outputs:
       version: ${{ steps.compute.outputs.version }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           fetch-depth: 0
 
@@ -88,7 +88,7 @@ jobs:
           app-id: ${{ secrets.VELLUM_AUTOMATION_GITHUB_APP_ID }}
           private-key: ${{ secrets.VELLUM_AUTOMATION_GITHUB_PRIVATE_KEY }}
 
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           token: ${{ steps.app-token.outputs.token }}
           fetch-depth: 0
@@ -168,7 +168,7 @@ jobs:
     environment: ${{ matrix.environment }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           ref: "v${{ needs.bump-and-tag.outputs.version }}"
 
@@ -246,7 +246,7 @@ jobs:
     environment: ${{ matrix.environment }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           ref: "v${{ needs.bump-and-tag.outputs.version }}"
 
@@ -376,7 +376,7 @@ jobs:
     environment: ${{ matrix.environment }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           ref: "v${{ needs.bump-and-tag.outputs.version }}"
 
@@ -456,7 +456,7 @@ jobs:
     environment: ${{ matrix.environment }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           ref: "v${{ needs.bump-and-tag.outputs.version }}"
 
@@ -531,7 +531,7 @@ jobs:
     environment: ${{ matrix.environment }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           ref: "v${{ needs.bump-and-tag.outputs.version }}"
 
@@ -658,7 +658,7 @@ jobs:
     environment: ${{ matrix.environment }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           ref: "v${{ needs.bump-and-tag.outputs.version }}"
 
@@ -782,7 +782,7 @@ jobs:
     environment: ${{ matrix.environment }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           ref: "v${{ needs.bump-and-tag.outputs.version }}"
 
@@ -927,7 +927,7 @@ jobs:
       matrix:
         package: [assistant, cli, credential-executor, gateway]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           ref: "v${{ needs.bump-and-tag.outputs.version }}"
 
@@ -960,7 +960,7 @@ jobs:
     permissions:
       contents: read
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           ref: "v${{ needs.bump-and-tag.outputs.version }}"
 
@@ -991,7 +991,7 @@ jobs:
       KEYCHAIN_NAME: build.keychain
       KEYCHAIN_PASSWORD: temporary-ci-password
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           ref: "v${{ needs.bump-and-tag.outputs.version }}"
 
@@ -1326,7 +1326,7 @@ jobs:
       KEYCHAIN_NAME: build-x64.keychain
       KEYCHAIN_PASSWORD: temporary-ci-password
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           ref: "v${{ needs.bump-and-tag.outputs.version }}"
 
@@ -1640,7 +1640,7 @@ jobs:
           owner: vellum-ai
           repositories: vellum-assistant,velly
 
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           ref: "v${{ needs.bump-and-tag.outputs.version }}"
 
@@ -1741,7 +1741,7 @@ jobs:
           repositories: vellum-assistant-platform
 
       - name: Checkout platform repo
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           repository: vellum-ai/vellum-assistant-platform
           token: ${{ steps.app-token.outputs.token }}
@@ -1788,7 +1788,7 @@ jobs:
     timeout-minutes: 5
     continue-on-error: true
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - uses: oven-sh/setup-bun@v2
         with:
@@ -1826,7 +1826,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - uses: oven-sh/setup-bun@v2
         with:
@@ -1849,7 +1849,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - uses: oven-sh/setup-bun@v2
         with:
@@ -1877,7 +1877,7 @@ jobs:
     timeout-minutes: 10
     continue-on-error: true
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - uses: oven-sh/setup-bun@v2
         with:
@@ -1906,7 +1906,7 @@ jobs:
     runs-on: macos-15
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           ref: "v${{ needs.bump-and-tag.outputs.version }}"
 
@@ -1949,7 +1949,7 @@ jobs:
       KEYCHAIN_NAME: ios-build.keychain
       KEYCHAIN_PASSWORD: temporary-ci-password
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           ref: "v${{ needs.bump-and-tag.outputs.version }}"
 
