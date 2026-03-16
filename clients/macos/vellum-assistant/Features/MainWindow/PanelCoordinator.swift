@@ -710,7 +710,10 @@ struct ActiveChatViewWrapper: View {
             isLoadingMoreMessages: viewModel.isLoadingMoreMessages,
             loadPreviousMessagePage: { await viewModel.loadPreviousMessagePage() },
             isBootstrapping: isBootstrapping,
-            isBootstrapTimedOut: isBootstrapTimedOut
+            isBootstrapTimedOut: isBootstrapTimedOut,
+            onBootstrapSendLogs: {
+                AppDelegate.shared?.showLogReportWindow()
+            }
         )
         .environment(\.cmdEnterToSend, settingsStore.cmdEnterToSend)
     }
