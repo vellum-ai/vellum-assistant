@@ -1134,6 +1134,7 @@ struct ContactDetailView: View {
                 if let result = try await contactClient.createInvite(
                     sourceChannel: type,
                     note: "Invite for \(displayContact.displayName)",
+                    maxUses: nil,
                     contactName: displayContact.displayName,
                     contactId: displayContact.id,
                     expectedExternalUserId: phoneNumber,
