@@ -40,6 +40,11 @@ extension EnvironmentValues {
 
     func updateViewport(height: CGFloat, storedViewportHeight: inout CGFloat) {
         storedViewportHeight = height
+        // Don't recompute visibility before the anchor position has been
+        // measured — lastMinY starts at .infinity, and .infinity <= height + 20
+        // evaluates to false, incorrectly flipping isVisible to false and
+        // flashing the "Scroll to latest" button on short conversations.
+        guard lastMinY.isFinite else { return }
         let newVisible = lastMinY >= -20 && lastMinY <= height + 20
         if isVisible != newVisible { isVisible = newVisible }
     }
