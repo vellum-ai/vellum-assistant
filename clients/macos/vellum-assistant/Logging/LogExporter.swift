@@ -27,7 +27,7 @@ private let log = Logger(
 enum LogExporter {
 
     /// Whether the currently connected assistant is a managed (platform-hosted) instance.
-    /// When true, thread-scoped exports are not available because the platform API
+    /// When true, conversation-scoped exports are not available because the platform API
     /// does not yet support conversation-scoped log retrieval.
     nonisolated static var isManagedAssistant: Bool {
         guard let id = UserDefaults.standard.string(forKey: "connectedAssistantId") else { return false }
@@ -101,9 +101,9 @@ enum LogExporter {
                     // it here enables cross-project search: find the daemon error
                     // that corresponds to a macOS log report by querying
                     // conversation_id in the vellum-assistant-brain Sentry project.
-                    // For thread-scoped exports, conversation_id was already set
-                    // to the reported thread's ID above — don't overwrite it with
-                    // the active thread's session ID.
+                    // For conversation-scoped exports, conversation_id was already set
+                    // to the reported conversation's ID above — don't overwrite it with
+                    // the active conversation's session ID.
                     if case .global = formData.scope {
                         tags["conversation_id"] = conversationId
                     }
@@ -123,8 +123,8 @@ enum LogExporter {
                 if let conversationId = vm.conversationId {
                     // Prefer the view model's conversationId (most up-to-date)
                     tags["conversation_id"] = conversationId
-                    // For thread-scoped exports, conversation_id reflects the
-                    // reported thread, not the active one — skip the overwrite.
+                    // For conversation-scoped exports, conversation_id reflects the
+                    // reported conversation, not the active one — skip the overwrite.
                     if case .global = formData.scope {
                         tags["conversation_id"] = conversationId
                     }

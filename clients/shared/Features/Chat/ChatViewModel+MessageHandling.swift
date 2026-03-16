@@ -571,7 +571,7 @@ extension ChatViewModel {
                         errorText = "Failed to send message."
                     }
                 } else {
-                    // Message-less session create (e.g. private thread
+                    // Message-less session create (e.g. private conversation
                     // pre-allocation) — session is claimed, reset UI state.
                     isSending = false
                     isThinking = false
@@ -1872,7 +1872,7 @@ extension ChatViewModel {
                 break
             }
             // Stamp confirmation data on the corresponding ToolCallData in the
-            // preceding assistant message so it survives thread switches.
+            // preceding assistant message so it survives conversation switches.
             let decision = mapConfirmationState(msg.state)
             if let toolName = confirmationToolName,
                let state = decision {

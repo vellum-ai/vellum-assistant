@@ -121,8 +121,8 @@ extension MainWindowView {
                        let dataDict = actionData as? [String: Any],
                        let prompt = dataDict["prompt"] as? String,
                        !prompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                        // Ensure a thread exists so the prompt doesn't silently fail
-                        // on fresh app launch before any chat thread is created.
+                        // Ensure a conversation exists so the prompt doesn't silently fail
+                        // on fresh app launch before any chat conversation is created.
                         conversationManager.openConversation(
                             message: prompt.trimmingCharacters(in: .whitespacesAndNewlines)
                         ) { vm in
@@ -318,12 +318,12 @@ extension MainWindowView {
                 fullWindowPanel(panelType)
             }
         case nil:
-            // Default: show chat for active thread
+            // Default: show chat for active conversation
             defaultChatLayout
         }
     }
 
-    /// The default chat layout used when showing a thread or no specific selection.
+    /// The default chat layout used when showing a conversation or no specific selection.
     @ViewBuilder
     var defaultChatLayout: some View {
         let config = windowState.layoutConfig

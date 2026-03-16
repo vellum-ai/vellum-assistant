@@ -115,7 +115,7 @@ struct QuickInputView: View {
 
                 Spacer(minLength: 0)
 
-                // "New Chat" / thread selector dropdown
+                // "New Chat" / conversation selector dropdown
                 Menu {
                     Button("New Chat") {
                         textModel.selectedConversationId = nil

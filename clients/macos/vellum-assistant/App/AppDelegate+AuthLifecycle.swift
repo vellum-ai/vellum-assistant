@@ -349,7 +349,7 @@ extension AppDelegate {
         daemonClient.disconnect()
         // Reset dock icon to default before loading the new assistant's avatar
         AvatarAppearanceManager.shared.resetForDisconnect()
-        // Close and recreate the main window to reset thread/session state
+        // Close and recreate the main window to reset conversation state
         mainWindow?.close()
         mainWindow = nil
 

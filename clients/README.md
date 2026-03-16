@@ -227,7 +227,7 @@ Test files in `clients/ios/Tests/`:
 - `AttachmentFlowIOSTests.swift` — attachment limits, send flow, thumbnails
 - `ChatTranscriptFormatterIOSTests.swift` — markdown formatting
 - `ChatViewModelIOSTests.swift` — send/receive flow, streaming, error handling
-- `ConversationLifecycleIOSTests.swift` — session creation, thread isolation
+- `ConversationLifecycleIOSTests.swift` — session creation, conversation isolation
 - `UsageDashboardViewTests.swift` — usage dashboard state, data loading, formatting
 
 Tests use mock implementations of protocols for dependency injection:

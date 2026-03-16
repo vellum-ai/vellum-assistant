@@ -153,7 +153,7 @@ struct MessageListView: View {
     /// trigger re-renders.
     @StateObject private var anchorTracker = AnchorVisibilityTracker()
     /// Whether a physical scroll event (wheel/trackpad) has been received since
-    /// the current thread loaded. Before any scroll event, `isNearBottom`
+    /// the current conversation loaded. Before any scroll event, `isNearBottom`
     /// (which defaults to `true`) is not trusted; the button relies solely on
     /// `anchorTracker.isVisible` to decide visibility.
     @State private var hasReceivedScrollEvent: Bool = false
@@ -174,12 +174,12 @@ struct MessageListView: View {
     @State private var resizeScrollTask: Task<Void, Never>?
     /// Task that clears the highlight flash after the animation duration.
     @State private var highlightDismissTask: Task<Void, Never>?
-    /// In-flight staged scroll-to-bottom task used after thread switches and
+    /// In-flight staged scroll-to-bottom task used after conversation switches and
     /// app restarts to reliably anchor the viewport once layout settles.
     @State private var scrollRestoreTask: Task<Void, Never>?
     /// Whether the AnchorMinYKey preference has fired since the last scroll
     /// restore began. Ensures anchorTracker.isVisible reflects real geometry
-    /// rather than the manual reset applied on thread switch.
+    /// rather than the manual reset applied on conversation switch.
     @State private var hasFreshAnchorMeasurement: Bool = false
     @State private var avatarTargetY: CGFloat = .infinity
     @State private var avatarDisplayY: CGFloat = .infinity
@@ -471,7 +471,7 @@ struct MessageListView: View {
 
     /// Staged scroll-to-bottom that retries after increasing delays to handle
     /// cases where SwiftUI hasn't committed the new content's layout yet (e.g.
-    /// after a thread switch or app restart). Cancelled by user scroll-up,
+    /// after a conversation switch or app restart). Cancelled by user scroll-up,
     /// user scroll-to-bottom, anchor message set, or view disappearance.
     private func restoreScrollToBottom(proxy: ScrollViewProxy) {
         scrollRestoreTask?.cancel()
@@ -484,7 +484,7 @@ struct MessageListView: View {
                 proxy.scrollTo("scroll-bottom-anchor", anchor: .bottom)
             }
 
-            // Stage 1: ~3 frames — handles most thread switches.
+            // Stage 1: ~3 frames — handles most conversation switches.
             try? await Task.sleep(nanoseconds: 50_000_000)
             guard !Task.isCancelled else { return }
             if anchorMessageId == nil {
@@ -964,7 +964,7 @@ struct MessageListView: View {
             .onChange(of: messages.count) {
                 // Anchor scroll takes priority: when a notification deep-link
                 // set anchorMessageId, retry scrolling to it as messages load
-                // (e.g., history arrives after a thread switch). This must run
+                // (e.g., history arrives after a conversation switch). This must run
                 // before the bottom-scroll branch to avoid competing scrollTo calls.
                 if let id = anchorMessageId, messages.contains(where: { $0.id == id }) {
                     withAnimation {
@@ -1048,7 +1048,7 @@ struct MessageListView: View {
                 }
             }
             .onChange(of: conversationId) {
-                // Keep the underlying NSScrollView instance stable across thread
+                // Keep the underlying NSScrollView instance stable across conversation
                 // switches (prevents default-scroller flash), and reset view-local
                 // scroll state explicitly instead of remounting the whole view.
                 scrollDebounceTask?.cancel()
@@ -1076,7 +1076,7 @@ struct MessageListView: View {
                 conversationSwitchSuppressionTask?.cancel()
                 suppressScrollbarDuringConversationSwitch = true
                 conversationSwitchSuppressionTask = Task { @MainActor in
-                    // Let the newly-selected thread finish its first layout pass so
+                    // Let the newly-selected conversation finish its first layout pass so
                     // the scroller style/metrics settle before allowing re-show.
                     do {
                         try await Task.sleep(nanoseconds: 150_000_000)
@@ -1097,7 +1097,7 @@ struct MessageListView: View {
             }
             .onChange(of: anchorMessageId) {
                 // Only cancel scroll restore when a new anchor is set (non-nil).
-                // The nil transition fires during thread switches (stale anchor
+                // The nil transition fires during conversation switches (stale anchor
                 // cleanup) and must not cancel the restore just started.
                 if anchorMessageId != nil {
                     scrollRestoreTask?.cancel()

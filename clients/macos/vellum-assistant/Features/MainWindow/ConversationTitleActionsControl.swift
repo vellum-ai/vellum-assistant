@@ -1,8 +1,8 @@
 import SwiftUI
 import VellumAssistantShared
 
-/// Top-left thread header above the chat: shows thread title + chevron.
-/// Tapping opens a drawer-style popover with thread actions.
+/// Top-left conversation header above the chat: shows conversation title + chevron.
+/// Tapping opens a drawer-style popover with conversation actions.
 struct ConversationTitleActionsControl: View {
     let presentation: ConversationHeaderPresentation
     let onCopy: () -> Void
@@ -27,7 +27,7 @@ struct ConversationTitleActionsControl: View {
     }
 }
 
-/// Drawer-style popover for thread actions, matching the preferences drawer pattern.
+/// Drawer-style popover for conversation actions, matching the preferences drawer pattern.
 struct ConversationActionsDrawer: View {
     let presentation: ConversationHeaderPresentation
     let onCopy: () -> Void
