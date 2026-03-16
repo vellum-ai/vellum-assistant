@@ -74,6 +74,7 @@ struct ImproveExperienceStepView: View {
                     VCheckbox(isOn: $tosAccepted)
                     tosConsentText
                 }
+                .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(VSpacing.lg)
                 .overlay(
                     RoundedRectangle(cornerRadius: VRadius.lg)
