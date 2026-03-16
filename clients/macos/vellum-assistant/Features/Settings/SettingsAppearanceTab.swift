@@ -266,6 +266,10 @@ struct SettingsAppearanceTab: View {
 
                 SettingsDivider()
 
+                ShortcutRow(label: "New chat", shortcut: "⌘N")
+
+                SettingsDivider()
+
                 VToggle(
                     isOn: Binding(
                         get: { store.cmdEnterToSend },
