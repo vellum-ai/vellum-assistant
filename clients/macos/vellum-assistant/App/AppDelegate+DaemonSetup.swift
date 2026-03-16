@@ -93,6 +93,21 @@ extension AppDelegate {
             return
         }
 
+        // Apple-containers assistants have cloud == "local" so isRemote is false,
+        // but their gateway runs on the port written to runtimeUrl by
+        // AppleContainersLauncher (e.g. http://localhost:7830). Treat them like
+        // a remote entry for transport purposes so the correct port is used.
+        if let assistant, assistant.runtimeBackend == .appleContainers, let runtimeUrl = assistant.runtimeUrl {
+            let config = DaemonConfig(transport: .http(
+                baseURL: runtimeUrl,
+                bearerToken: nil,
+                conversationKey: assistant.assistantId
+            ))
+            services.reconfigureDaemonClient(config: config)
+            log.info("Configured apple-containers HTTP transport for assistant \(assistant.assistantId) at \(runtimeUrl, privacy: .public)")
+            return
+        }
+
         guard let assistant, assistant.isRemote, let runtimeUrl = assistant.runtimeUrl else {
             // Local assistant or no assistant — use HTTP transport to the local daemon.
             // Bearer token is nil; resolved lazily at connect time.
@@ -418,7 +433,12 @@ extension AppDelegate {
                         default:
                             log.error("Failed to hatch assistant during daemon setup: \(error)")
                         }
-                        if needsLockfileEntry {
+                        // Only fall back to the process-based CLI launcher for
+                        // process-backed local assistants. Apple-containers entries
+                        // must not start a process daemon — doing so creates a
+                        // mixed-backend state where the lockfile says apple-containers
+                        // but a process daemon is running.
+                        if needsLockfileEntry && assistant?.runtimeBackend != .appleContainers {
                             log.info("Full hatch failed on first launch — retrying daemon-only as fallback")
                             do {
                                 try await assistantCli.launch(name: assistantName, daemonOnly: true, restart: false)
@@ -429,7 +449,12 @@ extension AppDelegate {
                         }
                     } catch {
                         log.error("Failed to hatch assistant during daemon setup: \(error)")
-                        if needsLockfileEntry {
+                        // Only fall back to the process-based CLI launcher for
+                        // process-backed local assistants. Apple-containers entries
+                        // must not start a process daemon — doing so creates a
+                        // mixed-backend state where the lockfile says apple-containers
+                        // but a process daemon is running.
+                        if needsLockfileEntry && assistant?.runtimeBackend != .appleContainers {
                             log.info("Full hatch failed on first launch — retrying daemon-only as fallback")
                             do {
                                 try await assistantCli.launch(name: assistantName, daemonOnly: true, restart: false)
