@@ -245,6 +245,11 @@ async function resolveProviderCredentials(
         source: "managed-proxy",
       };
     }
+    // Managed proxy unavailable for this provider; fall back to user key
+    const userKey = await getSecureKeyAsync(providerName);
+    if (userKey) {
+      return { apiKey: userKey, source: "user-key" };
+    }
     return null;
   }
   // "your-own" mode: check user key first, then try managed proxy fallback
