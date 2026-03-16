@@ -1,35 +1,36 @@
 ---
 name: notion-oauth-setup
-description: Set up Notion OAuth credentials for Notion integration using a collaborative guided flow
+description: Set up Notion integration credentials using a collaborative guided flow (defaults to Internal integration)
 compatibility: "Designed for Vellum personal assistants"
 metadata:
   emoji: "🔑"
   vellum:
-    display-name: "Notion OAuth Setup"
+    display-name: "Notion Setup"
     includes: ["collaborative-oauth-flow"]
 ---
 
-You are helping your user set up Notion OAuth credentials so the Notion integration can connect to their workspace.
+You are helping your user set up Notion credentials so the Notion integration can connect to their workspace.
 
 This skill follows the **Collaborative Guided Flow** pattern from the included `collaborative-oauth-flow` skill. That reference covers the navigation helper setup, step rhythm, rules, tone, error handling, and guardrails. This file defines only the Notion-specific steps.
 
 ## Provider Details
 
 - **Provider key:** `integration:notion`
-- **Credential type:** Public integration (OAuth)
-- **Token endpoint auth:** `client_secret_basic` (client secret always required)
-- **Scopes:** None (Notion does not use explicit OAuth scopes)
-- **Extra params:** `owner=user`
-- **Callback transport:** Loopback (port 17323)
-- **Redirect URI:** `http://localhost:17323/oauth/callback` (must be pre-registered in Notion)
+- **Default credential type:** Internal integration (API token)
+- **No OAuth flow required** for the default path — just copy the integration secret and grant page access
 
 ## Prerequisites
 
-No public ingress or ngrok is needed — Notion uses a localhost callback on a fixed port.
+No OAuth, redirect URIs, or public ingress needed for Internal integrations. The user just needs a Notion account and workspace.
 
-## Notion-Specific Flow
+## Choosing the Flow
 
-The flow has 6 steps total, takes about 2-3 minutes.
+- **Internal integration (default):** Single-workspace, simple setup. Follow the steps below.
+- **Public integration (OAuth):** Multi-workspace distribution. Only guide to this path if the user explicitly needs OAuth for multi-workspace access. See [references/path-b-public-oauth.md](references/path-b-public-oauth.md) for that flow.
+
+## Internal Integration Flow
+
+The flow has 4 steps total, takes about 1-2 minutes.
 
 ### Step 0: Prerequisite Check
 
@@ -47,7 +48,7 @@ This is the first navigation — wait a few seconds for the page to load, then t
 
 ---
 
-### Step 2: Create a New Public Integration
+### Step 2: Create a New Integration
 
 > Look for the **"New integration"** button (or a **"+"** button) and click it.
 >
@@ -55,97 +56,70 @@ This is the first navigation — wait a few seconds for the page to load, then t
 >
 > 1. Set the name to **Vellum Assistant**
 > 2. Select your workspace from the **Associated workspace** dropdown
-> 3. For the **Type**, select **Public** — this is required for OAuth
-> 4. Click **Submit**
+> 3. Click **Create**
+
+There is no Type selector on the creation form — integrations are created as **Internal by default**, which is what we want.
 
 **Known issues:**
 
-- If "Public" is not available as a type, the user may need to check their workspace settings or plan level
 - If they already have an integration named "Vellum Assistant", ask if they'd like to reuse it — skip ahead to Step 3
 
-**Milestone (2 of 6):** "Integration created — now let's get it configured."
+**Milestone (2 of 4):** "Integration created — now let's grab the secret and grant page access."
 
 ---
 
-### Step 3: Configure OAuth Redirect URI
+### Step 3: Copy Internal Integration Secret and Grant Page Access
 
-Notion requires the redirect URI to be pre-registered. Copy it to the clipboard first:
+After creation, the user lands on the integration's Configuration page.
 
-```
-host_bash:
-  command: |
-    echo -n "http://localhost:17323/oauth/callback" | pbcopy
-```
+#### 3a: Copy the secret
 
-Guide the user to the **Distribution** tab or section.
+> You should now see the **Configuration** tab with an **"Internal integration secret"** field. Click **Show** to reveal it, then **Copy** to copy the secret.
 
-> Now look for the **Distribution** tab in the left sidebar (or a section called **OAuth Domain & URIs**). Click into it.
->
-> You should see a field for **Redirect URIs**. Paste this exact URL (I've copied it to your clipboard):
-> `http://localhost:17323/oauth/callback`
->
-> Then scroll down and click **Save changes**.
-
-**Known issues:**
-
-- Notion may require a "Website" or "Redirect URI" domain to be filled in as well — if so, use `localhost` as the domain
-- If the page shows "Internal integration" with no Distribution tab, the integration was created as Internal — they'll need to recreate it as Public
-
----
-
-### Step 4: Copy Client ID and Client Secret
-
-> Now look for the **Secrets** section on the integration page. You should see:
->
-> - **OAuth client ID**
-> - **OAuth client secret** (you may need to click **Show** to reveal it)
->
-> Copy the **Client ID** and paste it here in the chat.
-
-After receiving the Client ID, collect the secret securely:
+Collect the secret securely:
 
 ```
 credential_store prompt:
   service: "integration:notion"
-  field: "client_secret"
-  label: "Notion OAuth Client Secret"
-  description: "Copy the Client Secret from the Notion integration page and paste it here."
-  placeholder: "secret_..."
+  field: "internal_secret"
+  label: "Notion Internal Integration Secret"
+  description: "Paste the Internal Integration Secret you just copied."
+  placeholder: "ntn_..."
 ```
 
-**Milestone (4 of 6):** "Credentials collected — almost done."
+#### 3b: Grant page access
 
----
-
-### Step 5: Store Credentials and Authorize
-
-Register the OAuth app and start the authorization flow. See the collaborative guided flow reference for the exact commands (`assistant oauth apps upsert` and `assistant oauth connections connect`).
-
-> I'll save your credentials and start the Notion authorization flow now.
+> Now you need to grant the integration access to the Notion pages you want to use.
 >
-> You should see a Notion consent page asking you to **select which pages** to share with Vellum Assistant. Pick the pages or databases you'd like to connect, then click **Allow access**.
+> 1. Go to any Notion page you want to connect
+> 2. Click the **"..."** menu (top-right) or the **Share** button
+> 3. Click **"Add connections"** (or **"Connect to"**)
+> 4. Search for **Vellum Assistant** and select it
+> 5. Repeat for any other pages or databases you want accessible
+>
+> You can always add more pages later by repeating this step.
 
-**Known issues:**
-
-- If the consent page shows an error about the redirect URI, double-check that the URI in Step 3 matches exactly
-- The user can always re-authorize later to share additional pages
+**Milestone (3 of 4):** "Secret stored and pages connected — let's verify."
 
 ---
 
-### Step 6: Verify Connection
+### Step 4: Verify Connection
 
-Use the ping URL to verify the connection:
+Verify the connection works by calling the Notion API with the stored secret:
 
 ```
 bash:
   command: |
-    curl -s -H "Authorization: Bearer $(assistant oauth connections token integration:notion --client-id $(cat <<'EOF'
-    <client-id>
-    EOF
-    ))" "https://api.notion.com/v1/users/me" -H "Notion-Version: 2022-06-28"
+    curl -s -H "Authorization: Bearer $(assistant credentials reveal --service integration:notion --field internal_secret)" \
+      -H "Notion-Version: 2022-06-28" \
+      "https://api.notion.com/v1/users/me"
 ```
 
 **On success:** "Notion is connected! You can now ask me to read and write pages and databases in your Notion workspace."
+
+**On failure (401):** The secret may have been copied incorrectly. Offer to redo Step 3a.
+
+**On failure (other):** Check the error message and guide accordingly.
 
 ---
 
@@ -155,5 +129,6 @@ For non-interactive channels, see [references/path-b-manual-setup.md](references
 
 Key Notion-specific differences for Path B:
 
-- On a remote channel, the loopback callback (port 17323) is not reachable — public ingress is required instead
-- Client Secret prefix is `secret_` — use `credential_store prompt` to collect it securely; split entry is not needed since this prefix doesn't trigger channel scanners
+- No OAuth flow or redirect URIs needed for Internal integrations
+- The user copies their Internal Integration Secret and sends it via chat
+- The secret prefix is `ntn_` — use `credential_store prompt` to collect it securely

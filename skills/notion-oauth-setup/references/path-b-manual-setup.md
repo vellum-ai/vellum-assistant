@@ -1,6 +1,6 @@
 # Path B: Manual Channel Setup (Telegram, Slack, etc.)
 
-When the user is on a non-interactive channel, walk them through a text-based setup. The channel path requires **public ingress** because the loopback callback is not reachable from a remote channel.
+When the user is on a non-interactive channel, walk them through a text-based setup. No OAuth or public ingress is needed for Internal integrations.
 
 ## Path B Step 1: Confirm and Explain
 
@@ -11,13 +11,13 @@ Tell the user:
 > Since I can't open pages in your browser from here, I'll walk you through each step with direct links. You'll need:
 >
 > 1. A Notion account with a workspace you want to connect
-> 2. About 3 minutes
+> 2. About 2 minutes
 >
 > Ready to start?
 
 If the user declines, stop.
 
-## Path B Step 2: Create a Public Integration
+## Path B Step 2: Create an Internal Integration
 
 Tell the user:
 
@@ -33,104 +33,73 @@ Tell the user:
 > 1. Click **"New integration"** (or the **"+"** button)
 > 2. Set the name to **Vellum Assistant**
 > 3. Select your workspace from the **Associated workspace** dropdown
-> 4. For the **Type**, select **Public** (this is required for OAuth)
-> 5. Click **Submit**
+> 4. Click **Create**
+>
+> The integration will be created as Internal by default — that's exactly what we want.
 >
 > Let me know when the integration is created.
 
-## Path B Step 3: Configure OAuth Redirect URI
-
-Before sending the next step, resolve the concrete callback URL:
-
-- Read the configured public gateway URL from `ingress.publicBaseUrl`.
-- If it is missing, load and run the `public-ingress` skill first: call `skill_load` with `skill: "public-ingress"`, then follow its instructions.
-- Build `oauthCallbackUrl` as `<public gateway URL>/webhooks/oauth/callback`.
-- Replace `OAUTH_CALLBACK_URL` below with that concrete value. Never send the placeholder literally.
+## Path B Step 3: Copy the Internal Integration Secret
 
 Tell the user:
 
-> **Step 2: Configure the redirect URI**
+> **Step 2: Copy your integration secret**
 >
-> In your integration settings, find the **Distribution** tab in the left sidebar (or a section called **OAuth Domain & URIs**).
+> On the integration's Configuration page, you should see an **"Internal integration secret"** field.
 >
-> In the **Redirect URIs** field, paste this exact URL:
-> `OAUTH_CALLBACK_URL`
->
-> Scroll down and click **Save changes**.
->
-> Let me know when it's saved.
-
-## Path B Step 4: Copy Credentials
-
-Tell the user:
-
-> **Step 3: Copy your credentials**
->
-> In your integration settings, find the **Secrets** section. You should see:
->
-> - **OAuth client ID**
-> - **OAuth client secret** (you may need to click **Show** to reveal it)
->
-> Send me the **Client ID** first. It looks like a UUID or alphanumeric string.
-
-Wait for the user to send the Client ID.
-
-## Path B Step 5: Store Credentials
-
-### Path B Step 5a: Client ID
-
-After the user sends the Client ID:
-
-```
-credential_store store:
-  service: "integration:notion"
-  field: "client_id"
-  value: "<the client id the user sent>"
-```
-
-### Path B Step 5b: Client Secret
-
-Tell the user:
-
-> **Step 4: Send your Client Secret**
->
-> Now send me the **Client Secret** from the Secrets section. It starts with `secret_`.
+> Click **Show** to reveal it, then copy the secret. It starts with `ntn_`.
 >
 > Send it as a standalone message with no other text.
 
-After the user sends it:
+After the user sends the secret:
+
+```
+credential_store prompt:
+  service: "integration:notion"
+  field: "internal_secret"
+  label: "Notion Internal Integration Secret"
+  description: "Paste the Internal Integration Secret."
+  placeholder: "ntn_..."
+```
+
+If using `credential_store store` instead (when the user sent it as plaintext):
 
 ```
 credential_store store:
   service: "integration:notion"
-  field: "client_secret"
-  value: "<the client secret the user sent>"
+  field: "internal_secret"
+  value: "<the secret the user sent>"
 ```
 
-## Path B Step 6: Authorize
+## Path B Step 4: Grant Page Access
 
 Tell the user:
 
-> **Step 5: Authorize Notion**
+> **Step 3: Grant page access**
 >
-> I'll generate an authorization link for you now.
+> Now you need to share your Notion pages with the integration:
+>
+> 1. Open any Notion page you want to connect
+> 2. Click the **"..."** menu (top-right) or the **Share** button
+> 3. Click **"Add connections"** (or **"Connect to"**)
+> 4. Search for **Vellum Assistant** and select it
+>
+> Repeat for any pages or databases you want accessible. You can always add more later.
+>
+> Let me know when you've shared at least one page.
+
+## Path B Step 5: Verify and Done
+
+Verify the connection:
 
 ```
-credential_store:
-  action: "oauth2_connect"
-  service: "integration:notion"
-  client_id: "<the client id the user sent>"
+bash:
+  command: |
+    curl -s -H "Authorization: Bearer $(assistant credentials reveal --service integration:notion --field internal_secret)" \
+      -H "Notion-Version: 2022-06-28" \
+      "https://api.notion.com/v1/users/me"
 ```
 
-Send the returned auth URL to the user:
-
-> Open this link to authorize Vellum Assistant:
-> `<auth URL>`
->
-> You'll see a Notion consent page. Select the pages and databases you'd like to share, then click **Allow access**.
-
-## Path B Step 7: Done
-
-After authorization:
+On success:
 
 > **Notion is connected!** You can now ask me to read and write pages and databases in your Notion workspace.

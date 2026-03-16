@@ -8,31 +8,29 @@ metadata:
     display-name: "Notion"
 ---
 
-You have access to the Notion API via the stored OAuth token for `integration:notion`. Use `bash` with `network_mode: "proxied"` to call the Notion API — the proxy automatically injects the Bearer token for `api.notion.com`.
+You have access to the Notion API via the stored Internal Integration Secret for `integration:notion`.
 
 ## Authentication
 
-The Notion access token is stored securely and never exposed as plaintext. Use the credential proxy to inject the Bearer token automatically.
+The Notion integration secret is stored securely via `credential_store`. To make authenticated API calls, inject the secret into the Authorization header using `assistant credentials reveal`.
 
-**Step 1 — Get the credential ID:**
+**Step 1 — Check for credentials:**
 ```
 credential_store action=list
 ```
-Find the entry with `service: "integration:notion"` and `field: "access_token"`. Note its `credential_id`.
+Find the entry with `service: "integration:notion"` and `field: "internal_secret"`.
 
 If no such entry exists, tell the user: "Notion is not connected yet. Load the **notion-oauth-setup** skill to set it up first."
 
-**Step 2 — Make authenticated API calls via the proxy:**
+**Step 2 — Make authenticated API calls:**
 
-Use `bash` with `network_mode: "proxied"` and `credential_ids: ["<credential_id>"]`. The proxy automatically injects `Authorization: Bearer <token>` and any required headers into requests to `api.notion.com`.
+Use `bash` with `assistant credentials reveal` to inject the secret into the Authorization header:
 
-Example:
 ```
 bash:
-  network_mode: proxied
-  credential_ids: ["<credential_id from step 1>"]
   command: |
     curl -s -X POST https://api.notion.com/v1/search \
+      -H "Authorization: Bearer $(assistant credentials reveal --service integration:notion --field internal_secret)" \
       -H "Notion-Version: 2022-06-28" \
       -H "Content-Type: application/json" \
       -d '{}'
@@ -228,7 +226,7 @@ When a response includes `"has_more": true`, pass `"start_cursor": response.next
 
 ## Error Handling
 
-- **401 Unauthorized**: The access token is missing or expired. Ask the user to reconnect Notion via the **notion-oauth-setup** skill.
+- **401 Unauthorized**: The integration secret is missing or invalid. Ask the user to re-run the **notion-oauth-setup** skill to update the secret.
 - **403 Forbidden**: The integration doesn't have access to the requested page or database. Remind the user that they need to share the page/database with the "Vellum Assistant" integration in Notion (via the Share menu → "Add connections").
 - **404 Not Found**: The page or database ID doesn't exist or the integration can't see it. Verify the ID and check sharing settings.
 - **400 Bad Request**: Check the request body structure. The Notion API error response includes a `message` field with details.

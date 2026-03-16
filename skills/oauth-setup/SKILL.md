@@ -93,7 +93,7 @@ Wait for user confirmation before proceeding.
 Guide the user through the creation flow:
 
 1. Name it "Vellum Assistant"
-2. Follow any guidance from `setup.notes` (e.g., select "Public" for Notion, "From scratch" for Slack)
+2. Follow any guidance from `setup.notes` (e.g., "From scratch" for Slack)
 3. Complete the creation
 
 Wait for confirmation.
