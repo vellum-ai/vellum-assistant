@@ -26,7 +26,7 @@ final class DocumentEditorThreadVisibilityTests: XCTestCase {
     func testDocumentEditorIsNotShowingChat() {
         let state = makeState(.panel(.documentEditor))
 
-        // isShowingChat only covers full-window chat (.thread / nil); panels use isConversationVisible
+        // isShowingChat only covers full-window chat (.conversation / nil); panels use isConversationVisible
         XCTAssertFalse(state.isShowingChat,
                         "isShowingChat should be false for document editor (it's a panel)")
     }

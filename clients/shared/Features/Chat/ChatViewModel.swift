@@ -272,7 +272,7 @@ public final class ChatViewModel: ObservableObject {
         get { errorManager.conversationError }
         set { errorManager.conversationError = newValue }
     }
-    /// Whether this view model has an active error (either a session error or error text).
+    /// Whether this view model has an active error (either a conversation error or error text).
     /// Used by ConversationManager to derive `ConversationInteractionState.error`.
     public var hasActiveError: Bool {
         conversationError != nil || errorText != nil
@@ -1968,7 +1968,7 @@ public final class ChatViewModel: ObservableObject {
         secretBlockedCurrentPage = nil
     }
 
-    /// Dismiss the typed session error state. Clears both the typed error
+    /// Dismiss the typed conversation error state. Clears both the typed error
     /// and any corresponding `errorText` so the UI can return to normal.
     public func dismissConversationError() {
         conversationError = nil
@@ -1999,7 +1999,7 @@ public final class ChatViewModel: ObservableObject {
     public func retryAfterConversationError() {
         guard let error = conversationError, error.isRetryable else { return }
         guard conversationId != nil else { return }
-        // Reset sending state that may still be set if the session error arrived
+        // Reset sending state that may still be set if the conversation error arrived
         // while queued messages were pending (pendingQueuedCount > 0).
         // Without this, regenerateLastMessage() silently bails at its
         // `!isSending` guard, leaving the UI stuck with no error and no retry.

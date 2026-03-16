@@ -152,7 +152,7 @@ final class FirstMeetingIntroductionViewModel {
                 case .conversationError(let error) where error.conversationId == self.conversationId && self.conversationId != nil:
                     self.isThinking = false
                     self.streamingText = ""
-                    log.error("First meeting start failed (session_error): \(error.userMessage)")
+                    log.error("First meeting start failed (conversation_error): \(error.userMessage)")
                     self.messages.append(InterviewMessage(
                         role: .assistant,
                         text: "I'm having trouble connecting. Please try again in a moment."

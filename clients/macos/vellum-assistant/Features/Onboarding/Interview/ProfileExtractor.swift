@@ -147,7 +147,7 @@ final class ProfileExtractor {
                 return
 
             case .conversationError(let error) where error.conversationId == conversationId:
-                log.error("Extraction session error (session_error): \(error.userMessage)")
+                log.error("Extraction conversation error (conversation_error): \(error.userMessage)")
                 return
 
             default:
