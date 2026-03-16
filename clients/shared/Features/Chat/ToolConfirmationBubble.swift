@@ -230,11 +230,11 @@ public struct ToolConfirmationBubble: View {
                 } label: {
                     HStack(spacing: VSpacing.xs) {
                         VIconView(.chevronRight, size: 9)
-                            .foregroundColor(VColor.contentTertiary)
+                            .foregroundColor(VColor.contentDefault)
                             .rotationEffect(.degrees(showTechnicalDetails ? 90 : 0))
                         Text(showTechnicalDetails ? "Hide" : "More details")
                             .font(VFont.captionMedium)
-                            .foregroundColor(VColor.contentTertiary)
+                            .foregroundColor(VColor.contentDefault)
                     }
                 }
                 .buttonStyle(.plain)
@@ -346,12 +346,12 @@ public struct ToolConfirmationBubble: View {
     private var topLevelActions: [ToolConfirmationKeyboardModel.Action] {
         var actions: [ToolConfirmationKeyboardModel.Action] = []
         if hasAllow10m { actions.append(.allow10m) }
-        if hasAllowConversation { actions.append(.allowConversation) }
+        actions.append(.dontAllow)
         actions.append(.allowOnce)
         if hasRuleOptions && confirmation.persistentDecisionsAllowed {
             actions.append(.alwaysAllow)
         }
-        actions.append(.dontAllow)
+        if hasAllowConversation { actions.append(.allowConversation) }
         return actions
     }
 
@@ -363,12 +363,12 @@ public struct ToolConfirmationBubble: View {
     private var buttonRow: some View {
         let actions = topLevelActions
         VStack(alignment: .leading, spacing: VSpacing.sm) {
-            // Top group: temporary approval options (approve all future actions)
+            // Top group: recommended actions
             if hasTemporaryOptions {
                 VStack(alignment: .leading, spacing: VSpacing.xs) {
-                    Text("Approve all actions")
-                        .font(VFont.caption)
-                        .foregroundColor(VColor.contentTertiary)
+                    Text("Recommended")
+                        .font(VFont.captionMedium)
+                        .foregroundColor(VColor.contentDefault)
                     HStack(spacing: VSpacing.xs) {
                         if hasAllow10m {
                             confirmationButton(
@@ -378,23 +378,21 @@ public struct ToolConfirmationBubble: View {
                                 isKeyboardSelected: keyboardModel?.selectedAction == .allow10m
                             ) { markCommandExplanationSeen(); onTemporaryAllow?(confirmation.requestId, "allow_10m") }
                         }
-                        if hasAllowConversation {
-                            confirmationButton(
-                                "Allow for this conversation",
-                                isPrimary: true,
-                                isDanger: false,
-                                isKeyboardSelected: keyboardModel?.selectedAction == .allowConversation
-                            ) { markCommandExplanationSeen(); onTemporaryAllow?(confirmation.requestId, "allow_conversation") }
-                        }
+                        confirmationButton(
+                            "Don\u{2019}t Allow",
+                            isPrimary: false,
+                            isDanger: true,
+                            isKeyboardSelected: keyboardModel?.selectedAction == .dontAllow
+                        ) { markCommandExplanationSeen(); onDeny() }
                     }
                 }
             }
-            // Bottom group: per-action options
+            // Bottom group: more options
             VStack(alignment: .leading, spacing: VSpacing.xs) {
                 if hasTemporaryOptions {
-                    Text("This action only")
-                        .font(VFont.caption)
-                        .foregroundColor(VColor.contentTertiary)
+                    Text("More Options")
+                        .font(VFont.captionMedium)
+                        .foregroundColor(VColor.contentDefault)
                 }
                 HStack(spacing: VSpacing.xs) {
                     confirmationButton(
@@ -404,12 +402,22 @@ public struct ToolConfirmationBubble: View {
                         isKeyboardSelected: keyboardModel?.selectedAction == .allowOnce
                     ) { markCommandExplanationSeen(); onAllow() }
                     if hasRuleOptions && confirmation.persistentDecisionsAllowed { alwaysAllowInlineButton }
-                    confirmationButton(
-                        "Don\u{2019}t Allow",
-                        isPrimary: false,
-                        isDanger: false,
-                        isKeyboardSelected: keyboardModel?.selectedAction == .dontAllow
-                    ) { markCommandExplanationSeen(); onDeny() }
+                    if hasAllowConversation {
+                        confirmationButton(
+                            "Allow for this conversation",
+                            isPrimary: false,
+                            isDanger: false,
+                            isKeyboardSelected: keyboardModel?.selectedAction == .allowConversation
+                        ) { markCommandExplanationSeen(); onTemporaryAllow?(confirmation.requestId, "allow_conversation") }
+                    }
+                    if !hasTemporaryOptions {
+                        confirmationButton(
+                            "Don\u{2019}t Allow",
+                            isPrimary: false,
+                            isDanger: true,
+                            isKeyboardSelected: keyboardModel?.selectedAction == .dontAllow
+                        ) { markCommandExplanationSeen(); onDeny() }
+                    }
                     Spacer()
                 }
             }
@@ -677,17 +685,11 @@ public struct ToolConfirmationBubble: View {
         }
     }
 
-    /// Convenience wrapper around the shared `ApprovalActionButton` to preserve
-    /// call-site compatibility within the existing button row logic.
+    /// Convenience wrapper that maps the legacy isPrimary/isDanger flags to a `VButton.Style`.
     @ViewBuilder
-    private func confirmationButton(_ label: String, isPrimary: Bool, isDanger: Bool, isKeyboardSelected: Bool = false, action: @escaping () -> Void) -> some View {
-        ApprovalActionButton(
-            label: label,
-            isPrimary: isPrimary,
-            isDanger: isDanger,
-            isKeyboardSelected: isKeyboardSelected,
-            action: action
-        )
+    private func confirmationButton(_ label: String, isPrimary: Bool, isDanger: Bool, isDangerOutline: Bool = false, isKeyboardSelected: Bool = false, action: @escaping () -> Void) -> some View {
+        let style: VButton.Style = isDanger ? .danger : isDangerOutline ? .dangerOutline : isPrimary ? .primary : .outlined
+        VButton(label: label, style: style, size: .compact, action: action)
     }
 
     // MARK: - Always Allow Button

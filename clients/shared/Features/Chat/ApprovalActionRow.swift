@@ -6,6 +6,7 @@ public struct ApprovalActionButton: View {
     public let label: String
     public let isPrimary: Bool
     public let isDanger: Bool
+    public let isDangerOutline: Bool
     public var isKeyboardSelected: Bool = false
     public let action: () -> Void
 
@@ -13,34 +14,57 @@ public struct ApprovalActionButton: View {
         label: String,
         isPrimary: Bool = false,
         isDanger: Bool = false,
+        isDangerOutline: Bool = false,
         isKeyboardSelected: Bool = false,
         action: @escaping () -> Void
     ) {
         self.label = label
         self.isPrimary = isPrimary
         self.isDanger = isDanger
+        self.isDangerOutline = isDangerOutline
         self.isKeyboardSelected = isKeyboardSelected
         self.action = action
+    }
+
+    private var foregroundColor: Color {
+        if isDangerOutline { return VColor.systemNegativeStrong }
+        if isPrimary || isDanger { return VColor.auxWhite }
+        return VColor.contentSecondary
+    }
+
+    private var backgroundColor: Color {
+        if isDangerOutline { return Color.clear }
+        if isDanger { return VColor.systemNegativeStrong }
+        if isPrimary { return VColor.primaryBase }
+        return Color.clear
+    }
+
+    private var borderColor: Color {
+        if isKeyboardSelected { return VColor.primaryBase }
+        if isDangerOutline { return VColor.systemNegativeStrong }
+        if isPrimary || isDanger { return Color.clear }
+        return VColor.borderBase
     }
 
     public var body: some View {
         Button(action: action) {
             Text(label)
                 .font(VFont.caption)
-                .foregroundColor(isPrimary || isDanger ? VColor.auxWhite : VColor.contentSecondary)
+                .foregroundColor(foregroundColor)
                 .padding(.horizontal, VSpacing.sm)
                 .padding(.vertical, VSpacing.xxs + 1)
-                .background(isDanger ? VColor.systemNegativeStrong : isPrimary ? VColor.primaryBase : Color.clear)
+                .background(backgroundColor)
                 .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
                 .overlay(
                     RoundedRectangle(cornerRadius: VRadius.sm)
                         .stroke(
-                            isKeyboardSelected ? VColor.primaryBase : (isPrimary || isDanger ? Color.clear : VColor.borderBase),
+                            borderColor,
                             lineWidth: isKeyboardSelected ? 2 : 1
                         )
                 )
         }
         .buttonStyle(.plain)
+        .pointerCursor()
         .accessibilityLabel(label)
     }
 }

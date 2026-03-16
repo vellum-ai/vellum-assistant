@@ -2,7 +2,7 @@ import SwiftUI
 
 public struct VButton: View {
     public enum Style: Hashable { case primary, danger, dangerOutline, outlined, ghost, contrast }
-    public enum Size: Hashable { case regular, pill }
+    public enum Size: Hashable { case regular, compact, pill }
 
     public let label: String
     public var leftIcon: String? = nil
@@ -51,7 +51,7 @@ public struct VButton: View {
                         VIconView(.resolve(leftIcon), size: textIconSize)
                     }
                     Text(label)
-                        .font(size == .pill ? VFont.captionMedium : VFont.bodyMedium)
+                        .font(size == .regular ? VFont.bodyMedium : VFont.captionMedium)
                     if isFullWidth && (leftIcon != nil || rightIcon != nil) {
                         Spacer(minLength: 0)
                     }
@@ -127,7 +127,7 @@ public struct VButtonStyle: ButtonStyle {
     @Environment(\.isEnabled) private var isEnabled
 
     public func makeBody(configuration: Configuration) -> some View {
-        let cornerRadius = size == .pill ? VRadius.pill : VRadius.md
+        let cornerRadius: CGFloat = size == .pill ? VRadius.pill : VRadius.md
         let shape = RoundedRectangle(cornerRadius: cornerRadius)
 
         configuration.label
@@ -251,7 +251,7 @@ private struct ButtonLayoutModifier: ViewModifier {
         if isIconOnly {
             content
                 .frame(width: iconSize ?? 32, height: iconSize ?? 32)
-        } else if size == .pill {
+        } else if size == .pill || size == .compact {
             content
                 .padding(.horizontal, VSpacing.sm)
                 .frame(height: 24)
