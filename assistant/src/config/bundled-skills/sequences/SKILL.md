@@ -6,7 +6,6 @@ metadata:
   emoji: "📧"
   vellum:
     display-name: "Email Sequences"
-    feature-flag: email
 ---
 
 You are an email sequence assistant. Use the sequence tools to help users create and manage automated multi-step email drip campaigns.

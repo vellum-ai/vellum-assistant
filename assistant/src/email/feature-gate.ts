@@ -13,7 +13,7 @@ import { isAssistantFeatureFlagEnabled } from "../config/assistant-feature-flags
 import type { AssistantConfig } from "../config/schema.js";
 
 /** Gate for the entire email integration. */
-export const EMAIL_FLAG_KEY = "feature_flags.email.enabled" as const;
+export const EMAIL_FLAG_KEY = "feature_flags.email-channel.enabled" as const;
 
 /**
  * Whether the email integration is enabled.
