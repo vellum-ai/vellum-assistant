@@ -37,7 +37,7 @@
     },
     {
       "name": "subagent_status",
-      "description": "Get the status of a specific subagent or list all subagents for the current session. Only use this when the user explicitly asks about subagent status \u2014 do NOT poll automatically, as you will be notified when subagents complete.",
+      "description": "Get the status of a specific subagent or list all subagents for the current conversation. Only use this when the user explicitly asks about subagent status \u2014 do NOT poll automatically, as you will be notified when subagents complete.",
       "category": "orchestration",
       "risk": "low",
       "input_schema": {
@@ -45,7 +45,7 @@
         "properties": {
           "subagent_id": {
             "type": "string",
-            "description": "Optional subagent ID to query. If omitted, returns all subagents for this session."
+            "description": "Optional subagent ID to query. If omitted, returns all subagents for this conversation."
           },
           "reason": {
             "type": "string",

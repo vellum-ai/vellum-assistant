@@ -60,7 +60,7 @@ Verify it is running:
 vellum ps
 ```
 
-**Important:** This is the last step because the current assistant process is the one executing this conversation. After the restart, the new assistant takes over and this session ends gracefully.
+**Important:** This is the last step because the current assistant process is the one executing this conversation. After the restart, the new assistant takes over and this conversation ends gracefully.
 
 ## After Upgrade
 

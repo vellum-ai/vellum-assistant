@@ -48,7 +48,7 @@
           },
           "conversation_id": {
             "type": "string",
-            "description": "Optional source conversation/session ID for notification context"
+            "description": "Optional source conversation ID for notification context"
           },
           "source_event_name": {
             "type": "string",

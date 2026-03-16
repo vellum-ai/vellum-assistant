@@ -129,7 +129,7 @@ Phrases like "at the 45 minute mark", "at the top of the hour", "at noon", or "2
 
 **Resolution rules (in priority order):**
 
-1. **Session-anchored expressions** — if the user mentioned a start time earlier in conversation ("I got here at 9", "meeting started at 2:10"), interpret offset-style phrases ("the 45 minute mark", "20 minutes in") as `start_time + offset`.
+1. **Conversation-anchored expressions** — if the user mentioned a start time earlier in conversation ("I got here at 9", "meeting started at 2:10"), interpret offset-style phrases ("the 45 minute mark", "20 minutes in") as `start_time + offset`.
 
 2. **Clock-position expressions** — when no start time is in context, map directly to a wall-clock time:
    - "top of the hour" → next :00

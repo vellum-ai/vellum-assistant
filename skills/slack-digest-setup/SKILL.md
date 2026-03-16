@@ -37,9 +37,9 @@ Create a recurring schedule using `schedule_create`. The recommended default is 
 
 **Cron expression:** `0 7-19 * * *` (fires at the top of each hour, 7am through 7pm)
 
-**Determine the delivery target.** Ask the user where digests should be delivered — typically their Slack DM or a dedicated channel like `#alex-agent-messages`. Use `messaging_read` or the Slack API to resolve the `conversation_id` for the target. This ID gets baked into the schedule message so scheduled sessions know where to post.
+**Determine the delivery target.** Ask the user where digests should be delivered — typically their Slack DM or a dedicated channel like `#alex-agent-messages`. Use `messaging_read` or the Slack API to resolve the `conversation_id` for the target. This ID gets baked into the schedule message so scheduled conversations know where to post.
 
-**The schedule message is critical.** Scheduled sessions have no memory of this setup conversation. The message must be completely self-contained with every instruction needed to execute properly. Use the Scan Execution Protocol below as the template for the schedule message content.
+**The schedule message is critical.** Scheduled conversations have no memory of this setup conversation. The message must be completely self-contained with every instruction needed to execute properly. Use the Scan Execution Protocol below as the template for the schedule message content.
 
 ### Scan Window Logic
 
@@ -67,11 +67,11 @@ Set up two files for scan state and history:
 Summary of what was found, or "All clear."
 ```
 
-Create both files during setup with initial values. The scheduled scan sessions update them after each run.
+Create both files during setup with initial values. The scheduled scan conversations update them after each run.
 
 ## Step 4: Scan Execution Protocol
 
-**This is the most important section.** Every scheduled scan MUST follow this exact protocol. Embed these instructions directly in the schedule message so the session cannot deviate.
+**This is the most important section.** Every scheduled scan MUST follow this exact protocol. Embed these instructions directly in the schedule message so the conversation cannot deviate.
 
 ### The Protocol
 
@@ -135,7 +135,7 @@ The morning overnight digest is not a different format. It just covers more time
 ## Privacy Rules
 
 - Content from `isPrivate: true` channels MUST NEVER appear in digests delivered to other channels or external destinations.
-- If the user designates specific channels as sensitive (e.g. a war-room), exclude them from digests entirely. Document these exclusions in the schedule message so scheduled sessions respect them.
+- If the user designates specific channels as sensitive (e.g. a war-room), exclude them from digests entirely. Document these exclusions in the schedule message so scheduled conversations respect them.
 - When in doubt about whether content can be shared, err on the side of omission.
 
 ## Common Pitfalls
@@ -154,9 +154,9 @@ The notification router's decision engine rewrites `send_notification` content i
 
 Even when nothing happened, the user needs to know the scan actually ran and what it covered. "All clear" by itself could mean you scanned 12 channels and found nothing, or it could mean you didn't scan at all. List the channels.
 
-### Pitfall: Losing context between sessions
+### Pitfall: Losing context between conversations
 
-Scheduled sessions start fresh with no memory of the setup conversation. They don't know what format to use, where to deliver, or what channels to skip unless you tell them. The schedule message must contain every instruction needed to execute properly. If it's not in the message, it won't happen.
+Scheduled conversations start fresh with no memory of the setup conversation. They don't know what format to use, where to deliver, or what channels to skip unless you tell them. The schedule message must contain every instruction needed to execute properly. If it's not in the message, it won't happen.
 
 ### Pitfall: Different quality for hourly vs overnight
 
