@@ -516,7 +516,7 @@ final class ConversationManagerUnseenStateTests: XCTestCase {
         )
     }
 
-    func testMarkConversationUnreadRemovesPendingSeenSignalForSameSession() {
+    func testMarkConversationUnreadRemovesPendingSeenSignalForSameConversation() {
         guard let firstConversationId = conversationManager.activeConversationId,
               let firstIndex = conversationManager.conversations.firstIndex(where: { $0.id == firstConversationId }) else {
             XCTFail("Expected an initial active conversation")

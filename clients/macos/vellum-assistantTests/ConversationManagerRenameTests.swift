@@ -32,7 +32,7 @@ final class ConversationManagerRenameTests: XCTestCase {
 
     // MARK: - Rename with conversationId
 
-    func testRenameWithSessionIdSendsMessage() {
+    func testRenameWithConversationIdSendsMessage() {
         guard let thread = conversationManager.conversations.first else {
             XCTFail("Expected at least one thread")
             return
