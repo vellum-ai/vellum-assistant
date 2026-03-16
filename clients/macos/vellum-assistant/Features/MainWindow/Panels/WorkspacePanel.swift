@@ -688,17 +688,39 @@ private struct WorkspaceFileViewer: View {
     @ViewBuilder
     private func fileContent(_ detail: WorkspaceFileResponse) -> some View {
         let mime = detail.mimeType.lowercased()
+        let isText = !detail.isBinary && detail.content != nil
+        let readOnly = isText && isHiddenPath(detail.path)
 
         VStack(spacing: 0) {
             FileContentHeaderBar(
                 icon: fileIcon(for: mime),
                 fileName: detail.name,
                 fileSize: formatFileSize(detail.size)
-            )
+            ) {
+                if isText && readOnly {
+                    Text("Read-only")
+                        .font(VFont.caption)
+                        .foregroundColor(VColor.contentTertiary)
+                } else if isText && state.isDirty {
+                    Button {
+                        Task { await saveFile(path: detail.path) }
+                    } label: {
+                        HStack(spacing: VSpacing.xs) {
+                            if state.isSaving {
+                                ProgressView().controlSize(.small)
+                            }
+                            Text("Save")
+                                .font(VFont.bodyMedium)
+                        }
+                    }
+                    .disabled(state.isSaving)
+                    .keyboardShortcut("s", modifiers: .command)
+                }
+            }
             Divider().background(VColor.borderBase)
 
-            if !detail.isBinary, detail.content != nil {
-                textViewer(detail)
+            if isText {
+                textViewer(detail, readOnly: readOnly)
             } else if mime.hasPrefix("image/") {
                 imageViewer(detail)
             } else if mime.hasPrefix("video/") {
@@ -719,53 +741,21 @@ private struct WorkspaceFileViewer: View {
         return .file
     }
 
-    private func textViewer(_ detail: WorkspaceFileResponse) -> some View {
-        let readOnly = isHiddenPath(detail.path)
-        return VStack(spacing: 0) {
-            if readOnly {
-                HStack {
-                    Spacer()
-                    Text("Read-only")
-                        .font(VFont.caption)
-                        .foregroundColor(VColor.contentTertiary)
-                        .padding(.trailing, VSpacing.md)
-                        .padding(.vertical, VSpacing.xs)
+    @ViewBuilder
+    private func textViewer(_ detail: WorkspaceFileResponse, readOnly: Bool) -> some View {
+        if readOnly {
+            ReadOnlyCodeContent(content: detail.content ?? "")
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+        } else {
+            TextEditor(text: $state.editableContent)
+                .font(VFont.mono)
+                .foregroundColor(VColor.contentDefault)
+                .scrollContentBackground(.hidden)
+                .padding(VSpacing.md)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .onChange(of: state.editableContent) { _, newValue in
+                    state.isDirty = newValue != state.originalContent
                 }
-            } else if state.isDirty {
-                HStack {
-                    Spacer()
-                    Button {
-                        Task { await saveFile(path: detail.path) }
-                    } label: {
-                        HStack(spacing: VSpacing.xs) {
-                            if state.isSaving {
-                                ProgressView().controlSize(.small)
-                            }
-                            Text("Save")
-                                .font(VFont.bodyMedium)
-                        }
-                    }
-                    .disabled(state.isSaving)
-                    .keyboardShortcut("s", modifiers: .command)
-                    .padding(.trailing, VSpacing.md)
-                    .padding(.vertical, VSpacing.xs)
-                }
-            }
-
-            if readOnly {
-                ReadOnlyCodeContent(content: detail.content ?? "")
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-            } else {
-                TextEditor(text: $state.editableContent)
-                    .font(VFont.mono)
-                    .foregroundColor(VColor.contentDefault)
-                    .scrollContentBackground(.hidden)
-                    .padding(VSpacing.md)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .onChange(of: state.editableContent) { _, newValue in
-                        state.isDirty = newValue != state.originalContent
-                    }
-            }
         }
     }
 
