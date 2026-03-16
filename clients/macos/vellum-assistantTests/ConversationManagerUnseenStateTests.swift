@@ -269,7 +269,7 @@ final class ConversationManagerUnseenStateTests: XCTestCase {
 
         sentMessages.removeAll()
 
-        conversationManager.markConversationSeen(threadId: threadId)
+        conversationManager.markConversationSeen(conversationId: threadId)
 
         XCTAssertFalse(conversationManager.conversations[index].hasUnseenLatestAssistantMessage,
                        "markConversationSeen should clear the unseen flag")
@@ -293,7 +293,7 @@ final class ConversationManagerUnseenStateTests: XCTestCase {
 
         sentMessages.removeAll()
 
-        conversationManager.markConversationUnread(threadId: threadId)
+        conversationManager.markConversationUnread(conversationId: threadId)
         waitForPropagation()
 
         XCTAssertTrue(conversationManager.conversations[index].hasUnseenLatestAssistantMessage,
@@ -317,7 +317,7 @@ final class ConversationManagerUnseenStateTests: XCTestCase {
 
         sentMessages.removeAll()
 
-        conversationManager.markConversationUnread(threadId: threadId)
+        conversationManager.markConversationUnread(conversationId: threadId)
 
         let unreadSignals = sentMessages.compactMap { $0 as? ConversationUnreadSignal }
         XCTAssertTrue(unreadSignals.isEmpty, "Already-unread conversations should not emit duplicate unread signals")
@@ -345,7 +345,7 @@ final class ConversationManagerUnseenStateTests: XCTestCase {
         conversationManager.conversations[index].latestAssistantMessageAt = nil
         sentMessages.removeAll()
 
-        conversationManager.markConversationUnread(threadId: threadId)
+        conversationManager.markConversationUnread(conversationId: threadId)
         waitForPropagation()
 
         XCTAssertTrue(conversationManager.conversations[index].hasUnseenLatestAssistantMessage,
@@ -374,7 +374,7 @@ final class ConversationManagerUnseenStateTests: XCTestCase {
         conversationManager.conversations[index].latestAssistantMessageAt = Date(timeIntervalSince1970: 9)
         conversationManager.conversations[index].lastSeenAssistantMessageAt = Date(timeIntervalSince1970: 9)
 
-        conversationManager.markConversationUnread(threadId: threadId)
+        conversationManager.markConversationUnread(conversationId: threadId)
         waitForPropagation()
 
         XCTAssertFalse(conversationManager.conversations[index].hasUnseenLatestAssistantMessage)
@@ -411,7 +411,7 @@ final class ConversationManagerUnseenStateTests: XCTestCase {
 
         sentMessages.removeAll()
 
-        conversationManager.markConversationUnread(threadId: threadId)
+        conversationManager.markConversationUnread(conversationId: threadId)
         waitForPropagation()
 
         // After rollback the deferred seen signal should be re-queued,
@@ -435,7 +435,7 @@ final class ConversationManagerUnseenStateTests: XCTestCase {
 
         sentMessages.removeAll()
 
-        conversationManager.markConversationUnread(threadId: threadId)
+        conversationManager.markConversationUnread(conversationId: threadId)
 
         let unreadSignals = sentMessages.compactMap { $0 as? ConversationUnreadSignal }
         XCTAssertTrue(unreadSignals.isEmpty, "Threads without assistant replies should not emit unread signals")
@@ -454,7 +454,7 @@ final class ConversationManagerUnseenStateTests: XCTestCase {
         conversationManager.conversations[index].latestAssistantMessageAt = Date(timeIntervalSince1970: 9)
         conversationManager.conversations[index].lastSeenAssistantMessageAt = Date(timeIntervalSince1970: 8)
 
-        conversationManager.markConversationSeen(threadId: threadId)
+        conversationManager.markConversationSeen(conversationId: threadId)
 
         let staleResponse = makeConversationListResponse(
             conversations: [[
@@ -493,7 +493,7 @@ final class ConversationManagerUnseenStateTests: XCTestCase {
         conversationManager.conversations[index].latestAssistantMessageAt = Date(timeIntervalSince1970: 9)
         conversationManager.conversations[index].lastSeenAssistantMessageAt = Date(timeIntervalSince1970: 9)
 
-        conversationManager.markConversationUnread(threadId: threadId)
+        conversationManager.markConversationUnread(conversationId: threadId)
 
         let staleResponse = makeConversationListResponse(
             conversations: [[
@@ -545,7 +545,7 @@ final class ConversationManagerUnseenStateTests: XCTestCase {
         let markedIds = Set(conversationManager.markAllConversationsSeen())
         XCTAssertEqual(markedIds, Set([firstThreadId, secondThreadId]))
 
-        conversationManager.markConversationUnread(threadId: firstThreadId)
+        conversationManager.markConversationUnread(conversationId: firstThreadId)
         conversationManager.commitPendingSeenSignals()
         waitForPropagation()
 

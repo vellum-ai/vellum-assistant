@@ -457,7 +457,7 @@ extension AppDelegate: UNUserNotificationCenterDelegate {
             await MainActor.run {
                 guard !self.isBootstrapping else { return }
                 if let conversationId, !conversationId.isEmpty {
-                    self.openConversationThread(conversationId: conversationId)
+                    self.openConversation(conversationId: conversationId)
                 } else {
                     self.showMainWindow()
                 }
@@ -507,7 +507,7 @@ extension AppDelegate: UNUserNotificationCenterDelegate {
             await MainActor.run {
                 guard !self.isBootstrapping else { return }
                 if let conversationId {
-                    self.openConversationThread(conversationId: conversationId, anchorMessageId: messageId)
+                    self.openConversation(conversationId: conversationId, anchorMessageId: messageId)
                     self.sendConversationSeenSignal(
                         conversationId: conversationId,
                         signalType: "macos_notification_view",
@@ -515,8 +515,8 @@ extension AppDelegate: UNUserNotificationCenterDelegate {
                         evidenceText: "User clicked View on notification"
                     )
                     // Clear local unseen state so sidebar dot disappears immediately
-                    if let threadIdx = self.mainWindow?.conversationManager.conversations.firstIndex(where: { $0.conversationId == conversationId }) {
-                        self.mainWindow?.conversationManager.conversations[threadIdx].hasUnseenLatestAssistantMessage = false
+                    if let conversationIdx = self.mainWindow?.conversationManager.conversations.firstIndex(where: { $0.conversationId == conversationId }) {
+                        self.mainWindow?.conversationManager.conversations[conversationIdx].hasUnseenLatestAssistantMessage = false
                     }
                 } else {
                     self.showMainWindow()

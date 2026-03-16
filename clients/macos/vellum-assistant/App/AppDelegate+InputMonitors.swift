@@ -347,15 +347,15 @@ extension AppDelegate {
                 .map { CommandPaletteRecentItem(id: $0.id, title: $0.title, lastInteracted: $0.lastInteractedAt) }
         }
 
-        window.onSelectConversation = { [weak self] threadId in
-            self?.mainWindow?.conversationManager.selectConversation(id: threadId)
+        window.onSelectConversation = { [weak self] conversationId in
+            self?.mainWindow?.conversationManager.selectConversation(id: conversationId)
         }
 
         window.onSelectSearchConversation = { [weak self] conversationId in
             Task { @MainActor in
                 let found = await self?.mainWindow?.conversationManager.selectConversationByConversationIdAsync(conversationId) ?? false
-                if found, let threadId = self?.mainWindow?.conversationManager.activeConversationId {
-                    self?.mainWindow?.windowState.selection = .conversation(threadId)
+                if found, let activeId = self?.mainWindow?.conversationManager.activeConversationId {
+                    self?.mainWindow?.windowState.selection = .conversation(activeId)
                 }
             }
         }
@@ -395,8 +395,8 @@ extension AppDelegate {
             let notify = window?.notifyOnComplete ?? false
             self?.handleQuickInputSubmitToThread(message, imageData: imageData, notifyOnComplete: notify)
         }
-        window.onSelectConversation = { [weak self] threadId in
-            self?.handleQuickInputSelectConversation(threadId)
+        window.onSelectConversation = { [weak self] conversationId in
+            self?.handleQuickInputSelectConversation(conversationId)
         }
         window.onMicrophoneToggle = { [weak self] in
             self?.voiceInput?.toggleRecording()
@@ -444,8 +444,8 @@ extension AppDelegate {
                 let notify = window?.notifyOnComplete ?? false
                 self?.handleQuickInputSubmitToThread(message, imageData: imgData, notifyOnComplete: notify)
             }
-            window.onSelectConversation = { [weak self] threadId in
-                self?.handleQuickInputSelectConversation(threadId)
+            window.onSelectConversation = { [weak self] conversationId in
+                self?.handleQuickInputSelectConversation(conversationId)
             }
             window.onMicrophoneToggle = { [weak self] in
                 self?.voiceInput?.toggleRecording()
@@ -471,8 +471,8 @@ extension AppDelegate {
         ensureMainWindowExists()
         guard let mainWindow else { return }
         mainWindow.conversationManager.createConversation()
-        if let threadId = mainWindow.conversationManager.activeConversationId {
-            mainWindow.windowState.selection = .conversation(threadId)
+        if let conversationId = mainWindow.conversationManager.activeConversationId {
+            mainWindow.windowState.selection = .conversation(conversationId)
         }
         guard let viewModel = mainWindow.activeViewModel else { return }
 
@@ -522,10 +522,10 @@ extension AppDelegate {
         }
     }
 
-    func handleQuickInputSelectConversation(_ threadId: UUID) {
+    func handleQuickInputSelectConversation(_ conversationId: UUID) {
         showMainWindow()
         guard let mainWindow else { return }
-        mainWindow.conversationManager.activeConversationId = threadId
+        mainWindow.conversationManager.activeConversationId = conversationId
     }
 
     /// Tears down and re-registers the global "Open Vellum" hotkey based on

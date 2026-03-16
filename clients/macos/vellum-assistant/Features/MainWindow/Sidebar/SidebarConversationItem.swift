@@ -186,7 +186,7 @@ struct SidebarThreadItem: View {
                 Label { Text("Archive thread") } icon: { VIconView(.archive, size: 14) }
             }
             Button {
-                conversationManager.markConversationUnread(threadId: thread.id)
+                conversationManager.markConversationUnread(conversationId: thread.id)
             } label: {
                 Label { Text("Mark as unread") } icon: { VIconView(.circle, size: 14) }
             }

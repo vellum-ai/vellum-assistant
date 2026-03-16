@@ -80,7 +80,7 @@ extension AppDelegate {
 
         // Guardian questions get foregrounded immediately when the app is active.
         if msg.sourceEventName == "guardian.question" && NSApp.isActive {
-            openConversationThread(conversationId: msg.conversationId)
+            openConversation(conversationId: msg.conversationId)
             return
         }
 
@@ -98,23 +98,23 @@ extension AppDelegate {
         )
     }
 
-    /// Opens the main window and navigates to the thread for the given conversation ID.
-    /// Retries if the thread isn't populated yet (e.g., ConversationManager hasn't loaded it).
+    /// Opens the main window and navigates to the given conversation.
+    /// Retries if the conversation isn't populated yet (e.g., ConversationManager hasn't loaded it).
     /// Used by Quick Chat and notification deep links.
     /// - Parameters:
     ///   - conversationId: The conversation to navigate to.
-    ///   - anchorMessageId: Optional message ID to scroll to after the thread is selected.
-    func openConversationThread(conversationId: String?, anchorMessageId: String? = nil) {
+    ///   - anchorMessageId: Optional message ID to scroll to after the conversation is selected.
+    func openConversation(conversationId: String?, anchorMessageId: String? = nil) {
         showMainWindow()
         guard let conversationId else { return }
 
         func trySelect() -> Bool {
             guard let conversationManager = mainWindow?.conversationManager,
-                  let thread = conversationManager.conversations.first(where: { $0.conversationId == conversationId }) else {
+                  let conversation = conversationManager.conversations.first(where: { $0.conversationId == conversationId }) else {
                 return false
             }
-            conversationManager.activeConversationId = thread.id
-            // Switch the main content area to the chat thread so the user sees it
+            conversationManager.activeConversationId = conversation.id
+            // Switch the main content area to the chat so the user sees it
             // even if they were last viewing a panel, app, or other non-chat view.
             mainWindow?.windowState.selection = nil
             // Clear unseen state and notify the daemon when deep-linking into a
@@ -122,11 +122,11 @@ extension AppDelegate {
             // id != previousActiveId, which is false when activeConversationId was
             // already set above, so we call markConversationSeen explicitly to
             // keep both the local flag and the daemon's server-side state in sync.
-            conversationManager.markConversationSeen(threadId: thread.id)
+            conversationManager.markConversationSeen(conversationId: conversation.id)
             // Set pending anchor message so the message list scrolls to the
             // relevant notification message when the view appears.
             if let anchorMessageId, let anchorUUID = UUID(uuidString: anchorMessageId) {
-                conversationManager.setPendingAnchorMessage(threadId: thread.id, messageId: anchorUUID)
+                conversationManager.setPendingAnchorMessage(conversationId: conversation.id, messageId: anchorUUID)
             }
             return true
         }
@@ -139,7 +139,7 @@ extension AppDelegate {
                 try? await Task.sleep(nanoseconds: 500_000_000)
                 if trySelect() { return }
             }
-            log.warning("Could not find thread for conversation \(conversationId) after retries")
+            log.warning("Could not find conversation \(conversationId) after retries")
         }
     }
 

@@ -213,7 +213,7 @@ extension MainWindowView {
                         message: "Marked \(count) thread\(count == 1 ? "" : "s") as seen",
                         style: .success,
                         primaryAction: VToastAction(label: "Undo") {
-                            conversationManager.restoreUnseen(threadIds: markedIds)
+                            conversationManager.restoreUnseen(conversationIds: markedIds)
                             windowState.dismissToast()
                         },
                         onDismiss: {
@@ -256,7 +256,7 @@ extension MainWindowView {
                                 guard let droppedId = items.first,
                                       let sourceUUID = UUID(uuidString: droppedId),
                                       sourceUUID != thread.id else { return false }
-                                return conversationManager.moveThread(sourceId: sourceUUID, targetId: thread.id)
+                                return conversationManager.moveConversation(sourceId: sourceUUID, targetId: thread.id)
                             } isTargeted: { isTargeted in
                                 if isTargeted && thread.id != sidebar.draggingConversationId {
                                     sidebar.dropTargetConversationId = thread.id

@@ -359,7 +359,7 @@ extension AppDelegate {
             message: "Marked \(count) thread\(count == 1 ? "" : "s") as seen",
             style: .success,
             primaryAction: VToastAction(label: "Undo") { [weak self] in
-                self?.mainWindow?.conversationManager.restoreUnseen(threadIds: markedIds)
+                self?.mainWindow?.conversationManager.restoreUnseen(conversationIds: markedIds)
                 self?.mainWindow?.windowState.dismissToast()
             },
             onDismiss: { [weak self] in

@@ -173,7 +173,7 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
     }
 
     /// Snapshots captured by the most recent `markAllConversationsSeen()` call,
-    /// keyed by thread ID. Consumed by `restoreUnseen(threadIds:)`.
+    /// keyed by thread ID. Consumed by `restoreUnseen(conversationIds:)`.
     private var markAllSeenPriorStates: [UUID: MarkAllSeenPriorState] = [:]
 
     /// Threads that are not archived — used by the UI to populate the sidebar.
@@ -350,7 +350,7 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
         guard let viewModel = draftViewModel else { return }
 
         let thread = ConversationModel(title: "Untitled")
-        let threadId = thread.id
+        let localId = thread.id
         conversations.insert(thread, at: 0)
         chatViewModels[thread.id] = viewModel
         subscribeToBusyState(for: thread.id, viewModel: viewModel)
@@ -372,19 +372,19 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
         if !fromUserSend {
             viewModel.onFirstUserMessage = { [weak self] _ in
                 self?.completedConversationCount += 1
-                // Only set "Untitled" if the user hasn't already renamed this thread.
-                if self?.pendingRenames[threadId] == nil {
-                    self?.updateConversationTitle(id: threadId, title: "Untitled")
+                // Only set "Untitled" if the user hasn't already renamed this conversation.
+                if self?.pendingRenames[localId] == nil {
+                    self?.updateConversationTitle(id: localId, title: "Untitled")
                 }
-                self?.updateLastInteracted(threadId: threadId)
+                self?.updateLastInteracted(conversationId: localId)
             }
         }
         viewModel.onUserMessageSent = { [weak self] in
-            self?.updateLastInteracted(threadId: threadId)
+            self?.updateLastInteracted(conversationId: localId)
         }
 
         activeConversationId = thread.id
-        updateLastInteracted(threadId: thread.id)
+        updateLastInteracted(conversationId: thread.id)
         log.info("Promoted draft to conversation \(thread.id)")
     }
 
@@ -392,14 +392,14 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
         let thread = ConversationModel(kind: .private)
         let viewModel = makeViewModel()
         viewModel.isHistoryLoaded = true  // No session yet — nothing to load
-        let threadId = thread.id
+        let localId = thread.id
         viewModel.onFirstUserMessage = { [weak self] _ in
             self?.completedConversationCount += 1
-            // Only set "Untitled" if the user hasn't already renamed this thread.
-            if self?.pendingRenames[threadId] == nil {
-                self?.updateConversationTitle(id: threadId, title: "Untitled")
+            // Only set "Untitled" if the user hasn't already renamed this conversation.
+            if self?.pendingRenames[localId] == nil {
+                self?.updateConversationTitle(id: localId, title: "Untitled")
             }
-            self?.updateLastInteracted(threadId: threadId)
+            self?.updateLastInteracted(conversationId: localId)
         }
         conversations.insert(thread, at: 0)
         chatViewModels[thread.id] = viewModel
@@ -662,7 +662,7 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
     }
 
     /// Load more conversations from the daemon (pagination).
-    func loadMoreThreads() {
+    func loadMoreConversations() {
         guard !isLoadingMoreConversations else { return }
         isLoadingMoreConversations = true
         do {
@@ -744,8 +744,8 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
 
     /// Clear the `activeSurfaceId` on a specific thread's ChatViewModel.
     /// Used when switching conversations to prevent stale surface context injection.
-    func clearActiveSurface(threadId: UUID) {
-        chatViewModels[threadId]?.activeSurfaceId = nil
+    func clearActiveSurface(conversationId: UUID) {
+        chatViewModels[conversationId]?.activeSurfaceId = nil
     }
 
     func selectConversation(id: UUID) {
@@ -775,10 +775,10 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
 
         // Emit explicit seen signal for user-initiated thread selection.
         // Skip if this thread was already active to avoid duplicate signals
-        // (e.g. when openConversationThread sets activeConversationId directly and
+        // (e.g. when openConversation sets activeConversationId directly and
         // SwiftUI's onChange cycle calls selectConversation with the same id).
         if id != previousActiveId {
-            markConversationSeen(threadId: id)
+            markConversationSeen(conversationId: id)
         }
     }
 
@@ -869,8 +869,8 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
         MarkdownSegmentView.clearAttributedStringCache()
     }
 
-    /// Returns true if the thread has at least one user message.
-    func threadHasMessages(_ id: UUID) -> Bool {
+    /// Returns true if the conversation has at least one user message.
+    func conversationHasMessages(_ id: UUID) -> Bool {
         chatViewModels[id]?.messages.contains(where: { $0.role == .user }) ?? false
     }
 
@@ -934,8 +934,8 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
         sendReorderConversations()
     }
 
-    func updateLastInteracted(threadId: UUID) {
-        guard let index = conversations.firstIndex(where: { $0.id == threadId }) else { return }
+    func updateLastInteracted(conversationId: UUID) {
+        guard let index = conversations.firstIndex(where: { $0.id == conversationId }) else { return }
         var thread = conversations[index]
         thread.lastInteractedAt = Date()
         // Clear explicit displayOrder so the thread reverts to recency-based sorting.
@@ -962,7 +962,7 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
     /// had an explicit displayOrder. Threads without explicit ordering (sorted
     /// by recency) keep nil displayOrder so new conversations continue to appear at top.
     @discardableResult
-    func moveThread(sourceId: UUID, targetId: UUID) -> Bool {
+    func moveConversation(sourceId: UUID, targetId: UUID) -> Bool {
         guard let sourceIdx = conversations.firstIndex(where: { $0.id == sourceId }),
               let targetIdx = conversations.firstIndex(where: { $0.id == targetId }) else { return false }
         let targetThread = conversations[targetIdx]
@@ -1261,8 +1261,8 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
         }
         viewModel.onUserMessageSent = { [weak self, weak viewModel] in
             guard let self, let viewModel else { return }
-            if let threadId = self.chatViewModels.first(where: { $0.value === viewModel })?.key {
-                self.updateLastInteracted(threadId: threadId)
+            if let localId = self.chatViewModels.first(where: { $0.value === viewModel })?.key {
+                self.updateLastInteracted(conversationId: localId)
             }
         }
         viewModel.onReconnectHistoryNeeded = { [weak self] conversationId in
@@ -1280,7 +1280,7 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
         // Emit explicit seen signal for user-initiated thread activation.
         // Skip during session restoration to avoid false "seen" signals on bootstrap.
         if !isRestoringConversations, id != previousActiveId {
-            markConversationSeen(threadId: id)
+            markConversationSeen(conversationId: id)
         }
     }
 
@@ -1294,48 +1294,48 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
               let activeId = activeConversationId,
               let idx = conversations.firstIndex(where: { $0.id == activeId }),
               conversations[idx].hasUnseenLatestAssistantMessage else { return }
-        markConversationSeen(threadId: activeId)
+        markConversationSeen(conversationId: activeId)
     }
 
     /// Clear the local unseen flag and notify the daemon that the conversation
     /// has been seen. Use this from call-sites that bypass `selectConversation` (e.g.
-    /// deep-link navigation in `openConversationThread`) where the `id != previousActiveId`
+    /// deep-link navigation in `openConversation`) where the `id != previousActiveId`
     /// guard would skip the signal.
-    internal func markConversationSeen(threadId: UUID) {
-        guard let idx = conversations.firstIndex(where: { $0.id == threadId }) else { return }
-        // If the thread has a pending .unread override, opening the thread clears it
-        // so the normal seen flow proceeds rather than leaving the thread stuck as unread.
-        if let conversationId = conversations[idx].conversationId,
-           case .unread = pendingAttentionOverrides[conversationId] {
-            pendingAttentionOverrides.removeValue(forKey: conversationId)
+    internal func markConversationSeen(conversationId localId: UUID) {
+        guard let idx = conversations.firstIndex(where: { $0.id == localId }) else { return }
+        // If the conversation has a pending .unread override, opening it clears it
+        // so the normal seen flow proceeds rather than leaving it stuck as unread.
+        if let daemonId = conversations[idx].conversationId,
+           case .unread = pendingAttentionOverrides[daemonId] {
+            pendingAttentionOverrides.removeValue(forKey: daemonId)
         }
         var thread = conversations[idx]
         thread.hasUnseenLatestAssistantMessage = false
-        if let conversationId = thread.conversationId {
-            pendingAttentionOverrides[conversationId] = .seen(
+        if let daemonId = thread.conversationId {
+            pendingAttentionOverrides[daemonId] = .seen(
                 latestAssistantMessageAt: thread.latestAssistantMessageAt
             )
             thread.lastSeenAssistantMessageAt = thread.latestAssistantMessageAt
             conversations[idx] = thread
-            emitConversationSeenSignal(conversationId: conversationId)
+            emitConversationSeenSignal(conversationId: daemonId)
         } else {
             conversations[idx] = thread
         }
     }
 
-    internal func markConversationUnread(threadId: UUID) {
-        guard let idx = conversations.firstIndex(where: { $0.id == threadId }),
-              let conversationId = conversations[idx].conversationId,
-              canMarkConversationUnread(threadId: threadId, at: idx) else { return }
+    internal func markConversationUnread(conversationId localId: UUID) {
+        guard let idx = conversations.firstIndex(where: { $0.id == localId }),
+              let daemonConversationId = conversations[idx].conversationId,
+              canMarkConversationUnread(conversationId: localId, at: idx) else { return }
 
         let latestAssistantMessageAt = conversations[idx].latestAssistantMessageAt
 
         let previousLastSeenAssistantMessageAt = conversations[idx].lastSeenAssistantMessageAt
-        let previousOverride = pendingAttentionOverrides[conversationId]
-        let wasPendingSeen = pendingSeenConversationIds.contains(conversationId)
+        let previousOverride = pendingAttentionOverrides[daemonConversationId]
+        let wasPendingSeen = pendingSeenConversationIds.contains(daemonConversationId)
 
-        pendingSeenConversationIds.removeAll { $0 == conversationId }
-        pendingAttentionOverrides[conversationId] = .unread(
+        pendingSeenConversationIds.removeAll { $0 == daemonConversationId }
+        pendingAttentionOverrides[daemonConversationId] = .unread(
             latestAssistantMessageAt: latestAssistantMessageAt
         )
         var thread = conversations[idx]
@@ -1345,27 +1345,27 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
         Task { @MainActor [weak self] in
             guard let self else { return }
             do {
-                try await self.emitConversationUnreadSignal(conversationId: conversationId)
+                try await self.emitConversationUnreadSignal(conversationId: daemonConversationId)
             } catch {
                 self.rollbackUnreadMutationIfNeeded(
-                    threadId: threadId,
-                    conversationId: conversationId,
+                    localId: localId,
+                    daemonConversationId: daemonConversationId,
                     latestAssistantMessageAt: latestAssistantMessageAt,
                     previousLastSeenAssistantMessageAt: previousLastSeenAssistantMessageAt,
                     previousOverride: previousOverride,
                     wasPendingSeen: wasPendingSeen
                 )
-                log.warning("Failed to send conversation_unread_signal for \(conversationId): \(error.localizedDescription)")
+                log.warning("Failed to send conversation_unread_signal for \(daemonConversationId): \(error.localizedDescription)")
             }
         }
     }
 
     /// Set a pending anchor message for scroll-to behavior on notification deep links.
-    /// Only takes effect when the specified thread is currently active.
-    func setPendingAnchorMessage(threadId: UUID, messageId: UUID) {
-        guard activeConversationId == threadId else { return }
+    /// Only takes effect when the specified conversation is currently active.
+    func setPendingAnchorMessage(conversationId: UUID, messageId: UUID) {
+        guard activeConversationId == conversationId else { return }
         pendingAnchorMessageId = messageId
-        pendingAnchorConversationId = threadId
+        pendingAnchorConversationId = conversationId
     }
 
     /// Mark all visible (non-archived, non-private) conversations as seen locally.
@@ -1384,16 +1384,16 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
             guard !conversations[idx].isArchived,
                   conversations[idx].kind != .private,
                   conversations[idx].hasUnseenLatestAssistantMessage else { continue }
-            let threadId = conversations[idx].id
+            let localId = conversations[idx].id
             let conversationId = conversations[idx].conversationId
             // Capture prior state before overwriting
-            priorStates[threadId] = MarkAllSeenPriorState(
+            priorStates[localId] = MarkAllSeenPriorState(
                 lastSeenAssistantMessageAt: conversations[idx].lastSeenAssistantMessageAt,
                 conversationId: conversationId,
                 override: conversationId.flatMap { pendingAttentionOverrides[$0] }
             )
             conversations[idx].hasUnseenLatestAssistantMessage = false
-            markedIds.append(threadId)
+            markedIds.append(localId)
             if let conversationId {
                 conversationIds.append(conversationId)
                 pendingAttentionOverrides[conversationId] = .seen(
@@ -1450,11 +1450,11 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
     /// `lastSeenAssistantMessageAt` and `pendingAttentionOverrides`
     /// values captured by `markAllConversationsSeen()` instead of blindly
     /// clearing them.
-    internal func restoreUnseen(threadIds: [UUID]) {
+    internal func restoreUnseen(conversationIds: [UUID]) {
         cancelPendingSeenSignals()
         let priorStates = markAllSeenPriorStates
         markAllSeenPriorStates = [:]
-        for id in threadIds {
+        for id in conversationIds {
             if let idx = conversations.firstIndex(where: { $0.id == id }) {
                 conversations[idx].hasUnseenLatestAssistantMessage = true
                 if let prior = priorStates[id] {
@@ -1517,28 +1517,28 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
     }
 
     private func rollbackUnreadMutationIfNeeded(
-        threadId: UUID,
-        conversationId: String,
+        localId: UUID,
+        daemonConversationId: String,
         latestAssistantMessageAt: Date?,
         previousLastSeenAssistantMessageAt: Date?,
         previousOverride: PendingAttentionOverride?,
         wasPendingSeen: Bool = false
     ) {
-        guard let idx = conversations.firstIndex(where: { $0.id == threadId }),
-              conversations[idx].conversationId == conversationId,
-              case .unread(let pendingLatestAssistantMessageAt) = pendingAttentionOverrides[conversationId],
+        guard let idx = conversations.firstIndex(where: { $0.id == localId }),
+              conversations[idx].conversationId == daemonConversationId,
+              case .unread(let pendingLatestAssistantMessageAt) = pendingAttentionOverrides[daemonConversationId],
               pendingLatestAssistantMessageAt == latestAssistantMessageAt else { return }
 
         if let previousOverride {
-            pendingAttentionOverrides[conversationId] = previousOverride
+            pendingAttentionOverrides[daemonConversationId] = previousOverride
         } else {
-            pendingAttentionOverrides.removeValue(forKey: conversationId)
+            pendingAttentionOverrides.removeValue(forKey: daemonConversationId)
         }
         conversations[idx].hasUnseenLatestAssistantMessage = false
         conversations[idx].lastSeenAssistantMessageAt = previousLastSeenAssistantMessageAt
 
-        if wasPendingSeen && !pendingSeenConversationIds.contains(conversationId) {
-            pendingSeenConversationIds.append(conversationId)
+        if wasPendingSeen && !pendingSeenConversationIds.contains(daemonConversationId) {
+            pendingSeenConversationIds.append(daemonConversationId)
             if pendingSeenSignalTask == nil {
                 schedulePendingSeenSignals()
             }
@@ -1576,22 +1576,22 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
         vm.trimForBackground()
     }
 
-    /// Backfill ConversationModel.conversationId when the daemon assigns a session to a new thread.
+    /// Backfill ConversationModel.conversationId when the daemon assigns a session to a new conversation.
     private func backfillConversationId(_ conversationId: String, for viewModel: ChatViewModel) {
-        guard let threadId = chatViewModels.first(where: { $0.value === viewModel })?.key,
-              let index = conversations.firstIndex(where: { $0.id == threadId }),
+        guard let localId = chatViewModels.first(where: { $0.value === viewModel })?.key,
+              let index = conversations.firstIndex(where: { $0.id == localId }),
               conversations[index].conversationId == nil else { return }
         conversations[index].conversationId = conversationId
-        // If the thread was archived before the conversation ID arrived,
+        // If the conversation was archived before the conversation ID arrived,
         // persist the archive state now that we have a session ID and
         // release the view model that was kept alive for this callback.
         if conversations[index].isArchived {
             var archived = archivedConversationIds
             archived.insert(conversationId)
             archivedConversationIds = archived
-            chatViewModels.removeValue(forKey: threadId)
-            unsubscribeAllForConversation(id: threadId)
-            vmAccessOrder.removeAll { $0 == threadId }
+            chatViewModels.removeValue(forKey: localId)
+            unsubscribeAllForConversation(id: localId)
+            vmAccessOrder.removeAll { $0 == localId }
         }
         // Re-send ordering now that this thread has a session ID.
         // Any drag/pin actions performed before the daemon assigned
@@ -1599,7 +1599,7 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
         // because it filters out conversations without a conversationId.
         sendReorderConversations()
         // Flush any rename that was queued before the session ID was assigned.
-        if let pendingTitle = pendingRenames.removeValue(forKey: threadId) {
+        if let pendingTitle = pendingRenames.removeValue(forKey: localId) {
             try? daemonClient.send(ConversationRenameRequest(
                 type: "conversation_rename",
                 conversationId: conversationId,
@@ -1680,33 +1680,33 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
     /// This is the single entry point for VM access — `appendConversations` and session
     /// restoration no longer eagerly create VMs for every loaded session.
     @discardableResult
-    private func getOrCreateViewModel(for threadId: UUID) -> ChatViewModel? {
-        if let vm = chatViewModels[threadId] {
-            touchVMAccessOrder(threadId)
+    private func getOrCreateViewModel(for conversationId: UUID) -> ChatViewModel? {
+        if let vm = chatViewModels[conversationId] {
+            touchVMAccessOrder(conversationId)
             return vm
         }
         // Only create if the thread exists
-        guard let thread = conversations.first(where: { $0.id == threadId }) else { return nil }
+        guard let thread = conversations.first(where: { $0.id == conversationId }) else { return nil }
         let viewModel = makeViewModel()
         viewModel.conversationId = thread.conversationId
         if thread.conversationId == nil {
             viewModel.isHistoryLoaded = true
         }
-        chatViewModels[threadId] = viewModel
-        subscribeToBusyState(for: threadId, viewModel: viewModel)
-        subscribeToAssistantActivity(for: threadId, viewModel: viewModel)
-        subscribeToInteractionState(for: threadId, viewModel: viewModel)
-        touchVMAccessOrder(threadId)
+        chatViewModels[conversationId] = viewModel
+        subscribeToBusyState(for: conversationId, viewModel: viewModel)
+        subscribeToAssistantActivity(for: conversationId, viewModel: viewModel)
+        subscribeToInteractionState(for: conversationId, viewModel: viewModel)
+        touchVMAccessOrder(conversationId)
         evictStaleCachedViewModels()
         return viewModel
     }
 
     // MARK: - VM LRU Cache Management
 
-    /// Move `threadId` to the end of `vmAccessOrder` (most-recently-used position).
-    private func touchVMAccessOrder(_ threadId: UUID) {
-        vmAccessOrder.removeAll { $0 == threadId }
-        vmAccessOrder.append(threadId)
+    /// Move `conversationId` to the end of `vmAccessOrder` (most-recently-used position).
+    private func touchVMAccessOrder(_ conversationId: UUID) {
+        vmAccessOrder.removeAll { $0 == conversationId }
+        vmAccessOrder.append(conversationId)
     }
 
     /// Evict the oldest cached ChatViewModel that is not the active thread,
@@ -1774,15 +1774,15 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
 
     // MARK: - Busy State
 
-    /// Whether the given thread's ChatViewModel indicates active processing.
-    func isConversationBusy(_ threadId: UUID) -> Bool {
-        busyConversationIds.contains(threadId)
+    /// Whether the given conversation's ChatViewModel indicates active processing.
+    func isConversationBusy(_ conversationId: UUID) -> Bool {
+        busyConversationIds.contains(conversationId)
     }
 
     /// Subscribe to busy-state publishers on a ChatViewModel so `busyConversationIds` stays current.
-    func subscribeToBusyState(for threadId: UUID, viewModel: ChatViewModel) {
-        // Tear down any previous subscriptions for this thread.
-        busyStateCancellables.removeValue(forKey: threadId)
+    func subscribeToBusyState(for conversationId: UUID, viewModel: ChatViewModel) {
+        // Tear down any previous subscriptions for this conversation.
+        busyStateCancellables.removeValue(forKey: conversationId)
         var subs = Set<AnyCancellable>()
 
         let mgr = viewModel.messageManager
@@ -1799,43 +1799,43 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
         .sink { [weak self] isBusy in
             guard let self else { return }
             if isBusy {
-                self.busyConversationIds.insert(threadId)
+                self.busyConversationIds.insert(conversationId)
             } else {
-                self.busyConversationIds.remove(threadId)
+                self.busyConversationIds.remove(conversationId)
             }
         }
         .store(in: &subs)
 
-        busyStateCancellables[threadId] = subs
+        busyStateCancellables[conversationId] = subs
     }
 
-    /// Subscribe to assistant activity for a thread.
+    /// Subscribe to assistant activity for a conversation.
     /// Any change to the latest assistant message's rendered content marks
     /// inactive conversations unseen, including mid-stream continuation updates.
-    private func subscribeToAssistantActivity(for threadId: UUID, viewModel: ChatViewModel) {
-        assistantActivityCancellables[threadId]?.cancel()
+    private func subscribeToAssistantActivity(for conversationId: UUID, viewModel: ChatViewModel) {
+        assistantActivityCancellables[conversationId]?.cancel()
         if let snapshot = latestAssistantActivitySnapshot(in: viewModel.messages) {
-            latestAssistantActivitySnapshots[threadId] = snapshot
+            latestAssistantActivitySnapshots[conversationId] = snapshot
         } else {
-            latestAssistantActivitySnapshots.removeValue(forKey: threadId)
+            latestAssistantActivitySnapshots.removeValue(forKey: conversationId)
         }
 
-        assistantActivityCancellables[threadId] = viewModel.messageManager.$messages
+        assistantActivityCancellables[conversationId] = viewModel.messageManager.$messages
             .map { [weak self] messages in
                 self?.latestAssistantActivitySnapshot(in: messages)
             }
             .removeDuplicates()
             .sink { [weak self] latestSnapshot in
                 guard let self else { return }
-                let previousSnapshot = self.latestAssistantActivitySnapshots[threadId]
+                let previousSnapshot = self.latestAssistantActivitySnapshots[conversationId]
                 if let latestSnapshot {
-                    self.latestAssistantActivitySnapshots[threadId] = latestSnapshot
+                    self.latestAssistantActivitySnapshots[conversationId] = latestSnapshot
                 } else {
-                    self.latestAssistantActivitySnapshots.removeValue(forKey: threadId)
+                    self.latestAssistantActivitySnapshots.removeValue(forKey: conversationId)
                 }
                 guard previousSnapshot != latestSnapshot,
                       let latestSnapshot else { return }
-                self.handleAssistantMessageArrival(threadId: threadId, previousSnapshot: previousSnapshot, currentSnapshot: latestSnapshot)
+                self.handleAssistantMessageArrival(conversationId: conversationId, previousSnapshot: previousSnapshot, currentSnapshot: latestSnapshot)
             }
     }
 
@@ -1857,13 +1857,13 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
     /// state is preserved so that evicted (but still visible) conversations continue
     /// showing the correct sidebar cue.  Callers that permanently remove a
     /// thread (close / archive) should use `unsubscribeAllForConversation(id:)` instead.
-    private func unsubscribeFromBusyState(for threadId: UUID) {
-        busyStateCancellables.removeValue(forKey: threadId)
-        assistantActivityCancellables[threadId]?.cancel()
-        assistantActivityCancellables.removeValue(forKey: threadId)
-        latestAssistantActivitySnapshots.removeValue(forKey: threadId)
-        busyConversationIds.remove(threadId)
-        interactionStateCancellables.removeValue(forKey: threadId)
+    private func unsubscribeFromBusyState(for conversationId: UUID) {
+        busyStateCancellables.removeValue(forKey: conversationId)
+        assistantActivityCancellables[conversationId]?.cancel()
+        assistantActivityCancellables.removeValue(forKey: conversationId)
+        latestAssistantActivitySnapshots.removeValue(forKey: conversationId)
+        busyConversationIds.remove(conversationId)
+        interactionStateCancellables.removeValue(forKey: conversationId)
     }
 
     /// Atomically cancel all per-thread subscriptions and remove cached state
@@ -1882,17 +1882,17 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
 
     // MARK: - Interaction State
 
-    /// Returns the derived interaction state for a thread, defaulting to `.idle`.
-    func interactionState(for threadId: UUID) -> ConversationInteractionState {
-        conversationInteractionStates[threadId] ?? .idle
+    /// Returns the derived interaction state for a conversation, defaulting to `.idle`.
+    func interactionState(for conversationId: UUID) -> ConversationInteractionState {
+        conversationInteractionStates[conversationId] ?? .idle
     }
 
     /// Subscribe to interaction-state–relevant publishers on a ChatViewModel so
     /// `conversationInteractionStates` stays current.
     ///
     /// Derives state with priority: error > waitingForInput > processing > idle.
-    func subscribeToInteractionState(for threadId: UUID, viewModel: ChatViewModel) {
-        interactionStateCancellables.removeValue(forKey: threadId)
+    func subscribeToInteractionState(for conversationId: UUID, viewModel: ChatViewModel) {
+        interactionStateCancellables.removeValue(forKey: conversationId)
         var subs = Set<AnyCancellable>()
 
         let msgMgr = viewModel.messageManager
@@ -1932,14 +1932,14 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
         .sink { [weak self] state in
             guard let self else { return }
             if state == .idle {
-                self.conversationInteractionStates.removeValue(forKey: threadId)
+                self.conversationInteractionStates.removeValue(forKey: conversationId)
             } else {
-                self.conversationInteractionStates[threadId] = state
+                self.conversationInteractionStates[conversationId] = state
             }
         }
         .store(in: &subs)
 
-        interactionStateCancellables[threadId] = subs
+        interactionStateCancellables[conversationId] = subs
     }
 
     /// Subscribe to the active ChatViewModel's messages publisher.
@@ -1971,7 +1971,7 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
     /// or when streaming completes (isStreaming goes from true to false). This
     /// avoids O(n) HTTP calls per streaming response (one per text delta) while
     /// still advancing the server-side seen cursor.
-    private func handleAssistantMessageArrival(threadId: UUID, previousSnapshot: AssistantActivitySnapshot?, currentSnapshot: AssistantActivitySnapshot) {
+    private func handleAssistantMessageArrival(conversationId: UUID, previousSnapshot: AssistantActivitySnapshot?, currentSnapshot: AssistantActivitySnapshot) {
         // Skip during thread restoration or history re-hydration —
         // loadHistoryIfNeeded populates messages which triggers the Combine
         // publisher, but those are historical messages, not fresh assistant
@@ -1979,18 +1979,18 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
         // state on app launch, or bump conversations to the top when clicking on
         // them causes an evicted ViewModel to reload its history.
         guard !isRestoringConversations else { return }
-        if let vm = chatViewModels[threadId], vm.isLoadingHistory || !vm.isHistoryLoaded {
+        if let vm = chatViewModels[conversationId], vm.isLoadingHistory || !vm.isHistoryLoaded {
             return
         }
-        guard let index = conversations.firstIndex(where: { $0.id == threadId }) else { return }
-        updateLastInteracted(threadId: threadId)
+        guard let index = conversations.firstIndex(where: { $0.id == conversationId }) else { return }
+        updateLastInteracted(conversationId: conversationId)
         let isNewMessage = previousSnapshot?.messageId != currentSnapshot.messageId
         // Keep the local attention timestamp current for live assistant replies
         // so unread eligibility survives until the next session-list refresh.
         if conversations[index].latestAssistantMessageAt == nil || isNewMessage {
             conversations[index].latestAssistantMessageAt = Date()
         }
-        if threadId == activeConversationId {
+        if conversationId == activeConversationId {
             conversations[index].hasUnseenLatestAssistantMessage = false
             // Only emit the seen signal on meaningful transitions:
             // 1. A new assistant message appeared (different messageId)
@@ -2006,12 +2006,12 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
         }
     }
 
-    private func canMarkConversationUnread(threadId: UUID, at threadIndex: Int) -> Bool {
-        guard conversations[threadIndex].conversationId != nil,
-              !conversations[threadIndex].hasUnseenLatestAssistantMessage else { return false }
+    private func canMarkConversationUnread(conversationId: UUID, at conversationIndex: Int) -> Bool {
+        guard conversations[conversationIndex].conversationId != nil,
+              !conversations[conversationIndex].hasUnseenLatestAssistantMessage else { return false }
         // Live assistant replies update the in-memory activity snapshot before
         // session-list hydration backfills latestAssistantMessageAt.
-        return conversations[threadIndex].latestAssistantMessageAt != nil
-            || latestAssistantActivitySnapshots[threadId] != nil
+        return conversations[conversationIndex].latestAssistantMessageAt != nil
+            || latestAssistantActivitySnapshots[conversationId] != nil
     }
 }

@@ -48,7 +48,7 @@ struct ScheduleReorderDropDelegate: DropDelegate {
         sidebar.dropTargetConversationId = nil
         sidebar.draggingConversationId = nil
         guard let sourceId = sourceId, sourceId != targetThread.id else { return false }
-        return conversationManager.moveThread(sourceId: sourceId, targetId: targetThread.id)
+        return conversationManager.moveConversation(sourceId: sourceId, targetId: targetThread.id)
     }
 }
 
@@ -103,6 +103,6 @@ struct ScheduleGroupHeaderDropDelegate: DropDelegate {
               let sourceId = sourceId,
               sourceId != firstThread.id
         else { return false }
-        return conversationManager.moveThread(sourceId: sourceId, targetId: firstThread.id)
+        return conversationManager.moveConversation(sourceId: sourceId, targetId: firstThread.id)
     }
 }

@@ -734,7 +734,7 @@ struct MainWindowView: View {
             windowState.selectedSubagentId = nil
             // Clear stale activeSurfaceId on the old thread and sync the new one
             if let oldId {
-                conversationManager.clearActiveSurface(threadId: oldId)
+                conversationManager.clearActiveSurface(conversationId: oldId)
             }
             conversationManager.activeViewModel?.activeSurfaceId = windowState.isDynamicExpanded ? windowState.activeDynamicSurface?.surfaceId : nil
             conversationManager.activeViewModel?.isChatDockedToSide = windowState.isDynamicExpanded && windowState.isChatDockOpen
