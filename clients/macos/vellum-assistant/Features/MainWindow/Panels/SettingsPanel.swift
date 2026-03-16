@@ -300,6 +300,13 @@ struct SettingsPanel: View {
         case .general:
             SettingsGeneralTab(store: store, daemonClient: daemonClient, authManager: authManager, onClose: onClose, onSignIn: {
                 AppDelegate.shared?.ensureLocalAssistantApiKey()
+                // Refresh routing sources after bootstrap has time to inject credentials
+                Task {
+                    try? await Task.sleep(nanoseconds: 3_000_000_000)
+                    await MainActor.run {
+                        store.loadProviderRoutingSources()
+                    }
+                }
             })
         case .modelsAndServices:
             integrationsContent
