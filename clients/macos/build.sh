@@ -643,6 +643,12 @@ FEATURE_FLAG_REGISTRY="$SCRIPT_DIR/../../meta/feature-flags/feature-flag-registr
 if [ -f "$FEATURE_FLAG_REGISTRY" ]; then
     cp "$FEATURE_FLAG_REGISTRY" "$RESOURCES_DIR/feature-flag-registry.json"
 fi
+# Generate character-components.json for pre-daemon avatar rendering
+CHAR_COMP_SRC="$ASSISTANT_SRC_DIR/src/avatar/character-components.ts"
+if command -v bun &>/dev/null && [ -f "$CHAR_COMP_SRC" ]; then
+    echo "Generating character-components.json..."
+    bun -e "import { getCharacterComponents } from '$CHAR_COMP_SRC'; process.stdout.write(JSON.stringify(getCharacterComponents()))" > "$RESOURCES_DIR/character-components.json"
+fi
 
 # Always check resource bundles (they change independently of binaries)
 # Copy SPM resource bundles into Contents/Resources/
