@@ -171,10 +171,15 @@ jobs:
 
       - name: Install nested package dependencies
         run: |
+          pids=()
           for dir in packages/*/; do
             [ -f "${dir}/package.json" ] || continue
             echo "Installing dependencies in ${dir}"
-            (cd "${dir}" && bun install)
+            (cd "${dir}" && bun install) &
+            pids+=($!)
+          done
+          for pid in "${pids[@]}"; do
+            wait "$pid"
           done
 
       - name: Build binaries
