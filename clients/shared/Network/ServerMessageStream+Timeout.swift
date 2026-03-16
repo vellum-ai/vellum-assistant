@@ -10,7 +10,7 @@ extension AsyncStream where Element == ServerMessage {
     ///
     /// Returns `nil` when the timeout fires first or the stream ends
     /// without a match.
-    func firstMatch<T: Sendable>(
+    public func firstMatch<T: Sendable>(
         timeout: UInt64 = 15_000_000_000,
         extract: @Sendable @escaping (ServerMessage) -> T?
     ) async -> T? {
