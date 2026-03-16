@@ -202,7 +202,7 @@ struct WorkspaceBrowserView: View {
         Button("Create") {
             let path = buildPath(newItemName)
             Task {
-                if let client, await client.writeWorkspaceFile(path: path, content: Data()) {
+                if await workspaceClient.writeWorkspaceFile(path: path, content: Data()) {
                     await reloadDirectory()
                 }
             }
@@ -216,7 +216,7 @@ struct WorkspaceBrowserView: View {
         Button("Create") {
             let path = buildPath(newItemName)
             Task {
-                if let client, await client.createWorkspaceDirectory(path: path) {
+                if await workspaceClient.createWorkspaceDirectory(path: path) {
                     await reloadDirectory()
                 }
             }
@@ -235,7 +235,7 @@ struct WorkspaceBrowserView: View {
                 : ""
             let newPath = parentPath + renameText
             Task {
-                if let client, await client.renameWorkspaceItem(oldPath: oldPath, newPath: newPath) {
+                if await workspaceClient.renameWorkspaceItem(oldPath: oldPath, newPath: newPath) {
                     await reloadDirectory()
                 }
             }
@@ -322,7 +322,7 @@ struct WorkspaceBrowserView: View {
             let fileName = url.lastPathComponent
             let targetPath = initialPath.isEmpty ? fileName : "\(initialPath)/\(fileName)"
             Task {
-                let success = await client?.writeWorkspaceFile(path: targetPath, content: data) ?? false
+                let success = await workspaceClient.writeWorkspaceFile(path: targetPath, content: data)
                 if success { await reloadDirectory() }
             }
         }
