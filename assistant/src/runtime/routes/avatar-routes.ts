@@ -4,6 +4,7 @@ import { getCharacterComponents } from "../../avatar/character-components.js";
 import {
   type CharacterTraits,
   syncTraitsToAvatar,
+  type TraitsSyncResult,
   writeTraitsAndRenderAvatar,
 } from "../../avatar/traits-png-sync.js";
 import { getLogger } from "../../util/logger.js";
@@ -46,7 +47,7 @@ export function avatarRouteDefinitions(): RouteDefinition[] {
       endpoint: "avatar/render-from-traits",
       method: "POST",
       handler: async ({ req }) => {
-        let success: boolean;
+        let result: TraitsSyncResult;
 
         // If the request includes a JSON body with traits, write the traits
         // file and render the PNG in one atomic operation.  Otherwise fall
@@ -69,17 +70,16 @@ export function avatarRouteDefinitions(): RouteDefinition[] {
             );
           }
 
-          success = writeTraitsAndRenderAvatar(body);
+          result = writeTraitsAndRenderAvatar(body);
         } else {
-          success = syncTraitsToAvatar();
+          result = syncTraitsToAvatar();
         }
 
-        if (!success) {
-          return httpError(
-            "BAD_REQUEST",
-            "Failed to render avatar from traits",
-            400,
-          );
+        if (!result.ok) {
+          const status = result.reason === "render_error" ? 500 : 400;
+          const code =
+            result.reason === "render_error" ? "INTERNAL_ERROR" : "BAD_REQUEST";
+          return httpError(code, result.message, status);
         }
 
         publishAvatarUpdated();

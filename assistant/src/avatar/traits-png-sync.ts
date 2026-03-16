@@ -15,17 +15,35 @@ export interface CharacterTraits {
   color: string;
 }
 
+export type TraitsSyncResult =
+  | { ok: true }
+  | {
+      ok: false;
+      reason: "missing_traits" | "invalid_traits" | "render_error";
+      message: string;
+    };
+
 /**
  * Writes character-traits.json, regenerates avatar-image.png, and updates
  * character-ascii.txt in one atomic operation.  Accepts the trait values
  * directly so callers don't need to touch the filesystem first.
- *
- * Returns true if all files were written successfully.
  */
-export function writeTraitsAndRenderAvatar(traits: CharacterTraits): boolean {
-  if (!traits || typeof traits !== "object" || !traits.bodyShape || !traits.eyeStyle || !traits.color) {
+export function writeTraitsAndRenderAvatar(
+  traits: CharacterTraits,
+): TraitsSyncResult {
+  if (
+    !traits ||
+    typeof traits !== "object" ||
+    !traits.bodyShape ||
+    !traits.eyeStyle ||
+    !traits.color
+  ) {
     log.warn({ traits }, "Invalid character traits — missing required fields");
-    return false;
+    return {
+      ok: false,
+      reason: "invalid_traits",
+      message: "Missing required fields: bodyShape, eyeStyle, color",
+    };
   }
 
   const avatarDir = join(getWorkspaceDir(), "data", "avatar");
@@ -78,10 +96,15 @@ export function writeTraitsAndRenderAvatar(traits: CharacterTraits): boolean {
       },
       "Wrote character traits, regenerated avatar PNG, and updated ASCII art",
     );
-    return true;
+    return { ok: true };
   } catch (err) {
     log.error({ err }, "Failed to write traits / render avatar");
-    return false;
+    return {
+      ok: false,
+      reason: "render_error",
+      message:
+        err instanceof Error ? err.message : "Failed to render avatar PNG",
+    };
   }
 }
 
@@ -90,7 +113,7 @@ export function writeTraitsAndRenderAvatar(traits: CharacterTraits): boolean {
  * avatar-image.png and character-ascii.txt to match. Kept for backward
  * compatibility (e.g. the client-side file watcher triggers this path).
  */
-export function syncTraitsToAvatar(): boolean {
+export function syncTraitsToAvatar(): TraitsSyncResult {
   const traitsPath = join(
     getWorkspaceDir(),
     "data",
@@ -103,11 +126,19 @@ export function syncTraitsToAvatar(): boolean {
     const raw = readFileSync(traitsPath, "utf-8");
     traits = JSON.parse(raw);
   } catch {
-    return false;
+    return {
+      ok: false,
+      reason: "missing_traits",
+      message: "No valid character-traits.json found",
+    };
   }
 
   if (!traits || typeof traits !== "object") {
-    return false;
+    return {
+      ok: false,
+      reason: "invalid_traits",
+      message: "character-traits.json does not contain a valid object",
+    };
   }
 
   return writeTraitsAndRenderAvatar(traits as CharacterTraits);
