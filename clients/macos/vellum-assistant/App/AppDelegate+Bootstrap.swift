@@ -80,6 +80,7 @@ extension AppDelegate {
             }
             group.addTask {
                 try? await Task.sleep(nanoseconds: UInt64(timeout * 1_000_000_000))
+                guard !Task.isCancelled else { return }
                 log.warning("Local bootstrap did not complete within \(timeout)s — proceeding with wake-up")
             }
             await group.next()
