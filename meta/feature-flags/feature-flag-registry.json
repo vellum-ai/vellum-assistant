@@ -42,6 +42,14 @@
       "defaultEnabled": false
     },
     {
+      "id": "email",
+      "scope": "assistant",
+      "key": "feature_flags.email.enabled",
+      "label": "Email Integration",
+      "description": "Enable the entire email integration: email CLI commands, email channel, sequences, email readiness probes, and invite adapters",
+      "defaultEnabled": false
+    },
+    {
       "id": "email-channel",
       "scope": "assistant",
       "key": "feature_flags.email-channel.enabled",
