@@ -1236,7 +1236,7 @@ public final class ChatViewModel: ObservableObject {
 
         greetingTask = Task { @MainActor [weak self] in
             guard let self else { return }
-            let key = "greeting-\(UUID().uuidString)"
+            let key = "greeting"
             var result = ""
             do {
                 let stream = self.daemonClient.sendBtwMessage(
@@ -1259,6 +1259,14 @@ public final class ChatViewModel: ObservableObject {
             }
             self.isGeneratingGreeting = false
         }
+    }
+
+    /// Clear greeting state and cancel any in-flight generation.
+    public func dismissGreeting() {
+        greetingTask?.cancel()
+        greetingTask = nil
+        emptyStateGreeting = nil
+        isGeneratingGreeting = false
     }
 
     private func bootstrapConversation(userMessage: String?, attachments: [UserMessageAttachment]?) {
