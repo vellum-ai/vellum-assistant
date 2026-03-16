@@ -58,7 +58,7 @@ export function handleCancelSignal(): void {
     if (found) {
       log.info({ conversationId }, "Generation cancelled via signal file");
     } else {
-      log.warn({ conversationId }, "No active session for cancel signal");
+      log.warn({ conversationId }, "No active conversation for cancel signal");
     }
   } catch (err) {
     log.error({ err }, "Failed to handle cancel signal");

@@ -98,8 +98,8 @@ export async function handleConversationUndoSignal(): Promise<void> {
 
     const result = await _undoLastMessage(conversationId);
     if (!result) {
-      log.warn({ conversationId }, "No active session for undo signal");
-      writeResult({ ok: false, error: "No active session", requestId });
+      log.warn({ conversationId }, "No active conversation for undo signal");
+      writeResult({ ok: false, error: "No active conversation", requestId });
       return;
     }
 
