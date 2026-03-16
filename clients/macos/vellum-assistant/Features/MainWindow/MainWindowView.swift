@@ -741,7 +741,7 @@ struct MainWindowView: View {
             conversationManager.activeViewModel?.activeSurfaceId = windowState.isDynamicExpanded ? windowState.activeDynamicSurface?.surfaceId : nil
             conversationManager.activeViewModel?.isChatDockedToSide = windowState.isDynamicExpanded && windowState.isChatDockOpen
             // Consume any buffered deep-link message now that a conversation is active.
-            // Mirrors the iOS pattern (ChatTabView.onAppear, ThreadListView.onAppear)
+            // Mirrors the iOS pattern (ChatTabView.onAppear, ConversationListView.onAppear)
             // where consumeDeepLinkIfNeeded() is called when the view model becomes
             // visible. Without this, deep links arriving before the window/conversation is
             // fully initialized are silently dropped on macOS.
