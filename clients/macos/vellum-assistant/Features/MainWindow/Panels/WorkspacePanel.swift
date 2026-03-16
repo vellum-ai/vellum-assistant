@@ -34,6 +34,7 @@ final class WorkspaceBrowserState {
     var pendingHiddenFilesToggle: Bool?
     var showingDirtyAlert: Bool = false
     var showHiddenFiles: Bool = UserDefaults.standard.bool(forKey: "showHiddenFiles")
+    var hiddenFilesToggleRequestId: UInt64 = 0
 
     func refreshDirectory(_ dirPath: String, using daemonClient: DaemonClient) async {
         if let response = await daemonClient.fetchWorkspaceTree(path: dirPath, showHidden: showHiddenFiles) {
@@ -210,15 +211,16 @@ struct WorkspacePanel: View {
         state.originalContent = ""
         state.isDirty = false
         state.isLoadingTree = true
-        let expectedValue = newValue
+        state.hiddenFilesToggleRequestId &+= 1
+        let requestId = state.hiddenFilesToggleRequestId
         Task {
             if let response = await daemonClient.fetchWorkspaceTree(path: "", showHidden: newValue) {
-                // Guard against stale response from a rapid toggle
-                guard state.showHiddenFiles == expectedValue else { return }
+                // Guard against stale response from a concurrent toggle (ABA pattern)
+                guard state.hiddenFilesToggleRequestId == requestId else { return }
                 state.directoryCache[""] = response.entries
             }
-            // Only clear loading if we're still on the expected toggle value
-            if state.showHiddenFiles == expectedValue {
+            // Only clear loading if this is still the latest request
+            if state.hiddenFilesToggleRequestId == requestId {
                 state.isLoadingTree = false
             }
         }
