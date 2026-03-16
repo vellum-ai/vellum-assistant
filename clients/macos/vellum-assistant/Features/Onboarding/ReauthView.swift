@@ -10,6 +10,7 @@ struct ReauthView: View {
     var onComplete: () -> Void
 
     @State private var showContent = false
+    @State private var didComplete = false
 
     private static let appIcon: NSImage? = {
         guard let path = ResourceBundle.bundle.path(forResource: "vellum-app-icon", ofType: "png") else { return nil }
@@ -101,12 +102,14 @@ struct ReauthView: View {
             if !authManager.isAuthenticated {
                 await authManager.checkSession()
             }
-            if authManager.isAuthenticated {
+            if authManager.isAuthenticated && !didComplete {
+                didComplete = true
                 onComplete()
             }
         }
         .onChange(of: authManager.isAuthenticated) { _, isAuthenticated in
-            if isAuthenticated {
+            if isAuthenticated && !didComplete {
+                didComplete = true
                 log.info("User re-authenticated — proceeding to app")
                 onComplete()
             }
