@@ -139,7 +139,7 @@ extension MainWindowView {
                 sidebar.renamingConversationId = nil
             }
         } message: {
-            Text("Enter a new name for this conversation")
+            Text("Enter a new name for this thread")
         }
     }
 
