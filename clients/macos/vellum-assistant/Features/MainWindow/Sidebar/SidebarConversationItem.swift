@@ -27,11 +27,11 @@ struct SidebarThreadItem: View {
         }
     }
 
-    private var isHovered: Bool { sidebar.isHoveredThread == thread.id }
+    private var isHovered: Bool { sidebar.isHoveredConversation == thread.id }
     private var interactionState: ConversationInteractionState { conversationManager.interactionState(for: thread.id) }
     // Reserve trailing space when hovered for archive button overlay.
-    private var hasTrailingIcon: Bool { isHovered || sidebar.threadPendingDeletion == thread.id }
-    private var isPendingDeletion: Bool { sidebar.threadPendingDeletion == thread.id }
+    private var hasTrailingIcon: Bool { isHovered || sidebar.conversationPendingDeletion == thread.id }
+    private var isPendingDeletion: Bool { sidebar.conversationPendingDeletion == thread.id }
     private var canMarkUnread: Bool {
         !thread.hasUnseenLatestAssistantMessage &&
             thread.conversationId != nil &&
@@ -139,17 +139,17 @@ struct SidebarThreadItem: View {
             selectConversation()
         }
         .overlay(alignment: .trailing) {
-            if sidebar.threadPendingDeletion == thread.id {
+            if sidebar.conversationPendingDeletion == thread.id {
                 VButton(label: "Confirm", style: .dangerOutline, size: .pill) {
                     conversationManager.archiveConversation(id: thread.id)
-                    sidebar.threadPendingDeletion = nil
+                    sidebar.conversationPendingDeletion = nil
                 }
                 .fixedSize()
                 .padding(.trailing, VSpacing.xs)
                 .accessibilityLabel("Confirm archive \(thread.title)")
             } else if isHovered {
                 Button {
-                    sidebar.threadPendingDeletion = thread.id
+                    sidebar.conversationPendingDeletion = thread.id
                 } label: {
                     VIconView(.archive, size: 13)
                         .foregroundColor(VColor.contentSecondary)
@@ -175,7 +175,7 @@ struct SidebarThreadItem: View {
                 Label { Text(thread.isPinned ? "Unpin thread" : "Pin thread") } icon: { VIconView(thread.isPinned ? .pinOff : .pin, size: 14) }
             }
             Button {
-                sidebar.renamingThreadId = thread.id
+                sidebar.renamingConversationId = thread.id
                 sidebar.renameText = thread.title
             } label: {
                 Label { Text("Rename thread") } icon: { VIconView(.pencil, size: 14) }
@@ -205,11 +205,11 @@ struct SidebarThreadItem: View {
         .pointerCursor()
         .onHover { hovering in
             withAnimation(VAnimation.fast) {
-                sidebar.setThreadHover(threadId: thread.id, hovering: hovering)
+                sidebar.setConversationHover(conversationId: thread.id, hovering: hovering)
             }
         }
         .onDrag {
-            sidebar.draggingThreadId = thread.id
+            sidebar.draggingConversationId = thread.id
             return NSItemProvider(object: thread.id.uuidString as NSString)
         } preview: {
             HStack(spacing: VSpacing.xs) {

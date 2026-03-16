@@ -41,10 +41,10 @@ struct ThreadSwitcherDrawer: View {
         .shadow(color: VColor.auxBlack.opacity(0.1), radius: 1.5, x: 0, y: 1)
         .shadow(color: VColor.auxBlack.opacity(0.1), radius: 6, x: 0, y: 4)
         .onDisappear {
-            if sidebar.isHoveredThread != nil {
-                sidebar.isHoveredThread = nil
+            if sidebar.isHoveredConversation != nil {
+                sidebar.isHoveredConversation = nil
             }
-            sidebar.threadPendingDeletion = nil
+            sidebar.conversationPendingDeletion = nil
         }
     }
 }

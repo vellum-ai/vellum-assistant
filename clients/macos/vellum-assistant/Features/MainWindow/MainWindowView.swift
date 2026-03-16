@@ -216,7 +216,7 @@ struct MainWindowView: View {
     func startRenameActiveThread() {
         guard let id = conversationManager.activeConversationId,
               let thread = conversationManager.activeConversation else { return }
-        sidebar.renamingThreadId = id
+        sidebar.renamingConversationId = id
         sidebar.renameText = thread.title
     }
 
@@ -869,7 +869,7 @@ struct MainWindowView: View {
             }
         }
         // Hover→pending-deletion invariant is now owned by
-        // SidebarInteractionState.setThreadHover(threadId:hovering:)
+        // SidebarInteractionState.setConversationHover(conversationId:hovering:)
     }
 
 }
