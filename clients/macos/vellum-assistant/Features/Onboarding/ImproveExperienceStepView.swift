@@ -72,7 +72,11 @@ struct ImproveExperienceStepView: View {
                     Spacer()
                     VToggle(isOn: $tosAccepted)
                 }
-                .padding(.top, VSpacing.xs)
+                .padding(VSpacing.lg)
+                .overlay(
+                    RoundedRectangle(cornerRadius: VRadius.lg)
+                        .stroke(VColor.borderBase, lineWidth: 1)
+                )
 
                 OnboardingButton(
                     title: "Continue",
