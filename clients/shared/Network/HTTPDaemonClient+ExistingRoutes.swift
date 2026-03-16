@@ -17,7 +17,7 @@ extension HTTPTransport {
             guard let self else { return false }
 
             if let msg = message as? UserMessageMessage {
-                Task { await self.sendMessage(content: msg.content, conversationId: msg.conversationId, attachments: msg.attachments) }
+                Task { await self.sendMessage(content: msg.content, conversationId: msg.conversationId, attachments: msg.attachments, automated: msg.automated) }
                 return true
             } else if let msg = message as? ConfirmationResponseMessage {
                 Task { await self.sendDecision(requestId: msg.requestId, decision: msg.decision, selectedPattern: msg.selectedPattern, selectedScope: msg.selectedScope) }
