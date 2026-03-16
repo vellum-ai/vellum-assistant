@@ -527,16 +527,11 @@ When a managed-mode HTTP request receives a 401, the `HTTPDaemonClient` does not
 
 ### Why
 
-`DaemonClient` grew into a monolithic god-object with hundreds of methods, its own URL construction, auth handling, and 401 retry logic duplicated across every endpoint. `GatewayHTTPClient` consolidates all of this into a single authenticated HTTP client with:
-
-- Automatic `{assistantId}` path placeholder resolution
-- Automatic percent-encoding of path components
-- Centralized auth header injection (session token for managed, bearer for local/remote)
-- Built-in 401 retry with credential refresh for non-managed connections
+The assistant currently exposes an HTTP port so that the native client can call its REST API directly via `DaemonClient`/`HTTPTransport`. By routing these calls through the gateway instead, we can eventually remove that HTTP port entirely and lock down the assistant's networking surface. `GatewayHTTPClient` is the client-side piece of this: an authenticated HTTP client that talks to the gateway (and its platform proxy) instead of hitting the assistant directly.
 
 ### Pattern
 
-Each migrated API surface gets a focused protocol + struct, injected via init parameters for testability:
+Each migrated API surface gets a focused protocol + struct, injected via init parameters for testability. Once every method has been migrated off `DaemonClient`/`HTTPTransport`, the assistant's HTTP port can be removed:
 
 1. **Define a protocol** describing the operations (e.g. `ConversationClientProtocol`).
 2. **Implement a struct** that calls `GatewayHTTPClient.get/post/delete(path:timeout:)`.
@@ -551,13 +546,6 @@ Each migrated API surface gets a focused protocol + struct, injected via init pa
 | `clients/shared/Network/GatewayHTTPClient.swift` | Authenticated HTTP client for gateway and platform proxy requests |
 | `clients/shared/Network/DaemonClient.swift` | Legacy client (do not add new HTTP methods here) |
 | `clients/shared/Network/HTTPDaemonClient.swift` | Legacy HTTP transport (do not add new HTTP methods here) |
-
-### Migrated So Far
-
-| Method | Old Location | New Client | PR |
-|--------|-------------|------------|-----|
-| `fetchConversationById` | `DaemonClient` / `HTTPTransport` | `ConversationClient` | #17227 |
-| `deleteConversation` | `DaemonClient` / `HTTPTransport` | `ConversationClient` | #17276 |
 
 ---
 
