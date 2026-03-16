@@ -4,7 +4,7 @@ import VellumAssistantShared
 
 /// Manages private (temporary) conversations on iOS, mirroring the macOS private conversation
 /// workflow. Private conversations are backed by daemon sessions with conversationType "private"
-/// so they are excluded from normal session restoration and the main conversation list.
+/// so they are excluded from normal conversation restoration and the main conversation list.
 struct PrivateConversationsSection: View {
     /// Shared with the main ConversationListView so both views read from and write to the
     /// same in-memory conversation list. This prevents the dual-store data-loss bug where

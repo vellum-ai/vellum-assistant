@@ -1,5 +1,5 @@
 /**
- * Route handlers for session management operations.
+ * Route handlers for conversation management operations.
  *
  * POST   /v1/conversations/switch         — switch to an existing conversation
  * PATCH  /v1/conversations/:id/name       — rename a conversation
@@ -39,7 +39,7 @@ export interface ConversationManagementDeps {
   renameConversation: (conversationId: string, name: string) => boolean;
   clearAllConversations: () => number;
   cancelGeneration: (conversationId: string) => boolean;
-  /** Abort and dispose an active in-memory session (if any) before deletion. */
+  /** Abort and dispose an active in-memory conversation (if any) before deletion. */
   destroyConversation: (conversationId: string) => void;
   undoLastMessage: (
     conversationId: string,
@@ -134,7 +134,7 @@ export function conversationManagementRouteDefinitions(
             404,
           );
         }
-        // Tear down the in-memory session (abort + dispose) before removing
+        // Tear down the in-memory conversation (abort + dispose) before removing
         // persistence so that a running agent loop doesn't write to a deleted
         // conversation row, tripping FK constraints.
         deps.destroyConversation(resolvedId);
@@ -176,7 +176,7 @@ export function conversationManagementRouteDefinitions(
         if (!result) {
           return httpError(
             "NOT_FOUND",
-            `No active session for conversation ${params.id}`,
+            `No active conversation for ${params.id}`,
             404,
           );
         }
@@ -196,7 +196,7 @@ export function conversationManagementRouteDefinitions(
           if (!result) {
             return httpError(
               "NOT_FOUND",
-              `No active session for conversation ${params.id}`,
+              `No active conversation for ${params.id}`,
               404,
             );
           }
