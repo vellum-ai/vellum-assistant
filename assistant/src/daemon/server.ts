@@ -2,6 +2,11 @@ import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
 import {
+  disposeAcpSessionManager,
+  getAcpSessionManager,
+  setBroadcastToAllClients,
+} from "../acp/index.js";
+import {
   createAssistantMessage,
   createUserMessage,
 } from "../agent/message-types.js";
@@ -309,6 +314,7 @@ export class DaemonServer {
     this.evictor = new ConversationEvictor(this.conversations);
     getSubagentManager().sharedRequestTimestamps = this.sharedRequestTimestamps;
     getSubagentManager().broadcastToAllClients = (msg) => this.broadcast(msg);
+    setBroadcastToAllClients((msg) => this.broadcast(msg));
     this.evictor.onEvict = (conversationId: string) => {
       getSubagentManager().abortAllForParent(conversationId);
     };
@@ -356,6 +362,38 @@ export class DaemonServer {
             log.error(
               { parentConversationId, err },
               "Failed to process subagent notification in parent",
+            );
+          });
+      }
+    };
+    getAcpSessionManager().onAcpSessionFinished = async (
+      parentSessionId,
+      message,
+      sendToClient,
+    ) => {
+      const parentSession = this.sessions.get(parentSessionId);
+      if (!parentSession) {
+        log.warn(
+          { parentSessionId },
+          "ACP agent finished but parent session not found",
+        );
+        return;
+      }
+      const requestId = `acp-notify-${Date.now()}`;
+      const enqueueResult = parentSession.enqueueMessage(
+        message,
+        [],
+        sendToClient,
+        requestId,
+      );
+      if (!enqueueResult.queued && !enqueueResult.rejected) {
+        const messageId = await parentSession.persistUserMessage(message, []);
+        parentSession
+          .runAgentLoop(message, messageId, sendToClient)
+          .catch((err) => {
+            log.error(
+              { parentSessionId, err },
+              "Failed to process ACP notification in parent",
             );
           });
       }
@@ -566,6 +604,7 @@ export class DaemonServer {
 
   async stop(): Promise<void> {
     getSubagentManager().disposeAll();
+    disposeAcpSessionManager();
     this.evictor.stop();
     this.configWatcher.stop();
     if (this.unsubscribeContactChange) {

@@ -30,7 +30,7 @@ enum LogExporter {
     /// When true, conversation-scoped exports are not available because the platform API
     /// does not yet support conversation-scoped log retrieval.
     /// Uses the cached value from AppDelegate to avoid disk I/O in hot paths (e.g. SwiftUI view bodies).
-    nonisolated static var isManagedAssistant: Bool {
+    static var isManagedAssistant: Bool {
         AppDelegate.shared?.isCurrentAssistantManaged == true
     }
 
@@ -227,7 +227,7 @@ enum LogExporter {
         // 3. Assistant logs — platform API for managed, local gateway for self-hosted
         let home = NSHomeDirectory()
         let connectedId = UserDefaults.standard.string(forKey: "connectedAssistantId")
-        let isManagedAssistant = Self.isManagedAssistant
+        let isManagedAssistant = await MainActor.run { Self.isManagedAssistant }
 
         if isManagedAssistant, let assistantId = connectedId,
            let orgId = UserDefaults.standard.string(forKey: "connectedOrganizationId") {

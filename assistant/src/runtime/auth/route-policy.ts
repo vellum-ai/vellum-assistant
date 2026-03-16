@@ -323,6 +323,14 @@ const ACTOR_ENDPOINTS: Array<{ endpoint: string; scopes: Scope[] }> = [
   { endpoint: "subagents/abort", scopes: ["chat.write"] },
   { endpoint: "subagents/message", scopes: ["chat.write"] },
 
+  // ACP (Agent Communication Protocol)
+  { endpoint: "acp/spawn", scopes: ["chat.write"] },
+  { endpoint: "acp/steer", scopes: ["chat.write"] },
+  { endpoint: "acp/cancel", scopes: ["chat.write"] },
+  { endpoint: "acp/close", scopes: ["chat.write"] },
+  { endpoint: "acp", scopes: ["chat.read"] },
+  { endpoint: "acp/permission", scopes: ["approval.write"] },
+
   // Model config
   { endpoint: "model:GET", scopes: ["settings.read"] },
   { endpoint: "model:PUT", scopes: ["settings.write"] },

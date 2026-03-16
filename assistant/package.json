@@ -27,6 +27,7 @@
     "prepack": "node ../scripts/prepack-bundled-deps.mjs"
   },
   "dependencies": {
+    "@agentclientprotocol/sdk": "^0.16.1",
     "@anthropic-ai/claude-agent-sdk": "^0.2.42",
     "@anthropic-ai/sdk": "^0.78.0",
     "@google/genai": "^1.40.0",
