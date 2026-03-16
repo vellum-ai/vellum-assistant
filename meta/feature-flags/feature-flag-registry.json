@@ -151,7 +151,7 @@
       "key": "managed_sign_in_enabled",
       "label": "Managed Sign In",
       "description": "Enable managed (organization-hosted) sign-in flow in the onboarding experience",
-      "defaultEnabled": false
+      "defaultEnabled": true
     }
   ]
 }
