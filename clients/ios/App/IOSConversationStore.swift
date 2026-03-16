@@ -12,7 +12,7 @@ struct IOSConversation: Identifiable {
     let createdAt: Date
     /// Tracks the most recent activity (message sent/received). Defaults to createdAt.
     var lastActivityAt: Date
-    /// When non-nil, this conversation is backed by a daemon session (Connected mode).
+    /// When non-nil, this conversation is backed by a daemon conversation (Connected mode).
     var conversationId: String?
     var isArchived: Bool
     var isPinned: Bool
@@ -95,11 +95,11 @@ class IOSConversationStore: ObservableObject {
     private static let persistenceKey = "ios_threads_v1"
     private static let connectedCacheKey = "ios_connected_threads_cache_v1"
     private var cancellables: Set<AnyCancellable> = []
-    /// Maps daemon session IDs to conversation IDs for history loading.
+    /// Maps daemon conversation IDs to local conversation IDs for history loading.
     private var pendingHistoryByConversationId: [String: UUID] = [:]
     /// Tracks conversation IDs that already have an activity-tracking observer to avoid duplicates.
     private var observedActivityConversationIds: Set<UUID> = []
-    /// Number of conversations per page when listing sessions from the daemon.
+    /// Number of conversations per page when listing conversations from the daemon.
     private static let conversationPageSize = 50
     private static let attentionSignalType = "ios_conversation_opened"
     /// Current offset used for the next page fetch; advances by `conversationPageSize` on each load.
@@ -310,7 +310,7 @@ class IOSConversationStore: ObservableObject {
             self.saveConnectedCache()
         }
 
-        // Fetch session list once connected. Try immediately if already connected,
+        // Fetch conversation list once connected. Try immediately if already connected,
         // otherwise wait for the daemonDidReconnect notification.
         if daemon.isConnected {
             conversationListOffset = 0
@@ -380,7 +380,7 @@ class IOSConversationStore: ObservableObject {
         // a response arriving after the rebind would invoke the closures registered by
         // the previous setupDaemonCallbacks call, which capture [weak self] and would
         // still call back into this store — potentially corrupting the conversation list with
-        // stale sessions from the old connection.
+        // stale conversations from the old connection.
         if let oldDaemon = daemonClient as? DaemonClient {
             oldDaemon.onConversationListResponse = nil
             oldDaemon.onHistoryResponse = nil
@@ -756,15 +756,15 @@ class IOSConversationStore: ObservableObject {
         viewModels[conversationLocalId] = vm
 
         // Copy conversationId from the conversation so the VM joins the existing
-        // daemon session instead of bootstrapping a new one.
+        // daemon conversation instead of bootstrapping a new one.
         if let conversation = conversations.first(where: { $0.id == conversationLocalId }) {
             vm.conversationId = conversation.conversationId
         }
 
         wireReconnectCallback(vm: vm, conversationLocalId: conversationLocalId)
 
-        // Only auto-title conversations without a daemon session (new local conversations).
-        // Daemon conversations already have titles from the session list.
+        // Only auto-title conversations without a daemon conversation (new local conversations).
+        // Daemon conversations already have titles from the conversation list.
         if conversations.first(where: { $0.id == conversationLocalId })?.conversationId == nil {
             observeForTitleGeneration(vm: vm, conversationLocalId: conversationLocalId)
         }
@@ -850,7 +850,7 @@ class IOSConversationStore: ObservableObject {
     }
 
     /// Create a new private conversation with the given name. The conversation is immediately
-    /// backed by a daemon session with conversationType "private" so it is persisted on
+    /// backed by a daemon conversation with conversationType "private" so it is persisted on
     /// the daemon side and excluded from normal conversation restoration.
     @discardableResult
     func newPrivateConversation(name: String = "Private Conversation") -> IOSConversation {

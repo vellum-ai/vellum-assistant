@@ -8,7 +8,7 @@ private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.
 
 extension AppDelegate {
 
-    // MARK: - Session
+    // MARK: - Conversation
 
     /// Sends the user's task as a regular message via POST /v1/messages.
     /// The model decides whether to use computer-use tools; CU execution

@@ -188,11 +188,11 @@ public final class HTTPTransport {
     var serverToLocalConversationMap: [String: String] = [:]
     private let serverToLocalConversationMapCap = 500
 
-    /// Session IDs that originated from this client instance.
-    /// Host tool requests are only executed for these session IDs.
+    /// Conversation IDs that originated from this client instance.
+    /// Host tool requests are only executed for these conversation IDs.
     private var locallyOwnedConversationIds: Set<String> = []
-    /// Session IDs that belong to private (temporary) conversations.
-    /// Populated when a session_create with conversationType "private" is handled locally.
+    /// Conversation IDs that belong to private (temporary) conversations.
+    /// Populated when a conversation_create with conversationType "private" is handled locally.
     var privateConversationIds: Set<String> = []
 
     let decoder = JSONDecoder()
@@ -333,7 +333,7 @@ public final class HTTPTransport {
         case subagentDetail(id: String)
         case subagentAbort(id: String)
         case subagentMessage(id: String)
-        // Session management
+        // Conversation management
         case conversationsSwitch
         case conversationRename(id: String)
         case conversationsClear
@@ -673,7 +673,7 @@ public final class HTTPTransport {
         case .subagentMessage(let id):
             let encoded = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
             return ("/v1/subagents/\(encoded)/message", nil)
-        // Session management
+        // Conversation management
         case .conversationsSwitch:
             return ("/v1/conversations/switch", nil)
         case .conversationRename(let id):
@@ -1085,7 +1085,7 @@ public final class HTTPTransport {
         case .subagentMessage(let id):
             let encoded = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
             return ("\(prefix)/subagents/\(encoded)/message/", nil)
-        // Session management
+        // Conversation management
         case .conversationsSwitch:
             return ("\(prefix)/conversations/switch/", nil)
         case .conversationRename(let id):
@@ -1514,7 +1514,7 @@ public final class HTTPTransport {
 
     private func parseSSEData(_ data: String) {
         var jsonString = data
-        // Remap server conversation IDs to client-local session IDs via O(1) dictionary lookup
+        // Remap server conversation IDs to client-local conversation IDs via O(1) dictionary lookup
         if let conversationId = extractJsonStringValue(from: jsonString, key: "conversationId"),
            let localId = serverToLocalConversationMap[conversationId] {
             jsonString = jsonString.replacingOccurrences(
@@ -1727,7 +1727,7 @@ public final class HTTPTransport {
                 // Learn the server's conversationId for this conversation's conversationKey.
                 // For new conversations, the conversationId (used as conversationKey) differs from
                 // the server's internal conversationId. Store the mapping so parseSSEData
-                // can remap incoming events to the client's local session ID.
+                // can remap incoming events to the client's local conversation ID.
                 if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
                    let serverConvId = json["conversationId"] as? String,
                    serverConvId != conversationId {
@@ -2690,7 +2690,7 @@ public final class HTTPTransport {
             "surfaceId": action.surfaceId,
             "actionId": action.actionId,
         ]
-        // Omit conversationId — the server resolves the session via
+        // Omit conversationId — the server resolves the conversation via
         // findSessionBySurfaceId(surfaceId), which is reliable regardless
         // of conversationKey vs conversationId differences.
         if let data = action.data {
