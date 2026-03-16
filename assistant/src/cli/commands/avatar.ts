@@ -250,8 +250,16 @@ Examples:
         return;
       }
 
+      if (!/^\d+$/.test(opts.width)) {
+        log.error(
+          `Invalid width: "${opts.width}". Must be a positive integer.`,
+        );
+        process.exitCode = 1;
+        return;
+      }
+
       const width = parseInt(opts.width, 10);
-      if (!Number.isFinite(width) || width < 1) {
+      if (width < 1) {
         log.error(
           `Invalid width: "${opts.width}". Must be a positive integer.`,
         );
