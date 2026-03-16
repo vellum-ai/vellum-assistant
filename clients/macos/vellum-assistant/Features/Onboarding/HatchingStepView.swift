@@ -256,8 +256,14 @@ struct HatchingStepView: View {
         // AppDelegate.applicationWillTerminate and cleaned up on app exit.
         // Creating a local instance here would leave an orphaned VM running
         // after the user quits.
-        let launcher = AppDelegate.shared?.appleContainersLauncher
         hatchTask = Task {
+            guard let launcher = AppDelegate.shared?.appleContainersLauncher else {
+                log.error("Apple Containers hatch failed: AppDelegate.shared or appleContainersLauncher is unavailable")
+                failureReason = "Container launcher is unavailable \u{2014} please restart the app and try again"
+                state.hatchFailed = true
+                return
+            }
+
             do {
                 state.hatchLogLines.append("Preparing kernel images\u{2026}")
                 guard !Task.isCancelled else { return }
@@ -265,7 +271,7 @@ struct HatchingStepView: View {
                 // AppleContainersLauncher writes its own lockfile entry and manages
                 // the full pod lifecycle; we just need to wait for it to finish.
                 state.hatchLogLines.append("Starting pod\u{2026}")
-                try await launcher?.launch(name: nil, daemonOnly: false, restart: false)
+                try await launcher.launch(name: nil, daemonOnly: false, restart: false)
                 guard !Task.isCancelled else { return }
 
                 state.hatchLogLines.append("Waiting for gateway\u{2026}")
