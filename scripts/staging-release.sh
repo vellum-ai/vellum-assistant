@@ -67,6 +67,12 @@ else
   SCP_HOST="${MAC_MINI_HOST}"
 fi
 
+# If a password is configured, make sure sshpass is available.
+if [ -n "$MAC_MINI_PASSWORD" ] && ! command -v sshpass &>/dev/null; then
+  echo "sshpass is required for password-based SSH but was not found. Installing via Homebrew..."
+  brew install hudochenkov/sshpass/sshpass
+fi
+
 # Build auth-aware wrappers so every scp/ssh call inherits credentials.
 remote_scp() {
   if [ -n "$MAC_MINI_PASSWORD" ]; then
