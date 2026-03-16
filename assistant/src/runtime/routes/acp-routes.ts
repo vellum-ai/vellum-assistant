@@ -75,7 +75,11 @@ export function acpRouteDefinitions(): RouteDefinition[] {
           return httpError("BAD_REQUEST", "instruction is required", 400);
         }
         const manager = getAcpSessionManager();
-        await manager.steer(params.id, body.instruction);
+        try {
+          await manager.steer(params.id, body.instruction);
+        } catch {
+          return httpError("NOT_FOUND", "ACP session not found", 404);
+        }
         return Response.json({ acpSessionId: params.id, steered: true });
       },
     },
@@ -87,7 +91,11 @@ export function acpRouteDefinitions(): RouteDefinition[] {
       policyKey: "acp/cancel",
       handler: async ({ params }) => {
         const manager = getAcpSessionManager();
-        await manager.cancel(params.id);
+        try {
+          await manager.cancel(params.id);
+        } catch {
+          return httpError("NOT_FOUND", "ACP session not found", 404);
+        }
         return Response.json({ acpSessionId: params.id, cancelled: true });
       },
     },
@@ -99,7 +107,11 @@ export function acpRouteDefinitions(): RouteDefinition[] {
       policyKey: "acp/close",
       handler: async ({ params }) => {
         const manager = getAcpSessionManager();
-        manager.close(params.id);
+        try {
+          manager.close(params.id);
+        } catch {
+          return httpError("NOT_FOUND", "ACP session not found", 404);
+        }
         return Response.json({ acpSessionId: params.id, closed: true });
       },
     },
