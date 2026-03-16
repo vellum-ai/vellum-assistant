@@ -14,17 +14,17 @@ private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.
 
 extension ChatViewModel {
 
-    /// Returns true if the given session ID belongs to this chat conversation.
+    /// Returns true if the given conversation ID belongs to this chat conversation.
     /// Messages with a nil conversationId are always accepted; messages whose
     /// conversationId doesn't match the current session are silently ignored
     /// to prevent cross-conversation contamination (e.g. from a popover text_qa flow).
-    func belongsToConversation(_ messageSessionId: String?) -> Bool {
-        guard let messageSessionId else { return true }
+    func belongsToConversation(_ messageConversationId: String?) -> Bool {
+        guard let messageConversationId else { return true }
         guard let conversationId else {
             // No conversation established yet — accept all messages
             return true
         }
-        return messageSessionId == conversationId
+        return messageConversationId == conversationId
     }
 
     /// Map daemon confirmation state string to ToolConfirmationState.
@@ -1175,8 +1175,8 @@ extension ChatViewModel {
             // Route using conversationId when available (daemon >= v1.x includes
             // the conversationId). Fall back to the timestamp-based heuristic
             // via shouldAcceptConfirmation for older daemons that omit conversationId.
-            if let msgSessionId = msg.conversationId {
-                guard conversationId != nil, belongsToConversation(msgSessionId) else { return }
+            if let msgConversationId = msg.conversationId {
+                guard conversationId != nil, belongsToConversation(msgConversationId) else { return }
             } else {
                 guard conversationId != nil,
                       lastToolUseReceivedAt != nil,

@@ -214,16 +214,19 @@ export function handleChannelDecision(
     // still proceeds as a one-time approval (falls through to session call).
   }
 
-  // Resolve the interaction to get the session and remove from tracker
+  // Resolve the interaction to get the conversation and remove from tracker
   const resolved = pendingInteractions.resolve(info.requestId);
   if (!resolved) return { applied: false };
 
   // Map channel-level action to the permission system's UserDecision type.
   const userDecision = mapApprovalActionToUserDecision(decision.action);
   if (decisionContext === undefined) {
-    resolved.session.handleConfirmationResponse(info.requestId, userDecision);
+    resolved.conversation.handleConfirmationResponse(
+      info.requestId,
+      userDecision,
+    );
   } else {
-    resolved.session.handleConfirmationResponse(
+    resolved.conversation.handleConfirmationResponse(
       info.requestId,
       userDecision,
       undefined,

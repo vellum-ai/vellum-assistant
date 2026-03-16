@@ -57,7 +57,7 @@ export async function handleHostBashResult(
   // Validation passed — consume the pending interaction.
   const interaction = pendingInteractions.resolve(requestId)!;
 
-  interaction.session.resolveHostBash(requestId, {
+  interaction.conversation.resolveHostBash(requestId, {
     stdout: stdout ?? "",
     stderr: stderr ?? "",
     exitCode: exitCode ?? null,

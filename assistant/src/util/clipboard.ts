@@ -11,7 +11,7 @@ export function copyToClipboard(text: string): void {
   execSync(cmd, { input: text, stdio: ["pipe", "ignore", "ignore"] });
 }
 
-export function formatSessionForExport(
+export function formatConversationForExport(
   messages: Array<{ role: string; text: string }>,
 ): string {
   return messages
