@@ -4,7 +4,8 @@
 #
 # Runs `./build.sh release` with BUNDLE_DISPLAY_NAME="Vellum (Staging)" so
 # that "(Staging)" appears in the About Vellum modal, then packages the
-# resulting .app into a DMG and SCPs it to a Mac mini.
+# resulting .app into a DMG, SCPs it to a Mac mini, and installs the app
+# into /Applications.
 #
 # Configuration is read from scripts/.env (see scripts/.env.example).
 #
@@ -32,9 +33,6 @@ MAC_MINI_HOST="${MAC_MINI_HOST:?MAC_MINI_HOST is required -- set it in scripts/.
 
 # SSH user. Only needed if MAC_MINI_HOST doesn't already include a user@ prefix.
 MAC_MINI_USER="${MAC_MINI_USER:-}"
-
-# Remote directory on the Mac mini where the DMG will be placed.
-MAC_MINI_DMG_DEST="${MAC_MINI_DMG_DEST:-~/Downloads}"
 
 # ---------------------------------------------------------------------------
 # Derived values
@@ -133,10 +131,36 @@ fi
 rm -rf "$DMG_STAGING"
 
 # ---------------------------------------------------------------------------
-# 3. Upload to Mac mini
+# 3. Upload to Mac mini and install into /Applications
 # ---------------------------------------------------------------------------
 
-echo "Uploading DMG to ${SCP_HOST}:${MAC_MINI_DMG_DEST} ..."
-scp "$DMG_PATH" "${SCP_HOST}:${MAC_MINI_DMG_DEST}/"
+REMOTE_DMG="/tmp/vellum-assistant-staging.dmg"
 
-echo "Done! Staging DMG uploaded to ${SCP_HOST}:${MAC_MINI_DMG_DEST}/vellum-assistant-staging.dmg"
+echo "Uploading DMG to ${SCP_HOST}..."
+scp "$DMG_PATH" "${SCP_HOST}:${REMOTE_DMG}"
+
+echo "Installing into /Applications on ${SCP_HOST}..."
+ssh "${SCP_HOST}" bash -s <<'REMOTE_SCRIPT'
+set -euo pipefail
+DMG="/tmp/vellum-assistant-staging.dmg"
+
+# Kill running staging instance if any
+pkill -x "Vellum (Staging)" 2>/dev/null || true
+sleep 1
+
+# Mount, copy to /Applications, unmount
+MOUNT_POINT=$(hdiutil attach "$DMG" -nobrowse -noverify | tail -1 | awk '{print $NF}')
+if [ -z "$MOUNT_POINT" ]; then
+  echo "ERROR: Failed to mount DMG"
+  exit 1
+fi
+
+rm -rf "/Applications/Vellum (Staging).app"
+cp -R "$MOUNT_POINT/Vellum (Staging).app" "/Applications/Vellum (Staging).app"
+hdiutil detach "$MOUNT_POINT" -quiet 2>/dev/null || true
+rm -f "$DMG"
+
+echo "Installed: /Applications/Vellum (Staging).app"
+REMOTE_SCRIPT
+
+echo "Done! Staging app installed to /Applications on ${SCP_HOST}"
