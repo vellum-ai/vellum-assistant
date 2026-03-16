@@ -20,7 +20,7 @@ export async function executeSubagentRead(
     };
   }
 
-  // Ownership check: only the parent session can read a subagent's output.
+  // Ownership check: only the parent conversation can read a subagent's output.
   if (state.config.parentConversationId !== context.conversationId) {
     return {
       content: `No subagent found with ID "${subagentId}".`,

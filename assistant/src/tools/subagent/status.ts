@@ -34,10 +34,13 @@ export async function executeSubagentStatus(
     };
   }
 
-  // List all subagents for this parent session.
+  // List all subagents for this parent conversation.
   const children = manager.getChildrenOf(context.conversationId);
   if (children.length === 0) {
-    return { content: "No subagents found for this session.", isError: false };
+    return {
+      content: "No subagents found for this conversation.",
+      isError: false,
+    };
   }
 
   const summary = children.map((s) => ({

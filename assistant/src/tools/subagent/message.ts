@@ -17,7 +17,7 @@ export async function executeSubagentMessage(
 
   const manager = getSubagentManager();
 
-  // Ownership check: only the parent session can message a subagent.
+  // Ownership check: only the parent conversation can message a subagent.
   const state = manager.getState(subagentId);
   if (!state || state.config.parentConversationId !== context.conversationId) {
     return {

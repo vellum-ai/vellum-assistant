@@ -1,10 +1,10 @@
 /**
- * SubagentManager — owns the lifecycle of all subagent sessions.
+ * SubagentManager — owns the lifecycle of all subagent conversations.
  *
  * Responsibilities:
- *   - spawn / abort / dispose subagent sessions
+ *   - spawn / abort / dispose subagent conversations
  *   - enforce concurrency and depth limits
- *   - route events from child sessions through parent's socket
+ *   - route events from child conversations through parent's socket
  *   - inject completion summaries back into parent context
  */
 
@@ -79,7 +79,7 @@ export class SubagentManager {
 
   /**
    * Optional callback to inject a completion/failure message into the parent
-   * session's conversation so the LLM can automatically inform the user.
+   * conversation so the LLM can automatically inform the user.
    * Wired by DaemonServer at startup.
    */
   onSubagentFinished?: ParentNotifyCallback;
@@ -92,7 +92,7 @@ export class SubagentManager {
 
   /**
    * Broadcast callback from the daemon server.
-   * Set by DaemonServer at startup so subagent sessions can broadcast
+   * Set by DaemonServer at startup so subagent conversations can broadcast
    * to all connected clients (e.g. app_files_changed side-effects).
    */
   broadcastToAllClients?: (msg: ServerMessage) => void;
@@ -263,7 +263,7 @@ export class SubagentManager {
       await managed.conversation.runAgentLoop(objective, messageId, onEvent);
 
       // Agent loop completed successfully.
-      // Copy usage stats from the session before sending status (which includes usage).
+      // Copy usage stats from the conversation before sending status (which includes usage).
       managed.state.usage = { ...managed.conversation.usageStats };
       // Only update state + notify if still non-terminal (guards against abort race).
       if (!TERMINAL_STATUSES.has(managed.state.status)) {
@@ -272,7 +272,7 @@ export class SubagentManager {
 
         log.info({ subagentId }, "Subagent completed");
 
-        // Notify the parent session so the LLM can call subagent_read.
+        // Notify the parent conversation so the LLM can call subagent_read.
         this.notifyParent(managed, "completed", getSender());
       }
     } catch (err) {
@@ -322,7 +322,7 @@ export class SubagentManager {
     managed.state.completedAt = Date.now();
     if (parentSendToClient) {
       // Route the status update through the stored parent sender so the
-      // owning session's UI chip updates, even when the abort comes from a
+      // owning conversation's UI chip updates, even when the abort comes from a
       // different socket (e.g. after conversation switching). Fall back to the
       // caller-provided sender if no stored sender exists.
       const statusSender = managed.parentSendToClient ?? parentSendToClient;
@@ -336,7 +336,7 @@ export class SubagentManager {
           `This subagent was cancelled on purpose. Do NOT re-spawn or retry it.`;
         try {
           // Use the managed subagent's stored parentSendToClient so the
-          // notification routes to the parent session's socket, not the
+          // notification routes to the parent conversation's socket, not the
           // aborting socket (which may be a different conversation after switching).
           this.onSubagentFinished(
             managed.state.config.parentConversationId,
@@ -362,8 +362,8 @@ export class SubagentManager {
   }
 
   /**
-   * Abort all subagents belonging to a parent session.
-   * Called when the parent session is aborted or evicted.
+   * Abort all subagents belonging to a parent conversation.
+   * Called when the parent conversation is aborted or evicted.
    */
   abortAllForParent(
     parentConversationId: string,
@@ -379,7 +379,7 @@ export class SubagentManager {
       }
     }
 
-    // Dispose all children — the parent session is going away so nobody
+    // Dispose all children — the parent conversation is going away so nobody
     // will call subagent_read.  Use snapshot since dispose mutates the set.
     for (const childId of [...children]) {
       this.dispose(childId);
@@ -404,7 +404,7 @@ export class SubagentManager {
     const onEvent = managed.conversation.sendToClient;
     const requestId = uuid();
 
-    // If the session is busy, queue the message; otherwise process immediately.
+    // If the conversation is busy, queue the message; otherwise process immediately.
     const result = managed.conversation.enqueueMessage(
       trimmed,
       [],
@@ -451,7 +451,7 @@ export class SubagentManager {
   }
 
   /**
-   * Update the parent sender for all active children of a session.
+   * Update the parent sender for all active children of a conversation.
    * Called when the parent client reconnects to a new socket.
    */
   updateParentSender(
@@ -536,7 +536,7 @@ export class SubagentManager {
   }
 
   /**
-   * Inject a completion/failure notification into the parent session
+   * Inject a completion/failure notification into the parent conversation
    * so the LLM automatically informs the user.
    */
   private notifyParent(
@@ -585,7 +585,7 @@ export class SubagentManager {
     } catch (err) {
       log.error(
         { subagentId: config.id, err },
-        "Failed to notify parent session",
+        "Failed to notify parent conversation",
       );
     }
   }
