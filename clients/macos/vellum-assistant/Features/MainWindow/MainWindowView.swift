@@ -29,6 +29,10 @@ struct MainWindowView: View {
     @State private var preTemporaryChatConversationId: UUID?
 
     @AppStorage("sidebarExpanded") var sidebarExpanded: Bool = true
+    /// True when the sidebar was auto-collapsed by entering an app panel.
+    /// Used to distinguish automatic collapse from manual user collapse so
+    /// we only re-expand the sidebar on app exit when it was our doing.
+    @State private var sidebarAutoCollapsedForApp = false
     @AppStorage("themePreference") private var themePreference: String = "system"
     @State private var systemIsDark: Bool = NSApp.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
     let sidebarExpandedWidth: CGFloat = 240
@@ -326,10 +330,12 @@ struct MainWindowView: View {
                 if sidebarExpanded && isApp {
                     withAnimation(VAnimation.panel) {
                         sidebarExpanded = false
+                        sidebarAutoCollapsedForApp = true
                     }
-                } else if !sidebarExpanded && wasApp && !isApp {
+                } else if sidebarAutoCollapsedForApp && wasApp && !isApp {
                     withAnimation(VAnimation.panel) {
                         sidebarExpanded = true
+                        sidebarAutoCollapsedForApp = false
                     }
                 }
             }
