@@ -193,9 +193,10 @@ import os
     /// so no queued events are dropped between close and restart.
     private nonisolated static func restartSentryInline() {
         guard !SentrySDK.isEnabled else { return }
-        let collectUsageData = UserDefaults.standard.object(forKey: "collectUsageDataEnabled") as? Bool ?? true
-        guard collectUsageData else { return }
-        let perfOptIn = UserDefaults.standard.bool(forKey: "sendPerformanceReports")
+        let sendDiagnostics = UserDefaults.standard.object(forKey: "sendDiagnostics") as? Bool
+            ?? UserDefaults.standard.object(forKey: "sendPerformanceReports") as? Bool
+            ?? true
+        guard sendDiagnostics else { return }
         let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "unknown"
         let build = Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "0"
         SentrySDK.start { options in
@@ -206,7 +207,7 @@ import os
             options.debug = false
             options.tracesSampleRate = 0.1
             options.configureProfiling = { profilingOptions in
-                profilingOptions.sessionSampleRate = perfOptIn ? 1.0 : 0
+                profilingOptions.sessionSampleRate = 1.0
             }
             options.sendDefaultPii = false
             options.maxAttachmentSize = sentryMaxAttachmentSize
@@ -226,13 +227,11 @@ extension MetricKitManager: MXMetricManagerSubscriber {
                 self.logger.error("MetricKit hang diagnostic: \(hangs.count, privacy: .public) hang(s) reported")
             }
 
-            // Only send to Sentry if both opt-in flags are set.
-            // collectUsageDataEnabled defaults to true when unset (matches the
-            // daemon flag's defaultEnabled: true) so events are sent until the
-            // user explicitly opts out, closing the startup-window gap.
-            let collectUsageData = UserDefaults.standard.object(forKey: "collectUsageDataEnabled") as? Bool ?? true
-            guard collectUsageData,
-                  UserDefaults.standard.bool(forKey: "sendPerformanceReports") else { continue }
+            // Only send to Sentry if sendDiagnostics is enabled.
+            let sendDiagnostics = UserDefaults.standard.object(forKey: "sendDiagnostics") as? Bool
+                ?? UserDefaults.standard.object(forKey: "sendPerformanceReports") as? Bool
+                ?? true
+            guard sendDiagnostics else { continue }
 
             let event = Event(level: .warning)
             event.message = SentryMessage(formatted: "MetricKit hang diagnostic: \(hangs.count) hang(s)")

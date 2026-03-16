@@ -145,7 +145,9 @@ struct SettingsDeveloperTab: View {
             Task { await loadAssistantFlags() }
 
             // Sentry setup
-            isSentryEnabled = UserDefaults.standard.object(forKey: "collectUsageDataEnabled") as? Bool ?? true
+            isSentryEnabled = UserDefaults.standard.object(forKey: "sendDiagnostics") as? Bool
+                ?? UserDefaults.standard.object(forKey: "sendPerformanceReports") as? Bool
+                ?? true
         }
         .alert("Retire Assistant", isPresented: $showingRetireConfirmation) {
             Button("Cancel", role: .cancel) {}
@@ -953,7 +955,7 @@ struct SettingsDeveloperTab: View {
                 HStack(spacing: VSpacing.xs) {
                     VIconView(.triangleAlert, size: 12)
                         .foregroundColor(VColor.systemNegativeHover)
-                    Text("Usage data collection is disabled. Non-fatal events will be silently dropped unless you enable \"Collect usage data\" in the Privacy tab.")
+                    Text("Send diagnostics is disabled. Non-fatal events will be silently dropped unless you enable \"Send diagnostics\" in the Privacy tab.")
                         .font(VFont.caption)
                         .foregroundColor(VColor.systemNegativeHover)
                 }

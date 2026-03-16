@@ -419,31 +419,43 @@ extension AppDelegate {
                 setupAmbientAgent()
                 refreshAppsCache()
                 refreshSkillsCache()
-                // Apply the privacy flag now that the gateway is reachable:
-                // close Sentry if the user has opted out of usage data collection.
-                checkAndApplyPrivacyFlag()
+                // Sync privacy config now that the gateway is reachable:
+                // close Sentry if diagnostics are disabled, and sync both
+                // keys to the daemon.
+                syncPrivacyConfig()
             }
         }
     }
 
     // MARK: - Privacy
 
-    /// Applies the user's privacy preference from UserDefaults (source of truth)
-    /// and syncs it to the daemon config for the next restart.
-    func checkAndApplyPrivacyFlag() {
+    /// Reads both privacy keys from UserDefaults (with legacy fallbacks),
+    /// applies Sentry state based on sendDiagnostics, syncs both keys to
+    /// the daemon, and cleans up legacy UserDefaults keys.
+    func syncPrivacyConfig() {
         Task {
-            let collectUsageData = UserDefaults.standard.object(forKey: "collectUsageDataEnabled") as? Bool ?? true
+            // Read with legacy fallbacks for first launch after upgrade
+            let collectUsageData = UserDefaults.standard.object(forKey: "collectUsageData") as? Bool
+                ?? UserDefaults.standard.object(forKey: "collectUsageDataEnabled") as? Bool
+                ?? true
+            let sendDiagnostics = UserDefaults.standard.object(forKey: "sendDiagnostics") as? Bool
+                ?? UserDefaults.standard.object(forKey: "sendPerformanceReports") as? Bool
+                ?? true
 
-            // Apply Sentry state based on UserDefaults
-            if !collectUsageData {
+            // Apply Sentry state based on sendDiagnostics
+            if !sendDiagnostics {
                 MetricKitManager.closeSentry()
             }
 
-            // Clear legacy onboarding sync flag
-            UserDefaults.standard.removeObject(forKey: "collectUsageDataExplicitlySet")
+            // Best-effort sync both keys to daemon config
+            try? await daemonClient.setPrivacyConfig(collectUsageData: collectUsageData, sendDiagnostics: sendDiagnostics)
 
-            // Best-effort sync to daemon config
-            try? await daemonClient.setPrivacyConfig(collectUsageData: collectUsageData)
+            // Clean up legacy keys and write canonical ones
+            UserDefaults.standard.removeObject(forKey: "collectUsageDataEnabled")
+            UserDefaults.standard.removeObject(forKey: "sendPerformanceReports")
+            UserDefaults.standard.removeObject(forKey: "collectUsageDataExplicitlySet")
+            UserDefaults.standard.set(collectUsageData, forKey: "collectUsageData")
+            UserDefaults.standard.set(sendDiagnostics, forKey: "sendDiagnostics")
         }
     }
 
