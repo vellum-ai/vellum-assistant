@@ -181,7 +181,14 @@ export async function handleAddSecret(
         } else if (field === "platform_user_id") {
           setPlatformUserId(undefined);
         }
-        await deleteSecureKeyAsync(key);
+        const deleteResult = await deleteSecureKeyAsync(key);
+        if (deleteResult === "error") {
+          return httpError(
+            "INTERNAL_ERROR",
+            `Failed to delete stale credential from secure storage: ${service}:${field}`,
+            500,
+          );
+        }
         deleteCredentialMetadata(service, field);
       } else {
         const stored = await setSecureKeyAsync(key, effectiveValue);
