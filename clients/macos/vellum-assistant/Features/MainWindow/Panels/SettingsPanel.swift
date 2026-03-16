@@ -305,6 +305,14 @@ struct SettingsPanel: View {
         switch selectedTab {
         case .general:
             SettingsGeneralTab(store: store, daemonClient: daemonClient, authManager: authManager, onClose: onClose, onSignIn: {
+                // Re-bootstrap actor credentials first so the actor token is
+                // available when ensureLocalAssistantApiKey() waits for it.
+                // This mirrors the pattern in proceedToApp() and
+                // performSwitchAssistant(). Managed assistants derive identity
+                // from the platform session, so skip for them.
+                if !(AppDelegate.shared?.isCurrentAssistantManaged ?? false) {
+                    AppDelegate.shared?.ensureActorCredentials()
+                }
                 AppDelegate.shared?.ensureLocalAssistantApiKey()
             })
         case .modelsAndServices:
