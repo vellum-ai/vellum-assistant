@@ -142,9 +142,11 @@ declare -a SAFE_LINE_PATTERNS=(
     "[a-z_]*secret[a-z_]*[[:space:]]*=[[:space:]]*'[^']*'[[:space:]]*\|\|"
     # Swift CodingKeys enum case declarations mapping a property name to a
     # snake_case JSON key (e.g. `case assistantApiKey = "assistant_api_key"`).
-    # Only allows lowercase letters and underscores in the value — real secrets
-    # contain uppercase, digits, or special characters.
-    "case[[:space:]]+[a-zA-Z][a-zA-Z0-9]*[[:space:]]*=[[:space:]]*['\"][a-z][a-z_]*['\"][[:space:]]*$"
+    # Only allows lowercase letters and underscores in the value, and requires
+    # at least one underscore (genuine snake_case keys always have one).
+    # This prevents single-word lowercase values (potential secrets) from
+    # being whitelisted.
+    "case[[:space:]]+[a-zA-Z][a-zA-Z0-9]*[[:space:]]*=[[:space:]]*['\"][a-z][a-z_]*_[a-z_]*['\"][[:space:]]*$"
     # AWS well-known example key used in documentation
     "AKIAIOSFODNN7EXAMPLE"
     # Swift let/var constants used as UserDefaults key names (not secrets).
@@ -172,6 +174,17 @@ matches_safe_line_pattern() {
                     if printf '%s\n' "$text" | grep -iE "(let|var|val)[[:space:]]+[a-zA-Z0-9_]*(api|access|private|secret|client|encryption|encrypt|jwt|signing|sign|auth|hmac|master|symmetric|asymmetric|shared|session|verification|verify|decryption|decrypt|service|deploy|registry|webhook|database|db)[a-zA-Z0-9_]*[Kk]ey" >/dev/null 2>&1; then
                         continue
                     fi
+                fi
+            fi
+            # Guard: if this looks like a CodingKeys enum case (case <name> = "..."),
+            # check that the string value doesn't contain a sensitive word.
+            # CodingKeys values are JSON key names (e.g. "assistant_api_key"),
+            # but a value like "default_password" could be a real credential.
+            # We check the value (not the case name) because CodingKeys case
+            # names naturally mirror property names like `assistantApiKey`.
+            if printf '%s\n' "$text" | grep -iE "case[[:space:]]+[a-zA-Z0-9_]+[[:space:]]*=[[:space:]]*['\"]" >/dev/null 2>&1; then
+                if printf '%s\n' "$text" | grep -iE "case[[:space:]]+[a-zA-Z0-9_]+[[:space:]]*=[[:space:]]*['\"][a-z_]*(password|passwd|secret|token|credential|bearer)[a-z_]*['\"]" >/dev/null 2>&1; then
+                    continue
                 fi
             fi
             return 0
@@ -317,6 +330,13 @@ if [ "${1:-}" = "--self-test" ]; then
     SAFE_SWIFT_CODING_KEY='        case assistantApiKey = "assistant_api_key"'
     # Swift CodingKeys with a real secret value (dangerous — must NOT be whitelisted)
     UNSAFE_SWIFT_CODING_KEY='        case apiKey = "sk_live_1234567890abcdef"'
+    # Swift CodingKeys enum case with sensitive name and all-lowercase value (dangerous — must NOT be whitelisted)
+    # Single-word value without underscore — rejected by the regex itself (requires underscore)
+    UNSAFE_SWIFT_CODING_KEY_SENSITIVE_NAME='        case apiKey = "supersecretvalue"'
+    # Sensitive case names with snake_case values — rejected by the sensitive-name guard
+    UNSAFE_SWIFT_CODING_KEY_PASSWORD='        case password = "default_password"'
+    UNSAFE_SWIFT_CODING_KEY_TOKEN='        case authToken = "my_auth_token"'
+    UNSAFE_SWIFT_CODING_KEY_CREDENTIAL='        case credential = "user_credential"'
 
     if matches_secret_pattern "$SAFE_ARCHITECTURE_LINE"; then
         echo -e "${RED}Self-test failed:${NC} ARCHITECTURE allowlist case still matches"
@@ -628,6 +648,22 @@ if [ "${1:-}" = "--self-test" ]; then
     fi
     if matches_safe_line_pattern "$UNSAFE_SWIFT_CODING_KEY"; then
         echo -e "${RED}Self-test failed:${NC} Swift CodingKeys enum case with real secret was incorrectly whitelisted"
+        exit 1
+    fi
+    if matches_safe_line_pattern "$UNSAFE_SWIFT_CODING_KEY_SENSITIVE_NAME"; then
+        echo -e "${RED}Self-test failed:${NC} Swift CodingKeys enum case with sensitive name (apiKey) was incorrectly whitelisted"
+        exit 1
+    fi
+    if matches_safe_line_pattern "$UNSAFE_SWIFT_CODING_KEY_PASSWORD"; then
+        echo -e "${RED}Self-test failed:${NC} Swift CodingKeys enum case with sensitive name (password) was incorrectly whitelisted"
+        exit 1
+    fi
+    if matches_safe_line_pattern "$UNSAFE_SWIFT_CODING_KEY_TOKEN"; then
+        echo -e "${RED}Self-test failed:${NC} Swift CodingKeys enum case with sensitive name (authToken) was incorrectly whitelisted"
+        exit 1
+    fi
+    if matches_safe_line_pattern "$UNSAFE_SWIFT_CODING_KEY_CREDENTIAL"; then
+        echo -e "${RED}Self-test failed:${NC} Swift CodingKeys enum case with sensitive name (credential) was incorrectly whitelisted"
         exit 1
     fi
 
