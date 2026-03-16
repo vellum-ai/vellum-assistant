@@ -120,7 +120,7 @@ struct JSONTreeView: View {
     @State private var expandedPaths: Set<String> = []
 
     var body: some View {
-        Group {
+        VStack(alignment: .leading, spacing: 0) {
             if let root = root {
                 switch root {
                 case .failure(let error):
@@ -133,6 +133,7 @@ struct JSONTreeView: View {
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .task(id: content) {
             let result = parseJSON(content)
             root = result
