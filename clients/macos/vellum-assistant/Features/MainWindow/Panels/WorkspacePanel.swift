@@ -712,15 +712,20 @@ private struct WorkspaceFileViewer: View {
                         .font(VFont.caption)
                         .foregroundColor(VColor.contentTertiary)
                 } else if isText && state.isDirty {
-                    VButton(
-                        label: "Save",
-                        style: .primary,
-                        size: .compact,
-                        isDisabled: state.isSaving
-                    ) {
-                        Task { await saveFile(path: detail.path) }
+                    HStack(spacing: VSpacing.xs) {
+                        if state.isSaving {
+                            VBusyIndicator(size: 8)
+                        }
+                        VButton(
+                            label: "Save",
+                            style: .primary,
+                            size: .compact,
+                            isDisabled: state.isSaving
+                        ) {
+                            Task { await saveFile(path: detail.path) }
+                        }
+                        .keyboardShortcut("s", modifiers: .command)
                     }
-                    .keyboardShortcut("s", modifiers: .command)
                 }
             }
             Divider().background(VColor.borderBase)
