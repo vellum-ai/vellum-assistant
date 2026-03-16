@@ -58,7 +58,6 @@ export class ToolExecutor {
       executionTarget,
       input,
       workingDir: context.workingDir,
-      sessionId: context.sessionId,
       conversationId: context.conversationId,
       requestId: context.requestId,
       startedAtMs: startTime,
@@ -141,7 +140,7 @@ export class ToolExecutor {
         riskLevel,
         decision,
         workingDir: context.workingDir,
-        sessionId: context.sessionId,
+        conversationId: context.conversationId,
       });
 
       if (hookResult.blocked) {
@@ -153,7 +152,6 @@ export class ToolExecutor {
           executionTarget,
           input,
           workingDir: context.workingDir,
-          sessionId: context.sessionId,
           conversationId: context.conversationId,
           requestId: context.requestId,
           riskLevel,
@@ -206,7 +204,6 @@ export class ToolExecutor {
             executionTarget,
             input,
             workingDir: context.workingDir,
-            sessionId: context.sessionId,
             conversationId: context.conversationId,
             requestId: context.requestId,
             riskLevel,
@@ -244,7 +241,6 @@ export class ToolExecutor {
           executionTarget,
           input,
           workingDir: context.workingDir,
-          sessionId: context.sessionId,
           conversationId: context.conversationId,
           requestId: context.requestId,
           riskLevel,
@@ -263,7 +259,7 @@ export class ToolExecutor {
           context.cesClient,
           {
             isInteractive: context.isInteractive,
-            sessionId: context.sessionId,
+            sessionId: context.conversationId,
             signal: context.signal,
           },
         );
@@ -278,7 +274,7 @@ export class ToolExecutor {
             {
               toolName: name,
               grantId: bridgeResult.grantId,
-              sessionId: context.sessionId,
+              conversationId: context.conversationId,
             },
             "CES approval granted — retrying tool invocation with grantId",
           );
@@ -311,7 +307,6 @@ export class ToolExecutor {
             executionTarget,
             input,
             workingDir: context.workingDir,
-            sessionId: context.sessionId,
             conversationId: context.conversationId,
             requestId: context.requestId,
             riskLevel,
@@ -330,7 +325,6 @@ export class ToolExecutor {
             executionTarget,
             input,
             workingDir: context.workingDir,
-            sessionId: context.sessionId,
             conversationId: context.conversationId,
             requestId: context.requestId,
             riskLevel,
@@ -386,7 +380,6 @@ export class ToolExecutor {
         executionTarget,
         input,
         workingDir: context.workingDir,
-        sessionId: context.sessionId,
         conversationId: context.conversationId,
         requestId: context.requestId,
         riskLevel,
@@ -401,7 +394,7 @@ export class ToolExecutor {
         riskLevel,
         isError: execResult.isError,
         durationMs,
-        sessionId: context.sessionId,
+        conversationId: context.conversationId,
       });
 
       return execResult;
@@ -441,7 +434,6 @@ export class ToolExecutor {
         executionTarget,
         input,
         workingDir: context.workingDir,
-        sessionId: context.sessionId,
         conversationId: context.conversationId,
         requestId: context.requestId,
         riskLevel,
@@ -460,7 +452,7 @@ export class ToolExecutor {
         riskLevel,
         isError: true,
         durationMs,
-        sessionId: context.sessionId,
+        conversationId: context.conversationId,
       });
 
       if (isExpected) {

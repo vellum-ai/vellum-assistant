@@ -9,20 +9,20 @@ struct DebugPanel: View {
 
     var body: some View {
         VSidePanel(title: "Debug", onClose: onClose, pinnedContent: {
-            if let sessionId = activeSessionId {
-                metricsStrip(sessionId: sessionId)
+            if let conversationId = activeSessionId {
+                metricsStrip(conversationId: conversationId)
                 Divider().background(VColor.borderBase)
 
                 // Render timeline in pinned area so it owns its own ScrollView
                 // without nesting inside VSidePanel's scrollable content slot.
-                let events = traceStore.eventsBySession[sessionId] ?? []
+                let events = traceStore.eventsByConversation[conversationId] ?? []
                 if !events.isEmpty {
-                    TraceTimelineView(traceStore: traceStore, sessionId: sessionId)
+                    TraceTimelineView(traceStore: traceStore, conversationId: conversationId)
                 }
             }
         }) {
-            if let sessionId = activeSessionId {
-                let events = traceStore.eventsBySession[sessionId] ?? []
+            if let conversationId = activeSessionId {
+                let events = traceStore.eventsByConversation[conversationId] ?? []
                 if events.isEmpty {
                     VEmptyState(
                         title: "No trace events yet",
@@ -45,34 +45,34 @@ struct DebugPanel: View {
     // MARK: - Metrics Strip
 
     @ViewBuilder
-    private func metricsStrip(sessionId: String) -> some View {
+    private func metricsStrip(conversationId: String) -> some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: VSpacing.lg) {
                 metric(
                     icon: "arrow.right.circle",
                     label: "Requests",
-                    value: "\(traceStore.requestCount(sessionId: sessionId))"
+                    value: "\(traceStore.requestCount(conversationId: conversationId))"
                 )
                 metric(
                     icon: VIcon.brain.rawValue,
                     label: "LLM Calls",
-                    value: "\(traceStore.llmCallCount(sessionId: sessionId))"
+                    value: "\(traceStore.llmCallCount(conversationId: conversationId))"
                 )
                 metric(
                     icon: "text.word.spacing",
                     label: "Tokens",
                     value: formatTokens(
-                        input: traceStore.totalInputTokens(sessionId: sessionId),
-                        output: traceStore.totalOutputTokens(sessionId: sessionId)
+                        input: traceStore.totalInputTokens(conversationId: conversationId),
+                        output: traceStore.totalOutputTokens(conversationId: conversationId)
                     )
                 )
                 metric(
                     icon: "clock",
                     label: "Avg Latency",
-                    value: formatLatency(traceStore.averageLlmLatencyMs(sessionId: sessionId))
+                    value: formatLatency(traceStore.averageLlmLatencyMs(conversationId: conversationId))
                 )
 
-                let failures = traceStore.toolFailureCount(sessionId: sessionId)
+                let failures = traceStore.toolFailureCount(conversationId: conversationId)
                 if failures > 0 {
                     metric(
                         icon: "exclamationmark.triangle.fill",

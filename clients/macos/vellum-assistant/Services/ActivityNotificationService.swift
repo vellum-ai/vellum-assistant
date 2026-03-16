@@ -8,11 +8,11 @@ private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.
 
 /// Protocol for sending activity completion notifications.
 public protocol ActivityNotificationServiceProtocol {
-    func notifySessionComplete(
+    func notifyConversationComplete(
         summary: String,
         steps: Int,
         toolCalls: [ToolCallData],
-        sessionId: String
+        conversationId: String
     ) async
 }
 
@@ -29,13 +29,13 @@ public final class ActivityNotificationService: ActivityNotificationServiceProto
     /// - Only sends if notifications are enabled in settings
     /// - Only sends if app is in background
     /// - Only sends if notification permissions are granted
-    public func notifySessionComplete(
+    public func notifyConversationComplete(
         summary: String,
         steps: Int,
         toolCalls: [ToolCallData],
-        sessionId: String
+        conversationId: String
     ) async {
-        log.info("notifySessionComplete called for session \(sessionId, privacy: .public)")
+        log.info("notifyConversationComplete called for session \(conversationId, privacy: .public)")
 
         // Check if notifications enabled in settings
         guard settingsStore.activityNotificationsEnabled else {
@@ -66,7 +66,7 @@ public final class ActivityNotificationService: ActivityNotificationServiceProto
         content.body = formatBody(toolCalls: toolCalls)
         content.categoryIdentifier = "ACTIVITY_COMPLETE"
         content.sound = .default
-        content.userInfo = ["sessionId": sessionId, "type": "activity_complete"]
+        content.userInfo = ["conversationId": conversationId, "type": "activity_complete"]
 
         log.info("Sending notification: \(content.title, privacy: .public)")
 

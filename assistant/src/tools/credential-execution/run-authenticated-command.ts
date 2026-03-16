@@ -170,7 +170,7 @@ class RunAuthenticatedCommandTool implements Tool {
               proposal,
               proposalHash: (details.proposalHash as string) ?? "",
               renderedProposal: renderProposal(proposal),
-              sessionId: context.sessionId,
+              sessionId: context.conversationId,
               conversationId: context.conversationId,
             };
           } else {

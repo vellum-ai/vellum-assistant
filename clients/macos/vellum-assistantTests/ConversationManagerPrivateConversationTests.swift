@@ -96,7 +96,7 @@ final class ConversationManagerPrivateThreadTests: XCTestCase {
         let info = ConversationInfoMessage(conversationId: "private-session-42", title: "Test", correlationId: correlationId)
         vm.handleServerMessage(.conversationInfo(info))
 
-        // The thread's sessionId should be backfilled via onConversationCreated
+        // The thread's conversationId should be backfilled via onConversationCreated
         let updatedThread = conversationManager.conversations.first(where: { $0.id == privateThread.id })!
         XCTAssertEqual(updatedThread.conversationId, "private-session-42", "Session ID should be backfilled into the ConversationModel")
         XCTAssertEqual(vm.conversationId, "private-session-42")

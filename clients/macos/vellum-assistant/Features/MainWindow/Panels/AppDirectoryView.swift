@@ -398,7 +398,7 @@ struct AppDirectoryView: View {
             </html>
             """
             let surfaceMsg = UiSurfaceShowMessage(
-                sessionId: "shared-app",
+                conversationId: "shared-app",
                 surfaceId: "shared-app-\(uuid)",
                 surfaceType: "dynamic_page",
                 title: item.name,

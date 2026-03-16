@@ -120,7 +120,7 @@ describe("Workspace git lifecycle (integration)", () => {
   }
 
   test("full lifecycle: init → turns → heartbeat → history", async () => {
-    const sessionId = "sess_lifecycle_test";
+    const conversationId = "sess_lifecycle_test";
 
     // ----------------------------------------------------------------
     // Step 1: Lazy initialization — workspace starts without a git repo
@@ -151,12 +151,12 @@ describe("Workspace git lifecycle (integration)", () => {
     );
     writeFileSync(join(testDir, "config.json"), '{"version": 2}');
 
-    await commitTurnChanges(testDir, sessionId, 1);
+    await commitTurnChanges(testDir, conversationId, 1);
 
     expect(commitCount(testDir)).toBe(2);
     const turn1Msg = lastCommitMessage(testDir);
     expect(turn1Msg).toContain("Turn:");
-    expect(turn1Msg).toContain("Session: sess_lifecycle_test");
+    expect(turn1Msg).toContain("Conversation: sess_lifecycle_test");
     expect(turn1Msg).toContain("Turn: 1");
     expect(turn1Msg).toContain("Files: 2 changed");
     expect(turn1Msg).toMatch(/Timestamp: \d{4}-\d{2}-\d{2}T/);
@@ -171,7 +171,7 @@ describe("Workspace git lifecycle (integration)", () => {
     mkdirSync(join(testDir, "src"), { recursive: true });
     writeFileSync(join(testDir, "src", "index.ts"), 'console.log("hello");');
 
-    await commitTurnChanges(testDir, sessionId, 2);
+    await commitTurnChanges(testDir, conversationId, 2);
 
     expect(commitCount(testDir)).toBe(3);
     const turn2Msg = lastCommitMessage(testDir);
@@ -181,7 +181,7 @@ describe("Workspace git lifecycle (integration)", () => {
     // ----------------------------------------------------------------
     // Step 4: Turn 3 — no changes (should NOT create a commit)
     // ----------------------------------------------------------------
-    await commitTurnChanges(testDir, sessionId, 3);
+    await commitTurnChanges(testDir, conversationId, 3);
     expect(commitCount(testDir)).toBe(3); // Still 3
 
     // ----------------------------------------------------------------

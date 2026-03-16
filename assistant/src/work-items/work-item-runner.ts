@@ -1,12 +1,12 @@
 /**
  * Module-level registry for running work items from tool context.
  *
- * The daemon server registers its `getOrCreateSession` and `broadcast`
+ * The daemon server registers its `getOrCreateConversation` and `broadcast`
  * callbacks at startup. Tool implementations can then trigger async
  * work item execution without needing direct access to HandlerContext.
  */
 
-import type { Session } from "../daemon/conversation.js";
+import type { Conversation } from "../daemon/conversation.js";
 import type { ServerMessage } from "../daemon/message-protocol.js";
 import { runTask } from "../tasks/task-runner.js";
 import { getTask } from "../tasks/task-store.js";
@@ -27,7 +27,7 @@ const log = getLogger("work-item-runner");
 // ── Daemon callback registry ─────────────────────────────────────────
 
 interface DaemonCallbacks {
-  getOrCreateSession: (conversationId: string) => Promise<Session>;
+  getOrCreateConversation: (conversationId: string) => Promise<Conversation>;
   broadcast: (msg: ServerMessage) => void;
 }
 
@@ -135,14 +135,15 @@ export function runWorkItemInBackground(workItemId: string): RunWorkItemResult {
   // Set status to running
   updateWorkItem(workItemId, { status: "running" });
 
-  const { getOrCreateSession, broadcast } = _callbacks;
+  const { getOrCreateConversation, broadcast } = _callbacks;
 
   // Broadcast the running state
   broadcastWorkItemStatus(broadcast, workItemId);
   broadcast({ type: "tasks_changed" } as ServerMessage);
 
   // Execute asynchronously
-  let session: Awaited<ReturnType<typeof getOrCreateSession>> | null = null;
+  let session: Awaited<ReturnType<typeof getOrCreateConversation>> | null =
+    null;
   void (async () => {
     try {
       const result = await runTask(
@@ -152,7 +153,7 @@ export function runWorkItemInBackground(workItemId: string): RunWorkItemResult {
             updateWorkItem(workItemId, {
               lastRunConversationId: conversationId,
             });
-            session = await getOrCreateSession(conversationId);
+            session = await getOrCreateConversation(conversationId);
 
             broadcast({
               type: "task_run_conversation_created",

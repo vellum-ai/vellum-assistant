@@ -88,7 +88,7 @@ describe("commitTurnChanges", () => {
     });
 
     expect(fullMessage).toContain("Turn:");
-    expect(fullMessage).toContain("Session: sess_abc123");
+    expect(fullMessage).toContain("Conversation: sess_abc123");
     expect(fullMessage).toContain("Turn: 1");
     expect(fullMessage).toContain("Timestamp:");
     expect(fullMessage).toContain("Files: 2 changed");
@@ -172,7 +172,7 @@ describe("commitTurnChanges", () => {
     });
 
     // Verify structured metadata
-    expect(fullMessage).toContain("Session: sess_meta_test");
+    expect(fullMessage).toContain("Conversation: sess_meta_test");
     expect(fullMessage).toContain("Turn: 5");
     expect(fullMessage).toContain("Files: 3 changed");
     // Timestamp should be ISO 8601 format
@@ -272,7 +272,7 @@ describe("commitTurnChanges", () => {
     const customProvider: CommitMessageProvider = {
       buildImmediateMessage(ctx: CommitContext): CommitMessageResult {
         return {
-          message: `CUSTOM-TURN: session=${ctx.sessionId} turn=${ctx.turnNumber} files=${ctx.changedFiles.length}`,
+          message: `CUSTOM-TURN: session=${ctx.conversationId} turn=${ctx.turnNumber} files=${ctx.changedFiles.length}`,
           metadata: { custom: true, provider: "test-provider" },
         };
       },

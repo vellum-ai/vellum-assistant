@@ -1,13 +1,13 @@
 import { beforeEach, describe, expect, test } from "bun:test";
 
 import {
-  type EvictableSession,
-  SessionEvictor,
+  ConversationEvictor,
+  type EvictableConversation,
 } from "../daemon/conversation-evictor.js";
 
 function createMockSession(
   processing = false,
-): EvictableSession & { disposed: boolean } {
+): EvictableConversation & { disposed: boolean } {
   return {
     disposed: false,
     isProcessing() {
@@ -19,18 +19,21 @@ function createMockSession(
   };
 }
 
-describe("SessionEvictor", () => {
-  let sessions: Map<string, EvictableSession & { disposed: boolean }>;
-  let evictor: SessionEvictor;
+describe("ConversationEvictor", () => {
+  let sessions: Map<string, EvictableConversation & { disposed: boolean }>;
+  let evictor: ConversationEvictor;
 
   beforeEach(() => {
     sessions = new Map();
-    evictor = new SessionEvictor(sessions as Map<string, EvictableSession>, {
-      ttlMs: 1000,
-      maxSessions: 3,
-      memoryThresholdBytes: Number.MAX_SAFE_INTEGER, // disable memory pressure for most tests
-      sweepIntervalMs: 60_000,
-    });
+    evictor = new ConversationEvictor(
+      sessions as Map<string, EvictableConversation>,
+      {
+        ttlMs: 1000,
+        maxSessions: 3,
+        memoryThresholdBytes: Number.MAX_SAFE_INTEGER, // disable memory pressure for most tests
+        sweepIntervalMs: 60_000,
+      },
+    );
   });
 
   describe("TTL eviction", () => {
@@ -86,7 +89,8 @@ describe("SessionEvictor", () => {
   describe("LRU eviction", () => {
     test("evicts least-recently-used sessions when over maxSessions", () => {
       // maxSessions = 3, add 5 sessions
-      const allSessions: Array<EvictableSession & { disposed: boolean }> = [];
+      const allSessions: Array<EvictableConversation & { disposed: boolean }> =
+        [];
       for (let i = 0; i < 5; i++) {
         const s = createMockSession();
         sessions.set(`s${i}`, s);

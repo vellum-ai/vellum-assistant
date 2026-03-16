@@ -105,7 +105,7 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
     private let conversationClient: ConversationClientProtocol
     private let conversationRestorer: ConversationRestorer
     private let activityNotificationService: ActivityNotificationService?
-    /// Queued renames for conversations that don't yet have a sessionId.
+    /// Queued renames for conversations that don't yet have a conversationId.
     /// Flushed in backfillConversationId when the daemon assigns a session.
     private var pendingRenames: [UUID: String] = [:]
     /// Flag to suppress lastActiveConversationIdString writes during initialization and session restoration.
@@ -1176,7 +1176,7 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
     }
 
     /// Rename a thread and send the rename to the daemon.
-    /// If the thread doesn't have a sessionId yet, the rename is queued
+    /// If the thread doesn't have a conversationId yet, the rename is queued
     /// and flushed when backfillConversationId is called.
     func renameConversation(id: UUID, title: String) {
         let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -1204,11 +1204,11 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
             // count-based for multiple tools)
             let summary = ""
             Task { @MainActor in
-                await service.notifySessionComplete(
+                await service.notifyConversationComplete(
                     summary: summary,
                     steps: toolCalls.count,
                     toolCalls: toolCalls,
-                    sessionId: conversationId
+                    conversationId: conversationId
                 )
             }
         }
@@ -1226,7 +1226,7 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
             guard let self else { return }
             let session = WatchSession(
                 watchId: msg.watchId,
-                sessionId: msg.sessionId,
+                conversationId: msg.conversationId,
                 durationSeconds: Int(msg.durationSeconds),
                 intervalSeconds: Int(msg.intervalSeconds)
             )
@@ -1241,9 +1241,9 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
             self?.ambientAgent?.activeWatchSession?.stop()
             self?.ambientAgent?.activeWatchSession = nil
         }
-        viewModel.onConversationCreated = { [weak self, weak viewModel] sessionId in
+        viewModel.onConversationCreated = { [weak self, weak viewModel] conversationId in
             guard let self, let viewModel else { return }
-            self.backfillConversationId(sessionId, for: viewModel)
+            self.backfillConversationId(conversationId, for: viewModel)
         }
         viewModel.onVoiceResponseComplete = { responseText in
             guard !NSApp.isActive else { return }
@@ -1270,9 +1270,9 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
                 self.updateLastInteracted(threadId: threadId)
             }
         }
-        viewModel.onReconnectHistoryNeeded = { [weak self] sessionId in
+        viewModel.onReconnectHistoryNeeded = { [weak self] conversationId in
             guard let self else { return }
-            self.conversationRestorer.requestReconnectHistory(conversationId: sessionId)
+            self.conversationRestorer.requestReconnectHistory(conversationId: conversationId)
         }
         return viewModel
     }
@@ -1383,7 +1383,7 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
         // mark-all invocation doesn't silently drop the first batch.
         commitPendingSeenSignals()
         var markedIds: [UUID] = []
-        var sessionIds: [String] = []
+        var conversationIds: [String] = []
         var priorStates: [UUID: MarkAllSeenPriorState] = [:]
         for idx in conversations.indices {
             guard !conversations[idx].isArchived,
@@ -1400,7 +1400,7 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
             conversations[idx].hasUnseenLatestAssistantMessage = false
             markedIds.append(threadId)
             if let conversationId {
-                sessionIds.append(conversationId)
+                conversationIds.append(conversationId)
                 pendingAttentionOverrides[conversationId] = .seen(
                     latestAssistantMessageAt: conversations[idx].latestAssistantMessageAt
                 )
@@ -1408,8 +1408,8 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
             }
         }
         markAllSeenPriorStates = priorStates
-        if !sessionIds.isEmpty {
-            pendingSeenConversationIds = sessionIds
+        if !conversationIds.isEmpty {
+            pendingSeenConversationIds = conversationIds
         }
         return markedIds
     }
@@ -1418,13 +1418,13 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
     /// `markAllConversationsSeen()`. Called when the undo window expires
     /// (toast dismissed or auto-dismiss timer fires).
     internal func commitPendingSeenSignals() {
-        let sessionIds = pendingSeenConversationIds
+        let conversationIds = pendingSeenConversationIds
         pendingSeenConversationIds = []
         markAllSeenPriorStates = [:]
         pendingSeenSignalTask?.cancel()
         pendingSeenSignalTask = nil
-        for sessionId in sessionIds {
-            emitConversationSeenSignal(conversationId: sessionId)
+        for conversationId in conversationIds {
+            emitConversationSeenSignal(conversationId: conversationId)
         }
     }
 
@@ -1601,7 +1601,7 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
         // Re-send ordering now that this thread has a session ID.
         // Any drag/pin actions performed before the daemon assigned
         // a session would have been skipped by sendReorderConversations()
-        // because it filters out conversations without a sessionId.
+        // because it filters out conversations without a conversationId.
         sendReorderConversations()
         // Flush any rename that was queued before the session ID was assigned.
         if let pendingTitle = pendingRenames.removeValue(forKey: threadId) {

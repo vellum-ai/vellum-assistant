@@ -2,9 +2,9 @@ import { renderWorkspaceTopLevelContext } from "../workspace/top-level-renderer.
 import { scanTopLevelDirectories } from "../workspace/top-level-scanner.js";
 
 /**
- * Subset of Session state that workspace context helpers need.
+ * Subset of Conversation state that workspace context helpers need.
  */
-export interface WorkspaceSessionContext {
+export interface WorkspaceConversationContext {
   workingDir: string;
   workspaceTopLevelContext: string | null;
   workspaceTopLevelDirty: boolean;
@@ -12,7 +12,7 @@ export interface WorkspaceSessionContext {
 
 /** Refresh workspace top-level directory context if needed. */
 export function refreshWorkspaceTopLevelContextIfNeeded(
-  ctx: WorkspaceSessionContext,
+  ctx: WorkspaceConversationContext,
 ): void {
   if (!ctx.workspaceTopLevelDirty && ctx.workspaceTopLevelContext != null)
     return;

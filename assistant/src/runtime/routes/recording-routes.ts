@@ -216,7 +216,7 @@ function handleGetRecordingStatus(): Response {
 /**
  * POST /v1/recordings/status — recording lifecycle callback from the client.
  *
- * Body: RecordingStatus fields (sessionId, status, filePath?, durationMs?,
+ * Body: RecordingStatus fields (conversationId, status, filePath?, durationMs?,
  *       error?, attachToConversationId?, operationToken?)
  *
  * The client sends this when a recording transitions state (started, stopped,
@@ -230,8 +230,8 @@ async function handlePostRecordingStatus(
 ): Promise<Response> {
   const body = (await req.json()) as Omit<RecordingStatus, "type">;
 
-  if (!body.sessionId || typeof body.sessionId !== "string") {
-    return httpError("BAD_REQUEST", "sessionId is required", 400);
+  if (!body.conversationId || typeof body.conversationId !== "string") {
+    return httpError("BAD_REQUEST", "conversationId is required", 400);
   }
 
   if (!body.status || typeof body.status !== "string") {
@@ -261,7 +261,7 @@ async function handlePostRecordingStatus(
     await handleRecordingStatusCore(msg, ctx);
   } catch (err) {
     log.error(
-      { err, sessionId: body.sessionId, status: body.status },
+      { err, conversationId: body.conversationId, status: body.status },
       "Recording status handler failed",
     );
     return httpError(
@@ -272,7 +272,7 @@ async function handlePostRecordingStatus(
   }
 
   log.info(
-    { sessionId: body.sessionId, status: body.status },
+    { conversationId: body.conversationId, status: body.status },
     "Recording status processed via HTTP",
   );
 

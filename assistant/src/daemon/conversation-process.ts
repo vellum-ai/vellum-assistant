@@ -1,7 +1,7 @@
 /**
- * Queue drain and message processing logic extracted from Session.
+ * Queue drain and message processing logic extracted from Conversation.
  *
- * Session delegates `drainQueue` and `processMessage` to the module-level
+ * Conversation delegates `drainQueue` and `processMessage` to the module-level
  * functions exported here, following the same context-interface pattern
  * used by session-history.ts.
  */
@@ -78,11 +78,11 @@ export function isModelSlashCommand(content: string): boolean {
 // ── Context Interface ────────────────────────────────────────────────
 
 /**
- * Subset of Session state that drainQueue / processMessage need access to.
- * The Session class implements this interface so its instances can be
+ * Subset of Conversation state that drainQueue / processMessage need access to.
+ * The Conversation class implements this interface so its instances can be
  * passed directly to the extracted functions.
  */
-export interface ProcessSessionContext {
+export interface ProcessConversationContext {
   readonly conversationId: string;
   messages: Message[];
   processing: boolean;
@@ -199,7 +199,7 @@ function resolveQueuedTurnInterfaceContext(
 }
 
 /** Build a SlashContext from the current session state and config. */
-function buildSlashContext(session: ProcessSessionContext): SlashContext {
+function buildSlashContext(session: ProcessConversationContext): SlashContext {
   const config = getConfig();
   return {
     messageCount: session.messages.length,
@@ -225,7 +225,7 @@ function buildSlashContext(session: ProcessSessionContext): SlashContext {
  * remaining queued messages would be stranded.
  */
 export async function drainQueue(
-  session: ProcessSessionContext,
+  session: ProcessConversationContext,
   reason: QueueDrainReason = "loop_complete",
 ): Promise<void> {
   const next = session.queue.shift();
@@ -255,7 +255,7 @@ export async function drainQueue(
   );
   next.onEvent({
     type: "message_dequeued",
-    sessionId: session.conversationId,
+    conversationId: session.conversationId,
     requestId: next.requestId,
   });
   session.emitActivityState(
@@ -385,7 +385,7 @@ export async function drainQueue(
       );
       next.onEvent({
         type: "message_complete",
-        sessionId: session.conversationId,
+        conversationId: session.conversationId,
       });
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
@@ -553,7 +553,7 @@ export async function drainQueue(
  * in a single call. Used by the message-handler path where blocking is expected.
  */
 export async function processMessage(
-  session: ProcessSessionContext,
+  session: ProcessConversationContext,
   content: string,
   attachments: UserMessageAttachment[],
   onEvent: (msg: ServerMessage) => void,
@@ -637,7 +637,10 @@ export async function processMessage(
       session.messages.push(assistantMsg);
 
       onEvent({ type: "assistant_text_delta", text: replyText });
-      onEvent({ type: "message_complete", sessionId: session.conversationId });
+      onEvent({
+        type: "message_complete",
+        conversationId: session.conversationId,
+      });
 
       log.info(
         {
@@ -645,7 +648,7 @@ export async function processMessage(
           routerType: routerResult.type,
           requestId: routerResult.requestId,
         },
-        "Session guardian reply routed through canonical pipeline",
+        "Conversation guardian reply routed through canonical pipeline",
       );
 
       return persisted.id;
@@ -728,7 +731,10 @@ export async function processMessage(
         status: "success",
       },
     );
-    onEvent({ type: "message_complete", sessionId: session.conversationId });
+    onEvent({
+      type: "message_complete",
+      conversationId: session.conversationId,
+    });
     return persisted.id;
   }
 

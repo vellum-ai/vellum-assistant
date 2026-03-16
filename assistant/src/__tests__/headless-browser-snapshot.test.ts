@@ -31,17 +31,19 @@ mock.module("../tools/browser/browser-manager.js", () => {
   storedMaps = new Map();
   closeSessionPageMock = mock(async () => {});
   closeAllPagesMock = mock(async () => {});
-  storeSnapshotMapMock = mock((sessionId: string, map: Map<string, string>) => {
-    storedMaps.set(sessionId, map);
-  });
+  storeSnapshotMapMock = mock(
+    (conversationId: string, map: Map<string, string>) => {
+      storedMaps.set(conversationId, map);
+    },
+  );
   return {
     browserManager: {
       getOrCreateSessionPage: async () => mockPage,
       closeSessionPage: closeSessionPageMock,
       closeAllPages: closeAllPagesMock,
       storeSnapshotMap: storeSnapshotMapMock,
-      resolveSnapshotSelector: (sessionId: string, elementId: string) => {
-        const map = storedMaps.get(sessionId);
+      resolveSnapshotSelector: (conversationId: string, elementId: string) => {
+        const map = storedMaps.get(conversationId);
         if (!map) return null;
         return map.get(elementId) ?? null;
       },
@@ -64,7 +66,6 @@ import {
 import type { ToolContext } from "../tools/types.js";
 
 const ctx: ToolContext = {
-  sessionId: "test-session",
   conversationId: "test-conversation",
   workingDir: "/tmp",
   trustClass: "guardian",

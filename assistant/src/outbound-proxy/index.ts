@@ -23,7 +23,7 @@ export type {
 } from "@vellumai/egress-proxy";
 
 // ---------------------------------------------------------------------------
-// Session core — re-exported from @vellumai/egress-proxy shared package
+// Conversation core — re-exported from @vellumai/egress-proxy shared package
 // ---------------------------------------------------------------------------
 
 export type { ManagedSession, SessionStartHooks } from "@vellumai/egress-proxy";

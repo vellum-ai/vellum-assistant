@@ -331,7 +331,7 @@ function resolveStatusCommand(context: SlashContext): SlashResolution {
   const displayName = MODEL_DISPLAY_NAMES[model] ?? model;
 
   const lines = [
-    "Session Status\n",
+    "Conversation Status\n",
     `Context:  ${bar}  ${pct}%  (${fmt(inputTokens)} / ${fmt(
       maxInputTokens,
     )} tokens)`,

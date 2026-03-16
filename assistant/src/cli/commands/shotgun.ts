@@ -21,7 +21,7 @@ interface ShotgunResult {
   ok: boolean;
   error?: string;
   watchId?: string;
-  sessionId?: string;
+  conversationId?: string;
   status?: string;
 }
 
@@ -131,7 +131,7 @@ The CLI writes the request to signals/shotgun.<requestId> and polls
 signals/shotgun.<requestId>.result for the response. The assistant must
 be running for this to work.
 
-Output (JSON): { ok, watchId, sessionId }
+Output (JSON): { ok, watchId, conversationId }
 
 Examples:
   $ assistant shotgun start
@@ -208,7 +208,7 @@ Examples:
       `
 Queries the status of an existing screen-watch session by watchId.
 
-Output (JSON): { ok, watchId, sessionId, status }
+Output (JSON): { ok, watchId, conversationId, status }
 
 The status field is one of: "active", "completing", "completed", "cancelled".
 

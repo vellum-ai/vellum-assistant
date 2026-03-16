@@ -556,7 +556,7 @@ export async function handleChannelVerificationSession(
         const result = createInboundChallenge(
           channel,
           msg.rebind,
-          msg.sessionId,
+          msg.conversationId,
         );
         ctx.send({
           type: "channel_verification_session_response",

@@ -25,7 +25,7 @@ import type { ConfirmationDetails } from "../runtime/pending-interactions.js";
 const testDir = mkdtempSync(join(tmpdir(), "approval-cascade-test-"));
 
 // ---------------------------------------------------------------------------
-// Mocks — must precede Session import
+// Mocks — must precede Conversation import
 // ---------------------------------------------------------------------------
 
 function makeLoggerStub(): Record<string, unknown> {
@@ -230,10 +230,10 @@ mock.module("../memory/canonical-guardian-store.js", () => ({
 }));
 
 // ---------------------------------------------------------------------------
-// Import Session and pendingInteractions AFTER mocks
+// Import Conversation and pendingInteractions AFTER mocks
 // ---------------------------------------------------------------------------
 
-import { Session } from "../daemon/conversation.js";
+import { Conversation } from "../daemon/conversation.js";
 import * as pendingInteractions from "../runtime/pending-interactions.js";
 
 // ---------------------------------------------------------------------------
@@ -259,8 +259,8 @@ function makeProvider() {
 function makeSession(
   sendToClient?: (msg: ServerMessage) => void,
   conversationId = CONV_ID,
-): Session {
-  return new Session(
+): Conversation {
+  return new Conversation(
     conversationId,
     makeProvider(),
     "system prompt",
@@ -273,7 +273,10 @@ function makeSession(
 /**
  * Seed a pending confirmation directly in the prompter's internal map.
  */
-function seedPendingConfirmation(session: Session, requestId: string): void {
+function seedPendingConfirmation(
+  session: Conversation,
+  requestId: string,
+): void {
   const prompter = session["prompter"] as unknown as {
     pending: Map<
       string,
@@ -296,7 +299,7 @@ function seedPendingConfirmation(session: Session, requestId: string): void {
  * confirmation details.
  */
 function registerPendingInteraction(
-  session: Session,
+  session: Conversation,
   requestId: string,
   conversationId: string,
   confirmationDetails?: ConfirmationDetails,

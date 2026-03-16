@@ -14,7 +14,7 @@ export type AssistantEventFilter = {
   /** Only deliver events for this assistant. */
   assistantId: string;
   /** When set, further restrict to this session. */
-  sessionId?: string;
+  conversationId?: string;
 };
 
 export type AssistantEventCallback = (
@@ -42,7 +42,7 @@ interface SubscriberEntry {
  * Lightweight pub/sub hub for `AssistantEvent` messages.
  *
  * Filtering is applied at subscription level — subscribers receive only
- * events that match their `assistantId` (and optionally `sessionId`).
+ * events that match their `assistantId` (and optionally `conversationId`).
  *
  * The hub is intentionally simple: synchronous fanout, no buffering, no
  * backpressure. Slow-consumer protection lives in the SSE route (PR 7).
@@ -116,7 +116,7 @@ export class AssistantEventHub {
    *
    * Matching rules:
    * - `event.assistantId` must equal `filter.assistantId`
-   * - if `filter.sessionId` is set, `event.sessionId` must equal it
+   * - if `filter.conversationId` is set, `event.conversationId` must equal it
    *
    * Fanout is isolated: a throwing or rejecting subscriber does not abort
    * delivery to remaining subscribers. All callbacks (sync and async) are
@@ -133,12 +133,12 @@ export class AssistantEventHub {
     for (const entry of snapshot) {
       if (!entry.active) continue;
       if (entry.filter.assistantId !== event.assistantId) continue;
-      // System events (no sessionId) match all subscribers; scoped events
-      // must match the subscriber's sessionId filter when present.
+      // System events (no conversationId) match all subscribers; scoped events
+      // must match the subscriber's conversationId filter when present.
       if (
-        event.sessionId != null &&
-        entry.filter.sessionId != null &&
-        entry.filter.sessionId !== event.sessionId
+        event.conversationId != null &&
+        entry.filter.conversationId != null &&
+        entry.filter.conversationId !== event.conversationId
       )
         continue;
       try {

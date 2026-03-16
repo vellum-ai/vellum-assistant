@@ -633,7 +633,7 @@ describe("projectSkillTools", () => {
     const sessionA = new Map<string, string>();
     const sessionB = new Map<string, string>();
 
-    // Session A activates deploy
+    // Conversation A activates deploy
     const historyA: Message[] = [
       ...skillLoadMessages('<loaded_skill id="deploy" />'),
     ];
@@ -642,7 +642,7 @@ describe("projectSkillTools", () => {
     });
     expect(resultA.allowedToolNames.has("deploy_run")).toBe(true);
 
-    // Session B activates oncall — should NOT unregister deploy from session A
+    // Conversation B activates oncall — should NOT unregister deploy from session A
     mockUnregisteredSkillIds = [];
     const historyB: Message[] = [
       ...skillLoadMessages('<loaded_skill id="oncall" />'),
@@ -650,7 +650,7 @@ describe("projectSkillTools", () => {
     projectSkillTools(historyB, { previouslyActiveSkillIds: sessionB });
     expect(mockUnregisteredSkillIds).not.toContain("deploy");
 
-    // Session A's state should still track deploy
+    // Conversation A's state should still track deploy
     expect(sessionA.has("deploy")).toBe(true);
     expect(sessionB.has("oncall")).toBe(true);
   });
@@ -673,14 +673,14 @@ describe("projectSkillTools", () => {
     // Ref count should be 2
     expect(mockSkillRefCount.get("deploy")).toBe(2);
 
-    // Session A tears down
+    // Conversation A tears down
     resetSkillToolProjection(sessionA);
 
     // Tools should still be registered (ref count decremented but > 0)
     expect(mockRegisteredTools.has("deploy")).toBe(true);
     expect(mockSkillRefCount.get("deploy")).toBe(1);
 
-    // Session B can still project the skill tools
+    // Conversation B can still project the skill tools
     const resultB = projectSkillTools(history, {
       previouslyActiveSkillIds: sessionB,
     });
@@ -717,7 +717,7 @@ describe("projectSkillTools", () => {
 // ---------------------------------------------------------------------------
 
 describe("resolveTools callback (session wiring)", () => {
-  // Simulates the resolveTools callback wired in the Session constructor.
+  // Simulates the resolveTools callback wired in the Conversation constructor.
   // Since skill tool definitions are no longer sent to the LLM (tools are
   // invoked via skill_execute dispatch), the definitions array only contains
   // base (core + MCP) tools. Skill tool names still appear in allowedToolNames.
@@ -1997,7 +1997,7 @@ describe("tamper detection", () => {
     // Old tools were unregistered before new ones registered
     expect(mockUnregisteredSkillIds).toContain("deploy");
 
-    // Session state now tracks the new hash
+    // Conversation state now tracks the new hash
     expect(sessionState.get("deploy")).toBe("v1:tampered-file-hash");
 
     // Refcount stays at 1 (unregister decremented, re-register incremented)
@@ -2321,7 +2321,7 @@ describe("hash change re-prompt regressions (PR 35)", () => {
     // Old version was unregistered
     expect(mockUnregisteredSkillIds).toContain("deploy");
 
-    // Session state updated to the new hash
+    // Conversation state updated to the new hash
     expect(sessionState.get("deploy")).toBe("v2:edited-hash");
 
     // Ref count balanced (unregister decremented, re-register incremented)

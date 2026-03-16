@@ -301,7 +301,7 @@ public final class MainWindow {
     func handleDocumentEditorShow(_ msg: DocumentEditorShowMessage) {
         documentManager.createDocument(
             surfaceId: msg.surfaceId,
-            sessionId: msg.sessionId,
+            conversationId: msg.conversationId,
             title: msg.title,
             initialContent: msg.initialContent
         )
@@ -327,7 +327,7 @@ public final class MainWindow {
         }
         documentManager.createDocument(
             surfaceId: msg.surfaceId,
-            sessionId: msg.conversationId,
+            conversationId: msg.conversationId,
             title: msg.title,
             initialContent: msg.content
         )

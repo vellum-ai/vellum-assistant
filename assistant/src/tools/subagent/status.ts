@@ -10,7 +10,7 @@ export async function executeSubagentStatus(
 
   if (subagentId) {
     const state = manager.getState(subagentId);
-    if (!state || state.config.parentSessionId !== context.sessionId) {
+    if (!state || state.config.parentSessionId !== context.conversationId) {
       return {
         content: `No subagent found with ID "${subagentId}".`,
         isError: true,
@@ -32,7 +32,7 @@ export async function executeSubagentStatus(
   }
 
   // List all subagents for this parent session.
-  const children = manager.getChildrenOf(context.sessionId);
+  const children = manager.getChildrenOf(context.conversationId);
   if (children.length === 0) {
     return { content: "No subagents found for this session.", isError: false };
   }

@@ -222,9 +222,9 @@ mock.module("../memory/canonical-guardian-store.js", () => ({
   generateCanonicalRequestCode: () => "MOCK-CODE",
 }));
 
-import { Session } from "../daemon/conversation.js";
+import { Conversation } from "../daemon/conversation.js";
 
-function makeSession(): Session {
+function makeSession(): Conversation {
   const provider = {
     name: "mock",
     async sendMessage(): Promise<ProviderResponse> {
@@ -236,7 +236,7 @@ function makeSession(): Session {
       };
     },
   };
-  return new Session(
+  return new Conversation(
     "conv-1",
     provider,
     "system prompt",

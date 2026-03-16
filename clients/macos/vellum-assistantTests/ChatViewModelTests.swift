@@ -77,7 +77,7 @@ final class ChatViewModelTests: XCTestCase {
         viewModel.sendMessage()
 
         viewModel.inputText = "Second"
-        viewModel.sendMessage() // Should be ignored since isSending is set by bootstrapConversation and sessionId is nil
+        viewModel.sendMessage() // Should be ignored since isSending is set by bootstrapConversation and conversationId is nil
 
         XCTAssertEqual(viewModel.messages.count, 1) // first message only
     }
@@ -442,7 +442,7 @@ final class ChatViewModelTests: XCTestCase {
 
     func testSendMessageClearsExistingErrorBeforeSend() {
         // Verify that sendMessage() clears any existing errorText at the
-        // start of its execution. We test without a sessionId so it goes
+        // start of its execution. We test without a conversationId so it goes
         // through the bootstrapConversation path (which is async), preventing
         // the synchronous sendUserMessage throw from re-setting errorText.
         viewModel.errorText = "Previous network error"
@@ -632,7 +632,7 @@ final class ChatViewModelTests: XCTestCase {
     }
 
     func testStopGeneratingDuringBootstrapCancelsLocally() {
-        // Simulate bootstrap: isSending is true but sessionId is nil
+        // Simulate bootstrap: isSending is true but conversationId is nil
         viewModel.inputText = "Hello"
         viewModel.sendMessage()
 
@@ -677,7 +677,7 @@ final class ChatViewModelTests: XCTestCase {
     func testMessageQueuedIncrementsPendingCount() {
         XCTAssertEqual(viewModel.pendingQueuedCount, 0)
 
-        let queued = MessageQueuedMessage(sessionId: "sess-1", requestId: "req-1", position: 1)
+        let queued = MessageQueuedMessage(conversationId: "sess-1", requestId: "req-1", position: 1)
         viewModel.handleServerMessage(.messageQueued(queued))
 
         XCTAssertEqual(viewModel.pendingQueuedCount, 1)
@@ -685,13 +685,13 @@ final class ChatViewModelTests: XCTestCase {
 
     func testMessageDequeuedDecrementsPendingCount() {
         // Start with some queued
-        let queued1 = MessageQueuedMessage(sessionId: "sess-1", requestId: "req-1", position: 1)
-        let queued2 = MessageQueuedMessage(sessionId: "sess-1", requestId: "req-2", position: 2)
+        let queued1 = MessageQueuedMessage(conversationId: "sess-1", requestId: "req-1", position: 1)
+        let queued2 = MessageQueuedMessage(conversationId: "sess-1", requestId: "req-2", position: 2)
         viewModel.handleServerMessage(.messageQueued(queued1))
         viewModel.handleServerMessage(.messageQueued(queued2))
         XCTAssertEqual(viewModel.pendingQueuedCount, 2)
 
-        let dequeued = MessageDequeuedMessage(sessionId: "sess-1", requestId: "req-1")
+        let dequeued = MessageDequeuedMessage(conversationId: "sess-1", requestId: "req-1")
         viewModel.handleServerMessage(.messageDequeued(dequeued))
 
         XCTAssertEqual(viewModel.pendingQueuedCount, 1)
@@ -700,7 +700,7 @@ final class ChatViewModelTests: XCTestCase {
     func testMessageDequeuedDoesNotGoBelowZero() {
         XCTAssertEqual(viewModel.pendingQueuedCount, 0)
 
-        let dequeued = MessageDequeuedMessage(sessionId: "sess-1", requestId: "req-1")
+        let dequeued = MessageDequeuedMessage(conversationId: "sess-1", requestId: "req-1")
         viewModel.handleServerMessage(.messageDequeued(dequeued))
 
         XCTAssertEqual(viewModel.pendingQueuedCount, 0)
@@ -714,7 +714,7 @@ final class ChatViewModelTests: XCTestCase {
         viewModel.sendMessage()
 
         // Daemon confirms it's queued at position 2
-        let queued = MessageQueuedMessage(sessionId: "sess-1", requestId: "req-1", position: 2)
+        let queued = MessageQueuedMessage(conversationId: "sess-1", requestId: "req-1", position: 2)
         viewModel.handleServerMessage(.messageQueued(queued))
 
         // The user message should have its position updated
@@ -733,10 +733,10 @@ final class ChatViewModelTests: XCTestCase {
         viewModel.sendMessage()
 
         // Daemon confirms queued then dequeued
-        let queued = MessageQueuedMessage(sessionId: "sess-1", requestId: "req-1", position: 1)
+        let queued = MessageQueuedMessage(conversationId: "sess-1", requestId: "req-1", position: 1)
         viewModel.handleServerMessage(.messageQueued(queued))
 
-        let dequeued = MessageDequeuedMessage(sessionId: "sess-1", requestId: "req-1")
+        let dequeued = MessageDequeuedMessage(conversationId: "sess-1", requestId: "req-1")
         viewModel.handleServerMessage(.messageDequeued(dequeued))
 
         XCTAssertEqual(viewModel.messages[0].status, .processing)
@@ -750,12 +750,12 @@ final class ChatViewModelTests: XCTestCase {
         viewModel.inputText = "Message B"
         viewModel.sendMessage()
 
-        viewModel.handleServerMessage(.messageQueued(MessageQueuedMessage(sessionId: "sess-1", requestId: "req-B", position: 1)))
+        viewModel.handleServerMessage(.messageQueued(MessageQueuedMessage(conversationId: "sess-1", requestId: "req-B", position: 1)))
         viewModel.handleServerMessage(.assistantTextDelta(AssistantTextDeltaMessage(text: "Response to A")))
-        viewModel.handleServerMessage(.generationHandoff(GenerationHandoffMessage(sessionId: "sess-1", requestId: nil, queuedCount: 1)))
+        viewModel.handleServerMessage(.generationHandoff(GenerationHandoffMessage(conversationId: "sess-1", requestId: nil, queuedCount: 1)))
 
         let indexBeforeDequeue = viewModel.messages.firstIndex(where: { $0.text == "Message B" })
-        viewModel.handleServerMessage(.messageDequeued(MessageDequeuedMessage(sessionId: "sess-1", requestId: "req-B")))
+        viewModel.handleServerMessage(.messageDequeued(MessageDequeuedMessage(conversationId: "sess-1", requestId: "req-B")))
         let indexAfterDequeue = viewModel.messages.firstIndex(where: { $0.text == "Message B" })
 
         XCTAssertEqual(indexBeforeDequeue, indexAfterDequeue, "Dequeued message should stay in place in the transcript")
@@ -778,7 +778,7 @@ final class ChatViewModelTests: XCTestCase {
         XCTAssertFalse(viewModel.isThinking)
 
         // Message B is dequeued and starts processing
-        let dequeued = MessageDequeuedMessage(sessionId: "sess-1", requestId: "req-2")
+        let dequeued = MessageDequeuedMessage(conversationId: "sess-1", requestId: "req-2")
         viewModel.handleServerMessage(.messageDequeued(dequeued))
 
         // isSending and isThinking must be restored so the UI shows
@@ -804,14 +804,14 @@ final class ChatViewModelTests: XCTestCase {
         XCTAssertEqual(viewModel.messages.count, 2)
 
         // Daemon confirms B is queued
-        viewModel.handleServerMessage(.messageQueued(MessageQueuedMessage(sessionId: "sess-1", requestId: "req-B", position: 1)))
+        viewModel.handleServerMessage(.messageQueued(MessageQueuedMessage(conversationId: "sess-1", requestId: "req-B", position: 1)))
 
         // Assistant responds to A, then handoff
         viewModel.handleServerMessage(.assistantTextDelta(AssistantTextDeltaMessage(text: "Response to A")))
-        viewModel.handleServerMessage(.generationHandoff(GenerationHandoffMessage(sessionId: "sess-1", requestId: nil, queuedCount: 1)))
+        viewModel.handleServerMessage(.generationHandoff(GenerationHandoffMessage(conversationId: "sess-1", requestId: nil, queuedCount: 1)))
 
         // Daemon dequeues B — status becomes .processing
-        viewModel.handleServerMessage(.messageDequeued(MessageDequeuedMessage(sessionId: "sess-1", requestId: "req-B")))
+        viewModel.handleServerMessage(.messageDequeued(MessageDequeuedMessage(conversationId: "sess-1", requestId: "req-B")))
         let messageBAfterDequeue = viewModel.messages.first(where: { $0.text == "Message B" })!
         XCTAssertEqual(messageBAfterDequeue.status, .processing, "Message B should be processing after dequeue")
 
@@ -833,10 +833,10 @@ final class ChatViewModelTests: XCTestCase {
         viewModel.inputText = "Message B"
         viewModel.sendMessage()
 
-        viewModel.handleServerMessage(.messageQueued(MessageQueuedMessage(sessionId: "sess-1", requestId: "req-B", position: 1)))
+        viewModel.handleServerMessage(.messageQueued(MessageQueuedMessage(conversationId: "sess-1", requestId: "req-B", position: 1)))
         viewModel.handleServerMessage(.assistantTextDelta(AssistantTextDeltaMessage(text: "Response to A")))
-        viewModel.handleServerMessage(.generationHandoff(GenerationHandoffMessage(sessionId: "sess-1", requestId: nil, queuedCount: 1)))
-        viewModel.handleServerMessage(.messageDequeued(MessageDequeuedMessage(sessionId: "sess-1", requestId: "req-B")))
+        viewModel.handleServerMessage(.generationHandoff(GenerationHandoffMessage(conversationId: "sess-1", requestId: nil, queuedCount: 1)))
+        viewModel.handleServerMessage(.messageDequeued(MessageDequeuedMessage(conversationId: "sess-1", requestId: "req-B")))
 
         let messageBAfterDequeue = viewModel.messages.first(where: { $0.text == "Message B" })!
         XCTAssertEqual(messageBAfterDequeue.status, .processing)
@@ -846,7 +846,7 @@ final class ChatViewModelTests: XCTestCase {
         viewModel.handleServerMessage(
             .messageRequestComplete(
                 MessageRequestCompleteMessage(
-                    sessionId: "sess-1",
+                    conversationId: "sess-1",
                     requestId: "req-B",
                     runStillActive: false
                 )
@@ -868,15 +868,15 @@ final class ChatViewModelTests: XCTestCase {
         viewModel.inputText = "Message B"
         viewModel.sendMessage()
 
-        viewModel.handleServerMessage(.messageQueued(MessageQueuedMessage(sessionId: "sess-1", requestId: "req-B", position: 1)))
+        viewModel.handleServerMessage(.messageQueued(MessageQueuedMessage(conversationId: "sess-1", requestId: "req-B", position: 1)))
         viewModel.handleServerMessage(.assistantTextDelta(AssistantTextDeltaMessage(text: "Response to A")))
-        viewModel.handleServerMessage(.generationHandoff(GenerationHandoffMessage(sessionId: "sess-1", requestId: nil, queuedCount: 1)))
-        viewModel.handleServerMessage(.messageDequeued(MessageDequeuedMessage(sessionId: "sess-1", requestId: "req-B")))
+        viewModel.handleServerMessage(.generationHandoff(GenerationHandoffMessage(conversationId: "sess-1", requestId: nil, queuedCount: 1)))
+        viewModel.handleServerMessage(.messageDequeued(MessageDequeuedMessage(conversationId: "sess-1", requestId: "req-B")))
 
         viewModel.handleServerMessage(
             .messageRequestComplete(
                 MessageRequestCompleteMessage(
-                    sessionId: "sess-1",
+                    conversationId: "sess-1",
                     requestId: "req-B",
                     runStillActive: true
                 )
@@ -899,10 +899,10 @@ final class ChatViewModelTests: XCTestCase {
         viewModel.sendMessage()
 
         // Daemon confirms B is queued, then dequeued
-        viewModel.handleServerMessage(.messageQueued(MessageQueuedMessage(sessionId: "sess-1", requestId: "req-B", position: 1)))
+        viewModel.handleServerMessage(.messageQueued(MessageQueuedMessage(conversationId: "sess-1", requestId: "req-B", position: 1)))
         viewModel.handleServerMessage(.assistantTextDelta(AssistantTextDeltaMessage(text: "Response to A")))
-        viewModel.handleServerMessage(.generationHandoff(GenerationHandoffMessage(sessionId: "sess-1", requestId: nil, queuedCount: 1)))
-        viewModel.handleServerMessage(.messageDequeued(MessageDequeuedMessage(sessionId: "sess-1", requestId: "req-B")))
+        viewModel.handleServerMessage(.generationHandoff(GenerationHandoffMessage(conversationId: "sess-1", requestId: nil, queuedCount: 1)))
+        viewModel.handleServerMessage(.messageDequeued(MessageDequeuedMessage(conversationId: "sess-1", requestId: "req-B")))
         let messageBAfterDequeue = viewModel.messages.first(where: { $0.text == "Message B" })!
         XCTAssertEqual(messageBAfterDequeue.status, .processing)
 
@@ -927,19 +927,19 @@ final class ChatViewModelTests: XCTestCase {
         viewModel.sendMessage()
 
         // Queue B and C
-        viewModel.handleServerMessage(.messageQueued(MessageQueuedMessage(sessionId: "sess-1", requestId: "req-B", position: 1)))
-        viewModel.handleServerMessage(.messageQueued(MessageQueuedMessage(sessionId: "sess-1", requestId: "req-C", position: 2)))
+        viewModel.handleServerMessage(.messageQueued(MessageQueuedMessage(conversationId: "sess-1", requestId: "req-B", position: 1)))
+        viewModel.handleServerMessage(.messageQueued(MessageQueuedMessage(conversationId: "sess-1", requestId: "req-C", position: 2)))
 
         // A completes via handoff, B is dequeued and becomes processing
         viewModel.handleServerMessage(.assistantTextDelta(AssistantTextDeltaMessage(text: "Response to A")))
-        viewModel.handleServerMessage(.generationHandoff(GenerationHandoffMessage(sessionId: "sess-1", requestId: nil, queuedCount: 2)))
-        viewModel.handleServerMessage(.messageDequeued(MessageDequeuedMessage(sessionId: "sess-1", requestId: "req-B")))
+        viewModel.handleServerMessage(.generationHandoff(GenerationHandoffMessage(conversationId: "sess-1", requestId: nil, queuedCount: 2)))
+        viewModel.handleServerMessage(.messageDequeued(MessageDequeuedMessage(conversationId: "sess-1", requestId: "req-B")))
         let messageBAfterDequeue = viewModel.messages.first(where: { $0.text == "Message B" })!
         XCTAssertEqual(messageBAfterDequeue.status, .processing)
 
         // B completes via handoff (C is still queued)
         viewModel.handleServerMessage(.assistantTextDelta(AssistantTextDeltaMessage(text: "Response to B")))
-        viewModel.handleServerMessage(.generationHandoff(GenerationHandoffMessage(sessionId: "sess-1", requestId: nil, queuedCount: 1)))
+        viewModel.handleServerMessage(.generationHandoff(GenerationHandoffMessage(conversationId: "sess-1", requestId: nil, queuedCount: 1)))
 
         // B should be reset to .sent after generationHandoff
         let messageBAfterHandoff = viewModel.messages.first(where: { $0.text == "Message B" })!
@@ -957,7 +957,7 @@ final class ChatViewModelTests: XCTestCase {
         viewModel.handleServerMessage(.assistantTextDelta(AssistantTextDeltaMessage(text: "Partial response")))
 
         // Handoff: generation cut short, queued messages waiting
-        viewModel.handleServerMessage(.generationHandoff(GenerationHandoffMessage(sessionId: "sess-1", requestId: nil, queuedCount: 1)))
+        viewModel.handleServerMessage(.generationHandoff(GenerationHandoffMessage(conversationId: "sess-1", requestId: nil, queuedCount: 1)))
 
         XCTAssertTrue(viewModel.isSending, "isSending must stay true during handoff")
         XCTAssertFalse(viewModel.isThinking)
@@ -969,7 +969,7 @@ final class ChatViewModelTests: XCTestCase {
         viewModel.isThinking = true
 
         // Handoff without any prior text deltas
-        viewModel.handleServerMessage(.generationHandoff(GenerationHandoffMessage(sessionId: "sess-1", requestId: nil, queuedCount: 1)))
+        viewModel.handleServerMessage(.generationHandoff(GenerationHandoffMessage(conversationId: "sess-1", requestId: nil, queuedCount: 1)))
 
         XCTAssertTrue(viewModel.isSending)
         XCTAssertFalse(viewModel.isThinking)
@@ -985,7 +985,7 @@ final class ChatViewModelTests: XCTestCase {
         XCTAssertEqual(viewModel.messages.count, 1) // first assistant only
 
         // Handoff clears currentAssistantMessageId
-        viewModel.handleServerMessage(.generationHandoff(GenerationHandoffMessage(sessionId: "sess-1", requestId: nil, queuedCount: 1)))
+        viewModel.handleServerMessage(.generationHandoff(GenerationHandoffMessage(conversationId: "sess-1", requestId: nil, queuedCount: 1)))
 
         // Second text delta should create a NEW assistant message
         viewModel.handleServerMessage(.assistantTextDelta(AssistantTextDeltaMessage(text: "Second response")))
@@ -1044,8 +1044,8 @@ final class ChatViewModelTests: XCTestCase {
         XCTAssertEqual(viewModel.messages.count, 3)
 
         // 4. Daemon sends messageQueued for B (position 1) and C (position 2)
-        viewModel.handleServerMessage(.messageQueued(MessageQueuedMessage(sessionId: "sess-1", requestId: "req-B", position: 1)))
-        viewModel.handleServerMessage(.messageQueued(MessageQueuedMessage(sessionId: "sess-1", requestId: "req-C", position: 2)))
+        viewModel.handleServerMessage(.messageQueued(MessageQueuedMessage(conversationId: "sess-1", requestId: "req-B", position: 1)))
+        viewModel.handleServerMessage(.messageQueued(MessageQueuedMessage(conversationId: "sess-1", requestId: "req-C", position: 2)))
         XCTAssertEqual(viewModel.pendingQueuedCount, 2)
         if case .queued(let pos) = viewModel.messages[1].status {
             XCTAssertEqual(pos, 1)
@@ -1055,7 +1055,7 @@ final class ChatViewModelTests: XCTestCase {
 
         // 5. Assistant responds to A, then generation_handoff
         viewModel.handleServerMessage(.assistantTextDelta(AssistantTextDeltaMessage(text: "Response to A")))
-        viewModel.handleServerMessage(.generationHandoff(GenerationHandoffMessage(sessionId: "sess-1", requestId: nil, queuedCount: 2)))
+        viewModel.handleServerMessage(.generationHandoff(GenerationHandoffMessage(conversationId: "sess-1", requestId: nil, queuedCount: 2)))
 
         XCTAssertTrue(viewModel.isSending, "isSending stays true after handoff")
         XCTAssertFalse(viewModel.isThinking, "isThinking cleared after handoff")
@@ -1063,7 +1063,7 @@ final class ChatViewModelTests: XCTestCase {
         XCTAssertFalse(viewModel.messages[3].isStreaming, "First assistant message should be finalized")
 
         // 6. Daemon dequeues B (status transitions to .processing)
-        viewModel.handleServerMessage(.messageDequeued(MessageDequeuedMessage(sessionId: "sess-1", requestId: "req-B")))
+        viewModel.handleServerMessage(.messageDequeued(MessageDequeuedMessage(conversationId: "sess-1", requestId: "req-B")))
         let messageBStatus = viewModel.messages.first(where: { $0.text == "Message B" })!
         XCTAssertEqual(messageBStatus.status, .processing, "Message B should be processing")
         XCTAssertTrue(viewModel.isThinking, "isThinking restored after dequeue")
@@ -1072,14 +1072,14 @@ final class ChatViewModelTests: XCTestCase {
 
         // 7. Text delta for B, then generation_handoff
         viewModel.handleServerMessage(.assistantTextDelta(AssistantTextDeltaMessage(text: "Response to B")))
-        viewModel.handleServerMessage(.generationHandoff(GenerationHandoffMessage(sessionId: "sess-1", requestId: nil, queuedCount: 1)))
+        viewModel.handleServerMessage(.generationHandoff(GenerationHandoffMessage(conversationId: "sess-1", requestId: nil, queuedCount: 1)))
 
         // Second assistant message finalized
         XCTAssertFalse(viewModel.messages[4].isStreaming, "Second assistant message should be finalized")
         XCTAssertTrue(viewModel.isSending, "isSending stays true — C is still queued")
 
         // 8. Daemon dequeues C (status transitions to .processing)
-        viewModel.handleServerMessage(.messageDequeued(MessageDequeuedMessage(sessionId: "sess-1", requestId: "req-C")))
+        viewModel.handleServerMessage(.messageDequeued(MessageDequeuedMessage(conversationId: "sess-1", requestId: "req-C")))
         let messageCStatus = viewModel.messages.first(where: { $0.text == "Message C" })!
         XCTAssertEqual(messageCStatus.status, .processing, "Message C should be processing")
         XCTAssertEqual(viewModel.pendingQueuedCount, 0)
@@ -1128,8 +1128,8 @@ final class ChatViewModelTests: XCTestCase {
         }
 
         // Simulate daemon confirming B and C are queued
-        viewModel.handleServerMessage(.messageQueued(MessageQueuedMessage(sessionId: "sess-1", requestId: "req-B", position: 1)))
-        viewModel.handleServerMessage(.messageQueued(MessageQueuedMessage(sessionId: "sess-1", requestId: "req-C", position: 2)))
+        viewModel.handleServerMessage(.messageQueued(MessageQueuedMessage(conversationId: "sess-1", requestId: "req-B", position: 1)))
+        viewModel.handleServerMessage(.messageQueued(MessageQueuedMessage(conversationId: "sess-1", requestId: "req-C", position: 2)))
         XCTAssertEqual(viewModel.pendingQueuedCount, 2)
 
         // Verify positions were updated
@@ -1149,7 +1149,7 @@ final class ChatViewModelTests: XCTestCase {
         // A(0), B(1), C(2), assistantA(3)
         XCTAssertEqual(viewModel.messages.count, 4)
 
-        viewModel.handleServerMessage(.generationHandoff(GenerationHandoffMessage(sessionId: "sess-1", requestId: nil, queuedCount: 2)))
+        viewModel.handleServerMessage(.generationHandoff(GenerationHandoffMessage(conversationId: "sess-1", requestId: nil, queuedCount: 2)))
 
         // After handoff: isSending stays true, isThinking cleared, streaming finalized
         XCTAssertTrue(viewModel.isSending, "isSending must stay true during handoff")
@@ -1160,7 +1160,7 @@ final class ChatViewModelTests: XCTestCase {
         XCTAssertEqual(viewModel.pendingQueuedCount, 2)
 
         // Simulate messageDequeued for B — first queued goes to .processing
-        viewModel.handleServerMessage(.messageDequeued(MessageDequeuedMessage(sessionId: "sess-1", requestId: "req-B")))
+        viewModel.handleServerMessage(.messageDequeued(MessageDequeuedMessage(conversationId: "sess-1", requestId: "req-B")))
         let messageBStatus = viewModel.messages.first(where: { $0.text == "Message B" })!
         XCTAssertEqual(messageBStatus.status, .processing, "Message B should now be processing")
         XCTAssertTrue(viewModel.isSending)
@@ -1169,11 +1169,11 @@ final class ChatViewModelTests: XCTestCase {
 
         // Assistant responds to B, then another handoff
         viewModel.handleServerMessage(.assistantTextDelta(AssistantTextDeltaMessage(text: "Response to B")))
-        viewModel.handleServerMessage(.generationHandoff(GenerationHandoffMessage(sessionId: "sess-1", requestId: nil, queuedCount: 1)))
+        viewModel.handleServerMessage(.generationHandoff(GenerationHandoffMessage(conversationId: "sess-1", requestId: nil, queuedCount: 1)))
         XCTAssertTrue(viewModel.isSending, "isSending stays true — C is still queued")
 
         // Simulate messageDequeued for C
-        viewModel.handleServerMessage(.messageDequeued(MessageDequeuedMessage(sessionId: "sess-1", requestId: "req-C")))
+        viewModel.handleServerMessage(.messageDequeued(MessageDequeuedMessage(conversationId: "sess-1", requestId: "req-C")))
         let messageCStatus = viewModel.messages.first(where: { $0.text == "Message C" })!
         XCTAssertEqual(messageCStatus.status, .processing, "Message C should now be processing")
         XCTAssertEqual(viewModel.pendingQueuedCount, 0)
@@ -1414,7 +1414,7 @@ final class ChatViewModelTests: XCTestCase {
     }
 
     func testConversationErrorIgnoredBeforeConversationClaimed() {
-        // sessionId is nil — no session claimed yet
+        // conversationId is nil — no session claimed yet
         XCTAssertNil(viewModel.conversationId)
 
         let errorMsg = ConversationErrorMessage(
@@ -1747,7 +1747,7 @@ final class ChatViewModelTests: XCTestCase {
             data: "Y29sQQ==", extractedText: nil, sizeBytes: nil, thumbnailData: nil
         )
         viewModel.handleServerMessage(.generationHandoff(
-            GenerationHandoffMessage(sessionId: "sess-1", requestId: nil, queuedCount: 1, attachments: [attachment])
+            GenerationHandoffMessage(conversationId: "sess-1", requestId: nil, queuedCount: 1, attachments: [attachment])
         ))
 
         XCTAssertEqual(viewModel.messages[0].attachments.count, 1)
@@ -1834,7 +1834,7 @@ final class ChatViewModelTests: XCTestCase {
     func testTextToolTextCreatesInterleavedSegments() {
         // Text delta → tool call → more text delta
         viewModel.handleServerMessage(.assistantTextDelta(AssistantTextDeltaMessage(text: "What are you working on?")))
-        viewModel.handleServerMessage(.toolUseStart(ToolUseStartMessage(type: "tool_use_start", toolName: "memory_manage", input: ["key": AnyCodable("task")], sessionId: nil)))
+        viewModel.handleServerMessage(.toolUseStart(ToolUseStartMessage(type: "tool_use_start", toolName: "memory_manage", input: ["key": AnyCodable("task")], conversationId: nil)))
         viewModel.handleServerMessage(.assistantTextDelta(AssistantTextDeltaMessage(text: "Saved that to memory.")))
 
         XCTAssertEqual(viewModel.messages.count, 1)
@@ -1859,7 +1859,7 @@ final class ChatViewModelTests: XCTestCase {
     func testSuppressedToolsDoNotCreateSegmentBoundary() {
         // ui_show is suppressed and should not create a segment boundary
         viewModel.handleServerMessage(.assistantTextDelta(AssistantTextDeltaMessage(text: "Before")))
-        viewModel.handleServerMessage(.toolUseStart(ToolUseStartMessage(type: "tool_use_start", toolName: "ui_show", input: [:], sessionId: nil)))
+        viewModel.handleServerMessage(.toolUseStart(ToolUseStartMessage(type: "tool_use_start", toolName: "ui_show", input: [:], conversationId: nil)))
         viewModel.handleServerMessage(.assistantTextDelta(AssistantTextDeltaMessage(text: " after")))
 
         XCTAssertEqual(viewModel.messages.count, 1)
@@ -1870,7 +1870,7 @@ final class ChatViewModelTests: XCTestCase {
     }
 
     func testToolOnlyMessageHasToolCallInContentOrder() {
-        viewModel.handleServerMessage(.toolUseStart(ToolUseStartMessage(type: "tool_use_start", toolName: "bash", input: ["command": AnyCodable("ls")], sessionId: nil)))
+        viewModel.handleServerMessage(.toolUseStart(ToolUseStartMessage(type: "tool_use_start", toolName: "bash", input: ["command": AnyCodable("ls")], conversationId: nil)))
 
         XCTAssertEqual(viewModel.messages.count, 1)
         let msg = viewModel.messages[0]
@@ -1951,8 +1951,8 @@ final class ChatViewModelTests: XCTestCase {
         // Text delta → tool call start (flushes automatically) + result → more text delta
         // should produce separate text segments with interleaved content order.
         viewModel.handleServerMessage(.assistantTextDelta(AssistantTextDeltaMessage(text: "Let me check.")))
-        viewModel.handleServerMessage(.toolUseStart(ToolUseStartMessage(type: "tool_use_start", toolName: "bash", input: ["command": AnyCodable("ls")], sessionId: nil)))
-        viewModel.handleServerMessage(.toolResult(ToolResultMessage(type: "tool_result", toolName: "bash", result: "file.txt", isError: nil, diff: nil, status: nil, sessionId: nil, imageData: nil)))
+        viewModel.handleServerMessage(.toolUseStart(ToolUseStartMessage(type: "tool_use_start", toolName: "bash", input: ["command": AnyCodable("ls")], conversationId: nil)))
+        viewModel.handleServerMessage(.toolResult(ToolResultMessage(type: "tool_result", toolName: "bash", result: "file.txt", isError: nil, diff: nil, status: nil, conversationId: nil, imageData: nil)))
         viewModel.handleServerMessage(.assistantTextDelta(AssistantTextDeltaMessage(text: "Here are the files.")))
         // Flush the second text delta so it lands in messages.
         viewModel.flushStreamingBuffer()
@@ -2194,7 +2194,7 @@ final class ChatViewModelTests: XCTestCase {
                     type: "tool_use_start",
                     toolName: "computer_use_click",
                     input: ["x": AnyCodable(100), "y": AnyCodable(200)],
-                    sessionId: nil
+                    conversationId: nil
                 )
             )
         )
@@ -2222,7 +2222,7 @@ final class ChatViewModelTests: XCTestCase {
                     isError: true,
                     diff: nil,
                     status: nil,
-                    sessionId: nil,
+                    conversationId: nil,
                     imageData: nil
                 )
             )
@@ -2244,7 +2244,7 @@ final class ChatViewModelTests: XCTestCase {
                     type: "tool_use_start",
                     toolName: "computer_use_click",
                     input: ["x": AnyCodable(100), "y": AnyCodable(200)],
-                    sessionId: nil
+                    conversationId: nil
                 )
             )
         )
@@ -2272,7 +2272,7 @@ final class ChatViewModelTests: XCTestCase {
                     isError: true,
                     diff: nil,
                     status: nil,
-                    sessionId: nil,
+                    conversationId: nil,
                     imageData: nil
                 )
             )
@@ -2295,11 +2295,11 @@ final class ChatViewModelTests: XCTestCase {
         XCTAssertFalse(viewModel.isThinking, "Text delta should clear thinking")
 
         // Tool starts
-        viewModel.handleServerMessage(.toolUseStart(ToolUseStartMessage(type: "tool_use_start", toolName: "bash", input: ["command": AnyCodable("ls")], sessionId: nil)))
+        viewModel.handleServerMessage(.toolUseStart(ToolUseStartMessage(type: "tool_use_start", toolName: "bash", input: ["command": AnyCodable("ls")], conversationId: nil)))
         XCTAssertFalse(viewModel.isThinking, "Tool chip is visible, thinking should be false")
 
         // Tool completes — agent is processing the result but isn't "thinking" yet
-        viewModel.handleServerMessage(.toolResult(ToolResultMessage(type: "tool_result", toolName: "bash", result: "file.txt", isError: nil, diff: nil, status: nil, sessionId: nil, imageData: nil)))
+        viewModel.handleServerMessage(.toolResult(ToolResultMessage(type: "tool_result", toolName: "bash", result: "file.txt", isError: nil, diff: nil, status: nil, conversationId: nil, imageData: nil)))
         XCTAssertFalse(viewModel.isThinking, "Thinking should not restore after tool result — tool chip indicates activity")
     }
 
@@ -2307,7 +2307,7 @@ final class ChatViewModelTests: XCTestCase {
         // If isSending is false (shouldn't happen normally), don't set thinking
         viewModel.isSending = false
         viewModel.isThinking = false
-        viewModel.handleServerMessage(.toolResult(ToolResultMessage(type: "tool_result", toolName: "bash", result: "ok", isError: nil, diff: nil, status: nil, sessionId: nil, imageData: nil)))
+        viewModel.handleServerMessage(.toolResult(ToolResultMessage(type: "tool_result", toolName: "bash", result: "ok", isError: nil, diff: nil, status: nil, conversationId: nil, imageData: nil)))
         XCTAssertFalse(viewModel.isThinking, "Thinking should not restore when not sending")
     }
 
@@ -2315,14 +2315,14 @@ final class ChatViewModelTests: XCTestCase {
         viewModel.isSending = true
         viewModel.isCancelling = true
         viewModel.isThinking = false
-        viewModel.handleServerMessage(.toolResult(ToolResultMessage(type: "tool_result", toolName: "bash", result: "ok", isError: nil, diff: nil, status: nil, sessionId: nil, imageData: nil)))
+        viewModel.handleServerMessage(.toolResult(ToolResultMessage(type: "tool_result", toolName: "bash", result: "ok", isError: nil, diff: nil, status: nil, conversationId: nil, imageData: nil)))
         XCTAssertFalse(viewModel.isThinking, "Thinking should not restore during cancellation")
     }
 
     func testToolUseStartClearsThinkingState() {
         viewModel.isThinking = true
         viewModel.isSending = true
-        viewModel.handleServerMessage(.toolUseStart(ToolUseStartMessage(type: "tool_use_start", toolName: "bash", input: ["command": AnyCodable("ls")], sessionId: nil)))
+        viewModel.handleServerMessage(.toolUseStart(ToolUseStartMessage(type: "tool_use_start", toolName: "bash", input: ["command": AnyCodable("ls")], conversationId: nil)))
         XCTAssertFalse(viewModel.isThinking, "Tool use start should clear thinking since tool chip shows activity")
     }
 
@@ -2330,7 +2330,7 @@ final class ChatViewModelTests: XCTestCase {
         // ui_show is suppressed (no chip rendered), so thinking should NOT be cleared
         viewModel.isThinking = true
         viewModel.isSending = true
-        viewModel.handleServerMessage(.toolUseStart(ToolUseStartMessage(type: "tool_use_start", toolName: "ui_show", input: [:], sessionId: nil)))
+        viewModel.handleServerMessage(.toolUseStart(ToolUseStartMessage(type: "tool_use_start", toolName: "ui_show", input: [:], conversationId: nil)))
         XCTAssertTrue(viewModel.isThinking, "Suppressed tools should not clear thinking state")
     }
 
@@ -2345,19 +2345,19 @@ final class ChatViewModelTests: XCTestCase {
         XCTAssertFalse(viewModel.isThinking)
 
         // First tool starts
-        viewModel.handleServerMessage(.toolUseStart(ToolUseStartMessage(type: "tool_use_start", toolName: "bash", input: ["command": AnyCodable("ls")], sessionId: nil)))
+        viewModel.handleServerMessage(.toolUseStart(ToolUseStartMessage(type: "tool_use_start", toolName: "bash", input: ["command": AnyCodable("ls")], conversationId: nil)))
         XCTAssertFalse(viewModel.isThinking)
 
         // First tool completes — no "Thinking" flash between tools
-        viewModel.handleServerMessage(.toolResult(ToolResultMessage(type: "tool_result", toolName: "bash", result: "files", isError: nil, diff: nil, status: nil, sessionId: nil, imageData: nil)))
+        viewModel.handleServerMessage(.toolResult(ToolResultMessage(type: "tool_result", toolName: "bash", result: "files", isError: nil, diff: nil, status: nil, conversationId: nil, imageData: nil)))
         XCTAssertFalse(viewModel.isThinking, "Thinking should not show between tools")
 
         // Second tool starts
-        viewModel.handleServerMessage(.toolUseStart(ToolUseStartMessage(type: "tool_use_start", toolName: "file_read", input: ["path": AnyCodable("foo.txt")], sessionId: nil)))
+        viewModel.handleServerMessage(.toolUseStart(ToolUseStartMessage(type: "tool_use_start", toolName: "file_read", input: ["path": AnyCodable("foo.txt")], conversationId: nil)))
         XCTAssertFalse(viewModel.isThinking, "Thinking should stay false when new tool starts")
 
         // Second tool completes
-        viewModel.handleServerMessage(.toolResult(ToolResultMessage(type: "tool_result", toolName: "file_read", result: "contents", isError: nil, diff: nil, status: nil, sessionId: nil, imageData: nil)))
+        viewModel.handleServerMessage(.toolResult(ToolResultMessage(type: "tool_result", toolName: "file_read", result: "contents", isError: nil, diff: nil, status: nil, conversationId: nil, imageData: nil)))
         XCTAssertFalse(viewModel.isThinking, "Thinking should not show after second tool")
 
         // Message completes
@@ -2412,8 +2412,8 @@ final class ChatViewModelTests: XCTestCase {
 
     func testCreateSessionIfNeededOnSessionCreatedCallback() {
         var callbackSessionId: String?
-        viewModel.onConversationCreated = { sessionId in
-            callbackSessionId = sessionId
+        viewModel.onConversationCreated = { conversationId in
+            callbackSessionId = conversationId
         }
 
         viewModel.createConversationIfNeeded(conversationType: "private")
@@ -2510,8 +2510,8 @@ final class ChatViewModelTests: XCTestCase {
         // Inline approval: queued → dequeued → text delta → request complete
         viewModel.inputText = "approve"
         viewModel.sendMessage()
-        viewModel.handleServerMessage(.messageQueued(MessageQueuedMessage(sessionId: "sess-1", requestId: "req-approve", position: 0)))
-        viewModel.handleServerMessage(.messageDequeued(MessageDequeuedMessage(sessionId: "sess-1", requestId: "req-approve")))
+        viewModel.handleServerMessage(.messageQueued(MessageQueuedMessage(conversationId: "sess-1", requestId: "req-approve", position: 0)))
+        viewModel.handleServerMessage(.messageDequeued(MessageDequeuedMessage(conversationId: "sess-1", requestId: "req-approve")))
         viewModel.handleServerMessage(.assistantTextDelta(AssistantTextDeltaMessage(text: "Decision applied.")))
 
         // Flush the buffer so the text lands on the message (simulates timer fire)
@@ -2523,7 +2523,7 @@ final class ChatViewModelTests: XCTestCase {
         viewModel.handleServerMessage(
             .messageRequestComplete(
                 MessageRequestCompleteMessage(
-                    sessionId: "sess-1",
+                    conversationId: "sess-1",
                     requestId: "req-approve",
                     runStillActive: false
                 )
@@ -2553,12 +2553,12 @@ final class ChatViewModelTests: XCTestCase {
         // Inline approval arrives mid-stream: queued → dequeued → request complete (no delta)
         viewModel.inputText = "yes"
         viewModel.sendMessage()
-        viewModel.handleServerMessage(.messageQueued(MessageQueuedMessage(sessionId: "sess-1", requestId: "req-yes", position: 0)))
-        viewModel.handleServerMessage(.messageDequeued(MessageDequeuedMessage(sessionId: "sess-1", requestId: "req-yes")))
+        viewModel.handleServerMessage(.messageQueued(MessageQueuedMessage(conversationId: "sess-1", requestId: "req-yes", position: 0)))
+        viewModel.handleServerMessage(.messageDequeued(MessageDequeuedMessage(conversationId: "sess-1", requestId: "req-yes")))
         viewModel.handleServerMessage(
             .messageRequestComplete(
                 MessageRequestCompleteMessage(
-                    sessionId: "sess-1",
+                    conversationId: "sess-1",
                     requestId: "req-yes",
                     runStillActive: true
                 )
@@ -2578,7 +2578,7 @@ final class ChatViewModelTests: XCTestCase {
         viewModel.conversationId = "sess-1"
         let activity = AssistantActivityStateMessage(
             type: "assistant_activity_state",
-            sessionId: "sess-1",
+            conversationId: "sess-1",
             activityVersion: 1,
             phase: "thinking",
             anchor: "assistant_turn",
@@ -2599,7 +2599,7 @@ final class ChatViewModelTests: XCTestCase {
         viewModel.conversationId = "sess-1"
         let newer = AssistantActivityStateMessage(
             type: "assistant_activity_state",
-            sessionId: "sess-1",
+            conversationId: "sess-1",
             activityVersion: 2,
             phase: "thinking",
             anchor: "assistant_turn",
@@ -2608,7 +2608,7 @@ final class ChatViewModelTests: XCTestCase {
         )
         let stale = AssistantActivityStateMessage(
             type: "assistant_activity_state",
-            sessionId: "sess-1",
+            conversationId: "sess-1",
             activityVersion: 1,
             phase: "idle",
             anchor: "global",
@@ -2728,8 +2728,8 @@ final class ChatViewModelTests: XCTestCase {
         // Set up the callback to capture the reconnect history request.
         var reconnectSessionId: String?
         let expectation = XCTestExpectation(description: "onReconnectHistoryNeeded called")
-        viewModel.onReconnectHistoryNeeded = { sessionId in
-            reconnectSessionId = sessionId
+        viewModel.onReconnectHistoryNeeded = { conversationId in
+            reconnectSessionId = conversationId
             expectation.fulfill()
         }
 

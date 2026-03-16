@@ -20,7 +20,7 @@ describe("TraceEmitter", () => {
     expect(sent).toHaveLength(1);
     const event = sent[0];
     expect(event.type).toBe("trace_event");
-    expect(event.sessionId).toBe("sess-1");
+    expect(event.conversationId).toBe("sess-1");
     expect(event.kind).toBe("tool_started");
     expect(event.summary).toBe("Running bash");
     expect(typeof event.eventId).toBe("string");

@@ -17,7 +17,6 @@ interface ToolLifecycleEventBase {
   toolName: string;
   input: Record<string, unknown>;
   workingDir: string;
-  sessionId: string;
   conversationId: string;
   requestId?: string;
   executionTarget?: ExecutionTarget;
@@ -100,7 +99,6 @@ export type ProxyToolResolver = (
 
 export interface ToolContext {
   workingDir: string;
-  sessionId: string;
   conversationId: string;
   /** Logical assistant scope for multi-assistant routing. */
   assistantId?: string;

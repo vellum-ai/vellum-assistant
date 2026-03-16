@@ -11,7 +11,6 @@ export function createToolDomainEventPublisher(
       case "start":
         await eventBus.emit("tool.execution.started", {
           conversationId: event.conversationId,
-          sessionId: event.sessionId,
           requestId: event.requestId,
           toolName: event.toolName,
           input: event.input,
@@ -21,7 +20,6 @@ export function createToolDomainEventPublisher(
       case "permission_prompt":
         await eventBus.emit("tool.permission.requested", {
           conversationId: event.conversationId,
-          sessionId: event.sessionId,
           requestId: event.requestId,
           toolName: event.toolName,
           riskLevel: event.riskLevel,
@@ -31,7 +29,6 @@ export function createToolDomainEventPublisher(
       case "permission_denied":
         await eventBus.emit("tool.permission.decided", {
           conversationId: event.conversationId,
-          sessionId: event.sessionId,
           requestId: event.requestId,
           toolName: event.toolName,
           decision: event.decision,
@@ -43,7 +40,6 @@ export function createToolDomainEventPublisher(
         if (isAllowDecision(event.decision as UserDecision)) {
           await eventBus.emit("tool.permission.decided", {
             conversationId: event.conversationId,
-            sessionId: event.sessionId,
             requestId: event.requestId,
             toolName: event.toolName,
             decision:
@@ -54,7 +50,6 @@ export function createToolDomainEventPublisher(
         }
         await eventBus.emit("tool.execution.finished", {
           conversationId: event.conversationId,
-          sessionId: event.sessionId,
           requestId: event.requestId,
           toolName: event.toolName,
           decision: event.decision,
@@ -68,7 +63,6 @@ export function createToolDomainEventPublisher(
         if (isAllowDecision(event.decision as UserDecision)) {
           await eventBus.emit("tool.permission.decided", {
             conversationId: event.conversationId,
-            sessionId: event.sessionId,
             requestId: event.requestId,
             toolName: event.toolName,
             decision:
@@ -79,7 +73,6 @@ export function createToolDomainEventPublisher(
         }
         await eventBus.emit("tool.execution.failed", {
           conversationId: event.conversationId,
-          sessionId: event.sessionId,
           requestId: event.requestId,
           toolName: event.toolName,
           decision: event.decision,
@@ -95,7 +88,6 @@ export function createToolDomainEventPublisher(
       case "secret_detected":
         await eventBus.emit("tool.secret.detected", {
           conversationId: event.conversationId,
-          sessionId: event.sessionId,
           requestId: event.requestId,
           toolName: event.toolName,
           action: event.action,

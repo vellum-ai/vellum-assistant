@@ -74,7 +74,7 @@ mock.module("../memory/qdrant-client.js", () => ({
 import {
   consolidateAssistantMessages,
   findLastUndoableUserMessageIndex,
-  type HistorySessionContext,
+  type HistoryConversationContext,
   regenerate,
 } from "../daemon/conversation-history.js";
 import type { ContentBlock, Message } from "../providers/types.js";
@@ -433,11 +433,11 @@ describe("regenerate with web_search_tool_result", () => {
     let agentLoopContent = "";
     let agentLoopUserMessageId = "";
 
-    const session: HistorySessionContext = {
+    const session: HistoryConversationContext = {
       conversationId,
       traceEmitter: {
         emit: () => {},
-      } as unknown as HistorySessionContext["traceEmitter"],
+      } as unknown as HistoryConversationContext["traceEmitter"],
       messages: [...inMemoryMessages],
       processing: false,
       abortController: null,

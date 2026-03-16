@@ -129,7 +129,7 @@ export function createClaudeCodeBackend(): SwarmWorkerBackend {
           if (message.type === "assistant") {
             if (message.error) {
               log.error(
-                { error: message.error, sessionId: message.session_id },
+                { error: message.error, conversationId: message.session_id },
                 "Swarm worker assistant message error",
               );
               hasError = true;

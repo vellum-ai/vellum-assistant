@@ -158,7 +158,6 @@ import { ToolError } from "../util/errors.js";
 function makeContext(events: ToolLifecycleEvent[]) {
   return {
     workingDir: "/tmp/project",
-    sessionId: "session-1",
     conversationId: "conversation-1",
     trustClass: "guardian" as const,
     onToolLifecycleEvent: (event: ToolLifecycleEvent) => {
@@ -213,7 +212,6 @@ describe("ToolExecutor lifecycle events", () => {
       toolName: "file_read",
       executionTarget: "sandbox",
       conversationId: "conversation-1",
-      sessionId: "session-1",
       workingDir: "/tmp/project",
     });
     const executed = events[1];
@@ -523,7 +521,6 @@ describe("ToolExecutor lifecycle events", () => {
       {},
       {
         workingDir: "/tmp/project",
-        sessionId: "session-1",
         conversationId: "conversation-1",
         trustClass: "guardian",
         onToolLifecycleEvent: () => new Promise<void>(() => {}),

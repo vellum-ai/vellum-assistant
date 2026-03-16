@@ -79,7 +79,7 @@ const SUGGESTION_CACHE_MAX = 100;
 function collectCanonicalGuardianRequestHintIds(
   conversationId: string,
   sourceChannel: string,
-  session: import("../../daemon/conversation.js").Session,
+  session: import("../../daemon/conversation.js").Conversation,
 ): string[] {
   const requests = listPendingRequestsByConversationScope(
     conversationId,
@@ -105,7 +105,7 @@ async function tryConsumeCanonicalGuardianReply(params: {
     mimeType: string;
     data: string;
   }>;
-  session: import("../../daemon/conversation.js").Session;
+  session: import("../../daemon/conversation.js").Conversation;
   onEvent: (msg: ServerMessage) => void;
   approvalConversationGenerator?: ApprovalConversationGenerator;
   /** Verified actor identity from actor-token middleware. */
@@ -167,7 +167,7 @@ async function tryConsumeCanonicalGuardianReply(params: {
   // so we emit resolved_stale here for those cases.
   if (routerResult.requestId && !routerResult.decisionApplied) {
     session.emitConfirmationStateChanged({
-      sessionId: conversationId,
+      conversationId: conversationId,
       requestId: routerResult.requestId,
       state: "resolved_stale",
       source: "inline_nl",
@@ -216,9 +216,9 @@ async function tryConsumeCanonicalGuardianReply(params: {
       onEvent({
         type: "assistant_text_delta",
         text: replyText,
-        sessionId: conversationId,
+        conversationId: conversationId,
       });
-      onEvent({ type: "message_complete", sessionId: conversationId });
+      onEvent({ type: "message_complete", conversationId: conversationId });
     }
   } catch (err) {
     log.warn(
@@ -403,7 +403,7 @@ export function handleListMessages(
 function makeHubPublisher(
   deps: SendMessageDeps,
   conversationId: string,
-  session: import("../../daemon/conversation.js").Session,
+  session: import("../../daemon/conversation.js").Conversation,
 ): (msg: ServerMessage) => void {
   let hubChain: Promise<void> = Promise.resolve();
   return (msg: ServerMessage) => {
@@ -489,11 +489,11 @@ function makeHubPublisher(
       });
     }
 
-    // ServerMessage is a large union; sessionId exists on most but not all variants.
+    // ServerMessage is a large union; conversationId exists on most but not all variants.
     const msgSessionId =
-      "sessionId" in msg &&
-      typeof (msg as { sessionId?: unknown }).sessionId === "string"
-        ? (msg as { sessionId: string }).sessionId
+      "conversationId" in msg &&
+      typeof (msg as { conversationId?: unknown }).conversationId === "string"
+        ? (msg as { conversationId: string }).conversationId
         : undefined;
     const resolvedSessionId = msgSessionId ?? conversationId;
     const event = buildAssistantEvent(
@@ -634,7 +634,7 @@ export async function handleSendMessage(
     conversationType,
   });
   const smDeps = deps.sendMessageDeps;
-  const session = await smDeps.getOrCreateSession(mapping.conversationId);
+  const session = await smDeps.getOrCreateConversation(mapping.conversationId);
 
   // Resolve guardian context from the AuthContext's actorPrincipalId.
   // The JWT-verified principal is used as the sender identity through
@@ -796,7 +796,7 @@ export async function handleSendMessage(
           interaction.kind === "confirmation"
         ) {
           session.emitConfirmationStateChanged({
-            sessionId: mapping.conversationId,
+            conversationId: mapping.conversationId,
             requestId: interaction.requestId,
             state: "denied" as const,
             source: "auto_deny" as const,
@@ -804,7 +804,7 @@ export async function handleSendMessage(
         }
       }
       session.denyAllPendingConfirmations();
-      pendingInteractions.removeBySession(session);
+      pendingInteractions.removeByConversation(session);
     }
 
     return Response.json(
@@ -827,7 +827,7 @@ export async function handleSendMessage(
         interaction.kind === "confirmation"
       ) {
         session.emitConfirmationStateChanged({
-          sessionId: mapping.conversationId,
+          conversationId: mapping.conversationId,
           requestId: interaction.requestId,
           state: "denied" as const,
           source: "auto_deny" as const,
@@ -835,10 +835,10 @@ export async function handleSendMessage(
       }
     }
     session.denyAllPendingConfirmations();
-    pendingInteractions.removeBySession(session);
+    pendingInteractions.removeByConversation(session);
   }
 
-  // Session is idle — persist and fire agent loop immediately
+  // Conversation is idle — persist and fire agent loop immediately
   session.setTurnChannelContext({
     userMessageChannel: sourceChannel,
     assistantMessageChannel: sourceChannel,
@@ -936,7 +936,7 @@ export async function handleSendMessage(
         onEvent({ type: "assistant_text_delta", text: message });
         onEvent({
           type: "message_complete",
-          sessionId: conversationId,
+          conversationId: conversationId,
         });
         session.processing = false;
         silentlyWithLog(session.drainQueue(), "slash-command queue drain");

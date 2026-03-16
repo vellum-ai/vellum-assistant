@@ -160,7 +160,7 @@ private struct ConditionalPanelBackground: ViewModifier {
         viewModel: SurfaceViewModel(
             surface: Surface(
                 id: "preview",
-                sessionId: "session-1",
+                conversationId: "session-1",
                 type: .card,
                 title: "Task Summary",
                 data: .card(CardSurfaceData(

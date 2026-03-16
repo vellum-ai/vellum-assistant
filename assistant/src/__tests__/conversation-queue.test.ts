@@ -10,7 +10,7 @@ import type { ServerMessage } from "../daemon/message-protocol.js";
 import type { Message, ProviderResponse } from "../providers/types.js";
 
 // ---------------------------------------------------------------------------
-// Mocks — must precede the Session import so Bun applies them at load time.
+// Mocks — must precede the Conversation import so Bun applies them at load time.
 // ---------------------------------------------------------------------------
 
 function makeLoggerStub(): Record<string, unknown> {
@@ -191,7 +191,7 @@ mock.module("../context/window-manager.js", () => ({
 
 const turnCommitCalls: Array<{
   workspaceDir: string;
-  sessionId: string;
+  conversationId: string;
   turnNumber: number;
 }> = [];
 let turnCommitHangForever = false;
@@ -277,27 +277,29 @@ mock.module("../memory/canonical-guardian-store.js", () => ({
 }));
 
 // ---------------------------------------------------------------------------
-// Import Session AFTER mocks are registered.
+// Import Conversation AFTER mocks are registered.
 // ---------------------------------------------------------------------------
 
 import type { QueueDrainReason, QueuePolicy } from "../daemon/conversation.js";
-import { Session } from "../daemon/conversation.js";
+import { Conversation } from "../daemon/conversation.js";
 import { MessageQueue } from "../daemon/conversation-queue-manager.js";
 
-type SessionWithWorkspaceDeps = Session & {
+type SessionWithWorkspaceDeps = Conversation & {
   getWorkspaceGitService?: (_workspaceDir: string) => {
     ensureInitialized: () => Promise<void>;
   };
   commitTurnChanges?: (
     workspaceDir: string,
-    sessionId: string,
+    conversationId: string,
     turnNumber: number,
     provider?: unknown,
     deadlineMs?: number,
   ) => Promise<void>;
 };
 
-function makeSession(sendToClient?: (msg: ServerMessage) => void): Session {
+function makeSession(
+  sendToClient?: (msg: ServerMessage) => void,
+): Conversation {
   const provider = {
     name: "mock",
     async sendMessage(): Promise<ProviderResponse> {
@@ -309,7 +311,7 @@ function makeSession(sendToClient?: (msg: ServerMessage) => void): Session {
       };
     },
   };
-  const session = new Session(
+  const session = new Conversation(
     "conv-1",
     provider,
     "system prompt",
@@ -323,10 +325,10 @@ function makeSession(sendToClient?: (msg: ServerMessage) => void): Session {
   });
   sessionWithWorkspaceDeps.commitTurnChanges = async (
     workspaceDir: string,
-    sessionId: string,
+    conversationId: string,
     turnNumber: number,
   ) => {
-    turnCommitCalls.push({ workspaceDir, sessionId, turnNumber });
+    turnCommitCalls.push({ workspaceDir, conversationId, turnNumber });
     if (turnCommitHangForever) {
       // Simulate a commit that never resolves within the timeout budget
       await new Promise<void>(() => {});
@@ -408,7 +410,7 @@ afterAll(() => {
 // Tests
 // ---------------------------------------------------------------------------
 
-describe("Session message queue", () => {
+describe("Conversation message queue", () => {
   beforeEach(() => {
     pendingRuns = [];
   });
@@ -431,7 +433,7 @@ describe("Session message queue", () => {
     // Wait for the first AgentLoop.run to be registered
     await waitForPendingRun(1);
 
-    // Session should now be processing
+    // Conversation should now be processing
     expect(session.isProcessing()).toBe(true);
 
     // Enqueue second message — should NOT throw
@@ -532,7 +534,7 @@ describe("Session message queue", () => {
     expect(dequeued).toBeDefined();
     expect(dequeued).toEqual({
       type: "message_dequeued",
-      sessionId: "conv-1",
+      conversationId: "conv-1",
       requestId: "req-2",
     });
 
@@ -715,7 +717,7 @@ describe("Session message queue", () => {
 // Queue policy primitives
 // ---------------------------------------------------------------------------
 
-describe("Session queue policy helpers", () => {
+describe("Conversation queue policy helpers", () => {
   beforeEach(() => {
     pendingRuns = [];
   });
@@ -814,7 +816,7 @@ describe("Session queue policy helpers", () => {
 // Checkpoint handoff tests
 // ---------------------------------------------------------------------------
 
-describe("Session checkpoint handoff", () => {
+describe("Conversation checkpoint handoff", () => {
   beforeEach(() => {
     pendingRuns = [];
   });
@@ -1195,7 +1197,7 @@ describe("Session checkpoint handoff", () => {
 // Usage requestId correlation
 // ---------------------------------------------------------------------------
 
-describe("Session usage requestId correlation", () => {
+describe("Conversation usage requestId correlation", () => {
   beforeEach(() => {
     pendingRuns = [];
     capturedUsageEvents = [];
@@ -1271,7 +1273,7 @@ describe("Terminal trace events on rejection/failure", () => {
 // Host attachment approval tests
 // ---------------------------------------------------------------------------
 
-describe("Session host attachment directives", () => {
+describe("Conversation host attachment directives", () => {
   beforeEach(() => {
     pendingRuns = [];
   });
@@ -1416,7 +1418,7 @@ describe("Session host attachment directives", () => {
 // Attachment payload emission tests
 // ---------------------------------------------------------------------------
 
-describe("Session attachment event payloads", () => {
+describe("Conversation attachment event payloads", () => {
   beforeEach(() => {
     pendingRuns = [];
   });
@@ -1637,7 +1639,7 @@ describe("Regression: cancel semantics and error channel split", () => {
     expect(turnCommitCalls).toHaveLength(1);
     expect(turnCommitCalls[0]).toEqual({
       workspaceDir: "/tmp",
-      sessionId: "conv-1",
+      conversationId: "conv-1",
       turnNumber: 1,
     });
     const err = events.find((e) => e.type === "error");

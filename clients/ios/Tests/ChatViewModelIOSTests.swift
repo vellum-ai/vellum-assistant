@@ -374,8 +374,8 @@ final class ChatViewModelIOSTests: XCTestCase {
 
     func testOnSessionCreatedCallbackFires() {
         var capturedSessionId: String?
-        viewModel.onConversationCreated = { sessionId in
-            capturedSessionId = sessionId
+        viewModel.onConversationCreated = { conversationId in
+            capturedSessionId = conversationId
         }
 
         viewModel.bootstrapCorrelationId = "corr-cb"

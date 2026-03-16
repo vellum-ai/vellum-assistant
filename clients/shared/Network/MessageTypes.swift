@@ -16,7 +16,7 @@ import Foundation
 // │                                 │ contract type is skipped (SKIP_TYPES)    │
 // │ UiSurfaceUpdateMessage          │ Uses AnyCodable for `data` field;        │
 // │                                 │ contract type is skipped (SKIP_TYPES)    │
-// │ GenerationCancelledMessage      │ Swift adds `sessionId` for conversation  │
+// │ GenerationCancelledMessage      │ Swift adds `conversationId` for conversation  │
 // │                                 │ filtering not present in the contract    │
 // │ ClawhubSkillItem                │ Decoded from nested `data` field of      │
 // │                                 │ skills_operation_response, not a direct  │
@@ -151,8 +151,8 @@ extension UserMessageAttachment {
 public typealias WatchObservationMessage = WatchObservation
 
 extension WatchObservation {
-    public init(watchId: String, sessionId: String, ocrText: String, appName: String?, windowTitle: String?, bundleIdentifier: String?, timestamp: Double, captureIndex: Int, totalExpected: Int) {
-        self.init(type: "watch_observation", watchId: watchId, sessionId: sessionId, ocrText: ocrText, appName: appName, windowTitle: windowTitle, bundleIdentifier: bundleIdentifier, timestamp: timestamp, captureIndex: captureIndex, totalExpected: totalExpected)
+    public init(watchId: String, conversationId: String, ocrText: String, appName: String?, windowTitle: String?, bundleIdentifier: String?, timestamp: Double, captureIndex: Int, totalExpected: Int) {
+        self.init(type: "watch_observation", watchId: watchId, conversationId: conversationId, ocrText: ocrText, appName: appName, windowTitle: windowTitle, bundleIdentifier: bundleIdentifier, timestamp: timestamp, captureIndex: captureIndex, totalExpected: totalExpected)
     }
 }
 
@@ -253,8 +253,8 @@ extension UserMessage {
         #endif
     }
 
-    public init(sessionId: String, content: String, attachments: [Attachment]?, activeSurfaceId: String? = nil, currentPage: String? = nil, bypassSecretCheck: Bool? = nil, channel: String? = nil, interface: String? = nil, pttActivationKey: String? = nil, microphonePermissionGranted: Bool? = nil) {
-        self.init(type: "user_message", sessionId: sessionId, content: content, attachments: attachments, activeSurfaceId: activeSurfaceId, currentPage: currentPage, bypassSecretCheck: bypassSecretCheck, channel: channel ?? Self.defaultChannel, interface: interface ?? Self.defaultInterface, pttActivationKey: pttActivationKey, microphonePermissionGranted: microphonePermissionGranted)
+    public init(conversationId: String, content: String, attachments: [Attachment]?, activeSurfaceId: String? = nil, currentPage: String? = nil, bypassSecretCheck: Bool? = nil, channel: String? = nil, interface: String? = nil, pttActivationKey: String? = nil, microphonePermissionGranted: Bool? = nil) {
+        self.init(type: "user_message", conversationId: conversationId, content: content, attachments: attachments, activeSurfaceId: activeSurfaceId, currentPage: currentPage, bypassSecretCheck: bypassSecretCheck, channel: channel ?? Self.defaultChannel, interface: interface ?? Self.defaultInterface, pttActivationKey: pttActivationKey, microphonePermissionGranted: microphonePermissionGranted)
     }
 }
 
@@ -264,7 +264,7 @@ public typealias CancelMessage = CancelRequest
 
 extension CancelRequest {
     public init(conversationId: String) {
-        self.init(type: "cancel", sessionId: conversationId)
+        self.init(type: "cancel", conversationId: conversationId)
     }
 }
 
@@ -282,17 +282,17 @@ extension PingMessage {
 }
 
 /// Sent when user interacts with a surface.
-/// Hand-written to allow optional `sessionId` (the generated `UiSurfaceAction` requires non-nil).
+/// Hand-written to allow optional `conversationId` (the generated `UiSurfaceAction` requires non-nil).
 public struct UiSurfaceActionMessage: Codable, Sendable {
     public let type: String
-    public let sessionId: String?
+    public let conversationId: String?
     public let surfaceId: String
     public let actionId: String
     public let data: [String: AnyCodable]?
 
-    public init(sessionId: String?, surfaceId: String, actionId: String, data: [String: AnyCodable]?) {
+    public init(conversationId: String?, surfaceId: String, actionId: String, data: [String: AnyCodable]?) {
         self.type = "ui_surface_action"
-        self.sessionId = sessionId
+        self.conversationId = conversationId
         self.surfaceId = surfaceId
         self.actionId = actionId
         self.data = data
@@ -304,8 +304,8 @@ public struct UiSurfaceActionMessage: Codable, Sendable {
 public typealias UiSurfaceUndoMessage = UiSurfaceUndoRequest
 
 extension UiSurfaceUndoRequest {
-    public init(sessionId: String, surfaceId: String) {
-        self.init(type: "ui_surface_undo", sessionId: sessionId, surfaceId: surfaceId)
+    public init(conversationId: String, surfaceId: String) {
+        self.init(type: "ui_surface_undo", conversationId: conversationId, surfaceId: surfaceId)
     }
 }
 
@@ -454,8 +454,8 @@ extension ConversationListRequest {
 public typealias RegenerateMessage = RegenerateRequest
 
 extension RegenerateRequest {
-    public init(sessionId: String) {
-        self.init(type: "regenerate", sessionId: sessionId)
+    public init(conversationId: String) {
+        self.init(type: "regenerate", conversationId: conversationId)
     }
 }
 
@@ -464,10 +464,10 @@ extension RegenerateRequest {
 public typealias HistoryRequestMessage = HistoryRequest
 
 extension HistoryRequest {
-    public init(sessionId: String, limit: Int? = nil, beforeTimestamp: Double? = nil, mode: String? = nil, maxTextChars: Int? = nil, maxToolResultChars: Int? = nil) {
+    public init(conversationId: String, limit: Int? = nil, beforeTimestamp: Double? = nil, mode: String? = nil, maxTextChars: Int? = nil, maxToolResultChars: Int? = nil) {
         self.init(
             type: "history_request",
-            sessionId: sessionId,
+            conversationId: conversationId,
             limit: limit.map { Double($0) },
             beforeTimestamp: beforeTimestamp,
             mode: mode,
@@ -655,7 +655,7 @@ public typealias AssistantTextDeltaMessage = AssistantTextDelta
 
 extension AssistantTextDelta {
     public init(text: String, conversationId: String? = nil) {
-        self.init(type: "assistant_text_delta", text: text, sessionId: conversationId)
+        self.init(type: "assistant_text_delta", text: text, conversationId: conversationId)
     }
 }
 
@@ -674,7 +674,7 @@ public typealias MessageCompleteMessage = MessageComplete
 
 extension MessageComplete {
     public init(conversationId: String? = nil, attachments: [UserMessageAttachment]? = nil, messageId: String? = nil) {
-        self.init(type: "message_complete", sessionId: conversationId, attachments: attachments, messageId: messageId)
+        self.init(type: "message_complete", conversationId: conversationId, attachments: attachments, messageId: messageId)
     }
 }
 
@@ -764,7 +764,7 @@ public typealias OpenUrlMessage = OpenUrl
 /// Surface show command from daemon.
 /// Wire type: `"ui_surface_show"`
 public struct UiSurfaceShowMessage: Decodable, Sendable {
-    public let sessionId: String?
+    public let conversationId: String?
     public let surfaceId: String
     public let surfaceType: String
     public let title: String?
@@ -775,8 +775,8 @@ public struct UiSurfaceShowMessage: Decodable, Sendable {
     /// The message ID that this surface belongs to (for history loading).
     public let messageId: String?
 
-    public init(sessionId: String?, surfaceId: String, surfaceType: String, title: String?, data: AnyCodable, actions: [SurfaceActionData]?, display: String?, messageId: String?) {
-        self.sessionId = sessionId
+    public init(conversationId: String?, surfaceId: String, surfaceType: String, title: String?, data: AnyCodable, actions: [SurfaceActionData]?, display: String?, messageId: String?) {
+        self.conversationId = conversationId
         self.surfaceId = surfaceId
         self.surfaceType = surfaceType
         self.title = title
@@ -794,7 +794,7 @@ public typealias SurfaceActionData = SurfaceAction
 /// Surface update command from daemon.
 /// Wire type: `"ui_surface_update"`
 public struct UiSurfaceUpdateMessage: Decodable, Sendable {
-    public let sessionId: String?
+    public let conversationId: String?
     public let surfaceId: String
     public let data: AnyCodable
 }
@@ -805,7 +805,7 @@ public typealias UiSurfaceDismissMessage = UiSurfaceDismiss
 
 /// Surface completion message from daemon, sent when user interaction completes a surface.
 public struct UiSurfaceCompleteMessage: Decodable, Sendable {
-    public let sessionId: String?
+    public let conversationId: String?
     public let surfaceId: String
     public let summary: String
     public let submittedData: [String: AnyCodable]?
@@ -825,13 +825,13 @@ public typealias DocumentListResponseMessage = DocumentListResponse
 public typealias UndoCompleteMessage = UndoComplete
 
 /// Confirms generation was cancelled.
-/// Kept hand-maintained — the Swift type includes `sessionId` for session
+/// Kept hand-maintained — the Swift type includes `conversationId` for session
 /// filtering, which the TS contract does not define for this message type.
 public struct GenerationCancelledMessage: Decodable, Sendable {
-    public let sessionId: String?
+    public let conversationId: String?
 
     public init(conversationId: String?) {
-        self.sessionId = conversationId
+        self.conversationId = conversationId
     }
 }
 
@@ -840,8 +840,8 @@ public struct GenerationCancelledMessage: Decodable, Sendable {
 public typealias GenerationHandoffMessage = GenerationHandoff
 
 extension GenerationHandoff {
-    public init(sessionId: String, requestId: String?, queuedCount: Int, attachments: [UserMessageAttachment]? = nil, messageId: String? = nil) {
-        self.init(type: "generation_handoff", sessionId: sessionId, requestId: requestId, queuedCount: queuedCount, attachments: attachments, messageId: messageId)
+    public init(conversationId: String, requestId: String?, queuedCount: Int, attachments: [UserMessageAttachment]? = nil, messageId: String? = nil) {
+        self.init(type: "generation_handoff", conversationId: conversationId, requestId: requestId, queuedCount: queuedCount, attachments: attachments, messageId: messageId)
     }
 }
 
@@ -850,8 +850,8 @@ extension GenerationHandoff {
 public typealias MessageQueuedMessage = MessageQueued
 
 extension MessageQueued {
-    public init(sessionId: String, requestId: String, position: Int) {
-        self.init(type: "message_queued", sessionId: sessionId, requestId: requestId, position: position)
+    public init(conversationId: String, requestId: String, position: Int) {
+        self.init(type: "message_queued", conversationId: conversationId, requestId: requestId, position: position)
     }
 }
 
@@ -860,8 +860,8 @@ extension MessageQueued {
 public typealias MessageDequeuedMessage = MessageDequeued
 
 extension MessageDequeued {
-    public init(sessionId: String, requestId: String) {
-        self.init(type: "message_dequeued", sessionId: sessionId, requestId: requestId)
+    public init(conversationId: String, requestId: String) {
+        self.init(type: "message_dequeued", conversationId: conversationId, requestId: requestId)
     }
 }
 
@@ -871,8 +871,8 @@ extension MessageDequeued {
 public typealias MessageRequestCompleteMessage = MessageRequestComplete
 
 extension MessageRequestComplete {
-    public init(sessionId: String, requestId: String, runStillActive: Bool? = nil) {
-        self.init(type: "message_request_complete", sessionId: sessionId, requestId: requestId, runStillActive: runStillActive)
+    public init(conversationId: String, requestId: String, runStillActive: Bool? = nil) {
+        self.init(type: "message_request_complete", conversationId: conversationId, requestId: requestId, runStillActive: runStillActive)
     }
 }
 
@@ -881,8 +881,8 @@ extension MessageRequestComplete {
 public typealias MessageQueuedDeletedMessage = MessageQueuedDeleted
 
 extension MessageQueuedDeleted {
-    public init(sessionId: String, requestId: String) {
-        self.init(type: "message_queued_deleted", sessionId: sessionId, requestId: requestId)
+    public init(conversationId: String, requestId: String) {
+        self.init(type: "message_queued_deleted", conversationId: conversationId, requestId: requestId)
     }
 }
 
@@ -891,8 +891,8 @@ extension MessageQueuedDeleted {
 public typealias DeleteQueuedMessageMessage = DeleteQueuedMessage
 
 extension DeleteQueuedMessage {
-    public init(sessionId: String, requestId: String) {
-        self.init(type: "delete_queued_message", sessionId: sessionId, requestId: requestId)
+    public init(conversationId: String, requestId: String) {
+        self.init(type: "delete_queued_message", conversationId: conversationId, requestId: requestId)
     }
 }
 
@@ -1227,7 +1227,7 @@ public typealias SignBundlePayloadMessage = SignBundlePayloadRequest
 /// Wire type: `"trace_event"`
 public struct TraceEventMessage: Decodable, Sendable {
     public let eventId: String
-    public let sessionId: String
+    public let conversationId: String
     public let requestId: String?
     public let timestampMs: Double
     public let sequence: Int
@@ -1362,7 +1362,7 @@ public typealias ConfirmationStateChangedMessage = ConfirmationStateChanged
 public struct HostBashRequest: Decodable, Sendable {
     public let type: String
     public let requestId: String
-    public let sessionId: String
+    public let conversationId: String
     public let command: String
     public let workingDir: String?
     public let timeoutSeconds: Double?
@@ -1372,7 +1372,7 @@ public struct HostBashRequest: Decodable, Sendable {
     private enum CodingKeys: String, CodingKey {
         case type
         case requestId
-        case sessionId
+        case conversationId
         case command
         case workingDir = "working_dir"
         case timeoutSeconds = "timeout_seconds"
@@ -1413,7 +1413,7 @@ public struct HostBashResultPayload: Codable, Sendable {
 public struct HostFileRequest: Decodable, Sendable {
     public let type: String
     public let requestId: String
-    public let sessionId: String
+    public let conversationId: String
     public let operation: String  // "read", "write", "edit"
     public let path: String
     // Read fields
@@ -1427,7 +1427,7 @@ public struct HostFileRequest: Decodable, Sendable {
     public let replaceAll: Bool?
 
     private enum CodingKeys: String, CodingKey {
-        case type, requestId, sessionId, operation, path
+        case type, requestId, conversationId, operation, path
         case offset, limit, content
         case oldString = "old_string"
         case newString = "new_string"
@@ -1456,7 +1456,7 @@ public struct HostFileResultPayload: Codable, Sendable {
 public struct HostCuRequest: Decodable, Sendable {
     public let type: String
     public let requestId: String
-    public let sessionId: String
+    public let conversationId: String
     public let toolName: String
     public let input: [String: AnyCodable]
     public let stepNumber: Int
@@ -1465,7 +1465,7 @@ public struct HostCuRequest: Decodable, Sendable {
     private enum CodingKeys: String, CodingKey {
         case type
         case requestId
-        case sessionId
+        case conversationId
         case toolName
         case input
         case stepNumber
@@ -1542,8 +1542,8 @@ public typealias AssistantActivityStateMessage = AssistantActivityState
 public typealias SuggestionRequestMessage = SuggestionRequest
 
 extension SuggestionRequest {
-    public init(sessionId: String, requestId: String) {
-        self.init(type: "suggestion_request", sessionId: sessionId, requestId: requestId)
+    public init(conversationId: String, requestId: String) {
+        self.init(type: "suggestion_request", conversationId: conversationId, requestId: requestId)
     }
 }
 
@@ -1911,7 +1911,7 @@ extension ChannelVerificationSessionRequest {
     public init(
         action: String,
         channel: String? = nil,
-        sessionId: String? = nil,
+        conversationId: String? = nil,
         rebind: Bool? = nil,
         destination: String? = nil,
         originConversationId: String? = nil,
@@ -1922,7 +1922,7 @@ extension ChannelVerificationSessionRequest {
             type: "channel_verification_session",
             action: action,
             channel: channel,
-            sessionId: sessionId,
+            conversationId: conversationId,
             rebind: rebind,
             destination: destination,
             originConversationId: originConversationId,
@@ -2053,11 +2053,11 @@ public struct SubagentDetailRequestMessage: Encodable, Sendable {
 public struct SubagentAbortMessage: Encodable, Sendable {
     public let type: String = "subagent_abort"
     public let subagentId: String
-    public let sessionId: String?
+    public let conversationId: String?
 
-    public init(subagentId: String, sessionId: String? = nil) {
+    public init(subagentId: String, conversationId: String? = nil) {
         self.subagentId = subagentId
-        self.sessionId = sessionId
+        self.conversationId = conversationId
     }
 }
 

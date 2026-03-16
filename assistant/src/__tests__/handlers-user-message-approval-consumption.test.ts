@@ -179,7 +179,7 @@ function createContext(session: TestSession): {
 } {
   const sent: ServerMessage[] = [];
   const ctx: HandlerContext = {
-    sessions: new Map(),
+    conversations: new Map(),
     sharedRequestTimestamps: [],
     debounceTimers: new DebouncerMap({ defaultDelayMs: 100 }),
     suppressConfigReload: false,
@@ -189,9 +189,9 @@ function createContext(session: TestSession): {
       sent.push(msg);
     },
     broadcast: () => {},
-    clearAllSessions: () => 0,
-    getOrCreateSession: async () => session as any,
-    touchSession: () => {},
+    clearAllConversations: () => 0,
+    getOrCreateConversation: async () => session as any,
+    touchConversation: () => {},
   };
   return { ctx, sent };
 }
@@ -243,7 +243,7 @@ describe("handleConfirmationResponse canonical status sync", () => {
       handleConfirmationResponse: mock(() => {}),
     };
     const { ctx } = createContext(makeSession());
-    ctx.sessions.set("conv-1", session as any);
+    ctx.conversations.set("conv-1", session as any);
 
     const msg: ConfirmationResponse = {
       type: "confirmation_response",

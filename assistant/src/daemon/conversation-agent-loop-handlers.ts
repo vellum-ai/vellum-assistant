@@ -26,7 +26,7 @@ import {
   cleanAssistantContent,
   drainDirectiveDisplayBuffer,
 } from "./assistant-attachments.js";
-import type { AgentLoopSessionContext } from "./conversation-agent-loop.js";
+import type { AgentLoopConversationContext } from "./conversation-agent-loop.js";
 import {
   buildSessionErrorMessage,
   classifySessionError,
@@ -96,7 +96,7 @@ export interface EventHandlerState {
 
 /** Immutable context shared across event handlers within a single agent loop run. */
 export interface EventHandlerDeps {
-  readonly ctx: AgentLoopSessionContext;
+  readonly ctx: AgentLoopConversationContext;
   readonly onEvent: (msg: ServerMessage) => void;
   readonly reqId: string;
   readonly isFirstMessage: boolean;
@@ -244,7 +244,7 @@ export function handleTextDelta(
     deps.onEvent({
       type: "assistant_text_delta",
       text: drained.emitText,
-      sessionId: deps.ctx.conversationId,
+      conversationId: deps.ctx.conversationId,
     });
     if (deps.shouldGenerateTitle) state.firstAssistantText += drained.emitText;
   }
@@ -303,7 +303,7 @@ export function handleToolUse(
     type: "tool_use_start",
     toolName: event.name,
     input: event.input,
-    sessionId: deps.ctx.conversationId,
+    conversationId: deps.ctx.conversationId,
     toolUseId: event.id,
   });
 }
@@ -317,7 +317,7 @@ export function handleToolUsePreviewStart(
     type: "tool_use_preview_start",
     toolUseId: event.toolUseId,
     toolName: event.toolName,
-    sessionId: deps.ctx.conversationId,
+    conversationId: deps.ctx.conversationId,
   });
   const statusText = `Preparing ${friendlyToolName(event.toolName)}...`;
   deps.ctx.emitActivityState(
@@ -386,7 +386,7 @@ export function handleToolOutputChunk(
     deps.onEvent({
       type: "tool_output_chunk",
       chunk: event.chunk,
-      sessionId: deps.ctx.conversationId,
+      conversationId: deps.ctx.conversationId,
       toolUseId: event.toolUseId,
       subType: structured.subType,
       subToolName: structured.subToolName,
@@ -398,7 +398,7 @@ export function handleToolOutputChunk(
     deps.onEvent({
       type: "tool_output_chunk",
       chunk: event.chunk,
-      sessionId: deps.ctx.conversationId,
+      conversationId: deps.ctx.conversationId,
       toolUseId: event.toolUseId,
     });
   }
@@ -422,7 +422,7 @@ export function handleInputJsonDelta(
     type: "tool_input_delta",
     toolName: event.toolName,
     content,
-    sessionId: deps.ctx.conversationId,
+    conversationId: deps.ctx.conversationId,
     toolUseId: event.toolUseId,
   });
 }
@@ -446,7 +446,7 @@ export function handleToolResult(
     isError: event.isError,
     diff: event.diff,
     status: event.status,
-    sessionId: deps.ctx.conversationId,
+    conversationId: deps.ctx.conversationId,
     imageData: imageBlock?.source.data,
     toolUseId: event.toolUseId,
   });
@@ -636,7 +636,7 @@ export async function handleMessageComplete(
     deps.onEvent({
       type: "assistant_text_delta",
       text: state.pendingDirectiveDisplayBuffer,
-      sessionId: deps.ctx.conversationId,
+      conversationId: deps.ctx.conversationId,
     });
     if (deps.shouldGenerateTitle)
       state.firstAssistantText += state.pendingDirectiveDisplayBuffer;
@@ -849,7 +849,7 @@ export async function dispatchAgentEvent(
         type: "tool_use_start",
         toolName: event.name,
         input: event.input,
-        sessionId: deps.ctx.conversationId,
+        conversationId: deps.ctx.conversationId,
         toolUseId: event.toolUseId,
       });
       break;
@@ -866,7 +866,7 @@ export async function dispatchAgentEvent(
         toolName: "",
         result: "",
         isError: event.isError,
-        sessionId: deps.ctx.conversationId,
+        conversationId: deps.ctx.conversationId,
         toolUseId: event.toolUseId,
       });
       break;

@@ -109,7 +109,6 @@ function makeTempDir(): string {
 function makeToolContext(workingDir: string, signal?: AbortSignal) {
   return {
     workingDir,
-    sessionId: "test-session",
     conversationId: "test-conv",
     trustClass: "guardian" as const,
     signal,

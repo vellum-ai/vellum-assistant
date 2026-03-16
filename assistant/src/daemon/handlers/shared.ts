@@ -7,7 +7,7 @@ import type { AuthContext } from "../../runtime/auth/types.js";
 import type { DebouncerMap } from "../../util/debounce.js";
 import { getLogger } from "../../util/logger.js";
 import { estimateBase64Bytes } from "../assistant-attachments.js";
-import { Session } from "../conversation.js";
+import { Conversation } from "../conversation.js";
 import type { TrustContext } from "../conversation-runtime-assembly.js";
 import type {
   ConversationTransportMetadata,
@@ -141,7 +141,7 @@ export interface ConversationCreateOptions {
  * Keeps handlers decoupled from the server class itself.
  */
 export interface HandlerContext {
-  sessions: Map<string, Session>;
+  conversations: Map<string, Conversation>;
   sharedRequestTimestamps: number[];
   debounceTimers: DebouncerMap;
   suppressConfigReload: boolean;
@@ -149,13 +149,13 @@ export interface HandlerContext {
   updateConfigFingerprint(): void;
   send(msg: ServerMessage): void;
   broadcast(msg: ServerMessage): void;
-  clearAllSessions(): number;
-  getOrCreateSession(
+  clearAllConversations(): number;
+  getOrCreateConversation(
     conversationId: string,
     options?: ConversationCreateOptions,
-  ): Promise<Session>;
+  ): Promise<Conversation>;
   /** Refresh the eviction timestamp for a session that was accessed directly. */
-  touchSession(sessionId: string): void;
+  touchConversation(sessionId: string): void;
   /** Optional heartbeat service reference for "Run Now" support. */
   heartbeatService?: HeartbeatService;
 }

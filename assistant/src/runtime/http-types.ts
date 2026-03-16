@@ -3,7 +3,7 @@
  */
 import type { ChannelId, InterfaceId } from "../channels/types.js";
 import type { CesClient } from "../credential-execution/client.js";
-import type { Session } from "../daemon/conversation.js";
+import type { Conversation } from "../daemon/conversation.js";
 import type { TrustContext } from "../daemon/conversation-runtime-assembly.js";
 import type { SkillOperationContext } from "../daemon/handlers/skills.js";
 import type { ServerMessage } from "../daemon/message-protocol.js";
@@ -150,7 +150,7 @@ export type MessageProcessor = (
  * Hub publishing wires outbound events to the SSE stream.
  */
 export interface SendMessageDeps {
-  getOrCreateSession: (conversationId: string) => Promise<Session>;
+  getOrCreateConversation: (conversationId: string) => Promise<Conversation>;
   assistantEventHub: AssistantEventHub;
   resolveAttachments: (attachmentIds: string[]) => Array<{
     id: string;

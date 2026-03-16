@@ -1,7 +1,7 @@
 /**
- * Queue types and data structure extracted from Session.
+ * Queue types and data structure extracted from Conversation.
  *
- * Session uses MessageQueue to manage the message backlog while an
+ * Conversation uses MessageQueue to manage the message backlog while an
  * agent loop is in flight.
  */
 
@@ -59,8 +59,8 @@ export interface QueuePolicy {
 /**
  * Typed wrapper around the queued-message array.
  *
- * Session owns one instance; the wrapper handles iteration
- * so the rest of Session doesn't touch the raw array.
+ * Conversation owns one instance; the wrapper handles iteration
+ * so the rest of Conversation doesn't touch the raw array.
  *
  * A byte budget caps total memory held by queued messages so a
  * high-rate sender cannot exhaust the process.
@@ -80,7 +80,10 @@ export class MessageQueue {
    */
   push(item: QueuedMessage): boolean {
     const itemBytes = estimateItemBytes(item);
-    if (this.currentBytes + itemBytes > this.maxBytes && this.items.length > 0) {
+    if (
+      this.currentBytes + itemBytes > this.maxBytes &&
+      this.items.length > 0
+    ) {
       log.warn(
         {
           requestId: item.requestId,

@@ -78,7 +78,6 @@ describe("one-time send override", () => {
   test("transient_send is rejected when allowOneTimeSend is disabled", async () => {
     const context = {
       workingDir: "/tmp",
-      sessionId: "s1",
       conversationId: "c1",
       trustClass: "guardian" as const,
       requestSecret: async () => ({
@@ -101,7 +100,6 @@ describe("one-time send override", () => {
     mockConfig.secretDetection.allowOneTimeSend = true;
     const context = {
       workingDir: "/tmp",
-      sessionId: "s1",
       conversationId: "c1",
       trustClass: "guardian" as const,
       requestSecret: async () => ({
@@ -124,7 +122,6 @@ describe("one-time send override", () => {
     mockConfig.secretDetection.allowOneTimeSend = true;
     const context = {
       workingDir: "/tmp",
-      sessionId: "s1",
       conversationId: "c1",
       trustClass: "guardian" as const,
       requestSecret: async () => ({ value: "v1", delivery: "store" as const }),
@@ -144,7 +141,6 @@ describe("one-time send override", () => {
     const secretVal = ["nv", "sh", "1"].join("");
     const context = {
       workingDir: "/tmp",
-      sessionId: "s1",
       conversationId: "c1",
       trustClass: "guardian" as const,
       requestSecret: async () => ({

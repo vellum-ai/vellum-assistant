@@ -659,7 +659,7 @@ public final class ChatViewModel: ObservableObject {
               let conversationId = conversationId,
               let daemonMessageId = messages[idx].daemonMessageId else { return }
         do {
-            try daemonClient.send(MessageContentRequest(type: "message_content_request", sessionId: conversationId, messageId: daemonMessageId))
+            try daemonClient.send(MessageContentRequest(type: "message_content_request", conversationId: conversationId, messageId: daemonMessageId))
         } catch {
             log.error("Failed to send message_content_request: \(error)")
         }
@@ -1313,7 +1313,7 @@ public final class ChatViewModel: ObservableObject {
             // "pending" indicator and is flushed automatically on reconnect.
             if queuedMessageId == nil {
                 log.info("Buffering message in offline queue (session: \(conversationId))")
-                OfflineMessageQueue.shared.enqueue(sessionId: conversationId, text: text, displayText: displayText, attachments: attachments)
+                OfflineMessageQueue.shared.enqueue(conversationId: conversationId, text: text, displayText: displayText, attachments: attachments)
                 // Mark the corresponding chat message as offline-pending so the UI
                 // can show a visual indicator. Find the last user message with this
                 // text — it is the one just appended by sendMessage().
@@ -1363,7 +1363,7 @@ public final class ChatViewModel: ObservableObject {
         do {
             let pttMeta = Self.currentPttMetadata()
             try daemonClient.send(UserMessageMessage(
-                sessionId: conversationId,
+                conversationId: conversationId,
                 content: text,
                 attachments: attachments,
                 activeSurfaceId: activeSurfaceId,
@@ -1420,7 +1420,7 @@ public final class ChatViewModel: ObservableObject {
 
         // Read the queue contents without clearing. Filter for this session only;
         // other sessions' messages stay in the persistent store for their own VMs.
-        let mine = queue.allMessages.filter { $0.sessionId == currentConversationId }
+        let mine = queue.allMessages.filter { $0.conversationId == currentConversationId }
         guard !mine.isEmpty else { return }
 
         log.info("Flushing \(mine.count) offline-queued message(s) for session \(currentConversationId)")
@@ -1555,7 +1555,7 @@ public final class ChatViewModel: ObservableObject {
 
         guard let conversationId else { return }
         let msg = UiSurfaceActionMessage(
-            sessionId: conversationId,
+            conversationId: conversationId,
             surfaceId: surfaceId,
             actionId: actionId,
             data: data
@@ -1570,9 +1570,9 @@ public final class ChatViewModel: ObservableObject {
     // MARK: - Surface Refetch
 
     /// Lazily created manager that serializes surface content fetches.
-    private lazy var surfaceRefetchManager = SurfaceRefetchManager { [weak self] surfaceId, sessionId in
+    private lazy var surfaceRefetchManager = SurfaceRefetchManager { [weak self] surfaceId, conversationId in
         guard let self else { return nil }
-        return await self.daemonClient.fetchSurfaceData(surfaceId: surfaceId, sessionId: sessionId)
+        return await self.daemonClient.fetchSurfaceData(surfaceId: surfaceId, conversationId: conversationId)
     }
 
     /// In-flight refetch tasks, keyed by surface ID for cancellation.
@@ -1584,7 +1584,7 @@ public final class ChatViewModel: ObservableObject {
         refetchTasks[surfaceId] = Task { @MainActor [weak self] in
             defer { self?.refetchTasks.removeValue(forKey: surfaceId) }
             guard let self else { return }
-            let result = await self.surfaceRefetchManager.enqueue(surfaceId: surfaceId, sessionId: conversationId)
+            let result = await self.surfaceRefetchManager.enqueue(surfaceId: surfaceId, conversationId: conversationId)
             for msgIndex in self.messages.indices {
                 if let surfIndex = self.messages[msgIndex].inlineSurfaces.firstIndex(where: { $0.id == surfaceId }) {
                     if let data = result.data {
@@ -1831,7 +1831,7 @@ public final class ChatViewModel: ObservableObject {
         }
 
         do {
-            try daemonClient.send(RegenerateMessage(sessionId: conversationId))
+            try daemonClient.send(RegenerateMessage(conversationId: conversationId))
         } catch {
             log.error("Failed to send regenerate: \(error.localizedDescription)")
             isSending = false
@@ -1845,7 +1845,7 @@ public final class ChatViewModel: ObservableObject {
         guard let conversationId, let surfaceId = activeSurfaceId else { return }
         guard surfaceUndoCount > 0 else { return }
         do {
-            try daemonClient.send(UiSurfaceUndoMessage(sessionId: conversationId, surfaceId: surfaceId))
+            try daemonClient.send(UiSurfaceUndoMessage(conversationId: conversationId, surfaceId: surfaceId))
         } catch {
             log.error("Failed to send surface undo: \(error.localizedDescription)")
         }
@@ -1866,7 +1866,7 @@ public final class ChatViewModel: ObservableObject {
         }
 
         do {
-            try daemonClient.send(DeleteQueuedMessageMessage(sessionId: conversationId, requestId: entry.key))
+            try daemonClient.send(DeleteQueuedMessageMessage(conversationId: conversationId, requestId: entry.key))
         } catch {
             log.error("Failed to send delete_queued_message: \(error.localizedDescription)")
         }
@@ -2100,7 +2100,7 @@ public final class ChatViewModel: ObservableObject {
         do {
             let pttMeta = Self.currentPttMetadata()
             try daemonClient.send(UserMessageMessage(
-                sessionId: conversationId,
+                conversationId: conversationId,
                 content: text,
                 attachments: attachments,
                 activeSurfaceId: surfaceId,
@@ -2346,7 +2346,7 @@ public final class ChatViewModel: ObservableObject {
 
         do {
             try daemonClient.send(SuggestionRequestMessage(
-                sessionId: conversationId,
+                conversationId: conversationId,
                 requestId: requestId
             ))
         } catch {
@@ -2457,7 +2457,7 @@ public final class ChatViewModel: ObservableObject {
             if let historySurfaces = item.surfaces {
                 for surf in historySurfaces {
                     if let conversationId = self.conversationId,
-                       let surface = Surface.from(surf, sessionId: conversationId) {
+                       let surface = Surface.from(surf, conversationId: conversationId) {
                         // Build a lightweight SurfaceRef so the card remains
                         // clickable after the app restarts (history restore).
                         // The full UiSurfaceShowMessage is not retained to avoid
@@ -2472,7 +2472,7 @@ public final class ChatViewModel: ObservableObject {
                         }()
                         let ref = SurfaceRef(
                             surfaceId: surf.surfaceId,
-                            sessionId: conversationId,
+                            conversationId: conversationId,
                             surfaceType: surf.surfaceType,
                             title: surf.title,
                             appId: appId

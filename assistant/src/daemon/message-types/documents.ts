@@ -4,7 +4,7 @@
 
 export interface DocumentEditorShow {
   type: "document_editor_show";
-  sessionId: string;
+  conversationId: string;
   surfaceId: string;
   title: string;
   initialContent: string;
@@ -12,7 +12,7 @@ export interface DocumentEditorShow {
 
 export interface DocumentEditorUpdate {
   type: "document_editor_update";
-  sessionId: string;
+  conversationId: string;
   surfaceId: string;
   markdown: string;
   mode: string;

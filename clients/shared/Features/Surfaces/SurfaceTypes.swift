@@ -452,15 +452,15 @@ public struct SurfaceActionButton: Identifiable, Equatable, Sendable {
 
 public struct Surface: Identifiable, Sendable {
     public let id: String
-    public let sessionId: String?
+    public let conversationId: String?
     public let type: SurfaceType
     public let title: String?
     public let data: SurfaceData
     public let actions: [SurfaceActionButton]
 
-    public init(id: String, sessionId: String?, type: SurfaceType, title: String? = nil, data: SurfaceData, actions: [SurfaceActionButton]) {
+    public init(id: String, conversationId: String?, type: SurfaceType, title: String? = nil, data: SurfaceData, actions: [SurfaceActionButton]) {
         self.id = id
-        self.sessionId = sessionId
+        self.conversationId = conversationId
         self.type = type
         self.title = title
         self.data = data
@@ -504,7 +504,7 @@ public extension Surface {
 
         return Surface(
             id: message.surfaceId,
-            sessionId: message.sessionId,
+            conversationId: message.conversationId,
             type: surfaceType,
             title: message.title,
             data: surfaceData,
@@ -514,7 +514,7 @@ public extension Surface {
 
     /// Create a Surface from a history response surface.
     /// Used when populating messages from history.
-    static func from(_ historySurface: HistoryResponseSurface, sessionId: String?) -> Surface? {
+    static func from(_ historySurface: HistoryResponseSurface, conversationId: String?) -> Surface? {
         guard let surfaceType = SurfaceType(rawValue: historySurface.surfaceType) else {
             return nil
         }
@@ -543,7 +543,7 @@ public extension Surface {
 
         return Surface(
             id: historySurface.surfaceId,
-            sessionId: sessionId,
+            conversationId: conversationId,
             type: surfaceType,
             title: historySurface.title,
             data: surfaceData,
@@ -562,7 +562,7 @@ public extension Surface {
         }
         return Surface(
             id: self.id,
-            sessionId: self.sessionId,
+            conversationId: self.conversationId,
             type: self.type,
             title: self.title,
             data: mergedData,

@@ -236,7 +236,7 @@ describe("WorkspaceGitService", () => {
 
       writeFileSync(join(testDir, "test.txt"), "content");
       await service.commitChanges("Add file", {
-        sessionId: "session-123",
+        conversationId: "session-123",
         timestamp: 1234567890,
         author: "user@example.com",
       });
@@ -247,7 +247,7 @@ describe("WorkspaceGitService", () => {
       });
 
       expect(message).toContain("Add file");
-      expect(message).toContain('sessionId: "session-123"');
+      expect(message).toContain('conversationId: "session-123"');
       expect(message).toContain("timestamp: 1234567890");
       expect(message).toContain('author: "user@example.com"');
     });

@@ -142,7 +142,6 @@ async function executeSkillLoad(
 
   const result = await tool.execute(input, {
     workingDir: "/tmp",
-    sessionId: "session-1",
     conversationId: "conversation-1",
     trustClass: "guardian",
   });

@@ -53,7 +53,7 @@ export function buildAuthContext(claims: TokenClaims): BuildAuthContextResult {
     principalType: subResult.principalType,
     assistantId,
     actorPrincipalId: subResult.actorPrincipalId,
-    sessionId: subResult.sessionId,
+    sessionId: subResult.conversationId,
     scopeProfile: claims.scope_profile,
     scopes,
     policyEpoch: claims.policy_epoch,

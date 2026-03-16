@@ -16,7 +16,7 @@ public final class WatchSession: ObservableObject {
     @Published public var currentApp: String = ""
 
     public let watchId: String
-    public let sessionId: String
+    public let conversationId: String
     public let durationSeconds: Int
     public let intervalSeconds: Int
     public let isLearnMode: Bool
@@ -29,9 +29,9 @@ public final class WatchSession: ObservableObject {
     private let ocr = ScreenOCR()
     private var previousOcrText: String = ""
 
-    public init(watchId: String, sessionId: String, durationSeconds: Int, intervalSeconds: Int, isLearnMode: Bool = false) {
+    public init(watchId: String, conversationId: String, durationSeconds: Int, intervalSeconds: Int, isLearnMode: Bool = false) {
         self.watchId = watchId
-        self.sessionId = sessionId
+        self.conversationId = conversationId
         self.durationSeconds = durationSeconds
         self.intervalSeconds = intervalSeconds
         self.isLearnMode = isLearnMode
@@ -130,7 +130,7 @@ public final class WatchSession: ObservableObject {
             // Send watch_observation to daemon
             let observation = WatchObservationMessage(
                 watchId: watchId,
-                sessionId: sessionId,
+                conversationId: conversationId,
                 ocrText: screenContent,
                 appName: appName,
                 windowTitle: windowTitle,

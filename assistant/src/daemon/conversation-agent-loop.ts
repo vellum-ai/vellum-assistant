@@ -1,10 +1,10 @@
 /**
- * Agent loop execution extracted from Session.runAgentLoop.
+ * Agent loop execution extracted from Conversation.runAgentLoop.
  *
  * This module contains the core agent loop orchestration: pre-flight
  * setup, event handling, retry logic, history reconstruction, and
- * completion event emission.  The Session class delegates its
- * runAgentLoop method here via the AgentLoopSessionContext interface.
+ * completion event emission.  The Conversation class delegates its
+ * runAgentLoop method here via the AgentLoopConversationContext interface.
  */
 
 import { v4 as uuid } from "uuid";
@@ -28,8 +28,8 @@ import type { ContextWindowManager } from "../context/window-manager.js";
 import type { ToolProfiler } from "../events/tool-profiling-listener.js";
 import { getHookManager } from "../hooks/manager.js";
 import {
-  clearSentrySessionContext,
-  setSentrySessionContext,
+  clearSentryConversationContext,
+  setSentryConversationContext,
 } from "../instrument.js";
 import { commitAppTurnChanges } from "../memory/app-git-service.js";
 import { getApp, listAppFiles } from "../memory/app-store.js";
@@ -187,7 +187,7 @@ type GitServiceInitializer = {
 
 // ── Context Interface ────────────────────────────────────────────────
 
-export interface AgentLoopSessionContext {
+export interface AgentLoopConversationContext {
   readonly conversationId: string;
   messages: Message[];
   processing: boolean;
@@ -287,7 +287,7 @@ export interface AgentLoopSessionContext {
   ): void;
 
   /**
-   * Optional callback invoked by the Session when a confirmation state changes.
+   * Optional callback invoked by the Conversation when a confirmation state changes.
    * The agent loop registers this to track requestId → toolUseId mappings
    * and record confirmation outcomes for persistence.
    */
@@ -314,7 +314,7 @@ export interface AgentLoopSessionContext {
 // ── runAgentLoop ─────────────────────────────────────────────────────
 
 export async function runAgentLoopImpl(
-  ctx: AgentLoopSessionContext,
+  ctx: AgentLoopConversationContext,
   content: string,
   userMessageId: string,
   onEvent: (msg: ServerMessage) => void,
@@ -390,7 +390,7 @@ export async function runAgentLoopImpl(
   // Populate Sentry scope with session-specific tags so any exception
   // captured during this turn (e.g. inside agent/loop.ts) can be
   // filtered by conversation, assistant, or user in the dashboard.
-  setSentrySessionContext({
+  setSentryConversationContext({
     assistantId: ctx.assistantId ?? DAEMON_INTERNAL_ASSISTANT_ID,
     conversationId: ctx.conversationId,
     messageCount: ctx.messages.length,
@@ -410,7 +410,7 @@ export async function runAgentLoopImpl(
         if (entry.surfaceType === "dynamic_page") continue;
         onEvent({
           type: "ui_surface_complete",
-          sessionId: ctx.conversationId,
+          conversationId: ctx.conversationId,
           surfaceId,
           summary: "Dismissed",
         });
@@ -419,7 +419,7 @@ export async function runAgentLoopImpl(
     }
 
     const preMessageResult = await getHookManager().trigger("pre-message", {
-      sessionId: ctx.conversationId,
+      conversationId: ctx.conversationId,
       messagePreview: truncate(content, 200, ""),
     });
 
@@ -1322,7 +1322,7 @@ export async function runAgentLoopImpl(
             onEvent({
               type: "assistant_text_delta",
               text: denyText,
-              sessionId: ctx.conversationId,
+              conversationId: ctx.conversationId,
             });
             // Prevent the final error fallback from firing
             state.providerErrorUserMessage = null;
@@ -1512,7 +1512,7 @@ export async function runAgentLoopImpl(
       onEvent({
         type: "assistant_text_delta",
         text: state.providerErrorUserMessage,
-        sessionId: ctx.conversationId,
+        conversationId: ctx.conversationId,
       });
     }
 
@@ -1540,7 +1540,7 @@ export async function runAgentLoopImpl(
     );
 
     void getHookManager().trigger("post-message", {
-      sessionId: ctx.conversationId,
+      conversationId: ctx.conversationId,
     });
 
     // Fast-path: when the user cancelled, skip expensive post-loop work
@@ -1590,7 +1590,7 @@ export async function runAgentLoopImpl(
         onEvent({
           type: "assistant_text_delta",
           text: warningText,
-          sessionId: ctx.conversationId,
+          conversationId: ctx.conversationId,
         });
       }
 
@@ -1643,7 +1643,7 @@ export async function runAgentLoopImpl(
         );
         onEvent({
           type: "message_complete",
-          sessionId: ctx.conversationId,
+          conversationId: ctx.conversationId,
           ...(emittedAttachments.length > 0
             ? { attachments: emittedAttachments }
             : {}),
@@ -1696,7 +1696,7 @@ export async function runAgentLoopImpl(
       ctx.emitActivityState("idle", "error_terminal", "global", reqId);
       const message = err instanceof Error ? err.message : String(err);
       const errorClass = err instanceof Error ? err.constructor.name : "Error";
-      rlog.error({ err }, "Session processing error");
+      rlog.error({ err }, "Conversation processing error");
       const classified = classifySessionError(err, errorCtx);
       ctx.traceEmitter.emit("request_error", truncate(message, 200, ""), {
         requestId: reqId,
@@ -1714,7 +1714,7 @@ export async function runAgentLoopImpl(
         error: err instanceof Error ? err.name : "Error",
         message,
         stack: err instanceof Error ? err.stack : undefined,
-        sessionId: ctx.conversationId,
+        conversationId: ctx.conversationId,
       });
     }
   } finally {
@@ -1769,7 +1769,7 @@ export async function runAgentLoopImpl(
 
     // Clear session tags so they don't leak into unrelated error captures
     // (e.g. unhandledRejection from a different async chain).
-    clearSentrySessionContext();
+    clearSentryConversationContext();
   }
 }
 
@@ -1777,7 +1777,7 @@ export async function runAgentLoopImpl(
 
 function emitUsage(
   ctx: Pick<
-    AgentLoopSessionContext,
+    AgentLoopConversationContext,
     "conversationId" | "provider" | "usageStats"
   >,
   inputTokens: number,

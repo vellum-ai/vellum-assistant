@@ -31,7 +31,7 @@ export async function executeSubagentSpawn(
   try {
     const subagentId = await manager.spawn(
       {
-        parentSessionId: context.sessionId,
+        parentSessionId: context.conversationId,
         label,
         objective,
         context: extraContext,

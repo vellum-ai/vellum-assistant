@@ -21,7 +21,7 @@ interface SurfaceActionTarget {
 }
 
 export type SessionLookup = (
-  sessionId: string,
+  conversationId: string,
 ) => SurfaceActionTarget | undefined;
 
 export type SessionLookupBySurfaceId = (
@@ -31,21 +31,21 @@ export type SessionLookupBySurfaceId = (
 /**
  * POST /v1/surface-actions — handle a UI surface action.
  *
- * Body: { sessionId?, surfaceId, actionId, data? }
+ * Body: { conversationId?, surfaceId, actionId, data? }
  */
 export async function handleSurfaceAction(
   req: Request,
-  findSession: SessionLookup,
-  findSessionBySurfaceId?: SessionLookupBySurfaceId,
+  findConversation: SessionLookup,
+  findConversationBySurfaceId?: SessionLookupBySurfaceId,
 ): Promise<Response> {
   const body = (await req.json()) as {
-    sessionId?: string | null;
+    conversationId?: string | null;
     surfaceId?: string;
     actionId?: string;
     data?: Record<string, unknown>;
   };
 
-  const { sessionId, surfaceId, actionId, data } = body;
+  const { conversationId, surfaceId, actionId, data } = body;
 
   if (!surfaceId || typeof surfaceId !== "string") {
     return httpError("BAD_REQUEST", "surfaceId is required", 400);
@@ -53,13 +53,13 @@ export async function handleSurfaceAction(
   if (!actionId || typeof actionId !== "string") {
     return httpError("BAD_REQUEST", "actionId is required", 400);
   }
-  if (sessionId != null && typeof sessionId !== "string") {
-    return httpError("BAD_REQUEST", "sessionId must be a string", 400);
+  if (conversationId != null && typeof conversationId !== "string") {
+    return httpError("BAD_REQUEST", "conversationId must be a string", 400);
   }
 
-  const session = sessionId
-    ? findSession(sessionId)
-    : findSessionBySurfaceId?.(surfaceId);
+  const session = conversationId
+    ? findConversation(conversationId)
+    : findConversationBySurfaceId?.(surfaceId);
 
   if (!session) {
     return httpError("NOT_FOUND", "No active session found", 404);
@@ -68,13 +68,13 @@ export async function handleSurfaceAction(
   try {
     session.handleSurfaceAction(surfaceId, actionId, data);
     log.info(
-      { sessionId: sessionId ?? undefined, surfaceId, actionId },
+      { conversationId: conversationId ?? undefined, surfaceId, actionId },
       "Surface action handled via HTTP",
     );
     return Response.json({ ok: true });
   } catch (err) {
     log.error(
-      { err, sessionId: sessionId ?? undefined, surfaceId, actionId },
+      { err, conversationId: conversationId ?? undefined, surfaceId, actionId },
       "Failed to handle surface action via HTTP",
     );
     return httpError("INTERNAL_ERROR", "Failed to handle surface action", 500);
@@ -88,27 +88,27 @@ export async function handleSurfaceAction(
 /**
  * POST /v1/surfaces/:id/undo — undo the last surface action.
  *
- * Body: { sessionId }
+ * Body: { conversationId }
  */
 export async function handleSurfaceUndo(
   req: Request,
   surfaceId: string,
-  findSession: SessionLookup,
-  findSessionBySurfaceId?: SessionLookupBySurfaceId,
+  findConversation: SessionLookup,
+  findConversationBySurfaceId?: SessionLookupBySurfaceId,
 ): Promise<Response> {
   const body = (await req.json()) as {
-    sessionId?: string | null;
+    conversationId?: string | null;
   };
 
-  const { sessionId } = body;
+  const { conversationId } = body;
 
-  if (sessionId != null && typeof sessionId !== "string") {
-    return httpError("BAD_REQUEST", "sessionId must be a string", 400);
+  if (conversationId != null && typeof conversationId !== "string") {
+    return httpError("BAD_REQUEST", "conversationId must be a string", 400);
   }
 
-  const session = sessionId
-    ? findSession(sessionId)
-    : findSessionBySurfaceId?.(surfaceId);
+  const session = conversationId
+    ? findConversation(conversationId)
+    : findConversationBySurfaceId?.(surfaceId);
 
   if (!session) {
     return httpError("NOT_FOUND", "No active session found", 404);
@@ -124,11 +124,11 @@ export async function handleSurfaceUndo(
 
   try {
     session.handleSurfaceUndo(surfaceId);
-    log.info({ sessionId, surfaceId }, "Surface undo handled via HTTP");
+    log.info({ conversationId, surfaceId }, "Surface undo handled via HTTP");
     return Response.json({ ok: true });
   } catch (err) {
     log.error(
-      { err, sessionId, surfaceId },
+      { err, conversationId, surfaceId },
       "Failed to handle surface undo via HTTP",
     );
     return httpError("INTERNAL_ERROR", "Failed to handle surface undo", 500);
@@ -136,15 +136,15 @@ export async function handleSurfaceUndo(
 }
 
 export function surfaceActionRouteDefinitions(deps: {
-  findSession?: SessionLookup;
-  findSessionBySurfaceId?: SessionLookupBySurfaceId;
+  findConversation?: SessionLookup;
+  findConversationBySurfaceId?: SessionLookupBySurfaceId;
 }): RouteDefinition[] {
   return [
     {
       endpoint: "surface-actions",
       method: "POST",
       handler: async ({ req }) => {
-        if (!deps.findSession) {
+        if (!deps.findConversation) {
           return httpError(
             "NOT_IMPLEMENTED",
             "Surface actions not available",
@@ -153,8 +153,8 @@ export function surfaceActionRouteDefinitions(deps: {
         }
         return handleSurfaceAction(
           req,
-          deps.findSession,
-          deps.findSessionBySurfaceId,
+          deps.findConversation,
+          deps.findConversationBySurfaceId,
         );
       },
     },
@@ -162,7 +162,7 @@ export function surfaceActionRouteDefinitions(deps: {
       endpoint: "surfaces/:id/undo",
       method: "POST",
       handler: async ({ req, params }) => {
-        if (!deps.findSession) {
+        if (!deps.findConversation) {
           return httpError(
             "NOT_IMPLEMENTED",
             "Surface undo not available",
@@ -172,8 +172,8 @@ export function surfaceActionRouteDefinitions(deps: {
         return handleSurfaceUndo(
           req,
           params.id,
-          deps.findSession,
-          deps.findSessionBySurfaceId,
+          deps.findConversation,
+          deps.findConversationBySurfaceId,
         );
       },
     },

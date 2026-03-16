@@ -1,6 +1,6 @@
 /**
- * Session lifecycle methods extracted from Session: loadFromDb, abort,
- * and dispose. Each operates on a context interface so the Session class
+ * Conversation lifecycle methods extracted from Conversation: loadFromDb, abort,
+ * and dispose. Each operates on a context interface so the Conversation class
  * can delegate without exposing its full surface.
  */
 
@@ -204,7 +204,7 @@ export async function loadFromDb(ctx: LoadFromDbContext): Promise<void> {
 
 // ── abort ─────────────────────────────────────────────────────────────
 
-export function abortSession(ctx: AbortContext): void {
+export function abortConversation(ctx: AbortContext): void {
   if (ctx.processing) {
     log.info(
       { conversationId: ctx.conversationId },
@@ -229,9 +229,9 @@ export function abortSession(ctx: AbortContext): void {
 
 // ── dispose ──────────────────────────────────────────────────────────
 
-export function disposeSession(ctx: DisposeContext): void {
-  void getHookManager().trigger("session-end", {
-    sessionId: ctx.conversationId,
+export function disposeConversation(ctx: DisposeContext): void {
+  void getHookManager().trigger("conversation-end", {
+    conversationId: ctx.conversationId,
   });
   ctx.abort();
   unregisterCallNotifiers(ctx.conversationId);

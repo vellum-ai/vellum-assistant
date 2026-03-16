@@ -114,7 +114,7 @@ function pushStepsUpdate(
   stored.data = updatedData as CardSurfaceData;
   ctx.sendToClient({
     type: "ui_surface_update",
-    sessionId: ctx.conversationId,
+    conversationId: ctx.conversationId,
     surfaceId: SURFACE_ID,
     data: updatedData,
   });
@@ -192,7 +192,7 @@ export function updateDoordashProgress(
     ctx.surfaceState.set(SURFACE_ID, { surfaceType: "card", data });
     ctx.sendToClient({
       type: "ui_surface_show",
-      sessionId: ctx.conversationId,
+      conversationId: ctx.conversationId,
       surfaceId: SURFACE_ID,
       surfaceType: "card",
       title: "Ordering from DoorDash",

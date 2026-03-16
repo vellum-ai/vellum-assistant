@@ -85,7 +85,11 @@ function handleCancelSchedule(id: string): Response {
   try {
     const cancelled = cancelSchedule(id);
     if (!cancelled) {
-      return httpError("NOT_FOUND", "Schedule not found or not cancellable", 404);
+      return httpError(
+        "NOT_FOUND",
+        "Schedule not found or not cancellable",
+        404,
+      );
     }
     log.info({ id }, "Schedule cancelled via HTTP");
   } catch (err) {
@@ -123,7 +127,7 @@ async function handleRunScheduleNow(
             );
           }
           const session =
-            await sendMessageDeps.getOrCreateSession(conversationId);
+            await sendMessageDeps.getOrCreateConversation(conversationId);
           session.taskRunId = taskRunId;
           await session.processMessage(
             message,
@@ -183,7 +187,9 @@ async function handleRunScheduleNow(
     if (!sendMessageDeps) {
       throw new Error("sendMessageDeps not available for schedule execution");
     }
-    const session = await sendMessageDeps.getOrCreateSession(conversation.id);
+    const session = await sendMessageDeps.getOrCreateConversation(
+      conversation.id,
+    );
     await session.processMessage(
       schedule.message,
       [],

@@ -207,7 +207,7 @@ function makeSession() {
       outputTokens: 500,
       estimatedCost: 0.05,
     },
-  } as unknown as import("../daemon/conversation.js").Session;
+  } as unknown as import("../daemon/conversation.js").Conversation;
   return {
     session,
     persistUserMessage,
@@ -231,10 +231,10 @@ function makeRequest(content: string) {
   });
 }
 
-function makeDeps(session: import("../daemon/conversation.js").Session) {
+function makeDeps(session: import("../daemon/conversation.js").Conversation) {
   return {
     sendMessageDeps: {
-      getOrCreateSession: async () => session,
+      getOrCreateConversation: async () => session,
       assistantEventHub: { publish: async () => {} } as any,
       resolveAttachments: () => [],
     },
@@ -250,7 +250,7 @@ describe("handleSendMessage slash command interception", () => {
   test("intercepts built-in slash commands (unknown kind) without calling agent loop", async () => {
     resolveSlashMock.mockReturnValue({
       kind: "unknown",
-      message: "Session Status\n\nContext: 5%",
+      message: "Conversation Status\n\nContext: 5%",
     });
 
     const { session, persistUserMessage, runAgentLoop } = makeSession();

@@ -670,7 +670,7 @@ struct ConversationChatView: View {
             .sheet(isPresented: $showDebugPanel) {
                 DebugPanelView(
                     traceStore: clientProvider.traceStore,
-                    sessionId: viewModel.conversationId,
+                    conversationId: viewModel.conversationId,
                     onClose: { showDebugPanel = false }
                 )
             }

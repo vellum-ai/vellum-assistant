@@ -159,7 +159,7 @@ Examples:
           visibleInSourceNow: boolean;
           deadlineAt?: string;
           preferredChannels?: string;
-          sessionId?: string;
+          conversationId?: string;
           dedupeKey?: string;
         },
         cmd: Command,
@@ -252,7 +252,7 @@ Examples:
 
           initializeDb();
 
-          const sourceSessionId = opts.sessionId ?? `cli-${Date.now()}`;
+          const sourceSessionId = opts.conversationId ?? `cli-${Date.now()}`;
 
           const result = await emitNotificationSignal({
             sourceEventName: opts.sourceEventName,

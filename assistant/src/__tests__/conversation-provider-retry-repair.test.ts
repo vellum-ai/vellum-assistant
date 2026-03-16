@@ -59,7 +59,7 @@ mock.module("../context/token-estimator.js", () => ({
 }));
 
 // Overflow recovery module mocks — the convergence loop delegates to these
-// but these tests exercise the Session-level flow, not the reducer internals.
+// but these tests exercise the Conversation-level flow, not the reducer internals.
 // The reducer mock delegates to the compactFn to simulate a forced compaction
 // tier, matching the real reducer's behavior for Tier 1.
 mock.module("../daemon/context-overflow-reducer.js", () => ({
@@ -373,9 +373,9 @@ mock.module("../memory/canonical-guardian-store.js", () => ({
   generateCanonicalRequestCode: () => "MOCK-CODE",
 }));
 
-import { Session } from "../daemon/conversation.js";
+import { Conversation } from "../daemon/conversation.js";
 
-function makeSession(): Session {
+function makeSession(): Conversation {
   const provider = {
     name: "mock",
     async sendMessage(): Promise<ProviderResponse> {
@@ -387,7 +387,7 @@ function makeSession(): Session {
       };
     },
   };
-  return new Session(
+  return new Conversation(
     "conv-1",
     provider,
     "system prompt",

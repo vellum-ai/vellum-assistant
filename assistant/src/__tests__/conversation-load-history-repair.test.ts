@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 import type { Message } from "../providers/types.js";
 
-// Stub out heavy dependencies before importing Session
+// Stub out heavy dependencies before importing Conversation
 mock.module("../util/logger.js", () => ({
   getLogger: () =>
     new Proxy({} as Record<string, unknown>, { get: () => () => {} }),
@@ -98,9 +98,9 @@ mock.module("../memory/conversation-queries.js", () => ({
   listConversations: () => [],
 }));
 
-import { Session } from "../daemon/conversation.js";
+import { Conversation } from "../daemon/conversation.js";
 
-function makeSession(): Session {
+function makeSession(): Conversation {
   const provider = {
     name: "mock",
     sendMessage: async () => ({
@@ -110,7 +110,7 @@ function makeSession(): Session {
       stopReason: "end_turn",
     }),
   };
-  return new Session(
+  return new Conversation(
     "conv-1",
     provider,
     "system prompt",

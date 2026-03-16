@@ -109,7 +109,6 @@ function makeContext(
   const auditListener = createToolAuditListener();
   return {
     workingDir: "/tmp",
-    sessionId: "test-session",
     conversationId: "test-conversation",
     trustClass: "guardian" as const,
     onToolLifecycleEvent: (event: ToolLifecycleEvent) => {
@@ -345,7 +344,6 @@ describe("Secret scanner executor integration", () => {
 
     const ctx = {
       workingDir: "/tmp",
-      sessionId: "test-session",
       conversationId: "test-conversation",
       trustClass: "guardian" as const,
     };

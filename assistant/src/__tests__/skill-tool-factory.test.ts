@@ -36,7 +36,6 @@ function makeEntry(overrides: Partial<SkillToolEntry> = {}): SkillToolEntry {
 function makeContext(overrides: Partial<ToolContext> = {}): ToolContext {
   return {
     workingDir: "/tmp",
-    sessionId: "test-session",
     conversationId: "test-conversation",
     trustClass: "guardian",
     ...overrides,

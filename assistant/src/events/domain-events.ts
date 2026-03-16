@@ -1,7 +1,6 @@
 export interface ToolDomainEvents {
   "tool.execution.started": {
     conversationId: string;
-    sessionId: string;
     requestId?: string;
     toolName: string;
     input: Record<string, unknown>;
@@ -9,7 +8,6 @@ export interface ToolDomainEvents {
   };
   "tool.permission.requested": {
     conversationId: string;
-    sessionId: string;
     requestId?: string;
     toolName: string;
     riskLevel: string;
@@ -17,7 +15,6 @@ export interface ToolDomainEvents {
   };
   "tool.permission.decided": {
     conversationId: string;
-    sessionId: string;
     requestId?: string;
     toolName: string;
     decision:
@@ -34,7 +31,6 @@ export interface ToolDomainEvents {
   };
   "tool.secret.detected": {
     conversationId: string;
-    sessionId: string;
     requestId?: string;
     toolName: string;
     action: "redact" | "warn" | "block" | "prompt";
@@ -43,7 +39,6 @@ export interface ToolDomainEvents {
   };
   "tool.execution.finished": {
     conversationId: string;
-    sessionId: string;
     requestId?: string;
     toolName: string;
     decision: string;
@@ -54,7 +49,6 @@ export interface ToolDomainEvents {
   };
   "tool.execution.failed": {
     conversationId: string;
-    sessionId: string;
     requestId?: string;
     toolName: string;
     decision: string;

@@ -59,7 +59,7 @@ final class ConversationHeaderPresentationTests: XCTestCase {
         XCTAssertFalse(p.showsActionsMenu)
     }
 
-    // MARK: - Not started (no sessionId, no messages)
+    // MARK: - Not started (no conversationId, no messages)
 
     func testUnstartedThreadDoesNotShowActions() {
         let thread = ConversationModel(title: "New Conversation")

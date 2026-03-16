@@ -1,7 +1,7 @@
 /**
- * Tool definitions and executor setup extracted from Session constructor.
+ * Tool definitions and executor setup extracted from Conversation constructor.
  *
- * The Session constructor delegates tool definition building and tool
+ * The Conversation constructor delegates tool definition building and tool
  * executor callback creation to the helper functions exported here,
  * keeping the constructor body focused on wiring.
  */
@@ -49,7 +49,7 @@ import {
   projectSkillTools,
   type SkillProjectionCache,
 } from "./conversation-skill-tools.js";
-import type { SurfaceSessionContext } from "./conversation-surfaces.js";
+import type { SurfaceConversationContext } from "./conversation-surfaces.js";
 import { surfaceProxyResolver } from "./conversation-surfaces.js";
 import {
   isDoordashCommand,
@@ -80,11 +80,11 @@ export function resolveTrustClass(
 // ── Context Interface ────────────────────────────────────────────────
 
 /**
- * Subset of Session state that the tool executor callback reads at
+ * Subset of Conversation state that the tool executor callback reads at
  * call time (not construction time). These are captured by the
  * returned closure, so they must be live references.
  */
-export interface ToolSetupContext extends SurfaceSessionContext {
+export interface ToolSetupContext extends SurfaceConversationContext {
   readonly conversationId: string;
   assistantId?: string;
   currentRequestId?: string;
@@ -93,7 +93,7 @@ export interface ToolSetupContext extends SurfaceSessionContext {
   abortController: AbortController | null;
   /** When set, only tools in this set may execute during the current turn. */
   allowedToolNames?: Set<string>;
-  /** Session memory policy — used to propagate scopeId and strictSideEffects into ToolContext. */
+  /** Conversation memory policy — used to propagate scopeId and strictSideEffects into ToolContext. */
   memoryPolicy: { scopeId: string; strictSideEffects: boolean };
   /** True when the session has no connected client (HTTP-only path). */
   hasNoClient?: boolean;
@@ -132,7 +132,7 @@ export function buildToolDefinitions(): ToolDefinition[] {
 /**
  * Build the tool executor callback that the AgentLoop calls for each
  * tool_use block. The returned function closes over `ctx` so it sees
- * live Session state (workingDir, currentRequestId, abortController,
+ * live Conversation state (workingDir, currentRequestId, abortController,
  * etc.) at invocation time.
  */
 export function createToolExecutor(
@@ -165,7 +165,6 @@ export function createToolExecutor(
     // path and the regular executor path.
     const toolContext: ToolContext = {
       workingDir: ctx.workingDir,
-      sessionId: ctx.conversationId,
       conversationId: ctx.conversationId,
       assistantId: ctx.assistantId,
       requestId: ctx.currentRequestId,
@@ -540,7 +539,7 @@ export function createProxyApprovalCallback(
 const DEFAULT_PREACTIVATED_SKILL_IDS = ["tasks", "notifications"];
 
 /**
- * Subset of Session state that the resolveTools callback reads at each
+ * Subset of Conversation state that the resolveTools callback reads at each
  * agent turn. Properties are read lazily from this reference.
  */
 export interface SkillProjectionContext {
@@ -636,7 +635,7 @@ export function createResolveToolsCallback(
       mcpCount: initialMcpDefs.length,
       mcpTools: initialMcpDefs.map((d) => d.name),
     },
-    "Session tool resolver initialized",
+    "Conversation tool resolver initialized",
   );
 
   return (history: Message[]) => {

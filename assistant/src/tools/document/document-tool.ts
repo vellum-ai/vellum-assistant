@@ -16,7 +16,7 @@ export function executeDocumentCreate(
   if (context.sendToClient) {
     context.sendToClient({
       type: "document_editor_show",
-      sessionId: context.sessionId,
+      conversationId: context.conversationId,
       surfaceId,
       title,
       initialContent,
@@ -24,7 +24,7 @@ export function executeDocumentCreate(
 
     context.sendToClient({
       type: "ui_surface_show",
-      sessionId: context.sessionId,
+      conversationId: context.conversationId,
       surfaceId: `preview-${surfaceId}`,
       surfaceType: "document_preview",
       display: "inline",
@@ -71,7 +71,7 @@ export function executeDocumentUpdate(
   if (context.sendToClient) {
     context.sendToClient({
       type: "document_editor_update",
-      sessionId: context.sessionId,
+      conversationId: context.conversationId,
       surfaceId,
       markdown: content,
       mode,

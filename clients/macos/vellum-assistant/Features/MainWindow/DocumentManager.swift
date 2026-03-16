@@ -12,7 +12,7 @@ final class DocumentManager: ObservableObject {
     @Published var hasActiveDocument: Bool = false
     @Published var title: String = "Untitled Document"
     @Published var surfaceId: String?
-    @Published var sessionId: String?
+    @Published var conversationId: String?
     @Published var isSaving: Bool = false
     @Published var lastSaveError: String?
 
@@ -47,9 +47,9 @@ final class DocumentManager: ObservableObject {
         }
     }
 
-    func createDocument(surfaceId: String, sessionId: String, title: String, initialContent: String) {
+    func createDocument(surfaceId: String, conversationId: String, title: String, initialContent: String) {
         self.surfaceId = surfaceId
-        self.sessionId = sessionId
+        self.conversationId = conversationId
         self.title = title
         self.initialContent = initialContent
         self.currentContent = initialContent
@@ -121,7 +121,7 @@ final class DocumentManager: ObservableObject {
         autoSaveTask = nil
         hasActiveDocument = false
         surfaceId = nil
-        sessionId = nil
+        conversationId = nil
         title = "Untitled Document"
         currentContent = nil
         wordCount = 0
@@ -153,9 +153,9 @@ final class DocumentManager: ObservableObject {
 
     func save() {
         guard let surfaceId = surfaceId,
-              let sessionId = sessionId,
+              let conversationId = conversationId,
               let daemonClient = daemonClient else {
-            log.warning("Cannot save: missing surfaceId, sessionId, or daemonClient")
+            log.warning("Cannot save: missing surfaceId, conversationId, or daemonClient")
             lastSaveError = "Cannot save: missing document information"
             return
         }
@@ -167,7 +167,7 @@ final class DocumentManager: ObservableObject {
         do {
             try daemonClient.sendDocumentSave(
                 surfaceId: surfaceId,
-                conversationId: sessionId,
+                conversationId: conversationId,
                 title: title,
                 content: contentToSave,
                 wordCount: wordCount

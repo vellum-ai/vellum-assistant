@@ -487,11 +487,11 @@ export async function finalizeAndPublishRecording(params: {
     ctx.broadcast({
       type: "assistant_text_delta",
       text: errorText,
-      sessionId: conversationId,
+      conversationId: conversationId,
     });
     ctx.broadcast({
       type: "message_complete",
-      sessionId: conversationId,
+      conversationId: conversationId,
     });
     return { success: false };
   }
@@ -540,11 +540,11 @@ export async function finalizeAndPublishRecording(params: {
     ctx.broadcast({
       type: "assistant_text_delta",
       text: errorText,
-      sessionId: conversationId,
+      conversationId: conversationId,
     });
     ctx.broadcast({
       type: "message_complete",
-      sessionId: conversationId,
+      conversationId: conversationId,
     });
     return { success: false };
   }
@@ -568,11 +568,11 @@ export async function finalizeAndPublishRecording(params: {
       ctx.broadcast({
         type: "assistant_text_delta",
         text: errorText,
-        sessionId: conversationId,
+        conversationId: conversationId,
       });
       ctx.broadcast({
         type: "message_complete",
-        sessionId: conversationId,
+        conversationId: conversationId,
       });
       return { success: false };
     }
@@ -601,11 +601,11 @@ export async function finalizeAndPublishRecording(params: {
       ctx.broadcast({
         type: "assistant_text_delta",
         text: errorText,
-        sessionId: conversationId,
+        conversationId: conversationId,
       });
       ctx.broadcast({
         type: "message_complete",
-        sessionId: conversationId,
+        conversationId: conversationId,
       });
       return { success: false };
     }
@@ -663,11 +663,11 @@ export async function finalizeAndPublishRecording(params: {
     ctx.broadcast({
       type: "assistant_text_delta",
       text: msgText,
-      sessionId: conversationId,
+      conversationId: conversationId,
     });
     ctx.broadcast({
       type: "message_complete",
-      sessionId: conversationId,
+      conversationId: conversationId,
       attachments: [
         {
           id: attachment.id,
@@ -703,11 +703,11 @@ export async function finalizeAndPublishRecording(params: {
     ctx.broadcast({
       type: "assistant_text_delta",
       text: errorText,
-      sessionId: conversationId,
+      conversationId: conversationId,
     });
     ctx.broadcast({
       type: "message_complete",
-      sessionId: conversationId,
+      conversationId: conversationId,
     });
     return { success: false };
   }
@@ -727,7 +727,7 @@ export async function handleRecordingStatusCore(
   msg: RecordingStatus,
   ctx: HandlerContext,
 ): Promise<void> {
-  const recordingId = msg.sessionId;
+  const recordingId = msg.conversationId;
   let conversationId = standaloneRecordingConversationId.get(recordingId);
 
   // Fall back to attachToConversationId when the in-memory map is missing
@@ -828,11 +828,11 @@ export async function handleRecordingStatusCore(
       ctx.broadcast({
         type: "assistant_text_delta",
         text: "Recording restart cancelled.",
-        sessionId: conversationId,
+        conversationId: conversationId,
       });
       ctx.broadcast({
         type: "message_complete",
-        sessionId: conversationId,
+        conversationId: conversationId,
       });
       break;
     }
@@ -960,11 +960,11 @@ export async function handleRecordingStatusCore(
           ctx.broadcast({
             type: "assistant_text_delta",
             text: "Previous recording saved. New recording failed to start.",
-            sessionId: deferred.conversationId,
+            conversationId: deferred.conversationId,
           });
           ctx.broadcast({
             type: "message_complete",
-            sessionId: deferred.conversationId,
+            conversationId: deferred.conversationId,
           });
         }
 
@@ -994,11 +994,11 @@ export async function handleRecordingStatusCore(
       ctx.broadcast({
         type: "assistant_text_delta",
         text: `Recording failed: ${msg.error ?? "unknown error"}`,
-        sessionId: conversationId,
+        conversationId: conversationId,
       });
       ctx.broadcast({
         type: "message_complete",
-        sessionId: conversationId,
+        conversationId: conversationId,
       });
 
       cleanupMaps(recordingId, conversationId);

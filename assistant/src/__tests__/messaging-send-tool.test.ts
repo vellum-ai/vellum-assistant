@@ -57,7 +57,6 @@ describe("messaging-send tool", () => {
       },
       {
         workingDir: "/tmp",
-        sessionId: "sess-1",
         conversationId: "conv-1",
         assistantId: "ast-alpha",
         trustClass: "guardian" as const,
@@ -88,7 +87,6 @@ describe("messaging-send tool", () => {
       },
       {
         workingDir: "/tmp",
-        sessionId: "sess-1",
         conversationId: "conv-1",
         assistantId: "ast-alpha",
         trustClass: "guardian" as const,

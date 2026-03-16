@@ -6,7 +6,7 @@ import VellumAssistantShared
 // Helper to build a TraceEventMessage via JSON round-trip since it's Decodable-only.
 private func makeEvent(
     eventId: String = UUID().uuidString,
-    sessionId: String = "s1",
+    conversationId: String = "s1",
     requestId: String? = "r1",
     timestampMs: Double = 1000,
     sequence: Int = 0,
@@ -18,7 +18,7 @@ private func makeEvent(
     var dict: [String: Any] = [
         "type": "trace_event",
         "eventId": eventId,
-        "sessionId": sessionId,
+        "conversationId": conversationId,
         "timestampMs": timestampMs,
         "sequence": sequence,
         "kind": kind,
@@ -44,7 +44,7 @@ struct TraceStoreTests {
         store.ingest(makeEvent(eventId: "b", sequence: 2, summary: "second"))
         store.ingest(makeEvent(eventId: "c", sequence: 3, summary: "third"))
 
-        let events = store.eventsBySession["s1"]!
+        let events = store.eventsByConversation["s1"]!
         #expect(events.count == 3)
         #expect(events[0].id == "a")
         #expect(events[1].id == "b")
@@ -60,7 +60,7 @@ struct TraceStoreTests {
         store.ingest(makeEvent(eventId: "a", sequence: 1))
         store.ingest(makeEvent(eventId: "b", sequence: 2))
 
-        let events = store.eventsBySession["s1"]!
+        let events = store.eventsByConversation["s1"]!
         #expect(events.map(\.id) == ["a", "b", "c"])
     }
 
@@ -70,7 +70,7 @@ struct TraceStoreTests {
         store.ingest(makeEvent(eventId: "x", timestampMs: 200, sequence: 1))
         store.ingest(makeEvent(eventId: "y", timestampMs: 100, sequence: 1))
 
-        let events = store.eventsBySession["s1"]!
+        let events = store.eventsByConversation["s1"]!
         #expect(events[0].id == "y")
         #expect(events[1].id == "x")
     }
@@ -81,7 +81,7 @@ struct TraceStoreTests {
         store.ingest(makeEvent(eventId: "first", timestampMs: 100, sequence: 1))
         store.ingest(makeEvent(eventId: "second", timestampMs: 100, sequence: 1))
 
-        let events = store.eventsBySession["s1"]!
+        let events = store.eventsByConversation["s1"]!
         #expect(events[0].id == "first")
         #expect(events[1].id == "second")
     }
@@ -94,7 +94,7 @@ struct TraceStoreTests {
         store.ingest(makeEvent(eventId: "dup", sequence: 1, summary: "original"))
         store.ingest(makeEvent(eventId: "dup", sequence: 1, summary: "duplicate"))
 
-        let events = store.eventsBySession["s1"]!
+        let events = store.eventsByConversation["s1"]!
         #expect(events.count == 1)
         #expect(events[0].summary == "original")
     }
@@ -109,7 +109,7 @@ struct TraceStoreTests {
         store.ingest(makeEvent(eventId: "c", requestId: nil, sequence: 3))
         store.ingest(makeEvent(eventId: "d", requestId: "r1", sequence: 4))
 
-        let grouped = store.eventsByRequest(sessionId: "s1")
+        let grouped = store.eventsByRequest(conversationId: "s1")
         #expect(grouped["r1"]?.count == 2)
         #expect(grouped["r2"]?.count == 1)
         #expect(grouped[""]?.count == 1)
@@ -125,7 +125,7 @@ struct TraceStoreTests {
         store.ingest(makeEvent(eventId: "c", requestId: "r1", sequence: 3))
         store.ingest(makeEvent(eventId: "d", requestId: nil, sequence: 4))
 
-        #expect(store.requestCount(sessionId: "s1") == 2)
+        #expect(store.requestCount(conversationId: "s1") == 2)
     }
 
     @Test @MainActor
@@ -135,7 +135,7 @@ struct TraceStoreTests {
         store.ingest(makeEvent(eventId: "b", sequence: 2, kind: "llm_call_finished"))
         store.ingest(makeEvent(eventId: "c", sequence: 3, kind: "tool_started"))
 
-        #expect(store.llmCallCount(sessionId: "s1") == 2)
+        #expect(store.llmCallCount(conversationId: "s1") == 2)
     }
 
     @Test @MainActor
@@ -150,8 +150,8 @@ struct TraceStoreTests {
             attributes: ["inputTokens": 200, "outputTokens": 75]
         ))
 
-        #expect(store.totalInputTokens(sessionId: "s1") == 300)
-        #expect(store.totalOutputTokens(sessionId: "s1") == 125)
+        #expect(store.totalInputTokens(conversationId: "s1") == 300)
+        #expect(store.totalOutputTokens(conversationId: "s1") == 125)
     }
 
     @Test @MainActor
@@ -166,7 +166,7 @@ struct TraceStoreTests {
             attributes: ["latencyMs": 200.0]
         ))
 
-        #expect(store.averageLlmLatencyMs(sessionId: "s1") == 150.0)
+        #expect(store.averageLlmLatencyMs(conversationId: "s1") == 150.0)
     }
 
     @Test @MainActor
@@ -189,13 +189,13 @@ struct TraceStoreTests {
             eventId: "d", sequence: 4, kind: "llm_call_finished"
         ))
 
-        #expect(store.averageLlmLatencyMs(sessionId: "s1") == 150.0)
+        #expect(store.averageLlmLatencyMs(conversationId: "s1") == 150.0)
     }
 
     @Test @MainActor
     func averageLlmLatencyEmpty() {
         let store = TraceStore()
-        #expect(store.averageLlmLatencyMs(sessionId: "s1") == 0)
+        #expect(store.averageLlmLatencyMs(conversationId: "s1") == 0)
     }
 
     @Test @MainActor
@@ -205,7 +205,7 @@ struct TraceStoreTests {
         store.ingest(makeEvent(eventId: "b", sequence: 2, kind: "tool_finished"))
         store.ingest(makeEvent(eventId: "c", sequence: 3, kind: "tool_failed"))
 
-        #expect(store.toolFailureCount(sessionId: "s1") == 2)
+        #expect(store.toolFailureCount(conversationId: "s1") == 2)
     }
 
     // MARK: - Retention Cap
@@ -219,7 +219,7 @@ struct TraceStoreTests {
             store.ingest(makeEvent(eventId: "e\(i)", sequence: i))
         }
 
-        let events = store.eventsBySession["s1"]!
+        let events = store.eventsByConversation["s1"]!
         #expect(events.count == cap)
         // Oldest events (lowest sequence) should have been dropped.
         #expect(events.first?.id == "e100")
@@ -229,30 +229,30 @@ struct TraceStoreTests {
     // MARK: - Reset APIs
 
     @Test @MainActor
-    func resetSession() {
+    func resetConversation() {
         let store = TraceStore()
-        store.ingest(makeEvent(eventId: "a", sessionId: "s1", sequence: 1))
-        store.ingest(makeEvent(eventId: "b", sessionId: "s2", sequence: 1))
+        store.ingest(makeEvent(eventId: "a", conversationId: "s1", sequence: 1))
+        store.ingest(makeEvent(eventId: "b", conversationId: "s2", sequence: 1))
 
-        store.resetSession(sessionId: "s1")
+        store.resetConversation(conversationId: "s1")
 
-        #expect(store.eventsBySession["s1"] == nil)
-        #expect(store.eventsBySession["s2"]?.count == 1)
+        #expect(store.eventsByConversation["s1"] == nil)
+        #expect(store.eventsByConversation["s2"]?.count == 1)
 
         // Dedup state is cleared — same eventId can be re-ingested.
-        store.ingest(makeEvent(eventId: "a", sessionId: "s1", sequence: 1))
-        #expect(store.eventsBySession["s1"]?.count == 1)
+        store.ingest(makeEvent(eventId: "a", conversationId: "s1", sequence: 1))
+        #expect(store.eventsByConversation["s1"]?.count == 1)
     }
 
     @Test @MainActor
     func resetAll() {
         let store = TraceStore()
-        store.ingest(makeEvent(eventId: "a", sessionId: "s1", sequence: 1))
-        store.ingest(makeEvent(eventId: "b", sessionId: "s2", sequence: 1))
+        store.ingest(makeEvent(eventId: "a", conversationId: "s1", sequence: 1))
+        store.ingest(makeEvent(eventId: "b", conversationId: "s2", sequence: 1))
 
         store.resetAll()
 
-        #expect(store.eventsBySession.isEmpty)
+        #expect(store.eventsByConversation.isEmpty)
     }
 
     // MARK: - Multi-Session Isolation
@@ -260,16 +260,16 @@ struct TraceStoreTests {
     @Test @MainActor
     func sessionsAreIsolated() {
         let store = TraceStore()
-        store.ingest(makeEvent(eventId: "a", sessionId: "s1", sequence: 1, kind: "tool_failed"))
+        store.ingest(makeEvent(eventId: "a", conversationId: "s1", sequence: 1, kind: "tool_failed"))
         store.ingest(makeEvent(
-            eventId: "b", sessionId: "s2", sequence: 1, kind: "llm_call_finished",
+            eventId: "b", conversationId: "s2", sequence: 1, kind: "llm_call_finished",
             attributes: ["inputTokens": 50, "outputTokens": 25, "latencyMs": 100.0]
         ))
 
-        #expect(store.toolFailureCount(sessionId: "s1") == 1)
-        #expect(store.toolFailureCount(sessionId: "s2") == 0)
-        #expect(store.llmCallCount(sessionId: "s1") == 0)
-        #expect(store.llmCallCount(sessionId: "s2") == 1)
+        #expect(store.toolFailureCount(conversationId: "s1") == 1)
+        #expect(store.toolFailureCount(conversationId: "s2") == 0)
+        #expect(store.llmCallCount(conversationId: "s1") == 0)
+        #expect(store.llmCallCount(conversationId: "s2") == 1)
     }
 
     // MARK: - Session Switching Shows Correct Traces
@@ -279,28 +279,28 @@ struct TraceStoreTests {
         let store = TraceStore()
 
         // Populate two sessions with distinct events.
-        store.ingest(makeEvent(eventId: "s1-a", sessionId: "session-A", requestId: "rA", sequence: 1, kind: "request_received", summary: "Start A"))
-        store.ingest(makeEvent(eventId: "s1-b", sessionId: "session-A", requestId: "rA", sequence: 2, kind: "llm_call_finished", summary: "LLM A"))
+        store.ingest(makeEvent(eventId: "s1-a", conversationId: "session-A", requestId: "rA", sequence: 1, kind: "request_received", summary: "Start A"))
+        store.ingest(makeEvent(eventId: "s1-b", conversationId: "session-A", requestId: "rA", sequence: 2, kind: "llm_call_finished", summary: "LLM A"))
 
-        store.ingest(makeEvent(eventId: "s2-a", sessionId: "session-B", requestId: "rB", sequence: 1, kind: "request_received", summary: "Start B"))
-        store.ingest(makeEvent(eventId: "s2-b", sessionId: "session-B", requestId: "rB", sequence: 2, kind: "tool_started", summary: "Tool B"))
-        store.ingest(makeEvent(eventId: "s2-c", sessionId: "session-B", requestId: "rB", sequence: 3, kind: "tool_failed", summary: "Fail B"))
+        store.ingest(makeEvent(eventId: "s2-a", conversationId: "session-B", requestId: "rB", sequence: 1, kind: "request_received", summary: "Start B"))
+        store.ingest(makeEvent(eventId: "s2-b", conversationId: "session-B", requestId: "rB", sequence: 2, kind: "tool_started", summary: "Tool B"))
+        store.ingest(makeEvent(eventId: "s2-c", conversationId: "session-B", requestId: "rB", sequence: 3, kind: "tool_failed", summary: "Fail B"))
 
         // "Switch" to session-A — only its events are visible.
-        let eventsA = store.eventsBySession["session-A"] ?? []
+        let eventsA = store.eventsByConversation["session-A"] ?? []
         #expect(eventsA.count == 2)
-        #expect(eventsA.allSatisfy { $0.sessionId == "session-A" })
+        #expect(eventsA.allSatisfy { $0.conversationId == "session-A" })
 
         // "Switch" to session-B — only its events are visible.
-        let eventsB = store.eventsBySession["session-B"] ?? []
+        let eventsB = store.eventsByConversation["session-B"] ?? []
         #expect(eventsB.count == 3)
-        #expect(eventsB.allSatisfy { $0.sessionId == "session-B" })
+        #expect(eventsB.allSatisfy { $0.conversationId == "session-B" })
 
         // Metrics are scoped correctly.
-        #expect(store.llmCallCount(sessionId: "session-A") == 1)
-        #expect(store.llmCallCount(sessionId: "session-B") == 0)
-        #expect(store.toolFailureCount(sessionId: "session-A") == 0)
-        #expect(store.toolFailureCount(sessionId: "session-B") == 1)
+        #expect(store.llmCallCount(conversationId: "session-A") == 1)
+        #expect(store.llmCallCount(conversationId: "session-B") == 0)
+        #expect(store.toolFailureCount(conversationId: "session-A") == 0)
+        #expect(store.toolFailureCount(conversationId: "session-B") == 1)
     }
 
     // MARK: - No Cross-Session Trace Contamination
@@ -310,30 +310,30 @@ struct TraceStoreTests {
         let store = TraceStore()
 
         // Session 1 events.
-        store.ingest(makeEvent(eventId: "e1", sessionId: "s1", requestId: "r1", sequence: 1, kind: "request_received"))
-        store.ingest(makeEvent(eventId: "e2", sessionId: "s1", requestId: "r1", sequence: 2, kind: "llm_call_finished",
+        store.ingest(makeEvent(eventId: "e1", conversationId: "s1", requestId: "r1", sequence: 1, kind: "request_received"))
+        store.ingest(makeEvent(eventId: "e2", conversationId: "s1", requestId: "r1", sequence: 2, kind: "llm_call_finished",
                                attributes: ["inputTokens": 100, "outputTokens": 50]))
 
         // Session 2 events.
-        store.ingest(makeEvent(eventId: "e3", sessionId: "s2", requestId: "r2", sequence: 1, kind: "request_received"))
-        store.ingest(makeEvent(eventId: "e4", sessionId: "s2", requestId: "r2", sequence: 2, kind: "tool_failed"))
+        store.ingest(makeEvent(eventId: "e3", conversationId: "s2", requestId: "r2", sequence: 1, kind: "request_received"))
+        store.ingest(makeEvent(eventId: "e4", conversationId: "s2", requestId: "r2", sequence: 2, kind: "tool_failed"))
 
         // Session 1 must not see session 2's events.
-        let grouped1 = store.eventsByRequest(sessionId: "s1")
+        let grouped1 = store.eventsByRequest(conversationId: "s1")
         #expect(grouped1.count == 1)
         #expect(grouped1["r1"]?.count == 2)
         #expect(grouped1["r2"] == nil)
 
         // Session 2 must not see session 1's events.
-        let grouped2 = store.eventsByRequest(sessionId: "s2")
+        let grouped2 = store.eventsByRequest(conversationId: "s2")
         #expect(grouped2.count == 1)
         #expect(grouped2["r2"]?.count == 2)
         #expect(grouped2["r1"] == nil)
 
         // Adding more events to one session does not affect the other.
-        store.ingest(makeEvent(eventId: "e5", sessionId: "s1", requestId: "r1", sequence: 3, kind: "message_complete"))
-        #expect(store.eventsBySession["s1"]?.count == 3)
-        #expect(store.eventsBySession["s2"]?.count == 2)
+        store.ingest(makeEvent(eventId: "e5", conversationId: "s1", requestId: "r1", sequence: 3, kind: "message_complete"))
+        #expect(store.eventsByConversation["s1"]?.count == 3)
+        #expect(store.eventsByConversation["s2"]?.count == 2)
     }
 
     // MARK: - Handoff Terminal Event
@@ -346,7 +346,7 @@ struct TraceStoreTests {
         store.ingest(makeEvent(eventId: "e2", requestId: "r1", sequence: 2, kind: "llm_call_started"))
         store.ingest(makeEvent(eventId: "e3", requestId: "r1", sequence: 3, kind: "generation_handoff", summary: "Handing off to next queued message"))
 
-        let status = store.requestGroupStatus(sessionId: "s1", requestId: "r1")
+        let status = store.requestGroupStatus(conversationId: "s1", requestId: "r1")
         #expect(status == .handedOff)
     }
 
@@ -360,7 +360,7 @@ struct TraceStoreTests {
         store.ingest(makeEvent(eventId: "e2", requestId: "r1", sequence: 2, kind: "llm_call_started"))
         store.ingest(makeEvent(eventId: "e3", requestId: "r1", sequence: 3, kind: "generation_cancelled", summary: "Cancelled by user"))
 
-        let status = store.requestGroupStatus(sessionId: "s1", requestId: "r1")
+        let status = store.requestGroupStatus(conversationId: "s1", requestId: "r1")
         #expect(status == .cancelled)
     }
 
@@ -374,7 +374,7 @@ struct TraceStoreTests {
         store.ingest(makeEvent(eventId: "e2", requestId: "r1", sequence: 2, kind: "llm_call_started"))
         store.ingest(makeEvent(eventId: "e3", requestId: "r1", sequence: 3, kind: "request_error", status: "error", summary: "API error"))
 
-        let status = store.requestGroupStatus(sessionId: "s1", requestId: "r1")
+        let status = store.requestGroupStatus(conversationId: "s1", requestId: "r1")
         #expect(status == .error)
     }
 
@@ -387,7 +387,7 @@ struct TraceStoreTests {
         store.ingest(makeEvent(eventId: "e1", requestId: "r1", sequence: 1, kind: "request_received"))
         store.ingest(makeEvent(eventId: "e2", requestId: "r1", sequence: 2, kind: "message_complete"))
 
-        let status = store.requestGroupStatus(sessionId: "s1", requestId: "r1")
+        let status = store.requestGroupStatus(conversationId: "s1", requestId: "r1")
         #expect(status == .completed)
     }
 
@@ -400,7 +400,7 @@ struct TraceStoreTests {
         store.ingest(makeEvent(eventId: "e1", requestId: "r1", sequence: 1, kind: "request_received"))
         store.ingest(makeEvent(eventId: "e2", requestId: "r1", sequence: 2, kind: "llm_call_started"))
 
-        let status = store.requestGroupStatus(sessionId: "s1", requestId: "r1")
+        let status = store.requestGroupStatus(conversationId: "s1", requestId: "r1")
         #expect(status == .active)
     }
 
@@ -414,7 +414,7 @@ struct TraceStoreTests {
         store.ingest(makeEvent(eventId: "e1", requestId: "r1", sequence: 1, kind: "request_received"))
         store.ingest(makeEvent(eventId: "e2", requestId: "r1", sequence: 2, kind: "tool_failed", status: "error", summary: "tool crashed"))
 
-        let status = store.requestGroupStatus(sessionId: "s1", requestId: "r1")
+        let status = store.requestGroupStatus(conversationId: "s1", requestId: "r1")
         #expect(status == .error)
     }
 
@@ -423,7 +423,7 @@ struct TraceStoreTests {
     @Test @MainActor
     func unknownRequestGroupReturnsActive() {
         let store = TraceStore()
-        let status = store.requestGroupStatus(sessionId: "nonexistent", requestId: "r1")
+        let status = store.requestGroupStatus(conversationId: "nonexistent", requestId: "r1")
         #expect(status == .active)
     }
 
@@ -434,20 +434,20 @@ struct TraceStoreTests {
         let store = TraceStore()
 
         // Populate with events from two sessions.
-        store.ingest(makeEvent(eventId: "e1", sessionId: "s1", sequence: 1))
-        store.ingest(makeEvent(eventId: "e2", sessionId: "s2", sequence: 1))
-        #expect(store.eventsBySession.count == 2)
+        store.ingest(makeEvent(eventId: "e1", conversationId: "s1", sequence: 1))
+        store.ingest(makeEvent(eventId: "e2", conversationId: "s2", sequence: 1))
+        #expect(store.eventsByConversation.count == 2)
 
         // Simulate daemon reconnect by calling resetAll().
         store.resetAll()
 
-        #expect(store.eventsBySession.isEmpty)
+        #expect(store.eventsByConversation.isEmpty)
 
         // New events can be ingested after reset, even with the same eventIds
         // (dedup state was also cleared).
-        store.ingest(makeEvent(eventId: "e1", sessionId: "s1", sequence: 1, summary: "post-reset"))
-        #expect(store.eventsBySession["s1"]?.count == 1)
-        #expect(store.eventsBySession["s1"]?.first?.summary == "post-reset")
+        store.ingest(makeEvent(eventId: "e1", conversationId: "s1", sequence: 1, summary: "post-reset"))
+        #expect(store.eventsByConversation["s1"]?.count == 1)
+        #expect(store.eventsByConversation["s1"]?.first?.summary == "post-reset")
     }
 
     // MARK: - Historical Traces Retained Per Session
@@ -458,21 +458,21 @@ struct TraceStoreTests {
 
         // Build up events across multiple sessions.
         for i in 0..<10 {
-            store.ingest(makeEvent(eventId: "s1-\(i)", sessionId: "s1", requestId: "r1", sequence: i))
-            store.ingest(makeEvent(eventId: "s2-\(i)", sessionId: "s2", requestId: "r2", sequence: i))
-            store.ingest(makeEvent(eventId: "s3-\(i)", sessionId: "s3", requestId: "r3", sequence: i))
+            store.ingest(makeEvent(eventId: "s1-\(i)", conversationId: "s1", requestId: "r1", sequence: i))
+            store.ingest(makeEvent(eventId: "s2-\(i)", conversationId: "s2", requestId: "r2", sequence: i))
+            store.ingest(makeEvent(eventId: "s3-\(i)", conversationId: "s3", requestId: "r3", sequence: i))
         }
 
         // All three sessions' traces are retained simultaneously.
-        #expect(store.eventsBySession.count == 3)
-        #expect(store.eventsBySession["s1"]?.count == 10)
-        #expect(store.eventsBySession["s2"]?.count == 10)
-        #expect(store.eventsBySession["s3"]?.count == 10)
+        #expect(store.eventsByConversation.count == 3)
+        #expect(store.eventsByConversation["s1"]?.count == 10)
+        #expect(store.eventsByConversation["s2"]?.count == 10)
+        #expect(store.eventsByConversation["s3"]?.count == 10)
 
         // Resetting one session preserves the others.
-        store.resetSession(sessionId: "s2")
-        #expect(store.eventsBySession.count == 2)
-        #expect(store.eventsBySession["s1"]?.count == 10)
-        #expect(store.eventsBySession["s3"]?.count == 10)
+        store.resetConversation(conversationId: "s2")
+        #expect(store.eventsByConversation.count == 2)
+        #expect(store.eventsByConversation["s1"]?.count == 10)
+        #expect(store.eventsByConversation["s3"]?.count == 10)
     }
 }

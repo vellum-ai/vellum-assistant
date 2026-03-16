@@ -136,17 +136,17 @@ describe("SSE HTTP parity — streaming/delta message types", () => {
     const msg = {
       type: "assistant_text_delta" as const,
       text: "Hello, world!",
-      sessionId: "conv-text-delta",
+      conversationId: "conv-text-delta",
     };
     const event = await publishAndReadFrame("parity-text-delta", msg);
 
     expect(event.message.type).toBe("assistant_text_delta");
     const m = event.message as typeof msg;
     expect(m.text).toBe("Hello, world!");
-    expect(m.sessionId).toBe("conv-text-delta");
+    expect(m.conversationId).toBe("conv-text-delta");
   });
 
-  test("preserves assistant_text_delta without optional sessionId", async () => {
+  test("preserves assistant_text_delta without optional conversationId", async () => {
     const msg = {
       type: "assistant_text_delta" as const,
       text: "No session here",
@@ -156,7 +156,7 @@ describe("SSE HTTP parity — streaming/delta message types", () => {
     const m = event.message as typeof msg;
     expect(m.type).toBe("assistant_text_delta");
     expect(m.text).toBe("No session here");
-    expect((m as Record<string, unknown>).sessionId).toBeUndefined();
+    expect((m as Record<string, unknown>).conversationId).toBeUndefined();
   });
 
   // ── assistant_thinking_delta ─────────────────────────────────────────────
@@ -180,7 +180,7 @@ describe("SSE HTTP parity — streaming/delta message types", () => {
       type: "tool_input_delta" as const,
       toolName: "bash",
       content: '{"command": "ls -la"}',
-      sessionId: "conv-tool-input",
+      conversationId: "conv-tool-input",
     };
     const event = await publishAndReadFrame("parity-tool-input-delta", msg);
 
@@ -188,7 +188,7 @@ describe("SSE HTTP parity — streaming/delta message types", () => {
     const m = event.message as typeof msg;
     expect(m.toolName).toBe("bash");
     expect(m.content).toBe('{"command": "ls -la"}');
-    expect(m.sessionId).toBe("conv-tool-input");
+    expect(m.conversationId).toBe("conv-tool-input");
   });
 
   // ── tool_output_chunk ────────────────────────────────────────────────────
@@ -197,7 +197,7 @@ describe("SSE HTTP parity — streaming/delta message types", () => {
     const msg = {
       type: "tool_output_chunk" as const,
       chunk: "total 42\n-rw-r--r-- 1 user group 1234 Jan 1 00:00 file.ts",
-      sessionId: "conv-tool-output",
+      conversationId: "conv-tool-output",
       subType: "tool_complete" as const,
       subToolName: "bash",
       subToolInput: "ls -la",
@@ -209,7 +209,7 @@ describe("SSE HTTP parity — streaming/delta message types", () => {
     expect(event.message.type).toBe("tool_output_chunk");
     const m = event.message as typeof msg;
     expect(m.chunk).toBe(msg.chunk);
-    expect(m.sessionId).toBe("conv-tool-output");
+    expect(m.conversationId).toBe("conv-tool-output");
     expect(m.subType).toBe("tool_complete");
     expect(m.subToolName).toBe("bash");
     expect(m.subToolInput).toBe("ls -la");
@@ -240,7 +240,7 @@ describe("SSE HTTP parity — streaming/delta message types", () => {
       toolName: "read_file",
       result: "File contents here",
       isError: false,
-      sessionId: "conv-tool-result",
+      conversationId: "conv-tool-result",
       status: "success",
     };
     const event = await publishAndReadFrame("parity-tool-result", msg);
@@ -250,7 +250,7 @@ describe("SSE HTTP parity — streaming/delta message types", () => {
     expect(m.toolName).toBe("read_file");
     expect(m.result).toBe("File contents here");
     expect(m.isError).toBe(false);
-    expect(m.sessionId).toBe("conv-tool-result");
+    expect(m.conversationId).toBe("conv-tool-result");
     expect(m.status).toBe("success");
   });
 
@@ -274,16 +274,16 @@ describe("SSE HTTP parity — streaming/delta message types", () => {
   test("preserves message_complete payload", async () => {
     const msg = {
       type: "message_complete" as const,
-      sessionId: "conv-msg-complete",
+      conversationId: "conv-msg-complete",
     };
     const event = await publishAndReadFrame("parity-message-complete", msg);
 
     expect(event.message.type).toBe("message_complete");
     const m = event.message as typeof msg;
-    expect(m.sessionId).toBe("conv-msg-complete");
+    expect(m.conversationId).toBe("conv-msg-complete");
   });
 
-  test("preserves message_complete without sessionId", async () => {
+  test("preserves message_complete without conversationId", async () => {
     const msg = { type: "message_complete" as const };
     const event = await publishAndReadFrame(
       "parity-message-complete-nosession",
@@ -298,7 +298,7 @@ describe("SSE HTTP parity — streaming/delta message types", () => {
   test("preserves message_request_complete payload", async () => {
     const msg = {
       type: "message_request_complete" as const,
-      sessionId: "conv-msg-request-complete",
+      conversationId: "conv-msg-request-complete",
       requestId: "req-123",
       runStillActive: true,
     };
@@ -309,7 +309,7 @@ describe("SSE HTTP parity — streaming/delta message types", () => {
 
     expect(event.message.type).toBe("message_request_complete");
     const m = event.message as typeof msg;
-    expect(m.sessionId).toBe("conv-msg-request-complete");
+    expect(m.conversationId).toBe("conv-msg-request-complete");
     expect(m.requestId).toBe("req-123");
     expect(m.runStillActive).toBe(true);
   });
@@ -348,7 +348,7 @@ describe("SSE HTTP parity — streaming/delta message types", () => {
 
   // ── Envelope integrity ───────────────────────────────────────────────────
 
-  test("SSE envelope preserves assistantId and sessionId across all event types", async () => {
+  test("SSE envelope preserves assistantId and conversationId across all event types", async () => {
     const conversationKey = "parity-envelope-check";
     const { conversationId } = getOrCreateConversation(conversationKey);
 
@@ -386,7 +386,7 @@ describe("SSE HTTP parity — streaming/delta message types", () => {
     // Envelope fields
     expect(received.id).toBe(published.id);
     expect(received.assistantId).toBe("self");
-    expect(received.sessionId).toBe(conversationId);
+    expect(received.conversationId).toBe(conversationId);
     expect(received.emittedAt).toBe(published.emittedAt);
     // SSE frame fields
     expect(frame).toContain("event: assistant_event");

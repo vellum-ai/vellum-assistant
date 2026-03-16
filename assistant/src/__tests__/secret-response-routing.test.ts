@@ -82,7 +82,7 @@ describe("secret response routing", () => {
     expect(msg.label).toBe("GitHub Token");
     expect(msg.description).toBe("desc");
     expect(msg.placeholder).toBe("placeholder");
-    expect(msg.sessionId).toBe("session-1");
+    expect(msg.conversationId).toBe("session-1");
     // Clean up
     prompter.resolveSecret(msg.requestId, undefined);
     await promise;

@@ -430,7 +430,6 @@ describe("Tool execution pipeline benchmark", () => {
     let executor: ToolExecutor;
     const toolContext: ToolContext = {
       workingDir: "/tmp",
-      sessionId: "bench-session",
       conversationId: "bench-conv",
       trustClass: "guardian",
     };

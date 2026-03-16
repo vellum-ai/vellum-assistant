@@ -21,7 +21,7 @@ extension AppDelegate {
             // Notify daemon that recording failed due to permission
             let statusMsg = RecordingStatus(
                 type: "recording_status",
-                sessionId: msg.recordingId,
+                conversationId: msg.recordingId,
                 status: "failed",
                 error: "Screen recording permission is required. Please grant access in System Settings > Privacy & Security > Screen Recording, then try again.",
                 operationToken: msg.operationToken
@@ -96,7 +96,7 @@ extension AppDelegate {
                     // send restart_cancelled so the daemon knows to abort.
                     let statusMsg = RecordingStatus(
                         type: "recording_status",
-                        sessionId: recordingId,
+                        conversationId: recordingId,
                         status: "restart_cancelled",
                         attachToConversationId: attachToConversationId,
                         operationToken: operationToken
@@ -107,7 +107,7 @@ extension AppDelegate {
                     // Normal start flow: picker cancelled
                     let statusMsg = RecordingStatus(
                         type: "recording_status",
-                        sessionId: recordingId,
+                        conversationId: recordingId,
                         status: "failed",
                         error: "Recording cancelled by user"
                     )

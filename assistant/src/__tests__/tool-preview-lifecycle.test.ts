@@ -212,7 +212,7 @@ describe("tool preview lifecycle", () => {
       expect(emitted.type).toBe("tool_use_preview_start");
       expect((emitted as any).toolUseId).toBe("toolu_abc123");
       expect((emitted as any).toolName).toBe("bash");
-      expect((emitted as any).sessionId).toBe("test-session-id");
+      expect((emitted as any).conversationId).toBe("test-session-id");
     });
 
     test("emits activity state with tool_running phase and preview_start reason", () => {
@@ -255,7 +255,7 @@ describe("tool preview lifecycle", () => {
       expect((emitted as any).toolUseId).toBe("toolu_delta456");
       expect((emitted as any).toolName).toBe("bash");
       expect((emitted as any).content).toBe('{"command": "ls"}');
-      expect((emitted as any).sessionId).toBe("test-session-id");
+      expect((emitted as any).conversationId).toBe("test-session-id");
     });
 
     test("handleToolResult includes toolUseId", () => {
@@ -287,7 +287,7 @@ describe("tool preview lifecycle", () => {
       );
       expect(toolResultEvent).toBeDefined();
       expect((toolResultEvent as any).toolUseId).toBe("toolu_result789");
-      expect((toolResultEvent as any).sessionId).toBe("test-session-id");
+      expect((toolResultEvent as any).conversationId).toBe("test-session-id");
     });
   });
 

@@ -392,7 +392,7 @@ describe("resolveLocalAuthContext", () => {
     expect(ctx.principalType).toBe("local");
   });
 
-  test("subject follows local:self:<sessionId> pattern", () => {
+  test("subject follows local:self:<conversationId> pattern", () => {
     const ctx = resolveLocalAuthContext("session-abc");
     expect(ctx.subject).toBe("local:self:session-abc");
   });

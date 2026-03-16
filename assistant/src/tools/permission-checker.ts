@@ -121,7 +121,6 @@ export class PermissionChecker {
           executionTarget,
           input,
           workingDir: context.workingDir,
-          sessionId: context.sessionId,
           conversationId: context.conversationId,
           requestId: context.requestId,
           riskLevel,
@@ -173,7 +172,6 @@ export class PermissionChecker {
             executionTarget,
             input,
             workingDir: context.workingDir,
-            sessionId: context.sessionId,
             conversationId: context.conversationId,
             requestId: context.requestId,
             riskLevel,
@@ -254,7 +252,6 @@ export class PermissionChecker {
           executionTarget,
           input,
           workingDir: context.workingDir,
-          sessionId: context.sessionId,
           conversationId: context.conversationId,
           requestId: context.requestId,
           riskLevel,
@@ -270,7 +267,7 @@ export class PermissionChecker {
           toolName: name,
           input: sanitizeToolInput(name, input),
           riskLevel,
-          sessionId: context.sessionId,
+          conversationId: context.conversationId,
         });
 
         const response = await this.prompter.prompt(
@@ -295,7 +292,7 @@ export class PermissionChecker {
           toolName: name,
           decision: response.decision,
           riskLevel,
-          sessionId: context.sessionId,
+          conversationId: context.conversationId,
         });
 
         if (response.decision === "deny") {
@@ -318,7 +315,6 @@ export class PermissionChecker {
             executionTarget,
             input,
             workingDir: context.workingDir,
-            sessionId: context.sessionId,
             conversationId: context.conversationId,
             requestId: context.requestId,
             riskLevel,
@@ -367,7 +363,6 @@ export class PermissionChecker {
             executionTarget,
             input,
             workingDir: context.workingDir,
-            sessionId: context.sessionId,
             conversationId: context.conversationId,
             requestId: context.requestId,
             riskLevel,

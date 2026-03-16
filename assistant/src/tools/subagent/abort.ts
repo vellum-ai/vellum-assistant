@@ -17,7 +17,7 @@ export async function executeSubagentAbort(
   const aborted = manager.abort(
     subagentId,
     sendToClient as ((msg: unknown) => void) | undefined,
-    context.sessionId,
+    context.conversationId,
     { suppressNotification: true },
   );
 

@@ -237,8 +237,8 @@ final class ConversationManagerUnseenStateTests: XCTestCase {
             return
         }
 
-        // Mark the first (inactive) conversation as unseen and give it a sessionId
-        // (selectConversation only clears unseen when sessionId is present)
+        // Mark the first (inactive) conversation as unseen and give it a conversationId
+        // (selectConversation only clears unseen when conversationId is present)
         if let idx = conversationManager.conversations.firstIndex(where: { $0.id == firstId }) {
             conversationManager.conversations[idx].hasUnseenLatestAssistantMessage = true
             conversationManager.conversations[idx].conversationId = "session-first"

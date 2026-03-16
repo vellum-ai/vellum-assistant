@@ -81,11 +81,12 @@ async function handleBtw(
   // (the file header promises "No messages are persisted"), so we must not
   // call getOrCreateConversation which would insert a DB row.  When no
   // conversation exists (e.g. greeting generation for a draft conversation), we
-  // still get a usable session via getOrCreateSession with the raw key; the
+  // still get a usable session via getOrCreateConversation with the raw key; the
   // session lives only in memory and disappears on restart.
   const mapping = getConversationByKey(conversationKey);
-  const sessionId = mapping?.conversationId ?? conversationKey;
-  const session = await deps.sendMessageDeps.getOrCreateSession(sessionId);
+  const conversationId = mapping?.conversationId ?? conversationKey;
+  const session =
+    await deps.sendMessageDeps.getOrCreateConversation(conversationId);
 
   const messages = [...session.getMessages(), userMessage(trimmedContent)];
   const tools = buildToolDefinitions();

@@ -97,7 +97,6 @@ function mintParams(overrides: Partial<MintGrantParams> = {}): MintGrantParams {
 function makeContext(overrides: Partial<ToolContext> = {}): ToolContext {
   return {
     workingDir: testDir,
-    sessionId: "session-1",
     conversationId: "conv-1",
     assistantId: "self",
     requestId: "req-1",

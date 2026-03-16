@@ -178,7 +178,6 @@ import type { ToolContext } from "../tools/types.js";
 function makeContext(overrides?: Partial<ToolContext>): ToolContext {
   return {
     workingDir: "/tmp",
-    sessionId: "test-session",
     conversationId: "test-conv",
     trustClass: "guardian",
     ...overrides,
@@ -233,7 +232,7 @@ describe("shell tool proxy mode", () => {
 
     expect(result.isError).toBe(false);
 
-    // Session acquired via getOrStartSession
+    // Conversation acquired via getOrStartSession
     expect(getOrStartSessionCalls).toHaveLength(1);
     expect(getOrStartSessionCalls[0].conversationId).toBe("test-conv");
     expect(getOrStartSessionCalls[0].credentialIds).toEqual(["cred-1"]);
@@ -251,7 +250,7 @@ describe("shell tool proxy mode", () => {
       "/tmp/test-data/proxy-ca/ca.pem",
     );
 
-    // Session is NOT stopped after command — idle timer handles cleanup
+    // Conversation is NOT stopped after command — idle timer handles cleanup
     expect(getSessionEnvCalls).toHaveLength(1);
     expect(getSessionEnvCalls[0]).toBe(MOCK_SESSION_ID);
   });

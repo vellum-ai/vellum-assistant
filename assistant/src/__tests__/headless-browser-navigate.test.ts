@@ -56,7 +56,6 @@ import { executeBrowserNavigate } from "../tools/browser/browser-execution.js";
 import type { ToolContext } from "../tools/types.js";
 
 const ctx: ToolContext = {
-  sessionId: "test-session",
   conversationId: "test-conversation",
   workingDir: "/tmp",
   trustClass: "guardian",

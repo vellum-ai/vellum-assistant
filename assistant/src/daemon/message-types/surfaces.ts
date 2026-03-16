@@ -158,7 +158,7 @@ export type SurfaceData =
 
 export interface UiSurfaceAction {
   type: "ui_surface_action";
-  sessionId: string;
+  conversationId: string;
   surfaceId: string;
   actionId: string;
   data?: Record<string, unknown>;
@@ -166,7 +166,7 @@ export interface UiSurfaceAction {
 
 export interface UiSurfaceUndoRequest {
   type: "ui_surface_undo";
-  sessionId: string;
+  conversationId: string;
   surfaceId: string;
 }
 
@@ -175,7 +175,7 @@ export interface UiSurfaceUndoRequest {
 /** Common fields shared by all UiSurfaceShow variants. */
 interface UiSurfaceShowBase {
   type: "ui_surface_show";
-  sessionId: string;
+  conversationId: string;
   surfaceId: string;
   title?: string;
   actions?: SurfaceAction[];
@@ -236,20 +236,20 @@ export type UiSurfaceShow =
 
 export interface UiSurfaceUpdate {
   type: "ui_surface_update";
-  sessionId: string;
+  conversationId: string;
   surfaceId: string;
   data: Partial<SurfaceData>;
 }
 
 export interface UiSurfaceDismiss {
   type: "ui_surface_dismiss";
-  sessionId: string;
+  conversationId: string;
   surfaceId: string;
 }
 
 export interface UiSurfaceComplete {
   type: "ui_surface_complete";
-  sessionId: string;
+  conversationId: string;
   surfaceId: string;
   summary: string;
   submittedData?: Record<string, unknown>;
@@ -257,7 +257,7 @@ export interface UiSurfaceComplete {
 
 export interface UiSurfaceUndoResult {
   type: "ui_surface_undo_result";
-  sessionId: string;
+  conversationId: string;
   surfaceId: string;
   success: boolean;
   /** Number of remaining undo entries after this undo. */

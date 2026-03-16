@@ -96,7 +96,7 @@ mock.module("../runtime/channel-verification-service.js", () => ({
     return null;
   },
   createOutboundSession: () => ({
-    sessionId: "test-session",
+    conversationId: "test-session",
     secret: "123456",
   }),
 }));
@@ -160,7 +160,6 @@ afterAll(() => {
 function makeContext(overrides: Partial<ToolContext> = {}): ToolContext {
   return {
     workingDir: testDir,
-    sessionId: "session-1",
     conversationId: "conv-1",
     assistantId: "self",
     requestId: "req-1",

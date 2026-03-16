@@ -23,7 +23,6 @@ beforeAll(async () => {
 function makeContext(workingDir: string): ToolContext {
   return {
     workingDir,
-    sessionId: "test-session",
     conversationId: "test-conversation",
     trustClass: "guardian",
   };

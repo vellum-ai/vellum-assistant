@@ -7,9 +7,13 @@ function makeEvent(overrides: Partial<AssistantEvent> = {}): AssistantEvent {
   return {
     id: "evt_test",
     assistantId: "ast_1",
-    sessionId: "sess_1",
+    conversationId: "sess_1",
     emittedAt: "2026-02-18T00:00:00.000Z",
-    message: { type: "assistant_text_delta", sessionId: "sess_1", text: "hi" },
+    message: {
+      type: "assistant_text_delta",
+      conversationId: "sess_1",
+      text: "hi",
+    },
     ...overrides,
   };
 }
@@ -61,25 +65,25 @@ describe("AssistantEventHub — fanout", () => {
     expect(received).toHaveLength(0);
   });
 
-  test("sessionId filter further restricts delivery", async () => {
+  test("conversationId filter further restricts delivery", async () => {
     const hub = new AssistantEventHub();
     const receivedA: AssistantEvent[] = [];
     const receivedB: AssistantEvent[] = [];
 
-    hub.subscribe({ assistantId: "ast_1", sessionId: "sess_A" }, (e) => {
+    hub.subscribe({ assistantId: "ast_1", conversationId: "sess_A" }, (e) => {
       receivedA.push(e);
     });
-    hub.subscribe({ assistantId: "ast_1", sessionId: "sess_B" }, (e) => {
+    hub.subscribe({ assistantId: "ast_1", conversationId: "sess_B" }, (e) => {
       receivedB.push(e);
     });
 
-    await hub.publish(makeEvent({ sessionId: "sess_A" }));
+    await hub.publish(makeEvent({ conversationId: "sess_A" }));
 
     expect(receivedA).toHaveLength(1);
     expect(receivedB).toHaveLength(0);
   });
 
-  test("subscriber without sessionId filter receives all sessions for that assistant", async () => {
+  test("subscriber without conversationId filter receives all sessions for that assistant", async () => {
     const hub = new AssistantEventHub();
     const received: AssistantEvent[] = [];
 
@@ -87,9 +91,9 @@ describe("AssistantEventHub — fanout", () => {
       received.push(e);
     });
 
-    await hub.publish(makeEvent({ sessionId: "sess_A" }));
-    await hub.publish(makeEvent({ sessionId: "sess_B" }));
-    await hub.publish(makeEvent({ sessionId: undefined }));
+    await hub.publish(makeEvent({ conversationId: "sess_A" }));
+    await hub.publish(makeEvent({ conversationId: "sess_B" }));
+    await hub.publish(makeEvent({ conversationId: undefined }));
 
     expect(received).toHaveLength(3);
   });

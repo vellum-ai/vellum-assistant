@@ -74,7 +74,7 @@ export const swarmDelegateTool: Tool = {
     }
 
     // Recursion guard — scoped to session so independent sessions are not blocked
-    const sessionKey = context.sessionId;
+    const sessionKey = context.conversationId;
     if (activeSessions.has(sessionKey)) {
       return {
         content:

@@ -9,7 +9,7 @@ import type { ServerMessage } from "../daemon/message-protocol.js";
 import type { Message, ProviderResponse } from "../providers/types.js";
 
 // ---------------------------------------------------------------------------
-// Mocks — must precede the Session import so Bun applies them at load time.
+// Mocks — must precede the Conversation import so Bun applies them at load time.
 // ---------------------------------------------------------------------------
 
 mock.module("../util/logger.js", () => ({
@@ -219,12 +219,12 @@ mock.module("../memory/canonical-guardian-store.js", () => ({
 }));
 
 // ---------------------------------------------------------------------------
-// Import Session AFTER mocks are registered.
+// Import Conversation AFTER mocks are registered.
 // ---------------------------------------------------------------------------
 
-import { Session } from "../daemon/conversation.js";
+import { Conversation } from "../daemon/conversation.js";
 
-function makeSession(): Session {
+function makeSession(): Conversation {
   const provider = {
     name: "mock",
     async sendMessage(): Promise<ProviderResponse> {
@@ -236,7 +236,7 @@ function makeSession(): Session {
       };
     },
   };
-  return new Session(
+  return new Conversation(
     "conv-1",
     provider,
     "system prompt",
@@ -283,7 +283,7 @@ function resolveRun(index: number) {
 // Tests
 // ---------------------------------------------------------------------------
 
-describe("Session queue — slash-like messages pass through to agent loop", () => {
+describe("Conversation queue — slash-like messages pass through to agent loop", () => {
   beforeEach(() => {
     pendingRuns = [];
   });

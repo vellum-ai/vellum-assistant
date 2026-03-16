@@ -85,7 +85,6 @@ afterAll(() => {
 
 const ctx: ToolContext = {
   workingDir: "/tmp",
-  sessionId: "test-session",
   conversationId: "test-conversation",
   trustClass: "guardian",
 };

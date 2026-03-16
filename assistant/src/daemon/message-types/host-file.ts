@@ -7,7 +7,7 @@
 export interface HostFileReadRequest {
   type: "host_file_request";
   requestId: string;
-  sessionId: string;
+  conversationId: string;
   operation: "read";
   path: string;
   offset?: number;
@@ -17,7 +17,7 @@ export interface HostFileReadRequest {
 export interface HostFileWriteRequest {
   type: "host_file_request";
   requestId: string;
-  sessionId: string;
+  conversationId: string;
   operation: "write";
   path: string;
   content: string;
@@ -26,7 +26,7 @@ export interface HostFileWriteRequest {
 export interface HostFileEditRequest {
   type: "host_file_request";
   requestId: string;
-  sessionId: string;
+  conversationId: string;
   operation: "edit";
   path: string;
   old_string: string;

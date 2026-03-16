@@ -141,7 +141,7 @@ private func makeHistoryResponse(conversationId: String, messages: [(role: Strin
     let msgDicts = messages.map { msg -> [String: Any] in
         ["role": msg.role, "text": msg.text, "timestamp": 1000.0]
     }
-    let dict: [String: Any] = ["type": "history_response", "sessionId": conversationId, "messages": msgDicts, "hasMore": hasMore]
+    let dict: [String: Any] = ["type": "history_response", "conversationId": conversationId, "messages": msgDicts, "hasMore": hasMore]
     let data = try! JSONSerialization.data(withJSONObject: dict)
     return try! JSONDecoder().decode(HistoryResponse.self, from: data)
 }

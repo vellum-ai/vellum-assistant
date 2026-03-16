@@ -168,8 +168,8 @@ final class ConversationLifecycleIOSTests: XCTestCase {
     func testOnSessionCreatedCallbackFiresDuringBackfill() {
         let vm = ChatViewModel(daemonClient: mockClient)
         var capturedSessionId: String?
-        vm.onConversationCreated = { sessionId in
-            capturedSessionId = sessionId
+        vm.onConversationCreated = { conversationId in
+            capturedSessionId = conversationId
         }
         vm.createConversationIfNeeded()
 

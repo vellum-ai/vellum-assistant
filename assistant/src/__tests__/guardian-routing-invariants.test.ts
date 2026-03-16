@@ -129,7 +129,7 @@ function registerPendingToolApprovalInteraction(
   const mockSession = {
     handleConfirmationResponse,
     ensureActorScopedHistory: async () => {},
-  } as unknown as import("../daemon/conversation.js").Session;
+  } as unknown as import("../daemon/conversation.js").Conversation;
 
   pendingInteractions.register(requestId, {
     session: mockSession,

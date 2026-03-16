@@ -174,7 +174,7 @@ export function createMockSignupServer(): MockSignupServer {
   /** Stores the most recently generated verification code (for the test-only endpoint). */
   let lastVerificationCode = "";
 
-  function getOrCreateSession(cookieHeader: string | null): {
+  function getOrCreateConversation(cookieHeader: string | null): {
     session: SignupSession;
     id: string;
   } {
@@ -244,7 +244,7 @@ export function createMockSignupServer(): MockSignupServer {
       });
     }
 
-    const { session, id } = getOrCreateSession(cookieHeader);
+    const { session, id } = getOrCreateConversation(cookieHeader);
 
     // ── Step 1: Name form ─────────────────────────────────────────
     if (method === "GET" && path === "/signup") {

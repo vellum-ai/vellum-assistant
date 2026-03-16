@@ -347,9 +347,9 @@ extension AppDelegate {
         // execute locally (verify -> execute -> observe -> post result).
         // The overlay provider lazily creates a session overlay on the first
         // host_cu_request for each conversation.
-        HostCuExecutor.register(on: daemonClient) { [weak self] sessionId, request in
+        HostCuExecutor.register(on: daemonClient) { [weak self] conversationId, request in
             guard let self else { return nil }
-            return self.getOrCreateHostCuOverlay(conversationId: sessionId, request: request)
+            return self.getOrCreateHostCuOverlay(conversationId: conversationId, request: request)
         }
 
         Task {

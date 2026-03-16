@@ -10,7 +10,7 @@
  * tracker to resolve the interaction.
  */
 
-import type { Session } from "../daemon/conversation.js";
+import type { Conversation } from "../daemon/conversation.js";
 
 export interface ConfirmationDetails {
   toolName: string;
@@ -28,7 +28,7 @@ export interface ConfirmationDetails {
 }
 
 export interface PendingInteraction {
-  session: Session;
+  session: Conversation;
   conversationId: string;
   kind: "confirmation" | "secret" | "host_bash" | "host_file" | "host_cu";
   confirmationDetails?: ConfirmationDetails;
@@ -90,7 +90,7 @@ export function getByConversation(
  * /v1/host-cu-result after completing the operation, get a 404, and the
  * proxy timer would fire with a spurious timeout error.
  */
-export function removeBySession(session: Session): void {
+export function removeByConversation(session: Conversation): void {
   for (const [requestId, interaction] of pending) {
     if (
       interaction.session === session &&

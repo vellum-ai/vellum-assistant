@@ -38,14 +38,14 @@ export interface ConversationManagementDeps {
   } | null>;
   renameConversation: (conversationId: string, name: string) => boolean;
   clearAllConversations: () => number;
-  cancelGeneration: (sessionId: string) => boolean;
+  cancelGeneration: (conversationId: string) => boolean;
   /** Abort and dispose an active in-memory session (if any) before deletion. */
-  destroyConversation: (sessionId: string) => void;
+  destroyConversation: (conversationId: string) => void;
   undoLastMessage: (
-    sessionId: string,
+    conversationId: string,
   ) => Promise<{ removedCount: number } | null>;
   regenerateResponse: (
-    sessionId: string,
+    conversationId: string,
   ) => Promise<{ requestId: string } | null>;
 }
 
@@ -204,7 +204,7 @@ export function conversationManagementRouteDefinitions(
         } catch (err) {
           const message = err instanceof Error ? err.message : String(err);
           log.error(
-            { err, sessionId: params.id },
+            { err, conversationId: params.id },
             "Error regenerating via HTTP",
           );
           return httpError(

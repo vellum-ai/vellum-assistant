@@ -39,7 +39,6 @@ describe("registerToolTraceListener", () => {
   test("emits tool_started trace on tool.execution.started", async () => {
     await bus.emit("tool.execution.started", {
       conversationId: "conv-1",
-      sessionId: "sess-1",
       requestId: "req-1",
       toolName: "file_read",
       input: { path: "/tmp/test.txt" },
@@ -56,7 +55,6 @@ describe("registerToolTraceListener", () => {
   test("emits tool_permission_requested trace with riskLevel", async () => {
     await bus.emit("tool.permission.requested", {
       conversationId: "conv-1",
-      sessionId: "sess-1",
       requestId: "req-2",
       toolName: "bash",
       riskLevel: "high",
@@ -75,7 +73,6 @@ describe("registerToolTraceListener", () => {
   test("emits tool_permission_decided trace with decision", async () => {
     await bus.emit("tool.permission.decided", {
       conversationId: "conv-1",
-      sessionId: "sess-1",
       requestId: "req-3",
       toolName: "bash",
       decision: "deny",
@@ -95,7 +92,6 @@ describe("registerToolTraceListener", () => {
   test("emits tool_finished trace with durationMs", async () => {
     await bus.emit("tool.execution.finished", {
       conversationId: "conv-1",
-      sessionId: "sess-1",
       requestId: "req-4",
       toolName: "file_read",
       decision: "allow",
@@ -119,7 +115,6 @@ describe("registerToolTraceListener", () => {
   test("emits tool_finished trace with error status when isError is true", async () => {
     await bus.emit("tool.execution.finished", {
       conversationId: "conv-1",
-      sessionId: "sess-1",
       requestId: "req-4b",
       toolName: "bash",
       decision: "allow",
@@ -143,7 +138,6 @@ describe("registerToolTraceListener", () => {
   test("emits tool_failed trace with error status", async () => {
     await bus.emit("tool.execution.failed", {
       conversationId: "conv-1",
-      sessionId: "sess-1",
       requestId: "req-5",
       toolName: "bash",
       decision: "allow",
@@ -167,7 +161,6 @@ describe("registerToolTraceListener", () => {
   test("emits secret_detected trace with warning status", async () => {
     await bus.emit("tool.secret.detected", {
       conversationId: "conv-1",
-      sessionId: "sess-1",
       requestId: "req-6",
       toolName: "file_read",
       action: "redact",
@@ -185,7 +178,6 @@ describe("registerToolTraceListener", () => {
   test("passes requestId from domain event payload", async () => {
     await bus.emit("tool.execution.started", {
       conversationId: "conv-1",
-      sessionId: "sess-1",
       requestId: "my-request-id",
       toolName: "file_read",
       input: {},
@@ -198,7 +190,6 @@ describe("registerToolTraceListener", () => {
   test("handles missing requestId gracefully", async () => {
     await bus.emit("tool.execution.started", {
       conversationId: "conv-1",
-      sessionId: "sess-1",
       toolName: "file_read",
       input: {},
       startedAtMs: 8000,
@@ -224,7 +215,6 @@ describe("registerToolTraceListener", () => {
 
     await bus.emit("tool.execution.started", {
       conversationId: "conv-1",
-      sessionId: "sess-1",
       toolName: "file_read",
       input: {},
       startedAtMs: 10000,
@@ -236,7 +226,6 @@ describe("registerToolTraceListener", () => {
 
     await bus.emit("tool.execution.started", {
       conversationId: "conv-1",
-      sessionId: "sess-1",
       toolName: "file_read",
       input: {},
       startedAtMs: 11000,

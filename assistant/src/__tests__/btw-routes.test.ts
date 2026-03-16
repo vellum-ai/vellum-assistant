@@ -152,9 +152,9 @@ function makeSendMessageDeps(
 ): SendMessageDeps {
   const s = session ?? makeMockSession();
   return {
-    getOrCreateSession: mock(
+    getOrCreateConversation: mock(
       async (_conversationId: string) => s,
-    ) as unknown as SendMessageDeps["getOrCreateSession"],
+    ) as unknown as SendMessageDeps["getOrCreateConversation"],
     assistantEventHub: {} as never,
     resolveAttachments: () => [],
   };
@@ -391,7 +391,7 @@ describe("POST /v1/btw", () => {
 
     const session = makeMockSession();
     const deps = makeSendMessageDeps(session);
-    const getOrCreateSessionSpy = deps.getOrCreateSession as ReturnType<
+    const getOrCreateSessionSpy = deps.getOrCreateConversation as ReturnType<
       typeof mock
     >;
 
@@ -406,7 +406,7 @@ describe("POST /v1/btw", () => {
     // Read-only lookup should be called
     expect(mockGetConversationByKey).toHaveBeenCalledWith("greeting-abc123");
 
-    // Session should be created with the raw key (no DB conversation created)
+    // Conversation should be created with the raw key (no DB conversation created)
     expect(getOrCreateSessionSpy).toHaveBeenCalledWith("greeting-abc123");
   });
 
@@ -417,7 +417,7 @@ describe("POST /v1/btw", () => {
 
     const session = makeMockSession();
     const deps = makeSendMessageDeps(session);
-    const getOrCreateSessionSpy = deps.getOrCreateSession as ReturnType<
+    const getOrCreateSessionSpy = deps.getOrCreateConversation as ReturnType<
       typeof mock
     >;
 

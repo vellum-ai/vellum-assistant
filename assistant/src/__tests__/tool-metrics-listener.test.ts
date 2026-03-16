@@ -48,7 +48,6 @@ describe("registerToolMetricsLoggingListener", () => {
 
     await bus.emit("tool.execution.started", {
       conversationId: "conversation-1",
-      sessionId: "session-1",
       toolName: "file_read",
       input: { path: "README.md" },
       startedAtMs: 100,
@@ -56,7 +55,6 @@ describe("registerToolMetricsLoggingListener", () => {
 
     await bus.emit("tool.execution.finished", {
       conversationId: "conversation-1",
-      sessionId: "session-1",
       toolName: "file_read",
       decision: "allow",
       riskLevel: "low",
@@ -88,14 +86,12 @@ describe("registerToolMetricsLoggingListener", () => {
 
     await bus.emit("tool.execution.started", {
       conversationId: "conversation-1",
-      sessionId: "session-1",
       toolName: "file_read",
       input: { path: "README.md" },
       startedAtMs: 100,
     });
     await bus.emit("tool.execution.finished", {
       conversationId: "conversation-1",
-      sessionId: "session-1",
       toolName: "file_read",
       decision: "allow",
       riskLevel: "low",
@@ -117,14 +113,12 @@ describe("registerToolMetricsLoggingListener", () => {
 
     await bus.emit("tool.permission.requested", {
       conversationId: "conversation-1",
-      sessionId: "session-1",
       toolName: "bash",
       riskLevel: "high",
       requestedAtMs: 120,
     });
     await bus.emit("tool.permission.decided", {
       conversationId: "conversation-1",
-      sessionId: "session-1",
       toolName: "bash",
       decision: "deny",
       riskLevel: "high",
@@ -146,7 +140,6 @@ describe("registerToolMetricsLoggingListener", () => {
 
     await bus.emit("tool.secret.detected", {
       conversationId: "conversation-1",
-      sessionId: "session-1",
       toolName: "file_read",
       action: "warn",
       matches: [
@@ -182,7 +175,6 @@ describe("registerToolMetricsLoggingListener", () => {
 
     await bus.emit("tool.execution.failed", {
       conversationId: "conversation-1",
-      sessionId: "session-1",
       toolName: "bash",
       decision: "error",
       riskLevel: "high",
@@ -214,7 +206,6 @@ describe("registerToolMetricsLoggingListener", () => {
 
     await bus.emit("tool.execution.failed", {
       conversationId: "conversation-1",
-      sessionId: "session-1",
       toolName: "bash",
       decision: "error",
       riskLevel: "medium",

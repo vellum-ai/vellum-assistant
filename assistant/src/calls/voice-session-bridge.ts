@@ -13,7 +13,7 @@
 import { consumeGrantForInvocation } from "../approvals/approval-primitive.js";
 import type { ChannelId } from "../channels/types.js";
 import { getConfig } from "../config/loader.js";
-import type { Session } from "../daemon/conversation.js";
+import type { Conversation } from "../daemon/conversation.js";
 import type { TrustContext } from "../daemon/conversation-runtime-assembly.js";
 import { resolveChannelCapabilities } from "../daemon/conversation-runtime-assembly.js";
 import type { ServerMessage } from "../daemon/message-protocol.js";
@@ -43,7 +43,7 @@ export interface VoiceBridgeDeps {
       hints?: string[];
       uxBrief?: string;
     },
-  ) => Promise<Session>;
+  ) => Promise<Conversation>;
   resolveAttachments: (attachmentIds: string[]) => Array<{
     id: string;
     filename: string;

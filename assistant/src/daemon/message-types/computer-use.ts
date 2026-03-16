@@ -18,7 +18,7 @@ export interface TaskSubmit {
 export interface WatchObservation {
   type: "watch_observation";
   watchId: string;
-  sessionId: string;
+  conversationId: string;
   ocrText: string;
   appName?: string;
   windowTitle?: string;
@@ -43,7 +43,7 @@ export interface RecordingOptions {
 /** Client → Server: recording lifecycle status update. */
 export interface RecordingStatus {
   type: "recording_status";
-  sessionId: string; // matches recordingId from RecordingStart
+  conversationId: string; // matches recordingId from RecordingStart
   status:
     | "started"
     | "stopped"
@@ -91,7 +91,7 @@ export interface RecordingResume {
 
 export interface WatchStarted {
   type: "watch_started";
-  sessionId: string;
+  conversationId: string;
   watchId: string;
   durationSeconds: number;
   intervalSeconds: number;
@@ -99,7 +99,7 @@ export interface WatchStarted {
 
 export interface WatchCompleteRequest {
   type: "watch_complete_request";
-  sessionId: string;
+  conversationId: string;
   watchId: string;
 }
 

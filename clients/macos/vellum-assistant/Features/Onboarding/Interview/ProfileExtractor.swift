@@ -110,43 +110,43 @@ final class ProfileExtractor {
         ))
 
         // Wait for session creation, send the transcript, and accumulate the response.
-        // Filter all streaming events by sessionId so we only process deltas and
+        // Filter all streaming events by conversationId so we only process deltas and
         // completion from our own extraction session, not from unrelated concurrent
         // sessions (e.g., a chat the user starts while extraction runs).
-        var sessionId: String?
+        var conversationId: String?
         var accumulated = ""
 
         for await message in stream {
             switch message {
             case .conversationInfo(let info):
-                if sessionId == nil {
-                    sessionId = info.conversationId
+                if conversationId == nil {
+                    conversationId = info.conversationId
                     log.info("Extraction conversation created: \(info.conversationId)")
 
                     try daemonClient.send(UserMessageMessage(
-                        sessionId: info.conversationId,
+                        conversationId: info.conversationId,
                         content: "Here is the interview transcript to analyze:\n\n\(transcript)",
                         attachments: nil
                     ))
                 }
 
-            case .assistantTextDelta(let delta) where delta.sessionId == sessionId && sessionId != nil:
+            case .assistantTextDelta(let delta) where delta.conversationId == conversationId && conversationId != nil:
                 accumulated += delta.text
 
-            case .assistantThinkingDelta where sessionId != nil:
+            case .assistantThinkingDelta where conversationId != nil:
                 break
 
-            case .messageComplete(let complete) where complete.sessionId == sessionId && sessionId != nil:
+            case .messageComplete(let complete) where complete.conversationId == conversationId && conversationId != nil:
                 log.info("Extraction response complete (\(accumulated.count) chars)")
                 processExtractionResponse(accumulated)
                 return
 
-            case .generationHandoff(let handoff) where handoff.sessionId == sessionId && sessionId != nil:
+            case .generationHandoff(let handoff) where handoff.conversationId == conversationId && conversationId != nil:
                 log.info("Extraction response complete via handoff (\(accumulated.count) chars)")
                 processExtractionResponse(accumulated)
                 return
 
-            case .conversationError(let error) where error.conversationId == sessionId:
+            case .conversationError(let error) where error.conversationId == conversationId:
                 log.error("Extraction session error (session_error): \(error.userMessage)")
                 return
 

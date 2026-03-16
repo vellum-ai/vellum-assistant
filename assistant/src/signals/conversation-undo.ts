@@ -24,7 +24,7 @@ const log = getLogger("signal:conversation-undo");
 // ── Daemon callback registry ─────────────────────────────────────────
 
 type UndoCallback = (
-  sessionId: string,
+  conversationId: string,
 ) => Promise<{ removedCount: number } | null>;
 
 let _undoLastMessage: UndoCallback | null = null;
@@ -68,17 +68,17 @@ export async function handleConversationUndoSignal(): Promise<void> {
       "utf-8",
     );
     const parsed = JSON.parse(content) as {
-      sessionId?: string;
+      conversationId?: string;
       requestId?: string;
     };
-    const { sessionId, requestId } = parsed;
+    const { conversationId, requestId } = parsed;
     parsedRequestId = requestId;
 
-    if (!sessionId || typeof sessionId !== "string") {
-      log.warn("Undo signal missing sessionId");
+    if (!conversationId || typeof conversationId !== "string") {
+      log.warn("Undo signal missing conversationId");
       writeResult({
         ok: false,
-        error: "Missing sessionId",
+        error: "Missing conversationId",
         requestId: requestId ?? null,
       });
       return;
@@ -96,15 +96,15 @@ export async function handleConversationUndoSignal(): Promise<void> {
       return;
     }
 
-    const result = await _undoLastMessage(sessionId);
+    const result = await _undoLastMessage(conversationId);
     if (!result) {
-      log.warn({ sessionId }, "No active session for undo signal");
+      log.warn({ conversationId }, "No active session for undo signal");
       writeResult({ ok: false, error: "No active session", requestId });
       return;
     }
 
     log.info(
-      { sessionId, removedCount: result.removedCount },
+      { conversationId, removedCount: result.removedCount },
       "Undo completed via signal file",
     );
     writeResult({

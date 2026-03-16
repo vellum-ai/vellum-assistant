@@ -30,7 +30,7 @@ final class ConversationManagerRenameTests: XCTestCase {
         super.tearDown()
     }
 
-    // MARK: - Rename with sessionId
+    // MARK: - Rename with conversationId
 
     func testRenameWithSessionIdSendsMessage() {
         guard let thread = conversationManager.conversations.first else {
