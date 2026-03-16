@@ -317,6 +317,12 @@ export class SkillLoadTool implements Tool {
             `--- Included Skill: ${childLoaded.skill.displayName} (${childId}) ---\n${childLoaded.skill.body}`,
           );
 
+          // List reference files for the included skill
+          const childRefs = listReferenceFiles(childLoaded.skill.directoryPath);
+          if (childRefs) {
+            includedBodies.push(childRefs);
+          }
+
           // Load tool schemas for the included skill (lighter sub-heading)
           const childManifest = loadToolManifest(
             childLoaded.skill.directoryPath,
