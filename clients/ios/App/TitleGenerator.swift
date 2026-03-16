@@ -2,13 +2,13 @@
 import Foundation
 import VellumAssistantShared
 
-/// Generates short titles for chat threads by sending the first user message
+/// Generates short titles for chat conversations by sending the first user message
 /// to claude-haiku-4-5-20251001 via the Anthropic Messages API.
 actor TitleGenerator {
     static let shared = TitleGenerator()
 
-    /// Threads for which a title request has already been sent (prevents duplicates).
-    private var titledThreads: Set<UUID> = []
+    /// Conversations for which a title request has already been sent (prevents duplicates).
+    private var titledConversations: Set<UUID> = []
 
     private static let apiURL = URL(string: "https://api.anthropic.com/v1/messages")
 
@@ -33,20 +33,20 @@ actor TitleGenerator {
         }
     }
 
-    /// Generate a 3-5 word title for the thread's first user message.
+    /// Generate a 3-5 word title for the conversation's first user message.
     /// Returns nil if no API key is available, if the request fails, or if already titled.
-    func generateTitle(for threadId: UUID, firstUserMessage: String) async -> String? {
-        guard !titledThreads.contains(threadId) else { return nil }
-        titledThreads.insert(threadId)
+    func generateTitle(for conversationId: UUID, firstUserMessage: String) async -> String? {
+        guard !titledConversations.contains(conversationId) else { return nil }
+        titledConversations.insert(conversationId)
 
         guard let apiKey = APIKeyManager.shared.getAPIKey(provider: "anthropic")
                 ?? ProcessInfo.processInfo.environment["ANTHROPIC_API_KEY"] else {
-            titledThreads.remove(threadId)
+            titledConversations.remove(conversationId)
             return nil
         }
 
         guard let url = Self.apiURL else {
-            titledThreads.remove(threadId)
+            titledConversations.remove(conversationId)
             return nil
         }
 
@@ -66,7 +66,7 @@ actor TitleGenerator {
         )
 
         guard let httpBody = try? JSONEncoder().encode(body) else {
-            titledThreads.remove(threadId)
+            titledConversations.remove(conversationId)
             return nil
         }
         request.httpBody = httpBody
@@ -75,17 +75,17 @@ actor TitleGenerator {
             let (data, _) = try await URLSession.shared.data(for: request)
             let response = try JSONDecoder().decode(MessagesResponse.self, from: data)
             guard let text = response.content.first?.text else {
-                titledThreads.remove(threadId)
+                titledConversations.remove(conversationId)
                 return nil
             }
             let title = text.trimmingCharacters(in: .whitespacesAndNewlines)
             if title.isEmpty {
-                titledThreads.remove(threadId)
+                titledConversations.remove(conversationId)
                 return nil
             }
             return title
         } catch {
-            titledThreads.remove(threadId)
+            titledConversations.remove(conversationId)
             return nil
         }
     }
