@@ -10,12 +10,11 @@
 # Configuration is read from scripts/.env (see scripts/.env.example).
 #
 # Usage:
-#   ./scripts/staging-release.sh [--cleanup --confirm]
+#   ./scripts/staging-release.sh [--cleanup]
 #
 # Options:
 #   --cleanup   After installing, SCP the mac-mini-cleanup.sh script to the
-#               mini, run it, then remove it. Requires --confirm.
-#   --confirm   Confirms destructive --cleanup operation.
+#               mini, run it, then remove it.
 
 set -euo pipefail
 
@@ -24,20 +23,12 @@ set -euo pipefail
 # ---------------------------------------------------------------------------
 
 RUN_CLEANUP=false
-CONFIRM=false
 for arg in "$@"; do
   case "$arg" in
     --cleanup) RUN_CLEANUP=true ;;
-    --confirm) CONFIRM=true ;;
     *) echo "Unknown option: $arg"; exit 1 ;;
   esac
 done
-
-if [ "$RUN_CLEANUP" = true ] && [ "$CONFIRM" != true ]; then
-  echo "ERROR: --cleanup is destructive (removes SSH keys, apps, data, etc.)."
-  echo "       Pass --confirm to proceed: ./scripts/staging-release.sh --cleanup --confirm"
-  exit 1
-fi
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 ENV_FILE="${SCRIPT_DIR}/.env"
