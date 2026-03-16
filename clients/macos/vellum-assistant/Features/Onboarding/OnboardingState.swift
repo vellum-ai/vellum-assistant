@@ -142,11 +142,8 @@ final class OnboardingState {
         // Clamp restored step to the variant's maximum to prevent out-of-range
         // rendering (e.g. a step saved from the 8-step default flow would be
         // invalid for the 5-step first-meeting flow).
-        let isManagedSignIn = MacOSClientFeatureFlagManager.shared.isEnabled("managed_sign_in_enabled")
         let maxStep: Int
-        if isManagedSignIn {
-            maxStep = 2
-        } else if onboardingVariant == .firstMeeting {
+        if onboardingVariant == .firstMeeting {
             maxStep = 4
         } else {
             maxStep = 2
