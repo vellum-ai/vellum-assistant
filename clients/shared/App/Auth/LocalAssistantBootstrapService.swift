@@ -102,7 +102,7 @@ public final class LocalAssistantBootstrapService {
         }
 
         // Step 1: Ensure registration (idempotent)
-        let platformAssistantId: String
+        var platformAssistantId: String?
         do {
             let registration = try await authService.ensureSelfHostedLocalRegistration(
                 organizationId: organizationId,
@@ -111,14 +111,14 @@ public final class LocalAssistantBootstrapService {
                 clientPlatform: clientPlatform
             )
             platformAssistantId = registration.assistant.id
-            log.info("Registered local assistant: \(platformAssistantId, privacy: .public)")
+            log.info("Registered local assistant: \(registration.assistant.id, privacy: .public)")
 
             // Persist the platform assistant ID mapping so other services can resolve it.
             if let storage = credentialStorage {
                 let userId = try? await resolveUserId()
                 if let uid = userId {
                     let persisted = PlatformAssistantIdResolver.persist(
-                        platformAssistantId: platformAssistantId,
+                        platformAssistantId: registration.assistant.id,
                         runtimeAssistantId: runtimeAssistantId,
                         organizationId: organizationId,
                         userId: uid,
@@ -135,24 +135,8 @@ public final class LocalAssistantBootstrapService {
             }
         } catch let error as PlatformAPIError {
             if case .serverError(let statusCode, _) = error, statusCode == 409 {
-                // Assistant already registered with an active key — resolve platform ID from cache.
-                // This happens during logout → re-login: the local key cache is cleared but the
-                // platform retains the active API key, so ensure-registration returns 409.
-                if let storage = credentialStorage,
-                   let orgId = UserDefaults.standard.string(forKey: "connectedOrganizationId"),
-                   let uid = try? await resolveUserId(),
-                   let cachedPlatformId = PlatformAssistantIdResolver.resolve(
-                       lockfileAssistantId: runtimeAssistantId,
-                       isManaged: false,
-                       organizationId: orgId,
-                       userId: uid,
-                       credentialStorage: storage
-                   ) {
-                    platformAssistantId = cachedPlatformId
-                    log.info("Registration returned 409 — using cached platform assistant ID: \(cachedPlatformId, privacy: .public)")
-                } else {
-                    throw LocalBootstrapError.registrationFailed("Assistant already registered but no cached platform ID available")
-                }
+                log.info("Registration returned 409 — will resolve platform assistant ID from reprovision")
+                // platformAssistantId stays nil — will be resolved from the reprovision response
             } else {
                 throw mapPlatformError(error, context: .registration)
             }
@@ -162,19 +146,20 @@ public final class LocalAssistantBootstrapService {
 
         let credentialAccount = Self.credentialAccount(for: runtimeAssistantId)
 
-        // Step 2: Check if we already have the key stored locally
-        if let existingKey = credentialStorage?.get(account: credentialAccount), !existingKey.isEmpty {
+        // Step 2: Check if we already have the key stored locally (only when we have the platform ID)
+        if let platformId = platformAssistantId,
+           let existingKey = credentialStorage?.get(account: credentialAccount), !existingKey.isEmpty {
             do {
                 try await injectKeyIntoDaemon(key: existingKey)
                 log.info("Re-synced existing API key to daemon")
-                try? await injectPlatformAssistantIdIntoDaemon(id: platformAssistantId)
+                try? await injectPlatformAssistantIdIntoDaemon(id: platformId)
                 do {
                     try await injectPlatformBaseUrlIntoDaemon(url: authService.baseURL)
                 } catch {
                     log.error("Failed to inject platform base URL into daemon on existing-key path: \(error.localizedDescription)")
                     throw LocalBootstrapError.daemonInjectionFailed
                 }
-                return .registeredWithExistingKey(assistantId: platformAssistantId)
+                return .registeredWithExistingKey(assistantId: platformId)
             } catch {
                 log.warning("Failed to inject existing key into daemon, will reprovision: \(error.localizedDescription)")
                 // Fall through to Step 3 — key may be stale
@@ -196,15 +181,40 @@ public final class LocalAssistantBootstrapService {
             throw LocalBootstrapError.provisioningFailed(error.localizedDescription)
         }
 
+        // If platformAssistantId was not resolved from Step 1 (e.g. 409 path),
+        // resolve it from the reprovision response which includes the assistant record.
+        if platformAssistantId == nil {
+            platformAssistantId = provisionResponse.assistant.id
+            log.info("Resolved platform assistant ID from reprovision: \(provisionResponse.assistant.id, privacy: .public)")
+
+            // Persist the mapping now that we have it
+            if let storage = credentialStorage {
+                let userId = try? await resolveUserId()
+                if let uid = userId {
+                    PlatformAssistantIdResolver.persist(
+                        platformAssistantId: provisionResponse.assistant.id,
+                        runtimeAssistantId: runtimeAssistantId,
+                        organizationId: organizationId,
+                        userId: uid,
+                        credentialStorage: storage
+                    )
+                }
+            }
+        }
+
+        guard let resolvedPlatformId = platformAssistantId else {
+            throw LocalBootstrapError.registrationFailed("Failed to resolve platform assistant ID")
+        }
+
         let rawKey = provisionResponse.provisioning.assistantApiKey
-        log.info("Provisioned new API key for assistant: \(platformAssistantId, privacy: .public)")
+        log.info("Provisioned new API key for assistant: \(resolvedPlatformId, privacy: .public)")
 
         // Step 4: Store locally for future sign-ins
         _ = credentialStorage?.set(account: credentialAccount, value: rawKey)
 
         // Step 5: Inject into daemon
         try await injectKeyIntoDaemon(key: rawKey)
-        if (try? await injectPlatformAssistantIdIntoDaemon(id: platformAssistantId)) == nil {
+        if (try? await injectPlatformAssistantIdIntoDaemon(id: resolvedPlatformId)) == nil {
             log.warning("Failed to inject platform assistant ID into daemon on provision path; the TS env-var fallback will be used")
         }
         do {
@@ -214,7 +224,7 @@ public final class LocalAssistantBootstrapService {
             throw LocalBootstrapError.daemonInjectionFailed
         }
 
-        return .registeredAndProvisioned(assistantId: platformAssistantId)
+        return .registeredAndProvisioned(assistantId: resolvedPlatformId)
     }
 
     /// Clear the stored credential and re-run bootstrap to obtain a fresh key.
