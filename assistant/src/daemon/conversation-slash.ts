@@ -377,7 +377,7 @@ export async function resolveSlash(
       "/pair — Generate pairing info for connecting a mobile device",
     ];
     if (context) {
-      lines.push("/status — Show session status and context usage");
+      lines.push("/status — Show conversation status and context usage");
     }
     return {
       kind: "unknown",

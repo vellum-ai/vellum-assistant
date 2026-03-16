@@ -25,7 +25,7 @@ public final class ActivityNotificationService: ActivityNotificationServiceProto
         self.settingsStore = settingsStore
     }
 
-    /// Sends a notification when a session completes.
+    /// Sends a notification when a conversation completes.
     /// - Only sends if notifications are enabled in settings
     /// - Only sends if app is in background
     /// - Only sends if notification permissions are granted
@@ -35,7 +35,7 @@ public final class ActivityNotificationService: ActivityNotificationServiceProto
         toolCalls: [ToolCallData],
         conversationId: String
     ) async {
-        log.info("notifyConversationComplete called for session \(conversationId, privacy: .public)")
+        log.info("notifyConversationComplete called for conversation \(conversationId, privacy: .public)")
 
         // Check if notifications enabled in settings
         guard settingsStore.activityNotificationsEnabled else {

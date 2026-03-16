@@ -232,7 +232,7 @@ extension ConversationCreateRequest {
     }
 }
 
-/// Sent to add a user message to an existing Q&A session.
+/// Sent to add a user message to an existing conversation.
 /// Backed by generated `UserMessage`.
 public typealias UserMessageMessage = UserMessage
 
@@ -459,7 +459,7 @@ extension RegenerateRequest {
     }
 }
 
-/// Sent to request message history for a specific session.
+/// Sent to request message history for a specific conversation.
 /// Backed by generated `HistoryRequest`.
 public typealias HistoryRequestMessage = HistoryRequest
 
@@ -825,7 +825,7 @@ public typealias DocumentListResponseMessage = DocumentListResponse
 public typealias UndoCompleteMessage = UndoComplete
 
 /// Confirms generation was cancelled.
-/// Kept hand-maintained — the Swift type includes `conversationId` for session
+/// Kept hand-maintained — the Swift type includes `conversationId` for conversation
 /// filtering, which the TS contract does not define for this message type.
 public struct GenerationCancelledMessage: Decodable, Sendable {
     public let conversationId: String?
@@ -1537,7 +1537,7 @@ public struct HostCuResultPayload: Codable, Sendable {
 public typealias AssistantActivityStateMessage = AssistantActivityState
 
 
-/// Request a follow-up suggestion for the current session.
+/// Request a follow-up suggestion for the current conversation.
 /// Backed by generated `SuggestionRequest`.
 public typealias SuggestionRequestMessage = SuggestionRequest
 
@@ -2061,7 +2061,7 @@ public struct SubagentAbortMessage: Encodable, Sendable {
     }
 }
 
-/// Wraps any ServerMessage emitted by a subagent session for routing to the client.
+/// Wraps any ServerMessage emitted by a subagent conversation for routing to the client.
 /// Hand-maintained because `event` is a recursive `ServerMessage` reference (codegen skips ServerMessage).
 /// Wire type: `"subagent_event"`
 public struct SubagentEventMessage: Decodable, Sendable {
