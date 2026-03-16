@@ -491,6 +491,9 @@ extension AppDelegate {
                 try? await daemonClient.setPrivacyConfig(collectUsageData: syncCollectUsageData, sendDiagnostics: syncSendDiagnostics)
             }
 
+            let tosAccepted = UserDefaults.standard.bool(forKey: "tosAccepted")
+            log.info("ToS accepted: \(tosAccepted, privacy: .public)")
+
             // Clean up legacy keys and write canonical ones
             UserDefaults.standard.removeObject(forKey: "collectUsageDataEnabled")
             UserDefaults.standard.removeObject(forKey: "sendPerformanceReports")

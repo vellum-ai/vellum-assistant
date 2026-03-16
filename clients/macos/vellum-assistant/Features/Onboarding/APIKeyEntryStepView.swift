@@ -154,7 +154,7 @@ struct APIKeyEntryStepView: View {
         try? WorkspaceConfigIO.merge(["services": services])
 
         saveModelToConfig("claude-opus-4-6")
-        state.isHatching = true
+        state.advance()
     }
 
     private func saveModelToConfig(_ model: String) {

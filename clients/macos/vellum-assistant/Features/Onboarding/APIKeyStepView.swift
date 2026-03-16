@@ -183,9 +183,6 @@ struct APIKeyStepView: View {
     }
 
     private var continueButtonTitle: String {
-        if isAuthenticated {
-            return "Hatch"
-        }
         return "Continue"
     }
 
@@ -195,9 +192,12 @@ struct APIKeyStepView: View {
         state.cloudProvider = state.selectedHostingMode.rawValue
 
         if isAuthenticated {
+            // Authenticated user selecting Local: skip API key, advance to consent step
             saveModelToConfig("claude-opus-4-6")
-            state.isHatching = true
+            state.skippedAPIKeyEntry = true
+            state.advance(by: 2)
         } else {
+            state.skippedAPIKeyEntry = false
             state.advance()
         }
     }

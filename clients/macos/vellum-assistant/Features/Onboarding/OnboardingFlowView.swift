@@ -27,7 +27,7 @@ struct OnboardingFlowView: View {
     }
 
     private var maxOnboardingStep: Int {
-        return 2
+        return 3
     }
 
     var body: some View {
@@ -51,7 +51,7 @@ struct OnboardingFlowView: View {
                         .ignoresSafeArea()
                     )
             } else if (0...maxOnboardingStep).contains(state.currentStep) {
-                // Onboarding flow: WakeUp → HostingSelector → APIKeyEntry (steps 0–2)
+                // Onboarding flow: WakeUp → HostingSelector → APIKeyEntry → ImproveExperience (steps 0–3)
                 ScrollView(.vertical, showsIndicators: false) {
                 VStack(spacing: 0) {
                     // Fixed top inset — positions the icon consistently
@@ -118,6 +118,8 @@ struct OnboardingFlowView: View {
                                 )
                             case 2:
                                 APIKeyEntryStepView(state: state)
+                            case 3:
+                                ImproveExperienceStepView(state: state, skippedAPIKeyEntry: state.skippedAPIKeyEntry)
                             default:
                                 EmptyView()
                             }
@@ -314,6 +316,16 @@ struct OnboardingFlowView: View {
 
             UserDefaults.standard.set(assistant.id, forKey: "connectedAssistantId")
             SentryDeviceInfo.updateAssistantTag(assistant.id)
+
+            // Managed users accept ToS on the platform — skip step 3.
+            // Write default privacy opt-ins so syncPrivacyConfig picks them up.
+            if UserDefaults.standard.object(forKey: "collectUsageData") == nil {
+                UserDefaults.standard.set(true, forKey: "collectUsageData")
+            }
+            if UserDefaults.standard.object(forKey: "sendDiagnostics") == nil {
+                UserDefaults.standard.set(true, forKey: "sendDiagnostics")
+            }
+            UserDefaults.standard.set(true, forKey: "tosAccepted")
 
             isBootstrappingManaged = false
             state.isManagedHatch = true

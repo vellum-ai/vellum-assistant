@@ -27,7 +27,7 @@ enum ActivationKey: String, CaseIterable {
 final class OnboardingState {
     /// Bump this version whenever the default-flow step order changes so that
     /// persisted step indices from a previous layout are not consumed as-is.
-    private static let currentFlowVersion = 12
+    private static let currentFlowVersion = 13
 
     var currentStep: Int = 0
     var assistantName: String = "Velly"
@@ -39,6 +39,10 @@ final class OnboardingState {
 
     /// Whether the user explicitly skipped login during onboarding.
     var skippedAuth: Bool = false
+
+    /// Whether step 2 (API key entry) was skipped during this onboarding run.
+    /// Set when an authenticated user advances directly from step 1 to step 3.
+    var skippedAPIKeyEntry: Bool = false
 
     /// The hosting mode selected in onboarding step 1.
     var selectedHostingMode: HostingMode = .local
@@ -121,7 +125,7 @@ final class OnboardingState {
         case 0: return hasHatched ? 0.15 : 0.0
         case 1: return 0.20
         case 2: return 0.25
-        case 3: return 0.30
+        case 3: return 0.35
         case 4: return 0.60
         case 5: return speechGranted ? 0.70 : 0.65
         case 6: return accessibilityGranted ? 0.80 : 0.70
@@ -156,6 +160,7 @@ final class OnboardingState {
             hasHatched = UserDefaults.standard.bool(forKey: "onboarding.hatched")
             interviewCompleted = UserDefaults.standard.bool(forKey: "onboarding.interviewCompleted")
             cloudProvider = UserDefaults.standard.string(forKey: "onboarding.cloudProvider") ?? "local"
+            skippedAPIKeyEntry = UserDefaults.standard.bool(forKey: "onboarding.skippedAPIKeyEntry")
         }
         if let rawVariant = UserDefaults.standard.string(forKey: "onboarding.variant"),
            let variant = OnboardingVariant(rawValue: rawVariant) {
@@ -169,22 +174,14 @@ final class OnboardingState {
         let isManagedSignIn = MacOSClientFeatureFlagManager.shared.isEnabled("managed_sign_in_enabled")
         let maxStep: Int
         if isManagedSignIn {
-            maxStep = 2
+            maxStep = 3
         } else if onboardingVariant == .firstMeeting {
             maxStep = 4
         } else {
-            maxStep = 2
+            maxStep = 3
         }
         if currentStep > maxStep {
             currentStep = maxStep
-        }
-
-        // Opt in to usage data and diagnostics by default for new users.
-        if UserDefaults.standard.object(forKey: "collectUsageData") == nil {
-            UserDefaults.standard.set(true, forKey: "collectUsageData")
-        }
-        if UserDefaults.standard.object(forKey: "sendDiagnostics") == nil {
-            UserDefaults.standard.set(true, forKey: "sendDiagnostics")
         }
     }
 
@@ -206,6 +203,7 @@ final class OnboardingState {
         UserDefaults.standard.set(onboardingVariant.rawValue, forKey: "onboarding.variant")
         UserDefaults.standard.set(Double(firstMeetingCrackProgress), forKey: "onboarding.firstMeetingCrackProgress")
         UserDefaults.standard.set(Self.currentFlowVersion, forKey: "onboarding.flowVersion")
+        UserDefaults.standard.set(skippedAPIKeyEntry, forKey: "onboarding.skippedAPIKeyEntry")
     }
 
     /// Resets all hatch-related and credential state for a clean retry,
@@ -220,6 +218,10 @@ final class OnboardingState {
         hatchLogLines = []
         hasHatched = false
         skippedAuth = false
+        skippedAPIKeyEntry = false
+
+        // Reset ToS acceptance so the user must re-accept on re-hatch
+        UserDefaults.standard.set(false, forKey: "tosAccepted")
 
         // Clear stored API key so the user starts fresh
         APIKeyManager.deleteKey(for: "anthropic")
@@ -241,7 +243,7 @@ final class OnboardingState {
     }
 
     static func clearPersistedState() {
-        for key in ["onboarding.step", "onboarding.name", "onboarding.key", "onboarding.hatched", "onboarding.interviewCompleted", "onboarding.variant", "onboarding.firstMeetingCrackProgress", "onboarding.flowVersion", "onboarding.cloudProvider"] {
+        for key in ["onboarding.step", "onboarding.name", "onboarding.key", "onboarding.hatched", "onboarding.interviewCompleted", "onboarding.variant", "onboarding.firstMeetingCrackProgress", "onboarding.flowVersion", "onboarding.cloudProvider", "onboarding.skippedAPIKeyEntry"] {
             UserDefaults.standard.removeObject(forKey: key)
         }
     }
