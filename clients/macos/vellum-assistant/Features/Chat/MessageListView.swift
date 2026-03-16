@@ -28,6 +28,10 @@ extension EnvironmentValues {
     var lastMinY: CGFloat = .infinity  // NOT @Published — no re-render on scroll
     @Published var isVisible: Bool = true
 
+    /// Updates the tracked minY and recalculates visibility.
+    /// Only publishes `isVisible` when the boundary is actually crossed
+    /// (visible ↔ invisible), not on every scroll tick — this prevents
+    /// SwiftUI re-renders during continuous scrolling.
     func update(minY: CGFloat, viewportHeight: CGFloat) {
         lastMinY = minY
         let newVisible = minY >= -20 && minY <= viewportHeight + 20
@@ -165,6 +169,9 @@ struct MessageListView: View {
     @State private var avatarSmoothingTask: Task<Void, Never>?
     @State private var avatarLastAppliedAt: Date?
     @State private var hasPlayedTailEntryAnimation = false
+    /// Last reported ConversationTailAnchorYKey value. Used to apply a 2pt
+    /// dead-zone so that sub-pixel layout jitter doesn't trigger avatar updates.
+    @State private var lastTailAnchorY: CGFloat = .infinity
 
     /// The subset of messages actually shown, honoring the pagination window.
     private var visibleMessages: [ChatMessage] {
@@ -746,6 +753,9 @@ struct MessageListView: View {
             }
             .transaction { $0.disablesAnimations = true }
             .onPreferenceChange(AnchorMinYKey.self) { minY in
+                // 2pt dead-zone: skip update when value hasn't meaningfully changed,
+                // reducing layout invalidation cascades during rapid scroll.
+                guard abs(minY - anchorTracker.lastMinY) > 2 else { return }
                 os_signpost(.begin, log: PerfSignposts.log, name: "anchorPreferenceChange")
                 anchorTracker.update(minY: minY, viewportHeight: scrollViewportHeight)
                 if !hasFreshAnchorMeasurement { hasFreshAnchorMeasurement = true }
@@ -753,6 +763,10 @@ struct MessageListView: View {
             }
             .transaction { $0.disablesAnimations = true }
             .onPreferenceChange(ConversationTailAnchorYKey.self) { anchorY in
+                // 2pt dead-zone: skip update when value hasn't meaningfully changed,
+                // reducing layout invalidation cascades during rapid scroll.
+                guard abs(anchorY - lastTailAnchorY) > 2 else { return }
+                lastTailAnchorY = anchorY
                 updateAvatarFollower(anchorY: anchorY)
             }
             .transaction { $0.disablesAnimations = true }
