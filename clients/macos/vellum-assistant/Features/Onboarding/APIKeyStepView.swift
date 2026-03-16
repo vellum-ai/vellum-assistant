@@ -41,16 +41,18 @@ struct APIKeyStepView: View {
                     handleContinue()
                 }
 
-                HStack(spacing: VSpacing.lg) {
-                    Button(action: { goBack() }) {
-                        Text("Back")
-                            .font(.system(size: 13))
-                            .foregroundColor(VColor.contentTertiary)
+                if !isAuthenticated {
+                    HStack(spacing: VSpacing.lg) {
+                        Button(action: { goBack() }) {
+                            Text("Back")
+                                .font(.system(size: 13))
+                                .foregroundColor(VColor.contentTertiary)
+                        }
+                        .buttonStyle(.plain)
+                        .pointerCursor()
                     }
-                    .buttonStyle(.plain)
-                    .pointerCursor()
+                    .padding(.top, VSpacing.xs)
                 }
-                .padding(.top, VSpacing.xs)
             }
         }
         .padding(.horizontal, VSpacing.xxl)
