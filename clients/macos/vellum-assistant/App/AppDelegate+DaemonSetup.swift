@@ -130,17 +130,17 @@ extension AppDelegate {
     /// Return the `LocalAssistantLauncher` appropriate for `assistant`'s `runtimeBackend`.
     ///
     /// - `process` (or absent): delegates to the bundled `AssistantCli` hatch path.
-    /// - `appleContainers`: reserved — falls back to `AssistantCli` today so existing
-    ///   behavior is preserved until PR 5 wires the real Apple Containers runtime.
-    ///   A log warning is emitted so the absence of a dedicated launcher is visible.
+    /// - `appleContainers`: dispatches to `AppleContainersLauncher`, which owns the
+    ///   full pod lifecycle through the Apple Containerization framework.
+    ///   If the feature flag is off, `AppleContainersLauncher` will throw
+    ///   `AppleContainersLauncherError.rolloutDisabled` on its first call,
+    ///   producing a clear error instead of a silent fallback.
     func localLauncher(for assistant: LockfileAssistant?) -> LocalAssistantLauncher {
         guard let assistant, assistant.runtimeBackend == .appleContainers else {
             return assistantCli
         }
-        // Apple Containers runtime is not yet wired (see PR 5). Fall back to the
-        // CLI launcher and warn so the gap is visible during development.
-        log.warning("localLauncher: apple-containers backend not yet implemented — falling back to CLI hatch for '\(assistant.assistantId, privacy: .public)'")
-        return assistantCli
+        log.info("localLauncher: dispatching to AppleContainersLauncher for '\(assistant.assistantId, privacy: .public)'")
+        return appleContainersLauncher
     }
 
     // MARK: - Daemon Client Setup

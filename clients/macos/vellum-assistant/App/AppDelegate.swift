@@ -50,6 +50,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
     var zoomLocalMonitor: Any?
     public let services = AppServices()
     let assistantCli = AssistantCli()
+    let appleContainersLauncher = AppleContainersLauncher()
     public let updateManager = UpdateManager()
     let debugStateWriter = DebugStateWriter()
     private var metricKitManager: MetricKitManager?
