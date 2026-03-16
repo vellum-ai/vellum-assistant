@@ -149,7 +149,7 @@ pkill -x "Vellum (Staging)" 2>/dev/null || true
 sleep 1
 
 # Mount, copy to /Applications, unmount
-MOUNT_POINT=$(hdiutil attach "$DMG" -nobrowse -noverify | tail -1 | awk '{print $NF}')
+MOUNT_POINT=$(hdiutil attach "$DMG" -nobrowse -noverify | grep -o '/Volumes/.*')
 if [ -z "$MOUNT_POINT" ]; then
   echo "ERROR: Failed to mount DMG"
   exit 1
