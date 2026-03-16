@@ -41,75 +41,8 @@ jobs:
               - 'clients/**'
               - '.github/workflows/ci-main-macos.yaml'
 
-  test:
-    name: macOS Tests & Lint
-    needs: [changes]
-    if: needs.changes.outputs.clients == 'true' || github.event_name == 'workflow_dispatch'
-    runs-on: macos-15
-    timeout-minutes: 30
-    steps:
-      - name: Cancel if superseded by a newer run
-        uses: actions/github-script@v7
-        with:
-          script: |
-            const branch = context.ref.replace('refs/heads/', '');
-            for (const status of ['queued', 'waiting', 'in_progress']) {
-              const { data } = await github.rest.actions.listWorkflowRuns({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                workflow_id: 'ci-main-macos.yaml',
-                branch,
-                status,
-                per_page: 10,
-              });
-              const newer = data.workflow_runs.filter(r => r.run_number > context.runNumber);
-              if (newer.length > 0) {
-                core.info(`Superseded by newer ${status} run(s): ${newer.map(r => '#' + r.run_number).join(', ')}`);
-                await github.rest.actions.cancelWorkflowRun({
-                  owner: context.repo.owner,
-                  repo: context.repo.repo,
-                  run_id: context.runId,
-                });
-                await new Promise(r => setTimeout(r, 5000));
-                core.setFailed('Superseded by a newer run');
-                return;
-              }
-            }
-            core.info('This is the newest run — proceeding.');
-
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Select Xcode 26.2
-        run: sudo xcode-select -s /Applications/Xcode_26.2.app/Contents/Developer
-
-      - name: Compute cache week
-        id: week
-        run: echo "num=$(date -u +%V)" >> "$GITHUB_OUTPUT"
-
-      - name: Cache SPM build artifacts
-        uses: actions/cache@v4
-        with:
-          path: clients/.build
-          key: macos-spm-debug-week${{ steps.week.outputs.num }}-${{ hashFiles('clients/Package.resolved') }}
-          restore-keys: |
-            macos-spm-debug-week${{ steps.week.outputs.num }}-
-            macos-spm-debug-
-
-      - name: Design token guard
-        run: bash clients/scripts/check-design-tokens.sh --mode=strict
-
-      - name: Build executable
-        working-directory: clients
-        run: swift build --product vellum-assistant
-
-      - name: Run tests
-        working-directory: clients/macos
-        run: ./build.sh test
-
-
-  build-app:
-    name: Build macOS App
+  build-and-test:
+    name: macOS Build & Test
     needs: [changes]
     if: needs.changes.outputs.bundled == 'true' || github.event_name == 'workflow_dispatch'
     runs-on: macos-15
@@ -165,10 +98,23 @@ jobs:
         uses: actions/cache@v4
         with:
           path: clients/.build
-          key: macos-spm-release-week${{ steps.week.outputs.num }}-${{ hashFiles('clients/Package.resolved') }}
+          key: macos-spm-debug-week${{ steps.week.outputs.num }}-${{ hashFiles('clients/Package.resolved') }}
           restore-keys: |
-            macos-spm-release-week${{ steps.week.outputs.num }}-
-            macos-spm-release-
+            macos-spm-debug-week${{ steps.week.outputs.num }}-
+            macos-spm-debug-
+
+      - name: Design token guard
+        if: needs.changes.outputs.clients == 'true' || github.event_name == 'workflow_dispatch'
+        run: bash clients/scripts/check-design-tokens.sh --mode=strict
+
+      - name: Build executable
+        working-directory: clients
+        run: swift build --product vellum-assistant
+
+      - name: Run tests
+        if: needs.changes.outputs.clients == 'true' || github.event_name == 'workflow_dispatch'
+        working-directory: clients/macos
+        run: ./build.sh test
 
       - name: Configure GitHub auth for SPM binary downloads
         env:
@@ -200,11 +146,10 @@ jobs:
         working-directory: clients/macos
         run: |
           set -o pipefail
-          SKIP_CLEAN=1 \
           SKIP_BUN_REBUILD=1 \
           BUNDLE_DISPLAY_NAME="$APP_DISPLAY_NAME" \
           SIGN_IDENTITY="-" \
-          ./build.sh release 2>&1 | while IFS= read -r line; do
+          ./build.sh 2>&1 | while IFS= read -r line; do
             echo "[$(date -u '+%H:%M:%S')] $line"
           done
 
@@ -218,7 +163,7 @@ jobs:
 
   notify-macos:
     name: Slack Notification (macOS)
-    needs: [changes, test, build-app]
+    needs: [changes, build-and-test]
     if: always()
     continue-on-error: true
     runs-on: ubuntu-latest
@@ -231,19 +176,11 @@ jobs:
         run: |
           GITHUB_USER="${{ github.actor }}"
 
-          # test is conditionally skipped when only non-client paths change
-          # build-app is conditionally skipped when only non-bundled paths change
-          CLIENTS_CHANGED="${{ needs.changes.outputs.clients }}"
-
-          if [[ "${{ needs.build-app.result }}" == "failure" ]]; then
+          if [[ "${{ needs.build-and-test.result }}" == "failure" ]]; then
             STATUS="failure"
-          elif [[ ("$CLIENTS_CHANGED" == "true" || "${{ github.event_name }}" == "workflow_dispatch") && "${{ needs.test.result }}" == "failure" ]]; then
-            STATUS="failure"
-          elif [[ "${{ needs.build-app.result }}" == "cancelled" ]]; then
+          elif [[ "${{ needs.build-and-test.result }}" == "cancelled" ]]; then
             STATUS="cancelled"
-          elif [[ ("$CLIENTS_CHANGED" == "true" || "${{ github.event_name }}" == "workflow_dispatch") && "${{ needs.test.result }}" == "cancelled" ]]; then
-            STATUS="cancelled"
-          elif [[ "${{ needs.build-app.result }}" == "skipped" ]]; then
+          elif [[ "${{ needs.build-and-test.result }}" == "skipped" ]]; then
             STATUS="skipped"
           else
             STATUS="success"
