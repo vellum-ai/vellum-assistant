@@ -156,30 +156,53 @@ export async function handleAddSecret(
       const service = name.slice(0, colonIdx);
       const field = name.slice(colonIdx + 1);
       const key = credentialKey(service, field);
-      const stored = await setSecureKeyAsync(key, value);
-      if (!stored) {
-        return httpError(
-          "INTERNAL_ERROR",
-          "Failed to store credential in secure storage",
-          500,
-        );
-      }
-      upsertCredentialMetadata(service, field, {});
-      if (service === "vellum" && field === "platform_base_url") {
-        setPlatformBaseUrl(value);
-      }
-      if (service === "vellum" && field === "platform_assistant_id") {
-        const trimmed = value.trim();
-        setPlatformAssistantId(trimmed || undefined);
-      }
-      if (service === "vellum" && field === "platform_organization_id") {
-        const trimmed = value.trim();
-        setPlatformOrganizationId(trimmed || undefined);
-        setSentryOrganizationId(trimmed || undefined);
-      }
-      if (service === "vellum" && field === "platform_user_id") {
-        const trimmed = value.trim();
-        setPlatformUserId(trimmed || undefined);
+
+      // For identity fields, trim whitespace before persisting so the
+      // credential store matches the in-memory value.  Whitespace-only
+      // input is treated as a no-op: nothing is stored and in-memory
+      // state is cleared.
+      const TRIMMED_IDENTITY_FIELDS = new Set([
+        "platform_assistant_id",
+        "platform_organization_id",
+        "platform_user_id",
+      ]);
+      const isTrimmedIdentity =
+        service === "vellum" && TRIMMED_IDENTITY_FIELDS.has(field);
+      const effectiveValue = isTrimmedIdentity ? value.trim() : value;
+
+      if (isTrimmedIdentity && effectiveValue === "") {
+        // Whitespace-only → clear in-memory state, skip store & metadata
+        if (field === "platform_assistant_id") {
+          setPlatformAssistantId(undefined);
+        } else if (field === "platform_organization_id") {
+          setPlatformOrganizationId(undefined);
+          setSentryOrganizationId(undefined);
+        } else if (field === "platform_user_id") {
+          setPlatformUserId(undefined);
+        }
+      } else {
+        const stored = await setSecureKeyAsync(key, effectiveValue);
+        if (!stored) {
+          return httpError(
+            "INTERNAL_ERROR",
+            "Failed to store credential in secure storage",
+            500,
+          );
+        }
+        upsertCredentialMetadata(service, field, {});
+        if (service === "vellum" && field === "platform_base_url") {
+          setPlatformBaseUrl(effectiveValue);
+        }
+        if (service === "vellum" && field === "platform_assistant_id") {
+          setPlatformAssistantId(effectiveValue || undefined);
+        }
+        if (service === "vellum" && field === "platform_organization_id") {
+          setPlatformOrganizationId(effectiveValue || undefined);
+          setSentryOrganizationId(effectiveValue || undefined);
+        }
+        if (service === "vellum" && field === "platform_user_id") {
+          setPlatformUserId(effectiveValue || undefined);
+        }
       }
       if (isManagedProxyCredential(service, field)) {
         await initializeProviders(getConfig());
