@@ -6,7 +6,7 @@ export interface AcpSessionSpawned {
   type: "acp_session_spawned";
   acpSessionId: string;
   agent: string;
-  parentSessionId: string;
+  parentConversationId: string;
 }
 
 export interface AcpSessionUpdate {
