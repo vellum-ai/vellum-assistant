@@ -2,7 +2,10 @@ import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { credentialKey } from "../../security/credential-key.js";
-import { getProviderKeyAsync, getSecureKeyAsync } from "../../security/secure-keys.js";
+import {
+  getProviderKeyAsync,
+  getSecureKeyAsync,
+} from "../../security/secure-keys.js";
 import type { WorkspaceMigration } from "./types.js";
 
 export const servicesConfigMigration: WorkspaceMigration = {
@@ -28,8 +31,23 @@ export const servicesConfigMigration: WorkspaceMigration = {
     // Determine inference mode
     let inferenceMode: "managed" | "your-own" = "your-own";
     try {
-      const userAnthropicKey = await getProviderKeyAsync("anthropic");
-      if (!userAnthropicKey) {
+      // Check if the user has ANY inference provider key configured.
+      // If so, keep "your-own" regardless of managed credentials.
+      const inferenceProviders = [
+        "anthropic",
+        "openai",
+        "gemini",
+        "fireworks",
+        "openrouter",
+      ];
+      let hasAnyUserKey = false;
+      for (const p of inferenceProviders) {
+        if (await getProviderKeyAsync(p)) {
+          hasAnyUserKey = true;
+          break;
+        }
+      }
+      if (!hasAnyUserKey) {
         const apiKey = await getSecureKeyAsync(
           credentialKey("vellum", "assistant_api_key"),
         );
