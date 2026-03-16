@@ -786,19 +786,9 @@ private struct WorkspaceFileViewer: View {
             VIconView(.fileText, size: 40)
                 .foregroundColor(VColor.contentTertiary)
 
-            VStack(spacing: VSpacing.sm) {
-                Text(detail.name)
-                    .font(VFont.bodyMedium)
-                    .foregroundColor(VColor.contentDefault)
-
-                Text("File too large to preview")
-                    .font(VFont.body)
-                    .foregroundColor(VColor.contentSecondary)
-
-                Text(formatFileSize(detail.size))
-                    .font(VFont.caption)
-                    .foregroundColor(VColor.contentTertiary)
-            }
+            Text("File too large to preview")
+                .font(VFont.body)
+                .foregroundColor(VColor.contentSecondary)
 
             Spacer()
         }
@@ -839,14 +829,6 @@ private struct WorkspaceFileViewer: View {
                 .foregroundColor(VColor.contentTertiary)
 
             VStack(spacing: VSpacing.sm) {
-                Text(detail.name)
-                    .font(VFont.bodyMedium)
-                    .foregroundColor(VColor.contentDefault)
-
-                Text(formatFileSize(detail.size))
-                    .font(VFont.caption)
-                    .foregroundColor(VColor.contentSecondary)
-
                 Text(detail.mimeType)
                     .font(VFont.caption)
                     .foregroundColor(VColor.contentSecondary)
