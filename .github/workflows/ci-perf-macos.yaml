@@ -28,10 +28,10 @@ jobs:
         uses: actions/cache@v4
         with:
           path: clients/.build
-          key: macos-spm-week${{ steps.week.outputs.num }}-${{ hashFiles('clients/Package.resolved') }}
+          key: macos-spm-debug-week${{ steps.week.outputs.num }}-${{ hashFiles('clients/Package.resolved') }}
           restore-keys: |
-            macos-spm-week${{ steps.week.outputs.num }}-
-            macos-spm-
+            macos-spm-debug-week${{ steps.week.outputs.num }}-
+            macos-spm-debug-
 
       - name: Download previous baseline artifact
         env:
