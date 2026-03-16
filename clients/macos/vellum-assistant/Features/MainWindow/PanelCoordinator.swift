@@ -1059,10 +1059,10 @@ private struct ShareDrawer: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            ShareDrawerRow(icon: VIcon.share.rawValue, label: "Share", action: onShare)
+            ShareDrawerRow(icon: .share, label: "Share", action: onShare)
             VColor.borderBase.frame(height: 1)
                 .padding(.horizontal, VSpacing.xs)
-            ShareDrawerRow(icon: VIcon.arrowUpRight.rawValue, label: "Publish to Vercel", action: onPublish)
+            ShareDrawerRow(icon: .arrowUpRight, label: "Publish to Vercel", action: onPublish)
         }
         .padding(.vertical, VSpacing.xs)
         .frame(width: 180)
@@ -1077,7 +1077,7 @@ private struct ShareDrawer: View {
 }
 
 private struct ShareDrawerRow: View {
-    let icon: String
+    let icon: VIcon
     let label: String
     let action: () -> Void
     @State private var isHovered = false
@@ -1085,7 +1085,7 @@ private struct ShareDrawerRow: View {
     var body: some View {
         Button(action: action) {
             HStack(spacing: VSpacing.sm) {
-                VIconView(SFSymbolMapping.icon(forSFSymbol: icon, fallback: .puzzle), size: 12)
+                VIconView(icon, size: 12)
                     .foregroundColor(isHovered ? VColor.contentDefault : VColor.contentSecondary)
                     .frame(width: 18)
                 Text(label)
