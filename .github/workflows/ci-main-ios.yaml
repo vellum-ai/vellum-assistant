@@ -98,7 +98,7 @@ jobs:
             SLACK_ID="$GITHUB_USER"
           fi
 
-          if [ "$SLACK_ID" = "$GITHUB_USER" ]; then
+          if [ "$STATUS" = "cancelled" ] || [ "$SLACK_ID" = "$GITHUB_USER" ]; then
             echo "should_tag=false" >> $GITHUB_OUTPUT
           else
             echo "should_tag=true" >> $GITHUB_OUTPUT
@@ -107,7 +107,6 @@ jobs:
           echo "status=$STATUS" >> $GITHUB_OUTPUT
 
       - uses: act10ns/slack@v2
-        if: steps.slack-id.outputs.status != 'cancelled'
         continue-on-error: true
         env:
           SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
