@@ -616,7 +616,7 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
 
     /// Reconfigure the daemon client's transport in place without replacing
     /// the object identity. This preserves all callback closures and
-    /// subscriber references held by long-lived objects (ThreadManager,
+    /// subscriber references held by long-lived objects (ConversationManager,
     /// ChatViewModel, RecordingManager, etc.) across assistant switches.
     ///
     /// The method disconnects the current transport, updates the config,

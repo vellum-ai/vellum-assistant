@@ -27,7 +27,7 @@ extension MainWindowView {
         }
     }
 
-    /// Maps a thread's interaction state to a dot color for VThreadIcon.
+    /// Maps a conversation's interaction state to a dot color for VConversationIcon.
     func interactionDotColor(for thread: ConversationModel) -> Color? {
         switch conversationManager.interactionState(for: thread.id) {
         case .processing: return VColor.primaryBase

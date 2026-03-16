@@ -9,7 +9,7 @@ final class ChatTranscriptFormatterTests: XCTestCase {
         userName: "Noa"
     )
 
-    // MARK: - threadMarkdown
+    // MARK: - conversationMarkdown
 
     func testThreadMarkdownWithTitleAndMessages() {
         let messages = [
@@ -17,9 +17,9 @@ final class ChatTranscriptFormatterTests: XCTestCase {
             ChatMessage(role: .assistant, text: "Hi there!")
         ]
 
-        let result = ChatTranscriptFormatter.threadMarkdown(
+        let result = ChatTranscriptFormatter.conversationMarkdown(
             messages: messages,
-            threadTitle: "Test Thread",
+            conversationTitle: "Test Thread",
             participantNames: names
         )
 
@@ -36,9 +36,9 @@ final class ChatTranscriptFormatterTests: XCTestCase {
             ChatMessage(role: .user, text: "Hello!")
         ]
 
-        let result = ChatTranscriptFormatter.threadMarkdown(
+        let result = ChatTranscriptFormatter.conversationMarkdown(
             messages: messages,
-            threadTitle: nil,
+            conversationTitle: nil,
             participantNames: names
         )
 
@@ -54,9 +54,9 @@ final class ChatTranscriptFormatterTests: XCTestCase {
             ChatMessage(role: .assistant, text: "   "),
         ]
 
-        let result = ChatTranscriptFormatter.threadMarkdown(
+        let result = ChatTranscriptFormatter.conversationMarkdown(
             messages: messages,
-            threadTitle: nil,
+            conversationTitle: nil,
             participantNames: names
         )
 
@@ -67,9 +67,9 @@ final class ChatTranscriptFormatterTests: XCTestCase {
     }
 
     func testThreadMarkdownEmptyInputReturnsEmptyString() {
-        let result = ChatTranscriptFormatter.threadMarkdown(
+        let result = ChatTranscriptFormatter.conversationMarkdown(
             messages: [],
-            threadTitle: "Empty Thread",
+            conversationTitle: "Empty Thread",
             participantNames: names
         )
 
@@ -82,9 +82,9 @@ final class ChatTranscriptFormatterTests: XCTestCase {
             ChatMessage(role: .user, text: "  \n  "),
         ]
 
-        let result = ChatTranscriptFormatter.threadMarkdown(
+        let result = ChatTranscriptFormatter.conversationMarkdown(
             messages: messages,
-            threadTitle: "Thread",
+            conversationTitle: "Thread",
             participantNames: names
         )
 
@@ -98,9 +98,9 @@ final class ChatTranscriptFormatterTests: XCTestCase {
             ChatMessage(role: .user, text: "Third"),
         ]
 
-        let result = ChatTranscriptFormatter.threadMarkdown(
+        let result = ChatTranscriptFormatter.conversationMarkdown(
             messages: messages,
-            threadTitle: nil,
+            conversationTitle: nil,
             participantNames: names
         )
 
@@ -118,9 +118,9 @@ final class ChatTranscriptFormatterTests: XCTestCase {
             ChatMessage(role: .assistant, text: "Hello")
         ]
 
-        let result = ChatTranscriptFormatter.threadMarkdown(
+        let result = ChatTranscriptFormatter.conversationMarkdown(
             messages: messages,
-            threadTitle: nil,
+            conversationTitle: nil,
             participantNames: customNames
         )
 

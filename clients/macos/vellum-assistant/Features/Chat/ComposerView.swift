@@ -286,7 +286,7 @@ struct ComposerView: View {
 
             let group = DispatchGroup()
             // Collect URLs on the main queue to avoid concurrent Array mutation
-            // from loadObject callbacks that may fire on different conversations.
+            // from loadObject callbacks that may fire on different threads.
             var urls: [URL] = []
             var imageDataItems: [NSItemProvider] = []
             for provider in providers {

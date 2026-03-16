@@ -3,7 +3,7 @@ import XCTest
 
 /// Tests for ChatTranscriptFormatter from the iOS perspective.
 /// Verifies that the shared transcript formatting logic works correctly for iOS usage:
-/// thread markdown generation, plain text extraction, and participant name handling.
+/// conversation markdown generation, plain text extraction, and participant name handling.
 @MainActor
 final class ChatTranscriptFormatterIOSTests: XCTestCase {
 
@@ -12,7 +12,7 @@ final class ChatTranscriptFormatterIOSTests: XCTestCase {
         userName: "User"
     )
 
-    // MARK: - threadMarkdown
+    // MARK: - conversationMarkdown
 
     func testThreadMarkdownWithTitleAndMessages() {
         let messages = [
@@ -20,9 +20,9 @@ final class ChatTranscriptFormatterIOSTests: XCTestCase {
             ChatMessage(role: .assistant, text: "Hi there, iOS user!")
         ]
 
-        let result = ChatTranscriptFormatter.threadMarkdown(
+        let result = ChatTranscriptFormatter.conversationMarkdown(
             messages: messages,
-            threadTitle: "iOS Thread",
+            conversationTitle: "iOS Thread",
             participantNames: names
         )
 
@@ -39,9 +39,9 @@ final class ChatTranscriptFormatterIOSTests: XCTestCase {
             ChatMessage(role: .user, text: "Hello!")
         ]
 
-        let result = ChatTranscriptFormatter.threadMarkdown(
+        let result = ChatTranscriptFormatter.conversationMarkdown(
             messages: messages,
-            threadTitle: nil,
+            conversationTitle: nil,
             participantNames: names
         )
 
@@ -57,9 +57,9 @@ final class ChatTranscriptFormatterIOSTests: XCTestCase {
             ChatMessage(role: .assistant, text: "   "),
         ]
 
-        let result = ChatTranscriptFormatter.threadMarkdown(
+        let result = ChatTranscriptFormatter.conversationMarkdown(
             messages: messages,
-            threadTitle: nil,
+            conversationTitle: nil,
             participantNames: names
         )
 
@@ -70,9 +70,9 @@ final class ChatTranscriptFormatterIOSTests: XCTestCase {
     }
 
     func testThreadMarkdownEmptyInputReturnsEmptyString() {
-        let result = ChatTranscriptFormatter.threadMarkdown(
+        let result = ChatTranscriptFormatter.conversationMarkdown(
             messages: [],
-            threadTitle: "Empty Thread",
+            conversationTitle: "Empty Thread",
             participantNames: names
         )
 
@@ -85,9 +85,9 @@ final class ChatTranscriptFormatterIOSTests: XCTestCase {
             ChatMessage(role: .user, text: "  \n  "),
         ]
 
-        let result = ChatTranscriptFormatter.threadMarkdown(
+        let result = ChatTranscriptFormatter.conversationMarkdown(
             messages: messages,
-            threadTitle: "Thread",
+            conversationTitle: "Thread",
             participantNames: names
         )
 
@@ -101,9 +101,9 @@ final class ChatTranscriptFormatterIOSTests: XCTestCase {
             ChatMessage(role: .user, text: "Third"),
         ]
 
-        let result = ChatTranscriptFormatter.threadMarkdown(
+        let result = ChatTranscriptFormatter.conversationMarkdown(
             messages: messages,
-            threadTitle: nil,
+            conversationTitle: nil,
             participantNames: names
         )
 
@@ -121,9 +121,9 @@ final class ChatTranscriptFormatterIOSTests: XCTestCase {
             ChatMessage(role: .assistant, text: "Hello")
         ]
 
-        let result = ChatTranscriptFormatter.threadMarkdown(
+        let result = ChatTranscriptFormatter.conversationMarkdown(
             messages: messages,
-            threadTitle: nil,
+            conversationTitle: nil,
             participantNames: customNames
         )
 
@@ -160,9 +160,9 @@ final class ChatTranscriptFormatterIOSTests: XCTestCase {
             ChatMessage(role: .assistant, text: "SwiftUI uses a declarative approach while UIKit is imperative."),
         ]
 
-        let result = ChatTranscriptFormatter.threadMarkdown(
+        let result = ChatTranscriptFormatter.conversationMarkdown(
             messages: messages,
-            threadTitle: "SwiftUI Discussion",
+            conversationTitle: "SwiftUI Discussion",
             participantNames: names
         )
 

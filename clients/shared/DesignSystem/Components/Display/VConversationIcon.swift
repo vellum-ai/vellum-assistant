@@ -1,11 +1,11 @@
 import SwiftUI
 
-/// A deterministic initial-letter icon for threads.
+/// A deterministic initial-letter icon for conversations.
 ///
-/// Renders the first letter of a thread title (uppercased) inside a rounded square
+/// Renders the first letter of a conversation title (uppercased) inside a rounded square
 /// whose background color is derived from an FNV-1a hash of the title. The same title
-/// always produces the same color, giving threads a stable visual identity.
-public struct VThreadIcon: View {
+/// always produces the same color, giving conversations a stable visual identity.
+public struct VConversationIcon: View {
     let title: String
     let size: Size
     var isActive: Bool = false
@@ -66,7 +66,7 @@ public struct VThreadIcon: View {
 
     // MARK: - Color Palette
 
-    /// Thread icon background colors from the design token palette.
+    /// Conversation icon background colors from the design token palette.
     private static let backgrounds: [Color] = VColor.threadIconBackgrounds
 
     // MARK: - Hash
@@ -122,7 +122,7 @@ public struct VThreadIcon: View {
                     .offset(x: size.dotSize * 0.2, y: size.dotSize * 0.2)
             }
         }
-        .accessibilityLabel("Thread: \(title)")
+        .accessibilityLabel("Conversation: \(title)")
     }
 }
 

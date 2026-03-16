@@ -31,8 +31,8 @@ struct ConversationClient: ConversationClientProtocol {
 
 @MainActor
 final class ConversationManager: ObservableObject, ConversationRestorerDelegate {
-    @AppStorage("restoreRecentConversations") private(set) var restoreRecentConversations = true
-    @AppStorage("lastActiveConversationId") private var lastActiveConversationIdString: String?
+    @AppStorage("restoreRecentThreads") private(set) var restoreRecentConversations = true
+    @AppStorage("lastActiveThreadId") private var lastActiveConversationIdString: String?
     @AppStorage("completedConversationCount") private var completedConversationCount: Int = 0
     @Published var conversations: [ConversationModel] = []
     @Published var hasMoreConversations: Bool = false

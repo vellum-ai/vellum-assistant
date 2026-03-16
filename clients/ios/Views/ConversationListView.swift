@@ -719,9 +719,9 @@ struct ConversationChatView: View {
             assistantName: "Assistant",
             userName: "You"
         )
-        return ChatTranscriptFormatter.threadMarkdown(
+        return ChatTranscriptFormatter.conversationMarkdown(
             messages: viewModel.messages,
-            threadTitle: conversationTitle,
+            conversationTitle: conversationTitle,
             participantNames: names
         )
     }
