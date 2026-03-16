@@ -749,12 +749,12 @@ struct MessageListView: View {
                             }
                         }
                 }
-                .padding(.horizontal, VSpacing.xl)
                 .padding(.top, VSpacing.md)
                 .padding(.bottom, VSpacing.md)
                 .frame(maxWidth: VSpacing.chatColumnMaxWidth)
                 .frame(maxWidth: .infinity)
             }
+            .safeAreaPadding(.horizontal, VSpacing.xl)
             .scrollContentBackground(.hidden)
             .coordinateSpace(name: "chatScrollView")
             .scrollDisabled(messages.isEmpty && !isSending)
