@@ -244,9 +244,13 @@ describe("assistant feature flag indirect key coverage guard", () => {
       if (colonIdx === -1) continue;
       const filePath = line.slice(0, colonIdx);
 
-      // Skip test files and migration files (migrations reference retired flag keys by design)
+      // Skip test files and persisted-data migration files (they reference retired flag keys by design)
       if (isTestFile(filePath)) continue;
-      if (filePath.includes("/migrations/")) continue;
+      if (
+        filePath.includes("/workspace/migrations/") ||
+        filePath.includes("/memory/migrations/")
+      )
+        continue;
 
       // Extract all key occurrences from this line
       const content = line.slice(colonIdx + 1);
