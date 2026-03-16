@@ -121,6 +121,7 @@ export function setSentryOrganizationId(
 const CONVERSATION_TAG_KEYS = [
   "assistant_id",
   "conversation_id",
+  "session_id",
   "message_count",
   "user_identifier",
 ] as const;
@@ -147,6 +148,9 @@ export function setSentryConversationContext(
 ): void {
   Sentry.setTag("assistant_id", ctx.assistantId);
   Sentry.setTag("conversation_id", ctx.conversationId);
+  // session_id mirrors conversation_id — downstream Sentry dashboards and
+  // alerts may still filter by the legacy tag name.
+  Sentry.setTag("session_id", ctx.conversationId);
   Sentry.setTag("message_count", String(ctx.messageCount));
   if (ctx.userIdentifier) {
     Sentry.setTag("user_identifier", ctx.userIdentifier);
