@@ -17,7 +17,7 @@
  * - `record_grant` — Record a grant decision after guardian approval
  *
  * **Grant management**
- * - `list_grants` — List grants for a session
+ * - `list_grants` — List grants for a CES connection
  * - `revoke_grant` — Revoke a specific grant
  *
  * **Audit**
@@ -75,7 +75,7 @@ export const MakeAuthenticatedRequestSchema = z.object({
   purpose: z.string(),
   /** Existing grant ID to consume, if the caller holds one. */
   grantId: z.string().optional(),
-  /** Conversation ID for thread-scoped temporary grants. */
+  /** Conversation ID for conversation-scoped temporary grants. */
   conversationId: z.string().optional(),
 });
 export type MakeAuthenticatedRequest = z.infer<
@@ -138,7 +138,7 @@ export const RunAuthenticatedCommandSchema = z.object({
   purpose: z.string(),
   /** Existing grant ID to consume, if the caller holds one. */
   grantId: z.string().optional(),
-  /** Conversation ID for thread-scoped temporary grants. */
+  /** Conversation ID for conversation-scoped temporary grants. */
   conversationId: z.string().optional(),
 });
 export type RunAuthenticatedCommand = z.infer<

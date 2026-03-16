@@ -91,7 +91,7 @@ export interface HttpPolicyRequest {
   purpose: string;
   /** Explicit grant ID the caller claims to hold. */
   grantId?: string;
-  /** Conversation ID for thread-scoped temporary grants. */
+  /** Conversation ID for conversation-scoped temporary grants. */
   conversationId?: string;
 }
 
