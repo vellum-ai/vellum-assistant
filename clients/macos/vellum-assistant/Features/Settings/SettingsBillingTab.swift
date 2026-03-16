@@ -23,6 +23,11 @@ struct SettingsBillingTab: View {
         .task {
             await loadSummary()
         }
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+            Task {
+                await loadSummary()
+            }
+        }
     }
 
     // MARK: - Balance Card
