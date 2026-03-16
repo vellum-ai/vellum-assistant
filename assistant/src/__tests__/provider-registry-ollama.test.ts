@@ -16,8 +16,19 @@ import {
 describe("provider registry (ollama)", () => {
   test("registers ollama when selected provider has no API key", async () => {
     await initializeProviders({
-      provider: "ollama",
-      model: "claude-opus-4-6",
+      services: {
+        inference: {
+          mode: "your-own",
+          provider: "ollama",
+          model: "claude-opus-4-6",
+        },
+        "image-generation": {
+          mode: "your-own",
+          provider: "gemini",
+          model: "gemini-2.5-flash-image",
+        },
+        "web-search": { mode: "your-own", provider: "anthropic-native" },
+      },
     });
 
     const provider = getProvider("ollama");

@@ -3,6 +3,7 @@ import { backfillInstallationIdMigration } from "./002-backfill-installation-id.
 import { seedDeviceIdMigration } from "./003-seed-device-id.js";
 import { extractCollectUsageDataMigration } from "./004-extract-collect-usage-data.js";
 import { addSendDiagnosticsMigration } from "./005-add-send-diagnostics.js";
+import { servicesConfigMigration } from "./006-services-config.js";
 import type { WorkspaceMigration } from "./types.js";
 
 /**
@@ -15,4 +16,5 @@ export const WORKSPACE_MIGRATIONS: WorkspaceMigration[] = [
   seedDeviceIdMigration,
   extractCollectUsageDataMigration,
   addSendDiagnosticsMigration,
+  servicesConfigMigration,
 ];

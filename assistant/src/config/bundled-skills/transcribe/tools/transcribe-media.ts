@@ -14,7 +14,7 @@ import {
   getAttachmentsByIds,
   getFilePathForAttachment,
 } from "../../../../memory/attachments-store.js";
-import { getSecureKeyAsync } from "../../../../security/secure-keys.js";
+import { getProviderKeyAsync } from "../../../../security/secure-keys.js";
 import type {
   ToolContext,
   ToolExecutionResult,
@@ -449,8 +449,7 @@ export async function run(
   // Validate API key for api mode
   let openaiKey: string | undefined;
   if (mode === "api") {
-    openaiKey =
-      (await getSecureKeyAsync("openai")) ?? process.env.OPENAI_API_KEY;
+    openaiKey = await getProviderKeyAsync("openai");
     if (!openaiKey) {
       return {
         content:

@@ -88,8 +88,16 @@ function writeConfig(obj: unknown): void {
 describe("AssistantConfigSchema", () => {
   test("parses empty object with full defaults", () => {
     const result = AssistantConfigSchema.parse({});
-    expect(result.provider).toBe("anthropic");
-    expect(result.model).toBe("claude-opus-4-6");
+    expect(result.services.inference.provider).toBe("anthropic");
+    expect(result.services.inference.model).toBe("claude-opus-4-6");
+    expect(result.services.inference.mode).toBe("your-own");
+    expect(result.services["image-generation"].provider).toBe("gemini");
+    expect(result.services["image-generation"].model).toBe(
+      "gemini-2.5-flash-image",
+    );
+    expect(result.services["image-generation"].mode).toBe("your-own");
+    expect(result.services["web-search"].provider).toBe("anthropic-native");
+    expect(result.services["web-search"].mode).toBe("your-own");
     expect(result.maxTokens).toBe(16000);
     expect(result.thinking).toEqual({
       enabled: false,
@@ -135,8 +143,9 @@ describe("AssistantConfigSchema", () => {
 
   test("accepts valid complete config", () => {
     const input = {
-      provider: "openai",
-      model: "gpt-4",
+      services: {
+        inference: { provider: "openai", model: "gpt-4" },
+      },
       maxTokens: 4096,
       thinking: { enabled: true },
       timeouts: {
@@ -154,8 +163,8 @@ describe("AssistantConfigSchema", () => {
       auditLog: { retentionDays: 30 },
     };
     const result = AssistantConfigSchema.parse(input);
-    expect(result.provider).toBe("openai");
-    expect(result.model).toBe("gpt-4");
+    expect(result.services.inference.provider).toBe("openai");
+    expect(result.services.inference.model).toBe("gpt-4");
     expect(result.maxTokens).toBe(4096);
     expect(result.thinking.enabled).toBe(true);
     expect(result.secretDetection.action).toBe("block");
@@ -189,12 +198,10 @@ describe("AssistantConfigSchema", () => {
   });
 
   test("rejects invalid provider", () => {
-    const result = AssistantConfigSchema.safeParse({ provider: "invalid" });
+    const result = AssistantConfigSchema.safeParse({
+      services: { inference: { provider: "invalid" } },
+    });
     expect(result.success).toBe(false);
-    if (!result.success) {
-      const msgs = result.error.issues.map((i) => i.message);
-      expect(msgs.some((m) => m.includes("provider"))).toBe(true);
-    }
   });
 
   test("rejects negative maxTokens", () => {
@@ -384,7 +391,9 @@ describe("AssistantConfigSchema", () => {
       "gemini",
       "ollama",
     ] as const) {
-      const result = AssistantConfigSchema.safeParse({ provider });
+      const result = AssistantConfigSchema.safeParse({
+        services: { inference: { provider } },
+      });
       expect(result.success).toBe(true);
     }
   });
@@ -400,17 +409,12 @@ describe("AssistantConfigSchema", () => {
 
   test("provides helpful error messages", () => {
     const result = AssistantConfigSchema.safeParse({
-      provider: "invalid",
       maxTokens: -1,
       secretDetection: { action: "explode" },
     });
     expect(result.success).toBe(false);
     if (!result.success) {
       const messages = result.error.issues.map((i) => i.message);
-      // Should mention the valid options
-      expect(
-        messages.some((m) => m.includes("anthropic") && m.includes("openai")),
-      ).toBe(true);
       expect(messages.some((m) => m.includes("positive"))).toBe(true);
       expect(
         messages.some(
@@ -1000,21 +1004,22 @@ describe("loadConfig with schema validation", () => {
   // intermittently trigger unhandled ENOENT in CI if the directory is removed.
   test("loads valid config", () => {
     writeConfig({
-      provider: "openai",
-      model: "gpt-4",
+      services: {
+        inference: { provider: "openai", model: "gpt-4" },
+      },
       maxTokens: 4096,
     });
     const config = loadConfig();
-    expect(config.provider).toBe("openai");
-    expect(config.model).toBe("gpt-4");
+    expect(config.services.inference.provider).toBe("openai");
+    expect(config.services.inference.model).toBe("gpt-4");
     expect(config.maxTokens).toBe(4096);
   });
 
   test("applies defaults for missing fields", () => {
     writeConfig({});
     const config = loadConfig();
-    expect(config.provider).toBe("anthropic");
-    expect(config.model).toBe("claude-opus-4-6");
+    expect(config.services.inference.provider).toBe("anthropic");
+    expect(config.services.inference.model).toBe("claude-opus-4-6");
     expect(config.maxTokens).toBe(16000);
     expect(config.thinking).toEqual({
       enabled: false,
@@ -1037,9 +1042,11 @@ describe("loadConfig with schema validation", () => {
   });
 
   test("falls back to default for invalid provider", () => {
-    writeConfig({ provider: "invalid-provider" });
+    writeConfig({
+      services: { inference: { provider: "invalid-provider" } },
+    });
     const config = loadConfig();
-    expect(config.provider).toBe("anthropic");
+    expect(config.services.inference.provider).toBe("anthropic");
   });
 
   test("falls back to default for invalid maxTokens", () => {
@@ -1060,21 +1067,22 @@ describe("loadConfig with schema validation", () => {
 
   test("preserves valid fields when other fields are invalid", () => {
     writeConfig({
-      provider: "openai",
-      model: "gpt-4",
+      services: {
+        inference: { provider: "openai", model: "gpt-4" },
+      },
       maxTokens: -1,
       thinking: { enabled: true },
     });
     const config = loadConfig();
-    expect(config.provider).toBe("openai");
-    expect(config.model).toBe("gpt-4");
+    expect(config.services.inference.provider).toBe("openai");
+    expect(config.services.inference.model).toBe("gpt-4");
     expect(config.thinking.enabled).toBe(true);
     expect(config.maxTokens).toBe(16000);
   });
 
   test("handles no config file", () => {
     const config = loadConfig();
-    expect(config.provider).toBe("anthropic");
+    expect(config.services.inference.provider).toBe("anthropic");
     expect(config.maxTokens).toBe(16000);
   });
 

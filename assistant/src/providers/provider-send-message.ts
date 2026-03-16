@@ -43,7 +43,7 @@ let lazyInitPromise: Promise<void> | null = null;
  * If providers haven't been initialized yet (e.g. non-daemon code paths),
  * performs a one-shot `initializeProviders(getConfig())`.
  *
- * Uses fail-open selection: if `config.provider` is unavailable but
+ * Uses fail-open selection: if the configured provider is unavailable but
  * alternates from `config.providerOrder` exist, selects the first available.
  *
  * Returns `null` when no providers are available at all.
@@ -67,7 +67,8 @@ export async function resolveConfiguredProvider(): Promise<ConfiguredProviderRes
   const providerOrder = Array.isArray(config.providerOrder)
     ? config.providerOrder
     : [];
-  const selection = resolveProviderSelection(config.provider, providerOrder);
+  const inferenceProvider = config.services.inference.provider;
+  const selection = resolveProviderSelection(inferenceProvider, providerOrder);
 
   if (!selection.selectedPrimary) {
     return null;
@@ -76,17 +77,17 @@ export async function resolveConfiguredProvider(): Promise<ConfiguredProviderRes
   if (selection.usedFallbackPrimary) {
     const level = fallbackWarningLogged ? "debug" : "warn";
     providerSelectionLog[level](
-      { configured: config.provider, selected: selection.selectedPrimary },
+      { configured: inferenceProvider, selected: selection.selectedPrimary },
       "Configured provider unavailable, using fallback",
     );
     fallbackWarningLogged = true;
   }
 
   try {
-    const provider = getFailoverProvider(config.provider, providerOrder);
+    const provider = getFailoverProvider(inferenceProvider, providerOrder);
     return {
       provider,
-      configuredProviderName: config.provider,
+      configuredProviderName: inferenceProvider,
       selectedProviderName: selection.selectedPrimary,
       usedFallbackPrimary: selection.usedFallbackPrimary,
     };

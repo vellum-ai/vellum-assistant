@@ -209,24 +209,11 @@ struct APIKeyStepView: View {
     }
 
     private func saveModelToConfig(_ model: String) {
-        let configURL = FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent(".vellum/workspace/config.json")
-
-        let dirURL = configURL.deletingLastPathComponent()
-        try? FileManager.default.createDirectory(at: dirURL, withIntermediateDirectories: true)
-
-        do {
-            let data = try Data(contentsOf: configURL)
-            if var json = try JSONSerialization.jsonObject(with: data) as? [String: Any] {
-                json["model"] = model
-                let updated = try JSONSerialization.data(withJSONObject: json, options: [.prettyPrinted, .sortedKeys])
-                try updated.write(to: configURL)
-            }
-        } catch {
-            let json: [String: Any] = ["model": model]
-            if let data = try? JSONSerialization.data(withJSONObject: json, options: .prettyPrinted) {
-                try? data.write(to: configURL)
-            }
-        }
+        let existingConfig = WorkspaceConfigIO.read()
+        var services = existingConfig["services"] as? [String: Any] ?? [:]
+        var inference = services["inference"] as? [String: Any] ?? [:]
+        inference["model"] = model
+        services["inference"] = inference
+        try? WorkspaceConfigIO.merge(["services": services])
     }
 }

@@ -29,6 +29,7 @@ mock.module("../security/secure-keys.js", () => ({
   },
 }));
 
+import type { ProvidersConfig } from "../providers/registry.js";
 import {
   getFailoverProvider,
   getProviderRoutingSource,
@@ -44,22 +45,30 @@ import { ProviderNotConfiguredError } from "../util/errors.js";
  * available provider in the provider order.
  */
 
+function makeProvidersConfig(provider: string, model: string): ProvidersConfig {
+  return {
+    services: {
+      inference: { mode: "your-own", provider, model },
+      "image-generation": {
+        mode: "your-own",
+        provider: "gemini",
+        model: "gemini-2.5-flash-image",
+      },
+      "web-search": { mode: "your-own", provider: "anthropic-native" },
+    },
+  };
+}
+
 /** Initialize registry with anthropic + openai for most tests. */
 async function setupTwoProviders() {
   mockProviderKeys = { anthropic: "test-key", openai: "test-key" };
-  await initializeProviders({
-    provider: "anthropic",
-    model: "test-model",
-  });
+  await initializeProviders(makeProvidersConfig("anthropic", "test-model"));
 }
 
 /** Initialize registry with no providers (empty keys, non-registerable primary). */
 async function setupNoProviders() {
   mockProviderKeys = {};
-  await initializeProviders({
-    provider: "gemini",
-    model: "test-model",
-  });
+  await initializeProviders(makeProvidersConfig("gemini", "test-model"));
 }
 
 describe("resolveProviderSelection", () => {
@@ -186,10 +195,7 @@ describe("managed proxy fallback", () => {
     enableManagedProxy();
     try {
       mockProviderKeys = { anthropic: "test-key" };
-      await initializeProviders({
-        provider: "anthropic",
-        model: "test-model",
-      });
+      await initializeProviders(makeProvidersConfig("anthropic", "test-model"));
       const registered = listProviders();
       expect(registered).toEqual(["anthropic", "gemini"]);
     } finally {
@@ -201,10 +207,7 @@ describe("managed proxy fallback", () => {
     enableManagedProxy();
     try {
       mockProviderKeys = { anthropic: "test-key", openai: "user-openai-key" };
-      await initializeProviders({
-        provider: "anthropic",
-        model: "test-model",
-      });
+      await initializeProviders(makeProvidersConfig("anthropic", "test-model"));
       const registered = listProviders();
       expect(registered).toContain("openai");
       expect(registered).toContain("anthropic");
@@ -219,10 +222,7 @@ describe("managed proxy fallback", () => {
   test("managed fallback not activated when proxy context is disabled", async () => {
     disableManagedProxy();
     mockProviderKeys = { anthropic: "test-key" };
-    await initializeProviders({
-      provider: "anthropic",
-      model: "test-model",
-    });
+    await initializeProviders(makeProvidersConfig("anthropic", "test-model"));
     const registered = listProviders();
     // Anthropic is registered via user-key, not managed proxy.
     expect(registered).toContain("anthropic");
@@ -238,10 +238,7 @@ describe("managed proxy fallback", () => {
     enableManagedProxy();
     try {
       mockProviderKeys = { anthropic: "test-key" };
-      await initializeProviders({
-        provider: "anthropic",
-        model: "test-model",
-      });
+      await initializeProviders(makeProvidersConfig("anthropic", "test-model"));
       const selection = resolveProviderSelection("anthropic", [
         "openai",
         "gemini",
@@ -260,10 +257,7 @@ describe("managed proxy fallback", () => {
     try {
       // No anthropic key, no gemini key — only managed providers available
       mockProviderKeys = {};
-      await initializeProviders({
-        provider: "openai",
-        model: "test-model",
-      });
+      await initializeProviders(makeProvidersConfig("openai", "test-model"));
       const selection = resolveProviderSelection("openai", [
         "gemini",
         "anthropic",

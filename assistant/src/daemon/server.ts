@@ -754,7 +754,7 @@ export class DaemonServer {
       const createPromise = (async () => {
         const config = getConfig();
         let provider = getFailoverProvider(
-          config.provider,
+          config.services.inference.provider,
           config.providerOrder,
         );
         const { rateLimit } = config;

@@ -142,29 +142,27 @@ struct APIKeyEntryStepView: View {
         APIKeyManager.setKey(trimmed, for: "anthropic")
         APIKeyManager.syncKeyToDaemon(provider: "anthropic", value: trimmed)
 
+        // After BYOK onboarding, set inference mode to "your-own".
+        // This overwrites the schema default that the daemon materializes on
+        // first load. If the user later switches mode in settings, setInferenceMode()
+        // will overwrite this value.
+        let existingConfig = WorkspaceConfigIO.read()
+        var services = existingConfig["services"] as? [String: Any] ?? [:]
+        var inference = services["inference"] as? [String: Any] ?? [:]
+        inference["mode"] = "your-own"
+        services["inference"] = inference
+        try? WorkspaceConfigIO.merge(["services": services])
+
         saveModelToConfig("claude-opus-4-6")
         state.isHatching = true
     }
 
     private func saveModelToConfig(_ model: String) {
-        let configURL = FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent(".vellum/workspace/config.json")
-
-        let dirURL = configURL.deletingLastPathComponent()
-        try? FileManager.default.createDirectory(at: dirURL, withIntermediateDirectories: true)
-
-        do {
-            let data = try Data(contentsOf: configURL)
-            if var json = try JSONSerialization.jsonObject(with: data) as? [String: Any] {
-                json["model"] = model
-                let updated = try JSONSerialization.data(withJSONObject: json, options: [.prettyPrinted, .sortedKeys])
-                try updated.write(to: configURL)
-            }
-        } catch {
-            let json: [String: Any] = ["model": model]
-            if let data = try? JSONSerialization.data(withJSONObject: json, options: .prettyPrinted) {
-                try? data.write(to: configURL)
-            }
-        }
+        let existingConfig = WorkspaceConfigIO.read()
+        var services = existingConfig["services"] as? [String: Any] ?? [:]
+        var inference = services["inference"] as? [String: Any] ?? [:]
+        inference["model"] = model
+        services["inference"] = inference
+        try? WorkspaceConfigIO.merge(["services": services])
     }
 }

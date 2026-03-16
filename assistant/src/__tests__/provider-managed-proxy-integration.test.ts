@@ -54,12 +54,27 @@ mock.module("../security/secure-keys.js", () => ({
   },
 }));
 
+import type { ProvidersConfig } from "../providers/registry.js";
 import {
   getProvider,
   getProviderRoutingSource,
   initializeProviders,
   listProviders,
 } from "../providers/registry.js";
+
+function makeProvidersConfig(provider: string, model: string): ProvidersConfig {
+  return {
+    services: {
+      inference: { mode: "your-own", provider, model },
+      "image-generation": {
+        mode: "your-own",
+        provider: "gemini",
+        model: "gemini-2.5-flash-image",
+      },
+      "web-search": { mode: "your-own", provider: "anthropic-native" },
+    },
+  };
+}
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -114,10 +129,7 @@ describe("managed proxy integration — credential precedence", () => {
       async (provider: string) => {
         enableManagedProxy();
         setUserKeysFor(provider);
-        await initializeProviders({
-          provider,
-          model: "test-model",
-        });
+        await initializeProviders(makeProvidersConfig(provider, "test-model"));
         expect(listProviders()).toContain(provider);
         expect(getProviderRoutingSource(provider)).toBe("user-key");
       },
@@ -126,10 +138,7 @@ describe("managed proxy integration — credential precedence", () => {
     test("all five configured providers route via user-key when user keys exist", async () => {
       enableManagedProxy();
       setUserKeysFor(...DIRECT_OR_MANAGED_PROVIDER_KEYS);
-      await initializeProviders({
-        provider: "anthropic",
-        model: "test-model",
-      });
+      await initializeProviders(makeProvidersConfig("anthropic", "test-model"));
       const registered = listProviders();
       for (const p of DIRECT_OR_MANAGED_PROVIDER_KEYS) {
         expect(registered).toContain(p);
@@ -140,10 +149,7 @@ describe("managed proxy integration — credential precedence", () => {
     test("user keys still route via user-key when managed context is disabled", async () => {
       disableManagedProxy();
       setUserKeysFor(...DIRECT_OR_MANAGED_PROVIDER_KEYS);
-      await initializeProviders({
-        provider: "anthropic",
-        model: "test-model",
-      });
+      await initializeProviders(makeProvidersConfig("anthropic", "test-model"));
       const registered = listProviders();
       for (const p of DIRECT_OR_MANAGED_PROVIDER_KEYS) {
         expect(registered).toContain(p);
@@ -158,10 +164,9 @@ describe("managed proxy integration — credential precedence", () => {
       async (provider: string) => {
         enableManagedProxy();
         mockProviderKeys = {};
-        await initializeProviders({
-          provider: "anthropic",
-          model: "test-model",
-        });
+        await initializeProviders(
+          makeProvidersConfig("anthropic", "test-model"),
+        );
         expect(listProviders()).toContain(provider);
         expect(getProviderRoutingSource(provider)).toBe("managed-proxy");
       },
@@ -170,10 +175,7 @@ describe("managed proxy integration — credential precedence", () => {
     test("managed bootstrap registers anthropic and gemini only", async () => {
       enableManagedProxy();
       mockProviderKeys = {};
-      await initializeProviders({
-        provider: "anthropic",
-        model: "test-model",
-      });
+      await initializeProviders(makeProvidersConfig("anthropic", "test-model"));
       expect(listProviders()).toEqual(["anthropic", "gemini"]);
       expect(getProviderRoutingSource("anthropic")).toBe("managed-proxy");
       expect(getProviderRoutingSource("gemini")).toBe("managed-proxy");
@@ -185,10 +187,9 @@ describe("managed proxy integration — credential precedence", () => {
     test("managed anthropic uses anthropic proxy path", async () => {
       enableManagedProxy();
       mockProviderKeys = {};
-      await initializeProviders({
-        provider: "anthropic",
-        model: "claude-opus-4-6",
-      });
+      await initializeProviders(
+        makeProvidersConfig("anthropic", "claude-opus-4-6"),
+      );
 
       const provider = getProvider("anthropic");
 
@@ -208,10 +209,7 @@ describe("managed proxy integration — credential precedence", () => {
     test("managed gemini uses vertex proxy path", async () => {
       enableManagedProxy();
       mockProviderKeys = {};
-      await initializeProviders({
-        provider: "anthropic",
-        model: "test-model",
-      });
+      await initializeProviders(makeProvidersConfig("anthropic", "test-model"));
 
       expect(lastGeminiConstructorOpts).toBeDefined();
       const httpOptions = lastGeminiConstructorOpts!.httpOptions as
@@ -229,10 +227,9 @@ describe("managed proxy integration — credential precedence", () => {
       async (provider: string) => {
         disableManagedProxy();
         mockProviderKeys = {};
-        await initializeProviders({
-          provider: "anthropic",
-          model: "test-model",
-        });
+        await initializeProviders(
+          makeProvidersConfig("anthropic", "test-model"),
+        );
         expect(listProviders()).not.toContain(provider);
         expect(getProviderRoutingSource(provider)).toBeUndefined();
       },
@@ -241,10 +238,7 @@ describe("managed proxy integration — credential precedence", () => {
     test("registry is empty when no keys and no managed context (non-ollama primary)", async () => {
       disableManagedProxy();
       mockProviderKeys = {};
-      await initializeProviders({
-        provider: "anthropic",
-        model: "test-model",
-      });
+      await initializeProviders(makeProvidersConfig("anthropic", "test-model"));
       expect(listProviders()).toEqual([]);
     });
   });
@@ -253,10 +247,7 @@ describe("managed proxy integration — credential precedence", () => {
     test("user key for anthropic routes direct and managed fallback only fills gemini", async () => {
       enableManagedProxy();
       setUserKeysFor("anthropic");
-      await initializeProviders({
-        provider: "anthropic",
-        model: "test-model",
-      });
+      await initializeProviders(makeProvidersConfig("anthropic", "test-model"));
       const registered = listProviders();
       expect(registered).toContain("anthropic");
       expect(getProviderRoutingSource("anthropic")).toBe("user-key");
@@ -271,10 +262,7 @@ describe("managed proxy integration — credential precedence", () => {
     test("user key for openai routes direct while anthropic and gemini still bootstrap via managed proxy", async () => {
       enableManagedProxy();
       setUserKeysFor("openai");
-      await initializeProviders({
-        provider: "openai",
-        model: "test-model",
-      });
+      await initializeProviders(makeProvidersConfig("openai", "test-model"));
       const registered = listProviders();
       expect(registered).toContain("openai");
       expect(getProviderRoutingSource("openai")).toBe("user-key");
@@ -294,30 +282,21 @@ describe("managed proxy integration — ollama exclusion", () => {
   test("ollama is never registered via managed proxy fallback", async () => {
     enableManagedProxy();
     mockProviderKeys = {};
-    await initializeProviders({
-      provider: "anthropic",
-      model: "test-model",
-    });
+    await initializeProviders(makeProvidersConfig("anthropic", "test-model"));
     expect(listProviders()).not.toContain("ollama");
   });
 
   test("ollama registers only when explicitly configured as provider", async () => {
     enableManagedProxy();
     mockProviderKeys = {};
-    await initializeProviders({
-      provider: "ollama",
-      model: "test-model",
-    });
+    await initializeProviders(makeProvidersConfig("ollama", "test-model"));
     expect(listProviders()).toContain("ollama");
   });
 
   test("ollama registers with explicit API key", async () => {
     enableManagedProxy();
     mockProviderKeys = { ollama: "ollama-key" };
-    await initializeProviders({
-      provider: "anthropic",
-      model: "test-model",
-    });
+    await initializeProviders(makeProvidersConfig("anthropic", "test-model"));
     expect(listProviders()).toContain("ollama");
   });
 

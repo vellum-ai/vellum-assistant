@@ -868,8 +868,8 @@ export async function handleSendMessage(
     inputTokens: conversation.usageStats.inputTokens,
     outputTokens: conversation.usageStats.outputTokens,
     maxInputTokens: config.contextWindow.maxInputTokens,
-    model: config.model,
-    provider: config.provider,
+    model: config.services.inference.model,
+    provider: config.services.inference.provider,
     estimatedCost: conversation.usageStats.estimatedCost,
   };
   const slashResult = await resolveSlash(rawContent, slashContext);

@@ -18,7 +18,7 @@ import {
   resolveManagedProxyContext,
 } from "../../../../providers/managed-proxy/context.js";
 import type { ImageContent } from "../../../../providers/types.js";
-import { getSecureKeyAsync } from "../../../../security/secure-keys.js";
+import { getProviderKeyAsync } from "../../../../security/secure-keys.js";
 import { getAttachmentSourceConversations } from "../../../../tools/assets/search.js";
 import type {
   ToolContext,
@@ -55,8 +55,7 @@ export async function run(
   context: ToolContext,
 ): Promise<ToolExecutionResult> {
   const config = getConfig();
-  const apiKey =
-    (await getSecureKeyAsync("gemini")) ?? process.env.GEMINI_API_KEY;
+  const apiKey = await getProviderKeyAsync("gemini");
 
   // Resolve credentials: prefer direct API key, fall back to managed proxy
   let credentials: ImageGenCredentials | undefined;
@@ -85,7 +84,9 @@ export async function run(
   const prompt = input.prompt as string;
   const mode = (input.mode as "generate" | "edit") ?? "generate";
   const attachmentIds = input.attachment_ids as string[] | undefined;
-  const model = (input.model as string | undefined) ?? config.imageGenModel;
+  const model =
+    (input.model as string | undefined) ??
+    config.services["image-generation"].model;
   const variants = input.variants as number | undefined;
 
   // Resolve source images from attachments for edit mode

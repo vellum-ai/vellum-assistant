@@ -29,7 +29,10 @@ export function createGuardianActionCopyGenerator(): GuardianActionCopyGenerator
     const config = loadConfig();
     let provider;
     try {
-      provider = getFailoverProvider(config.provider, config.providerOrder);
+      provider = getFailoverProvider(
+        config.services.inference.provider,
+        config.providerOrder,
+      );
     } catch {
       return null;
     }
@@ -131,7 +134,10 @@ const VALID_FOLLOWUP_DISPOSITIONS: ReadonlySet<string> = new Set([
 export function createGuardianFollowUpConversationGenerator(): GuardianFollowUpConversationGenerator {
   return async (context) => {
     const config = loadConfig();
-    const provider = getFailoverProvider(config.provider, config.providerOrder);
+    const provider = getFailoverProvider(
+      config.services.inference.provider,
+      config.providerOrder,
+    );
 
     const userPrompt = [
       `Original question from the voice call: "${context.questionText}"`,

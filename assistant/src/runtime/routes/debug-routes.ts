@@ -51,14 +51,20 @@ function handleDebug(): Response {
   const providerOrder = Array.isArray(config.providerOrder)
     ? config.providerOrder
     : [];
-  const providerStatus = getProviderDebugStatus(config.provider, providerOrder);
+  const providerStatus = getProviderDebugStatus(
+    config.services.inference.provider,
+    providerOrder,
+  );
 
   return Response.json({
     session: {
       uptimeSeconds,
       startedAt: new Date(startedAt).toISOString(),
     },
-    provider: providerStatus,
+    provider: {
+      ...providerStatus,
+      inferenceMode: config.services.inference.mode,
+    },
     memory: {
       conversationCount,
       memoryItemCount,

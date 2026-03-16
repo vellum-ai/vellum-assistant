@@ -130,7 +130,7 @@ export class SubagentManager {
     // ── Build conversation dependencies ─────────────────────────────
     const appConfig = getConfig();
     let provider = getFailoverProvider(
-      appConfig.provider,
+      appConfig.services.inference.provider,
       appConfig.providerOrder,
     );
     const { rateLimit } = appConfig;

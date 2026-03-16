@@ -6,6 +6,7 @@ import QRCode from "qrcode";
 
 import { getGatewayPort, getIngressPublicBaseUrl } from "../config/env.js";
 import { getConfig, loadRawConfig, saveRawConfig } from "../config/loader.js";
+import { setServiceField } from "../config/raw-config-utils.js";
 import {
   getConfiguredProviders,
   isProviderAvailable,
@@ -163,7 +164,10 @@ async function resolveProviderModelCommand(
   }
 
   // Check if already using this provider+model
-  if (config.provider === provider && config.model === model) {
+  if (
+    config.services.inference.provider === provider &&
+    config.services.inference.model === model
+  ) {
     const alreadyMsg = name
       ? `${name} is already running on **${displayName}**.`
       : `Already using **${displayName}**.`;
@@ -175,8 +179,8 @@ async function resolveProviderModelCommand(
 
   // Update config with both provider and model
   const raw = loadRawConfig();
-  raw.provider = provider;
-  raw.model = model;
+  setServiceField(raw, "inference", "provider", provider);
+  setServiceField(raw, "inference", "model", model);
   saveRawConfig(raw);
 
   // Re-initialize providers with new config
@@ -205,7 +209,9 @@ async function resolveModelList(): Promise<SlashResolution> {
     PROVIDER_MODEL_SHORTCUTS,
   )) {
     const hasKey = configuredProviders.has(provider);
-    const isCurrent = config.provider === provider && config.model === model;
+    const isCurrent =
+      config.services.inference.provider === provider &&
+      config.services.inference.model === model;
     const status = hasKey ? "✓" : "✗";
     const current = isCurrent ? " **[current]**" : "";
     lines.push(`- **${displayName}** (/${cmd}) ${status}${current}`);
@@ -239,11 +245,13 @@ async function resolveModelCommand(
   if (!args) {
     // Show current model
     const config = getConfig();
-    const displayName = MODEL_DISPLAY_NAMES[config.model] ?? config.model;
+    const displayName =
+      MODEL_DISPLAY_NAMES[config.services.inference.model] ??
+      config.services.inference.model;
     const prefix = name ? `${name} is running on` : `Currently using`;
     return {
       kind: "unknown",
-      message: `${prefix} **${displayName}** (\`${config.model}\`).`,
+      message: `${prefix} **${displayName}** (\`${config.services.inference.model}\`).`,
     };
   }
 
@@ -266,7 +274,7 @@ async function resolveModelCommand(
 
   // Check if already using this model
   const currentConfig = getConfig();
-  if (currentConfig.model === matched) {
+  if (currentConfig.services.inference.model === matched) {
     const displayName = MODEL_DISPLAY_NAMES[matched] ?? matched;
     const alreadyMsg = name
       ? `${name} is already running on **${displayName}**.`
@@ -288,8 +296,8 @@ async function resolveModelCommand(
 
   // Change model: save config and re-initialize providers
   const raw = loadRawConfig();
-  raw.provider = "anthropic"; // Ensure provider is set for Anthropic models
-  raw.model = matched;
+  setServiceField(raw, "inference", "provider", "anthropic"); // Ensure provider is set for Anthropic models
+  setServiceField(raw, "inference", "model", matched);
   saveRawConfig(raw);
   const config = getConfig();
   await initializeProviders(config);

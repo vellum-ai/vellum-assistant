@@ -18,6 +18,7 @@ import {
   updateStatusText,
 } from "./cli/main-screen.jsx";
 import { loadRawConfig, saveRawConfig } from "./config/loader.js";
+import { setServiceField } from "./config/raw-config-utils.js";
 import { MODEL_TO_PROVIDER } from "./daemon/conversation-slash.js";
 import { getModelInfo } from "./daemon/handlers/config-model.js";
 import { renderHistoryContent } from "./daemon/handlers/shared.js";
@@ -1125,11 +1126,14 @@ export async function startCli(): Promise<void> {
         try {
           const raw = loadRawConfig();
           const provider = MODEL_TO_PROVIDER[modelArg];
-          raw.model = modelArg;
-          if (provider) raw.provider = provider;
+          setServiceField(raw, "inference", "model", modelArg);
+          if (provider) setServiceField(raw, "inference", "provider", provider);
           saveRawConfig(raw);
+          const existingProvider = (
+            raw.services as Record<string, Record<string, unknown>>
+          )?.inference?.provider as string | undefined;
           process.stdout.write(
-            `\n  Model: ${modelArg} (${provider ?? raw.provider})\n\n`,
+            `\n  Model: ${modelArg} (${provider ?? existingProvider})\n\n`,
           );
         } catch {
           process.stdout.write("[Failed to set model]\n");
