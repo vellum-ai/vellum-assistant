@@ -4,48 +4,48 @@ import XCTest
 @testable import vellum_assistant_ios
 
 @MainActor
-final class ThreadListOrderingIOSTests: XCTestCase {
+final class ConversationListOrderingIOSTests: XCTestCase {
     func testConnectedModeSortsPinnedThenRecencyThenExplicitOrder() {
-        let threads = [
-            IOSThread(
+        let conversations = [
+            IOSConversation(
                 title: "explicit-late",
                 lastActivityAt: Date(timeIntervalSince1970: 20),
                 conversationId: "explicit-late",
                 displayOrder: 2
             ),
-            IOSThread(
+            IOSConversation(
                 title: "recent",
                 lastActivityAt: Date(timeIntervalSince1970: 50),
                 conversationId: "recent"
             ),
-            IOSThread(
+            IOSConversation(
                 title: "pinned-second",
                 lastActivityAt: Date(timeIntervalSince1970: 10),
                 conversationId: "pinned-second",
                 isPinned: true,
                 displayOrder: 2
             ),
-            IOSThread(
+            IOSConversation(
                 title: "explicit-first",
                 lastActivityAt: Date(timeIntervalSince1970: 30),
                 conversationId: "explicit-first",
                 displayOrder: 1
             ),
-            IOSThread(
+            IOSConversation(
                 title: "pinned-first",
                 lastActivityAt: Date(timeIntervalSince1970: 40),
                 conversationId: "pinned-first",
                 isPinned: true,
                 displayOrder: 1
             ),
-            IOSThread(
+            IOSConversation(
                 title: "older",
                 lastActivityAt: Date(timeIntervalSince1970: 5),
                 conversationId: "older"
             ),
         ]
 
-        let sorted = sortThreadsForDisplay(threads, isConnectedMode: true)
+        let sorted = sortConversationsForDisplay(conversations, isConnectedMode: true)
 
         XCTAssertEqual(
             sorted.map(\.title),
@@ -60,27 +60,27 @@ final class ThreadListOrderingIOSTests: XCTestCase {
         )
     }
 
-    func testConnectedModeSortsPinnedThreadsWithoutOrderAfterOrderedPins() {
-        let threads = [
-            IOSThread(
+    func testConnectedModeSortsPinnedConversationsWithoutOrderAfterOrderedPins() {
+        let conversations = [
+            IOSConversation(
                 title: "pinned-unordered",
                 lastActivityAt: Date(timeIntervalSince1970: 60),
                 conversationId: "pinned-unordered",
                 isPinned: true
             ),
-            IOSThread(
+            IOSConversation(
                 title: "pinned-second",
                 lastActivityAt: Date(timeIntervalSince1970: 20),
                 conversationId: "pinned-second",
                 isPinned: true,
                 displayOrder: 1
             ),
-            IOSThread(
+            IOSConversation(
                 title: "regular",
                 lastActivityAt: Date(timeIntervalSince1970: 50),
                 conversationId: "regular"
             ),
-            IOSThread(
+            IOSConversation(
                 title: "pinned-first",
                 lastActivityAt: Date(timeIntervalSince1970: 10),
                 conversationId: "pinned-first",
@@ -89,7 +89,7 @@ final class ThreadListOrderingIOSTests: XCTestCase {
             ),
         ]
 
-        let sorted = sortThreadsForDisplay(threads, isConnectedMode: true)
+        let sorted = sortConversationsForDisplay(conversations, isConnectedMode: true)
 
         XCTAssertEqual(
             sorted.map(\.title),
@@ -103,13 +103,13 @@ final class ThreadListOrderingIOSTests: XCTestCase {
     }
 
     func testStandaloneModePreservesOriginalOrder() {
-        let threads = [
-            IOSThread(title: "first", conversationId: "first", isPinned: true, displayOrder: 1),
-            IOSThread(title: "second", conversationId: "second"),
-            IOSThread(title: "third", conversationId: "third", displayOrder: 1),
+        let conversations = [
+            IOSConversation(title: "first", conversationId: "first", isPinned: true, displayOrder: 1),
+            IOSConversation(title: "second", conversationId: "second"),
+            IOSConversation(title: "third", conversationId: "third", displayOrder: 1),
         ]
 
-        let sorted = sortThreadsForDisplay(threads, isConnectedMode: false)
+        let sorted = sortConversationsForDisplay(conversations, isConnectedMode: false)
 
         XCTAssertEqual(sorted.map(\.title), ["first", "second", "third"])
     }

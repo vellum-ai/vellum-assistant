@@ -620,7 +620,7 @@ public final class ChatViewModel: ObservableObject {
         isLoadingMoreMessages = true
         // Safety timeout: log a warning if the daemon is slow, but do NOT
         // clear isLoadingMoreMessages here. Callers (ThreadConversationRestorer,
-        // IOSThreadStore) use `vm.isLoadingMoreMessages` to decide whether
+        // IOSConversationStore) use `vm.isLoadingMoreMessages` to decide whether
         // a history response is a pagination load. If the timeout clears the
         // flag before the response arrives, the late-but-valid response is
         // misclassified as an initial load and replaces all messages instead

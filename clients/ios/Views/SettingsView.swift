@@ -10,9 +10,9 @@ struct SettingsView: View {
     @State private var versionTapCount: Int = 0
     @State private var contactsStore: ContactsStore?
     @State private var channelTrustStore: ChannelTrustStore?
-    /// Shared thread store — passed through so PrivateThreadsSection can show and
-    /// manage private threads without creating a second store that races on UserDefaults.
-    var threadStore: IOSThreadStore
+    /// Shared conversation store — passed through so PrivateConversationsSection can show and
+    /// manage private conversations without creating a second store that races on UserDefaults.
+    var conversationStore: IOSConversationStore
 
     /// Lazily builds the Channels & Guardian destination using the
     /// pre-created stores from `@State` properties.
@@ -78,9 +78,9 @@ struct SettingsView: View {
                         Label { Text("Reminders") } icon: { VIconView(.bell, size: 14) }
                     }
                     NavigationLink {
-                        PrivateThreadsSection(store: threadStore)
+                        PrivateConversationsSection(store: conversationStore)
                     } label: {
-                        Label { Text("Private Threads") } icon: { VIconView(.shield, size: 14) }
+                        Label { Text("Private Conversations") } icon: { VIconView(.shield, size: 14) }
                     }
                     NavigationLink {
                         MediaEmbedSettingsSection()
@@ -211,7 +211,7 @@ extension Bundle {
 
 #Preview {
     let client = DaemonClient(config: .fromUserDefaults())
-    SettingsView(authManager: AuthManager(), navigateToConnect: .constant(false), threadStore: IOSThreadStore(daemonClient: client))
+    SettingsView(authManager: AuthManager(), navigateToConnect: .constant(false), conversationStore: IOSConversationStore(daemonClient: client))
         .environmentObject(ClientProvider(client: client))
 }
 #endif
