@@ -1,5 +1,6 @@
 import Foundation
 import os
+import VellumAssistantShared
 
 private let availabilityLog = Logger(
     subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant",
@@ -8,6 +9,8 @@ private let availabilityLog = Logger(
 
 /// Describes why Apple Containers support is unavailable on the current system.
 public enum AppleContainersUnavailableReason: Sendable, CustomStringConvertible {
+    /// The `apple_containers_enabled` feature flag is off (the default).
+    case featureFlagDisabled
     /// The macOS version is older than 15.0, which is required by Apple
     /// Containerization.
     case osTooOld(currentVersion: String)
@@ -21,6 +24,8 @@ public enum AppleContainersUnavailableReason: Sendable, CustomStringConvertible 
 
     public var description: String {
         switch self {
+        case .featureFlagDisabled:
+            return "Apple Containers feature flag is disabled."
         case .osTooOld(let version):
             return "Apple Containers requires macOS 15.0 or later (current: \(version))."
         case .runtimeNotEmbedded:
@@ -61,6 +66,16 @@ public enum AppleContainersAvailability: Sendable {
 ///
 /// Call `AppleContainersAvailabilityChecker.shared.check()` to obtain the
 /// current availability state.  The result is computed once and cached.
+///
+/// Resolution order:
+/// 1. Feature flag (`apple_containers_enabled`) — if off, returns
+///    `.unavailable(.featureFlagDisabled)` immediately.
+/// 2. OS version — requires macOS 15.0 or later.
+/// 3. Runtime loader — delegates to `AppleContainersRuntimeLoader` to
+///    check whether the embedded module is present and loads without error.
+///
+/// All Apple Containers-specific surfaces (onboarding, settings, launcher,
+/// restart) **must** consult this helper rather than performing ad hoc checks.
 public final class AppleContainersAvailabilityChecker: @unchecked Sendable {
     public static let shared = AppleContainersAvailabilityChecker()
 
@@ -100,16 +115,23 @@ public final class AppleContainersAvailabilityChecker: @unchecked Sendable {
     // MARK: - Private helpers
 
     private func computeAvailability() -> AppleContainersAvailability {
-        // Check OS version first — Apple Containerization requires macOS 15+.
+        // 1. Feature flag gate — short-circuit if the flag is off.
+        guard MacOSClientFeatureFlagManager.shared.isEnabled("apple_containers_enabled") else {
+            availabilityLog.debug("Apple Containers unavailable: feature flag disabled")
+            return .unavailable(.featureFlagDisabled)
+        }
+
+        // 2. OS version check — Apple Containerization requires macOS 15+.
         let current = ProcessInfo.processInfo.operatingSystemVersion
         guard current.majorVersion > 15
             || (current.majorVersion == 15 && current.minorVersion >= 0)
         else {
             let versionString = "\(current.majorVersion).\(current.minorVersion).\(current.patchVersion)"
+            availabilityLog.debug("Apple Containers unavailable: OS version \(versionString) < 15.0")
             return .unavailable(.osTooOld(currentVersion: versionString))
         }
 
-        // Delegate to the runtime loader to check whether the embedded module
+        // 3. Delegate to the runtime loader to check whether the embedded module
         // is present and loads without error.
         switch AppleContainersRuntimeLoader.shared.load() {
         case .loaded:
