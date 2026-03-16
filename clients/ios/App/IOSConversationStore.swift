@@ -292,7 +292,8 @@ class IOSConversationStore: ObservableObject {
             let conversation = IOSConversation(
                 title: msg.title,
                 conversationId: msg.conversationId,
-                scheduleJobId: msg.scheduleJobId
+                scheduleJobId: msg.scheduleJobId,
+                hasUnseenLatestAssistantMessage: true
             )
             // Remove the empty placeholder conversation if it's still present (race:
             // schedule_conversation_created can arrive before the first conversation_list_response).
