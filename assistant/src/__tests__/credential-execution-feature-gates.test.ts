@@ -154,19 +154,16 @@ describe("CES flags do not affect unrelated flags", () => {
     ).toBe(true);
   });
 
-  test("enabling all CES flags does not change hatch-new-assistant flag (defaultEnabled: false)", () => {
+  test("enabling all CES flags does not change contacts flag (defaultEnabled: false)", () => {
     const overrides: Record<string, boolean> = {};
     for (const key of ALL_CES_FLAG_KEYS) {
       overrides[key] = true;
     }
     const config = makeConfig(overrides);
 
-    // hatch-new-assistant defaults to false in the registry and should stay false
+    // contacts defaults to false in the registry and should stay false
     expect(
-      isAssistantFeatureFlagEnabled(
-        "feature_flags.hatch-new-assistant.enabled",
-        config,
-      ),
+      isAssistantFeatureFlagEnabled("feature_flags.contacts.enabled", config),
     ).toBe(false);
   });
 });

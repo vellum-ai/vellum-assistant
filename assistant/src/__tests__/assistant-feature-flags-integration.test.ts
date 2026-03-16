@@ -32,9 +32,9 @@ let currentConfig: Record<string, unknown> = {
   sandbox: { enabled: false, backend: "native" },
 };
 
-const DECLARED_FLAG_ID = "hatch-new-assistant";
+const DECLARED_FLAG_ID = "contacts";
 const DECLARED_FLAG_KEY = `feature_flags.${DECLARED_FLAG_ID}.enabled`;
-const DECLARED_SKILL_ID = "hatch-new-assistant";
+const DECLARED_SKILL_ID = "contacts";
 
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const realPlatform = require("../util/platform.js");
@@ -163,8 +163,8 @@ describe("buildSystemPrompt assistant feature flag filtering", () => {
   test("flag OFF skill does not appear in <available_skills> section", () => {
     createSkillOnDisk(
       DECLARED_SKILL_ID,
-      "Hatch New Assistant",
-      "Toggle hatch new assistant behavior",
+      "Contacts",
+      "Toggle contacts behavior",
       DECLARED_FLAG_ID,
     );
     createSkillOnDisk(
@@ -192,15 +192,15 @@ describe("buildSystemPrompt assistant feature flag filtering", () => {
   test("declared skills hidden when no flag overrides set (registry defaults to false)", () => {
     createSkillOnDisk(
       DECLARED_SKILL_ID,
-      "Hatch New Assistant",
-      "Toggle hatch new assistant behavior",
+      "Contacts",
+      "Toggle contacts behavior",
       DECLARED_FLAG_ID,
     );
     createSkillOnDisk(
-      "contacts",
-      "Contacts",
-      "View and manage contacts",
-      "contacts",
+      "email-channel",
+      "Email Channel",
+      "Email channel setup",
+      "email-channel",
     );
 
     currentConfig = {
@@ -211,42 +211,42 @@ describe("buildSystemPrompt assistant feature flag filtering", () => {
 
     // Both skills declare feature flags with registry defaultEnabled: false
     expect(result).not.toContain(`id="${DECLARED_SKILL_ID}"`);
-    expect(result).not.toContain('id="contacts"');
+    expect(result).not.toContain('id="email-channel"');
   });
 
   test("flagged-off skills hidden when all flags are OFF", () => {
     createSkillOnDisk(
       DECLARED_SKILL_ID,
-      "Hatch New Assistant",
-      "Toggle hatch new assistant behavior",
+      "Contacts",
+      "Toggle contacts behavior",
       DECLARED_FLAG_ID,
     );
     createSkillOnDisk(
-      "contacts",
-      "Contacts",
-      "View and manage contacts",
-      "contacts",
+      "email-channel",
+      "Email Channel",
+      "Email channel setup",
+      "email-channel",
     );
 
     currentConfig = {
       sandbox: { enabled: false, backend: "native" },
       assistantFeatureFlagValues: {
         [DECLARED_FLAG_KEY]: false,
-        "feature_flags.contacts.enabled": false,
+        "feature_flags.email-channel.enabled": false,
       },
     };
 
     const result = buildSystemPrompt();
 
     expect(result).not.toContain(`id="${DECLARED_SKILL_ID}"`);
-    expect(result).not.toContain('id="contacts"');
+    expect(result).not.toContain('id="email-channel"');
   });
 
   test("assistantFeatureFlagValues overrides control visibility", () => {
     createSkillOnDisk(
       DECLARED_SKILL_ID,
-      "Hatch New Assistant",
-      "Toggle hatch new assistant behavior",
+      "Contacts",
+      "Toggle contacts behavior",
       DECLARED_FLAG_ID,
     );
 
@@ -337,7 +337,7 @@ describe("isAssistantFeatureFlagEnabled", () => {
 
   test("missing persisted value falls back to defaults registry defaultEnabled", () => {
     // No explicit config at all — should fall back to defaults registry
-    // which has defaultEnabled: false for hatch-new-assistant
+    // which has defaultEnabled: false for contacts
     const config = {} as any;
 
     expect(isAssistantFeatureFlagEnabled(DECLARED_FLAG_KEY, config)).toBe(

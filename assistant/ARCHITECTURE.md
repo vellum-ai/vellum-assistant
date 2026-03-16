@@ -617,7 +617,7 @@ Release-driven update notification system that surfaces release notes to the ass
 
 The assistant feature-flag resolver (`src/config/assistant-feature-flags.ts`) is the canonical module for determining whether an assistant feature flag is enabled. It loads default values from the unified registry at `meta/feature-flags/feature-flag-registry.json` (bundled copy at `src/config/feature-flag-registry.json`) and resolves the effective state for each declared assistant-scope flag. Assistant feature flags are declaration-driven assistant-scoped booleans that can gate any assistant behavior; skill availability is one consumer.
 
-**Canonical key format:** `feature_flags.<flag_id>.enabled` (e.g., `feature_flags.hatch-new-assistant.enabled`).
+**Canonical key format:** `feature_flags.<flag_id>.enabled` (e.g., `feature_flags.contacts.enabled`).
 
 **Resolution priority** (highest wins):
 

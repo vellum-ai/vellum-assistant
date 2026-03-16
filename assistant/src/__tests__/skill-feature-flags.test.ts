@@ -5,9 +5,9 @@ import type { AssistantConfig } from "../config/schema.js";
 import { resolveSkillStates, skillFlagKey } from "../config/skill-state.js";
 import type { SkillSummary } from "../config/skills.js";
 
-const DECLARED_FLAG_ID = "hatch-new-assistant";
+const DECLARED_FLAG_ID = "contacts";
 const DECLARED_FLAG_KEY = `feature_flags.${DECLARED_FLAG_ID}.enabled`;
-const DECLARED_SKILL_ID = "hatch-new-assistant";
+const DECLARED_SKILL_ID = "contacts";
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
@@ -140,7 +140,7 @@ describe("isAssistantFeatureFlagEnabled", () => {
 
   test("falls back to registry default when no override", () => {
     const config = makeConfig();
-    // hatch-new-assistant defaults to false in the registry
+    // contacts defaults to false in the registry
     expect(isAssistantFeatureFlagEnabled(DECLARED_FLAG_KEY, config)).toBe(
       false,
     );
@@ -212,7 +212,7 @@ describe("resolveSkillStates with feature flags", () => {
     const config = makeConfig();
 
     const resolved = resolveSkillStates(catalog, config);
-    // hatch-new-assistant registry default is false, so it's filtered out
+    // contacts registry default is false, so it's filtered out
     expect(resolved.length).toBe(0);
   });
 
@@ -270,7 +270,7 @@ describe("resolveSkillStates with feature flags", () => {
     const resolved = resolveSkillStates(catalog, config);
     const ids = resolved.map((r) => r.summary.id);
 
-    // hatch-new-assistant and deploy explicitly false; browser explicitly true
+    // contacts and deploy explicitly false; browser explicitly true
     expect(ids).toEqual(["browser"]);
   });
 });
@@ -281,7 +281,7 @@ describe("resolveSkillStates with feature flags", () => {
 
 describe("resolveSkillStates with frontmatter featureFlag", () => {
   test("skill with featureFlag (defaultEnabled: false) is filtered when no config override", () => {
-    // hatch-new-assistant has defaultEnabled: false in the registry
+    // contacts has defaultEnabled: false in the registry
     const catalog = [makeSkill(DECLARED_SKILL_ID, "bundled", DECLARED_FLAG_ID)];
     const config = makeConfig();
 

@@ -2191,7 +2191,7 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
         }
 
         /// Derive a human-readable name from the flag key.
-        /// e.g. "feature_flags.hatch-new-assistant.enabled" -> "Hatch New Assistant"
+        /// e.g. "feature_flags.browser.enabled" -> "Browser"
         public var displayName: String {
             if let label = label { return label }
             var name = key

@@ -2,22 +2,6 @@
   "version": 1,
   "flags": [
     {
-      "id": "hatch-new-assistant",
-      "scope": "assistant",
-      "key": "feature_flags.hatch-new-assistant.enabled",
-      "label": "Hatch New Assistant",
-      "description": "Show Hatch New Assistant action in Settings > Account",
-      "defaultEnabled": false
-    },
-    {
-      "id": "guardian-verify-setup",
-      "scope": "assistant",
-      "key": "feature_flags.guardian-verify-setup.enabled",
-      "label": "Guardian Verification Setup",
-      "description": "Enable guardian verification routing in the system prompt",
-      "defaultEnabled": false
-    },
-    {
       "id": "browser",
       "scope": "assistant",
       "key": "feature_flags.browser.enabled",

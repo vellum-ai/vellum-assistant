@@ -35,20 +35,12 @@ const TEST_REGISTRY = {
       defaultEnabled: true,
     },
     {
-      id: "guardian-verify-setup",
+      id: "contacts",
       scope: "assistant",
-      key: "feature_flags.guardian-verify-setup.enabled",
-      label: "Guardian Verification Setup",
-      description: "Guardian verification setup",
-      defaultEnabled: true,
-    },
-    {
-      id: "hatch-new-assistant",
-      scope: "assistant",
-      key: "feature_flags.hatch-new-assistant.enabled",
-      label: "Hatch New Assistant",
-      description: "Hatch new assistant",
-      defaultEnabled: true,
+      key: "feature_flags.contacts.enabled",
+      label: "Contacts",
+      description: "Contacts management",
+      defaultEnabled: false,
     },
     {
       id: "user-hosted-enabled",
@@ -160,13 +152,6 @@ describe("GET /v1/feature-flags handler", () => {
     );
     expect(browserFlag2).toBeDefined();
     expect(browserFlag2.label).toBe("Browser");
-
-    const hatchFlag = body.flags.find(
-      (f: { key: string }) =>
-        f.key === "feature_flags.hatch-new-assistant.enabled",
-    );
-    expect(hatchFlag).toBeDefined();
-    expect(hatchFlag.label).toBe("Hatch New Assistant");
   });
 
   test("does not include non-assistant-scope flags", async () => {
@@ -210,7 +195,6 @@ describe("GET /v1/feature-flags handler", () => {
       JSON.stringify({
         assistantFeatureFlagValues: {
           "feature_flags.browser.enabled": false,
-          "feature_flags.guardian-verify-setup.enabled": false,
         },
       }),
     );
@@ -229,13 +213,6 @@ describe("GET /v1/feature-flags handler", () => {
     expect(browserFlag).toBeDefined();
     expect(browserFlag.enabled).toBe(false); // overridden from default true
     expect(browserFlag.defaultEnabled).toBe(true);
-
-    const guardianFlag = body.flags.find(
-      (f: { key: string }) =>
-        f.key === "feature_flags.guardian-verify-setup.enabled",
-    );
-    expect(guardianFlag).toBeDefined();
-    expect(guardianFlag.enabled).toBe(false); // overridden from default true
   });
 
   test("ignores non-boolean values in assistantFeatureFlagValues", async () => {
@@ -303,7 +280,7 @@ describe("PATCH /v1/feature-flags/:flagKey handler", () => {
         twilio: { phoneNumber: "+1234567890" },
         email: { address: "test@example.com" },
         assistantFeatureFlagValues: {
-          "feature_flags.guardian-verify-setup.enabled": true,
+          "feature_flags.contacts.enabled": true,
         },
       }),
     );
@@ -326,9 +303,7 @@ describe("PATCH /v1/feature-flags/:flagKey handler", () => {
     expect(config.email).toEqual({ address: "test@example.com" });
     // New section should have both old and new values
     expect(
-      config.assistantFeatureFlagValues[
-        "feature_flags.guardian-verify-setup.enabled"
-      ],
+      config.assistantFeatureFlagValues["feature_flags.contacts.enabled"],
     ).toBe(true);
     expect(
       config.assistantFeatureFlagValues["feature_flags.browser.enabled"],
@@ -383,7 +358,7 @@ describe("PATCH /v1/feature-flags/:flagKey handler", () => {
 
     const oldFormatKeys = [
       "skills.browser.enabled",
-      "skills.guardian-verify-setup.enabled",
+      "skills.contacts.enabled",
       "skills.my-skill.enabled",
     ];
 
@@ -459,8 +434,7 @@ describe("PATCH /v1/feature-flags/:flagKey handler", () => {
 
     const validKeys = [
       "feature_flags.browser.enabled",
-      "feature_flags.guardian-verify-setup.enabled",
-      "feature_flags.hatch-new-assistant.enabled",
+      "feature_flags.contacts.enabled",
     ];
 
     for (const key of validKeys) {
@@ -538,21 +512,21 @@ describe("PATCH /v1/feature-flags/:flagKey handler", () => {
     // Write initial config
     const initial = {
       twilio: { phoneNumber: "+1234" },
-      assistantFeatureFlagValues: { "feature_flags.browser.enabled": true },
+      assistantFeatureFlagValues: { "feature_flags.contacts.enabled": true },
     };
     writeFileSync(configPath, JSON.stringify(initial));
 
     const handler = createFeatureFlagsPatchHandler();
     await handler(
       new Request(
-        "http://gateway.test/v1/feature-flags/feature_flags.guardian-verify-setup.enabled",
+        "http://gateway.test/v1/feature-flags/feature_flags.browser.enabled",
         {
           method: "PATCH",
           headers: { "content-type": "application/json" },
           body: JSON.stringify({ enabled: false }),
         },
       ),
-      "feature_flags.guardian-verify-setup.enabled",
+      "feature_flags.browser.enabled",
     );
 
     // Verify the file is valid JSON and contains all expected data
@@ -560,12 +534,10 @@ describe("PATCH /v1/feature-flags/:flagKey handler", () => {
     const config = JSON.parse(raw);
     expect(config.twilio).toMatchObject({ phoneNumber: "+1234" });
     expect(
-      config.assistantFeatureFlagValues["feature_flags.browser.enabled"],
+      config.assistantFeatureFlagValues["feature_flags.contacts.enabled"],
     ).toBe(true);
     expect(
-      config.assistantFeatureFlagValues[
-        "feature_flags.guardian-verify-setup.enabled"
-      ],
+      config.assistantFeatureFlagValues["feature_flags.browser.enabled"],
     ).toBe(false);
 
     // Verify no temp files left behind
@@ -582,8 +554,7 @@ describe("PATCH /v1/feature-flags/:flagKey handler", () => {
     // Fire multiple concurrent PATCH requests at the same time
     const flagKeys = [
       "feature_flags.browser.enabled",
-      "feature_flags.guardian-verify-setup.enabled",
-      "feature_flags.hatch-new-assistant.enabled",
+      "feature_flags.contacts.enabled",
     ];
 
     const results = await Promise.all(

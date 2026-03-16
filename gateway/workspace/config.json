@@ -1,7 +1,5 @@
 {
   "assistantFeatureFlagValues": {
-    "feature_flags.browser.enabled": false,
-    "feature_flags.guardian-verify-setup.enabled": false,
-    "feature_flags.hatch-new-assistant.enabled": false
+    "feature_flags.browser.enabled": false
   }
 }

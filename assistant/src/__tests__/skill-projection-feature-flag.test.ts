@@ -21,8 +21,8 @@ let mockUnregisteredSkillIds: string[] = [];
 let mockSkillRefCount: Map<string, number> = new Map();
 
 let currentConfig: Record<string, unknown> = {};
-const DECLARED_SKILL_ID = "hatch-new-assistant";
-const DECLARED_FLAG_KEY = "feature_flags.hatch-new-assistant.enabled";
+const DECLARED_SKILL_ID = "contacts";
+const DECLARED_FLAG_KEY = "feature_flags.contacts.enabled";
 
 // ---------------------------------------------------------------------------
 // Mocks

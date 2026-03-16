@@ -14,8 +14,8 @@ const TEST_DIR = join(
 
 let currentConfig: Record<string, unknown> = {};
 
-const DECLARED_SKILL_ID = "hatch-new-assistant";
-const DECLARED_FLAG_KEY = "feature_flags.hatch-new-assistant.enabled";
+const DECLARED_SKILL_ID = "contacts";
+const DECLARED_FLAG_KEY = "feature_flags.contacts.enabled";
 
 const platformOverrides: Record<string, (...args: unknown[]) => unknown> = {
   getRootDir: () => TEST_DIR,
@@ -124,8 +124,8 @@ describe("skill_load feature flag enforcement", () => {
   test("returns deterministic error for flag OFF skill", async () => {
     writeSkill(
       DECLARED_SKILL_ID,
-      "Hatch New Assistant",
-      "Toggle hatch new assistant behavior",
+      "Contacts",
+      "Toggle contacts behavior",
       "Use the feature.",
     );
     writeFileSync(
@@ -147,8 +147,8 @@ describe("skill_load feature flag enforcement", () => {
   test("loads skill normally when flag is ON", async () => {
     writeSkill(
       DECLARED_SKILL_ID,
-      "Hatch New Assistant",
-      "Toggle hatch new assistant behavior",
+      "Contacts",
+      "Toggle contacts behavior",
       "Use the feature.",
     );
     writeFileSync(
@@ -163,14 +163,14 @@ describe("skill_load feature flag enforcement", () => {
     const result = await executeSkillLoad({ skill: DECLARED_SKILL_ID });
 
     expect(result.isError).toBe(false);
-    expect(result.content).toContain("Skill: Hatch New Assistant");
+    expect(result.content).toContain("Skill: Contacts");
   });
 
   test("rejects skill when flag key is absent (registry defaults to disabled)", async () => {
     writeSkill(
       DECLARED_SKILL_ID,
-      "Hatch New Assistant",
-      "Toggle hatch new assistant behavior",
+      "Contacts",
+      "Toggle contacts behavior",
       "Use the feature.",
     );
     writeFileSync(
@@ -184,7 +184,7 @@ describe("skill_load feature flag enforcement", () => {
 
     const result = await executeSkillLoad({ skill: DECLARED_SKILL_ID });
 
-    // hatch-new-assistant is declared in the registry with defaultEnabled: false
+    // contacts is declared in the registry with defaultEnabled: false
     expect(result.isError).toBe(true);
     expect(result.content).toContain("disabled by feature flag");
   });
