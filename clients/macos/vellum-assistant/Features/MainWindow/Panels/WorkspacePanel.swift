@@ -33,6 +33,7 @@ final class WorkspaceBrowserState {
     var pendingSwitchPath: String?
     var pendingHiddenFilesToggle: Bool?
     var showingDirtyAlert: Bool = false
+    var viewMode: FileViewMode = .source
     var showHiddenFiles: Bool = UserDefaults.standard.bool(forKey: "showHiddenFiles")
 
     func refreshDirectory(_ dirPath: String, using daemonClient: DaemonClient) async {
@@ -43,6 +44,7 @@ final class WorkspaceBrowserState {
 
     func loadFile(path targetPath: String, using daemonClient: DaemonClient) async {
         selectedFilePath = targetPath
+        viewMode = .source
         isLoadingFile = true
         selectedFileDetail = nil
         isDirty = false
@@ -720,6 +722,34 @@ private struct WorkspaceFileViewer: View {
     }
 
     private func textViewer(_ detail: WorkspaceFileResponse) -> some View {
+        let modes = availableViewModes(for: detail.name, mimeType: detail.mimeType)
+        return VStack(spacing: 0) {
+            if modes.count > 1 {
+                HStack(spacing: 0) {
+                    VSegmentedControl(
+                        items: modes.map { (label: viewModeLabel($0), tag: $0) },
+                        selection: $state.viewMode,
+                        style: .pill
+                    )
+                    .frame(width: CGFloat(modes.count) * 100)
+                    Spacer()
+                }
+                .padding(.horizontal, VSpacing.md)
+                .padding(.vertical, VSpacing.sm)
+            }
+
+            switch state.viewMode {
+            case .source:
+                sourceView(detail)
+            case .preview:
+                previewView(detail)
+            case .tree:
+                treeView(detail)
+            }
+        }
+    }
+
+    private func sourceView(_ detail: WorkspaceFileResponse) -> some View {
         let readOnly = isHiddenPath(detail.path)
         return VStack(spacing: 0) {
             if readOnly {
@@ -767,6 +797,20 @@ private struct WorkspaceFileViewer: View {
                     }
             }
         }
+    }
+
+    private func previewView(_ detail: WorkspaceFileResponse) -> some View {
+        Text("Preview not yet available")
+            .font(VFont.body)
+            .foregroundColor(VColor.contentTertiary)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    private func treeView(_ detail: WorkspaceFileResponse) -> some View {
+        Text("Tree view not yet available")
+            .font(VFont.body)
+            .foregroundColor(VColor.contentTertiary)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     private func saveFile(path: String) async {
