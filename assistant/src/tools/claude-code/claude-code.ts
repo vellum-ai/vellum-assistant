@@ -107,7 +107,7 @@ export const claudeCodeTool: Tool = {
           working_dir: {
             type: "string",
             description:
-              "Working directory for Claude Code (defaults to session working directory)",
+              "Working directory for Claude Code (defaults to conversation working directory)",
           },
           resume: {
             type: "string",

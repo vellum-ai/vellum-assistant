@@ -88,6 +88,7 @@ mock.module("../config/loader.js", () => ({
   invalidateConfigCache: () => {},
   getNestedValue: () => undefined,
   setNestedValue: () => {},
+  syncConfigToLockfile: () => {},
 }));
 
 import { Command } from "commander";
@@ -102,12 +103,12 @@ import { getSchemaAtPath } from "../config/schema-utils.js";
 // ---------------------------------------------------------------------------
 
 describe("getSchemaAtPath", () => {
-  test("returns full schema for a top-level key (provider → enum schema)", () => {
-    const result = getSchemaAtPath(AssistantConfigSchema, "provider");
+  test("returns full schema for a top-level key (maxTokens → number schema)", () => {
+    const result = getSchemaAtPath(AssistantConfigSchema, "maxTokens");
     expect(result).not.toBeNull();
-    // provider is an enum with a default, so it should be parseable
+    // maxTokens has a default, so it should be parseable
     const parsed = (result as z.ZodType).parse(undefined);
-    expect(parsed).toBe("anthropic");
+    expect(parsed).toBe(16000);
   });
 
   test("navigates nested paths (memory.segmentation → object schema)", () => {
@@ -155,8 +156,8 @@ describe("getSchemaAtPath", () => {
   });
 
   test("returns null for path traversal through a leaf type", () => {
-    // provider is an enum, not an object — can't traverse further
-    const result = getSchemaAtPath(AssistantConfigSchema, "provider.foo");
+    // maxTokens is a number, not an object — can't traverse further
+    const result = getSchemaAtPath(AssistantConfigSchema, "maxTokens.foo");
     expect(result).toBeNull();
   });
 });
@@ -174,8 +175,8 @@ describe("z.toJSONSchema integration", () => {
     const properties = jsonSchema.properties as Record<string, unknown>;
     expect(properties).toBeDefined();
     // Check that top-level keys are present
-    expect(properties.provider).toBeDefined();
-    expect(properties.model).toBeDefined();
+    expect(properties.services).toBeDefined();
+    expect(properties.providerOrder).toBeDefined();
     expect(properties.maxTokens).toBeDefined();
     expect(properties.calls).toBeDefined();
     expect(properties.memory).toBeDefined();

@@ -43,6 +43,14 @@ mock.module("../config/loader.js", () => ({
       "web-search": { mode: "your-own", provider: "anthropic-native" },
     },
   }),
+  loadConfig: () => ({}),
+  loadRawConfig: () => ({}),
+  saveConfig: () => {},
+  saveRawConfig: () => {},
+  invalidateConfigCache: () => {},
+  getNestedValue: () => undefined,
+  setNestedValue: () => {},
+  syncConfigToLockfile: () => {},
 }));
 
 mock.module("../security/secure-keys.js", () => ({
