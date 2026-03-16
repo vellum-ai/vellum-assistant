@@ -1531,7 +1531,7 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
         try send(IdentityGetRequestMessage())
     }
 
-    /// Request avatar generation via the daemon's set_avatar tool.
+    /// Request avatar generation via the daemon's avatar generation endpoint.
     public func sendGenerateAvatar(description: String) throws {
         try send(GenerateAvatarRequestMessage(description: description))
     }
