@@ -457,6 +457,11 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
         keychainBroker?.stop()
         #endif
         assistantCli.stop()
+        // Stop any active Apple Containers pod so the VM does not continue
+        // running after the app exits.  Fired-and-forgotten because
+        // applicationWillTerminate cannot suspend the termination sequence;
+        // the launcher's retire() is best-effort on shutdown.
+        Task { await appleContainersLauncher.stop() }
     }
 
     // MARK: - Public Actions (for SwiftUI .commands menu items)

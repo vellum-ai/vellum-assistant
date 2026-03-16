@@ -9,7 +9,6 @@ struct HatchingStepView: View {
     @Bindable var state: OnboardingState
 
     @State private var cliLauncher = AssistantCli()
-    @State private var appleContainersLauncher = AppleContainersLauncher()
     @State private var showContent = false
     @State private var characterAwake = false
     @State private var pulseScale: CGFloat = 0.9
@@ -20,6 +19,7 @@ struct HatchingStepView: View {
     @State private var hatchEyes = AvatarEyeStyle.allCases.randomElement()!
     @State private var hatchColor = AvatarColor.allCases.randomElement()! // color-literal-ok
     @State private var completionTask: Task<Void, Never>?
+    @State private var hatchTask: Task<Void, Never>?
 
     var body: some View {
         VStack(spacing: VSpacing.lg) {
@@ -50,6 +50,7 @@ struct HatchingStepView: View {
         }
         .onDisappear {
             completionTask?.cancel()
+            hatchTask?.cancel()
         }
         .onChange(of: state.hatchCompleted) { _, completed in
             if completed {
@@ -251,13 +252,26 @@ struct HatchingStepView: View {
     }
 
     private func startAppleContainersHatch() {
-        Task {
+        // Use the AppDelegate-owned launcher so the active pod is tracked by
+        // AppDelegate.applicationWillTerminate and cleaned up on app exit.
+        // Creating a local instance here would leave an orphaned VM running
+        // after the user quits.
+        let launcher = AppDelegate.shared?.appleContainersLauncher
+        hatchTask = Task {
             do {
+                state.hatchLogLines.append("Preparing kernel images\u{2026}")
+                guard !Task.isCancelled else { return }
+
                 // AppleContainersLauncher writes its own lockfile entry and manages
                 // the full pod lifecycle; we just need to wait for it to finish.
-                try await appleContainersLauncher.launch(name: nil, daemonOnly: false, restart: false)
+                state.hatchLogLines.append("Starting pod\u{2026}")
+                try await launcher?.launch(name: nil, daemonOnly: false, restart: false)
+                guard !Task.isCancelled else { return }
+
+                state.hatchLogLines.append("Waiting for gateway\u{2026}")
                 handleHatchSuccess()
             } catch {
+                guard !Task.isCancelled else { return }
                 log.error("Apple Containers hatch failed: \(String(describing: error), privacy: .public)")
                 failureReason = friendlyErrorMessage(from: error)
                 state.hatchFailed = true

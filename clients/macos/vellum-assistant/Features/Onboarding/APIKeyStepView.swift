@@ -59,6 +59,17 @@ struct APIKeyStepView: View {
             withAnimation(.easeOut(duration: 0.5).delay(0.3)) {
                 showContent = true
             }
+            // If apple-containers is no longer available (e.g. flag toggled off
+            // after a previous session persisted it), reset to the process backend
+            // so the user is not silently routed through a broken path.
+            if !appleContainersAvailability.isAvailable {
+                state.selectedRuntimeBackend = .process
+            }
+        }
+        .onChange(of: appleContainersAvailability.isAvailable) { _, isAvailable in
+            if !isAvailable {
+                state.selectedRuntimeBackend = .process
+            }
         }
     }
 
@@ -66,6 +77,14 @@ struct APIKeyStepView: View {
 
     private var appleContainersAvailability: AppleContainersAvailability {
         AppleContainersAvailabilityChecker.shared.check()
+    }
+
+    /// True when the apple_containers_enabled flag is on, regardless of whether
+    /// OS/runtime checks pass.  Used to decide whether to show the card at all
+    /// (available: interactive card; flag-on-but-unavailable: disabled card with
+    /// explanation; flag-off: card is hidden entirely).
+    private var appleContainersFlagEnabled: Bool {
+        MacOSClientFeatureFlagManager.shared.isEnabled("apple_containers_enabled")
     }
 
     private var hostingCards: some View {
@@ -88,12 +107,58 @@ struct APIKeyStepView: View {
                 comingSoon: false
             )
 
-            // Apple Containers option — only shown when the feature flag is on
-            // and the current machine passes all availability checks.
+            // Apple Containers option — shown when the feature flag is on.
+            // When available: interactive card.
+            // When flag is on but machine does not qualify: disabled card with reason.
+            // When flag is off: hidden entirely.
             if appleContainersAvailability.isAvailable {
                 appleContainersCard
+            } else if appleContainersFlagEnabled {
+                // Flag is on but OS or runtime check failed — show a disabled card
+                // so users with partially-supported machines get a concrete reason
+                // rather than a silently missing option.
+                appleContainersDisabledCard(reason: appleContainersAvailability.explanation)
             }
         }
+    }
+
+    /// A non-interactive Apple Containers card shown when the feature flag is on
+    /// but the current machine does not meet availability requirements.
+    /// Displays the availability failure reason so users know what to address.
+    private func appleContainersDisabledCard(reason: String) -> some View {
+        HStack(spacing: VSpacing.md) {
+            VIconView(.package, size: 18)
+                .foregroundColor(VColor.contentDisabled)
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Apple Containers")
+                    .font(.system(size: 15, weight: .medium))
+                    .foregroundColor(VColor.contentDisabled)
+                Text(reason)
+                    .font(.system(size: 12))
+                    .foregroundColor(VColor.contentDisabled)
+            }
+
+            Spacer()
+
+            Circle()
+                .fill(Color.clear)
+                .overlay(
+                    Circle().stroke(VColor.borderDisabled, lineWidth: 1.5)
+                )
+                .frame(width: 18, height: 18)
+        }
+        .padding(.horizontal, VSpacing.lg)
+        .padding(.vertical, VSpacing.md)
+        .background(
+            RoundedRectangle(cornerRadius: VRadius.lg)
+                .fill(Color.clear)
+                .overlay(
+                    RoundedRectangle(cornerRadius: VRadius.lg)
+                        .stroke(VColor.borderDisabled, lineWidth: 1)
+                )
+        )
+        .opacity(0.7)
     }
 
     private var appleContainersCard: some View {
@@ -235,10 +300,6 @@ struct APIKeyStepView: View {
 
     private var canContinue: Bool {
         state.selectedHostingMode == .local
-    }
-
-    private var isAppleContainersSelected: Bool {
-        state.selectedHostingMode == .local && state.selectedRuntimeBackend == .appleContainers
     }
 
     private var continueButtonTitle: String {
