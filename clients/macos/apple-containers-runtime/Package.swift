@@ -19,7 +19,7 @@ let package = Package(
         )
     ],
     dependencies: [
-        .package(url: "https://github.com/apple/containerization.git", exact: "0.1.1")
+        .package(url: "https://github.com/apple/containerization.git", from: "0.12.1")
     ],
     targets: [
         .target(

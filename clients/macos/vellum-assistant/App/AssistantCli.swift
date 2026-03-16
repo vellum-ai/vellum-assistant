@@ -77,7 +77,7 @@ protocol LocalAssistantLauncher: AnyObject {
 /// daemon. It also includes a health monitor that periodically checks whether
 /// the daemon process is still alive and restarts it via the CLI.
 @MainActor
-final class AssistantCli {
+final class AssistantCli: LocalAssistantLauncher {
 
     enum CLIError: LocalizedError {
         case binaryNotFound
