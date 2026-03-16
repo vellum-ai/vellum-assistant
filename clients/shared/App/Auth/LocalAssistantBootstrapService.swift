@@ -148,7 +148,12 @@ public final class LocalAssistantBootstrapService {
                 try await injectKeyIntoDaemon(key: existingKey)
                 log.info("Re-synced existing API key to daemon")
                 try? await injectPlatformAssistantIdIntoDaemon(id: platformAssistantId)
-                try? await injectPlatformBaseUrlIntoDaemon(url: authService.baseURL)
+                do {
+                    try await injectPlatformBaseUrlIntoDaemon(url: authService.baseURL)
+                } catch {
+                    log.error("Failed to inject platform base URL into daemon on existing-key path: \(error.localizedDescription)")
+                    throw LocalBootstrapError.daemonInjectionFailed
+                }
                 return .registeredWithExistingKey(assistantId: platformAssistantId)
             } catch {
                 log.warning("Failed to inject existing key into daemon, will reprovision: \(error.localizedDescription)")
@@ -182,7 +187,12 @@ public final class LocalAssistantBootstrapService {
         if (try? await injectPlatformAssistantIdIntoDaemon(id: platformAssistantId)) == nil {
             log.warning("Failed to inject platform assistant ID into daemon on provision path; the TS env-var fallback will be used")
         }
-        try? await injectPlatformBaseUrlIntoDaemon(url: authService.baseURL)
+        do {
+            try await injectPlatformBaseUrlIntoDaemon(url: authService.baseURL)
+        } catch {
+            log.error("Failed to inject platform base URL into daemon on provision path: \(error.localizedDescription)")
+            throw LocalBootstrapError.daemonInjectionFailed
+        }
 
         return .registeredAndProvisioned(assistantId: platformAssistantId)
     }
