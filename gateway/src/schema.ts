@@ -1726,6 +1726,10 @@ export function buildSchema(): Record<string, unknown> {
                     collectUsageData: { type: "boolean" },
                     sendDiagnostics: { type: "boolean" },
                   },
+                  anyOf: [
+                    { required: ["collectUsageData"] },
+                    { required: ["sendDiagnostics"] },
+                  ],
                 },
               },
             },
