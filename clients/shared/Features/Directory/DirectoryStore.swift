@@ -52,14 +52,14 @@ public final class DirectoryStore: ObservableObject {
                 return
             }
 
-            let result = await stream.firstMatch { message -> [AppItem]? in
+            let result = await stream.firstMatch { message -> (success: Bool, apps: [AppItem])? in
                 if case .appsListResponse(let response) = message {
-                    return response.success ? response.apps : nil
+                    return (success: response.success, apps: response.apps)
                 }
                 return nil
             }
-            if let apps = result {
-                self.localApps = apps
+            if let result, result.success {
+                self.localApps = result.apps
             }
             isLoadingApps = false
         }
