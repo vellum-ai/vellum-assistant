@@ -1007,7 +1007,7 @@ async function startLearnSession(durationSeconds: number): Promise<void> {
   const startResult = JSON.parse(startStdout) as {
     ok: boolean;
     watchId?: string;
-    sessionId?: string;
+    conversationId?: string;
     error?: string;
   };
 
