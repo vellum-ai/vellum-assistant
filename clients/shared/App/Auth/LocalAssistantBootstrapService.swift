@@ -170,7 +170,7 @@ public final class LocalAssistantBootstrapService {
 
         // Step 2: Check if we already have the key stored locally (only when we have the platform ID)
         var existingKeyInjected = false
-        if let platformId = platformAssistantId,
+        if platformAssistantId != nil,
            let existingKey = credentialStorage?.get(account: credentialAccount), !existingKey.isEmpty {
             do {
                 try await injectKeyIntoDaemon(key: existingKey)
