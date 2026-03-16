@@ -659,15 +659,6 @@ describe("ingress-dependent setup skills declare public-ingress", () => {
     expect(includes).toBeDefined();
     expect(includes).toContain("public-ingress");
   });
-
-  test("slack-oauth-setup includes collaborative-oauth-flow", () => {
-    const includes = readSkillIncludes(
-      FIRST_PARTY_SKILLS_DIR,
-      "slack-oauth-setup",
-    );
-    expect(includes).toBeDefined();
-    expect(includes).toContain("collaborative-oauth-flow");
-  });
 });
 
 describe("bundled computer-use skill", () => {

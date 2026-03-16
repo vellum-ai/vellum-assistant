@@ -452,21 +452,6 @@
       "compatibility": "Designed for Vellum personal assistants"
     },
     {
-      "id": "slack-oauth-setup",
-      "name": "slack-oauth-setup",
-      "description": "Set up Slack OAuth credentials for Slack integration using a collaborative guided flow",
-      "metadata": {
-        "emoji": "🔑",
-        "vellum": {
-          "display-name": "Slack OAuth Setup",
-          "includes": [
-            "collaborative-oauth-flow"
-          ]
-        }
-      },
-      "compatibility": "Designed for Vellum personal assistants"
-    },
-    {
       "id": "spotify-oauth-setup",
       "name": "spotify-oauth-setup",
       "description": "Set up Spotify OAuth credentials using a collaborative guided flow",

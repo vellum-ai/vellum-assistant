@@ -82,7 +82,6 @@ const PROVIDER_BEHAVIORS: Record<string, OAuthProviderBehavior> = {
         valuePrefix: "Bearer ",
       },
     ],
-    setupSkillId: "slack-oauth-setup",
     setup: {
       displayName: "Slack",
       dashboardUrl: "https://api.slack.com/apps",
