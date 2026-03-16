@@ -70,6 +70,9 @@ struct ComposerView: View {
     @FocusState private var composerFocus: Bool
     @State private var isComposerFocused = false
 
+    @State private var measuredTextHeight: CGFloat = 32
+    @State private var textViewIsFocused: Bool = false
+
     @State var showSlashMenu = false
     @State var slashFilter = ""
     @State var slashSelectedIndex = 0
@@ -173,88 +176,72 @@ struct ComposerView: View {
         }
     }
 
-    /// The native TextField with keyboard handlers. Extracted so the compiler
-    /// can type-check each builder method independently.
-    @ViewBuilder
-    private func composerInputField(font: Font, hasSlashHighlight: Bool) -> some View {
-        TextField(
-            ghostSuffix == nil ? placeholderText : "",
-            text: $inputText,
-            axis: .vertical
-        )
-        .lineLimit(1...)
-        .textFieldStyle(.plain)
-        .font(font)
-        .lineSpacing(4)
-        .foregroundColor(hasSlashHighlight ? .clear : VColor.contentDefault)
-        .tint(VColor.primaryBase)
-        .focused($composerFocus)
-        .disabled(!hasAPIKey)
-        .onSubmit { handleComposerSubmit() }
-        .onKeyPress(.tab, phases: .down) { press in
-            if !press.modifiers.contains(.shift), showSlashMenu {
-                handleSlashNavigation(.tab)
-                return .handled
-            }
-            if !press.modifiers.contains(.shift), ghostSuffix != nil {
-                onAcceptSuggestion()
-                return .handled
-            }
-            return .ignored
-        }
-        .onKeyPress(.upArrow) {
-            if showSlashMenu {
-                handleSlashNavigation(.up)
-                return .handled
-            }
-            return .ignored
-        }
-        .onKeyPress(.downArrow) {
-            if showSlashMenu {
-                handleSlashNavigation(.down)
-                return .handled
-            }
-            return .ignored
-        }
-        .onKeyPress(.escape) {
-            if showSlashMenu {
-                handleSlashNavigation(.dismiss)
-                return .handled
-            }
-            return .ignored
-        }
-    }
-
     private var composerTextField: some View {
         let scaledBody = Font.custom("Inter", size: 13 * zoomScale)
         let hasSlashHighlight = slashCommandRange != nil
+        let nsFont = NSFont(name: "Inter", size: 13 * zoomScale) ?? .systemFont(ofSize: 13)
 
-        return ScrollView(.vertical, showsIndicators: false) {
-            ZStack(alignment: .leading) {
-                composerTextOverlays(font: scaledBody, hasSlashHighlight: hasSlashHighlight)
-                composerInputField(font: scaledBody, hasSlashHighlight: hasSlashHighlight)
-            }
-            .frame(maxWidth: .infinity, minHeight: composerActionButtonSize, alignment: .leading)
+        return ZStack(alignment: .leading) {
+            composerTextOverlays(font: scaledBody, hasSlashHighlight: hasSlashHighlight)
+            ComposerTextEditor(
+                text: $inputText,
+                measuredHeight: $measuredTextHeight,
+                isFocused: $textViewIsFocused,
+                font: nsFont,
+                lineSpacing: 4,
+                insertionPointColor: NSColor(VColor.primaryBase),
+                minHeight: composerActionButtonSize,
+                maxHeight: composerMaxHeight,
+                placeholder: ghostSuffix == nil ? placeholderText : "",
+                isEditable: hasAPIKey,
+                cmdEnterToSend: cmdEnterToSend,
+                textColorOverride: hasSlashHighlight
+                    ? NSColor(VColor.contentDefault).withAlphaComponent(0) : nil,
+                onSubmit: { performSendAction() },
+                onTab: {
+                    if showSlashMenu { handleSlashNavigation(.tab); return true }
+                    if ghostSuffix != nil { onAcceptSuggestion(); return true }
+                    return false
+                },
+                onUpArrow: {
+                    if showSlashMenu { handleSlashNavigation(.up); return true }
+                    return false
+                },
+                onDownArrow: {
+                    if showSlashMenu { handleSlashNavigation(.down); return true }
+                    return false
+                },
+                onEscape: {
+                    if showSlashMenu { handleSlashNavigation(.dismiss); return true }
+                    return false
+                },
+                onPasteImage: onPaste
+            )
         }
-        .scrollBounceBehavior(.basedOnSize)
-        .defaultScrollAnchor(.bottom)
-        .frame(minHeight: composerActionButtonSize, maxHeight: inputText.isEmpty ? composerActionButtonSize : composerMaxHeight)
+        .frame(maxWidth: .infinity, height: measuredTextHeight)
         .accessibilityLabel("Message")
         .frame(maxWidth: .infinity)
         .background(
             ComposerFocusBridge(
                 isFocused: composerFocus,
-                cmdEnterToSend: cmdEnterToSend,
-                onImagePaste: onPaste,
-                onSend: {
-                    performSendAction()
-                },
                 onRedirectKeystroke: { chars in
                     inputText += chars
                     composerFocus = true
                 }
             )
         )
+        // Focus: SwiftUI → AppKit (one-directional)
+        .onChange(of: composerFocus) {
+            if textViewIsFocused != composerFocus {
+                textViewIsFocused = composerFocus
+            }
+        }
+        // Focus: AppKit → SwiftUI (from delegate)
+        .onChange(of: textViewIsFocused) {
+            if composerFocus != textViewIsFocused {
+                composerFocus = textViewIsFocused
+            }
+        }
         .onChange(of: composerFocus) {
             isComposerFocused = composerFocus
             if composerFocus {
@@ -387,14 +374,6 @@ struct ComposerView: View {
                     && inputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             onAllowPendingConfirmation?()
         }
-    }
-
-    private func handleComposerSubmit() {
-        // On macOS, the bridge consumes all Return variants that should insert
-        // a newline (cmd-enter mode) or trigger a bridge-level send. The only
-        // Return events that reach `.onSubmit` are plain Return in default mode,
-        // which always means "send".
-        performSendAction()
     }
 
     // MARK: - Text Entry Mode
