@@ -71,10 +71,10 @@ struct ImproveExperienceStepView: View {
 
                 // ToS consent checkbox
                 HStack(alignment: .top, spacing: VSpacing.md) {
-                    Toggle("", isOn: $tosAccepted)
+                    Toggle("Agree to Terms of Service and Privacy Policy", isOn: $tosAccepted)
                         .toggleStyle(.checkbox)
                         .labelsHidden()
-                        .padding(.top, 2)
+                        .padding(.top, VSpacing.xxs)
                     tosConsentText
                 }
                 .padding(VSpacing.lg)
