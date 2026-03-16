@@ -23,7 +23,7 @@ export interface CharacterTraits {
  * Returns true if all files were written successfully.
  */
 export function writeTraitsAndRenderAvatar(traits: CharacterTraits): boolean {
-  if (!traits.bodyShape || !traits.eyeStyle || !traits.color) {
+  if (!traits || typeof traits !== "object" || !traits.bodyShape || !traits.eyeStyle || !traits.color) {
     log.warn({ traits }, "Invalid character traits — missing required fields");
     return false;
   }
@@ -98,13 +98,17 @@ export function syncTraitsToAvatar(): boolean {
     "character-traits.json",
   );
 
-  let traits: CharacterTraits;
+  let traits: unknown;
   try {
     const raw = readFileSync(traitsPath, "utf-8");
-    traits = JSON.parse(raw) as CharacterTraits;
+    traits = JSON.parse(raw);
   } catch {
     return false;
   }
 
-  return writeTraitsAndRenderAvatar(traits);
+  if (!traits || typeof traits !== "object") {
+    return false;
+  }
+
+  return writeTraitsAndRenderAvatar(traits as CharacterTraits);
 }
