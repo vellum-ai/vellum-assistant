@@ -294,6 +294,7 @@ struct SkillDetailView: View {
 
     private func fileIcon(for mimeType: String) -> VIcon {
         if mimeType.hasPrefix("image/") { return .image }
+        if mimeType.hasPrefix("video/") { return .video }
         if mimeType.hasPrefix("text/") { return .fileText }
         if mimeType == "application/json" || mimeType == "application/javascript" || mimeType == "application/typescript" { return .fileCode }
         return .file
