@@ -27,7 +27,7 @@ const testDir = mkdtempSync(
 );
 
 // ---------------------------------------------------------------------------
-// Mocks — must precede Session import
+// Mocks — must precede Conversation import
 // ---------------------------------------------------------------------------
 
 function makeLoggerStub(): Record<string, unknown> {
@@ -222,10 +222,10 @@ mock.module("../memory/canonical-guardian-store.js", () => ({
 }));
 
 // ---------------------------------------------------------------------------
-// Import Session AFTER mocks
+// Import Conversation AFTER mocks
 // ---------------------------------------------------------------------------
 
-import { Session } from "../daemon/conversation.js";
+import { Conversation } from "../daemon/conversation.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -245,8 +245,10 @@ function makeProvider() {
   };
 }
 
-function makeSession(sendToClient?: (msg: ServerMessage) => void): Session {
-  return new Session(
+function makeSession(
+  sendToClient?: (msg: ServerMessage) => void,
+): Conversation {
+  return new Conversation(
     "conv-signals-test",
     makeProvider(),
     "system prompt",
@@ -261,7 +263,10 @@ function makeSession(sendToClient?: (msg: ServerMessage) => void): Session {
  * This avoids calling `prompt()` which has complex side effects (sends
  * a confirmation_request message, needs allowlistOptions, etc.).
  */
-function seedPendingConfirmation(session: Session, requestId: string): void {
+function seedPendingConfirmation(
+  session: Conversation,
+  requestId: string,
+): void {
   const prompter = session["prompter"] as unknown as {
     pending: Map<
       string,
@@ -313,7 +318,7 @@ describe("centralized confirmation emissions", () => {
     expect(confirmMsg).toBeDefined();
     expect(confirmMsg).toMatchObject({
       type: "confirmation_state_changed",
-      sessionId: "conv-signals-test",
+      conversationId: "conv-signals-test",
       requestId: "req-allow-1",
       state: "approved",
       source: "button",
@@ -360,7 +365,7 @@ describe("centralized confirmation emissions", () => {
     expect(activityMsg).toBeDefined();
     expect(activityMsg).toMatchObject({
       type: "assistant_activity_state",
-      sessionId: "conv-signals-test",
+      conversationId: "conv-signals-test",
       phase: "thinking",
       reason: "confirmation_resolved",
       anchor: "assistant_turn",
@@ -517,7 +522,7 @@ describe("sendToClient receives state signals", () => {
     const session = makeSession((msg) => clientMsgs.push(msg));
 
     session.emitConfirmationStateChanged({
-      sessionId: "conv-signals-test",
+      conversationId: "conv-signals-test",
       requestId: "req-signal-1",
       state: "approved",
       source: "button",

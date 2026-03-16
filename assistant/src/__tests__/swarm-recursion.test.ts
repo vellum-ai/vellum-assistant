@@ -99,7 +99,6 @@ import type { ToolContext } from "../tools/types.js";
 
 function makeContext(overrides?: Partial<ToolContext>): ToolContext {
   return {
-    sessionId: "test-session",
     conversationId: "test-conv",
     workingDir: "/tmp/test",
     trustClass: "guardian",
@@ -120,7 +119,7 @@ describe("swarm recursion guard (concurrent)", () => {
     // Start first swarm — it will pause at the SDK mock
     const first = swarmDelegateTool.execute(
       { objective: "First task" },
-      makeContext({ sessionId: "session-A" }),
+      makeContext({ conversationId: "session-A" }),
     );
 
     // Yield to let first reach the SDK gate (executeSwarm path)
@@ -129,7 +128,7 @@ describe("swarm recursion guard (concurrent)", () => {
     // Second invocation on the same session should be rejected
     const second = await swarmDelegateTool.execute(
       { objective: "Second task" },
-      makeContext({ sessionId: "session-A" }),
+      makeContext({ conversationId: "session-A" }),
     );
     expect(second.isError).toBe(true);
     expect(second.content).toContain("already executing");
@@ -145,8 +144,8 @@ describe("swarm recursion guard (concurrent)", () => {
 
     // Start first swarm on session A
     const first = swarmDelegateTool.execute(
-      { objective: "Session A task" },
-      makeContext({ sessionId: "session-A" }),
+      { objective: "Conversation A task" },
+      makeContext({ conversationId: "session-A" }),
     );
 
     // Yield to let first reach the gate
@@ -157,8 +156,8 @@ describe("swarm recursion guard (concurrent)", () => {
 
     // Second swarm on a different session should succeed
     const second = await swarmDelegateTool.execute(
-      { objective: "Session B task" },
-      makeContext({ sessionId: "session-B" }),
+      { objective: "Conversation B task" },
+      makeContext({ conversationId: "session-B" }),
     );
     expect(second.isError).toBeFalsy();
 
@@ -170,14 +169,14 @@ describe("swarm recursion guard (concurrent)", () => {
     // Run and complete first swarm (no gate)
     const first = await swarmDelegateTool.execute(
       { objective: "First task" },
-      makeContext({ sessionId: "session-A" }),
+      makeContext({ conversationId: "session-A" }),
     );
     expect(first.isError).toBeFalsy();
 
     // Same session should now be allowed again
     const second = await swarmDelegateTool.execute(
       { objective: "Second task" },
-      makeContext({ sessionId: "session-A" }),
+      makeContext({ conversationId: "session-A" }),
     );
     expect(second.isError).toBeFalsy();
   });

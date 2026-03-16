@@ -13,7 +13,6 @@ describe("registerToolNotificationListener", () => {
 
     await bus.emit("tool.secret.detected", {
       conversationId: "conversation-1",
-      sessionId: "session-1",
       toolName: "file_read",
       action: "warn",
       matches: [
@@ -50,7 +49,6 @@ describe("registerToolNotificationListener", () => {
     subscription.dispose();
     await bus.emit("tool.secret.detected", {
       conversationId: "conversation-1",
-      sessionId: "session-1",
       toolName: "file_read",
       action: "warn",
       matches: [

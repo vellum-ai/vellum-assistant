@@ -179,7 +179,7 @@ describe("SSE assistant-events endpoint", () => {
     const frame = new TextDecoder().decode(value);
     expect(frame).toContain("event: assistant_event");
     expect(frame).toContain(`"assistantId":"self"`);
-    expect(frame).toContain(`"sessionId":"${conversationId}"`);
+    expect(frame).toContain(`"conversationId":"${conversationId}"`);
     expect(frame).toContain('"type":"pong"');
   });
 

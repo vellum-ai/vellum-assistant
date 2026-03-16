@@ -1,5 +1,5 @@
 /**
- * Runtime message-injection helpers extracted from Session.
+ * Runtime message-injection helpers extracted from Conversation.
  *
  * These functions modify the user-message tail of the conversation
  * before it is sent to the provider.  They are pure (no side effects).
@@ -1272,7 +1272,7 @@ const ATTACHMENT_CONTENT_TYPES = new Set(["image", "file"]);
  * Scan conversation messages for user-uploaded attachment content blocks
  * (image or file). Returns true as soon as any attachment is found.
  *
- * Used to set the one-way `hasAttachments` flag on Session so that asset
+ * Used to set the one-way `hasAttachments` flag on Conversation so that asset
  * tools (asset_search, asset_materialize) are included in tool definitions
  * only when the conversation contains attachments.
  */

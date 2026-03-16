@@ -90,7 +90,7 @@ function buildHeaders(): Record<string, string> {
   const headers: Record<string, string> = {};
   const token = readPlatformToken();
   if (token) {
-    headers["X-Session-Token"] = token;
+    headers["X-Conversation-Token"] = token;
   }
   return headers;
 }

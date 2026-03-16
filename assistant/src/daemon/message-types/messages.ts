@@ -7,7 +7,7 @@ import type { CommandIntent, UserMessageAttachment } from "./shared.js";
 
 export interface UserMessage {
   type: "user_message";
-  sessionId: string;
+  conversationId: string;
   content?: string;
   attachments?: UserMessageAttachment[];
   activeSurfaceId?: string;
@@ -52,7 +52,7 @@ export interface SecretResponse {
 
 export interface SuggestionRequest {
   type: "suggestion_request";
-  sessionId: string;
+  conversationId: string;
   requestId: string;
 }
 
@@ -61,13 +61,13 @@ export interface SuggestionRequest {
 export interface UserMessageEcho {
   type: "user_message_echo";
   text: string;
-  sessionId?: string;
+  conversationId?: string;
 }
 
 export interface AssistantTextDelta {
   type: "assistant_text_delta";
   text: string;
-  sessionId?: string;
+  conversationId?: string;
 }
 
 export interface AssistantThinkingDelta {
@@ -79,7 +79,7 @@ export interface ToolUseStart {
   type: "tool_use_start";
   toolName: string;
   input: Record<string, unknown>;
-  sessionId?: string;
+  conversationId?: string;
   /** The tool_use block ID for client-side correlation. */
   toolUseId?: string;
 }
@@ -87,7 +87,7 @@ export interface ToolUseStart {
 export interface ToolOutputChunk {
   type: "tool_output_chunk";
   chunk: string;
-  sessionId?: string;
+  conversationId?: string;
   toolUseId?: string;
   subType?: "tool_start" | "tool_complete" | "status";
   subToolName?: string;
@@ -100,14 +100,14 @@ export interface ToolUsePreviewStart {
   type: "tool_use_preview_start";
   toolUseId: string;
   toolName: string;
-  sessionId?: string;
+  conversationId?: string;
 }
 
 export interface ToolInputDelta {
   type: "tool_input_delta";
   toolName: string;
   content: string;
-  sessionId?: string;
+  conversationId?: string;
   /** The tool_use block ID for client-side correlation. */
   toolUseId?: string;
 }
@@ -124,7 +124,7 @@ export interface ToolResult {
     isNewFile: boolean;
   };
   status?: string;
-  sessionId?: string;
+  conversationId?: string;
   /** Base64-encoded image data extracted from contentBlocks (e.g. browser_screenshot). */
   imageData?: string;
   /** The tool_use block ID for client-side correlation. */
@@ -151,7 +151,7 @@ export interface ConfirmationRequest {
     isNewFile: boolean;
   };
   sandboxed?: boolean;
-  sessionId?: string;
+  conversationId?: string;
   /** When false, the client should hide "always allow" / trust-rule persistence affordances. */
   persistentDecisionsAllowed?: boolean;
   /** Which temporary approval options the client should render (e.g. "Allow for 10 minutes", "Allow for this conversation"). */
@@ -168,7 +168,7 @@ export interface SecretRequest {
   label: string;
   description?: string;
   placeholder?: string;
-  sessionId?: string;
+  conversationId?: string;
   /** Intended purpose of the credential (displayed to user). */
   purpose?: string;
   /** Tools allowed to use this credential. */
@@ -181,7 +181,7 @@ export interface SecretRequest {
 
 export interface MessageComplete {
   type: "message_complete";
-  sessionId?: string;
+  conversationId?: string;
   attachments?: UserMessageAttachment[];
   /** Database ID of the persisted assistant message, if any. */
   messageId?: string;
@@ -203,14 +203,14 @@ export interface SecretDetected {
 
 export interface MessageQueued {
   type: "message_queued";
-  sessionId: string;
+  conversationId: string;
   requestId: string;
   position: number;
 }
 
 export interface MessageDequeued {
   type: "message_dequeued";
-  sessionId: string;
+  conversationId: string;
   requestId: string;
 }
 
@@ -223,7 +223,7 @@ export interface MessageDequeued {
  */
 export interface MessageRequestComplete {
   type: "message_request_complete";
-  sessionId: string;
+  conversationId: string;
   requestId: string;
   /** True when an existing turn is still running after this request is finalized. */
   runStillActive?: boolean;
@@ -231,7 +231,7 @@ export interface MessageRequestComplete {
 
 export interface MessageQueuedDeleted {
   type: "message_queued_deleted";
-  sessionId: string;
+  conversationId: string;
   requestId: string;
 }
 
@@ -250,7 +250,7 @@ export interface SuggestionResponse {
  */
 export interface ConfirmationStateChanged {
   type: "confirmation_state_changed";
-  sessionId: string;
+  conversationId: string;
   requestId: string;
   state: "pending" | "approved" | "denied" | "timed_out" | "resolved_stale";
   source: "button" | "inline_nl" | "auto_deny" | "timeout" | "system";
@@ -270,7 +270,7 @@ export interface ConfirmationStateChanged {
  */
 export interface AssistantActivityState {
   type: "assistant_activity_state";
-  sessionId: string;
+  conversationId: string;
   activityVersion: number;
   phase:
     | "idle"
@@ -320,7 +320,7 @@ export type TraceEventKind =
 export interface TraceEvent {
   type: "trace_event";
   eventId: string;
-  sessionId: string;
+  conversationId: string;
   requestId?: string;
   timestampMs: number;
   sequence: number;

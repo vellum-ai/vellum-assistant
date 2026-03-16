@@ -1,5 +1,5 @@
 /**
- * Session — thin coordinator that delegates to extracted modules.
+ * Conversation — thin coordinator that delegates to extracted modules.
  *
  * Each concern lives in its own file:
  * - conversation-lifecycle.ts    — loadFromDb, abort, dispose
@@ -51,14 +51,14 @@ import * as pendingInteractions from "../runtime/pending-interactions.js";
 import { ToolExecutor } from "../tools/executor.js";
 import type { AssistantAttachmentDraft } from "./assistant-attachments.js";
 import { runAgentLoopImpl } from "./conversation-agent-loop.js";
-import type { HistorySessionContext } from "./conversation-history.js";
+import type { HistoryConversationContext } from "./conversation-history.js";
 import {
   regenerate as regenerateImpl,
   undo as undoImpl,
 } from "./conversation-history.js";
 import {
-  abortSession,
-  disposeSession,
+  abortConversation,
+  disposeConversation,
   loadFromDb as loadFromDbImpl,
 } from "./conversation-lifecycle.js";
 import type { RedirectToSecurePromptOptions } from "./conversation-messaging.js";
@@ -68,8 +68,8 @@ import {
   redirectToSecurePrompt as redirectToSecurePromptImpl,
 } from "./conversation-messaging.js";
 // Extracted modules
-import { registerSessionNotifiers } from "./conversation-notifiers.js";
-import type { ProcessSessionContext } from "./conversation-process.js";
+import { registerConversationNotifiers } from "./conversation-notifiers.js";
+import type { ProcessConversationContext } from "./conversation-process.js";
 import {
   drainQueue as drainQueueImpl,
   processMessage as processMessageImpl,
@@ -111,13 +111,13 @@ import type {
 } from "./message-types/messages.js";
 import { TraceEmitter } from "./trace-emitter.js";
 
-export interface SessionMemoryPolicy {
+export interface ConversationMemoryPolicy {
   scopeId: string;
   includeDefaultFallback: boolean;
   strictSideEffects: boolean;
 }
 
-export const DEFAULT_MEMORY_POLICY: Readonly<SessionMemoryPolicy> =
+export const DEFAULT_MEMORY_POLICY: Readonly<ConversationMemoryPolicy> =
   Object.freeze({
     scopeId: "default",
     includeDefaultFallback: false,
@@ -125,9 +125,12 @@ export const DEFAULT_MEMORY_POLICY: Readonly<SessionMemoryPolicy> =
   });
 
 export { findLastUndoableUserMessageIndex } from "./conversation-history.js";
-export type { QueueDrainReason, QueuePolicy } from "./conversation-queue-manager.js";
+export type {
+  QueueDrainReason,
+  QueuePolicy,
+} from "./conversation-queue-manager.js";
 
-export class Session {
+export class Conversation {
   public readonly conversationId: string;
   /** @internal */ provider: Provider;
   /** @internal */ messages: Message[] = [];
@@ -209,7 +212,7 @@ export class Session {
   /** @internal */ workspaceTopLevelDirty = true;
   public readonly traceEmitter: TraceEmitter;
   public readonly hasSystemPromptOverride: boolean;
-  public memoryPolicy: SessionMemoryPolicy;
+  public memoryPolicy: ConversationMemoryPolicy;
   /** @internal */ streamThinking: boolean;
   /** @internal */ turnCount = 0;
   public lastAssistantAttachments: AssistantAttachmentDraft[] = [];
@@ -234,7 +237,7 @@ export class Session {
     sendToClient: (msg: ServerMessage) => void,
     workingDir: string,
     broadcastToAllClients?: (msg: ServerMessage) => void,
-    memoryPolicy?: SessionMemoryPolicy,
+    memoryPolicy?: ConversationMemoryPolicy,
     sharedCesClient?: CesClient,
   ) {
     this.conversationId = conversationId;
@@ -251,7 +254,7 @@ export class Session {
       // Route through emitConfirmationStateChanged so the event reaches
       // the client via sendToClient (wired to the SSE hub for HTTP sessions).
       this.emitConfirmationStateChanged({
-        sessionId: this.conversationId,
+        conversationId: this.conversationId,
         requestId,
         state,
         source,
@@ -280,7 +283,7 @@ export class Session {
     this.secretPrompter = new SecretPrompter(sendToClient);
 
     // Register watch/call notifiers (reads ctx properties lazily)
-    registerSessionNotifiers(conversationId, this);
+    registerConversationNotifiers(conversationId, this);
 
     // Tool infrastructure
     this.executor = new ToolExecutor(this.prompter);
@@ -364,8 +367,8 @@ export class Session {
       toolTokenBudget: this.agentLoop.getToolTokenBudget(),
     });
 
-    void getHookManager().trigger("session-start", {
-      sessionId: this.conversationId,
+    void getHookManager().trigger("conversation-start", {
+      conversationId: this.conversationId,
       workingDir: this.workingDir,
     });
   }
@@ -448,7 +451,7 @@ export class Session {
   }
 
   abort(): void {
-    abortSession(this);
+    abortConversation(this);
   }
 
   dispose(): void {
@@ -459,7 +462,7 @@ export class Session {
     // CES client is owned by DaemonServer — just drop the reference.
     // Do NOT close it here; the server manages the CES lifecycle.
     this.cesClient = undefined;
-    disposeSession(this);
+    disposeConversation(this);
   }
 
   // ── Messaging ────────────────────────────────────────────────────
@@ -574,7 +577,7 @@ export class Session {
         ? ("denied" as const)
         : ("approved" as const);
     this.emitConfirmationStateChanged({
-      sessionId: this.conversationId,
+      conversationId: this.conversationId,
       requestId,
       state: resolvedState,
       source: emissionContext?.source ?? "button",
@@ -792,7 +795,7 @@ export class Session {
     this.activityVersion++;
     const msg: ServerMessage = {
       type: "assistant_activity_state",
-      sessionId: this.conversationId,
+      conversationId: this.conversationId,
       activityVersion: this.activityVersion,
       phase,
       anchor,
@@ -907,7 +910,7 @@ export class Session {
   }
 
   drainQueue(reason: QueueDrainReason = "loop_complete"): Promise<void> {
-    return drainQueueImpl(this as ProcessSessionContext, reason);
+    return drainQueueImpl(this as ProcessConversationContext, reason);
   }
 
   async processMessage(
@@ -921,7 +924,7 @@ export class Session {
     displayContent?: string,
   ): Promise<string> {
     return processMessageImpl(
-      this as ProcessSessionContext,
+      this as ProcessConversationContext,
       content,
       attachments,
       onEvent,
@@ -940,14 +943,18 @@ export class Session {
   }
 
   undo(): number {
-    return undoImpl(this as HistorySessionContext);
+    return undoImpl(this as HistoryConversationContext);
   }
 
   async regenerate(
     onEvent: (msg: ServerMessage) => void,
     requestId?: string,
   ): Promise<void> {
-    return regenerateImpl(this as HistorySessionContext, onEvent, requestId);
+    return regenerateImpl(
+      this as HistoryConversationContext,
+      onEvent,
+      requestId,
+    );
   }
 
   // ── Surfaces ─────────────────────────────────────────────────────

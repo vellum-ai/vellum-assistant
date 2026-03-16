@@ -164,11 +164,11 @@ public struct InlineSurfaceRouter: View {
         .frame(maxWidth: 540, alignment: .leading)
         .inlineWidgetCard(interactive: false)
         .onAppear {
-            guard let sessionId = surface.surfaceRef?.sessionId else {
+            guard let conversationId = surface.surfaceRef?.conversationId else {
                 log.warning("Surface \(surface.id) has no surfaceRef — cannot refetch")
                 return
             }
-            onRefetch?(surface.id, sessionId)
+            onRefetch?(surface.id, conversationId)
         }
     }
 

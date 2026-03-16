@@ -1331,7 +1331,7 @@ public struct ToolCallData: Identifiable, Equatable {
 /// retains the entire HTML payload) in memory.
 public struct SurfaceRef: Equatable {
     public let surfaceId: String
-    public let sessionId: String?
+    public let conversationId: String?
     public let surfaceType: String
     public let title: String?
     /// The real app ID from DynamicPageSurfaceData. Used for app_open_request
@@ -1339,9 +1339,9 @@ public struct SurfaceRef: Equatable {
     /// that doesn't match any real app.
     public let appId: String?
 
-    public init(surfaceId: String, sessionId: String?, surfaceType: String, title: String?, appId: String? = nil) {
+    public init(surfaceId: String, conversationId: String?, surfaceType: String, title: String?, appId: String? = nil) {
         self.surfaceId = surfaceId
-        self.sessionId = sessionId
+        self.conversationId = conversationId
         self.surfaceType = surfaceType
         self.title = title
         self.appId = appId
@@ -1351,7 +1351,7 @@ public struct SurfaceRef: Equatable {
     /// Extracts appId from DynamicPageSurfaceData when available.
     public init(from msg: UiSurfaceShowMessage, surface: Surface? = nil) {
         self.surfaceId = msg.surfaceId
-        self.sessionId = msg.sessionId
+        self.conversationId = msg.conversationId
         self.surfaceType = msg.surfaceType
         self.title = msg.title
         if let surface, case .dynamicPage(let dpData) = surface.data {

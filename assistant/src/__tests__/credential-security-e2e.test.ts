@@ -111,7 +111,6 @@ const { isDomainAllowed } =
 function makeContext(overrides: Record<string, unknown> = {}) {
   return {
     workingDir: "/tmp",
-    sessionId: "s1",
     conversationId: "c1",
     trustClass: "guardian" as const,
     ...overrides,

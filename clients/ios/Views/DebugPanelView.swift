@@ -8,17 +8,17 @@ import VellumAssistantShared
 /// the developer toggle is enabled. Gated behind `UserDefaultsKeys.developerModeEnabled`.
 struct DebugPanelView: View {
     @ObservedObject var traceStore: TraceStore
-    let sessionId: String?
+    let conversationId: String?
     var onClose: () -> Void
 
     var body: some View {
         NavigationStack {
             VStack(spacing: 0) {
-                if let sessionId {
-                    metricsStrip(sessionId: sessionId)
+                if let conversationId {
+                    metricsStrip(conversationId: conversationId)
                     Divider()
 
-                    let events = traceStore.eventsBySession[sessionId] ?? []
+                    let events = traceStore.eventsByConversation[conversationId] ?? []
                     if events.isEmpty {
                         emptyState(
                             title: "No trace events yet",
@@ -26,7 +26,7 @@ struct DebugPanelView: View {
                             icon: .audioWaveform
                         )
                     } else {
-                        TraceTimelineIOSView(traceStore: traceStore, sessionId: sessionId)
+                        TraceTimelineIOSView(traceStore: traceStore, conversationId: conversationId)
                     }
                 } else {
                     emptyState(
@@ -51,34 +51,34 @@ struct DebugPanelView: View {
     // MARK: - Metrics Strip
 
     @ViewBuilder
-    private func metricsStrip(sessionId: String) -> some View {
+    private func metricsStrip(conversationId: String) -> some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: VSpacing.lg) {
                 metric(
                     icon: .arrowRight,
                     label: "Requests",
-                    value: "\(traceStore.requestCount(sessionId: sessionId))"
+                    value: "\(traceStore.requestCount(conversationId: conversationId))"
                 )
                 metric(
                     icon: .brain,
                     label: "LLM Calls",
-                    value: "\(traceStore.llmCallCount(sessionId: sessionId))"
+                    value: "\(traceStore.llmCallCount(conversationId: conversationId))"
                 )
                 metric(
                     icon: .fileText,
                     label: "Tokens",
                     value: formatTokens(
-                        input: traceStore.totalInputTokens(sessionId: sessionId),
-                        output: traceStore.totalOutputTokens(sessionId: sessionId)
+                        input: traceStore.totalInputTokens(conversationId: conversationId),
+                        output: traceStore.totalOutputTokens(conversationId: conversationId)
                     )
                 )
                 metric(
                     icon: .clock,
                     label: "Avg Latency",
-                    value: formatLatency(traceStore.averageLlmLatencyMs(sessionId: sessionId))
+                    value: formatLatency(traceStore.averageLlmLatencyMs(conversationId: conversationId))
                 )
 
-                let failures = traceStore.toolFailureCount(sessionId: sessionId)
+                let failures = traceStore.toolFailureCount(conversationId: conversationId)
                 if failures > 0 {
                     metric(
                         icon: .triangleAlert,
@@ -158,14 +158,14 @@ struct DebugPanelView: View {
 /// scroll primitives and omits macOS-specific animation APIs.
 struct TraceTimelineIOSView: View {
     @ObservedObject var traceStore: TraceStore
-    let sessionId: String
+    let conversationId: String
 
     @State private var expandedEventIds: Set<String> = []
     @State private var isNearBottom = true
     @State private var disappearTask: Task<Void, Never>?
 
     private var groupedEvents: [(key: String, events: [TraceStore.StoredEvent])] {
-        let byRequest = traceStore.eventsByRequest(sessionId: sessionId)
+        let byRequest = traceStore.eventsByRequest(conversationId: conversationId)
         return byRequest.map { (key: $0.key, events: $0.value) }
             .sorted { lhs, rhs in
                 let lhsFirst = lhs.events.first?.sequence ?? 0
@@ -203,7 +203,7 @@ struct TraceTimelineIOSView: View {
                 .padding(.horizontal, VSpacing.lg)
                 .padding(.vertical, VSpacing.md)
             }
-            .onChange(of: traceStore.latestEventIdBySession[sessionId]) { _, _ in
+            .onChange(of: traceStore.latestEventIdBySession[conversationId]) { _, _ in
                 if isNearBottom {
                     withAnimation(VAnimation.fast) {
                         proxy.scrollTo("trace-bottom", anchor: .bottom)
@@ -243,7 +243,7 @@ struct TraceTimelineIOSView: View {
 
     @ViewBuilder
     private func requestGroup(_ requestId: String, events: [TraceStore.StoredEvent]) -> some View {
-        let groupStatus = traceStore.requestGroupStatus(sessionId: sessionId, requestId: requestId)
+        let groupStatus = traceStore.requestGroupStatus(conversationId: conversationId, requestId: requestId)
 
         VStack(alignment: .leading, spacing: VSpacing.xs) {
             HStack(spacing: VSpacing.sm) {
@@ -427,6 +427,6 @@ struct TraceTimelineIOSView: View {
 }
 
 #Preview {
-    DebugPanelView(traceStore: TraceStore(), sessionId: nil, onClose: {})
+    DebugPanelView(traceStore: TraceStore(), conversationId: nil, onClose: {})
 }
 #endif

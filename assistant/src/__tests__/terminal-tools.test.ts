@@ -585,7 +585,6 @@ describe("Shell tool input validation", () => {
 
   const baseContext = {
     workingDir: testTmpDir,
-    sessionId: "test-session-1",
     conversationId: "test-conv-1",
     trustClass: "guardian" as const,
     onOutput: () => {},

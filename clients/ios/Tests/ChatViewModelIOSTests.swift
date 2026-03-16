@@ -252,7 +252,7 @@ final class ChatViewModelIOSTests: XCTestCase {
 
         // User initiates cancel, then server acknowledges
         viewModel.isCancelling = true
-        viewModel.handleServerMessage(.generationCancelled(GenerationCancelledMessage(sessionId: nil)))
+        viewModel.handleServerMessage(.generationCancelled(GenerationCancelledMessage(conversationId: nil)))
 
         XCTAssertFalse(viewModel.isSending)
         XCTAssertFalse(viewModel.isThinking)
@@ -374,8 +374,8 @@ final class ChatViewModelIOSTests: XCTestCase {
 
     func testOnSessionCreatedCallbackFires() {
         var capturedSessionId: String?
-        viewModel.onConversationCreated = { sessionId in
-            capturedSessionId = sessionId
+        viewModel.onConversationCreated = { conversationId in
+            capturedSessionId = conversationId
         }
 
         viewModel.bootstrapCorrelationId = "corr-cb"

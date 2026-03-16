@@ -101,16 +101,16 @@ export async function closeSentry(): Promise<void> {
 // will inherit these tags, enabling filtering by conversation, session,
 // user, or assistant in the Sentry dashboard.
 
-/** Tag keys set by {@link setSentrySessionContext}. */
-const SESSION_TAG_KEYS = [
+/** Tag keys set by {@link setSentryConversationContext}. */
+const CONVERSATION_TAG_KEYS = [
   "assistant_id",
   "conversation_id",
-  "session_id",
+  "conversation_id",
   "message_count",
   "user_identifier",
 ] as const;
 
-export interface SentrySessionContext {
+export interface SentryConversationContext {
   /** Internal assistant ID (daemon uses 'self'). */
   assistantId: string;
   /** Conversation/session identifier. */
@@ -127,12 +127,14 @@ export interface SentrySessionContext {
  * Call at the start of each agent loop turn so that any exceptions
  * captured within the turn include conversation/session context.
  */
-export function setSentrySessionContext(ctx: SentrySessionContext): void {
+export function setSentryConversationContext(
+  ctx: SentryConversationContext,
+): void {
   Sentry.setTag("assistant_id", ctx.assistantId);
   Sentry.setTag("conversation_id", ctx.conversationId);
   // session_id mirrors conversation_id — in this codebase they are the
   // same value, but downstream Sentry users may search by either name.
-  Sentry.setTag("session_id", ctx.conversationId);
+  Sentry.setTag("conversation_id", ctx.conversationId);
   Sentry.setTag("message_count", String(ctx.messageCount));
   if (ctx.userIdentifier) {
     Sentry.setTag("user_identifier", ctx.userIdentifier);
@@ -145,8 +147,8 @@ export function setSentrySessionContext(ctx: SentrySessionContext): void {
  * Call in the finally block after the agent loop completes so tags
  * from one conversation do not leak into unrelated error captures.
  */
-export function clearSentrySessionContext(): void {
-  for (const key of SESSION_TAG_KEYS) {
+export function clearSentryConversationContext(): void {
+  for (const key of CONVERSATION_TAG_KEYS) {
     Sentry.setTag(key, undefined);
   }
 }

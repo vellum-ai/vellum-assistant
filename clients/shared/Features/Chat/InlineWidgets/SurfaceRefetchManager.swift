@@ -18,7 +18,7 @@ public actor SurfaceRefetchManager {
     private let fetch: FetchBlock
 
     /// FIFO queue of surfaces awaiting fetch.
-    private var queue: [(surfaceId: String, sessionId: String)] = []
+    private var queue: [(surfaceId: String, conversationId: String)] = []
 
     /// Result returned by `enqueue`, allowing callers to distinguish between
     /// a transient failure (retry later) and a permanent failure (retries exhausted).
@@ -47,7 +47,7 @@ public actor SurfaceRefetchManager {
     /// made. Returns immediately with `retriesExhausted: true` if the surface
     /// has already exceeded the maximum retry count.
     @discardableResult
-    public func enqueue(surfaceId: String, sessionId: String) async -> RefetchResult {
+    public func enqueue(surfaceId: String, conversationId: String) async -> RefetchResult {
         if (failureCount[surfaceId] ?? 0) >= Self.maxRetries {
             log.info("Skipping refetch for \(surfaceId): exceeded \(Self.maxRetries) retries")
             return RefetchResult(data: nil, retriesExhausted: true)
@@ -60,7 +60,7 @@ public actor SurfaceRefetchManager {
             }
 
             waiters[surfaceId] = [continuation]
-            queue.append((surfaceId: surfaceId, sessionId: sessionId))
+            queue.append((surfaceId: surfaceId, conversationId: conversationId))
 
             if !isProcessing {
                 isProcessing = true
@@ -90,7 +90,7 @@ public actor SurfaceRefetchManager {
         while let next = queue.first {
             queue.removeFirst()
             log.info("Fetching surface content: \(next.surfaceId)")
-            let data = await fetch(next.surfaceId, next.sessionId)
+            let data = await fetch(next.surfaceId, next.conversationId)
             if data != nil {
                 failureCount.removeValue(forKey: next.surfaceId)
             } else {

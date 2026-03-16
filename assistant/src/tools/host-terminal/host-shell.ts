@@ -161,7 +161,7 @@ class HostShellTool implements Tool {
           timeout_seconds: normalizedTimeout,
           env: proxyEnv,
         },
-        context.sessionId,
+        context.conversationId,
         context.signal,
       );
     }
@@ -181,7 +181,7 @@ class HostShellTool implements Tool {
         command: redactSecrets(command),
         cwd: workingDir,
         timeoutSec,
-        sessionId: context.sessionId,
+        conversationId: context.conversationId,
         hostLockdownActive,
       },
       "Executing host shell command",

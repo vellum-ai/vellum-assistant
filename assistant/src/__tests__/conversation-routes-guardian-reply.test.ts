@@ -173,7 +173,7 @@ describe("handleSendMessage canonical guardian reply interception", () => {
       setHostFileProxy: () => {},
       setHostCuProxy: () => {},
       addPreactivatedSkillId: () => {},
-    } as unknown as import("../daemon/conversation.js").Session;
+    } as unknown as import("../daemon/conversation.js").Conversation;
 
     const req = new Request("http://localhost/v1/messages", {
       method: "POST",
@@ -190,7 +190,7 @@ describe("handleSendMessage canonical guardian reply interception", () => {
       req,
       {
         sendMessageDeps: {
-          getOrCreateSession: async () => session,
+          getOrCreateConversation: async () => session,
           assistantEventHub: { publish: async () => {} } as any,
           resolveAttachments: () => [],
         },
@@ -250,7 +250,7 @@ describe("handleSendMessage canonical guardian reply interception", () => {
       setHostFileProxy: () => {},
       setHostCuProxy: () => {},
       addPreactivatedSkillId: () => {},
-    } as unknown as import("../daemon/conversation.js").Session;
+    } as unknown as import("../daemon/conversation.js").Conversation;
 
     const req = new Request("http://localhost/v1/messages", {
       method: "POST",
@@ -267,7 +267,7 @@ describe("handleSendMessage canonical guardian reply interception", () => {
       req,
       {
         sendMessageDeps: {
-          getOrCreateSession: async () => session,
+          getOrCreateConversation: async () => session,
           assistantEventHub: { publish: async () => {} } as any,
           resolveAttachments: () => [],
         },
@@ -323,7 +323,7 @@ describe("handleSendMessage canonical guardian reply interception", () => {
       setHostFileProxy: () => {},
       setHostCuProxy: () => {},
       addPreactivatedSkillId: () => {},
-    } as unknown as import("../daemon/conversation.js").Session;
+    } as unknown as import("../daemon/conversation.js").Conversation;
 
     const req = new Request("http://localhost/v1/messages", {
       method: "POST",
@@ -340,7 +340,7 @@ describe("handleSendMessage canonical guardian reply interception", () => {
       req,
       {
         sendMessageDeps: {
-          getOrCreateSession: async () => session,
+          getOrCreateConversation: async () => session,
           assistantEventHub: { publish: async () => {} } as any,
           resolveAttachments: () => [],
         },
@@ -400,7 +400,7 @@ describe("handleSendMessage canonical guardian reply interception", () => {
       setHostFileProxy: () => {},
       setHostCuProxy: () => {},
       addPreactivatedSkillId: () => {},
-    } as unknown as import("../daemon/conversation.js").Session;
+    } as unknown as import("../daemon/conversation.js").Conversation;
 
     const req = new Request("http://localhost/v1/messages", {
       method: "POST",
@@ -417,7 +417,7 @@ describe("handleSendMessage canonical guardian reply interception", () => {
       req,
       {
         sendMessageDeps: {
-          getOrCreateSession: async () => session,
+          getOrCreateConversation: async () => session,
           assistantEventHub: { publish: async () => {} } as any,
           resolveAttachments: () => [],
         },
@@ -473,7 +473,7 @@ describe("handleSendMessage canonical guardian reply interception", () => {
       setHostFileProxy: () => {},
       setHostCuProxy: () => {},
       addPreactivatedSkillId: () => {},
-    } as unknown as import("../daemon/conversation.js").Session;
+    } as unknown as import("../daemon/conversation.js").Conversation;
 
     const req = new Request("http://localhost/v1/messages", {
       method: "POST",
@@ -490,7 +490,7 @@ describe("handleSendMessage canonical guardian reply interception", () => {
       req,
       {
         sendMessageDeps: {
-          getOrCreateSession: async () => session,
+          getOrCreateConversation: async () => session,
           assistantEventHub: { publish: async () => {} } as any,
           resolveAttachments: () => [],
         },
@@ -540,7 +540,7 @@ describe("handleSendMessage canonical guardian reply interception", () => {
       setHostFileProxy: () => {},
       setHostCuProxy: () => {},
       addPreactivatedSkillId: () => {},
-    } as unknown as import("../daemon/conversation.js").Session;
+    } as unknown as import("../daemon/conversation.js").Conversation;
 
     const req = new Request("http://localhost/v1/messages", {
       method: "POST",
@@ -557,7 +557,7 @@ describe("handleSendMessage canonical guardian reply interception", () => {
       req,
       {
         sendMessageDeps: {
-          getOrCreateSession: async () => session,
+          getOrCreateConversation: async () => session,
           assistantEventHub: { publish: async () => {} } as any,
           resolveAttachments: () => [],
         },
@@ -609,7 +609,7 @@ describe("handleSendMessage canonical guardian reply interception", () => {
       setHostFileProxy: () => {},
       setHostCuProxy: () => {},
       addPreactivatedSkillId: () => {},
-    } as unknown as import("../daemon/conversation.js").Session;
+    } as unknown as import("../daemon/conversation.js").Conversation;
 
     const req = new Request("http://localhost/v1/messages", {
       method: "POST",
@@ -626,7 +626,7 @@ describe("handleSendMessage canonical guardian reply interception", () => {
       req,
       {
         sendMessageDeps: {
-          getOrCreateSession: async () => session,
+          getOrCreateConversation: async () => session,
           assistantEventHub: { publish: async () => {} } as any,
           resolveAttachments: () => [],
         },
@@ -679,7 +679,7 @@ describe("handleSendMessage canonical guardian reply interception", () => {
       setHostFileProxy: () => {},
       setHostCuProxy: () => {},
       addPreactivatedSkillId: () => {},
-    } as unknown as import("../daemon/conversation.js").Session;
+    } as unknown as import("../daemon/conversation.js").Conversation;
 
     const req = new Request("http://localhost/v1/messages", {
       method: "POST",
@@ -696,7 +696,7 @@ describe("handleSendMessage canonical guardian reply interception", () => {
       req,
       {
         sendMessageDeps: {
-          getOrCreateSession: async () => session,
+          getOrCreateConversation: async () => session,
           assistantEventHub: { publish: async () => {} } as any,
           resolveAttachments: () => [],
         },

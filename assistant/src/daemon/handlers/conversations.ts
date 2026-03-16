@@ -27,7 +27,7 @@ import {
 import * as pendingInteractions from "../../runtime/pending-interactions.js";
 import { getSubagentManager } from "../../subagent/index.js";
 import { truncate } from "../../util/truncate.js";
-import type { Session } from "../conversation.js";
+import type { Conversation } from "../conversation.js";
 import { HostBashProxy } from "../host-bash-proxy.js";
 import { HostCuProxy } from "../host-cu-proxy.js";
 import { HostFileProxy } from "../host-file-proxy.js";
@@ -73,7 +73,7 @@ export function syncCanonicalStatusFromConfirmationDecision(
 
 export function makeEventSender(params: {
   ctx: HandlerContext;
-  session: Session;
+  session: Conversation;
   conversationId: string;
   sourceChannel: string;
 }): (event: ServerMessage) => void {
@@ -154,9 +154,9 @@ export function handleConfirmationResponse(
   // Route by requestId to the session that originated the prompt, not by
   // the current session binding which may have changed since the
   // request was issued (e.g. after a session switch).
-  for (const [sessionId, session] of ctx.sessions) {
+  for (const [conversationId, session] of ctx.conversations) {
     if (session.hasPendingConfirmation(msg.requestId)) {
-      ctx.touchSession(sessionId);
+      ctx.touchConversation(conversationId);
       session.handleConfirmationResponse(
         msg.requestId,
         msg.decision,
@@ -198,9 +198,9 @@ export function handleSecretResponse(
   // Route by requestId to the session that originated the prompt, not by
   // the current session binding which may have changed since the
   // request was issued (e.g. after a session switch).
-  for (const [sessionId, session] of ctx.sessions) {
+  for (const [conversationId, session] of ctx.conversations) {
     if (session.hasPendingSecret(msg.requestId)) {
-      ctx.touchSession(sessionId);
+      ctx.touchConversation(conversationId);
       session.handleSecretResponse(msg.requestId, msg.value, msg.delivery);
       pendingInteractions.resolve(msg.requestId);
       return;
@@ -216,7 +216,7 @@ export function handleSecretResponse(
  * Clear all conversations and DB conversations. Returns the number of sessions cleared.
  */
 export function clearAllConversations(ctx: HandlerContext): number {
-  const cleared = ctx.clearAllSessions();
+  const cleared = ctx.clearAllConversations();
   // Also clear DB conversations. When a new local connection triggers
   // sendInitialSession, it auto-creates a conversation if none exist.
   // Without this DB clear, that auto-created row survives, contradicting
@@ -236,7 +236,7 @@ export async function handleConversationCreate(
     title,
     conversationType,
   });
-  const session = await ctx.getOrCreateSession(conversation.id, {
+  const session = await ctx.getOrCreateConversation(conversation.id, {
     systemPromptOverride: msg.systemPromptOverride,
     maxResponseTokens: msg.maxResponseTokens,
     transport: msg.transport,
@@ -368,14 +368,14 @@ export async function switchConversation(
 
   // If the target session is headless-locked (actively executing a task run),
   // skip rebinding so tool confirmations stay suppressed.
-  const existingSession = ctx.sessions.get(conversationId);
+  const existingSession = ctx.conversations.get(conversationId);
   const isHeadlessLocked = existingSession?.headlessLock;
 
   if (isHeadlessLocked) {
     // Load the session without rebinding the client — the session stays headless
-    await ctx.getOrCreateSession(conversationId);
+    await ctx.getOrCreateConversation(conversationId);
   } else {
-    await ctx.getOrCreateSession(conversationId);
+    await ctx.getOrCreateConversation(conversationId);
   }
 
   return {
@@ -444,20 +444,20 @@ export function handleConversationRename(
  * Cancel generation for a session. Returns true if a session was found and cancelled.
  */
 export function cancelGeneration(
-  sessionId: string,
+  conversationId: string,
   ctx: HandlerContext,
 ): boolean {
-  const session = ctx.sessions.get(sessionId);
+  const session = ctx.conversations.get(conversationId);
   if (!session) {
     return false;
   }
-  ctx.touchSession(sessionId);
+  ctx.touchConversation(conversationId);
   session.abort();
   // Also abort any child subagents spawned by this session.
   // Omit sendToClient to suppress parent notifications — the parent is
   // being cancelled, so enqueuing synthetic messages would trigger
   // unwanted model activity after the user pressed stop.
-  getSubagentManager().abortAllForParent(sessionId);
+  getSubagentManager().abortAllForParent(conversationId);
   return true;
 }
 
@@ -466,16 +466,16 @@ export function cancelGeneration(
  * the conversation does not exist. Restores evicted sessions from the database.
  */
 export async function undoLastMessage(
-  sessionId: string,
+  conversationId: string,
   ctx: HandlerContext,
 ): Promise<{ removedCount: number } | null> {
-  const resolvedId = resolveConversationId(sessionId);
+  const resolvedId = resolveConversationId(conversationId);
   if (!resolvedId) {
     return null;
   }
-  sessionId = resolvedId;
-  const session = await ctx.getOrCreateSession(sessionId);
-  ctx.touchSession(sessionId);
+  conversationId = resolvedId;
+  const session = await ctx.getOrCreateConversation(conversationId);
+  ctx.touchConversation(conversationId);
   const removedCount = session.undo();
   return { removedCount };
 }
@@ -503,20 +503,20 @@ export async function handleUndo(
  * from the database when needed. Throws on regeneration errors.
  */
 export async function regenerateResponse(
-  sessionId: string,
+  conversationId: string,
   ctx: HandlerContext,
   sendEvent: (event: ServerMessage) => void,
 ): Promise<{ requestId: string } | null> {
   // The caller may pass a conversation key (e.g. the macOS client's local
   // session ID) instead of the daemon's internal conversation ID. Resolve
   // to the internal ID so all downstream lookups succeed.
-  const resolvedId = resolveConversationId(sessionId);
+  const resolvedId = resolveConversationId(conversationId);
   if (!resolvedId) {
     return null;
   }
-  sessionId = resolvedId;
-  const session = await ctx.getOrCreateSession(sessionId);
-  ctx.touchSession(sessionId);
+  conversationId = resolvedId;
+  const session = await ctx.getOrCreateConversation(conversationId);
+  ctx.touchConversation(conversationId);
   session.updateClient(sendEvent, false);
   const requestId = uuid();
   session.traceEmitter.emit("request_received", "Regenerate requested", {
@@ -528,7 +528,7 @@ export async function regenerateResponse(
     await session.regenerate(sendEvent, requestId);
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    log.error({ err, sessionId }, "Error regenerating message");
+    log.error({ err, conversationId }, "Error regenerating message");
     session.traceEmitter.emit("request_error", truncate(message, 200, ""), {
       requestId,
       status: "error",
@@ -570,18 +570,18 @@ export function handleUsageRequest(
  * Returns `{ removed: true }` on success, `{ removed: false, reason }` on failure.
  */
 export function deleteQueuedMessage(
-  sessionId: string,
+  conversationId: string,
   requestId: string,
-  findSession: (
+  findConversation: (
     id: string,
   ) => { removeQueuedMessage(requestId: string): boolean } | undefined,
 ):
   | { removed: true }
   | { removed: false; reason: "session_not_found" | "message_not_found" } {
-  const session = findSession(sessionId);
+  const session = findConversation(conversationId);
   if (!session) {
     log.warn(
-      { sessionId, requestId },
+      { conversationId, requestId },
       "No session found for delete_queued_message",
     );
     return { removed: false, reason: "session_not_found" };
@@ -590,7 +590,10 @@ export function deleteQueuedMessage(
   if (removed) {
     return { removed: true };
   }
-  log.warn({ sessionId, requestId }, "Queued message not found for deletion");
+  log.warn(
+    { conversationId, requestId },
+    "Queued message not found for deletion",
+  );
   return { removed: false, reason: "message_not_found" };
 }
 
@@ -603,12 +606,12 @@ export function handleDeleteQueuedMessage(
   ctx: HandlerContext,
 ): void {
   const result = deleteQueuedMessage(msg.conversationId, msg.requestId, (id) =>
-    ctx.sessions.get(id),
+    ctx.conversations.get(id),
   );
   if (result.removed) {
     ctx.send({
       type: "message_queued_deleted",
-      sessionId: msg.conversationId,
+      conversationId: msg.conversationId,
       requestId: msg.requestId,
     });
   }

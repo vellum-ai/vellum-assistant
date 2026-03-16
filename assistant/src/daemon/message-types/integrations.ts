@@ -45,7 +45,7 @@ export interface ChannelVerificationSessionRequest {
     | "revoke"
     | "resend_session";
   channel?: ChannelId; // Defaults to 'telegram'
-  sessionId?: string;
+  conversationId?: string;
   rebind?: boolean; // When true, allows creating a challenge even if a binding already exists
   /** E.164 phone number for phone, Telegram handle/chat-id. Used by outbound actions. */
   destination?: string;
@@ -155,7 +155,7 @@ export interface ChannelVerificationSessionResponse {
   error?: string;
   /** Human-readable error detail (e.g. for already_bound failures). */
   message?: string;
-  /** Session ID for outbound verification flows. */
+  /** Conversation ID for outbound verification flows. */
   verificationSessionId?: string;
   /** Epoch ms when the verification session expires. */
   expiresAt?: number;

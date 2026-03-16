@@ -302,7 +302,7 @@ extension AppDelegate: @preconcurrency UNUserNotificationCenterDelegate {
         if response.actionIdentifier == "REPLY_ACTION",
            let textResponse = response as? UNTextInputNotificationResponse {
             let replyText = textResponse.userText
-            let sessionId = response.notification.request.content.userInfo["session_id"] as? String
+            let conversationId = response.notification.request.content.userInfo["session_id"] as? String
 
             Task { @MainActor in
                 // If not connected (e.g. background launch via notification reply with no scene
@@ -310,9 +310,9 @@ extension AppDelegate: @preconcurrency UNUserNotificationCenterDelegate {
                 if !self.clientProvider.client.isConnected {
                     try? await self.clientProvider.client.connect()
                 }
-                if self.clientProvider.client.isConnected, let sid = sessionId {
+                if self.clientProvider.client.isConnected, let sid = conversationId {
                     try? self.clientProvider.client.send(UserMessageMessage(
-                        sessionId: sid,
+                        conversationId: sid,
                         content: replyText,
                         attachments: nil
                     ))

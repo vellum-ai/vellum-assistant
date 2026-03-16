@@ -166,7 +166,7 @@ function createCtx(): {
   const sent: Array<{ type: string; [k: string]: unknown }> = [];
 
   const ctx: HandlerContext = {
-    sessions: new Map(),
+    conversations: new Map(),
     sharedRequestTimestamps: [],
     debounceTimers: new DebouncerMap({ defaultDelayMs: 200 }),
     suppressConfigReload: false,
@@ -178,11 +178,11 @@ function createCtx(): {
     broadcast: (msg) => {
       sent.push(msg as { type: string; [k: string]: unknown });
     },
-    clearAllSessions: () => 0,
-    getOrCreateSession: () => {
+    clearAllConversations: () => 0,
+    getOrCreateConversation: () => {
       throw new Error("not implemented");
     },
-    touchSession: noop,
+    touchConversation: noop,
   };
 
   return { ctx, sent };
@@ -352,7 +352,7 @@ describe("handleRecordingStatusCore", () => {
 
     const statusMsg: RecordingStatus = {
       type: "recording_status",
-      sessionId: recordingId!,
+      conversationId: recordingId!,
       status: "started",
     };
 
@@ -379,7 +379,7 @@ describe("handleRecordingStatusCore", () => {
 
     const statusMsg: RecordingStatus = {
       type: "recording_status",
-      sessionId: recordingId!,
+      conversationId: recordingId!,
       status: "stopped",
       filePath: `${ALLOWED_RECORDINGS_DIR}/recording.mov`,
       durationMs: 5000,
@@ -395,7 +395,7 @@ describe("handleRecordingStatusCore", () => {
 
     // The message_complete should include attachment info
     const completeMsg = completes[0];
-    expect(completeMsg.sessionId).toBe(conversationId);
+    expect(completeMsg.conversationId).toBe(conversationId);
 
     // Attachment should have been created
     expect(mockAttachments.length).toBe(1);
@@ -421,7 +421,7 @@ describe("handleRecordingStatusCore", () => {
 
     const statusMsg: RecordingStatus = {
       type: "recording_status",
-      sessionId: recordingId!,
+      conversationId: recordingId!,
       status: "stopped",
       filePath: `${ALLOWED_RECORDINGS_DIR}/recording.mp4`,
       durationMs: 3000,
@@ -447,7 +447,7 @@ describe("handleRecordingStatusCore", () => {
 
     const statusMsg: RecordingStatus = {
       type: "recording_status",
-      sessionId: recordingId!,
+      conversationId: recordingId!,
       status: "stopped",
       filePath: `${ALLOWED_RECORDINGS_DIR}/nonexistent.mov`,
       durationMs: 1000,
@@ -466,7 +466,7 @@ describe("handleRecordingStatusCore", () => {
 
     const completes = sent.filter((m) => m.type === "message_complete");
     expect(completes.length).toBeGreaterThanOrEqual(1);
-    expect(completes[0].sessionId).toBe(conversationId);
+    expect(completes[0].conversationId).toBe(conversationId);
   });
 
   test("handles stopped status with zero-length file — treated as failure", async () => {
@@ -482,7 +482,7 @@ describe("handleRecordingStatusCore", () => {
 
     const statusMsg: RecordingStatus = {
       type: "recording_status",
-      sessionId: recordingId!,
+      conversationId: recordingId!,
       status: "stopped",
       filePath: `${ALLOWED_RECORDINGS_DIR}/recording-empty.mov`,
       durationMs: 2000,
@@ -507,7 +507,7 @@ describe("handleRecordingStatusCore", () => {
 
     const completes = sent.filter((m) => m.type === "message_complete");
     expect(completes.length).toBeGreaterThanOrEqual(1);
-    expect(completes[0].sessionId).toBe(conversationId);
+    expect(completes[0].conversationId).toBe(conversationId);
   });
 
   test("successful finalization — attachment created and success message sent", async () => {
@@ -523,7 +523,7 @@ describe("handleRecordingStatusCore", () => {
 
     const statusMsg: RecordingStatus = {
       type: "recording_status",
-      sessionId: recordingId!,
+      conversationId: recordingId!,
       status: "stopped",
       filePath: `${ALLOWED_RECORDINGS_DIR}/recording-good.mov`,
       durationMs: 5000,
@@ -560,7 +560,7 @@ describe("handleRecordingStatusCore", () => {
 
     const statusMsg: RecordingStatus = {
       type: "recording_status",
-      sessionId: recordingId!,
+      conversationId: recordingId!,
       status: "stopped",
       filePath: "/tmp/evil.mov",
       durationMs: 5000,
@@ -580,7 +580,7 @@ describe("handleRecordingStatusCore", () => {
 
     const completes = sent.filter((m) => m.type === "message_complete");
     expect(completes.length).toBeGreaterThanOrEqual(1);
-    expect(completes[0].sessionId).toBe(conversationId);
+    expect(completes[0].conversationId).toBe(conversationId);
   });
 
   test("failed finalization — failure status sent and no success message", async () => {
@@ -594,7 +594,7 @@ describe("handleRecordingStatusCore", () => {
     // Client reports failure (writer finalization error)
     const statusMsg: RecordingStatus = {
       type: "recording_status",
-      sessionId: recordingId!,
+      conversationId: recordingId!,
       status: "failed",
       error: "Video writer finished with non-completed status 3",
     };
@@ -627,7 +627,7 @@ describe("handleRecordingStatusCore", () => {
 
     const statusMsg: RecordingStatus = {
       type: "recording_status",
-      sessionId: recordingId!,
+      conversationId: recordingId!,
       status: "failed",
       error: "Permission denied",
     };
@@ -654,7 +654,7 @@ describe("handleRecordingStatusCore", () => {
 
     const statusMsg: RecordingStatus = {
       type: "recording_status",
-      sessionId: recordingId!,
+      conversationId: recordingId!,
       status: "failed",
     };
 
@@ -673,7 +673,7 @@ describe("handleRecordingStatusCore", () => {
     // without having started a recording through handleRecordingStart
     const statusMsg: RecordingStatus = {
       type: "recording_status",
-      sessionId: "unknown-recording-id",
+      conversationId: "unknown-recording-id",
       status: "failed",
       error: "Something went wrong",
       attachToConversationId: conversationId,

@@ -40,7 +40,7 @@ function asInternals(manager: SubagentManager): ManagerInternals {
 
 /**
  * Inject a fake managed subagent into the manager's private maps
- * so we can test abort/notification logic without needing a real Session.
+ * so we can test abort/notification logic without needing a real Conversation.
  */
 function injectFakeSubagent(
   manager: SubagentManager,
@@ -342,7 +342,7 @@ describe("SubagentManager notifyParent (via runSubagent)", () => {
 
     managed.session.persistUserMessage = () => "msg-1";
     managed.session.runAgentLoop = async () => {
-      throw new Error("Session aborted");
+      throw new Error("Conversation aborted");
     };
 
     const notifications: { parentSessionId: string; message: string }[] = [];

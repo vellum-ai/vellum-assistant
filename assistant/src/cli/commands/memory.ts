@@ -173,12 +173,12 @@ Examples:
     )
     .action(async (text: string, opts?: { session?: string }) => {
       initializeDb();
-      let sessionId = opts?.session;
-      if (!sessionId) {
+      let conversationId = opts?.session;
+      if (!conversationId) {
         const latest = listConversations(1)[0];
-        sessionId = latest?.id ?? "";
+        conversationId = latest?.id ?? "";
       }
-      const result = await queryMemory(text, sessionId ?? "");
+      const result = await queryMemory(text, conversationId ?? "");
       if (result.degraded) {
         log.info(`Memory degraded: ${result.reason ?? "unknown reason"}`);
       }

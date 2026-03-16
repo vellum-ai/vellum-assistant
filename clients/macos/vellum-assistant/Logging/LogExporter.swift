@@ -94,8 +94,8 @@ enum LogExporter {
             let conversationManager = AppDelegate.shared?.mainWindow?.conversationManager
             if let activeConversation = conversationManager?.activeConversation {
                 extra["thread_title"] = activeConversation.title
-                if let sessionId = activeConversation.conversationId {
-                    tags["session_id"] = sessionId
+                if let conversationId = activeConversation.conversationId {
+                    tags["session_id"] = conversationId
                     // conversation_id mirrors session_id — the daemon tags its
                     // Sentry events with both names for the same value. Setting
                     // it here enables cross-project search: find the daemon error
@@ -105,7 +105,7 @@ enum LogExporter {
                     // to the reported thread's ID above — don't overwrite it with
                     // the active thread's session ID.
                     if case .global = formData.scope {
-                        tags["conversation_id"] = sessionId
+                        tags["conversation_id"] = conversationId
                     }
                 }
             }

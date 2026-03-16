@@ -132,7 +132,7 @@ extension MainWindowView {
                         }
                         return
                     }
-                    surfaceManager.onAction?(surface.sessionId, surface.id, actionId, actionData as? [String: Any])
+                    surfaceManager.onAction?(surface.conversationId, surface.id, actionId, actionData as? [String: Any])
                 },
                 onLinkOpen: { url, metadata in
                     surfaceManager.onLinkOpen?(url, metadata)
@@ -293,7 +293,7 @@ extension MainWindowView {
                     }
                 )
                 .onAppear {
-                    conversationManager.ensureActiveConversation(preferredConversationId: documentManager.sessionId)
+                    conversationManager.ensureActiveConversation(preferredConversationId: documentManager.conversationId)
                 }
             } else if isAppChatOpen {
                 // Split view: chat (left) + panel (right)
@@ -343,7 +343,7 @@ extension MainWindowView {
                         subagentId: subagentId,
                         viewModel: viewModel,
                         detailStore: viewModel.subagentDetailStore,
-                        onAbort: { try? daemonClient.sendSubagentAbort(subagentId: subagentId, sessionId: viewModel.conversationId) },
+                        onAbort: { try? daemonClient.sendSubagentAbort(subagentId: subagentId, conversationId: viewModel.conversationId) },
                         onRequestDetail: {
                             if let conversationId = viewModel.activeSubagents.first(where: { $0.id == subagentId })?.conversationId {
                                 try? daemonClient.sendSubagentDetailRequest(subagentId: subagentId, conversationId: conversationId)
@@ -665,7 +665,7 @@ struct ActiveChatViewWrapper: View {
             isTemporaryChat: isTemporaryChat,
             activeSubagents: viewModel.activeSubagents,
             onAbortSubagent: { subagentId in
-                try? daemonClient.sendSubagentAbort(subagentId: subagentId, sessionId: viewModel.conversationId)
+                try? daemonClient.sendSubagentAbort(subagentId: subagentId, conversationId: viewModel.conversationId)
             },
             onSubagentTap: { subagentId in
                 windowState.selectedSubagentId = subagentId
@@ -673,8 +673,8 @@ struct ActiveChatViewWrapper: View {
             onRehydrateMessage: { messageId in
                 viewModel.rehydrateMessage(id: messageId)
             },
-            onSurfaceRefetch: { surfaceId, sessionId in
-                viewModel.refetchStrippedSurface(surfaceId: surfaceId, conversationId: sessionId)
+            onSurfaceRefetch: { surfaceId, conversationId in
+                viewModel.refetchStrippedSurface(surfaceId: surfaceId, conversationId: conversationId)
             },
             onRetryFailedMessage: { messageId in
                 viewModel.retryFailedMessage(id: messageId)
@@ -929,7 +929,7 @@ struct DynamicWorkspaceWrapper: View {
                                 viewModel.sendMessage()
                                 return
                             }
-                            surfaceManager.onAction?(surface.sessionId, surface.id, actionId, actionData as? [String: Any])
+                            surfaceManager.onAction?(surface.conversationId, surface.id, actionId, actionData as? [String: Any])
                         },
                         appId: data.appId,
                         onDataRequest: data.appId != nil ? { callId, method, recordId, requestData in

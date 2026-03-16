@@ -129,7 +129,7 @@ export class HostCuProxy {
   request(
     toolName: string,
     input: Record<string, unknown>,
-    sessionId: string,
+    conversationId: string,
     stepNumber: number,
     reasoning?: string,
     signal?: AbortSignal,
@@ -179,7 +179,7 @@ export class HostCuProxy {
       this.sendToClient({
         type: "host_cu_request",
         requestId,
-        sessionId,
+        conversationId,
         toolName,
         input,
         stepNumber,

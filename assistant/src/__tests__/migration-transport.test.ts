@@ -3,7 +3,7 @@
  *
  * Covers:
  * - Runtime and managed target URL construction (trailing slashes, path format)
- * - Auth header injection (Authorization for runtime, X-Session-Token for managed)
+ * - Auth header injection (Authorization for runtime, X-Conversation-Token for managed)
  * - validate: success, validation failure, HTTP error
  * - export: runtime binary download, managed async job initiation
  * - import-preflight: success with report, validation failure
@@ -161,10 +161,10 @@ describe("Auth headers", () => {
     await validateBundle(runtimeConfig({ fetchFn }), sampleFileData);
     const headers = captured[0].init.headers as Record<string, string>;
     expect(headers["Authorization"]).toBe("Bearer test-jwt");
-    expect(headers["X-Session-Token"]).toBeUndefined();
+    expect(headers["X-Conversation-Token"]).toBeUndefined();
   });
 
-  test("managed uses X-Session-Token header by default", async () => {
+  test("managed uses X-Conversation-Token header by default", async () => {
     const { fetchFn, captured } = capturingFetch(200, {
       is_valid: true,
       errors: [],
@@ -172,7 +172,7 @@ describe("Auth headers", () => {
     });
     await validateBundle(managedConfig({ fetchFn }), sampleFileData);
     const headers = captured[0].init.headers as Record<string, string>;
-    expect(headers["X-Session-Token"]).toBe("test-session-token");
+    expect(headers["X-Conversation-Token"]).toBe("test-session-token");
     expect(headers["Authorization"]).toBeUndefined();
   });
 
@@ -207,7 +207,7 @@ describe("Auth headers", () => {
     const headers = captured[0].init.headers as Record<string, string>;
     expect(headers["Vellum-Organization-Id"]).toBe("org-123");
     // Managed auth header should still be present
-    expect(headers["X-Session-Token"]).toBe("test-session-token");
+    expect(headers["X-Conversation-Token"]).toBe("test-session-token");
   });
 
   test("runtime request is unchanged when no defaultHeaders provided", async () => {
@@ -228,16 +228,16 @@ describe("Auth headers", () => {
       errors: [],
       manifest: {},
     });
-    // defaultHeaders sets X-Session-Token, but authHeader should override it
+    // defaultHeaders sets X-Conversation-Token, but authHeader should override it
     await validateBundle(
       managedConfig({
         fetchFn,
-        defaultHeaders: { "X-Session-Token": "should-be-overridden" },
+        defaultHeaders: { "X-Conversation-Token": "should-be-overridden" },
       }),
       sampleFileData,
     );
     const headers = captured[0].init.headers as Record<string, string>;
-    expect(headers["X-Session-Token"]).toBe("test-session-token");
+    expect(headers["X-Conversation-Token"]).toBe("test-session-token");
   });
 
   test("auth header wins over case-insensitive entry in defaultHeaders", async () => {
@@ -259,7 +259,7 @@ describe("Auth headers", () => {
       string,
       string
     >;
-    expect(managedHeaders["X-Session-Token"]).toBe("test-session-token");
+    expect(managedHeaders["X-Conversation-Token"]).toBe("test-session-token");
     expect(managedHeaders["x-session-token"]).toBeUndefined();
 
     const runtime = capturingFetch(200, {
@@ -296,7 +296,7 @@ describe("Auth headers", () => {
     );
     const headers = captured[0].init.headers as Record<string, string>;
     expect(headers["Authorization"]).toBeUndefined();
-    expect(headers["X-Session-Token"]).toBeUndefined();
+    expect(headers["X-Conversation-Token"]).toBeUndefined();
   });
 });
 

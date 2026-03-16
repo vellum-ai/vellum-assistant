@@ -42,7 +42,6 @@ const { executeCallStart } = await import("../tools/calls/call-start.js");
 function makeContext(): ToolContext {
   return {
     workingDir: "/tmp",
-    sessionId: "session-1",
     conversationId: "conversation-1",
     assistantId: "self",
     trustClass: "guardian",

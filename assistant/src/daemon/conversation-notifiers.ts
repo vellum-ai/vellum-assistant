@@ -1,6 +1,6 @@
 /**
  * Watch and call notifier registration/unregistration, extracted from
- * the Session constructor and dispose/abort methods.
+ * the Conversation constructor and dispose/abort methods.
  *
  * Notifier callbacks read from the provided context object at invocation
  * time (not registration time), so they always see the latest sendToClient
@@ -41,10 +41,10 @@ import {
 } from "./watch-handler.js";
 
 /**
- * Subset of Session state that notifier callbacks need to read at
+ * Subset of Conversation state that notifier callbacks need to read at
  * invocation time. Properties are read lazily from this reference.
  */
-export interface NotifierSessionContext {
+export interface NotifierConversationContext {
   sendToClient: (msg: ServerMessage) => void;
   messages: Message[];
   trustContext?: TrustContext;
@@ -55,14 +55,14 @@ export interface NotifierSessionContext {
  * construction; the notifier callbacks close over `ctx` so they see
  * live sendToClient/messages values.
  */
-export function registerSessionNotifiers(
+export function registerConversationNotifiers(
   conversationId: string,
-  ctx: NotifierSessionContext,
+  ctx: NotifierConversationContext,
 ): void {
   registerWatchStartNotifier(conversationId, (session: WatchSession) => {
     ctx.sendToClient({
       type: "watch_started",
-      sessionId: conversationId,
+      conversationId: conversationId,
       watchId: session.watchId,
       durationSeconds: session.durationSeconds,
       intervalSeconds: session.intervalSeconds,
@@ -76,11 +76,11 @@ export function registerSessionNotifiers(
       ctx.sendToClient({
         type: "assistant_text_delta",
         text: commentary,
-        sessionId: conversationId,
+        conversationId: conversationId,
       });
       ctx.sendToClient({
         type: "message_complete",
-        sessionId: conversationId,
+        conversationId: conversationId,
       });
     }
   });
@@ -92,11 +92,11 @@ export function registerSessionNotifiers(
       ctx.sendToClient({
         type: "assistant_text_delta",
         text: summary,
-        sessionId: conversationId,
+        conversationId: conversationId,
       });
       ctx.sendToClient({
         type: "message_complete",
-        sessionId: conversationId,
+        conversationId: conversationId,
       });
     }
   });
@@ -126,11 +126,11 @@ export function registerSessionNotifiers(
       ctx.sendToClient({
         type: "assistant_text_delta",
         text: questionText,
-        sessionId: conversationId,
+        conversationId: conversationId,
       });
       ctx.sendToClient({
         type: "message_complete",
-        sessionId: conversationId,
+        conversationId: conversationId,
       });
     },
   );
@@ -144,11 +144,11 @@ export function registerSessionNotifiers(
       ctx.sendToClient({
         type: "assistant_text_delta",
         text: transcriptText,
-        sessionId: conversationId,
+        conversationId: conversationId,
       });
       ctx.sendToClient({
         type: "message_complete",
-        sessionId: conversationId,
+        conversationId: conversationId,
       });
     },
   );
@@ -159,11 +159,11 @@ export function registerSessionNotifiers(
     ctx.sendToClient({
       type: "assistant_text_delta",
       text: summaryText,
-      sessionId: conversationId,
+      conversationId: conversationId,
     });
     ctx.sendToClient({
       type: "message_complete",
-      sessionId: conversationId,
+      conversationId: conversationId,
     });
   });
 }

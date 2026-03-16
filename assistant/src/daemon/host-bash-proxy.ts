@@ -45,7 +45,7 @@ export class HostBashProxy {
       timeout_seconds?: number;
       env?: Record<string, string>;
     },
-    sessionId: string,
+    conversationId: string,
     signal?: AbortSignal,
   ): Promise<ToolExecutionResult> {
     if (signal?.aborted) {
@@ -95,7 +95,7 @@ export class HostBashProxy {
       this.sendToClient({
         type: "host_bash_request",
         requestId,
-        sessionId,
+        conversationId,
         command: input.command,
         working_dir: input.working_dir,
         timeout_seconds: input.timeout_seconds,

@@ -98,7 +98,7 @@ extension HTTPTransport {
 
             // --- Suggestion ---
             if let msg = message as? SuggestionRequest {
-                Task { await self.sendSuggestionGetAndDispatch(sessionId: msg.sessionId, requestId: msg.requestId) }
+                Task { await self.sendSuggestionGetAndDispatch(conversationId: msg.conversationId, requestId: msg.requestId) }
                 return true
             }
 
@@ -499,14 +499,14 @@ extension HTTPTransport {
 
     /// Fetch a follow-up suggestion via GET and dispatch the response through
     /// the message handler chain so `suggestionResponse` fires in the view model.
-    private func sendSuggestionGetAndDispatch(sessionId: String, requestId: String) async {
+    private func sendSuggestionGetAndDispatch(conversationId: String, requestId: String) async {
         guard var url = buildURL(for: .suggestion) else {
             log.error("Failed to build URL for suggestion_request")
             return
         }
         if var components = URLComponents(url: url, resolvingAgainstBaseURL: false) {
             var items = components.queryItems ?? []
-            items.append(URLQueryItem(name: "conversationKey", value: sessionId))
+            items.append(URLQueryItem(name: "conversationKey", value: conversationId))
             components.queryItems = items
             if let resolved = components.url {
                 url = resolved

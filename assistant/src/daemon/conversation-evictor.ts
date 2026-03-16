@@ -3,7 +3,7 @@ import { getLogger } from "../util/logger.js";
 const log = getLogger("session-evictor");
 
 /** Minimal interface a session must satisfy to be evictable. */
-export interface EvictableSession {
+export interface EvictableConversation {
   isProcessing(): boolean;
   dispose(): void;
 }
@@ -35,7 +35,7 @@ const DEFAULT_MAX_SESSIONS = 100;
 const DEFAULT_MEMORY_THRESHOLD_BYTES = 3072 * 1024 * 1024; // 3 GB
 const DEFAULT_SWEEP_INTERVAL_MS = 60 * 1000; // 60 seconds
 
-export class SessionEvictor {
+export class ConversationEvictor {
   private readonly ttlMs: number;
   private readonly maxSessions: number;
   private readonly memoryThresholdBytes: number;
@@ -45,7 +45,7 @@ export class SessionEvictor {
   private lastAccess = new Map<string, number>();
 
   private sweepTimer: ReturnType<typeof setInterval> | null = null;
-  private sessions: Map<string, EvictableSession>;
+  private sessions: Map<string, EvictableConversation>;
 
   /** Optional hook called for each evicted session (for cleanup in DaemonServer). */
   onEvict?: (sessionId: string) => void;
@@ -54,7 +54,7 @@ export class SessionEvictor {
   shouldProtect?: (sessionId: string) => boolean;
 
   constructor(
-    sessions: Map<string, EvictableSession>,
+    sessions: Map<string, EvictableConversation>,
     options?: EvictorOptions,
   ) {
     this.sessions = sessions;
@@ -85,10 +85,10 @@ export class SessionEvictor {
         const total =
           result.ttlEvicted + result.lruEvicted + result.memoryEvicted;
         if (total > 0) {
-          log.info(result, "Session eviction sweep completed");
+          log.info(result, "Conversation eviction sweep completed");
         }
       } catch (err) {
-        log.error({ err }, "Session eviction sweep failed");
+        log.error({ err }, "Conversation eviction sweep failed");
       }
     }, this.sweepIntervalMs);
   }
@@ -161,7 +161,7 @@ export class SessionEvictor {
     }
 
     // Clean up stale lastAccess entries for sessions that no longer exist
-    // (e.g. removed by clearAllSessions or evictSessionsForReload).
+    // (e.g. removed by clearAllConversations or evictSessionsForReload).
     for (const id of this.lastAccess.keys()) {
       if (!this.sessions.has(id)) {
         this.lastAccess.delete(id);
@@ -178,7 +178,7 @@ export class SessionEvictor {
 
   // ── Internals ──────────────────────────────────────────────────────
 
-  private evict(id: string, session: EvictableSession): void {
+  private evict(id: string, session: EvictableConversation): void {
     session.dispose();
     this.sessions.delete(id);
     this.lastAccess.delete(id);
@@ -190,8 +190,8 @@ export class SessionEvictor {
    * Return idle (non-processing) sessions sorted by last access time
    * ascending (least recently used first).
    */
-  private idleSessionsByLru(): Array<[string, EvictableSession]> {
-    const idle: Array<[string, EvictableSession, number]> = [];
+  private idleSessionsByLru(): Array<[string, EvictableConversation]> {
+    const idle: Array<[string, EvictableConversation, number]> = [];
     for (const [id, session] of this.sessions) {
       if (session.isProcessing()) continue;
       if (this.shouldProtect?.(id)) continue;

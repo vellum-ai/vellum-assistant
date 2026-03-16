@@ -97,7 +97,6 @@ function seedAttachments() {
 
 const dummyContext: ToolContext = {
   workingDir: "/tmp",
-  sessionId: "sess-test",
   conversationId: "conv-test",
   trustClass: "guardian",
 };
@@ -417,7 +416,6 @@ describe("AssetSearchTool visibility policy", () => {
     const otherConv = createConversation({ title: "other-conv" });
     const context: ToolContext = {
       workingDir: "/tmp",
-      sessionId: "sess-test",
       conversationId: otherConv.id,
       trustClass: "guardian",
     };
@@ -439,7 +437,6 @@ describe("AssetSearchTool visibility policy", () => {
     // Search from the same private conversation
     const context: ToolContext = {
       workingDir: "/tmp",
-      sessionId: "sess-test",
       conversationId: privateConv.id,
       trustClass: "guardian",
     };
@@ -465,7 +462,6 @@ describe("AssetSearchTool visibility policy", () => {
     });
     const context: ToolContext = {
       workingDir: "/tmp",
-      sessionId: "sess-test",
       conversationId: otherPrivateConv.id,
       trustClass: "guardian",
     };
@@ -488,7 +484,6 @@ describe("AssetSearchTool visibility policy", () => {
     const standardConv = createConversation({ title: "standard-conv" });
     const context: ToolContext = {
       workingDir: "/tmp",
-      sessionId: "sess-test",
       conversationId: standardConv.id,
       trustClass: "guardian",
     };
@@ -515,7 +510,6 @@ describe("AssetSearchTool visibility policy", () => {
     const otherConv = createConversation({ title: "other-conv" });
     const context: ToolContext = {
       workingDir: "/tmp",
-      sessionId: "sess-test",
       conversationId: otherConv.id,
       trustClass: "guardian",
     };
@@ -531,7 +525,6 @@ describe("AssetSearchTool visibility policy", () => {
     const conv = createConversation({ title: "any-conv" });
     const context: ToolContext = {
       workingDir: "/tmp",
-      sessionId: "sess-test",
       conversationId: conv.id,
       trustClass: "guardian",
     };

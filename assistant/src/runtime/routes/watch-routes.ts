@@ -23,7 +23,7 @@ export interface WatchDeps {
   /** Handle a watch observation. */
   handleWatchObservation: (params: {
     watchId: string;
-    sessionId: string;
+    conversationId: string;
     ocrText: string;
     appName?: string;
     windowTitle?: string;
@@ -41,7 +41,7 @@ export interface WatchDeps {
 /**
  * POST /v1/computer-use/watch — send a watch observation.
  *
- * Body: { watchId, sessionId, ocrText, appName?, windowTitle?,
+ * Body: { watchId, conversationId, ocrText, appName?, windowTitle?,
  *         bundleIdentifier?, timestamp, captureIndex, totalExpected }
  */
 async function handleWatchObservationRoute(
@@ -50,7 +50,7 @@ async function handleWatchObservationRoute(
 ): Promise<Response> {
   const body = (await req.json()) as {
     watchId?: string;
-    sessionId?: string;
+    conversationId?: string;
     ocrText?: string;
     appName?: string;
     windowTitle?: string;
@@ -63,8 +63,8 @@ async function handleWatchObservationRoute(
   if (!body.watchId || typeof body.watchId !== "string") {
     return httpError("BAD_REQUEST", "watchId is required", 400);
   }
-  if (!body.sessionId || typeof body.sessionId !== "string") {
-    return httpError("BAD_REQUEST", "sessionId is required", 400);
+  if (!body.conversationId || typeof body.conversationId !== "string") {
+    return httpError("BAD_REQUEST", "conversationId is required", 400);
   }
   if (!body.ocrText || typeof body.ocrText !== "string") {
     return httpError("BAD_REQUEST", "ocrText is required", 400);
@@ -82,7 +82,7 @@ async function handleWatchObservationRoute(
   try {
     await deps.handleWatchObservation({
       watchId: body.watchId,
-      sessionId: body.sessionId,
+      conversationId: body.conversationId,
       ocrText: body.ocrText,
       appName: body.appName,
       windowTitle: body.windowTitle,

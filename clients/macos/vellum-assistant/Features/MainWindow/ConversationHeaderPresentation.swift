@@ -27,7 +27,7 @@ struct ConversationHeaderPresentation {
         self.isPinned = thread.isPinned
         self.isPrivateThread = thread.kind == .private
 
-        // "Started" = has a sessionId OR has at least one non-empty user message
+        // "Started" = has a conversationId OR has at least one non-empty user message
         let hasUserMessage = activeViewModel?.messages.contains(where: {
             !$0.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         }) ?? false

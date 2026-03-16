@@ -65,7 +65,7 @@ describe("UiSurfaceShowDynamicPage structure", () => {
   test("can construct a well-typed UiSurfaceShowDynamicPage object", () => {
     const msg: UiSurfaceShowDynamicPage = {
       type: "ui_surface_show",
-      sessionId: "session-abc",
+      conversationId: "session-abc",
       surfaceId: "surface-123",
       surfaceType: "dynamic_page",
       data: { html: "<div>Content</div>" },
@@ -74,7 +74,7 @@ describe("UiSurfaceShowDynamicPage structure", () => {
     expect(msg.type).toBe("ui_surface_show");
     expect(msg.surfaceType).toBe("dynamic_page");
     expect(typeof msg.data.html).toBe("string");
-    expect(msg.sessionId).toBe("session-abc");
+    expect(msg.conversationId).toBe("session-abc");
     expect(msg.surfaceId).toBe("surface-123");
   });
 });

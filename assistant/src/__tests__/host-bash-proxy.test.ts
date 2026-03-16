@@ -45,7 +45,7 @@ describe("HostBashProxy", () => {
       expect(sentMessages).toHaveLength(1);
       const sent = sentMessages[0] as Record<string, unknown>;
       expect(sent.type).toBe("host_bash_request");
-      expect(sent.sessionId).toBe("session-1");
+      expect(sent.conversationId).toBe("session-1");
       expect(sent.command).toBe("echo hello");
       expect(sent.working_dir).toBe("/tmp");
       expect(typeof sent.requestId).toBe("string");

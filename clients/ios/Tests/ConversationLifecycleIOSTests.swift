@@ -168,8 +168,8 @@ final class ConversationLifecycleIOSTests: XCTestCase {
     func testOnSessionCreatedCallbackFiresDuringBackfill() {
         let vm = ChatViewModel(daemonClient: mockClient)
         var capturedSessionId: String?
-        vm.onConversationCreated = { sessionId in
-            capturedSessionId = sessionId
+        vm.onConversationCreated = { conversationId in
+            capturedSessionId = conversationId
         }
         vm.createConversationIfNeeded()
 
@@ -302,7 +302,7 @@ final class ConversationLifecycleIOSTests: XCTestCase {
         vm2.conversationId = "sess-b"
 
         // Delta for conversation A
-        let deltaA = AssistantTextDeltaMessage(text: "For A", sessionId: "sess-a")
+        let deltaA = AssistantTextDeltaMessage(text: "For A", conversationId: "sess-a")
         vm1.handleServerMessage(.assistantTextDelta(deltaA))
         vm1.flushStreamingBuffer()
         vm2.handleServerMessage(.assistantTextDelta(deltaA))

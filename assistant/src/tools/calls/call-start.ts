@@ -55,7 +55,7 @@ export async function executeCallStart(
   return {
     content: [
       "Call initiated successfully.",
-      `  Call Session ID: ${result.session.id}`,
+      `  Call Conversation ID: ${result.session.id}`,
       `  Call SID: ${result.callSid}`,
       `  To: ${result.session.toNumber}`,
       `  From: ${result.session.fromNumber}`,

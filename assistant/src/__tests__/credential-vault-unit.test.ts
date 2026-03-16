@@ -119,7 +119,6 @@ import type { ToolContext } from "../tools/types.js";
 
 const _ctx: ToolContext = {
   workingDir: "/tmp",
-  sessionId: "test-session",
   conversationId: "test-conv",
   trustClass: "guardian",
 };

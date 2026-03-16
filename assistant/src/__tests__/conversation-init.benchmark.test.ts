@@ -1,5 +1,5 @@
 /**
- * Session Initialization Benchmark
+ * Conversation Initialization Benchmark
  *
  * Measures latency of key session startup components and end-to-end
  * session creation timing (request to first-tool-ready state).
@@ -14,9 +14,9 @@
  * - getAllToolDefinitions: < 10ms
  *
  * End-to-end targets (median of 3 runs):
- * - Session creation (no preactivated skills): < 200ms
- * - Session creation (3 preactivated skills): < 300ms
- * - Session constructor (sync, no loadFromDb): < 10ms
+ * - Conversation creation (no preactivated skills): < 200ms
+ * - Conversation creation (3 preactivated skills): < 300ms
+ * - Conversation constructor (sync, no loadFromDb): < 10ms
  */
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -167,7 +167,7 @@ mock.module("../config/loader.js", () => ({
   setNestedValue: () => {},
 }));
 
-// Additional mocks required for Session constructor and end-to-end tests
+// Additional mocks required for Conversation constructor and end-to-end tests
 
 mock.module("../memory/conversation-crud.js", () => ({
   addMessage: () => ({ id: "msg-1" }),
@@ -294,7 +294,7 @@ mock.module("../services/published-app-updater.js", () => ({
 const { initializeTools, getAllToolDefinitions, __resetRegistryForTesting } =
   await import("../tools/registry.js");
 const { buildSystemPrompt } = await import("../prompts/system-prompt.js");
-const { Session } = await import("../daemon/conversation.js");
+const { Conversation } = await import("../daemon/conversation.js");
 const { projectSkillTools, resetSkillToolProjection } =
   await import("../daemon/conversation-skill-tools.js");
 import type { Provider } from "../providers/types.js";
@@ -308,7 +308,7 @@ afterAll(() => {
   }
 });
 
-describe("Session initialization benchmark", () => {
+describe("Conversation initialization benchmark", () => {
   test("initializeTools completes under 100ms (median of 5)", async () => {
     // Warm-up run to eliminate JIT / lazy-load overhead
     __resetRegistryForTesting();
@@ -391,9 +391,9 @@ describe("Session initialization benchmark", () => {
 });
 
 describe("End-to-end session creation benchmark", () => {
-  // Uses the real Session constructor + loadFromDb() path, which wires up
+  // Uses the real Conversation constructor + loadFromDb() path, which wires up
   // the tool executor, event bus, agent loop, context window manager, and
-  // notifiers. Note: the daemon's getOrCreateSession() adds provider
+  // notifiers. Note: the daemon's getOrCreateConversation() adds provider
   // construction, rate limiting, concurrency guards, and evictor management
   // on top — those are lightweight config-driven operations not benchmarked
   // here.
@@ -416,7 +416,7 @@ describe("End-to-end session creation benchmark", () => {
     const systemPrompt = buildSystemPrompt();
 
     // Warm-up run
-    const warmup = new Session(
+    const warmup = new Conversation(
       "bench-warmup-0",
       mockProvider,
       systemPrompt,
@@ -431,7 +431,7 @@ describe("End-to-end session creation benchmark", () => {
     for (let i = 0; i < 3; i++) {
       const id = `bench-no-skills-${i}`;
       const start = performance.now();
-      const session = new Session(
+      const session = new Conversation(
         id,
         mockProvider,
         systemPrompt,
@@ -459,7 +459,7 @@ describe("End-to-end session creation benchmark", () => {
     const systemPrompt = buildSystemPrompt();
 
     // Warm-up run — includes skill projection so manifest loading is JIT'd
-    const warmup = new Session(
+    const warmup = new Conversation(
       "bench-warmup-s",
       mockProvider,
       systemPrompt,
@@ -481,7 +481,7 @@ describe("End-to-end session creation benchmark", () => {
     for (let i = 0; i < 3; i++) {
       const id = `bench-with-skills-${i}`;
       const start = performance.now();
-      const session = new Session(
+      const session = new Conversation(
         id,
         mockProvider,
         systemPrompt,
@@ -513,11 +513,11 @@ describe("End-to-end session creation benchmark", () => {
     expect(median(timings)).toBeLessThan(300);
   });
 
-  test("Session constructor (sync, no loadFromDb) completes under 10ms (median of 5)", () => {
+  test("Conversation constructor (sync, no loadFromDb) completes under 10ms (median of 5)", () => {
     const systemPrompt = buildSystemPrompt();
 
     // Warm-up
-    const warmup = new Session(
+    const warmup = new Conversation(
       "bench-events-w",
       mockProvider,
       systemPrompt,
@@ -530,7 +530,7 @@ describe("End-to-end session creation benchmark", () => {
     const timings: number[] = [];
     for (let i = 0; i < 5; i++) {
       const start = performance.now();
-      const session = new Session(
+      const session = new Conversation(
         `bench-events-${i}`,
         mockProvider,
         systemPrompt,

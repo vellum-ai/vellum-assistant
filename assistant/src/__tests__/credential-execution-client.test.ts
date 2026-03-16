@@ -163,14 +163,14 @@ describe("CES client", () => {
     const sent = JSON.parse(transport.sentMessages[0]);
     expect(sent.type).toBe("handshake_request");
     expect(sent.protocolVersion).toBe(CES_PROTOCOL_VERSION);
-    expect(sent.sessionId).toBeTruthy();
+    expect(sent.conversationId).toBeTruthy();
 
     // Simulate handshake ack
     transport.simulateMessage(
       JSON.stringify({
         type: "handshake_ack",
         protocolVersion: CES_PROTOCOL_VERSION,
-        sessionId: sent.sessionId,
+        conversationId: sent.conversationId,
         accepted: true,
       }),
     );
@@ -213,7 +213,7 @@ describe("CES client", () => {
       JSON.stringify({
         type: "handshake_ack",
         protocolVersion: CES_PROTOCOL_VERSION,
-        sessionId: sent.sessionId,
+        conversationId: sent.conversationId,
         accepted: false,
         reason: "Protocol version mismatch",
       }),
@@ -255,7 +255,7 @@ describe("CES client", () => {
       JSON.stringify({
         type: "handshake_ack",
         protocolVersion: CES_PROTOCOL_VERSION,
-        sessionId: sent.sessionId,
+        conversationId: sent.conversationId,
         accepted: true,
       }),
     );
@@ -288,7 +288,7 @@ describe("CES client", () => {
       JSON.stringify({
         type: "handshake_ack",
         protocolVersion: CES_PROTOCOL_VERSION,
-        sessionId: sent.sessionId,
+        conversationId: sent.conversationId,
         accepted: true,
       }),
     );

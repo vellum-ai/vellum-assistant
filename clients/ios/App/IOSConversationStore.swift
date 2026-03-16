@@ -629,7 +629,7 @@ class IOSConversationStore: ObservableObject {
     }
 
     private func handleHistoryResponse(_ response: HistoryResponse) {
-        guard let conversationLocalId = pendingHistoryByConversationId.removeValue(forKey: response.sessionId) else { return }
+        guard let conversationLocalId = pendingHistoryByConversationId.removeValue(forKey: response.conversationId) else { return }
         guard let vm = viewModels[conversationLocalId] else { return }
 
         let isPaginationLoad = vm.isHistoryLoaded && vm.isLoadingMoreMessages

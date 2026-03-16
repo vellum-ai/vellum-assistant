@@ -46,7 +46,7 @@ describe("UiSurfaceShowFileUpload structure", () => {
   test("can construct a well-typed UiSurfaceShowFileUpload object", () => {
     const msg: UiSurfaceShowFileUpload = {
       type: "ui_surface_show",
-      sessionId: "session-abc",
+      conversationId: "session-abc",
       surfaceId: "surface-123",
       surfaceType: "file_upload",
       title: "File Request",
@@ -57,7 +57,7 @@ describe("UiSurfaceShowFileUpload structure", () => {
     expect(msg.surfaceType).toBe("file_upload");
     expect(msg.data.prompt).toBe("Share a screenshot");
     expect(msg.title).toBe("File Request");
-    expect(msg.sessionId).toBe("session-abc");
+    expect(msg.conversationId).toBe("session-abc");
     expect(msg.surfaceId).toBe("surface-123");
   });
 });

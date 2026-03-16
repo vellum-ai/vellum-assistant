@@ -107,11 +107,13 @@ function injectSubagent(
   return state;
 }
 
-function makeContext(sessionId: string, extras: Record<string, unknown> = {}) {
+function makeContext(
+  conversationId: string,
+  extras: Record<string, unknown> = {},
+) {
   return {
     workingDir: "/tmp",
-    sessionId,
-    conversationId: "conv-1",
+    conversationId,
     trustClass: "guardian" as const,
     ...extras,
   } as import("../tools/types.js").ToolContext;

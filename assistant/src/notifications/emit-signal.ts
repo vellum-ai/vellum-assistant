@@ -148,7 +148,7 @@ export interface EmitSignalParams<TEventName extends string = string> {
   sourceEventName: TEventName;
   /** Source channel that produced the event — must be a registered channel. */
   sourceChannel: NotificationSourceChannel;
-  /** Session or conversation ID from the source context. */
+  /** Conversation or conversation ID from the source context. */
   sourceSessionId: string;
   /** Attention hints for the decision engine. */
   attentionHints: AttentionHints;

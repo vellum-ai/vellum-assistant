@@ -78,7 +78,6 @@ import type { ToolContext } from "../tools/types.js";
 function makeContext(): ToolContext {
   return {
     workingDir: "/tmp",
-    sessionId: "test-session",
     conversationId: "test-conversation",
     trustClass: "guardian",
   };

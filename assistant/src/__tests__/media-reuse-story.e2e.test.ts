@@ -258,7 +258,6 @@ describe("Story E2E: selfie yesterday -> generated image today", () => {
   test("asset_search discovers the selfie from Conversation B (cross-conversation)", async () => {
     const context: ToolContext = {
       workingDir: sandboxDir,
-      sessionId: "sess-story",
       conversationId: conversationB.id,
       trustClass: "guardian",
     };
@@ -277,7 +276,6 @@ describe("Story E2E: selfie yesterday -> generated image today", () => {
   test("asset_search with recency last_7_days finds the selfie uploaded yesterday", async () => {
     const context: ToolContext = {
       workingDir: sandboxDir,
-      sessionId: "sess-story",
       conversationId: conversationB.id,
       trustClass: "guardian",
     };
@@ -294,7 +292,6 @@ describe("Story E2E: selfie yesterday -> generated image today", () => {
   test("asset_materialize writes the selfie to disk in Conversation B sandbox", async () => {
     const context: ToolContext = {
       workingDir: sandboxDir,
-      sessionId: "sess-story",
       conversationId: conversationB.id,
       trustClass: "guardian",
     };
@@ -322,7 +319,6 @@ describe("Story E2E: selfie yesterday -> generated image today", () => {
   test("full story: search -> materialize -> proxied provider call -> output saved", async () => {
     const contextB: ToolContext = {
       workingDir: sandboxDir,
-      sessionId: "sess-story",
       conversationId: conversationB.id,
       trustClass: "guardian",
     };
@@ -535,7 +531,6 @@ describe("Private-conversation variant: cross-conversation media blocking", () =
     });
     const context: ToolContext = {
       workingDir: sandboxDir,
-      sessionId: "sess-priv-test",
       conversationId: standardConversation.id,
       trustClass: "guardian",
     };
@@ -569,7 +564,6 @@ describe("Private-conversation variant: cross-conversation media blocking", () =
     });
     const context: ToolContext = {
       workingDir: sandboxDir,
-      sessionId: "sess-priv-test",
       conversationId: standardConversation.id,
       trustClass: "guardian",
     };
@@ -604,7 +598,6 @@ describe("Private-conversation variant: cross-conversation media blocking", () =
     // Search from the same private conversation
     const context: ToolContext = {
       workingDir: sandboxDir,
-      sessionId: "sess-priv-test",
       conversationId: privateConversation.id,
       trustClass: "guardian",
     };
@@ -649,7 +642,6 @@ describe("Private-conversation variant: cross-conversation media blocking", () =
     });
     const context: ToolContext = {
       workingDir: sandboxDir,
-      sessionId: "sess-priv-test",
       conversationId: privateConversationB.id,
       trustClass: "guardian",
     };

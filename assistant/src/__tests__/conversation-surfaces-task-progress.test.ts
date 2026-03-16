@@ -2,8 +2,8 @@ import { describe, expect, test } from "bun:test";
 
 import {
   createSurfaceMutex,
+  type SurfaceConversationContext,
   surfaceProxyResolver,
-  type SurfaceSessionContext,
 } from "../daemon/conversation-surfaces.js";
 import type {
   CardSurfaceData,
@@ -17,8 +17,8 @@ import type {
 
 function makeContext(
   sent: ServerMessage[] = [],
-  channelCapabilities?: SurfaceSessionContext["channelCapabilities"],
-): SurfaceSessionContext {
+  channelCapabilities?: SurfaceConversationContext["channelCapabilities"],
+): SurfaceConversationContext {
   return {
     conversationId: "session-1",
     channelCapabilities,

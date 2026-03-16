@@ -75,7 +75,6 @@ const testDirs: string[] = [];
 function makeContext(): ToolContext {
   return {
     workingDir: "/tmp",
-    sessionId: "test-session",
     conversationId: "test-conversation",
     trustClass: "guardian",
   };
@@ -700,7 +699,7 @@ describe("host_bash — proxy delegation", () => {
         timeout_seconds?: number;
         env?: Record<string, string>;
       };
-      sessionId: string;
+      conversationId: string;
     }> = [];
 
     return {
@@ -713,10 +712,10 @@ describe("host_bash — proxy delegation", () => {
             timeout_seconds?: number;
             env?: Record<string, string>;
           },
-          sessionId: string,
+          conversationId: string,
           _signal?: AbortSignal,
         ) => {
-          calls.push({ input, sessionId });
+          calls.push({ input, conversationId });
           return result;
         },
         updateSender: () => {},
@@ -751,7 +750,7 @@ describe("host_bash — proxy delegation", () => {
     expect(calls[0].input.command).toBe("echo hello");
     expect(calls[0].input.working_dir).toBe("/tmp");
     expect(calls[0].input.timeout_seconds).toBe(30);
-    expect(calls[0].sessionId).toBe("test-session");
+    expect(calls[0].conversationId).toBe("test-session");
     // Should NOT have spawned a local process
     expect(spawnCalls.length).toBe(0);
   });

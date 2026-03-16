@@ -1,8 +1,8 @@
 /**
- * Session messaging methods: enqueue, persistUserMessage,
+ * Conversation messaging methods: enqueue, persistUserMessage,
  * redirectToSecurePrompt, and queue/confirmation helpers.
  *
- * Extracted from Session to keep the class focused on coordination.
+ * Extracted from Conversation to keep the class focused on coordination.
  */
 
 import { v4 as uuid } from "uuid";
@@ -264,7 +264,7 @@ export async function persistUserMessage(
   displayContent?: string,
 ): Promise<string> {
   if (ctx.processing) {
-    throw new Error("Session is already processing a message");
+    throw new Error("Conversation is already processing a message");
   }
 
   if (!content.trim() && attachments.length === 0) {

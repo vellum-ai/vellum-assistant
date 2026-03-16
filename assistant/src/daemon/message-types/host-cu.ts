@@ -7,7 +7,7 @@
 export interface HostCuRequest {
   type: "host_cu_request";
   requestId: string;
-  sessionId: string;
+  conversationId: string;
   toolName: string; // "computer_use_click", "computer_use_type_text", etc.
   input: Record<string, unknown>;
   stepNumber: number;

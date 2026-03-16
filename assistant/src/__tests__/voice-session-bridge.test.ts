@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 
-import type { Session } from "../daemon/conversation.js";
+import type { Conversation } from "../daemon/conversation.js";
 import type { ServerMessage } from "../daemon/message-protocol.js";
 
 const testDir = mkdtempSync(join(tmpdir(), "voice-bridge-test-"));
@@ -56,7 +56,7 @@ initializeDb();
  * Build a session that emits multiple events via the onEvent callback,
  * simulating assistant text deltas followed by message_complete.
  */
-function makeStreamingSession(events: ServerMessage[]): Session {
+function makeStreamingSession(events: ServerMessage[]): Conversation {
   return {
     isProcessing: () => false,
     persistUserMessage: () => undefined as unknown as string,
@@ -84,13 +84,13 @@ function makeStreamingSession(events: ServerMessage[]): Session {
     },
     handleConfirmationResponse: () => {},
     abort: () => {},
-  } as unknown as Session;
+  } as unknown as Conversation;
 }
 
 /**
  * Helper to inject voice bridge deps with a given session factory.
  */
-function injectDeps(sessionFactory: () => Session): void {
+function injectDeps(sessionFactory: () => Conversation): void {
   setVoiceBridgeDeps({
     getOrCreateSession: async () => sessionFactory(),
     resolveAttachments: () => [],
@@ -127,14 +127,14 @@ describe("voice-session-bridge", () => {
       {
         type: "assistant_text_delta",
         text: "Hello ",
-        sessionId: conversation.id,
+        conversationId: conversation.id,
       },
       {
         type: "assistant_text_delta",
         text: "world",
-        sessionId: conversation.id,
+        conversationId: conversation.id,
       },
-      { type: "message_complete", sessionId: conversation.id },
+      { type: "message_complete", conversationId: conversation.id },
     ];
     const session = makeStreamingSession(events);
     injectDeps(() => session);
@@ -220,7 +220,7 @@ describe("voice-session-bridge", () => {
       abort: () => {
         abortCalled = true;
       },
-    } as unknown as Session;
+    } as unknown as Conversation;
 
     injectDeps(() => session);
 
@@ -272,7 +272,7 @@ describe("voice-session-bridge", () => {
       abort: () => {
         abortCalled = true;
       },
-    } as unknown as Session;
+    } as unknown as Conversation;
 
     injectDeps(() => session);
 
@@ -300,7 +300,7 @@ describe("voice-session-bridge", () => {
       "voice bridge channel context test",
     );
     const events: ServerMessage[] = [
-      { type: "message_complete", sessionId: conversation.id },
+      { type: "message_complete", conversationId: conversation.id },
     ];
 
     let capturedTurnChannelContext: unknown = null;
@@ -309,7 +309,7 @@ describe("voice-session-bridge", () => {
       setTurnChannelContext: (ctx: unknown) => {
         capturedTurnChannelContext = ctx;
       },
-    } as unknown as Session;
+    } as unknown as Conversation;
 
     injectDeps(() => session);
 
@@ -335,7 +335,7 @@ describe("voice-session-bridge", () => {
       "voice bridge strict non-guardian test",
     );
     const events: ServerMessage[] = [
-      { type: "message_complete", sessionId: conversation.id },
+      { type: "message_complete", conversationId: conversation.id },
     ];
 
     let capturedStrictSideEffects: boolean | undefined;
@@ -351,7 +351,7 @@ describe("voice-session-bridge", () => {
       set memoryPolicy(val: Record<string, unknown>) {
         capturedStrictSideEffects = val.strictSideEffects as boolean;
       },
-    } as unknown as Session;
+    } as unknown as Conversation;
 
     injectDeps(() => session);
 
@@ -381,7 +381,7 @@ describe("voice-session-bridge", () => {
       "voice bridge strict unverified test",
     );
     const events: ServerMessage[] = [
-      { type: "message_complete", sessionId: conversation.id },
+      { type: "message_complete", conversationId: conversation.id },
     ];
 
     let capturedStrictSideEffects: boolean | undefined;
@@ -397,7 +397,7 @@ describe("voice-session-bridge", () => {
       set memoryPolicy(val: Record<string, unknown>) {
         capturedStrictSideEffects = val.strictSideEffects as boolean;
       },
-    } as unknown as Session;
+    } as unknown as Conversation;
 
     injectDeps(() => session);
 
@@ -424,7 +424,7 @@ describe("voice-session-bridge", () => {
       "voice bridge strict guardian test",
     );
     const events: ServerMessage[] = [
-      { type: "message_complete", sessionId: conversation.id },
+      { type: "message_complete", conversationId: conversation.id },
     ];
 
     let capturedStrictSideEffects: boolean | undefined;
@@ -440,7 +440,7 @@ describe("voice-session-bridge", () => {
       set memoryPolicy(val: Record<string, unknown>) {
         capturedStrictSideEffects = val.strictSideEffects as boolean;
       },
-    } as unknown as Session;
+    } as unknown as Conversation;
 
     injectDeps(() => session);
 
@@ -470,7 +470,7 @@ describe("voice-session-bridge", () => {
       "voice bridge guardian context test",
     );
     const events: ServerMessage[] = [
-      { type: "message_complete", sessionId: conversation.id },
+      { type: "message_complete", conversationId: conversation.id },
     ];
 
     let capturedTrustContext: unknown = null;
@@ -479,7 +479,7 @@ describe("voice-session-bridge", () => {
       setTrustContext: (ctx: unknown) => {
         if (ctx != null) capturedTrustContext = ctx;
       },
-    } as unknown as Session;
+    } as unknown as Conversation;
 
     injectDeps(() => session);
 
@@ -511,7 +511,7 @@ describe("voice-session-bridge", () => {
       "voice bridge inbound opener framing test",
     );
     const events: ServerMessage[] = [
-      { type: "message_complete", sessionId: conversation.id },
+      { type: "message_complete", conversationId: conversation.id },
     ];
 
     let capturedPrompt: string | null = null;
@@ -520,7 +520,7 @@ describe("voice-session-bridge", () => {
       setVoiceCallControlPrompt: (prompt: string | null) => {
         if (prompt != null) capturedPrompt = prompt;
       },
-    } as unknown as Session;
+    } as unknown as Conversation;
 
     injectDeps(() => session);
 
@@ -571,7 +571,7 @@ describe("voice-session-bridge", () => {
       "voice bridge inbound disclosure rewrite test",
     );
     const events: ServerMessage[] = [
-      { type: "message_complete", sessionId: conversation.id },
+      { type: "message_complete", conversationId: conversation.id },
     ];
 
     let capturedPrompt: string | null = null;
@@ -580,7 +580,7 @@ describe("voice-session-bridge", () => {
       setVoiceCallControlPrompt: (prompt: string | null) => {
         if (prompt != null) capturedPrompt = prompt;
       },
-    } as unknown as Session;
+    } as unknown as Conversation;
 
     injectDeps(() => session);
 
@@ -669,7 +669,7 @@ describe("voice-session-bridge", () => {
         handleConfirmationCalls.push({ requestId, decision, decisionContext });
       },
       abort: () => {},
-    } as unknown as Session;
+    } as unknown as Conversation;
 
     injectDeps(() => session);
 
@@ -743,7 +743,7 @@ describe("voice-session-bridge", () => {
         handleConfirmationCalls.push({ requestId, decision });
       },
       abort: () => {},
-    } as unknown as Session;
+    } as unknown as Conversation;
 
     injectDeps(() => session);
 
@@ -811,7 +811,7 @@ describe("voice-session-bridge", () => {
         handleConfirmationCalls.push({ requestId, decision });
       },
       abort: () => {},
-    } as unknown as Session;
+    } as unknown as Conversation;
 
     injectDeps(() => session);
 
@@ -877,7 +877,7 @@ describe("voice-session-bridge", () => {
         handleConfirmationCalls.push({ requestId, decision });
       },
       abort: () => {},
-    } as unknown as Session;
+    } as unknown as Conversation;
 
     injectDeps(() => session);
 
@@ -951,7 +951,7 @@ describe("voice-session-bridge", () => {
         handleSecretCalls.push({ requestId, value, delivery });
       },
       abort: () => {},
-    } as unknown as Session;
+    } as unknown as Conversation;
 
     injectDeps(() => session);
 
@@ -1013,7 +1013,7 @@ describe("voice-session-bridge", () => {
       abort: () => {
         abortCalled = true;
       },
-    } as unknown as Session;
+    } as unknown as Conversation;
 
     injectDeps(() => session);
 

@@ -344,9 +344,9 @@ export function consolidateAssistantMessages(
 // ── Undo ─────────────────────────────────────────────────────────────
 
 /**
- * Subset of Session state that undo/regenerate need access to.
+ * Subset of Conversation state that undo/regenerate need access to.
  */
-export interface HistorySessionContext {
+export interface HistoryConversationContext {
   readonly conversationId: string;
   readonly traceEmitter: TraceEmitter;
   messages: Message[];
@@ -369,7 +369,7 @@ export interface HistorySessionContext {
  * Remove the last user+assistant exchange from memory and DB.
  * Returns the number of messages removed.
  */
-export function undo(session: HistorySessionContext): number {
+export function undo(session: HistoryConversationContext): number {
   if (session.processing) return 0;
 
   const lastUserIdx = findLastUndoableUserMessageIndex(session.messages);
@@ -413,7 +413,7 @@ export function undo(session: HistorySessionContext): number {
  * Qdrant, then re-run the agent loop with the same user message.
  */
 export async function regenerate(
-  session: HistorySessionContext,
+  session: HistoryConversationContext,
   onEvent: (msg: ServerMessage) => void,
   requestId?: string,
 ): Promise<void> {

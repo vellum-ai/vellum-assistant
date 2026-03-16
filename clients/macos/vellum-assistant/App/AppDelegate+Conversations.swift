@@ -144,7 +144,7 @@ extension AppDelegate {
     }
 
     func showDaemonConnectionError() {
-        let proxy = HostCuSessionProxy(task: "", sessionId: UUID().uuidString)
+        let proxy = HostCuSessionProxy(task: "", conversationId: UUID().uuidString)
         proxy.state = .failed(reason: "Failed to connect to the assistant.")
         currentSession = proxy
         let overlay = SessionOverlayWindow(session: proxy)
@@ -179,7 +179,7 @@ extension AppDelegate {
         dismissHostCuOverlay()
 
         let taskDescription = request.reasoning ?? "Computer use"
-        let proxy = HostCuSessionProxy(task: taskDescription, sessionId: conversationId)
+        let proxy = HostCuSessionProxy(task: taskDescription, conversationId: conversationId)
         proxy.state = .thinking(step: request.stepNumber, maxSteps: 50)
 
         // Wire cancel to abort the main conversation session on the daemon

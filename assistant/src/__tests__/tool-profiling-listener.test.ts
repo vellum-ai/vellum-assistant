@@ -161,7 +161,6 @@ describe("registerToolProfilingListener", () => {
   test("records tool.execution.finished events", async () => {
     await bus.emit("tool.execution.finished", {
       conversationId: "conv-1",
-      sessionId: "sess-1",
       requestId: "req-1",
       toolName: "file_read",
       decision: "allow",
@@ -184,7 +183,6 @@ describe("registerToolProfilingListener", () => {
   test("records tool.execution.finished with isError=true", async () => {
     await bus.emit("tool.execution.finished", {
       conversationId: "conv-1",
-      sessionId: "sess-1",
       toolName: "bash",
       decision: "allow",
       riskLevel: "low",
@@ -199,7 +197,6 @@ describe("registerToolProfilingListener", () => {
   test("records tool.execution.failed events as errors", async () => {
     await bus.emit("tool.execution.failed", {
       conversationId: "conv-1",
-      sessionId: "sess-1",
       requestId: "req-2",
       toolName: "bash",
       decision: "allow",
@@ -223,7 +220,6 @@ describe("registerToolProfilingListener", () => {
   test("ignores non-completion events", async () => {
     await bus.emit("tool.execution.started", {
       conversationId: "conv-1",
-      sessionId: "sess-1",
       toolName: "file_read",
       input: {},
       startedAtMs: 1000,
@@ -231,7 +227,6 @@ describe("registerToolProfilingListener", () => {
 
     await bus.emit("tool.permission.requested", {
       conversationId: "conv-1",
-      sessionId: "sess-1",
       toolName: "bash",
       riskLevel: "high",
       requestedAtMs: 2000,
@@ -247,7 +242,6 @@ describe("registerToolProfilingListener", () => {
 
     await bus.emit("tool.execution.finished", {
       conversationId: "conv-1",
-      sessionId: "sess-1",
       toolName: "file_read",
       decision: "allow",
       riskLevel: "low",
@@ -262,7 +256,6 @@ describe("registerToolProfilingListener", () => {
 
     await bus.emit("tool.execution.finished", {
       conversationId: "conv-1",
-      sessionId: "sess-1",
       toolName: "file_read",
       decision: "allow",
       riskLevel: "low",

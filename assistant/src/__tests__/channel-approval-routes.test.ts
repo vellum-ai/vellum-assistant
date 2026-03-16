@@ -52,7 +52,7 @@ mock.module("../daemon/handlers/shared.js", () => ({
 
 import { upsertContact } from "../contacts/contact-store.js";
 import { createGuardianBinding } from "../contacts/contacts-write.js";
-import type { Session } from "../daemon/conversation.js";
+import type { Conversation } from "../daemon/conversation.js";
 import {
   createCanonicalGuardianDelivery,
   createCanonicalGuardianRequest,
@@ -152,7 +152,7 @@ function registerPendingInteraction(
   const mockSession = {
     handleConfirmationResponse,
     ensureActorScopedHistory: async () => {},
-  } as unknown as Session;
+  } as unknown as Conversation;
 
   pendingInteractions.register(requestId, {
     session: mockSession,

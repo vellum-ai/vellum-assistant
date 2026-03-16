@@ -176,7 +176,6 @@ beforeEach(() => {
 
 const fakeContext = {
   conversationId: "conv-123",
-  sessionId: "sess-123",
   workingDir: "/tmp",
 } as unknown as ToolContext;
 

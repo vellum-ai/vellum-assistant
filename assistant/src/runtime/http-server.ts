@@ -750,13 +750,13 @@ export class RuntimeHttpServer {
       ...workItemRouteDefinitions(
         this.sendMessageDeps
           ? {
-              getOrCreateSession: (conversationId) =>
-                this.sendMessageDeps!.getOrCreateSession(conversationId),
-              findSession: this.findConversation
+              getOrCreateConversation: (conversationId) =>
+                this.sendMessageDeps!.getOrCreateConversation(conversationId),
+              findConversation: this.findConversation
                 ? (conversationId) => {
                     const s = this.findConversation!(conversationId);
                     if (!s || !("abort" in s)) return undefined;
-                    return s as import("../daemon/conversation.js").Session;
+                    return s as import("../daemon/conversation.js").Conversation;
                   }
                 : undefined,
             }
@@ -1084,10 +1084,12 @@ export class RuntimeHttpServer {
         : []),
       ...trustRulesRouteDefinitions(),
       ...surfaceActionRouteDefinitions({
-        findSession: this.findConversation,
-        findSessionBySurfaceId: this.findConversationBySurfaceId,
+        findConversation: this.findConversation,
+        findConversationBySurfaceId: this.findConversationBySurfaceId,
       }),
-      ...surfaceContentRouteDefinitions({ findSession: this.findConversation }),
+      ...surfaceContentRouteDefinitions({
+        findConversation: this.findConversation,
+      }),
       ...guardianActionRouteDefinitions(),
 
       ...contactRouteDefinitions(),

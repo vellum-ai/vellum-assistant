@@ -76,7 +76,7 @@ export function handleSubscribeAssistantEvents(
   };
   if (conversationKey) {
     const mapping = getOrCreateConversation(conversationKey);
-    filter.sessionId = mapping.conversationId;
+    filter.conversationId = mapping.conversationId;
   }
   const encoder = new TextEncoder();
 

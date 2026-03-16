@@ -28,7 +28,6 @@ describe("send-notification tool", () => {
       },
       {
         workingDir: "/tmp",
-        sessionId: "sess-1",
         conversationId: "conv-1",
         assistantId: "ast-alpha",
         trustClass: "guardian" as const,
@@ -71,7 +70,6 @@ describe("send-notification tool", () => {
       { message: "test notification" },
       {
         workingDir: "/tmp",
-        sessionId: "sess-1",
         conversationId: "conv-1",
         assistantId: "ast-alpha",
         trustClass: "guardian" as const,

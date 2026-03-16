@@ -57,7 +57,7 @@ class HostFileReadTool implements Tool {
           offset: typeof input.offset === "number" ? input.offset : undefined,
           limit: typeof input.limit === "number" ? input.limit : undefined,
         },
-        context.sessionId,
+        context.conversationId,
         context.signal,
       );
     }

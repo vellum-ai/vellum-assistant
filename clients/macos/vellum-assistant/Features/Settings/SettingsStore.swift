@@ -1582,7 +1582,7 @@ public final class SettingsStore: ObservableObject {
     }
 
     private func applyOutboundResponseState(channel: String, response: ChannelVerificationSessionResponseMessage) {
-        let sessionId = response.verificationSessionId
+        let conversationId = response.verificationSessionId
         // Only update fields when the response includes them; partial payloads (e.g. resend
         // success) omit fields like expiresAt, sendCount, and nextResendAt. Overwriting with
         // nil/zero would lose countdown tracking and UI state.
@@ -1598,12 +1598,12 @@ public final class SettingsStore: ObservableObject {
         case "telegram":
             // When the session changes, reset resend metadata so stale cooldown/counter
             // values from the old session don't persist through the if-let guards below.
-            if sessionId != telegramOutboundSessionId {
+            if conversationId != telegramOutboundSessionId {
                 telegramOutboundNextResendAt = nil
                 telegramOutboundSendCount = 0
                 telegramOutboundCode = nil
             }
-            telegramOutboundSessionId = sessionId
+            telegramOutboundSessionId = conversationId
             if let expiresAt { telegramOutboundExpiresAt = expiresAt }
             if let nextResendAt { telegramOutboundNextResendAt = nextResendAt }
             if let sendCount { telegramOutboundSendCount = sendCount }
@@ -1615,28 +1615,28 @@ public final class SettingsStore: ObservableObject {
                 // existing bootstrap URL so the deep link stays visible. The
                 // status handler cannot reconstruct the URL (only the hash is
                 // stored), so we must not overwrite what we received earlier.
-            } else if sessionId != nil {
+            } else if conversationId != nil {
                 // Bootstrap complete — clear the URL so resend becomes available
                 telegramBootstrapUrl = nil
             }
         case "phone":
-            if sessionId != voiceOutboundSessionId {
+            if conversationId != voiceOutboundSessionId {
                 voiceOutboundNextResendAt = nil
                 voiceOutboundSendCount = 0
                 voiceOutboundCode = nil
             }
-            voiceOutboundSessionId = sessionId
+            voiceOutboundSessionId = conversationId
             if let expiresAt { voiceOutboundExpiresAt = expiresAt }
             if let nextResendAt { voiceOutboundNextResendAt = nextResendAt }
             if let sendCount { voiceOutboundSendCount = sendCount }
             if let secret { voiceOutboundCode = secret }
         case "slack":
-            if sessionId != slackOutboundSessionId {
+            if conversationId != slackOutboundSessionId {
                 slackOutboundNextResendAt = nil
                 slackOutboundSendCount = 0
                 slackOutboundCode = nil
             }
-            slackOutboundSessionId = sessionId
+            slackOutboundSessionId = conversationId
             if let expiresAt { slackOutboundExpiresAt = expiresAt }
             if let nextResendAt { slackOutboundNextResendAt = nextResendAt }
             if let sendCount { slackOutboundSendCount = sendCount }

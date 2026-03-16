@@ -106,7 +106,7 @@ import {
 const baseContext: CommitContext = {
   workspaceDir: "/tmp/test",
   trigger: "turn" as const,
-  sessionId: "sess_test",
+  conversationId: "sess_test",
   turnNumber: 1,
   changedFiles: ["file.txt"],
   timestampMs: Date.now(),

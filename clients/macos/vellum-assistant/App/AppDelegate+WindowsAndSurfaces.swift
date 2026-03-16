@@ -71,12 +71,12 @@ extension AppDelegate {
         }
 
         // Wire SurfaceManager action callback to DaemonClient
-        surfaceManager.onAction = { [weak self] sessionId, surfaceId, actionId, data in
+        surfaceManager.onAction = { [weak self] conversationId, surfaceId, actionId, data in
             guard let self else { return }
             let codableData: [String: AnyCodable]? = data?.mapValues { AnyCodable($0) }
             do {
                 try self.daemonClient.sendSurfaceAction(
-                    sessionId: sessionId,
+                    conversationId: conversationId,
                     surfaceId: surfaceId,
                     actionId: actionId,
                     data: codableData
@@ -167,7 +167,7 @@ extension AppDelegate {
                 // native notification.
                 if NSApp.isActive, let mainWindow = self.mainWindow, mainWindow.isVisible {
                     let activeSessionId = mainWindow.conversationManager.activeViewModel?.conversationId
-                    let confirmationIsForActiveThread = msg.sessionId == nil || msg.sessionId == activeSessionId
+                    let confirmationIsForActiveThread = msg.conversationId == nil || msg.conversationId == activeSessionId
                     if confirmationIsForActiveThread {
                         return
                     }

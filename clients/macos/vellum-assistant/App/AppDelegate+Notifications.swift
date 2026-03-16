@@ -453,11 +453,11 @@ extension AppDelegate: UNUserNotificationCenterDelegate {
 
         // Handle activity completion notifications
         if categoryId == "ACTIVITY_COMPLETE" {
-            let sessionId = response.notification.request.content.userInfo["sessionId"] as? String
+            let conversationId = response.notification.request.content.userInfo["conversationId"] as? String
             await MainActor.run {
                 guard !self.isBootstrapping else { return }
-                if let sessionId, !sessionId.isEmpty {
-                    self.openConversationThread(conversationId: sessionId)
+                if let conversationId, !conversationId.isEmpty {
+                    self.openConversationThread(conversationId: conversationId)
                 } else {
                     self.showMainWindow()
                 }

@@ -56,7 +56,7 @@ describe("CommitEnrichmentService", () => {
     return {
       workspaceDir: testDir,
       trigger: "turn",
-      sessionId: "sess_test",
+      conversationId: "sess_test",
       turnNumber: 1,
       changedFiles: ["file.txt"],
       timestampMs: Date.now(),
@@ -142,7 +142,7 @@ describe("CommitEnrichmentService", () => {
     const note = JSON.parse(noteContent);
     expect(note.enriched).toBe(true);
     expect(note.trigger).toBe("turn");
-    expect(note.sessionId).toBe("sess_test");
+    expect(note.conversationId).toBe("sess_test");
     expect(note.turnNumber).toBe(1);
     expect(note.filesChanged).toBe(1);
     expect(service._getSucceededCount()).toBe(1);

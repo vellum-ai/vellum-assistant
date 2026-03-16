@@ -170,13 +170,13 @@ mock.module("../agent/loop.js", () => ({
   },
 }));
 
-import { Session } from "../daemon/conversation.js";
+import { Conversation } from "../daemon/conversation.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
-function makeSession(): Session {
+function makeSession(): Conversation {
   const provider = {
     name: "mock",
     async sendMessage(): Promise<ProviderResponse> {
@@ -188,7 +188,7 @@ function makeSession(): Session {
       };
     },
   };
-  return new Session(
+  return new Conversation(
     "conv-1",
     provider,
     "system prompt",
@@ -202,8 +202,8 @@ function makeSession(): Session {
 // Tests
 // ---------------------------------------------------------------------------
 
-describe("Session workspace cache state", () => {
-  let session: Session;
+describe("Conversation workspace cache state", () => {
+  let session: Conversation;
 
   beforeEach(() => {
     session = makeSession();

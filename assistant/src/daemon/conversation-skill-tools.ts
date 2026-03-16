@@ -1,5 +1,5 @@
 /**
- * Session-time projection of active skill tools.
+ * Conversation-time projection of active skill tools.
  *
  * On each agent turn the conversation history (and any pre-activated IDs from
  * config or programmatic injection) determine which skills are "active".  This module
@@ -43,7 +43,7 @@ export interface SkillToolProjection {
 }
 
 /**
- * Session-scoped cache for skill projection. Avoids re-scanning the entire
+ * Conversation-scoped cache for skill projection. Avoids re-scanning the entire
  * conversation history and re-reading the filesystem on every agent turn.
  *
  * Each session should own its own cache instance to prevent cross-session
@@ -72,7 +72,7 @@ export interface ProjectSkillToolsOptions {
   /** Skill IDs that should be treated as active regardless of history markers. */
   preactivatedSkillIds?: string[];
   /**
-   * Session-scoped tracking map of previously active skill IDs to their
+   * Conversation-scoped tracking map of previously active skill IDs to their
    * version hashes. Each session should own its own map to prevent
    * cross-session state bleed when the daemon serves multiple concurrent
    * sessions. When a skill's hash changes between turns, its tools are
@@ -80,7 +80,7 @@ export interface ProjectSkillToolsOptions {
    */
   previouslyActiveSkillIds?: Map<string, string>;
   /**
-   * Session-scoped projection cache. When provided, projectSkillTools will
+   * Conversation-scoped projection cache. When provided, projectSkillTools will
    * avoid redundant deriveActiveSkills scans and loadSkillCatalog filesystem
    * reads across agent turns.
    */

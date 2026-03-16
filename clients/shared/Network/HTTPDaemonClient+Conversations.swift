@@ -26,13 +26,13 @@ extension HTTPTransport {
                 Task { await self.clearAllConversations() }
                 return true
             } else if let msg = message as? CancelMessage {
-                Task { await self.cancelGeneration(sessionId: msg.sessionId ?? "") }
+                Task { await self.cancelGeneration(conversationId: msg.conversationId ?? "") }
                 return true
             } else if let msg = message as? UndoRequest {
-                Task { await self.undoLastMessage(sessionId: msg.sessionId) }
+                Task { await self.undoLastMessage(conversationId: msg.conversationId) }
                 return true
             } else if let msg = message as? RegenerateMessage {
-                Task { await self.regenerateLastResponse(sessionId: msg.sessionId) }
+                Task { await self.regenerateLastResponse(conversationId: msg.conversationId) }
                 return true
             } else if message is ModelGetRequestMessage {
                 Task { await self.fetchModelInfo() }
@@ -53,10 +53,10 @@ extension HTTPTransport {
                 }
                 return true
             } else if let msg = message as? MessageContentRequest {
-                Task { await self.fetchMessageContent(sessionId: msg.sessionId, messageId: msg.messageId) }
+                Task { await self.fetchMessageContent(conversationId: msg.conversationId, messageId: msg.messageId) }
                 return true
             } else if let msg = message as? DeleteQueuedMessageMessage {
-                Task { await self.deleteQueuedMessage(sessionId: msg.sessionId, requestId: msg.requestId) }
+                Task { await self.deleteQueuedMessage(conversationId: msg.conversationId, requestId: msg.requestId) }
                 return true
             } else if let msg = message as? ReorderConversationsRequest {
                 Task { await self.reorderConversations(updates: msg.updates) }

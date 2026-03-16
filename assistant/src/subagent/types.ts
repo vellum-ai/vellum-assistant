@@ -1,7 +1,7 @@
 /**
  * Subagent domain types.
  *
- * A subagent is a child Session spawned by a parent Session's LLM via the
+ * A subagent is a child Conversation spawned by a parent Conversation's LLM via the
  * `subagent_spawn` tool.  It runs an independent AgentLoop and streams events
  * back to the parent's client socket wrapped in `subagent_event` envelopes.
  */
@@ -27,7 +27,7 @@ export const TERMINAL_STATUSES: ReadonlySet<SubagentStatus> =
 export interface SubagentConfig {
   /** Unique subagent identifier (UUID). */
   id: string;
-  /** The parent Session's conversationId. */
+  /** The parent Conversation's conversationId. */
   parentSessionId: string;
   /** Human-readable label (e.g. "Research competitor pricing"). */
   label: string;

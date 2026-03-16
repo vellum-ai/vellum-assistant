@@ -5,7 +5,7 @@
  * sharing business logic with the handlers in
  * `daemon/handlers/work-items.ts`.
  */
-import type { Session } from "../../daemon/conversation.js";
+import type { Conversation } from "../../daemon/conversation.js";
 import type { ServerMessage } from "../../daemon/message-protocol.js";
 import { getMessages } from "../../memory/conversation-crud.js";
 import { check, classifyRisk } from "../../permissions/checker.js";
@@ -400,8 +400,8 @@ export function approveWorkItemPermissions(
 // ---------------------------------------------------------------------------
 
 export interface WorkItemRouteDeps {
-  getOrCreateSession: (conversationId: string) => Promise<Session>;
-  findSession?: (conversationId: string) => Session | undefined;
+  getOrCreateConversation: (conversationId: string) => Promise<Conversation>;
+  findConversation?: (conversationId: string) => Conversation | undefined;
 }
 
 // ---------------------------------------------------------------------------
@@ -552,8 +552,8 @@ export function workItemRouteDefinitions(
 
         // Abort the session associated with this work item's current run
         const conversationId = workItem.lastRunConversationId;
-        if (conversationId && deps?.findSession) {
-          const session = deps.findSession(conversationId);
+        if (conversationId && deps?.findConversation) {
+          const session = deps.findConversation(conversationId);
           if (session) {
             session.headlessLock = false;
             session.abort();
@@ -675,10 +675,10 @@ export function workItemRouteDefinitions(
           }
         }
 
-        if (!deps?.getOrCreateSession) {
+        if (!deps?.getOrCreateConversation) {
           return httpError(
             "NOT_IMPLEMENTED",
-            "Session management not available for task execution",
+            "Conversation management not available for task execution",
             501,
           );
         }
@@ -689,8 +689,8 @@ export function workItemRouteDefinitions(
         publishEvent({ type: "tasks_changed" });
 
         // Execute task asynchronously
-        let session: Session | null = null;
-        const getOrCreateSession = deps.getOrCreateSession;
+        let session: Conversation | null = null;
+        const getOrCreateConversation = deps.getOrCreateConversation;
         const workItemId = params.id;
 
         // Fire-and-forget: return acknowledgment immediately, run task in background
@@ -707,7 +707,7 @@ export function workItemRouteDefinitions(
                   updateWorkItem(workItemId, {
                     lastRunConversationId: conversationId,
                   });
-                  session = await getOrCreateSession(conversationId);
+                  session = await getOrCreateConversation(conversationId);
 
                   publishEvent({
                     type: "task_run_conversation_created",

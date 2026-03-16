@@ -34,11 +34,11 @@ mock.module("../tools/browser/browser-manager.js", () => {
       getOrCreateSessionPage: async () => mockPage,
       closeSessionPage: async () => {},
       closeAllPages: async () => {},
-      storeSnapshotMap: (sessionId: string, map: Map<string, string>) => {
-        snapshotMaps.set(sessionId, map);
+      storeSnapshotMap: (conversationId: string, map: Map<string, string>) => {
+        snapshotMaps.set(conversationId, map);
       },
-      resolveSnapshotSelector: (sessionId: string, elementId: string) => {
-        const map = snapshotMaps.get(sessionId);
+      resolveSnapshotSelector: (conversationId: string, elementId: string) => {
+        const map = snapshotMaps.get(conversationId);
         if (!map) return null;
         return map.get(elementId) ?? null;
       },
@@ -79,7 +79,6 @@ import { executeBrowserFillCredential } from "../tools/browser/browser-execution
 import type { ToolContext } from "../tools/types.js";
 
 const ctx: ToolContext = {
-  sessionId: "test-session",
   conversationId: "test-conversation",
   workingDir: "/tmp",
   trustClass: "guardian",

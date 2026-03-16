@@ -9,7 +9,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 
-import type { Session } from "../daemon/conversation.js";
+import type { Conversation } from "../daemon/conversation.js";
 import type { ServerMessage } from "../daemon/message-protocol.js";
 
 const testDir = realpathSync(
@@ -82,13 +82,13 @@ import * as pendingInteractions from "../runtime/pending-interactions.js";
 initializeDb();
 
 // ---------------------------------------------------------------------------
-// Session helpers
+// Conversation helpers
 // ---------------------------------------------------------------------------
 
 function makeIdleSession(opts?: {
   onConfirmation?: (requestId: string, decision: string) => void;
   onSecret?: (requestId: string, value?: string, delivery?: string) => void;
-}): Session {
+}): Conversation {
   let processing = false;
   return {
     isProcessing: () => processing,
@@ -127,7 +127,7 @@ function makeIdleSession(opts?: {
       onEvent: (msg: ServerMessage) => void,
     ) => {
       onEvent({ type: "assistant_text_delta", text: "Hello!" });
-      onEvent({ type: "message_complete", sessionId: "test-session" });
+      onEvent({ type: "message_complete", conversationId: "test-session" });
       processing = false;
     },
     handleConfirmationResponse: (requestId: string, decision: string) => {
@@ -140,18 +140,18 @@ function makeIdleSession(opts?: {
     ) => {
       opts?.onSecret?.(requestId, value, delivery);
     },
-  } as unknown as Session;
+  } as unknown as Conversation;
 }
 
 /**
- * Session whose agent loop emits a confirmation_request, so the hub
+ * Conversation whose agent loop emits a confirmation_request, so the hub
  * publisher registers a pending interaction automatically.
  */
 function makeConfirmationEmittingSession(opts?: {
   onConfirmation?: (requestId: string, decision: string) => void;
   confirmRequestId?: string;
   toolName?: string;
-}): Session {
+}): Conversation {
   let processing = false;
   const reqId = opts?.confirmRequestId ?? "confirm-req-1";
   const tool = opts?.toolName ?? "shell_command";
@@ -212,7 +212,7 @@ function makeConfirmationEmittingSession(opts?: {
       opts?.onConfirmation?.(requestId, decision);
     },
     handleSecretResponse: () => {},
-  } as unknown as Session;
+  } as unknown as Conversation;
 }
 
 // ---------------------------------------------------------------------------
@@ -245,13 +245,15 @@ describe("standalone approval endpoints — HTTP layer", () => {
     }
   });
 
-  async function startServer(sessionFactory: () => Session): Promise<void> {
+  async function startServer(
+    sessionFactory: () => Conversation,
+  ): Promise<void> {
     port = 20000 + Math.floor(Math.random() * 1000);
     server = new RuntimeHttpServer({
       port,
       bearerToken: TEST_TOKEN,
       sendMessageDeps: {
-        getOrCreateSession: async () => sessionFactory(),
+        getOrCreateConversation: async () => sessionFactory(),
         assistantEventHub: eventHub,
         resolveAttachments: () => [],
       },
@@ -618,7 +620,7 @@ describe("standalone approval endpoints — HTTP layer", () => {
           allowlistOptions: [
             { label: "Allow", description: "test", pattern: "rm" },
           ],
-          scopeOptions: [{ label: "Session", scope: "session" }],
+          scopeOptions: [{ label: "Conversation", scope: "session" }],
           persistentDecisionsAllowed: false,
         },
       });
@@ -654,7 +656,7 @@ describe("standalone approval endpoints — HTTP layer", () => {
           allowlistOptions: [
             { label: "Allow ls", description: "test", pattern: "ls" },
           ],
-          scopeOptions: [{ label: "Session", scope: "session" }],
+          scopeOptions: [{ label: "Conversation", scope: "session" }],
         },
       });
 
@@ -693,7 +695,7 @@ describe("standalone approval endpoints — HTTP layer", () => {
           allowlistOptions: [
             { label: "Allow ls", description: "test", pattern: "ls" },
           ],
-          scopeOptions: [{ label: "Session", scope: "session" }],
+          scopeOptions: [{ label: "Conversation", scope: "session" }],
         },
       });
 
@@ -732,7 +734,7 @@ describe("standalone approval endpoints — HTTP layer", () => {
           allowlistOptions: [
             { label: "Allow ls", description: "test", pattern: "ls" },
           ],
-          scopeOptions: [{ label: "Session", scope: "session" }],
+          scopeOptions: [{ label: "Conversation", scope: "session" }],
         },
       });
 

@@ -163,7 +163,6 @@ import type { ToolContext } from "../tools/types.js";
 function makeContext(overrides?: Partial<ToolContext>): ToolContext {
   return {
     workingDir: "/tmp/project",
-    sessionId: "session-1",
     conversationId: "conversation-1",
     trustClass: "guardian",
     ...overrides,

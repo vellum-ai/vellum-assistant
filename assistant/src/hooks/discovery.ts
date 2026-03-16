@@ -12,8 +12,8 @@ const log = getLogger("hooks-discovery");
 const VALID_EVENTS = new Set<string>([
   "daemon-start",
   "daemon-stop",
-  "session-start",
-  "session-end",
+  "conversation-start",
+  "conversation-end",
   "pre-llm-call",
   "post-llm-call",
   "pre-tool-execute",

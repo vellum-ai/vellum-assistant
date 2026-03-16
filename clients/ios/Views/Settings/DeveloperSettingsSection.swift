@@ -41,11 +41,11 @@ private struct DeveloperSettingsSectionContent: View {
     }
 
     private var sessionCount: Int {
-        traceStore.eventsBySession.count
+        traceStore.eventsByConversation.count
     }
 
     private var totalEventCount: Int {
-        traceStore.eventsBySession.values.reduce(0) { $0 + $1.count }
+        traceStore.eventsByConversation.values.reduce(0) { $0 + $1.count }
     }
 
     var body: some View {
@@ -88,7 +88,7 @@ private struct DeveloperSettingsSectionContent: View {
         .sheet(isPresented: $showDebugPanel) {
             DebugPanelView(
                 traceStore: traceStore,
-                sessionId: selectedSessionId,
+                conversationId: selectedSessionId,
                 onClose: { showDebugPanel = false }
             )
         }

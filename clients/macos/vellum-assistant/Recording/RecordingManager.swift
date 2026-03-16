@@ -323,7 +323,7 @@ final class RecordingManager: ObservableObject {
 
         let message = RecordingStatus(
             type: "recording_status",
-            sessionId: sessionId,
+            conversationId: sessionId,
             status: status,
             filePath: filePath,
             durationMs: durationMs.flatMap { Double($0) },

@@ -14,7 +14,7 @@ import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 mock.module("../config/env.js", () => ({ isHttpAuthDisabled: () => true }));
 
 import { createGuardianBinding } from "../contacts/contacts-write.js";
-import type { Session } from "../daemon/conversation.js";
+import type { Conversation } from "../daemon/conversation.js";
 import type { ServerMessage } from "../daemon/message-protocol.js";
 import { createCanonicalGuardianRequest } from "../memory/canonical-guardian-store.js";
 import { getOrCreateConversation } from "../memory/conversation-key-store.js";
@@ -82,11 +82,11 @@ import * as pendingInteractions from "../runtime/pending-interactions.js";
 initializeDb();
 
 // ---------------------------------------------------------------------------
-// Session helpers
+// Conversation helpers
 // ---------------------------------------------------------------------------
 
-/** Session that completes its agent loop quickly and emits a text delta + message_complete. */
-function makeCompletingSession(): Session {
+/** Conversation that completes its agent loop quickly and emits a text delta + message_complete. */
+function makeCompletingSession(): Conversation {
   let processing = false;
   const messages: unknown[] = [];
   return {
@@ -129,17 +129,17 @@ function makeCompletingSession(): Session {
       onEvent: (msg: ServerMessage) => void,
     ) => {
       onEvent({ type: "assistant_text_delta", text: "Hello!" });
-      onEvent({ type: "message_complete", sessionId: "test-session" });
+      onEvent({ type: "message_complete", conversationId: "test-session" });
       processing = false;
     },
     handleConfirmationResponse: () => {},
     handleSecretResponse: () => {},
     getMessages: () => messages as never[],
-  } as unknown as Session;
+  } as unknown as Conversation;
 }
 
-/** Session that hangs forever in the agent loop (simulates a busy session). */
-function makeHangingSession(): Session {
+/** Conversation that hangs forever in the agent loop (simulates a busy session). */
+function makeHangingSession(): Conversation {
   let processing = false;
   const messages: unknown[] = [];
   const enqueuedMessages: Array<{
@@ -197,7 +197,7 @@ function makeHangingSession(): Session {
     handleSecretResponse: () => {},
     getMessages: () => messages as never[],
     _enqueuedMessages: enqueuedMessages,
-  } as unknown as Session;
+  } as unknown as Conversation;
 }
 
 function makePendingApprovalSession(
@@ -205,7 +205,7 @@ function makePendingApprovalSession(
   processing: boolean,
   options?: { queueDepth?: number },
 ): {
-  session: Session;
+  session: Conversation;
   runAgentLoopMock: ReturnType<typeof mock>;
   enqueueMessageMock: ReturnType<typeof mock>;
   denyAllPendingConfirmationsMock: ReturnType<typeof mock>;
@@ -274,7 +274,7 @@ function makePendingApprovalSession(
     handleConfirmationResponse: handleConfirmationResponseMock,
     handleSecretResponse: () => {},
     getMessages: () => messages as never[],
-  } as unknown as Session;
+  } as unknown as Conversation;
 
   return {
     session,
@@ -329,7 +329,7 @@ describe("POST /v1/messages — queue-if-busy and hub publishing", () => {
   });
 
   async function startServer(
-    sessionFactory: () => Session,
+    sessionFactory: () => Conversation,
     options?: { approvalConversationGenerator?: ApprovalConversationGenerator },
   ): Promise<void> {
     port = 19000 + Math.floor(Math.random() * 1000);
@@ -338,7 +338,7 @@ describe("POST /v1/messages — queue-if-busy and hub publishing", () => {
       bearerToken: TEST_TOKEN,
       approvalConversationGenerator: options?.approvalConversationGenerator,
       sendMessageDeps: {
-        getOrCreateSession: async () => sessionFactory(),
+        getOrCreateConversation: async () => sessionFactory(),
         assistantEventHub: eventHub,
         resolveAttachments: () => [],
       },

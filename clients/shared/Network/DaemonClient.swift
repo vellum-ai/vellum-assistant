@@ -86,7 +86,7 @@ public protocol DaemonClientProtocol {
     func disconnect()
     func startSSE()
     func stopSSE()
-    func fetchSurfaceData(surfaceId: String, sessionId: String) async -> SurfaceData?
+    func fetchSurfaceData(surfaceId: String, conversationId: String) async -> SurfaceData?
     func sendBtwMessage(content: String, conversationKey: String) -> AsyncThrowingStream<String, Error>
 }
 
@@ -96,7 +96,7 @@ extension DaemonClientProtocol {
     }
 
     /// Default no-op implementation for clients that don't support HTTP surface fetches.
-    public func fetchSurfaceData(surfaceId: String, sessionId: String) async -> SurfaceData? { nil }
+    public func fetchSurfaceData(surfaceId: String, conversationId: String) async -> SurfaceData? { nil }
 
     /// Default no-op implementation for clients that don't support btw side-chain.
     public func sendBtwMessage(content: String, conversationKey: String) -> AsyncThrowingStream<String, Error> {
@@ -752,9 +752,9 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
 
     /// Convenience method for sending a surface action response to the daemon.
     /// Keeps the message construction co-located with the client.
-    public func sendSurfaceAction(sessionId: String?, surfaceId: String, actionId: String, data: [String: AnyCodable]?) throws {
+    public func sendSurfaceAction(conversationId: String?, surfaceId: String, actionId: String, data: [String: AnyCodable]?) throws {
         let message = UiSurfaceActionMessage(
-            sessionId: sessionId,
+            conversationId: conversationId,
             surfaceId: surfaceId,
             actionId: actionId,
             data: data
@@ -768,15 +768,15 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     /// For remote connections, delegates to `HTTPTransport`. For local connections,
     /// builds a request against the daemon's HTTP server directly.
     /// Returns the parsed `SurfaceData`, or `nil` on failure.
-    public func fetchSurfaceData(surfaceId: String, sessionId: String) async -> SurfaceData? {
+    public func fetchSurfaceData(surfaceId: String, conversationId: String) async -> SurfaceData? {
         if let httpTransport {
-            return await httpTransport.fetchSurfaceData(surfaceId: surfaceId, sessionId: sessionId)
+            return await httpTransport.fetchSurfaceData(surfaceId: surfaceId, conversationId: conversationId)
         }
 
         // Local daemon path — build request using the daemon HTTP port.
         let sEncoded = surfaceId.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? surfaceId
-        let qEncoded = sessionId.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? sessionId
-        let surfacePath = "v1/surfaces/\(sEncoded)?sessionId=\(qEncoded)"
+        let qEncoded = conversationId.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? conversationId
+        let surfacePath = "v1/surfaces/\(sEncoded)?conversationId=\(qEncoded)"
         guard let request = buildLocalRequest(
             target: .daemon,
             path: surfacePath,
@@ -1125,8 +1125,8 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     // MARK: - Surface Undo
 
     /// Send a surface undo request to revert the last refinement on a workspace surface.
-    public func sendSurfaceUndo(sessionId: String, surfaceId: String) throws {
-        let message = UiSurfaceUndoMessage(sessionId: sessionId, surfaceId: surfaceId)
+    public func sendSurfaceUndo(conversationId: String, surfaceId: String) throws {
+        let message = UiSurfaceUndoMessage(conversationId: conversationId, surfaceId: surfaceId)
         try send(message)
     }
 
@@ -1307,8 +1307,8 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     // MARK: - Subagent Management
 
     /// Abort a running subagent.
-    public func sendSubagentAbort(subagentId: String, sessionId: String? = nil) throws {
-        try send(SubagentAbortMessage(subagentId: subagentId, sessionId: sessionId))
+    public func sendSubagentAbort(subagentId: String, conversationId: String? = nil) throws {
+        try send(SubagentAbortMessage(subagentId: subagentId, conversationId: conversationId))
     }
 
     /// Request subagent detail events (lazy-loaded when the user opens the detail panel).
@@ -1376,15 +1376,15 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     // MARK: - Queue Management
 
     /// Delete a specific queued message by its requestId.
-    public func sendDeleteQueuedMessage(sessionId: String, requestId: String) throws {
-        try send(DeleteQueuedMessageMessage(sessionId: sessionId, requestId: requestId))
+    public func sendDeleteQueuedMessage(conversationId: String, requestId: String) throws {
+        try send(DeleteQueuedMessageMessage(conversationId: conversationId, requestId: requestId))
     }
 
     // MARK: - Regenerate
 
     /// Regenerate the last assistant response for a conversation.
     public func sendRegenerate(conversationId: String) throws {
-        try send(RegenerateMessage(sessionId: conversationId))
+        try send(RegenerateMessage(conversationId: conversationId))
     }
 
     // MARK: - Conversations
@@ -1409,13 +1409,13 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     ///   - maxTextChars: When set, truncates assistant text content to this many characters.
     ///   - maxToolResultChars: When set, truncates tool result content to this many characters.
     public func sendHistoryRequest(conversationId: String, limit: Int? = nil, beforeTimestamp: Double? = nil, mode: String? = nil, maxTextChars: Int? = nil, maxToolResultChars: Int? = nil) throws {
-        try send(HistoryRequestMessage(sessionId: conversationId, limit: limit, beforeTimestamp: beforeTimestamp, mode: mode, maxTextChars: maxTextChars, maxToolResultChars: maxToolResultChars))
+        try send(HistoryRequestMessage(conversationId: conversationId, limit: limit, beforeTimestamp: beforeTimestamp, mode: mode, maxTextChars: maxTextChars, maxToolResultChars: maxToolResultChars))
     }
 
     /// Request full (untruncated) content for a specific message.
     /// Used to rehydrate messages that were loaded with truncated text/tool results.
-    public func sendMessageContentRequest(sessionId: String, messageId: String) throws {
-        try send(MessageContentRequest(type: "message_content_request", sessionId: sessionId, messageId: messageId))
+    public func sendMessageContentRequest(conversationId: String, messageId: String) throws {
+        try send(MessageContentRequest(type: "message_content_request", conversationId: conversationId, messageId: messageId))
     }
 
     // MARK: - Apps
@@ -1504,7 +1504,7 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     public func sendChannelVerificationSession(
         action: String,
         channel: String? = nil,
-        sessionId: String? = nil,
+        conversationId: String? = nil,
         rebind: Bool? = nil,
         destination: String? = nil,
         originConversationId: String? = nil,
@@ -1514,7 +1514,7 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
         try send(ChannelVerificationSessionRequestMessage(
             action: action,
             channel: channel,
-            sessionId: sessionId,
+            conversationId: conversationId,
             rebind: rebind,
             destination: destination,
             originConversationId: originConversationId,

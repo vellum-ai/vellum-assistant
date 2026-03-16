@@ -89,7 +89,6 @@ import type { ToolContext } from "../tools/types.js";
 
 function makeContext(overrides?: Partial<ToolContext>): ToolContext {
   return {
-    sessionId: "test-session",
     conversationId: "test-conv",
     workingDir: "/tmp/test",
     trustClass: "guardian",

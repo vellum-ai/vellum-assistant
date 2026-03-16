@@ -45,7 +45,7 @@ mock.module("../util/logger.js", () => ({
 }));
 
 import { GRANT_TTL_MS } from "../approvals/guardian-decision-primitive.js";
-import type { Session } from "../daemon/conversation.js";
+import type { Conversation } from "../daemon/conversation.js";
 import type { TrustContext } from "../daemon/conversation-runtime-assembly.js";
 import { getDb, initializeDb, resetDb } from "../memory/db.js";
 import {
@@ -125,7 +125,7 @@ function registerPendingInteraction(
   const mockSession = {
     handleConfirmationResponse,
     ensureActorScopedHistory: async () => {},
-  } as unknown as Session;
+  } as unknown as Conversation;
 
   pendingInteractions.register(requestId, {
     session: mockSession,

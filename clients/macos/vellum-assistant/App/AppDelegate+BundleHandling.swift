@@ -165,7 +165,7 @@ extension AppDelegate {
                     </html>
                     """
                     let surfaceMsg = UiSurfaceShowMessage(
-                        sessionId: "shared-app",
+                        conversationId: "shared-app",
                         surfaceId: surfaceId,
                         surfaceType: "dynamic_page",
                         title: manifest.name,

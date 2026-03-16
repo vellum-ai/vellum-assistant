@@ -153,11 +153,11 @@ function normalizeTaskProgressCardPatch(
 }
 
 /**
- * Subset of Session state that surface helpers need access to.
- * The Session class implements this interface so its instances can be
+ * Subset of Conversation state that surface helpers need access to.
+ * The Conversation class implements this interface so its instances can be
  * passed directly to the extracted functions.
  */
-export interface SurfaceSessionContext {
+export interface SurfaceConversationContext {
   readonly conversationId: string;
   readonly channelCapabilities?: {
     channel: string;
@@ -274,7 +274,7 @@ export function createSurfaceMutex(): SurfaceMutex {
  * Auto-saves the document content to the app store.
  */
 function handleDocumentContentChanged(
-  ctx: SurfaceSessionContext,
+  ctx: SurfaceConversationContext,
   surfaceId: string,
   data?: Record<string, unknown>,
 ): void {
@@ -363,14 +363,14 @@ export function pushUndoState(
 }
 
 export function handleSurfaceUndo(
-  ctx: SurfaceSessionContext,
+  ctx: SurfaceConversationContext,
   surfaceId: string,
 ): void {
   const stack = ctx.surfaceUndoStacks.get(surfaceId);
   if (!stack || stack.length === 0) {
     ctx.sendToClient({
       type: "ui_surface_undo_result",
-      sessionId: ctx.conversationId,
+      conversationId: ctx.conversationId,
       surfaceId,
       success: false,
       remainingUndos: 0,
@@ -383,7 +383,7 @@ export function handleSurfaceUndo(
   if (!stored || stored.surfaceType !== "dynamic_page") {
     ctx.sendToClient({
       type: "ui_surface_undo_result",
-      sessionId: ctx.conversationId,
+      conversationId: ctx.conversationId,
       surfaceId,
       success: false,
       remainingUndos: stack.length,
@@ -413,7 +413,7 @@ export function handleSurfaceUndo(
       s.data = revertedData;
       ctx.sendToClient({
         type: "ui_surface_update",
-        sessionId: ctx.conversationId,
+        conversationId: ctx.conversationId,
         surfaceId: sid,
         data: revertedData,
       });
@@ -444,7 +444,7 @@ export function handleSurfaceUndo(
     stored.data = revertedData;
     ctx.sendToClient({
       type: "ui_surface_update",
-      sessionId: ctx.conversationId,
+      conversationId: ctx.conversationId,
       surfaceId,
       data: revertedData,
     });
@@ -452,7 +452,7 @@ export function handleSurfaceUndo(
 
   ctx.sendToClient({
     type: "ui_surface_undo_result",
-    sessionId: ctx.conversationId,
+    conversationId: ctx.conversationId,
     surfaceId,
     success: true,
     remainingUndos: stack.length,
@@ -535,7 +535,7 @@ export function buildDeselectionDescription(
 }
 
 export function handleSurfaceAction(
-  ctx: SurfaceSessionContext,
+  ctx: SurfaceConversationContext,
   surfaceId: string,
   actionId: string,
   data?: Record<string, unknown>,
@@ -584,7 +584,7 @@ export function handleSurfaceAction(
     ctx.sendToClient({
       type: "user_message_echo",
       text: prompt,
-      sessionId: ctx.conversationId,
+      conversationId: ctx.conversationId,
     });
 
     if (result.queued) {
@@ -595,7 +595,7 @@ export function handleSurfaceAction(
       return;
     }
 
-    // Session is idle — process the message immediately.
+    // Conversation is idle — process the message immediately.
     log.info(
       { surfaceId, actionId, requestId },
       "Processing relay prompt immediately (history-restored)",
@@ -735,7 +735,7 @@ export function handleSurfaceAction(
     ctx.sendToClient({
       type: "user_message_echo",
       text: prompt,
-      sessionId: ctx.conversationId,
+      conversationId: ctx.conversationId,
     });
   }
   if (result.queued) {
@@ -758,7 +758,7 @@ export function handleSurfaceAction(
     );
     onEvent({
       type: "message_queued",
-      sessionId: ctx.conversationId,
+      conversationId: ctx.conversationId,
       requestId,
       position,
     });
@@ -800,7 +800,7 @@ export function handleSurfaceAction(
  * After an app_update, refresh any active surface that displays the updated app.
  */
 export function refreshSurfacesForApp(
-  ctx: SurfaceSessionContext,
+  ctx: SurfaceConversationContext,
   appId: string,
   opts?: { fileChange?: boolean; status?: string },
 ): boolean {
@@ -838,7 +838,7 @@ export function refreshSurfacesForApp(
     // Push the update to the client
     ctx.sendToClient({
       type: "ui_surface_update",
-      sessionId: ctx.conversationId,
+      conversationId: ctx.conversationId,
       surfaceId,
       data: updatedData,
     });
@@ -936,7 +936,7 @@ export function buildUserFacingLabel(
  * Handles ui_show, ui_update, ui_dismiss, computer_use_* proxy tools, and app_open.
  */
 export async function surfaceProxyResolver(
-  ctx: SurfaceSessionContext,
+  ctx: SurfaceConversationContext,
   toolName: string,
   input: Record<string, unknown>,
   signal?: AbortSignal,
@@ -1077,7 +1077,7 @@ export async function surfaceProxyResolver(
 
     ctx.sendToClient({
       type: "ui_surface_show",
-      sessionId: ctx.conversationId,
+      conversationId: ctx.conversationId,
       surfaceId,
       surfaceType,
       title,
@@ -1142,7 +1142,7 @@ export async function surfaceProxyResolver(
 
     ctx.sendToClient({
       type: "ui_surface_update",
-      sessionId: ctx.conversationId,
+      conversationId: ctx.conversationId,
       surfaceId,
       data: mergedData,
     });
@@ -1171,7 +1171,7 @@ export async function surfaceProxyResolver(
       );
       ctx.sendToClient({
         type: "ui_surface_complete",
-        sessionId: ctx.conversationId,
+        conversationId: ctx.conversationId,
         surfaceId,
         summary,
         submittedData: lastAction.data,
@@ -1179,7 +1179,7 @@ export async function surfaceProxyResolver(
     } else {
       ctx.sendToClient({
         type: "ui_surface_dismiss",
-        sessionId: ctx.conversationId,
+        conversationId: ctx.conversationId,
         surfaceId,
       });
     }
@@ -1222,7 +1222,7 @@ export async function surfaceProxyResolver(
       // this as a tappable inline card that opens the app on demand.
       ctx.sendToClient({
         type: "ui_surface_show",
-        sessionId: ctx.conversationId,
+        conversationId: ctx.conversationId,
         surfaceId,
         surfaceType: "dynamic_page",
         title: app.name,
@@ -1250,7 +1250,7 @@ export async function surfaceProxyResolver(
 
     ctx.sendToClient({
       type: "ui_surface_show",
-      sessionId: ctx.conversationId,
+      conversationId: ctx.conversationId,
       surfaceId,
       surfaceType: "dynamic_page",
       title: app.name,

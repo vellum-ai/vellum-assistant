@@ -338,7 +338,7 @@ public final class SubagentDetailStore {
             case "text":
                 handleEvent(
                     subagentId: subagentId,
-                    event: .assistantTextDelta(AssistantTextDelta(type: "assistant_text_delta", text: event.content, sessionId: nil))
+                    event: .assistantTextDelta(AssistantTextDelta(type: "assistant_text_delta", text: event.content, conversationId: nil))
                 )
             case "tool_use":
                 let input: [String: AnyCodable]
@@ -350,12 +350,12 @@ public final class SubagentDetailStore {
                 }
                 handleEvent(
                     subagentId: subagentId,
-                    event: .toolUseStart(ToolUseStart(type: "tool_use_start", toolName: event.toolName ?? "unknown", input: input, sessionId: nil))
+                    event: .toolUseStart(ToolUseStart(type: "tool_use_start", toolName: event.toolName ?? "unknown", input: input, conversationId: nil))
                 )
             case "tool_result":
                 handleEvent(
                     subagentId: subagentId,
-                    event: .toolResult(ToolResult(type: "tool_result", toolName: event.toolName ?? "unknown", result: event.content, isError: event.isError, diff: nil, status: nil, sessionId: nil, imageData: nil))
+                    event: .toolResult(ToolResult(type: "tool_result", toolName: event.toolName ?? "unknown", result: event.content, isError: event.isError, diff: nil, status: nil, conversationId: nil, imageData: nil))
                 )
             default:
                 break

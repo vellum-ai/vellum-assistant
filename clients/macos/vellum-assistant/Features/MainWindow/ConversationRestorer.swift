@@ -274,7 +274,7 @@ final class ConversationRestorer {
     }
 
     func handleHistoryResponse(_ response: HistoryResponse) {
-        guard let threadId = pendingHistoryByConversationId.removeValue(forKey: response.sessionId) else { return }
+        guard let threadId = pendingHistoryByConversationId.removeValue(forKey: response.conversationId) else { return }
         guard let viewModel = delegate?.chatViewModel(for: threadId) else { return }
 
         // Determine whether this is a pagination load (older page) vs an initial

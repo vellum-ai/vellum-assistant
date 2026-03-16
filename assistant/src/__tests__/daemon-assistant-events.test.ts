@@ -49,7 +49,7 @@ describe("buildAssistantEvent", () => {
   test("returns event with correct shape", () => {
     const msg: ServerMessage = {
       type: "assistant_text_delta",
-      sessionId: "sess_1",
+      conversationId: "sess_1",
       text: "hi",
     };
     const event = buildAssistantEvent("ast_1", msg, "sess_1");
@@ -57,7 +57,7 @@ describe("buildAssistantEvent", () => {
     expect(typeof event.id).toBe("string");
     expect(event.id.length).toBeGreaterThan(0);
     expect(event.assistantId).toBe("ast_1");
-    expect(event.sessionId).toBe("sess_1");
+    expect(event.conversationId).toBe("sess_1");
     expect(event.message).toBe(msg);
     expect(typeof event.emittedAt).toBe("string");
     expect(new Date(event.emittedAt).toISOString()).toBe(event.emittedAt);
@@ -70,10 +70,10 @@ describe("buildAssistantEvent", () => {
     expect(a.id).not.toBe(b.id);
   });
 
-  test("sessionId is undefined when omitted", () => {
+  test("conversationId is undefined when omitted", () => {
     const msg: ServerMessage = { type: "pong" };
     const event = buildAssistantEvent("ast", msg);
-    expect(event.sessionId).toBeUndefined();
+    expect(event.conversationId).toBeUndefined();
   });
 });
 
@@ -90,7 +90,7 @@ describe("daemon send → one mirrored assistant event", () => {
 
     const msg: ServerMessage = {
       type: "assistant_text_delta",
-      sessionId: "sess_a",
+      conversationId: "sess_a",
       text: "hello",
     };
     const event = buildAssistantEvent("ast_test", msg, "sess_a");
@@ -98,11 +98,11 @@ describe("daemon send → one mirrored assistant event", () => {
 
     expect(received).toHaveLength(1);
     expect(received[0].assistantId).toBe("ast_test");
-    expect(received[0].sessionId).toBe("sess_a");
+    expect(received[0].conversationId).toBe("sess_a");
     expect(received[0].message.type).toBe("assistant_text_delta");
   });
 
-  test("sessionId falls back to explicit parameter when message lacks it", async () => {
+  test("conversationId falls back to explicit parameter when message lacks it", async () => {
     const hub = new AssistantEventHub();
     const received: AssistantEvent[] = [];
 
@@ -110,13 +110,13 @@ describe("daemon send → one mirrored assistant event", () => {
       received.push(e);
     });
 
-    const msg: ServerMessage = { type: "pong" }; // no sessionId field
+    const msg: ServerMessage = { type: "pong" }; // no conversationId field
     const event = buildAssistantEvent("ast_test", msg, "sess_explicit");
 
     await hub.publish(event);
 
     expect(received).toHaveLength(1);
-    expect(received[0].sessionId).toBe("sess_explicit");
+    expect(received[0].conversationId).toBe("sess_explicit");
   });
 });
 
@@ -136,7 +136,7 @@ describe("daemon broadcast → one mirrored event per message (not per socket)",
     // Simulate broadcast: server calls publishAssistantEvent once
     const msg: ServerMessage = {
       type: "message_complete",
-      sessionId: "sess_b",
+      conversationId: "sess_b",
     };
     const event = buildAssistantEvent("ast_bc", msg, "sess_b");
     await hub.publish(event);
@@ -155,10 +155,13 @@ describe("daemon broadcast → one mirrored event per message (not per socket)",
 
     const msgA: ServerMessage = {
       type: "assistant_text_delta",
-      sessionId: "s1",
+      conversationId: "s1",
       text: "a",
     };
-    const msgB: ServerMessage = { type: "message_complete", sessionId: "s1" };
+    const msgB: ServerMessage = {
+      type: "message_complete",
+      conversationId: "s1",
+    };
 
     // Simulate: one broadcast + one single send
     await hub.publish(buildAssistantEvent("ast_bc", msgA, "s1"));

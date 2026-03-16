@@ -15,7 +15,7 @@ export async function run(
 
   try {
     const download = await browserManager.waitForDownload(
-      context.sessionId,
+      context.conversationId,
       timeout,
     );
     return {

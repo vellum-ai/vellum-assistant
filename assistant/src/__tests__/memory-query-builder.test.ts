@@ -28,7 +28,7 @@ describe("memory query builder", () => {
     expect(query).toContain("Context summary:");
     expect(query).toContain("Keep tests deterministic");
     expect(query).not.toContain("## User Request");
-    expect(query).not.toContain("## Session Context Summary");
+    expect(query).not.toContain("## Conversation Context Summary");
   });
 
   test("truncates oversized sections with deterministic marker", () => {
@@ -44,7 +44,7 @@ describe("memory query builder", () => {
     expect(query).toContain("<truncated />");
     expect(query).toContain("Context summary:");
     expect(query).not.toContain("## User Request");
-    expect(query).not.toContain("## Session Context Summary");
+    expect(query).not.toContain("## Conversation Context Summary");
   });
 
   test("returns stable output for identical inputs", () => {

@@ -553,8 +553,8 @@ export async function runDaemon(): Promise<void> {
       guardianFollowUpConversationGenerator:
         createGuardianFollowUpConversationGenerator(),
       sendMessageDeps: {
-        getOrCreateSession: (conversationId) =>
-          server.getSessionForMessages(conversationId),
+        getOrCreateConversation: (conversationId) =>
+          server.getConversationForMessages(conversationId),
         assistantEventHub,
         resolveAttachments: (attachmentIds) =>
           attachmentsStore.getAttachmentsByIds(attachmentIds).map((a) => ({
@@ -564,9 +564,10 @@ export async function runDaemon(): Promise<void> {
             data: a.dataBase64,
           })),
       },
-      findConversation: (sessionId) => server.findSession(sessionId),
+      findConversation: (conversationId) =>
+        server.findConversation(conversationId),
       findConversationBySurfaceId: (surfaceId) =>
-        server.findSessionBySurfaceId(surfaceId),
+        server.findConversationBySurfaceId(surfaceId),
       getSkillContext: () => server.getSkillContext(),
       getModelSetContext: () => server.getHandlerContext(),
       conversationManagementDeps: {
@@ -619,7 +620,7 @@ export async function runDaemon(): Promise<void> {
               {
                 type: "watch_observation",
                 watchId: params.watchId,
-                sessionId: params.sessionId,
+                conversationId: params.conversationId,
                 ocrText: params.ocrText,
                 appName: params.appName,
                 windowTitle: params.windowTitle,
@@ -643,7 +644,7 @@ export async function runDaemon(): Promise<void> {
     // The bridge must be available even when the HTTP server fails to bind.
     setVoiceBridgeDeps({
       getOrCreateSession: (conversationId, _transport) =>
-        server.getSessionForMessages(conversationId),
+        server.getConversationForMessages(conversationId),
       resolveAttachments: (attachmentIds) =>
         attachmentsStore.getAttachmentsByIds(attachmentIds).map((a) => ({
           id: a.id,
@@ -661,7 +662,8 @@ export async function runDaemon(): Promise<void> {
       setRelayBroadcast((msg) => server.broadcast(msg));
       setPointerMessageProcessor(
         async (conversationId, instruction, requiredFacts) => {
-          const session = await server.getSessionForMessages(conversationId);
+          const session =
+            await server.getConversationForMessages(conversationId);
 
           // Constrain pointer generation to a tool-disabled path so call-
           // status events cannot trigger unintended side-effect tools.
