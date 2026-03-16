@@ -733,7 +733,26 @@ private struct WorkspaceFileViewer: View {
                     Text("Read-only")
                         .font(VFont.caption)
                         .foregroundColor(VColor.contentTertiary)
-                } else if isText && state.isDirty {
+                }
+            }
+            Divider().background(VColor.borderBase)
+
+            if isText {
+                textViewer(detail, readOnly: readOnly)
+            } else if mime.hasPrefix("image/") {
+                imageViewer(detail)
+            } else if mime.hasPrefix("video/") {
+                videoViewer(detail)
+            } else if !detail.isBinary, detail.content == nil {
+                fileTooLarge(detail)
+            } else {
+                binaryFallback(detail)
+            }
+
+            if isText && !readOnly && state.isDirty {
+                Divider().background(VColor.borderBase)
+                HStack {
+                    Spacer()
                     HStack(spacing: VSpacing.xs) {
                         if state.isSaving {
                             VBusyIndicator(size: 8)
@@ -749,19 +768,9 @@ private struct WorkspaceFileViewer: View {
                         .keyboardShortcut("s", modifiers: .command)
                     }
                 }
-            }
-            Divider().background(VColor.borderBase)
-
-            if isText {
-                textViewer(detail, readOnly: readOnly)
-            } else if mime.hasPrefix("image/") {
-                imageViewer(detail)
-            } else if mime.hasPrefix("video/") {
-                videoViewer(detail)
-            } else if !detail.isBinary, detail.content == nil {
-                fileTooLarge(detail)
-            } else {
-                binaryFallback(detail)
+                .padding(.horizontal, VSpacing.md)
+                .padding(.vertical, VSpacing.sm)
+                .background(VColor.surfaceOverlay)
             }
         }
     }
