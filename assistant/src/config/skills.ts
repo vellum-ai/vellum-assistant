@@ -269,7 +269,7 @@ function parseFrontmatter(
         if (vellum && typeof vellum === "object") {
           emoji = typeof vellum.emoji === "string" ? vellum.emoji : undefined;
         }
-        if (!emoji && parsedMeta?.emoji) {
+        if (!emoji && typeof parsedMeta?.emoji === "string") {
           emoji = parsedMeta.emoji;
         }
       }
