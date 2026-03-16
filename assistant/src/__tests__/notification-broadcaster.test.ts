@@ -6,8 +6,8 @@
  * - Handles missing adapters gracefully
  * - Falls back to copy-composer when decision copy is missing
  * - Reports delivery results per channel
- * - Emits notification_thread_created only when a new conversation is created
- * - Does NOT emit notification_thread_created when reusing an existing conversation
+ * - Emits notification_conversation_created only when a new conversation is created
+ * - Does NOT emit notification_conversation_created when reusing an existing conversation
  * - Passes destination binding context into conversation pairing for external channels
  */
 

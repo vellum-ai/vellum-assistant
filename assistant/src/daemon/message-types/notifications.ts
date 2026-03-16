@@ -18,7 +18,7 @@ export interface NotificationIntent {
 
 /** Server push — broadcast when a notification creates a new vellum conversation. */
 export interface NotificationConversationCreated {
-  type: "notification_thread_created";
+  type: "notification_conversation_created";
   conversationId: string;
   title: string;
   sourceEventName: string;

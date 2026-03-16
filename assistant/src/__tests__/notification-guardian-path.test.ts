@@ -200,7 +200,7 @@ describe("ASK_GUARDIAN canonical notification path", () => {
     expect(payload.requestCode).toBeDefined();
   });
 
-  test("uses notification_thread_created callback instead of a guardian-specific dispatch path", async () => {
+  test("uses notification_conversation_created callback instead of a guardian-specific dispatch path", async () => {
     const convId = "conv-guardian-notif-2";
     ensureConversation(convId);
     mockConversationCreated = {

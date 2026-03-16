@@ -510,7 +510,7 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
     }
 
     /// Create a visible thread bound to a notification-created conversation.
-    /// Called when the daemon broadcasts `notification_thread_created` so the user
+    /// Called when the daemon broadcasts `notification_conversation_created` so the user
     /// can see notification conversations and deep-link into them.
     func createNotificationConversation(conversationId: String, title: String, sourceEventName: String) {
         guard let localId = createBackgroundConversation(
