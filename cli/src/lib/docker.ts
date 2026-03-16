@@ -19,12 +19,14 @@ import {
   writeToLogFile,
 } from "./xdg-log";
 
+type ServiceName = "assistant" | "credential-executor" | "gateway";
+
 const DOCKERHUB_ORG = "vellumai";
-const DOCKERHUB_IMAGES = {
+const DOCKERHUB_IMAGES: Record<ServiceName, string> = {
   assistant: `${DOCKERHUB_ORG}/vellum-assistant`,
-  credentialExecutor: `${DOCKERHUB_ORG}/vellum-credential-executor`,
+  "credential-executor": `${DOCKERHUB_ORG}/vellum-credential-executor`,
   gateway: `${DOCKERHUB_ORG}/vellum-gateway`,
-} as const;
+};
 
 /** Internal ports exposed by each service's Dockerfile. */
 const ASSISTANT_INTERNAL_PORT = 3001;
@@ -251,18 +253,18 @@ async function buildImage(config: ServiceImageConfig): Promise<void> {
 
 function serviceImageConfigs(
   repoRoot: string,
-  imageTags: { assistant: string; credentialExecutor: string; gateway: string },
-): Record<"assistant" | "credentialExecutor" | "gateway", ServiceImageConfig> {
+  imageTags: Record<ServiceName, string>,
+): Record<ServiceName, ServiceImageConfig> {
   return {
     assistant: {
       context: repoRoot,
       dockerfile: "assistant/Dockerfile",
       tag: imageTags.assistant,
     },
-    credentialExecutor: {
+    "credential-executor": {
       context: repoRoot,
       dockerfile: "credential-executor/Dockerfile",
-      tag: imageTags.credentialExecutor,
+      tag: imageTags["credential-executor"],
     },
     gateway: {
       context: join(repoRoot, "gateway"),
@@ -274,99 +276,91 @@ function serviceImageConfigs(
 
 async function buildAllImages(
   repoRoot: string,
-  imageTags: { assistant: string; credentialExecutor: string; gateway: string },
+  imageTags: Record<ServiceName, string>,
 ): Promise<void> {
   const configs = serviceImageConfigs(repoRoot, imageTags);
-  for (const [name, config] of Object.entries(configs)) {
-    console.log(`🔨 Building ${name}...`);
-    await buildImage(config);
-    console.log(`✅ ${name} built`);
-  }
+  console.log("🔨 Building all images in parallel...");
+  await Promise.all(
+    Object.entries(configs).map(async ([name, config]) => {
+      await buildImage(config);
+      console.log(`✅ ${name} built`);
+    }),
+  );
 }
+
+/**
+ * Returns a function that builds the `docker run` arguments for a given
+ * service. Containers must be started in order because gateway and CES
+ * attach to the assistant's network namespace.
+ */
+function serviceDockerRunArgs(opts: {
+  gatewayPort: number;
+  imageTags: Record<ServiceName, string>;
+  instanceName: string;
+  res: ReturnType<typeof dockerResourceNames>;
+}): Record<ServiceName, () => string[]> {
+  const { gatewayPort, imageTags, instanceName, res } = opts;
+  return {
+    assistant: () => {
+      const args: string[] = [
+        "run", "--init", "-d",
+        "--name", res.assistantContainer,
+        "-p", `${gatewayPort}:${GATEWAY_INTERNAL_PORT}`,
+        "-v", `${res.dataVolume}:/data`,
+        "-v", `${res.socketVolume}:/run/ces-bootstrap`,
+        "-e", `VELLUM_ASSISTANT_NAME=${instanceName}`,
+      ];
+      for (const envVar of ["ANTHROPIC_API_KEY", "VELLUM_PLATFORM_URL"]) {
+        if (process.env[envVar]) {
+          args.push("-e", `${envVar}=${process.env[envVar]}`);
+        }
+      }
+      args.push(imageTags.assistant);
+      return args;
+    },
+    gateway: () => [
+      "run", "--init", "-d",
+      "--name", res.gatewayContainer,
+      `--network=container:${res.assistantContainer}`,
+      "-v", `${res.dataVolume}:/data`,
+      "-e", "BASE_DATA_DIR=/data",
+      "-e", `GATEWAY_PORT=${GATEWAY_INTERNAL_PORT}`,
+      "-e", `RUNTIME_HTTP_PORT=${ASSISTANT_INTERNAL_PORT}`,
+      imageTags.gateway,
+    ],
+    "credential-executor": () => [
+      "run", "--init", "-d",
+      "--name", res.cesContainer,
+      `--network=container:${res.assistantContainer}`,
+      "-v", `${res.socketVolume}:/run/ces-bootstrap`,
+      "-v", `${res.dataVolume}:/data:ro`,
+      "-e", "CES_MODE=managed",
+      "-e", "CES_BOOTSTRAP_SOCKET_DIR=/run/ces-bootstrap",
+      "-e", "CES_ASSISTANT_DATA_MOUNT=/data",
+      imageTags["credential-executor"],
+    ],
+  };
+}
+
+/** The order in which services must be started. */
+const SERVICE_START_ORDER: ServiceName[] = [
+  "assistant",
+  "gateway",
+  "credential-executor",
+];
 
 /** Start all three containers in dependency order. */
 async function startContainers(opts: {
-  assistantImage: string;
-  cesImage: string;
-  gatewayImage: string;
   gatewayPort: number;
+  imageTags: Record<ServiceName, string>;
   instanceName: string;
   res: ReturnType<typeof dockerResourceNames>;
 }): Promise<void> {
-  const { assistantImage, cesImage, gatewayImage, gatewayPort, instanceName, res } = opts;
-
-  // ── Start assistant container ──
-  // The assistant is the first container and owns the network namespace.
-  // Gateway and CES join it via --network=container: so all three share
-  // localhost. Port mappings must be declared here for all services.
-  const assistantArgs: string[] = [
-    "run",
-    "--init",
-    "-d",
-    "--name",
-    res.assistantContainer,
-    "-p",
-    `${gatewayPort}:${GATEWAY_INTERNAL_PORT}`,
-    "-v",
-    `${res.dataVolume}:/data`,
-    "-v",
-    `${res.socketVolume}:/run/ces-bootstrap`,
-    "-e",
-    `VELLUM_ASSISTANT_NAME=${instanceName}`,
-  ];
-  for (const envVar of ["ANTHROPIC_API_KEY", "VELLUM_PLATFORM_URL"]) {
-    if (process.env[envVar]) {
-      assistantArgs.push("-e", `${envVar}=${process.env[envVar]}`);
-    }
+  const runArgs = serviceDockerRunArgs(opts);
+  for (const service of SERVICE_START_ORDER) {
+    console.log(`🚀 Starting ${service} container...`);
+    await exec("docker", runArgs[service]());
   }
-  console.log("🚀 Starting assistant container...");
-  await exec("docker", [...assistantArgs, assistantImage]);
-
-  // ── Start gateway container ──
-  // Shares the assistant's network namespace so localhost:ASSISTANT_INTERNAL_PORT
-  // reaches the assistant daemon.
-  const gatewayArgs: string[] = [
-    "run",
-    "--init",
-    "-d",
-    "--name",
-    res.gatewayContainer,
-    `--network=container:${res.assistantContainer}`,
-    "-v",
-    `${res.dataVolume}:/data`,
-    "-e",
-    "BASE_DATA_DIR=/data",
-    "-e",
-    `GATEWAY_PORT=${GATEWAY_INTERNAL_PORT}`,
-    "-e",
-    `RUNTIME_HTTP_PORT=${ASSISTANT_INTERNAL_PORT}`,
-  ];
-  console.log("🚀 Starting gateway container...");
-  await exec("docker", [...gatewayArgs, gatewayImage]);
-
-  // ── Start credential-executor container ──
-  // Shares the assistant's network namespace and communicates via a Unix
-  // socket on the shared bootstrap volume.
-  const cesArgs: string[] = [
-    "run",
-    "--init",
-    "-d",
-    "--name",
-    res.cesContainer,
-    `--network=container:${res.assistantContainer}`,
-    "-v",
-    `${res.socketVolume}:/run/ces-bootstrap`,
-    "-v",
-    `${res.dataVolume}:/data:ro`,
-    "-e",
-    "CES_MODE=managed",
-    "-e",
-    "CES_BOOTSTRAP_SOCKET_DIR=/run/ces-bootstrap",
-    "-e",
-    "CES_ASSISTANT_DATA_MOUNT=/data",
-  ];
-  console.log("🚀 Starting credential-executor container...");
-  await exec("docker", [...cesArgs, cesImage]);
 }
 
 /** Stop and remove all three containers (ignoring errors). */
@@ -385,18 +379,18 @@ async function stopContainers(
 function affectedServices(
   filePath: string,
   repoRoot: string,
-): Set<"assistant" | "credentialExecutor" | "gateway"> {
+): Set<ServiceName> {
   const rel = filePath.startsWith(repoRoot)
     ? filePath.slice(repoRoot.length + 1)
     : filePath;
 
-  const affected = new Set<"assistant" | "credentialExecutor" | "gateway">();
+  const affected = new Set<ServiceName>();
 
   if (rel.startsWith("assistant/")) {
     affected.add("assistant");
   }
   if (rel.startsWith("credential-executor/")) {
-    affected.add("credentialExecutor");
+    affected.add("credential-executor");
   }
   if (rel.startsWith("gateway/")) {
     affected.add("gateway");
@@ -404,7 +398,7 @@ function affectedServices(
   // Shared packages affect both assistant and credential-executor
   if (rel.startsWith("packages/")) {
     affected.add("assistant");
-    affected.add("credentialExecutor");
+    affected.add("credential-executor");
   }
 
   return affected;
@@ -417,7 +411,7 @@ function affectedServices(
  */
 function startFileWatcher(opts: {
   gatewayPort: number;
-  imageTags: { assistant: string; credentialExecutor: string; gateway: string };
+  imageTags: Record<ServiceName, string>;
   instanceName: string;
   repoRoot: string;
   res: ReturnType<typeof dockerResourceNames>;
@@ -432,10 +426,16 @@ function startFileWatcher(opts: {
   ];
 
   let debounceTimer: ReturnType<typeof setTimeout> | null = null;
-  let pendingServices = new Set<"assistant" | "credentialExecutor" | "gateway">();
+  let pendingServices = new Set<ServiceName>();
   let rebuilding = false;
 
   const configs = serviceImageConfigs(repoRoot, imageTags);
+  const runArgs = serviceDockerRunArgs({ gatewayPort, imageTags, instanceName, res });
+  const containerForService: Record<ServiceName, string> = {
+    assistant: res.assistantContainer,
+    "credential-executor": res.cesContainer,
+    gateway: res.gatewayContainer,
+  };
 
   async function rebuildAndRestart(): Promise<void> {
     if (rebuilding) return;
@@ -448,59 +448,19 @@ function startFileWatcher(opts: {
     console.log(`\n🔄 Changes detected — rebuilding: ${serviceNames}`);
 
     try {
-      // When assistant is rebuilt all containers must restart because
-      // gateway and CES share the assistant's network namespace.
-      const needsFullRestart = services.has("assistant");
+      await Promise.all(
+        [...services].map(async (service) => {
+          console.log(`🔨 Building ${service}...`);
+          await buildImage(configs[service]);
+          console.log(`✅ ${service} built`);
+        }),
+      );
 
       for (const service of services) {
-        console.log(`🔨 Building ${service}...`);
-        await buildImage(configs[service]);
-        console.log(`✅ ${service} built`);
-      }
-
-      if (needsFullRestart) {
-        console.log("🔄 Restarting all containers...");
-        await stopContainers(res);
-        await startContainers({
-          assistantImage: imageTags.assistant,
-          cesImage: imageTags.credentialExecutor,
-          gatewayImage: imageTags.gateway,
-          gatewayPort,
-          instanceName,
-          res,
-        });
-      } else {
-        for (const service of services) {
-          const container =
-            service === "gateway" ? res.gatewayContainer : res.cesContainer;
-          console.log(`🔄 Restarting ${container}...`);
-          await removeContainer(container);
-
-          if (service === "gateway") {
-            await exec("docker", [
-              "run", "--init", "-d",
-              "--name", res.gatewayContainer,
-              `--network=container:${res.assistantContainer}`,
-              "-v", `${res.dataVolume}:/data`,
-              "-e", "BASE_DATA_DIR=/data",
-              "-e", `GATEWAY_PORT=${GATEWAY_INTERNAL_PORT}`,
-              "-e", `RUNTIME_HTTP_PORT=${ASSISTANT_INTERNAL_PORT}`,
-              imageTags.gateway,
-            ]);
-          } else {
-            await exec("docker", [
-              "run", "--init", "-d",
-              "--name", res.cesContainer,
-              `--network=container:${res.assistantContainer}`,
-              "-v", `${res.socketVolume}:/run/ces-bootstrap`,
-              "-v", `${res.dataVolume}:/data:ro`,
-              "-e", "CES_MODE=managed",
-              "-e", "CES_BOOTSTRAP_SOCKET_DIR=/run/ces-bootstrap",
-              "-e", "CES_ASSISTANT_DATA_MOUNT=/data",
-              imageTags.credentialExecutor,
-            ]);
-          }
-        }
+        const container = containerForService[service];
+        console.log(`🔄 Restarting ${container}...`);
+        await removeContainer(container);
+        await exec("docker", runArgs[service]());
       }
 
       console.log("✅ Rebuild complete — watching for changes...\n");
@@ -573,37 +533,34 @@ export async function hatchDocker(
   const instanceName = generateInstanceName(species, name);
   const gatewayPort = DEFAULT_GATEWAY_PORT;
 
-  let assistantImage: string;
-  let gatewayImage: string;
-  let cesImage: string;
+  const imageTags: Record<ServiceName, string> = {
+    assistant: "",
+    "credential-executor": "",
+    gateway: "",
+  };
 
   let repoRoot: string | undefined;
 
   if (watch) {
     repoRoot = findRepoRoot();
     const localTag = `local-${instanceName}`;
-    assistantImage = `vellum-assistant:${localTag}`;
-    gatewayImage = `vellum-gateway:${localTag}`;
-    cesImage = `vellum-credential-executor:${localTag}`;
+    imageTags.assistant = `vellum-assistant:${localTag}`;
+    imageTags.gateway = `vellum-gateway:${localTag}`;
+    imageTags["credential-executor"] = `vellum-credential-executor:${localTag}`;
 
     console.log(`🥚 Hatching Docker assistant: ${instanceName}`);
     console.log(`   Species: ${species}`);
     console.log(`   Mode: development (watch)`);
     console.log(`   Repo: ${repoRoot}`);
     console.log(`   Images (local build):`);
-    console.log(`     assistant:            ${assistantImage}`);
-    console.log(`     gateway:              ${gatewayImage}`);
-    console.log(`     credential-executor:  ${cesImage}`);
+    console.log(`     assistant:            ${imageTags.assistant}`);
+    console.log(`     gateway:              ${imageTags.gateway}`);
+    console.log(`     credential-executor:  ${imageTags["credential-executor"]}`);
     console.log("");
 
     const logFd = openLogFile("hatch.log");
-    console.log("🔨 Building Docker images from local source...");
     try {
-      await buildAllImages(repoRoot, {
-        assistant: assistantImage,
-        credentialExecutor: cesImage,
-        gateway: gatewayImage,
-      });
+      await buildAllImages(repoRoot, imageTags);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       writeToLogFile(
@@ -618,24 +575,24 @@ export async function hatchDocker(
   } else {
     const version = cliPkg.version;
     const versionTag = version ? `v${version}` : "latest";
-    assistantImage = `${DOCKERHUB_IMAGES.assistant}:${versionTag}`;
-    gatewayImage = `${DOCKERHUB_IMAGES.gateway}:${versionTag}`;
-    cesImage = `${DOCKERHUB_IMAGES.credentialExecutor}:${versionTag}`;
+    imageTags.assistant = `${DOCKERHUB_IMAGES.assistant}:${versionTag}`;
+    imageTags.gateway = `${DOCKERHUB_IMAGES.gateway}:${versionTag}`;
+    imageTags["credential-executor"] = `${DOCKERHUB_IMAGES["credential-executor"]}:${versionTag}`;
 
     console.log(`🥚 Hatching Docker assistant: ${instanceName}`);
     console.log(`   Species: ${species}`);
     console.log(`   Images:`);
-    console.log(`     assistant:            ${assistantImage}`);
-    console.log(`     gateway:              ${gatewayImage}`);
-    console.log(`     credential-executor:  ${cesImage}`);
+    console.log(`     assistant:            ${imageTags.assistant}`);
+    console.log(`     gateway:              ${imageTags.gateway}`);
+    console.log(`     credential-executor:  ${imageTags["credential-executor"]}`);
     console.log("");
 
     const logFd = openLogFile("hatch.log");
     console.log("📦 Pulling Docker images...");
     try {
-      await exec("docker", ["pull", assistantImage]);
-      await exec("docker", ["pull", gatewayImage]);
-      await exec("docker", ["pull", cesImage]);
+      await exec("docker", ["pull", imageTags.assistant]);
+      await exec("docker", ["pull", imageTags.gateway]);
+      await exec("docker", ["pull", imageTags["credential-executor"]]);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       writeToLogFile(
@@ -656,14 +613,7 @@ export async function hatchDocker(
   await exec("docker", ["volume", "create", res.dataVolume]);
   await exec("docker", ["volume", "create", res.socketVolume]);
 
-  await startContainers({
-    assistantImage,
-    cesImage,
-    gatewayImage,
-    gatewayPort,
-    instanceName,
-    res,
-  });
+  await startContainers({ gatewayPort, imageTags, instanceName, res });
 
   const runtimeUrl = `http://localhost:${gatewayPort}`;
   const dockerEntry: AssistantEntry = {
@@ -690,12 +640,6 @@ export async function hatchDocker(
   });
 
   if (watch && repoRoot) {
-    const imageTags = {
-      assistant: assistantImage,
-      credentialExecutor: cesImage,
-      gateway: gatewayImage,
-    };
-
     const stopWatcher = startFileWatcher({
       gatewayPort,
       imageTags,
