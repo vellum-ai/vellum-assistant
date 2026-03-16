@@ -137,11 +137,10 @@ struct AppsGridView: View {
                     .padding(.top, VSpacing.xxxl)
                 }
             }
-            .frame(maxWidth: maxContentWidth)
+            .padding(.horizontal, VSpacing.xl)
             .frame(maxWidth: .infinity)
             .padding(.top, VSpacing.lg)
-            .safeAreaPadding(.horizontal, VSpacing.xl)
-            .safeAreaPadding(.bottom, VSpacing.xl)
+            .padding(.bottom, VSpacing.xl)
         }
     }
 
