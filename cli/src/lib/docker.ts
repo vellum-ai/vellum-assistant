@@ -219,6 +219,13 @@ export async function retireDocker(name: string): Promise<void> {
  * find a directory containing the expected Dockerfiles.
  */
 function findRepoRoot(): string {
+  // Prefer an explicit repo root passed via environment variable (e.g. by
+  // the macOS desktop app where the compiled binary lives outside the repo).
+  const envRoot = process.env.VELLUM_REPO_ROOT;
+  if (envRoot && existsSync(join(envRoot, "assistant", "Dockerfile"))) {
+    return envRoot;
+  }
+
   // cli/src/lib/ -> repo root
   const sourceTreeRoot = join(import.meta.dir, "..", "..", "..");
   if (existsSync(join(sourceTreeRoot, "assistant", "Dockerfile"))) {

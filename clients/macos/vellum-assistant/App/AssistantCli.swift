@@ -76,6 +76,23 @@ final class AssistantCli {
         }
     }
 
+    // MARK: - Source Repo Discovery
+
+    /// Derives the vellum-assistant repository root at compile time using
+    /// `#filePath`. This file lives at `clients/macos/vellum-assistant/App/`
+    /// relative to the repo root, so we walk up five directory levels.
+    /// Returns `nil` if the derived path doesn't contain `assistant/Dockerfile`.
+    private static let sourceRepoRoot: String? = {
+        // #filePath → .../clients/macos/vellum-assistant/App/AssistantCli.swift
+        var url = URL(fileURLWithPath: #filePath)
+        for _ in 0..<5 {
+            url = url.deletingLastPathComponent()
+        }
+        let candidate = url.path
+        let marker = (candidate as NSString).appendingPathComponent("assistant/Dockerfile")
+        return FileManager.default.fileExists(atPath: marker) ? candidate : nil
+    }()
+
     // MARK: - Binary Discovery
 
     private var cliBinaryURL: URL? {
@@ -368,10 +385,11 @@ final class AssistantCli {
         proc.executableURL = binaryURL
         let cliRemote = config.remote == "customHardware" ? "custom" : config.remote
         var hatchArgs = ["hatch", "--remote", cliRemote]
-        // NOTE: --watch requires the CLI to locate the source repo via
-        // findRepoRoot(), which fails when the CLI binary is bundled
-        // inside the macOS app (import.meta.dir and cwd won't be inside
-        // the vellum-assistant repository). Omit it for now.
+        #if DEBUG
+        if cliRemote == "docker" {
+            hatchArgs.append("--watch")
+        }
+        #endif
         proc.arguments = hatchArgs
 
         let stdoutPipe = Pipe()
@@ -389,6 +407,12 @@ final class AssistantCli {
         var env = ProcessInfo.processInfo.environment
         env["HOME"] = FileManager.default.homeDirectoryForCurrentUser.path
         env["VELLUM_DESKTOP_APP"] = "1"
+
+        #if DEBUG
+        if let repoRoot = Self.sourceRepoRoot {
+            env["VELLUM_REPO_ROOT"] = repoRoot
+        }
+        #endif
 
         if env["VELLUM_PLATFORM_URL"] == nil {
             #if DEBUG
