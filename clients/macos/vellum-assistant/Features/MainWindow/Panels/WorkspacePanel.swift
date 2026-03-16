@@ -861,12 +861,6 @@ private struct WorkspaceFileViewer: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
-    private func formatFileSize(_ bytes: Int) -> String {
-        let formatter = ByteCountFormatter()
-        formatter.allowedUnits = [.useKB, .useMB, .useGB]
-        formatter.countStyle = .file
-        return formatter.string(fromByteCount: Int64(bytes))
-    }
 }
 
 // MARK: - Hidden Path Helper
