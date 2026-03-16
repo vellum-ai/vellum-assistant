@@ -1187,9 +1187,9 @@ final class ChatViewModelTests: XCTestCase {
         XCTAssertFalse(viewModel.isThinking)
     }
 
-    // MARK: - Session Filtering
+    // MARK: - Conversation Filtering
 
-    func testTextDeltaFromDifferentSessionIsIgnored() {
+    func testTextDeltaFromDifferentConversationIsIgnored() {
         viewModel.conversationId = "my-session"
         viewModel.isThinking = true
         viewModel.handleServerMessage(.assistantTextDelta(AssistantTextDeltaMessage(text: "foreign", conversationId: "other-session")))
@@ -1198,7 +1198,7 @@ final class ChatViewModelTests: XCTestCase {
         XCTAssertEqual(viewModel.messages.count, 0) // No messages
     }
 
-    func testTextDeltaFromSameSessionIsAccepted() {
+    func testTextDeltaFromSameConversationIsAccepted() {
         viewModel.conversationId = "my-session"
         viewModel.isThinking = true
         viewModel.handleServerMessage(.assistantTextDelta(AssistantTextDeltaMessage(text: "hello", conversationId: "my-session")))
@@ -1207,7 +1207,7 @@ final class ChatViewModelTests: XCTestCase {
         XCTAssertEqual(viewModel.messages[0].text, "hello")
     }
 
-    func testTextDeltaWithNilSessionIdIsAccepted() {
+    func testTextDeltaWithNilConversationIdIsAccepted() {
         viewModel.conversationId = "my-session"
         viewModel.isThinking = true
         viewModel.handleServerMessage(.assistantTextDelta(AssistantTextDeltaMessage(text: "hello", conversationId: nil)))
@@ -1215,7 +1215,7 @@ final class ChatViewModelTests: XCTestCase {
         XCTAssertEqual(viewModel.messages.count, 1)
     }
 
-    func testMessageCompleteFromDifferentSessionIsIgnored() {
+    func testMessageCompleteFromDifferentConversationIsIgnored() {
         viewModel.conversationId = "my-session"
         viewModel.isSending = true
         viewModel.isThinking = true
@@ -1225,7 +1225,7 @@ final class ChatViewModelTests: XCTestCase {
         XCTAssertTrue(viewModel.isThinking)
     }
 
-    func testMessageCompleteFromSameSessionIsAccepted() {
+    func testMessageCompleteFromSameConversationIsAccepted() {
         viewModel.conversationId = "my-session"
         viewModel.isSending = true
         viewModel.isThinking = true
@@ -2366,7 +2366,7 @@ final class ChatViewModelTests: XCTestCase {
         XCTAssertFalse(viewModel.isSending)
     }
 
-    // MARK: - createConversationIfNeeded (Message-less Session Create)
+    // MARK: - createConversationIfNeeded (Message-less Conversation Create)
 
     func testCreateConversationIfNeededSetsBootstrapping() {
         viewModel.createConversationIfNeeded(conversationType: "private")
@@ -2425,7 +2425,7 @@ final class ChatViewModelTests: XCTestCase {
         XCTAssertEqual(callbackSessionId, "callback-session", "Should fire onConversationCreated callback")
     }
 
-    func testCreateSessionIfNeededSendsConversationTypeInMessage() {
+    func testCreateConversationIfNeededSendsConversationTypeInMessage() {
         var capturedMessages: [Any] = []
         daemonClient.sendOverride = { msg in
             capturedMessages.append(msg)

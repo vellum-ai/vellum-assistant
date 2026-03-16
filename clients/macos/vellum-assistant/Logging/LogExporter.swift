@@ -88,7 +88,7 @@ enum LogExporter {
                 tags["client"] = "macos"
             }
 
-            // Surface active session state as tags so the Sentry event itself
+            // Surface active conversation state as tags so the Sentry event itself
             // is useful for triage without downloading the log archive.
             var extra: [String: Any] = [:]
             let conversationManager = AppDelegate.shared?.mainWindow?.conversationManager
@@ -103,7 +103,7 @@ enum LogExporter {
                     // conversation_id in the vellum-assistant-brain Sentry project.
                     // For conversation-scoped exports, conversation_id was already set
                     // to the reported conversation's ID above — don't overwrite it with
-                    // the active conversation's session ID.
+                    // the active conversation's ID.
                     if case .global = formData.scope {
                         tags["conversation_id"] = conversationId
                     }

@@ -114,8 +114,8 @@ extension MainWindowView {
                         enterAppEditing(appId: appId)
                     }
                     // Route relay_prompt actions directly as chat messages so they
-                    // reach the active session instead of being lost when the surface
-                    // was opened outside a session context (e.g. via app_open).
+                    // reach the active conversation instead of being lost when the surface
+                    // was opened outside a conversation context (e.g. via app_open).
                     if actionId == "relay_prompt" || actionId == "agent_prompt",
                        let dataDict = actionData as? [String: Any],
                        let prompt = dataDict["prompt"] as? String,
