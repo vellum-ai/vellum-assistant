@@ -156,11 +156,11 @@ final class OnboardingState {
         // Opt in to usage data and performance reports by default for new users.
         // Previously handled by ImproveExperienceStepView.onAppear; that view was
         // removed so we set the defaults here to keep the same behavior.
-        if UserDefaults.standard.object(forKey: "collectUsageDataEnabled") == nil {
-            UserDefaults.standard.set(true, forKey: "collectUsageDataEnabled")
+        if UserDefaults.standard.object(forKey: "collectUsageData") == nil {
+            UserDefaults.standard.set(true, forKey: "collectUsageData")
         }
-        if UserDefaults.standard.object(forKey: "sendPerformanceReports") == nil {
-            UserDefaults.standard.set(true, forKey: "sendPerformanceReports")
+        if UserDefaults.standard.object(forKey: "sendDiagnostics") == nil {
+            UserDefaults.standard.set(true, forKey: "sendDiagnostics")
         }
     }
 
