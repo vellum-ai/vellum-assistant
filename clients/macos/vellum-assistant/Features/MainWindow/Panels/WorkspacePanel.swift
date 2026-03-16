@@ -724,8 +724,10 @@ private struct WorkspaceFileViewer: View {
                         VSegmentedControl(
                             items: modes.map { (label: viewModeLabel($0), tag: $0) },
                             selection: $state.viewMode,
-                            style: .underline
+                            style: .pill,
+                            size: .compact
                         )
+                        .fixedSize()
                     }
                 }
 
