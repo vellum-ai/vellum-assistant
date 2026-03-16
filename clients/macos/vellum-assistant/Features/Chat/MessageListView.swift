@@ -619,6 +619,8 @@ struct MessageListView: View {
                         } else {
                             thinkingIndicatorRow(displayMessages: displayMessages)
                         }
+                    } else if isCompacting && !shouldShowThinkingIndicator && !canInlineProcessing {
+                        compactingIndicatorRow()
                     }
 
                     Color.clear
