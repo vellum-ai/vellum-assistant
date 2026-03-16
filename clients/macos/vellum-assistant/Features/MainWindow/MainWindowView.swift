@@ -464,7 +464,7 @@ struct MainWindowView: View {
 
                         chatContentView(geometry: geometry)
                             .clipShape(RoundedRectangle(cornerRadius: VRadius.xl))
-                            .animation(nil, value: sidebarExpanded)
+                            .animation(VAnimation.panel, value: sidebarExpanded)
                             .overlay {
                                 if showDaemonLoading && !isSettingsOpen {
                                     DaemonLoadingChatSkeleton()
