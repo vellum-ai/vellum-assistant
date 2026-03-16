@@ -241,6 +241,14 @@ extension Notification.Name {
 @MainActor
 public final class DaemonClient: ObservableObject, DaemonClientProtocol {
 
+    // MARK: - Static Helpers
+
+    private static let queryValueAllowed: CharacterSet = {
+        var cs = CharacterSet.urlQueryAllowed
+        cs.remove(charactersIn: "&=+#")
+        return cs
+    }()
+
     // MARK: - Published State
 
     @Published public var isConnected: Bool = false
