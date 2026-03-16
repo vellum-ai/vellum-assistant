@@ -65,8 +65,10 @@ mock.module("../util/platform.js", () => ({
   isWindows: () => false,
 }));
 
+import { Command } from "commander";
 import { z } from "zod";
 
+import { registerConfigCommand } from "../cli/commands/config.js";
 import { AssistantConfigSchema } from "../config/schema.js";
 import { getSchemaAtPath } from "../config/schema-utils.js";
 
@@ -162,20 +164,13 @@ describe("z.toJSONSchema integration", () => {
     const jsonSchema = z.toJSONSchema(callsSchema!, {
       unrepresentable: "any",
     }) as Record<string, unknown>;
-    // Unwrap: the JSON schema may have the properties directly or nested
-    // Look for calls-specific properties
     const properties = jsonSchema.properties as
       | Record<string, unknown>
       | undefined;
-    if (properties) {
-      expect(properties.enabled).toBeDefined();
-      expect(properties.voice).toBeDefined();
-      expect(properties.safety).toBeDefined();
-    } else {
-      // If it's a wrapped type, the JSON schema might have a different structure
-      // but it should still be valid JSON Schema
-      expect(jsonSchema).toBeDefined();
-    }
+    expect(properties).toBeDefined();
+    expect(properties!.enabled).toBeDefined();
+    expect(properties!.voice).toBeDefined();
+    expect(properties!.safety).toBeDefined();
   });
 
   test("sub-schema at a leaf like maxTokens produces integer schema", () => {
@@ -185,5 +180,53 @@ describe("z.toJSONSchema integration", () => {
       unrepresentable: "any",
     }) as Record<string, unknown>;
     expect(jsonSchema.type).toBe("integer");
+  });
+
+  test("sub-schema at memory.segmentation produces JSON Schema with expected properties", () => {
+    const segSchema = getSchemaAtPath(
+      AssistantConfigSchema,
+      "memory.segmentation",
+    );
+    expect(segSchema).not.toBeNull();
+    const jsonSchema = z.toJSONSchema(segSchema!, {
+      unrepresentable: "any",
+    }) as Record<string, unknown>;
+    expect(jsonSchema.type).toBe("object");
+    const properties = jsonSchema.properties as
+      | Record<string, unknown>
+      | undefined;
+    expect(properties).toBeDefined();
+    expect(properties!.targetTokens).toBeDefined();
+    expect(properties!.overlapTokens).toBeDefined();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Tests: CLI schema command error path
+// ---------------------------------------------------------------------------
+
+describe("CLI schema command", () => {
+  test("nonexistent path prints error and exits with code 1", () => {
+    const program = new Command();
+    program.exitOverride(); // throw instead of calling process.exit
+    registerConfigCommand(program);
+
+    const origExit = process.exit;
+    // Replace process.exit to capture the exit code without killing the test
+    let exitCode: number | undefined;
+    process.exit = ((code?: number) => {
+      exitCode = code;
+      throw new Error(`process.exit(${code})`);
+    }) as never;
+
+    try {
+      program.parse(["node", "test", "config", "schema", "nonexistent"]);
+    } catch {
+      // Expected: either Commander's exitOverride or our process.exit stub throws
+    } finally {
+      process.exit = origExit;
+    }
+
+    expect(exitCode).toBe(1);
   });
 });
