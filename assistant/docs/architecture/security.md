@@ -299,7 +299,7 @@ The `allowOneTimeSend` config gate (default: `false`) enables a secondary "Send 
 | File                                                 | Role                                                                  |
 | ---------------------------------------------------- | --------------------------------------------------------------------- |
 | `assistant/src/tools/credentials/vault.ts`           | `credential_store` tool — store, list, delete, prompt actions         |
-| `assistant/src/security/secure-keys.ts`              | Keychain read/write via `/usr/bin/security` CLI                       |
+| `assistant/src/security/secure-keys.ts`              | Async secure key CRUD via keychain broker and encrypted file store    |
 | `assistant/src/tools/credentials/metadata-store.ts`  | JSON file metadata CRUD for credential records                        |
 | `assistant/src/tools/credentials/broker.ts`          | Brokered credential access with policy enforcement and transient send |
 | `assistant/src/tools/credentials/policy-validate.ts` | Policy input validation (allowedTools, allowedDomains)                |
