@@ -708,7 +708,7 @@ async function main() {
       path: "/v1/config/privacy",
       method: "PATCH",
       auth: "edge-scoped",
-      scope: "feature_flags.write",
+      scope: "settings.write",
       handler: (req) => handlePrivacyConfigPatch(req),
     },
   ];
