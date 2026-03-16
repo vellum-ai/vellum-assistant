@@ -45,7 +45,14 @@ final class WorkspaceBrowserState {
 
     func loadFile(path targetPath: String, using workspaceClient: any WorkspaceClientProtocol) async {
         selectedFilePath = targetPath
-        viewMode = .source
+        let ext = (targetPath as NSString).pathExtension.lowercased()
+        if ext == "md" || ext == "markdown" {
+            viewMode = .preview
+        } else if ext == "json" {
+            viewMode = .tree
+        } else {
+            viewMode = .source
+        }
         isLoadingFile = true
         selectedFileDetail = nil
         isDirty = false
@@ -60,12 +67,6 @@ final class WorkspaceBrowserState {
             isDirty = false
             isSaving = false
             isLoadingFile = false
-
-            // Default read-only markdown files to preview mode
-            let ext = (targetPath as NSString).pathExtension.lowercased()
-            if (ext == "md" || ext == "markdown") && isHiddenPath(targetPath) {
-                viewMode = .preview
-            }
         }
         fileLoadTask = task
     }
