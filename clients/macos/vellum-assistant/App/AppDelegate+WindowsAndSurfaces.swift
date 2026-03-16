@@ -7,6 +7,20 @@ import os
 
 private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "AppDelegate")
 
+// MARK: - Ghost Window Detection
+
+extension NSWindow {
+    /// Returns `true` for SwiftUI-managed windows that macOS may restore
+    /// during activation-policy transitions (e.g. the Settings scene's
+    /// `EmptyView` window). These should be ignored when deciding whether
+    /// any real app windows remain visible.
+    var isSwiftUIGhostWindow: Bool {
+        guard title.contains("Settings") else { return false }
+        let contentClassName = contentView.map { NSStringFromClass(type(of: $0)) } ?? ""
+        return contentClassName.contains("NSHostingView") || contentView?.subviews.isEmpty == true
+    }
+}
+
 // MARK: - Activation Policy
 
 extension NSApplication {
@@ -28,16 +42,8 @@ extension NSApplication {
     /// restored during an activation-policy transition.  The Settings
     /// scene renders `EmptyView` and should never be user-visible.
     func dismissSettingsGhostWindows() {
-        for window in windows where window.title.contains("Settings") {
-            // Only target the SwiftUI-managed Settings window, not any
-            // app-created window that happens to include "Settings".
-            // SwiftUI uses private NSWindow subclasses and generic
-            // NSHostingView specializations, so we match by class name
-            // rather than exact type identity.
-            let contentClassName = window.contentView.map { NSStringFromClass(type(of: $0)) } ?? ""
-            if contentClassName.contains("NSHostingView") || window.contentView?.subviews.isEmpty == true {
-                window.orderOut(nil)
-            }
+        for window in windows where window.isSwiftUIGhostWindow {
+            window.orderOut(nil)
         }
     }
 }
@@ -250,6 +256,7 @@ extension AppDelegate {
             win.isVisible
             && win !== closedWindow
             && win !== self.statusItem?.button?.window
+            && !win.isSwiftUIGhostWindow
         }
         if !hasVisibleWindows {
             NSApp.setActivationPolicy(.accessory)

@@ -43,7 +43,7 @@ final class WorkspaceBrowserState {
         }
     }
 
-    func loadFile(path targetPath: String, using daemonClient: DaemonClient) async {
+    func loadFile(path targetPath: String, using workspaceClient: any WorkspaceClientProtocol) async {
         selectedFilePath = targetPath
         viewMode = .source
         isLoadingFile = true
@@ -52,7 +52,7 @@ final class WorkspaceBrowserState {
         editableContent = ""
         fileLoadTask?.cancel()
         let task = Task {
-            let detail = await daemonClient.fetchWorkspaceFile(path: targetPath, showHidden: showHiddenFiles)
+            let detail = await workspaceClient.fetchWorkspaceFile(path: targetPath, showHidden: showHiddenFiles)
             guard !Task.isCancelled, selectedFilePath == targetPath else { return }
             selectedFileDetail = detail
             editableContent = detail?.content ?? ""
@@ -76,7 +76,7 @@ final class WorkspaceBrowserState {
 struct WorkspacePanel: View {
     let daemonClient: DaemonClient
     @State private var state = WorkspaceBrowserState()
-    private let workspaceClient = WorkspaceClient()
+    let workspaceClient = WorkspaceClient()
     @State private var sidebarWidth: CGFloat = 300
     @State private var dragStartWidth: CGFloat?
     @State private var didPushResizeCursor = false
@@ -88,7 +88,7 @@ struct WorkspacePanel: View {
 
     var body: some View {
         HStack(spacing: 0) {
-            WorkspaceTreeSidebar(state: state, daemonClient: daemonClient, workspaceClient: workspaceClient, onToggleHiddenFiles: applyHiddenFilesToggle)
+            WorkspaceTreeSidebar(state: state, workspaceClient: workspaceClient, onToggleHiddenFiles: applyHiddenFilesToggle)
                 .frame(width: sidebarWidth)
 
             // Invisible resize handle
@@ -127,7 +127,7 @@ struct WorkspacePanel: View {
                         }
                 )
 
-            WorkspaceFileViewer(state: state, daemonClient: daemonClient)
+            WorkspaceFileViewer(state: state, daemonClient: daemonClient, workspaceClient: workspaceClient)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .coordinateSpace(name: dragCoordinateSpace)
@@ -144,7 +144,7 @@ struct WorkspacePanel: View {
             Button("Discard", role: .destructive) {
                 if let targetPath = state.pendingSwitchPath {
                     state.pendingSwitchPath = nil
-                    Task { await state.loadFile(path: targetPath, using: daemonClient) }
+                    Task { await state.loadFile(path: targetPath, using: workspaceClient) }
                 } else if let newValue = state.pendingHiddenFilesToggle {
                     state.pendingHiddenFilesToggle = nil
                     applyHiddenFilesToggle(newValue)
@@ -168,7 +168,7 @@ struct WorkspacePanel: View {
                 guard let path = state.deleteConfirmPath else { return }
                 let parentPath = parentDirectory(of: path)
                 Task {
-                    let success = await daemonClient.deleteWorkspaceItem(path: path)
+                    let success = await workspaceClient.deleteWorkspaceItem(path: path)
                     if success {
                         await state.refreshDirectory(parentPath, using: workspaceClient)
                         if state.selectedFilePath == path || state.selectedFilePath?.hasPrefix(path + "/") == true {
@@ -203,7 +203,7 @@ struct WorkspacePanel: View {
             // Auto-select IDENTITY.md if it exists and no file is already selected
             if state.selectedFilePath == nil,
                let identityEntry = response.entries.first(where: { $0.name == "IDENTITY.md" && !$0.isDirectory }) {
-                await state.loadFile(path: identityEntry.path, using: daemonClient)
+                await state.loadFile(path: identityEntry.path, using: workspaceClient)
             }
         }
         state.isLoadingTree = false
@@ -246,7 +246,6 @@ struct WorkspacePanel: View {
 
 private struct WorkspaceTreeSidebar: View {
     @Bindable var state: WorkspaceBrowserState
-    let daemonClient: DaemonClient
     let workspaceClient: WorkspaceClient
     let onToggleHiddenFiles: (Bool) -> Void
     @State private var viewportWidth: CGFloat = 0
@@ -321,7 +320,6 @@ private struct WorkspaceTreeSidebar: View {
                                         entry: entry,
                                         depth: 0,
                                         state: state,
-                                        daemonClient: daemonClient,
                                         workspaceClient: workspaceClient,
                                         minRowWidth: viewportWidth
                                     )
@@ -362,7 +360,7 @@ private struct WorkspaceTreeSidebar: View {
             }
         }
         .onDrop(of: [.fileURL], isTargeted: $state.isDropTargeted) { providers in
-            handleDrop(providers: providers, targetDir: "", state: state, daemonClient: daemonClient, workspaceClient: workspaceClient)
+            handleDrop(providers: providers, targetDir: "", state: state, workspaceClient: workspaceClient)
             return true
         }
         .background(VColor.surfaceBase)
@@ -376,7 +374,7 @@ private struct WorkspaceTreeSidebar: View {
                 guard !name.isEmpty else { return }
                 let filePath = parentPath.isEmpty ? name : parentPath + "/" + name
                 Task {
-                    let success = await daemonClient.writeWorkspaceFile(path: filePath, content: Data())
+                    let success = await workspaceClient.writeWorkspaceFile(path: filePath, content: Data())
                     if success {
                         if let response = await workspaceClient.fetchWorkspaceTree(path: parentPath, showHidden: state.showHiddenFiles) {
                             state.directoryCache[parentPath] = response.entries
@@ -397,7 +395,7 @@ private struct WorkspaceTreeSidebar: View {
                 guard !name.isEmpty else { return }
                 let folderPath = parentPath.isEmpty ? name : parentPath + "/" + name
                 Task {
-                    let success = await daemonClient.createWorkspaceDirectory(path: folderPath)
+                    let success = await workspaceClient.createWorkspaceDirectory(path: folderPath)
                     if success {
                         if let response = await workspaceClient.fetchWorkspaceTree(path: parentPath, showHidden: state.showHiddenFiles) {
                             state.directoryCache[parentPath] = response.entries
@@ -414,7 +412,7 @@ private struct WorkspaceTreeSidebar: View {
 
 // MARK: - Drop Handler
 
-private func handleDrop(providers: [NSItemProvider], targetDir: String, state: WorkspaceBrowserState, daemonClient: DaemonClient, workspaceClient: WorkspaceClient) {
+private func handleDrop(providers: [NSItemProvider], targetDir: String, state: WorkspaceBrowserState, workspaceClient: WorkspaceClient) {
     for provider in providers {
         provider.loadItem(forTypeIdentifier: UTType.fileURL.identifier, options: nil) { item, _ in
             guard let url = fileURLFromDropItem(item) else { return }
@@ -423,7 +421,7 @@ private func handleDrop(providers: [NSItemProvider], targetDir: String, state: W
             Task {
                 await MainActor.run { state.uploadingCount += 1 }
                 if let fileData = try? Data(contentsOf: url) {
-                    let success = await daemonClient.writeWorkspaceFile(path: targetPath, content: fileData)
+                    let success = await workspaceClient.writeWorkspaceFile(path: targetPath, content: fileData)
                     if success {
                         await state.refreshDirectory(targetDir, using: workspaceClient)
                     }
@@ -453,7 +451,6 @@ private struct WorkspaceTreeRow: View {
     let entry: WorkspaceTreeEntry
     let depth: Int
     @Bindable var state: WorkspaceBrowserState
-    let daemonClient: DaemonClient
     let workspaceClient: WorkspaceClient
     var minRowWidth: CGFloat = 0
 
@@ -512,7 +509,7 @@ private struct WorkspaceTreeRow: View {
             .buttonStyle(.plain)
             .onDrop(of: entry.isDirectory && !isHiddenPath(entry.path) ? [.fileURL] : [], isTargeted: .none) { providers in
                 guard entry.isDirectory, !isHiddenPath(entry.path) else { return false }
-                handleDrop(providers: providers, targetDir: entry.path, state: state, daemonClient: daemonClient, workspaceClient: workspaceClient)
+                handleDrop(providers: providers, targetDir: entry.path, state: state, workspaceClient: workspaceClient)
                 return true
             }
 
@@ -524,7 +521,6 @@ private struct WorkspaceTreeRow: View {
                             entry: child,
                             depth: depth + 1,
                             state: state,
-                            daemonClient: daemonClient,
                             workspaceClient: workspaceClient,
                             minRowWidth: minRowWidth
                         )
@@ -573,7 +569,7 @@ private struct WorkspaceTreeRow: View {
         let parentPath = parentDirectory(of: oldPath)
         let newPath = parentPath.isEmpty ? state.renamingText : "\(parentPath)/\(state.renamingText)"
         Task {
-            let success = await daemonClient.renameWorkspaceItem(oldPath: oldPath, newPath: newPath)
+            let success = await workspaceClient.renameWorkspaceItem(oldPath: oldPath, newPath: newPath)
             if success {
                 if let response = await workspaceClient.fetchWorkspaceTree(path: parentPath, showHidden: state.showHiddenFiles) {
                     state.directoryCache[parentPath] = response.entries
@@ -662,7 +658,7 @@ private struct WorkspaceTreeRow: View {
                 state.pendingSwitchPath = targetPath
                 state.showingDirtyAlert = true
             } else {
-                await state.loadFile(path: targetPath, using: daemonClient)
+                await state.loadFile(path: targetPath, using: workspaceClient)
             }
         }
     }
@@ -673,6 +669,7 @@ private struct WorkspaceTreeRow: View {
 private struct WorkspaceFileViewer: View {
     @Bindable var state: WorkspaceBrowserState
     let daemonClient: DaemonClient
+    let workspaceClient: WorkspaceClient
 
     var body: some View {
         Group {
@@ -720,6 +717,18 @@ private struct WorkspaceFileViewer: View {
                 fileName: detail.name,
                 fileSize: formatFileSize(detail.size)
             ) {
+                if isText {
+                    let modes = availableViewModes(for: detail.name, mimeType: detail.mimeType)
+                    if modes.count > 1 {
+                        VSegmentedControl(
+                            items: modes.map { (label: viewModeLabel($0), tag: $0) },
+                            selection: $state.viewMode,
+                            style: .pill
+                        )
+                        .frame(width: CGFloat(modes.count) * 80)
+                    }
+                }
+
                 if isText && readOnly {
                     Text("Read-only")
                         .font(VFont.caption)
@@ -770,20 +779,6 @@ private struct WorkspaceFileViewer: View {
         let modes = availableViewModes(for: detail.name, mimeType: detail.mimeType)
         let effectiveMode = modes.contains(state.viewMode) ? state.viewMode : (modes.first ?? .source)
 
-        if modes.count > 1 {
-            HStack(spacing: 0) {
-                VSegmentedControl(
-                    items: modes.map { (label: viewModeLabel($0), tag: $0) },
-                    selection: $state.viewMode,
-                    style: .pill
-                )
-                .frame(width: CGFloat(modes.count) * 100)
-                Spacer()
-            }
-            .padding(.horizontal, VSpacing.md)
-            .padding(.vertical, VSpacing.sm)
-        }
-
         switch effectiveMode {
         case .source:
             sourceView(detail)
@@ -821,19 +816,19 @@ private struct WorkspaceFileViewer: View {
 
     private func previewView(_ detail: WorkspaceFileResponse) -> some View {
         MarkdownPreviewView(content: state.editableContent)
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }
 
     private func treeView(_ detail: WorkspaceFileResponse) -> some View {
         JSONTreeView(content: state.editableContent)
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }
 
     private func saveFile(path: String) async {
         state.isSaving = true
         let snapshot = state.editableContent
         let data = Data(snapshot.utf8)
-        let success = await daemonClient.writeWorkspaceFile(path: path, content: data)
+        let success = await workspaceClient.writeWorkspaceFile(path: path, content: data)
         // Only update editor state if the user is still viewing the file that was saved
         guard state.selectedFilePath == path else {
             state.isSaving = false
@@ -864,7 +859,7 @@ private struct WorkspaceFileViewer: View {
 
     private func imageViewer(_ detail: WorkspaceFileResponse) -> some View {
         Group {
-            if let url = daemonClient.workspaceFileContentURL(path: detail.path, showHidden: state.showHiddenFiles) {
+            if let url = workspaceClient.workspaceFileContentURL(path: detail.path, showHidden: state.showHiddenFiles) {
                 AuthenticatedImageView(url: url, daemonClient: daemonClient)
             } else {
                 Text("Unable to load image URL")
@@ -877,7 +872,7 @@ private struct WorkspaceFileViewer: View {
 
     private func videoViewer(_ detail: WorkspaceFileResponse) -> some View {
         Group {
-            if let url = daemonClient.workspaceFileContentURL(path: detail.path, showHidden: state.showHiddenFiles) {
+            if let url = workspaceClient.workspaceFileContentURL(path: detail.path, showHidden: state.showHiddenFiles) {
                 WorkspaceVideoPlayer(url: url, daemonClient: daemonClient)
             } else {
                 Text("Unable to load video URL")

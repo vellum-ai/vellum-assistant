@@ -79,7 +79,7 @@ const SUGGESTION_CACHE_MAX = 100;
 function collectCanonicalGuardianRequestHintIds(
   conversationId: string,
   sourceChannel: string,
-  session: import("../../daemon/conversation.js").Conversation,
+  conversation: import("../../daemon/conversation.js").Conversation,
 ): string[] {
   const requests = listPendingRequestsByConversationScope(
     conversationId,
@@ -89,7 +89,8 @@ function collectCanonicalGuardianRequestHintIds(
   return requests
     .filter(
       (req) =>
-        req.kind !== "tool_approval" || session.hasPendingConfirmation(req.id),
+        req.kind !== "tool_approval" ||
+        conversation.hasPendingConfirmation(req.id),
     )
     .map((req) => req.id);
 }
@@ -105,7 +106,7 @@ async function tryConsumeCanonicalGuardianReply(params: {
     mimeType: string;
     data: string;
   }>;
-  session: import("../../daemon/conversation.js").Conversation;
+  conversation: import("../../daemon/conversation.js").Conversation;
   onEvent: (msg: ServerMessage) => void;
   approvalConversationGenerator?: ApprovalConversationGenerator;
   /** Verified actor identity from actor-token middleware. */
@@ -119,7 +120,7 @@ async function tryConsumeCanonicalGuardianReply(params: {
     sourceInterface,
     content,
     attachments,
-    session,
+    conversation,
     onEvent,
     approvalConversationGenerator,
     verifiedActorExternalUserId,
@@ -134,7 +135,7 @@ async function tryConsumeCanonicalGuardianReply(params: {
   const pendingRequestHintIds = collectCanonicalGuardianRequestHintIds(
     conversationId,
     sourceChannel,
-    session,
+    conversation,
   );
   const pendingRequestIds =
     pendingRequestHintIds.length > 0 ? pendingRequestHintIds : undefined;
@@ -166,7 +167,7 @@ async function tryConsumeCanonicalGuardianReply(params: {
   // However, stale/failed paths never reach handleConfirmationResponse,
   // so we emit resolved_stale here for those cases.
   if (routerResult.requestId && !routerResult.decisionApplied) {
-    session.emitConfirmationStateChanged({
+    conversation.emitConfirmationStateChanged({
       conversationId: conversationId,
       requestId: routerResult.requestId,
       state: "resolved_stale",
@@ -211,8 +212,8 @@ async function tryConsumeCanonicalGuardianReply(params: {
     );
 
     // Avoid mutating in-memory history / emitting stream deltas while a run is active.
-    if (!session.isProcessing()) {
-      session.getMessages().push(userMessage, assistantMessage);
+    if (!conversation.isProcessing()) {
+      conversation.getMessages().push(userMessage, assistantMessage);
       onEvent({
         type: "assistant_text_delta",
         text: replyText,
@@ -403,14 +404,14 @@ export function handleListMessages(
 function makeHubPublisher(
   deps: SendMessageDeps,
   conversationId: string,
-  session: import("../../daemon/conversation.js").Conversation,
+  conversation: import("../../daemon/conversation.js").Conversation,
 ): (msg: ServerMessage) => void {
   let hubChain: Promise<void> = Promise.resolve();
   return (msg: ServerMessage) => {
     // Register pending interactions for approval events
     if (msg.type === "confirmation_request") {
       pendingInteractions.register(msg.requestId, {
-        conversation: session,
+        conversation,
         conversationId,
         kind: "confirmation",
         confirmationDetails: {
@@ -428,7 +429,7 @@ function makeHubPublisher(
       // Create a canonical guardian request so HTTP handlers can find it
       // via applyCanonicalGuardianDecision.
       try {
-        const trustContext = session.trustContext;
+        const trustContext = conversation.trustContext;
         const sourceChannel = trustContext?.sourceChannel ?? "vellum";
         const canonicalRequest = createCanonicalGuardianRequest({
           id: msg.requestId,
@@ -454,7 +455,8 @@ function makeHubPublisher(
             trustContext,
             conversationId,
             toolName: msg.toolName,
-            assistantId: session.assistantId ?? DAEMON_INTERNAL_ASSISTANT_ID,
+            assistantId:
+              conversation.assistantId ?? DAEMON_INTERNAL_ASSISTANT_ID,
           });
         }
       } catch (err) {
@@ -465,25 +467,25 @@ function makeHubPublisher(
       }
     } else if (msg.type === "secret_request") {
       pendingInteractions.register(msg.requestId, {
-        conversation: session,
+        conversation,
         conversationId,
         kind: "secret",
       });
     } else if (msg.type === "host_bash_request") {
       pendingInteractions.register(msg.requestId, {
-        conversation: session,
+        conversation,
         conversationId,
         kind: "host_bash",
       });
     } else if (msg.type === "host_file_request") {
       pendingInteractions.register(msg.requestId, {
-        conversation: session,
+        conversation,
         conversationId,
         kind: "host_file",
       });
     } else if (msg.type === "host_cu_request") {
       pendingInteractions.register(msg.requestId, {
-        conversation: session,
+        conversation,
         conversationId,
         kind: "host_cu",
       });
@@ -635,7 +637,9 @@ export async function handleSendMessage(
     conversationType,
   });
   const smDeps = deps.sendMessageDeps;
-  const session = await smDeps.getOrCreateConversation(mapping.conversationId);
+  const conversation = await smDeps.getOrCreateConversation(
+    mapping.conversationId,
+  );
 
   // Resolve guardian context from the AuthContext's actorPrincipalId.
   // The JWT-verified principal is used as the sender identity through
@@ -648,14 +652,18 @@ export async function handleSendMessage(
       conversationExternalId: "local",
       actorExternalId: authContext.actorPrincipalId,
     });
-    session.setTrustContext(withSourceChannel(sourceChannel, trustCtx));
+    conversation.setTrustContext(withSourceChannel(sourceChannel, trustCtx));
   } else {
     // Service principals (svc_gateway) or tokens without an actor ID
     // get a minimal guardian context so downstream code has something.
-    session.setTrustContext({ trustClass: "guardian", sourceChannel });
+    conversation.setTrustContext({ trustClass: "guardian", sourceChannel });
   }
 
-  const onEvent = makeHubPublisher(smDeps, mapping.conversationId, session);
+  const onEvent = makeHubPublisher(
+    smDeps,
+    mapping.conversationId,
+    conversation,
+  );
   const isInteractive = isInteractiveInterface(sourceInterface);
   // Only create the host bash proxy for desktop client interfaces that can
   // execute commands on the user's machine. Non-desktop sessions (CLI,
@@ -663,46 +671,46 @@ export async function handleSendMessage(
   // Set the proxy BEFORE updateClient so updateClient's call to
   // hostBashProxy.updateSender targets the correct (new) proxy.
   if (sourceInterface === "macos" || sourceInterface === "ios") {
-    // Reuse the existing proxy if the session is actively processing a
+    // Reuse the existing proxy if the conversation is actively processing a
     // host bash request to avoid orphaning in-flight requests.
-    if (!session.isProcessing() || !session.hostBashProxy) {
+    if (!conversation.isProcessing() || !conversation.hostBashProxy) {
       const proxy = new HostBashProxy(onEvent, (requestId) => {
         pendingInteractions.resolve(requestId);
       });
-      session.setHostBashProxy(proxy);
+      conversation.setHostBashProxy(proxy);
     }
-    if (!session.isProcessing() || !session.hostFileProxy) {
+    if (!conversation.isProcessing() || !conversation.hostFileProxy) {
       const fileProxy = new HostFileProxy(onEvent, (requestId) => {
         pendingInteractions.resolve(requestId);
       });
-      session.setHostFileProxy(fileProxy);
+      conversation.setHostFileProxy(fileProxy);
     }
-    if (!session.isProcessing() || !session.hostCuProxy) {
+    if (!conversation.isProcessing() || !conversation.hostCuProxy) {
       const cuProxy = new HostCuProxy(onEvent, (requestId) => {
         pendingInteractions.resolve(requestId);
       });
-      session.setHostCuProxy(cuProxy);
+      conversation.setHostCuProxy(cuProxy);
     }
-    // Only preactivate CU when the session is idle — if the session is
+    // Only preactivate CU when the conversation is idle — if the conversation is
     // processing, this message will be queued and preactivation is deferred
     // to dequeue time in drainQueueImpl to avoid mutating in-flight turn state.
-    if (!session.isProcessing()) {
-      session.addPreactivatedSkillId("computer-use");
+    if (!conversation.isProcessing()) {
+      conversation.addPreactivatedSkillId("computer-use");
     }
-  } else if (!session.isProcessing()) {
-    session.setHostBashProxy(undefined);
-    session.setHostFileProxy(undefined);
-    session.setHostCuProxy(undefined);
+  } else if (!conversation.isProcessing()) {
+    conversation.setHostBashProxy(undefined);
+    conversation.setHostFileProxy(undefined);
+    conversation.setHostCuProxy(undefined);
   }
   // Wire sendToClient to the SSE hub so all subsystems can reach the HTTP client.
   // Called after setHostBashProxy so updateSender targets the current proxy.
   // When proxies are preserved during an active turn (non-desktop request while
   // processing), skip updating proxy senders to avoid degrading them.
   const preservingProxies =
-    session.isProcessing() &&
+    conversation.isProcessing() &&
     sourceInterface !== "macos" &&
     sourceInterface !== "ios";
-  session.updateClient(onEvent, !isInteractive, {
+  conversation.updateClient(onEvent, !isInteractive, {
     skipProxySenderUpdate: preservingProxies,
   });
 
@@ -711,11 +719,11 @@ export async function handleSendMessage(
     : [];
 
   // Resolve the verified actor's external user ID and principal for inline
-  // approval routing from the session's guardian context.
+  // approval routing from the conversation's guardian context.
   const verifiedActorExternalUserId =
-    session.trustContext?.guardianExternalUserId;
+    conversation.trustContext?.guardianExternalUserId;
   const verifiedActorPrincipalId =
-    session.trustContext?.guardianPrincipalId ?? undefined;
+    conversation.trustContext?.guardianPrincipalId ?? undefined;
 
   // Try to consume the message as a canonical guardian approval/rejection reply.
   // On failure, degrade to the existing queue/auto-deny path rather than
@@ -727,7 +735,7 @@ export async function handleSendMessage(
       sourceInterface,
       content: content ?? "",
       attachments,
-      session,
+      conversation,
       onEvent,
       // Desktop path: disable NL classification to avoid consuming non-decision
       // messages while a tool confirmation is pending. Deterministic code-prefix
@@ -758,10 +766,10 @@ export async function handleSendMessage(
     );
   }
 
-  if (session.isProcessing()) {
+  if (conversation.isProcessing()) {
     // Queue the message so it's processed when the current turn completes
     const requestId = crypto.randomUUID();
-    const enqueueResult = session.enqueueMessage(
+    const enqueueResult = conversation.enqueueMessage(
       content ?? "",
       attachments,
       onEvent,
@@ -787,17 +795,17 @@ export async function handleSendMessage(
     // Auto-deny pending confirmations only after enqueue succeeds, so we
     // don't cancel approval-gated workflows when the replacement message
     // is itself rejected by the queue budget.
-    if (session.hasAnyPendingConfirmation()) {
+    if (conversation.hasAnyPendingConfirmation()) {
       // Emit authoritative denial state for each pending request.
       // sendToClient (wired to the SSE hub) delivers these to the client.
       for (const interaction of pendingInteractions.getByConversation(
         mapping.conversationId,
       )) {
         if (
-          interaction.conversation === session &&
+          interaction.conversation === conversation &&
           interaction.kind === "confirmation"
         ) {
-          session.emitConfirmationStateChanged({
+          conversation.emitConfirmationStateChanged({
             conversationId: mapping.conversationId,
             requestId: interaction.requestId,
             state: "denied" as const,
@@ -805,8 +813,8 @@ export async function handleSendMessage(
           });
         }
       }
-      session.denyAllPendingConfirmations();
-      pendingInteractions.removeByConversation(session);
+      conversation.denyAllPendingConfirmations();
+      pendingInteractions.removeByConversation(conversation);
     }
 
     return Response.json(
@@ -820,15 +828,15 @@ export async function handleSendMessage(
   // before dispatching, so an idle session with lingering confirmations
   // (e.g. the user never responded to a tool-approval prompt) must deny
   // them before starting the new turn.
-  if (session.hasAnyPendingConfirmation()) {
+  if (conversation.hasAnyPendingConfirmation()) {
     for (const interaction of pendingInteractions.getByConversation(
       mapping.conversationId,
     )) {
       if (
-        interaction.conversation === session &&
+        interaction.conversation === conversation &&
         interaction.kind === "confirmation"
       ) {
-        session.emitConfirmationStateChanged({
+        conversation.emitConfirmationStateChanged({
           conversationId: mapping.conversationId,
           requestId: interaction.requestId,
           state: "denied" as const,
@@ -836,41 +844,41 @@ export async function handleSendMessage(
         });
       }
     }
-    session.denyAllPendingConfirmations();
-    pendingInteractions.removeByConversation(session);
+    conversation.denyAllPendingConfirmations();
+    pendingInteractions.removeByConversation(conversation);
   }
 
   // Conversation is idle — persist and fire agent loop immediately
-  session.setTurnChannelContext({
+  conversation.setTurnChannelContext({
     userMessageChannel: sourceChannel,
     assistantMessageChannel: sourceChannel,
   });
-  session.setTurnInterfaceContext({
+  conversation.setTurnInterfaceContext({
     userMessageInterface: sourceInterface,
     assistantMessageInterface: sourceInterface,
   });
 
-  await session.ensureActorScopedHistory();
+  await conversation.ensureActorScopedHistory();
 
   // Resolve slash commands before persisting or running the agent loop.
   const rawContent = content ?? "";
   const config = getConfig();
   const slashContext: SlashContext = {
-    messageCount: session.getMessages().length,
-    inputTokens: session.usageStats.inputTokens,
-    outputTokens: session.usageStats.outputTokens,
+    messageCount: conversation.getMessages().length,
+    inputTokens: conversation.usageStats.inputTokens,
+    outputTokens: conversation.usageStats.outputTokens,
     maxInputTokens: config.contextWindow.maxInputTokens,
     model: config.model,
     provider: config.provider,
-    estimatedCost: session.usageStats.estimatedCost,
+    estimatedCost: conversation.usageStats.estimatedCost,
   };
   const slashResult = await resolveSlash(rawContent, slashContext);
 
   if (slashResult.kind === "unknown") {
-    session.processing = true;
+    conversation.processing = true;
     let cleanupDeferred = false;
     try {
-      const provenance = provenanceFromTrustContext(session.trustContext);
+      const provenance = provenanceFromTrustContext(conversation.trustContext);
       const channelMeta = {
         ...provenance,
         userMessageChannel: sourceChannel,
@@ -886,7 +894,7 @@ export async function handleSendMessage(
         JSON.stringify(userMsg.content),
         channelMeta,
       );
-      session.getMessages().push(userMsg);
+      conversation.getMessages().push(userMsg);
 
       const assistantMsg = createAssistantMessage(slashResult.message);
       await addMessage(
@@ -895,7 +903,7 @@ export async function handleSendMessage(
         JSON.stringify(assistantMsg.content),
         channelMeta,
       );
-      session.getMessages().push(assistantMsg);
+      conversation.getMessages().push(assistantMsg);
 
       setConversationOriginChannelIfUnset(
         mapping.conversationId,
@@ -927,7 +935,7 @@ export async function handleSendMessage(
       // populated before SSE events arrive, preventing dropped events in new
       // desktop conversations.
       //
-      // session.processing and drainQueue are also deferred so the current
+      // conversation.processing and drainQueue are also deferred so the current
       // slash command's events are emitted before the next queued message
       // starts processing.
       const conversationId = mapping.conversationId;
@@ -941,8 +949,8 @@ export async function handleSendMessage(
           type: "message_complete",
           conversationId: conversationId,
         });
-        session.processing = false;
-        silentlyWithLog(session.drainQueue(), "slash-command queue drain");
+        conversation.processing = false;
+        silentlyWithLog(conversation.drainQueue(), "slash-command queue drain");
       }, 0);
 
       cleanupDeferred = true;
@@ -950,9 +958,9 @@ export async function handleSendMessage(
     } finally {
       // No-op for the slash-command early-return path (handled inside
       // setTimeout above), but still needed for error paths.
-      if (!cleanupDeferred && session.processing) {
-        session.processing = false;
-        silentlyWithLog(session.drainQueue(), "error-path queue drain");
+      if (!cleanupDeferred && conversation.processing) {
+        conversation.processing = false;
+        silentlyWithLog(conversation.drainQueue(), "error-path queue drain");
       }
     }
   }
@@ -962,7 +970,7 @@ export async function handleSendMessage(
   let messageId: string;
   try {
     const requestId = crypto.randomUUID();
-    messageId = await session.persistUserMessage(
+    messageId = await conversation.persistUserMessage(
       resolvedContent,
       attachments,
       requestId,
@@ -973,7 +981,7 @@ export async function handleSendMessage(
   }
 
   // Fire-and-forget the agent loop; events flow to the hub via onEvent.
-  session
+  conversation
     .runAgentLoop(resolvedContent, messageId, onEvent, {
       isInteractive,
       isUserMessage: true,

@@ -1946,8 +1946,8 @@ export class RelayConnection {
 
     const session = getCallSession(this.callSessionId);
     if (session) {
-      // User message persistence is handled by the session pipeline
-      // (voice-session-bridge -> session.persistUserMessage) so we only
+      // User message persistence is handled by the conversation pipeline
+      // (voice-session-bridge -> conversation.persistUserMessage) so we only
       // need to fire the transcript notifier for UI subscribers here.
       fireCallTranscriptNotifier(
         session.conversationId,
@@ -1957,13 +1957,13 @@ export class RelayConnection {
       );
     }
 
-    // Route to controller for session-backed response
+    // Route to controller for conversation-backed response
     if (this.controller) {
       await this.controller.handleCallerUtterance(msg.voicePrompt, speaker);
     } else {
       // Fallback if controller not yet initialized — persist the caller's
       // transcript so it is available in conversation history once setup
-      // completes. The session pipeline normally handles persistence, but
+      // completes. The conversation pipeline normally handles persistence, but
       // this early-utterance path bypasses it entirely.
       if (session) {
         try {

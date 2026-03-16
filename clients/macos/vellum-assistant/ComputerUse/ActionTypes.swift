@@ -169,15 +169,3 @@ struct AgentAction: Codable {
         }
     }
 }
-
-struct TokenUsage: Codable {
-    let inputTokens: Int
-    let outputTokens: Int
-}
-
-struct ActionRecord: Codable {
-    let step: Int
-    let action: AgentAction
-    let result: String?
-    let timestamp: Date
-}

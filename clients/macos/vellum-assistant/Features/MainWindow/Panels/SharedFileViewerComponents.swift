@@ -29,29 +29,6 @@ func viewModeLabel(_ mode: FileViewMode) -> String {
     }
 }
 
-/// Scrollable read-only monospace text display for file content.
-struct ReadOnlyCodeContent: View {
-    let content: String
-
-    var body: some View {
-        GeometryReader { geometry in
-            ScrollView([.vertical, .horizontal]) {
-                Text(content)
-                    .font(VFont.mono)
-                    .foregroundColor(VColor.contentDefault)
-                    .textSelection(.enabled)
-                    .fixedSize(horizontal: true, vertical: false)
-                    .padding(VSpacing.md)
-                    .frame(
-                        minWidth: geometry.size.width,
-                        minHeight: geometry.size.height,
-                        alignment: .topLeading
-                    )
-            }
-        }
-    }
-}
-
 /// Header bar showing file icon, name, and size for file content viewers.
 struct FileContentHeaderBar<Trailing: View>: View {
     let icon: VIcon

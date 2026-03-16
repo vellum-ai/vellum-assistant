@@ -102,8 +102,10 @@ class IOSConversationStore: ObservableObject {
     /// ViewModels keyed by conversation ID, created lazily on first access.
     private var viewModels: [UUID: ChatViewModel] = [:]
     private var daemonClient: any DaemonClientProtocol
-    private static let persistenceKey = "ios_threads_v1"
-    private static let connectedCacheKey = "ios_connected_threads_cache_v1"
+    private static let persistenceKey = "ios_conversations_v1"
+    private static let connectedCacheKey = "ios_connected_conversations_cache_v1"
+    private static let legacyPersistenceKey = "ios_threads_v1"
+    private static let legacyConnectedCacheKey = "ios_connected_threads_cache_v1"
     private var cancellables: Set<AnyCancellable> = []
     /// Maps daemon conversation IDs to local conversation IDs for history loading.
     private var pendingHistoryByConversationId: [String: UUID] = [:]
@@ -252,8 +254,22 @@ class IOSConversationStore: ObservableObject {
             || latestLoadedAssistantMessageTimestamp(for: conversations[index].id) != nil
     }
 
+    /// One-time migration: move data from legacy "threads" keys to new "conversations" keys.
+    private static func migrateKeysIfNeeded() {
+        let defaults = UserDefaults.standard
+        if let data = defaults.data(forKey: legacyPersistenceKey), defaults.data(forKey: persistenceKey) == nil {
+            defaults.set(data, forKey: persistenceKey)
+            defaults.removeObject(forKey: legacyPersistenceKey)
+        }
+        if let data = defaults.data(forKey: legacyConnectedCacheKey), defaults.data(forKey: connectedCacheKey) == nil {
+            defaults.set(data, forKey: connectedCacheKey)
+            defaults.removeObject(forKey: legacyConnectedCacheKey)
+        }
+    }
+
     init(daemonClient: any DaemonClientProtocol) {
         self.daemonClient = daemonClient
+        Self.migrateKeysIfNeeded()
 
         if let daemon = daemonClient as? DaemonClient {
             // Connected mode — show cached conversations instantly or spinner on first launch

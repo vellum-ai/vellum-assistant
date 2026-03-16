@@ -1,6 +1,6 @@
 // Verification session intent resolution for deterministic first-turn routing.
 // Exports `resolveVerificationSessionIntent` as the single public entry point.
-// When a direct guardian setup request is detected, the session pipeline
+// When a direct guardian setup request is detected, the conversation pipeline
 // rewrites the message to force immediate entry into the guardian-verify-setup
 // skill flow, bypassing the normal agent loop's tendency to produce conceptual
 // preambles before loading the skill.

@@ -487,8 +487,12 @@ struct AgentPanelContent: View {
             Divider().background(VColor.borderBase)
 
             // File content
-            ReadOnlyCodeContent(content: content)
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            HighlightedTextView(
+                text: .constant(content),
+                language: SyntaxLanguage.detect(fileName: file.path, mimeType: file.mimeType),
+                isEditable: false
+            )
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .background(VColor.surfaceOverlay)

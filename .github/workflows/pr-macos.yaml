@@ -156,6 +156,7 @@ jobs:
           BUNDLE_DISPLAY_NAME="$APP_DISPLAY_NAME" \
           SIGN_IDENTITY="Developer ID Application" \
           RELEASE_ARCH_FLAGS="--arch arm64" \
+          SKIP_BUN_REBUILD=1 \
           ./build.sh release
 
           APP_PATH="dist/$APP_DISPLAY_NAME.app"
@@ -182,8 +183,22 @@ jobs:
           mkdir -p build
           swift dmg/generate-background.swift build/dmg-background@2x.png
 
+      - name: Cache Homebrew create-dmg
+        id: cache-create-dmg
+        uses: actions/cache@v4
+        with:
+          path: |
+            /usr/local/Cellar/create-dmg
+            /opt/homebrew/Cellar/create-dmg
+          key: create-dmg-v1-${{ runner.os }}-${{ runner.arch }}
+
       - name: Install create-dmg
+        if: steps.cache-create-dmg.outputs.cache-hit != 'true'
         run: brew install create-dmg
+
+      - name: Link create-dmg
+        if: steps.cache-create-dmg.outputs.cache-hit == 'true'
+        run: brew link create-dmg 2>/dev/null || true
 
       - name: Create DMG
         run: |

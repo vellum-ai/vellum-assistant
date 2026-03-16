@@ -7,6 +7,7 @@ struct WorkspaceFileSheet: View {
     let filePath: String
     let mimeType: String?
     let client: DaemonClient?
+    let workspaceClient: WorkspaceClient
     @Environment(\.dismiss) private var dismiss
     @State private var fileResponse: WorkspaceFileResponse?
     @State private var isLoading = true
@@ -79,9 +80,9 @@ struct WorkspaceFileSheet: View {
     private var contentView: some View {
         let resolvedMime = fileResponse?.mimeType ?? mimeType ?? ""
 
-        if resolvedMime.hasPrefix("image/"), let contentURL = client?.workspaceFileContentURL(path: filePath) {
+        if resolvedMime.hasPrefix("image/"), let contentURL = workspaceClient.workspaceFileContentURL(path: filePath, showHidden: false) {
             AuthenticatedImageView(url: contentURL, client: client)
-        } else if resolvedMime.hasPrefix("video/"), let contentURL = client?.workspaceFileContentURL(path: filePath) {
+        } else if resolvedMime.hasPrefix("video/"), let contentURL = workspaceClient.workspaceFileContentURL(path: filePath, showHidden: false) {
             WorkspaceVideoPlayer(url: contentURL, client: client)
         } else if let response = fileResponse, !response.isBinary, response.content != nil {
             TextEditor(text: $editableContent)
@@ -141,13 +142,7 @@ struct WorkspaceFileSheet: View {
     // MARK: - Loading
 
     private func loadContent() async {
-        guard let client else {
-            error = "Not connected to assistant."
-            isLoading = false
-            return
-        }
-
-        if let response = await client.fetchWorkspaceFile(path: filePath) {
+        if let response = await workspaceClient.fetchWorkspaceFile(path: filePath, showHidden: false) {
             fileResponse = response
         } else {
             error = "Unable to read file."
@@ -160,7 +155,7 @@ struct WorkspaceFileSheet: View {
         isSaving = true
         let snapshot = editableContent
         let data = Data(snapshot.utf8)
-        let success = await client?.writeWorkspaceFile(path: path, content: data) ?? false
+        let success = await workspaceClient.writeWorkspaceFile(path: path, content: data)
         if success {
             originalContent = snapshot
             isDirty = editableContent != snapshot

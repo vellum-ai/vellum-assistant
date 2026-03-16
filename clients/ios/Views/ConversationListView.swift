@@ -424,7 +424,7 @@ struct ConversationListView: View {
                 }
             }
 
-            // Load-more trigger: appears when the daemon has additional sessions beyond
+            // Load-more trigger: appears when the daemon has additional conversations beyond
             // the current page. Becomes visible as the user scrolls toward the bottom.
             if store.hasMoreConversations || store.isLoadingMoreConversations {
                 HStack {

@@ -50,6 +50,32 @@ final class OnboardingState {
     enum HostingMode: String {
         case vellumCloud = "vellum-cloud"
         case local = "local"
+        case docker = "docker"
+        case gcp = "gcp"
+        case aws = "aws"
+        case customHardware = "customHardware"
+
+        var displayName: String {
+            switch self {
+            case .vellumCloud: return "Vellum Cloud"
+            case .local: return "Local"
+            case .docker: return "Docker"
+            case .gcp: return "GCP"
+            case .aws: return "AWS"
+            case .customHardware: return "Custom"
+            }
+        }
+
+        var subtitle: String {
+            switch self {
+            case .vellumCloud: return "Hosted and managed by Vellum"
+            case .local: return "Run on your machine"
+            case .docker: return "Run in a Docker container"
+            case .gcp: return "Host on your GCP account"
+            case .aws: return "Host on your AWS account"
+            case .customHardware: return "Run on your own hardware"
+            }
+        }
     }
     var hasHatched: Bool = false
     var interviewCompleted: Bool = false

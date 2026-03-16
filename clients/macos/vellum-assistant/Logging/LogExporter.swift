@@ -23,6 +23,7 @@ private let log = Logger(
 /// - `auth-debug.json` — non-sensitive token expiry and refresh state for session debugging
 /// - `port-diagnostics.json` — processes listening on assistant-relevant TCP ports
 /// - `config-snapshot.json` — sanitized workspace config (API key values redacted, structure preserved)
+/// - `daemon-logs-fallback/` — when daemon is unreachable: vellum.log, recent hatch-*.log, and XDG hatch.log read directly from disk (10 MB cap)
 @MainActor
 enum LogExporter {
 
@@ -93,7 +94,7 @@ enum LogExporter {
             var extra: [String: Any] = [:]
             let conversationManager = AppDelegate.shared?.mainWindow?.conversationManager
             if let activeConversation = conversationManager?.activeConversation {
-                extra["thread_title"] = activeConversation.title
+                extra["conversation_title"] = activeConversation.title
                 if let conversationId = activeConversation.conversationId {
                     tags["session_id"] = conversationId
                     // conversation_id mirrors session_id — the daemon tags its
@@ -229,11 +230,16 @@ enum LogExporter {
         let connectedId = UserDefaults.standard.string(forKey: "connectedAssistantId")
         let isManagedAssistant = await MainActor.run { Self.isManagedAssistant }
 
+        var daemonUnreachable = false
         if isManagedAssistant, let assistantId = connectedId,
            let orgId = UserDefaults.standard.string(forKey: "connectedOrganizationId") {
             await fetchPlatformLogs(into: tempDir, assistantId: assistantId, organizationId: orgId)
         } else {
-            await fetchDaemonExports(into: tempDir, scope: formData?.scope ?? .global)
+            let success = await fetchDaemonExports(into: tempDir, scope: formData?.scope ?? .global)
+            if !success {
+                daemonUnreachable = true
+                collectFallbackDaemonLogs(into: tempDir, home: home, fileManager: fileManager)
+            }
         }
 
         // 4. XDG CLI logs — ~/.config/vellum/logs/ (hatch.log, retire.log, etc.)
@@ -271,7 +277,7 @@ enum LogExporter {
         // Email is excluded from the archive since it's already sent via
         // Sentry's Feedback API (linked to the event).
         if let formData {
-            var metadata: [String: String] = [
+            var metadata: [String: Any] = [
                 "reason": formData.reason.rawValue,
                 "message": formData.message,
                 "device_id": SentryDeviceInfo.deviceId,
@@ -279,8 +285,21 @@ enum LogExporter {
             if !formData.name.isEmpty {
                 metadata["name"] = formData.name
             }
+            if daemonUnreachable {
+                metadata["daemon-unreachable"] = true
+            }
             if let data = try? JSONSerialization.data(
                 withJSONObject: metadata,
+                options: [.prettyPrinted, .sortedKeys]
+            ) {
+                try? data.write(to: tempDir.appendingPathComponent("report-metadata.json"))
+            }
+        } else if daemonUnreachable {
+            // Write a minimal manifest when no form data is available so the
+            // receiving end still knows these are raw filesystem reads.
+            let manifest: [String: Any] = ["daemon-unreachable": true]
+            if let data = try? JSONSerialization.data(
+                withJSONObject: manifest,
                 options: [.prettyPrinted, .sortedKeys]
             ) {
                 try? data.write(to: tempDir.appendingPathComponent("report-metadata.json"))
@@ -368,17 +387,18 @@ enum LogExporter {
     /// Calls POST /v1/export on the gateway to download a tar.gz archive of
     /// audit data, daemon logs, workspace files, and config snapshot.
     /// Extracts the archive into `directory/daemon-exports/`.
-    /// Silently skips if the gateway is unreachable or returns an error.
-    private nonisolated static func fetchDaemonExports(into directory: URL, scope: LogExportScope) async {
+    /// Returns `true` if the export succeeded, `false` if the daemon was unreachable.
+    @discardableResult
+    private nonisolated static func fetchDaemonExports(into directory: URL, scope: LogExportScope) async -> Bool {
         let connectedId = UserDefaults.standard.string(forKey: "connectedAssistantId")
         let baseURL = LockfilePaths.resolveGatewayUrl(connectedAssistantId: connectedId)
 
         guard let token = ActorTokenManager.getToken(), !token.isEmpty else {
             log.warning("No actor token available — skipping daemon exports")
-            return
+            return false
         }
 
-        guard let url = URL(string: "\(baseURL)/v1/export") else { return }
+        guard let url = URL(string: "\(baseURL)/v1/export") else { return false }
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.timeoutInterval = 30
@@ -403,13 +423,143 @@ enum LogExporter {
                   (200...299).contains(http.statusCode) else {
                 let status = (response as? HTTPURLResponse)?.statusCode ?? -1
                 log.warning("Export API failed with status \(status)")
-                return
+                return false
             }
 
             try await extractTarGzResponse(data: data, into: directory, subdirectory: "daemon-exports")
+            return true
         } catch {
             log.warning("Export API request failed: \(error.localizedDescription)")
+            return false
         }
+    }
+
+    // MARK: - Daemon Log Fallback
+
+    /// Maximum total bytes to read when collecting fallback daemon logs.
+    private static let fallbackLogSizeLimit = 10 * 1024 * 1024 // 10 MB
+
+    /// When the daemon is unreachable, reads log files directly from the
+    /// filesystem and copies them into `directory/daemon-logs-fallback/`.
+    /// Includes the main daemon log (`vellum.log`) and the 3 most recent
+    /// hatch attempt logs (`hatch-*.log`), capped at 10 MB total.
+    private nonisolated static func collectFallbackDaemonLogs(
+        into directory: URL,
+        home: String,
+        fileManager: FileManager
+    ) {
+        let fallbackDir = directory.appendingPathComponent("daemon-logs-fallback", isDirectory: true)
+        try? fileManager.createDirectory(at: fallbackDir, withIntermediateDirectories: true)
+
+        let workspaceLogDir = URL(fileURLWithPath: home)
+            .appendingPathComponent(".vellum/workspace/data/logs", isDirectory: true)
+
+        var totalBytes = 0
+
+        // 1. Main daemon log — vellum.log
+        let vellumLog = workspaceLogDir.appendingPathComponent("vellum.log")
+        if fileManager.fileExists(atPath: vellumLog.path),
+           let attrs = try? fileManager.attributesOfItem(atPath: vellumLog.path),
+           let size = attrs[.size] as? Int,
+           size > 0 {
+            let bytesToRead = min(size, fallbackLogSizeLimit - totalBytes)
+            if bytesToRead > 0 {
+                if bytesToRead >= size {
+                    try? fileManager.copyItem(
+                        at: vellumLog,
+                        to: fallbackDir.appendingPathComponent("vellum.log")
+                    )
+                } else {
+                    // Tail the file if it exceeds the remaining budget
+                    copyTail(
+                        of: vellumLog,
+                        bytes: bytesToRead,
+                        to: fallbackDir.appendingPathComponent("vellum.log")
+                    )
+                }
+                totalBytes += bytesToRead
+            }
+        }
+
+        // 2. Recent hatch attempt logs — hatch-*.log, sorted by modification time (newest first)
+        if fileManager.fileExists(atPath: workspaceLogDir.path),
+           let contents = try? fileManager.contentsOfDirectory(
+               at: workspaceLogDir,
+               includingPropertiesForKeys: [.contentModificationDateKey],
+               options: [.skipsHiddenFiles]
+           ) {
+            let hatchLogs = contents
+                .filter { $0.lastPathComponent.hasPrefix("hatch-") && $0.pathExtension == "log" }
+                .sorted { a, b in
+                    let aDate = (try? a.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate ?? .distantPast
+                    let bDate = (try? b.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate ?? .distantPast
+                    return aDate > bDate
+                }
+
+            for hatchLog in hatchLogs.prefix(3) {
+                guard totalBytes < fallbackLogSizeLimit else { break }
+                guard let attrs = try? fileManager.attributesOfItem(atPath: hatchLog.path),
+                      let size = attrs[.size] as? Int,
+                      size > 0 else { continue }
+
+                let bytesToRead = min(size, fallbackLogSizeLimit - totalBytes)
+                if bytesToRead >= size {
+                    try? fileManager.copyItem(
+                        at: hatchLog,
+                        to: fallbackDir.appendingPathComponent(hatchLog.lastPathComponent)
+                    )
+                } else {
+                    copyTail(
+                        of: hatchLog,
+                        bytes: bytesToRead,
+                        to: fallbackDir.appendingPathComponent(hatchLog.lastPathComponent)
+                    )
+                }
+                totalBytes += bytesToRead
+            }
+        }
+
+        // 3. XDG CLI hatch log — ~/.config/vellum/logs/hatch.log
+        //    Already collected under xdg-logs/ by the main export path, but verify
+        //    it exists and include in the fallback directory for completeness.
+        let xdgConfigHome = ProcessInfo.processInfo.environment["XDG_CONFIG_HOME"]
+            ?? URL(fileURLWithPath: home).appendingPathComponent(".config").path
+        let xdgHatchLog = URL(fileURLWithPath: xdgConfigHome)
+            .appendingPathComponent("vellum/logs/hatch.log")
+        if fileManager.fileExists(atPath: xdgHatchLog.path),
+           totalBytes < fallbackLogSizeLimit,
+           let attrs = try? fileManager.attributesOfItem(atPath: xdgHatchLog.path),
+           let size = attrs[.size] as? Int,
+           size > 0 {
+            let bytesToRead = min(size, fallbackLogSizeLimit - totalBytes)
+            if bytesToRead >= size {
+                try? fileManager.copyItem(
+                    at: xdgHatchLog,
+                    to: fallbackDir.appendingPathComponent("xdg-hatch.log")
+                )
+            } else {
+                copyTail(
+                    of: xdgHatchLog,
+                    bytes: bytesToRead,
+                    to: fallbackDir.appendingPathComponent("xdg-hatch.log")
+                )
+            }
+            totalBytes += bytesToRead
+        }
+
+        log.info("Collected \(totalBytes) bytes of fallback daemon logs from filesystem")
+    }
+
+    /// Reads the last `bytes` bytes from `source` and writes them to `destination`.
+    private nonisolated static func copyTail(of source: URL, bytes: Int, to destination: URL) {
+        guard let handle = try? FileHandle(forReadingFrom: source) else { return }
+        defer { try? handle.close() }
+
+        let fileSize = handle.seekToEndOfFile()
+        let offset = fileSize > UInt64(bytes) ? fileSize - UInt64(bytes) : 0
+        handle.seek(toFileOffset: offset)
+        let data = handle.readData(ofLength: bytes)
+        try? data.write(to: destination)
     }
 
     // MARK: - Platform Log Helpers

@@ -88,11 +88,11 @@ function makeStreamingSession(events: ServerMessage[]): Conversation {
 }
 
 /**
- * Helper to inject voice bridge deps with a given session factory.
+ * Helper to inject voice bridge deps with a given conversation factory.
  */
-function injectDeps(sessionFactory: () => Conversation): void {
+function injectDeps(conversationFactory: () => Conversation): void {
   setVoiceBridgeDeps({
-    getOrCreateConversation: async () => sessionFactory(),
+    getOrCreateConversation: async () => conversationFactory(),
     resolveAttachments: () => [],
     deriveDefaultStrictSideEffects: () => false,
   });

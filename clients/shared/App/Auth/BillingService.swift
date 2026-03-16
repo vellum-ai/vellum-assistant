@@ -90,7 +90,6 @@ public final class BillingService {
         }
 
         let task = Task<BillingSummaryResponse?, Never> {
-            defer { bootstrapTasks[orgId] = nil }
             do {
                 let result = try await postBootstrapBillingSummary()
                 // Only persist the flag on success so transient failures don't permanently suppress retries
@@ -102,7 +101,11 @@ public final class BillingService {
             }
         }
         bootstrapTasks[orgId] = task
-        return await task.value
+        let result = await task.value
+        // Safe to clear unconditionally: @MainActor serialization guarantees no concurrent
+        // mutation between the await resumption and this line.
+        bootstrapTasks[orgId] = nil
+        return result
     }
 
     /// POST to the billing summary endpoint to create the BillingAccount with initial credit.

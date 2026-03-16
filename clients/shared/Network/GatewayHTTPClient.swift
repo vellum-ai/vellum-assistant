@@ -246,17 +246,28 @@ public enum GatewayHTTPClient {
         return cs
     }()
 
-    /// Builds an authenticated `URLRequest` from the given connection info.
+    /// Constructs a gateway URL for the given path and query parameters.
     ///
-    /// Replaces `{assistantId}` placeholders in the path with the resolved
-    /// assistant identifier and percent-encodes the resulting path.
-    private static func buildRequest(
+    /// Use this when you need a raw URL (e.g. for media viewers) rather than
+    /// making a full HTTP request via ``get(path:params:timeout:)`` or
+    /// ``post(path:body:timeout:)``.
+    ///
+    /// - Parameters:
+    ///   - path: Path segment after `/v1/` (e.g. `"assistants/{assistantId}/workspace/file/content"`).
+    ///   - params: Optional query parameters.
+    /// - Returns: The fully-qualified URL with `{assistantId}` resolved.
+    /// - Throws: `ClientError` if the connection cannot be resolved or the URL is invalid.
+    public static func buildURL(path: String, params: [String: String]? = nil) throws -> URL {
+        let connection = try resolveConnection()
+        return try constructURL(path: path, params: params, connection: connection)
+    }
+
+    /// Builds the gateway URL from path, query parameters, and connection info.
+    private static func constructURL(
         path: String,
         params: [String: String]?,
-        method: String,
-        timeout: TimeInterval,
         connection: ConnectionInfo
-    ) throws -> URLRequest {
+    ) throws -> URL {
         let resolvedPath = path.replacingOccurrences(of: "{assistantId}", with: connection.assistantId)
 
         let pathComponent: String
@@ -286,6 +297,18 @@ public enum GatewayHTTPClient {
         guard let url = URL(string: "\(connection.baseURL)/v1/\(encodedPath)\(trailingSlash)\(queryString)") else {
             throw ClientError.invalidURL
         }
+        return url
+    }
+
+    /// Builds an authenticated `URLRequest` from the given connection info.
+    private static func buildRequest(
+        path: String,
+        params: [String: String]?,
+        method: String,
+        timeout: TimeInterval,
+        connection: ConnectionInfo
+    ) throws -> URLRequest {
+        let url = try constructURL(path: path, params: params, connection: connection)
 
         var request = URLRequest(url: url)
         request.httpMethod = method

@@ -60,6 +60,9 @@ struct MainWindowView: View {
     @State private var showComingAlive: Bool
     /// Whether the daemon-loading skeleton overlay is currently showing.
     @State var showDaemonLoading: Bool
+    /// Mirrors `AppDelegate.daemonStartupError` so SwiftUI re-renders the
+    /// daemon loading overlay when a structured error arrives or is cleared.
+    @State private var daemonStartupError: DaemonStartupError?
 
     init(conversationManager: ConversationManager, appListManager: AppListManager, zoomManager: ZoomManager, conversationZoomManager: ConversationZoomManager, traceStore: TraceStore, usageDashboardStore: UsageDashboardStore, daemonClient: DaemonClient, surfaceManager: SurfaceManager, ambientAgent: AmbientAgent, settingsStore: SettingsStore, authManager: AuthManager, windowState: MainWindowState, documentManager: DocumentManager, onMicrophoneToggle: @escaping () -> Void = {}, voiceModeManager: VoiceModeManager, updateManager: UpdateManager, onSendWakeUp: (() -> Void)? = nil) {
         self.conversationManager = conversationManager
@@ -355,6 +358,26 @@ struct MainWindowView: View {
         return false
     }
 
+    /// Daemon loading overlay extracted to reduce type-checker pressure on `coreLayoutView`.
+    @ViewBuilder
+    private var daemonLoadingOverlayIfNeeded: some View {
+        if showDaemonLoading && !isSettingsOpen {
+            DaemonLoadingOverlayContent(
+                error: daemonStartupError,
+                onRetry: { handleDaemonRetry() },
+                onSendLogs: { AppDelegate.shared?.showLogReportWindow(reason: .connectionIssue) }
+            )
+            .transition(.opacity)
+        }
+    }
+
+    private func handleDaemonRetry() {
+        daemonStartupError = nil
+        AppDelegate.shared?.daemonStartupError = nil
+        showDaemonLoading = true
+        retryDaemonStartup()
+    }
+
     /// Top bar extracted to break up type-checker complexity.
     private var topBarView: some View {
         HStack(spacing: VSpacing.sm) {
@@ -475,10 +498,7 @@ struct MainWindowView: View {
                             .clipShape(RoundedRectangle(cornerRadius: VRadius.xl))
                             .animation(VAnimation.panel, value: sidebarExpanded)
                             .overlay {
-                                if showDaemonLoading && !isSettingsOpen {
-                                    DaemonLoadingChatSkeleton()
-                                        .transition(.opacity)
-                                }
+                                daemonLoadingOverlayIfNeeded
                             }
                     }
                     .padding(16)
@@ -683,6 +703,14 @@ struct MainWindowView: View {
                 windowState.persistentConversationId = activeId
             }
             daemonClient.startSSE()
+            // Sync initial daemon startup error state
+            daemonStartupError = AppDelegate.shared?.daemonStartupError
+        }
+        .task {
+            guard let appDelegate = AppDelegate.shared else { return }
+            for await error in appDelegate.$daemonStartupError.values {
+                daemonStartupError = error
+            }
         }
         .onDisappear {
             sharing.errorDismissTask?.cancel()
@@ -883,6 +911,37 @@ struct MainWindowView: View {
         // SidebarInteractionState.setConversationHover(conversationId:hovering:)
     }
 
+    /// Restart the daemon process without re-hatching a new assistant.
+    /// Stops the existing daemon, then re-hatches with daemonOnly + restart
+    /// flags to avoid creating a duplicate assistant entry.
+    private func retryDaemonStartup() {
+        Task {
+            let assistantName = UserDefaults.standard.string(forKey: "connectedAssistantId")
+            guard let appDelegate = AppDelegate.shared else { return }
+            appDelegate.assistantCli.stop(name: assistantName)
+            do {
+                try await appDelegate.assistantCli.hatch(
+                    name: assistantName,
+                    daemonOnly: true,
+                    restart: true
+                )
+            } catch let error as AssistantCli.CLIError {
+                if case .daemonStartupFailed(let startupError) = error {
+                    appDelegate.daemonStartupError = startupError
+                    daemonStartupError = startupError
+                    MetricKitManager.reportDaemonStartupFailure(startupError)
+                }
+                return
+            } catch {
+                return
+            }
+            // Reconnect the daemon client after a successful restart
+            if !appDelegate.daemonClient.isConnected && !appDelegate.daemonClient.isConnecting {
+                try? await appDelegate.daemonClient.connect()
+            }
+        }
+    }
+
 }
 
 // MARK: - Error Toast Overlay
@@ -946,5 +1005,33 @@ private struct ErrorToastOverlay: View {
         .animation(VAnimation.fast, value: hasAPIKey)
         .animation(VAnimation.fast, value: errorManager.conversationError != nil)
         .animation(VAnimation.fast, value: errorManager.errorText != nil)
+    }
+}
+
+// MARK: - Daemon Loading Overlay Content
+
+/// Standalone view for the daemon loading overlay that shows either a
+/// structured error view or the default skeleton placeholder.
+/// Extracted from MainWindowView to reduce type-checker complexity in
+/// `coreLayoutView`.
+private struct DaemonLoadingOverlayContent: View {
+    let error: DaemonStartupError?
+    let onRetry: () -> Void
+    let onSendLogs: () -> Void
+
+    var body: some View {
+        if let error {
+            ZStack {
+                VColor.surfaceBase
+                    .clipShape(RoundedRectangle(cornerRadius: VRadius.xl))
+                DaemonStartupErrorView(
+                    error: error,
+                    onRetry: onRetry,
+                    onSendLogs: onSendLogs
+                )
+            }
+        } else {
+            DaemonLoadingChatSkeleton()
+        }
     }
 }

@@ -1,96 +1,66 @@
-import AppKit
+import SwiftUI
 import VellumAssistantShared
 
-/// Maps syntax token types to appearance-aware styled text attributes.
+/// Maps syntax token types to SwiftUI colors and builds syntax-highlighted `AttributedString` values.
 struct SyntaxTheme {
 
-    // MARK: - Adaptive Color Helper
+    // MARK: - Token Color
 
-    /// Creates an `NSColor` that resolves to `light` or `dark` based on the
-    /// current window appearance (System / Light / Dark).
-    private static func adaptiveNSColor(
-        light: NSColor,
-        dark: NSColor
-    ) -> NSColor {
-        NSColor(name: nil) { appearance in
-            appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua ? dark : light
+    /// Returns the SwiftUI `Color` for the given syntax token type.
+    static func color(for tokenType: SyntaxTokenType) -> Color {
+        switch tokenType {
+        case .keyword: return VColor.syntaxKeyword
+        case .string: return VColor.syntaxString
+        case .comment: return VColor.syntaxComment
+        case .number: return VColor.syntaxNumber
+        case .type: return VColor.syntaxType
+        case .property: return VColor.syntaxProperty
+        case .boolean, .null: return VColor.syntaxNumber
+        case .codeSpan: return VColor.syntaxString
+        case .link: return VColor.syntaxLink
+        case .heading, .bold, .italic, .plain: return VColor.contentDefault
         }
     }
 
-    // MARK: - Token Colors
+    // MARK: - Highlighted AttributedString
 
-    /// Base text color for unhighlighted content.
-    static let baseTextColor = adaptiveNSColor(
-        light: NSColor(red: 0.20, green: 0.20, blue: 0.20, alpha: 1.0),
-        dark: NSColor(red: 0.85, green: 0.85, blue: 0.85, alpha: 1.0)
-    )
+    /// Tokenizes `text` for `language` and returns an `AttributedString` with
+    /// syntax-colored foreground colors and appropriate font variants.
+    static func highlight(_ text: String, language: SyntaxLanguage) -> AttributedString {
+        let baseFont = VFont.mono
 
-    // Syntax token colors derived from the shared VColor.syntax* adaptive tokens.
-    private static let keywordColor = NSColor(VColor.syntaxKeyword)
-    private static let stringColor = NSColor(VColor.syntaxString)
-    private static let commentColor = NSColor(VColor.syntaxComment)
-    private static let numberColor = NSColor(VColor.syntaxNumber)
-    private static let typeColor = NSColor(VColor.syntaxType)
-    private static let propertyColor = NSColor(VColor.syntaxProperty)
-    private static let linkColor = NSColor(VColor.syntaxLink)
+        var attributedString = AttributedString(text)
+        attributedString.foregroundColor = VColor.contentDefault
+        attributedString.font = baseFont
 
-    // MARK: - Attribute Resolution
-
-    /// Returns attributed string attributes for the given token type.
-    ///
-    /// Colors adapt to the current system appearance (light or dark). Font
-    /// traits (bold, italic) are derived from the provided base font.
-    static func attributes(for tokenType: SyntaxTokenType, baseFont: NSFont) -> [NSAttributedString.Key: Any] {
-        let color: NSColor
-        var font = baseFont
-
-        switch tokenType {
-        case .keyword:
-            color = keywordColor
-
-        case .string:
-            color = stringColor
-
-        case .comment:
-            color = commentColor
-
-        case .number:
-            color = numberColor
-
-        case .type:
-            color = typeColor
-
-        case .property:
-            color = propertyColor
-
-        case .boolean, .null:
-            color = numberColor
-
-        case .heading:
-            color = baseTextColor
-            font = NSFontManager.shared.convert(baseFont, toHaveTrait: .boldFontMask)
-
-        case .bold:
-            color = baseTextColor
-            font = NSFontManager.shared.convert(baseFont, toHaveTrait: .boldFontMask)
-
-        case .italic:
-            color = baseTextColor
-            font = NSFontManager.shared.convert(baseFont, toHaveTrait: .italicFontMask)
-
-        case .codeSpan:
-            color = stringColor
-
-        case .link:
-            color = linkColor
-
-        case .plain:
-            color = baseTextColor
+        guard language != .plain else {
+            return attributedString
         }
 
-        return [
-            .foregroundColor: color,
-            .font: font,
-        ]
+        let tokens = SyntaxTokenizer.tokenize(text, language: language)
+
+        for token in tokens {
+            guard let stringRange = Range(token.range, in: text) else { continue }
+
+            guard let lowerBound = AttributedString.Index(stringRange.lowerBound, within: attributedString),
+                  let upperBound = AttributedString.Index(stringRange.upperBound, within: attributedString) else {
+                continue
+            }
+
+            let attrRange = lowerBound..<upperBound
+
+            attributedString[attrRange].foregroundColor = color(for: token.type)
+
+            switch token.type {
+            case .heading, .bold:
+                attributedString[attrRange].font = VFont.mono.bold()
+            case .italic:
+                attributedString[attrRange].font = VFont.mono.italic()
+            default:
+                break
+            }
+        }
+
+        return attributedString
     }
 }

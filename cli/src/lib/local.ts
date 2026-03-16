@@ -932,6 +932,7 @@ export async function startLocalDaemon(
         "TMPDIR",
         "USER",
         "LANG",
+        "VELLUM_DEBUG",
       ]) {
         if (process.env[key]) {
           daemonEnv[key] = process.env[key]!;

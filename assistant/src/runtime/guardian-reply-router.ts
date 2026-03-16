@@ -165,7 +165,7 @@ function parseRequestCode(
   if (!request) return null;
 
   // Scope to the current conversation when requested, so a code belonging
-  // to a different session/conversation is not consumed here. Requests with
+  // to a different conversation is not consumed here. Requests with
   // null conversationId are global/unscoped and match any conversation.
   if (
     scopeConversationId &&

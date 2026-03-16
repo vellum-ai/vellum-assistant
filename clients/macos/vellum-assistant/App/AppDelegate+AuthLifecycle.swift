@@ -13,6 +13,7 @@ extension AppDelegate {
     func startAuthenticatedFlow() {
         Task {
             await authManager.checkSession()
+            SentryDeviceInfo.updateUserTag(authManager.currentUser?.id)
             let isAuthed = authManager.isAuthenticated
             let hasKey = APIKeyManager.hasAnyKey()
             log.info("[authFlow] isAuthenticated=\(isAuthed) hasAnyKey=\(hasKey)")
@@ -20,8 +21,20 @@ extension AppDelegate {
                 log.info("[authFlow] → proceedToApp()")
                 proceedToApp()
             } else {
-                log.info("[authFlow] → showAuthWindow()")
-                showAuthWindow()
+                // Check if the lockfile has a non-managed assistant we can connect to
+                // without authentication. Local/remote assistants run independently
+                // of the platform auth session, so the app can open in a logged-out
+                // state and the user can sign in from Settings > General.
+                let storedId = UserDefaults.standard.string(forKey: "connectedAssistantId")
+                let assistant = storedId.flatMap { LockfileAssistant.loadByName($0) }
+                    ?? LockfileAssistant.loadLatest()
+                if let assistant, !assistant.isManaged {
+                    log.info("[authFlow] Lockfile has non-managed assistant \(assistant.assistantId) — proceeding to app without auth")
+                    proceedToApp()
+                } else {
+                    log.info("[authFlow] → showAuthWindow()")
+                    showAuthWindow()
+                }
             }
         }
     }
@@ -33,19 +46,34 @@ extension AppDelegate {
             return
         }
 
-        OnboardingState.clearPersistedState()
-        let state = OnboardingState()
-        state.shouldPersist = false
-        let authView = OnboardingFlowView(
-            state: state,
-            daemonClient: daemonClient,
-            authManager: authManager,
-            managedBootstrapEnabled: true,
-            onComplete: { [weak self] in
-                self?.proceedToApp()
-            },
-            onOpenSettings: {}
-        )
+        let hasAssistants = lockfileHasAssistants()
+        let authView: AnyView
+
+        if hasAssistants {
+            // Returning user with existing assistant — show clean sign-in, not full onboarding
+            authView = AnyView(ReauthView(
+                authManager: authManager,
+                onComplete: { [weak self] in
+                    self?.proceedToApp()
+                }
+            ))
+        } else {
+            // No assistants — show full onboarding (shouldn't normally happen via this path,
+            // but included as a safety net)
+            OnboardingState.clearPersistedState()
+            let state = OnboardingState()
+            state.shouldPersist = false
+            authView = AnyView(OnboardingFlowView(
+                state: state,
+                daemonClient: daemonClient,
+                authManager: authManager,
+                managedBootstrapEnabled: true,
+                onComplete: { [weak self] in
+                    self?.proceedToApp()
+                },
+                onOpenSettings: {}
+            ))
+        }
 
         let hostingController = NSHostingController(rootView: authView)
 
@@ -316,10 +344,12 @@ extension AppDelegate {
                     log.info("Local assistant API key provisioned: \(id, privacy: .public)")
                 }
                 self.localBootstrapDidComplete = true
+                SentryDeviceInfo.updateOrganizationTag(UserDefaults.standard.string(forKey: "connectedOrganizationId"))
                 NotificationCenter.default.post(name: .localBootstrapCompleted, object: nil)
             } catch {
                 log.error("Failed to provision local assistant API key: \(error.localizedDescription)")
                 self.localBootstrapDidComplete = true
+                SentryDeviceInfo.updateOrganizationTag(UserDefaults.standard.string(forKey: "connectedOrganizationId"))
                 NotificationCenter.default.post(name: .localBootstrapCompleted, object: nil)
                 self.mainWindow?.windowState.showToast(
                     message: "Failed to set up Vellum credentials. You may need to sign out and sign in again.",
@@ -359,6 +389,7 @@ extension AppDelegate {
         SentryDeviceInfo.updateAssistantTag(assistant.assistantId)
         // Clear stale org ID so the next bootstrap re-resolves it for the new assistant
         UserDefaults.standard.removeObject(forKey: "connectedOrganizationId")
+        SentryDeviceInfo.updateOrganizationTag(nil)
         // Clear stale actor token for the previous assistant
         actorTokenBootstrapTask?.cancel()
         actorTokenBootstrapTask = nil
@@ -387,50 +418,49 @@ extension AppDelegate {
         showMainWindow()
     }
 
-    /// Push all locally-stored API keys to a specific assistant's daemon.
-    /// Waits for the actor token, then POSTs each key to /v1/secrets.
+    /// Push all locally-stored API keys to the daemon via the gateway.
+    /// Launches a fire-and-forget Task; use ``syncApiKeysViaGateway()``
+    /// when the caller needs to await completion.
     private func syncApiKeysToAssistant(_ assistant: LockfileAssistant) {
-        let port = assistant.daemonPort
-            ?? Int(ProcessInfo.processInfo.environment["RUNTIME_HTTP_PORT"] ?? "")
-            ?? 7821
-
         Task {
-            // Wait for the actor token (new daemon needs time to bootstrap).
-            guard let token = await ActorTokenManager.waitForToken(timeout: 30),
-                  !token.isEmpty else {
-                log.warning("syncApiKeysToAssistant: no actor token after 30s, skipping key sync")
+            await syncApiKeysViaGateway()
+        }
+    }
+
+    /// Push all locally-stored API keys to the daemon via GatewayHTTPClient.
+    /// Awaitable so callers (e.g. the first-launch bootstrap) can ensure
+    /// LLM provider keys are registered before sending the first message.
+    func syncApiKeysViaGateway() async {
+        guard let assistantId = UserDefaults.standard.string(forKey: "connectedAssistantId"),
+              !assistantId.isEmpty else {
+            log.warning("syncApiKeysViaGateway: no connected assistant, skipping key sync")
+            return
+        }
+
+        // For local assistants the actor token may still be bootstrapping
+        // (e.g. after performSwitchAssistant deletes the old token). Wait
+        // for it before calling GatewayHTTPClient which reads it synchronously.
+        let isManaged = LockfileAssistant.loadByName(assistantId)?.isManaged ?? false
+        if !isManaged {
+            guard let _ = await ActorTokenManager.waitForToken(timeout: 30) else {
+                log.warning("syncApiKeysViaGateway: no actor token after 30s, skipping key sync")
                 return
             }
-
-            for name in APIKeyManager.allSyncableProviders {
-                guard let key = APIKeyManager.getKey(for: name), !key.isEmpty else { continue }
-                guard let url = URL(string: "http://localhost:\(port)/v1/secrets") else { continue }
-                var request = URLRequest(url: url)
-                request.httpMethod = "POST"
-                request.timeoutInterval = 5
-                request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
-                request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-                let body: [String: String] = ["type": "api_key", "name": name, "value": key]
-                request.httpBody = try? JSONSerialization.data(withJSONObject: body)
-                _ = try? await URLSession.shared.data(for: request)
-            }
-
-            // ElevenLabs uses the credential type, not api_key
-            if let elevenLabsKey = APIKeyManager.getKey(for: "elevenlabs"), !elevenLabsKey.isEmpty {
-                if let url = URL(string: "http://localhost:\(port)/v1/secrets") {
-                    var request = URLRequest(url: url)
-                    request.httpMethod = "POST"
-                    request.timeoutInterval = 5
-                    request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
-                    request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-                    let body: [String: String] = ["type": "credential", "name": "elevenlabs:api_key", "value": elevenLabsKey]
-                    request.httpBody = try? JSONSerialization.data(withJSONObject: body)
-                    _ = try? await URLSession.shared.data(for: request)
-                }
-            }
-
-            log.info("syncApiKeysToAssistant: pushed API keys to daemon on port \(port)")
         }
+
+        for name in APIKeyManager.allSyncableProviders {
+            guard let key = APIKeyManager.getKey(for: name), !key.isEmpty else { continue }
+            let body: [String: Any] = ["type": "api_key", "name": name, "value": key]
+            _ = try? await GatewayHTTPClient.post(path: "assistants/\(assistantId)/secrets", json: body, timeout: 5)
+        }
+
+        // ElevenLabs uses the credential type, not api_key
+        if let elevenLabsKey = APIKeyManager.getKey(for: "elevenlabs"), !elevenLabsKey.isEmpty {
+            let body: [String: Any] = ["type": "credential", "name": "elevenlabs:api_key", "value": elevenLabsKey]
+            _ = try? await GatewayHTTPClient.post(path: "assistants/\(assistantId)/secrets", json: body, timeout: 5)
+        }
+
+        log.info("syncApiKeysViaGateway: pushed API keys for \(assistantId, privacy: .public)")
     }
 
     @objc func performRetire() {
@@ -519,6 +549,8 @@ extension AppDelegate {
         UserDefaults.standard.removeObject(forKey: "connectedAssistantId")
         SentryDeviceInfo.updateAssistantTag(nil)
         UserDefaults.standard.removeObject(forKey: "connectedOrganizationId")
+        SentryDeviceInfo.updateOrganizationTag(nil)
+        SentryDeviceInfo.updateUserTag(nil)
         UserDefaults.standard.removeObject(forKey: "lastActivePanel")
 
         daemonClient.disconnect()

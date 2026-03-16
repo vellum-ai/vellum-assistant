@@ -1,4 +1,5 @@
 import type { Command } from "commander";
+import { z } from "zod";
 
 import {
   getNestedValue,
@@ -7,6 +8,8 @@ import {
   setNestedValue,
   syncConfigToLockfile,
 } from "../../config/loader.js";
+import { AssistantConfigSchema } from "../../config/schema.js";
+import { getSchemaAtPath } from "../../config/schema-utils.js";
 import { log } from "../logger.js";
 
 /**
@@ -49,6 +52,7 @@ and "assistant keys set <provider> <key>" to view and manage API keys.
 Examples:
   $ assistant config list
   $ assistant config get provider
+  $ assistant config schema provider
   $ assistant config set provider anthropic
   $ assistant config set calls.enabled true`,
   );
@@ -122,6 +126,45 @@ Examples:
             : String(value),
         );
       }
+    });
+
+  config
+    .command("schema [path]")
+    .description("Print the JSON Schema for the config (or a sub-path)")
+    .addHelpText(
+      "after",
+      `
+Arguments:
+  path   Optional dotted path to a config key (e.g. calls, memory.segmentation)
+
+Prints the JSON Schema for the entire config object, or the sub-schema at the
+given path. Useful for understanding available fields, their types, defaults,
+and constraints.
+
+Examples:
+  $ assistant config schema
+  $ assistant config schema calls
+  $ assistant config schema memory.segmentation`,
+    )
+    .action((path?: string) => {
+      if (!path) {
+        const jsonSchema = z.toJSONSchema(AssistantConfigSchema, {
+          unrepresentable: "any",
+        });
+        log.info(JSON.stringify(jsonSchema, null, 2));
+        return;
+      }
+
+      const subSchema = getSchemaAtPath(AssistantConfigSchema, path);
+      if (!subSchema) {
+        log.error(`No schema found at path: ${path}`);
+        process.exit(1);
+      }
+
+      const jsonSchema = z.toJSONSchema(subSchema, {
+        unrepresentable: "any",
+      });
+      log.info(JSON.stringify(jsonSchema, null, 2));
     });
 
   config

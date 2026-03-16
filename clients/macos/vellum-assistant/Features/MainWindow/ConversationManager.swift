@@ -6,8 +6,7 @@ import os
 import Combine
 
 private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "ConversationManager")
-// Keep the legacy UserDefaults key so existing persisted archive
-// state is preserved across the session-to-conversation rename.
+// Legacy UserDefaults key preserved from the session-to-conversation rename.
 private let archivedConversationsKey = "archivedSessionIds"
 
 // MARK: - Conversation Client Protocol
@@ -43,8 +42,8 @@ struct ConversationClient: ConversationClientProtocol {
 
 @MainActor
 final class ConversationManager: ObservableObject, ConversationRestorerDelegate {
-    @AppStorage("restoreRecentThreads") private(set) var restoreRecentConversations = true
-    @AppStorage("lastActiveThreadId") private var lastActiveConversationIdString: String?
+    @AppStorage("restoreRecentConversations") private(set) var restoreRecentConversations = true
+    @AppStorage("lastActiveConversationId") private var lastActiveConversationIdString: String?
     @AppStorage("completedConversationCount") private var completedConversationCount: Int = 0
     @Published var conversations: [ConversationModel] = []
     @Published var hasMoreConversations: Bool = false
@@ -229,7 +228,21 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
         return getOrCreateViewModel(for: activeConversationId)
     }
 
+    /// One-time migration: rename legacy "thread" @AppStorage keys to "conversation" keys.
+    static func migrateStorageKeysIfNeeded() {
+        let defaults = UserDefaults.standard
+        if let value = defaults.object(forKey: "restoreRecentThreads"), defaults.object(forKey: "restoreRecentConversations") == nil {
+            defaults.set(value, forKey: "restoreRecentConversations")
+            defaults.removeObject(forKey: "restoreRecentThreads")
+        }
+        if let value = defaults.string(forKey: "lastActiveThreadId"), defaults.string(forKey: "lastActiveConversationId") == nil {
+            defaults.set(value, forKey: "lastActiveConversationId")
+            defaults.removeObject(forKey: "lastActiveThreadId")
+        }
+    }
+
     init(daemonClient: DaemonClient, conversationClient: ConversationClientProtocol = ConversationClient(), activityNotificationService: ActivityNotificationService? = nil, isFirstLaunch: Bool = false) {
+        Self.migrateStorageKeysIfNeeded()
         self.daemonClient = daemonClient
         self.conversationClient = conversationClient
         self.activityNotificationService = activityNotificationService
@@ -621,24 +634,19 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
             chatViewModels[id]?.cancelPendingMessage()
         }
 
-        // If the archived conversation was active, select an adjacent visible conversation
-        // or create a new one if none remain.
-        if activeConversationId == id {
-            // Find the position of the archived conversation among visible conversations
-            // (before archiving filtered it out) and pick the neighbor.
-            let visible = visibleConversations
-            if !visible.isEmpty {
-                // The archived conversation was at `index` in the full `conversations` array.
-                // Find the closest visible conversation by scanning neighbors.
-                let visibleAfter = conversations[index...].dropFirst().first(where: { !$0.isArchived })
-                let visibleBefore = conversations[..<index].last(where: { !$0.isArchived })
-                if let next = visibleAfter ?? visibleBefore {
-                    activeConversationId = next.id
-                } else {
-                    activeConversationId = visible.first?.id
-                }
+        // If all non-private conversations are now archived, sleep the assistant
+        // so it stops running and sending notifications.
+        if visibleConversations.isEmpty {
+            log.info("All conversations archived — sleeping assistant")
+            sleepAssistantAfterArchive()
+        } else if activeConversationId == id {
+            // The archived conversation was active — select an adjacent visible one.
+            let visibleAfter = conversations[index...].dropFirst().first(where: { !$0.isArchived })
+            let visibleBefore = conversations[..<index].last(where: { !$0.isArchived })
+            if let next = visibleAfter ?? visibleBefore {
+                activeConversationId = next.id
             } else {
-                createConversation()
+                activeConversationId = visibleConversations.first?.id
             }
         }
 
@@ -668,6 +676,21 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
 
     func isConversationArchived(_ conversationId: String) -> Bool {
         archivedConversationIds.contains(conversationId)
+    }
+
+    /// Sleep the assistant after all conversations have been archived.
+    /// This stops the daemon process so it no longer sends notifications.
+    private func sleepAssistantAfterArchive() {
+        guard let assistantId = UserDefaults.standard.string(forKey: "connectedAssistantId"),
+              !assistantId.isEmpty else { return }
+        Task {
+            do {
+                try await AppDelegate.shared?.assistantCli.sleep(name: assistantId)
+                log.info("Assistant '\(assistantId, privacy: .private)' slept after all conversations archived")
+            } catch {
+                log.error("Failed to sleep assistant after archiving: \(error.localizedDescription)")
+            }
+        }
     }
 
     /// Load more conversations from the daemon (pagination).

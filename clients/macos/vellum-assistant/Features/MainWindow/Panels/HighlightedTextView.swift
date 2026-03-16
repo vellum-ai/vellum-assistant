@@ -1,303 +1,300 @@
-import AppKit
 import SwiftUI
+import VellumAssistantShared
 
-/// A syntax-highlighted text view backed by NSTextView with line numbers and scrolling.
+/// A code viewer with line numbers, horizontal scrolling, and syntax highlighting.
 ///
-/// Wraps an NSTextView inside an NSScrollView with a line-number gutter.
-/// Supports both editable and read-only modes, Cmd+F find panel, and
-/// debounced re-highlighting on text changes.
-struct HighlightedTextView: NSViewRepresentable {
+/// Uses pure SwiftUI rendering (TextEditor for editable mode, Text for read-only)
+/// to avoid NSTextView compositing issues inside SwiftUI view hierarchies.
+struct HighlightedTextView: View {
     @Binding var text: String
     let language: SyntaxLanguage
     let isEditable: Bool
     var onTextChange: ((String) -> Void)?
 
-    func makeCoordinator() -> Coordinator {
-        Coordinator(parent: self, language: language, onTextChange: onTextChange)
+    @State private var isSearchVisible = false
+    @State private var searchQuery = ""
+    @State private var currentMatchIndex = 0
+
+    private static let editorBackground = VColor.surfaceOverlay
+    private static let gutterBackground = VColor.surfaceBase
+    private static let gutterTextColor = VColor.contentTertiary
+
+    /// Total number of search matches in the text.
+    private var searchMatchCount: Int {
+        guard !searchQuery.isEmpty else { return 0 }
+        return findMatchRanges().count
     }
 
-    func makeNSView(context: Context) -> NSScrollView {
-        let textContainer = NSTextContainer()
-        textContainer.widthTracksTextView = false
-        textContainer.containerSize = NSSize(
-            width: CGFloat.greatestFiniteMagnitude,
-            height: CGFloat.greatestFiniteMagnitude
-        )
-
-        let textView = NSTextView(frame: .zero, textContainer: textContainer)
-        textView.isEditable = isEditable
-        textView.isSelectable = true
-        textView.isRichText = false
-        textView.usesFindPanel = true
-        textView.allowsUndo = true
-        textView.isAutomaticQuoteSubstitutionEnabled = false
-        textView.isAutomaticDashSubstitutionEnabled = false
-        textView.isAutomaticTextReplacementEnabled = false
-        textView.isAutomaticSpellingCorrectionEnabled = false
-        textView.isAutomaticTextCompletionEnabled = false
-        textView.font = context.coordinator.baseFont
-        textView.textColor = SyntaxTheme.baseTextColor
-        textView.backgroundColor = .clear
-        textView.insertionPointColor = SyntaxTheme.baseTextColor
-        textView.selectedTextAttributes = [
-            .backgroundColor: NSColor(name: nil) { appearance in
-                let isDark = appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
-                return isDark
-                    ? NSColor(white: 1.0, alpha: 0.15)
-                    : NSColor(white: 0.0, alpha: 0.12)
-            },
-        ]
-        textView.isVerticallyResizable = true
-        textView.isHorizontallyResizable = true
-        textView.maxSize = NSSize(
-            width: CGFloat.greatestFiniteMagnitude,
-            height: CGFloat.greatestFiniteMagnitude
-        )
-
-        textView.string = text
-
-        let scrollView = NSScrollView()
-        scrollView.documentView = textView
-        scrollView.hasVerticalScroller = true
-        scrollView.hasHorizontalScroller = true
-        scrollView.drawsBackground = false
-        scrollView.autohidesScrollers = true
-        scrollView.contentInsets = NSEdgeInsets(top: 8, left: 0, bottom: 8, right: 8)
-
-        let rulerView = LineNumberRulerView()
-        rulerView.textView = textView
-        rulerView.configure(textView: textView, scrollView: scrollView)
-        scrollView.verticalRulerView = rulerView
-        scrollView.hasVerticalRuler = true
-        scrollView.rulersVisible = true
-
-        textView.delegate = context.coordinator
-        context.coordinator.textView = textView
-        context.coordinator.rulerView = rulerView
-        context.coordinator.applyHighlighting()
-
-        return scrollView
-    }
-
-    func updateNSView(_ scrollView: NSScrollView, context: Context) {
-        guard let textView = scrollView.documentView as? NSTextView else { return }
-
-        // Refresh coordinator's reference to the current SwiftUI struct
-        context.coordinator.parent = self
-
-        // Keep closures and language fresh
-        let languageChanged = context.coordinator.language != language
-        context.coordinator.language = language
-        context.coordinator.onTextChange = onTextChange
-
-        // Sync editability with SwiftUI state
-        textView.isEditable = isEditable
-
-        // Re-highlight when language changes even if text hasn't changed
-        if languageChanged && text == textView.string {
-            context.coordinator.applyHighlighting()
-            return
+    var body: some View {
+        if isEditable {
+            editableView
+        } else {
+            readOnlyView
         }
-
-        // Only update text if it differs and the user is not actively editing
-        guard text != textView.string else { return }
-        guard textView.window?.firstResponder != textView else { return }
-
-        context.coordinator.isUpdatingFromSwiftUI = true
-        textView.string = text
-        context.coordinator.applyHighlighting()
-        context.coordinator.isUpdatingFromSwiftUI = false
     }
 
-    static func dismantleNSView(_ scrollView: NSScrollView, coordinator: Coordinator) {
-        coordinator.highlightTask?.cancel()
-        coordinator.highlightTask = nil
-        coordinator.rulerView?.removeAllObservers()
-        coordinator.textView = nil
-        coordinator.rulerView = nil
-    }
+    // MARK: - Editable Mode
 
-    // MARK: - Coordinator
-
-    final class Coordinator: NSObject, NSTextViewDelegate {
-        var textView: NSTextView?
-        fileprivate var rulerView: LineNumberRulerView?
-        var language: SyntaxLanguage
-        var onTextChange: ((String) -> Void)?
-        var isUpdatingFromSwiftUI = false
-        var highlightTask: Task<Void, Never>?
-        var parent: HighlightedTextView
-
-        lazy var baseFont: NSFont = {
-            NSFont(name: "DMMono-Regular", size: 13)
-                ?? NSFont.monospacedSystemFont(ofSize: 13, weight: .regular)
-        }()
-
-        init(parent: HighlightedTextView, language: SyntaxLanguage, onTextChange: ((String) -> Void)?) {
-            self.parent = parent
-            self.language = language
-            self.onTextChange = onTextChange
-        }
-
-        func textDidChange(_ notification: Notification) {
-            guard !isUpdatingFromSwiftUI else { return }
-            guard let textView = notification.object as? NSTextView else { return }
-
-            let newString = textView.string
-            parent.text = newString
-            onTextChange?(newString)
-
-            // Debounce re-highlighting at 50ms
-            highlightTask?.cancel()
-            highlightTask = Task { @MainActor [weak self] in
-                try? await Task.sleep(nanoseconds: 50_000_000)
-                guard !Task.isCancelled else { return }
-                self?.applyHighlighting()
-            }
-        }
-
-        func applyHighlighting() {
-            guard let textView = textView, let textStorage = textView.textStorage else { return }
-
-            let fullText = textStorage.string
-            if fullText.isEmpty { return }
-
-            let selectedRange = textView.selectedRange()
-
-            textStorage.beginEditing()
-            textStorage.setAttributes(
-                [.font: baseFont, .foregroundColor: SyntaxTheme.baseTextColor],
-                range: NSRange(location: 0, length: fullText.utf16.count)
-            )
-
-            let tokens = SyntaxTokenizer.tokenize(fullText, language: language)
-            for token in tokens {
-                textStorage.addAttributes(
-                    SyntaxTheme.attributes(for: token.type, baseFont: baseFont),
-                    range: token.range
+    /// TextEditor-based editable view — no line numbers but text is visible and editable.
+    /// Shows search bar with match count but does not highlight matches inline
+    /// (TextEditor doesn't support AttributedString).
+    private var editableView: some View {
+        VStack(spacing: 0) {
+            if isSearchVisible {
+                SourceSearchBar(
+                    searchQuery: $searchQuery,
+                    currentMatchIndex: $currentMatchIndex,
+                    matchCount: searchMatchCount,
+                    onDismiss: dismissSearch
                 )
             }
 
-            textStorage.endEditing()
-            textView.setSelectedRange(selectedRange)
-            rulerView?.needsDisplay = true
+            TextEditor(text: editableBinding)
+                .font(VFont.mono)
+                .foregroundStyle(VColor.contentDefault)
+                .scrollContentBackground(.hidden)
+                .background(Self.editorBackground)
+                .scrollDisabled(false)
+        }
+        .onKeyPress("f", phases: .down) { press in
+            guard press.modifiers == .command else { return .ignored }
+            isSearchVisible = true
+            return .handled
+        }
+        .onKeyPress(.escape) {
+            guard isSearchVisible else { return .ignored }
+            dismissSearch()
+            return .handled
+        }
+        .onChange(of: text) { _, _ in
+            let count = searchMatchCount
+            if count == 0 {
+                currentMatchIndex = 0
+            } else if currentMatchIndex >= count {
+                currentMatchIndex = max(0, count - 1)
+            }
         }
     }
-}
 
-// MARK: - LineNumberRulerView
-
-private final class LineNumberRulerView: NSRulerView {
-    var textView: NSTextView?
-    private var notificationObservers: [NSObjectProtocol] = []
-
-    override var requiredThickness: CGFloat {
-        guard let textView = textView else { return 32 }
-        let lineCount = textView.string.components(separatedBy: "\n").count
-        let digitCount = max(3, "\(lineCount)".count)
-        return CGFloat(digitCount * 8 + 16)
-    }
-
-    func configure(textView: NSTextView, scrollView: NSScrollView) {
-        self.textView = textView
-
-        let textObserver = NotificationCenter.default.addObserver(
-            forName: NSText.didChangeNotification,
-            object: textView,
-            queue: .main
-        ) { [weak self] _ in
-            self?.needsDisplay = true
-        }
-
-        scrollView.contentView.postsBoundsChangedNotifications = true
-        let boundsObserver = NotificationCenter.default.addObserver(
-            forName: NSView.boundsDidChangeNotification,
-            object: scrollView.contentView,
-            queue: .main
-        ) { [weak self] _ in
-            self?.needsDisplay = true
-        }
-
-        notificationObservers = [textObserver, boundsObserver]
-    }
-
-    func removeAllObservers() {
-        for observer in notificationObservers {
-            NotificationCenter.default.removeObserver(observer)
-        }
-        notificationObservers.removeAll()
-    }
-
-    override func drawHashMarksAndLabels(in rect: NSRect) {
-        // Fill the gutter background with an appearance-aware color
-        let gutterColor = NSColor(name: nil) { appearance in
-            appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
-                ? NSColor(white: 0.12, alpha: 1.0)
-                : NSColor(white: 0.94, alpha: 1.0)
-        }
-        gutterColor.setFill()
-        rect.fill()
-
-        guard let textView = textView,
-              let layoutManager = textView.layoutManager,
-              let textContainer = textView.textContainer
-        else { return }
-
-        let visibleRect = scrollView?.contentView.bounds ?? .zero
-        let visibleGlyphRange = layoutManager.glyphRange(
-            forBoundingRect: visibleRect,
-            in: textContainer
+    private var editableBinding: Binding<String> {
+        Binding(
+            get: { text },
+            set: { newValue in
+                text = newValue
+                onTextChange?(newValue)
+            }
         )
-        let visibleCharRange = layoutManager.characterRange(
-            forGlyphRange: visibleGlyphRange,
-            actualGlyphRange: nil
-        )
+    }
 
-        let text = textView.string as NSString
-        let lineNumberFont = NSFont(name: "DMMono-Regular", size: 11)
-            ?? NSFont.monospacedSystemFont(ofSize: 11, weight: .regular)
-        let lineNumberColor = NSColor(name: nil) { appearance in
-            appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
-                ? NSColor(white: 0.45, alpha: 1.0)
-                : NSColor(white: 0.55, alpha: 1.0)
-        }
-        let attrs: [NSAttributedString.Key: Any] = [
-            .font: lineNumberFont,
-            .foregroundColor: lineNumberColor,
-        ]
+    // MARK: - Read-Only Mode
 
-        // Count lines before the visible range to determine starting line number
-        var lineNumber = 1
-        let textBeforeVisible = text.substring(to: visibleCharRange.location)
-        for char in textBeforeVisible {
-            if char == "\n" {
-                lineNumber += 1
+    /// Syntax-highlighted text for the read-only view, with search match highlighting.
+    private var highlightedText: AttributedString {
+        var result = SyntaxTheme.highlight(text, language: language)
+
+        guard !searchQuery.isEmpty else { return result }
+
+        let matchRanges = findMatchRanges()
+        for (index, range) in matchRanges.enumerated() {
+            guard let lowerBound = AttributedString.Index(range.lowerBound, within: result),
+                  let upperBound = AttributedString.Index(range.upperBound, within: result) else {
+                continue
+            }
+
+            let attrRange = lowerBound..<upperBound
+            if index == currentMatchIndex {
+                result[attrRange].backgroundColor = VColor.primaryBase.opacity(0.3)
+            } else {
+                result[attrRange].backgroundColor = VColor.systemMidWeak
             }
         }
 
-        let textContainerInset = textView.textContainerInset
-        let rightMargin: CGFloat = 8
+        return result
+    }
 
-        layoutManager.enumerateLineFragments(
-            forGlyphRange: visibleGlyphRange
-        ) { [weak self] lineRect, _, _, glyphRange, _ in
-            guard let self = self else { return }
+    /// Read-only view with line numbers and horizontal scrolling.
+    private var readOnlyView: some View {
+        let lines = text.components(separatedBy: "\n")
+        let lineCount = lines.count
+        let gutterWidth = gutterWidth(for: lineCount)
 
-            // Calculate y position relative to the ruler's coordinate system
-            let yPosition = lineRect.origin.y + textContainerInset.height - visibleRect.origin.y
+        return VStack(spacing: 0) {
+            if isSearchVisible {
+                SourceSearchBar(
+                    searchQuery: $searchQuery,
+                    currentMatchIndex: $currentMatchIndex,
+                    matchCount: searchMatchCount,
+                    onDismiss: dismissSearch
+                )
+            }
 
-            let lineString = NSAttributedString(string: "\(lineNumber)", attributes: attrs)
-            let stringSize = lineString.size()
+            GeometryReader { geometry in
+                ScrollView([.vertical]) {
+                    HStack(alignment: .top, spacing: 0) {
+                        // Line number gutter — scrolls vertically, pinned horizontally
+                        lineNumberGutter(lineCount: lineCount, width: gutterWidth)
 
-            let drawX = self.requiredThickness - stringSize.width - rightMargin
-            let drawY = yPosition + (lineRect.height - stringSize.height) / 2.0
-
-            lineString.draw(at: NSPoint(x: drawX, y: drawY))
-
-            // Advance line number: with horizontal scrolling enabled
-            // (widthTracksTextView = false), each line fragment corresponds
-            // to exactly one logical text line, so increment by one.
-            lineNumber += 1
+                        // Text content — scrolls both directions
+                        ScrollView(.horizontal, showsIndicators: true) {
+                            Text(highlightedText)
+                                .textSelection(.enabled)
+                                .fixedSize(horizontal: true, vertical: false)
+                                .padding(.vertical, VSpacing.sm)
+                                .padding(.horizontal, VSpacing.md)
+                        }
+                        .frame(minWidth: geometry.size.width - gutterWidth)
+                    }
+                    .frame(minHeight: geometry.size.height, alignment: .topLeading)
+                }
+                .background(Self.editorBackground)
+            }
         }
+        .onKeyPress("f", phases: .down) { press in
+            guard press.modifiers == .command else { return .ignored }
+            isSearchVisible = true
+            return .handled
+        }
+        .onKeyPress(.escape) {
+            guard isSearchVisible else { return .ignored }
+            dismissSearch()
+            return .handled
+        }
+        .onChange(of: text) { _, _ in
+            let count = searchMatchCount
+            if count == 0 {
+                currentMatchIndex = 0
+            } else if currentMatchIndex >= count {
+                currentMatchIndex = max(0, count - 1)
+            }
+        }
+    }
+
+    // MARK: - Search
+
+    /// Finds all case-insensitive occurrences of `searchQuery` in `text`.
+    private func findMatchRanges() -> [Range<String.Index>] {
+        guard !searchQuery.isEmpty else { return [] }
+
+        var ranges: [Range<String.Index>] = []
+        var searchStart = text.startIndex
+
+        while searchStart < text.endIndex,
+              let range = text.range(of: searchQuery, options: .caseInsensitive, range: searchStart..<text.endIndex) {
+            ranges.append(range)
+            searchStart = range.upperBound
+        }
+
+        return ranges
+    }
+
+    private func dismissSearch() {
+        isSearchVisible = false
+        searchQuery = ""
+    }
+
+    // MARK: - Line Numbers
+
+    private func lineNumberGutter(lineCount: Int, width: CGFloat) -> some View {
+        VStack(alignment: .trailing, spacing: 0) {
+            ForEach(1...max(1, lineCount), id: \.self) { num in
+                Text("\(num)")
+                    .font(VFont.monoSmall)
+                    .foregroundStyle(Self.gutterTextColor)
+                    .frame(height: lineHeight)
+            }
+        }
+        .padding(.top, VSpacing.sm)
+        .padding(.trailing, VSpacing.sm)
+        .padding(.leading, VSpacing.sm)
+        .frame(width: width, alignment: .trailing)
+        .background(Self.gutterBackground)
+    }
+
+    /// Approximate line height for the mono font to align line numbers with text lines.
+    private var lineHeight: CGFloat {
+        // DMMono-Regular at 13pt has ~16pt line height in SwiftUI's default rendering
+        16
+    }
+
+    private func gutterWidth(for lineCount: Int) -> CGFloat {
+        let digitCount = max(3, "\(lineCount)".count)
+        return CGFloat(digitCount * 8 + 16)
+    }
+}
+
+// MARK: - Source Search Bar
+
+/// Search bar for the file viewer source view. Displays match count, prev/next navigation,
+/// and a close button.
+private struct SourceSearchBar: View {
+    @Binding var searchQuery: String
+    @Binding var currentMatchIndex: Int
+    let matchCount: Int
+    let onDismiss: () -> Void
+
+    @FocusState private var isFocused: Bool
+
+    var body: some View {
+        VStack(spacing: 0) {
+            HStack(spacing: VSpacing.sm) {
+                VIconView(.search, size: 12)
+                    .foregroundColor(VColor.contentTertiary)
+
+                TextField("Search...", text: $searchQuery)
+                    .textFieldStyle(.plain)
+                    .font(VFont.mono)
+                    .foregroundColor(VColor.contentDefault)
+                    .focused($isFocused)
+                    .onSubmit { goToNextMatch() }
+
+                if !searchQuery.isEmpty {
+                    Text(matchCount > 0 ? "\(currentMatchIndex + 1) of \(matchCount)" : "No results")
+                        .font(VFont.caption)
+                        .foregroundColor(VColor.contentTertiary)
+                        .fixedSize()
+
+                    Button(action: goToPreviousMatch) {
+                        VIconView(.chevronUp, size: 12)
+                            .foregroundColor(matchCount > 0 ? VColor.contentDefault : VColor.contentTertiary)
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(matchCount == 0)
+                    .accessibilityLabel("Previous match")
+
+                    Button(action: goToNextMatch) {
+                        VIconView(.chevronDown, size: 12)
+                            .foregroundColor(matchCount > 0 ? VColor.contentDefault : VColor.contentTertiary)
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(matchCount == 0)
+                    .accessibilityLabel("Next match")
+                }
+
+                Button(action: onDismiss) {
+                    VIconView(.x, size: 12)
+                        .foregroundColor(VColor.contentTertiary)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Close search")
+            }
+            .padding(VSpacing.sm)
+            .background(VColor.surfaceOverlay)
+
+            Divider()
+        }
+        .onAppear { isFocused = true }
+        .onChange(of: searchQuery) { _, _ in
+            currentMatchIndex = 0
+        }
+    }
+
+    private func goToPreviousMatch() {
+        guard matchCount > 0 else { return }
+        currentMatchIndex = currentMatchIndex > 0 ? currentMatchIndex - 1 : matchCount - 1
+    }
+
+    private func goToNextMatch() {
+        guard matchCount > 0 else { return }
+        currentMatchIndex = currentMatchIndex < matchCount - 1 ? currentMatchIndex + 1 : 0
     }
 }

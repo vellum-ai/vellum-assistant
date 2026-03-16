@@ -5,6 +5,7 @@ import * as Sentry from "@sentry/node";
 
 import { getLogger } from "../util/logger.js";
 import { runDaemon } from "./lifecycle.js";
+import { emitDaemonError } from "./startup-error.js";
 
 runDaemon().catch(async (err) => {
   Sentry.captureException(err);
@@ -22,5 +23,8 @@ runDaemon().catch(async (err) => {
   console.error(
     "Troubleshooting: check if another assistant is already running, verify ~/.vellum/ permissions, and review logs at ~/.vellum/workspace/data/logs/",
   );
+  // Emit a structured error line as the last line of stderr so consumers
+  // (e.g. the macOS app) can parse it reliably.
+  emitDaemonError(err);
   process.exit(1);
 });
