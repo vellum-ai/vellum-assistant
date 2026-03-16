@@ -120,12 +120,13 @@ struct SyntaxTheme {
     /// Resolves a potentially-dynamic NSColor into a static sRGB color.
     private static func resolveColor(_ dynamicColor: NSColor, isDark: Bool) -> NSColor {
         let appearance = NSAppearance(named: isDark ? .darkAqua : .aqua)!
-        let saved = NSAppearance.current
-        NSAppearance.current = appearance
-        defer { NSAppearance.current = saved }
-        guard let resolved = dynamicColor.usingColorSpace(.sRGB) else { return dynamicColor }
-        var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
-        resolved.getRed(&r, green: &g, blue: &b, alpha: &a)
-        return NSColor(srgbRed: r, green: g, blue: b, alpha: a)
+        var result: NSColor = dynamicColor
+        appearance.performAsCurrentDrawingAppearance {
+            guard let resolved = dynamicColor.usingColorSpace(.sRGB) else { return }
+            var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
+            resolved.getRed(&r, green: &g, blue: &b, alpha: &a)
+            result = NSColor(srgbRed: r, green: g, blue: b, alpha: a)
+        }
+        return result
     }
 }
