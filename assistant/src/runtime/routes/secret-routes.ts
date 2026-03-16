@@ -1,6 +1,7 @@
 import {
   setPlatformAssistantId,
   setPlatformBaseUrl,
+  setPlatformOrganizationId,
 } from "../../config/env.js";
 import {
   API_KEY_PROVIDERS,
@@ -8,6 +9,7 @@ import {
   invalidateConfigCache,
 } from "../../config/loader.js";
 import type { CesClient } from "../../credential-execution/client.js";
+import { setSentryOrganizationId } from "../../instrument.js";
 import { initializeProviders } from "../../providers/registry.js";
 import { credentialKey } from "../../security/credential-key.js";
 import {
@@ -169,6 +171,11 @@ export async function handleAddSecret(
         const trimmed = value.trim();
         setPlatformAssistantId(trimmed || undefined);
       }
+      if (service === "vellum" && field === "platform_organization_id") {
+        const trimmed = value.trim();
+        setPlatformOrganizationId(trimmed || undefined);
+        setSentryOrganizationId(trimmed || undefined);
+      }
       if (isManagedProxyCredential(service, field)) {
         await initializeProviders(getConfig());
         if (service === "vellum" && field === "assistant_api_key") {
@@ -294,6 +301,10 @@ export async function handleDeleteSecret(req: Request): Promise<Response> {
       }
       if (service === "vellum" && field === "platform_assistant_id") {
         setPlatformAssistantId(undefined);
+      }
+      if (service === "vellum" && field === "platform_organization_id") {
+        setPlatformOrganizationId(undefined);
+        setSentryOrganizationId(undefined);
       }
       if (isManagedProxyCredential(service, field)) {
         await initializeProviders(getConfig());

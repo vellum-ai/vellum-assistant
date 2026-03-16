@@ -158,6 +158,22 @@ export function getPlatformAssistantId(): string {
   return str("PLATFORM_ASSISTANT_ID") ?? _platformAssistantIdOverride ?? "";
 }
 
+let _platformOrganizationIdOverride: string | undefined;
+
+export function setPlatformOrganizationId(value: string | undefined): void {
+  _platformOrganizationIdOverride = value;
+}
+
+/**
+ * PLATFORM_ORGANIZATION_ID — UUID of the organization this assistant belongs to.
+ * Used for Sentry tagging and platform API calls.
+ */
+export function getPlatformOrganizationId(): string {
+  return (
+    str("PLATFORM_ORGANIZATION_ID") ?? _platformOrganizationIdOverride ?? ""
+  );
+}
+
 /**
  * PLATFORM_INTERNAL_API_KEY — static internal gateway key for authenticating
  * with the platform's internal gateway callback route registration endpoint.
