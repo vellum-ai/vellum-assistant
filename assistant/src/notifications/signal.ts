@@ -131,7 +131,7 @@ export interface NotificationSignal<TEventName extends string = string> {
   signalId: string;
   createdAt: number; // epoch ms
   sourceChannel: NotificationSourceChannel; // see NOTIFICATION_SOURCE_CHANNELS registry
-  sourceSessionId: string;
+  sourceConversationId: string;
   sourceEventName: TEventName; // free-form: 'reminder_fired', 'schedule_complete', 'guardian_question', etc.
   contextPayload: NotificationContextPayload<TEventName>;
   attentionHints: AttentionHints;

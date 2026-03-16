@@ -116,7 +116,7 @@ describe("emitNotificationSignal routing intent re-persistence", () => {
     const result = await emitNotificationSignal({
       sourceEventName: "schedule.notify",
       sourceChannel: "scheduler",
-      sourceSessionId: "rem-1",
+      sourceConversationId: "rem-1",
       attentionHints: {
         requiresAction: true,
         urgency: "high",
@@ -162,7 +162,7 @@ describe("emitNotificationSignal routing intent re-persistence", () => {
     await emitNotificationSignal({
       sourceEventName: "schedule.notify",
       sourceChannel: "scheduler",
-      sourceSessionId: "rem-2",
+      sourceConversationId: "rem-2",
       attentionHints: {
         requiresAction: false,
         urgency: "medium",
@@ -198,7 +198,7 @@ describe("emitNotificationSignal routing intent re-persistence", () => {
     await emitNotificationSignal({
       sourceEventName: "schedule.notify",
       sourceChannel: "scheduler",
-      sourceSessionId: "rem-3",
+      sourceConversationId: "rem-3",
       attentionHints: {
         requiresAction: false,
         urgency: "medium",

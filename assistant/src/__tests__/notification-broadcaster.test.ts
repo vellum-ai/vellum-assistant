@@ -115,7 +115,7 @@ function makeSignal(
     signalId: "sig-broadcast-001",
     createdAt: Date.now(),
     sourceChannel: "scheduler",
-    sourceSessionId: "sess-001",
+    sourceConversationId: "sess-001",
     sourceEventName: "test.event",
     contextPayload: {},
     attentionHints: {

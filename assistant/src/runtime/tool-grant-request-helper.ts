@@ -146,7 +146,7 @@ export function createOrReuseToolGrantRequest(
   const signalPromise = emitNotificationSignal({
     sourceEventName: "guardian.question",
     sourceChannel: sourceChannel as NotificationSourceChannel,
-    sourceSessionId: conversationId,
+    sourceConversationId: conversationId,
     attentionHints: {
       requiresAction: true,
       urgency: "high",

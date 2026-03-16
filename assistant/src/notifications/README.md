@@ -441,7 +441,7 @@ import { emitNotificationSignal } from "../notifications/emit-signal.js";
 await emitNotificationSignal({
   sourceEventName: "your_event_name",
   sourceChannel: "scheduler", // where the event originated
-  sourceSessionId: conversationId,
+  sourceConversationId: conversationId,
   attentionHints: {
     requiresAction: true,
     urgency: "high",

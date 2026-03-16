@@ -637,7 +637,7 @@ async function handleAccessRequestApproval(
     void emitNotificationSignal({
       sourceEventName: "ingress.trusted_contact.guardian_decision",
       sourceChannel: approval.channel as NotificationSourceChannel,
-      sourceSessionId: approval.conversationId,
+      sourceConversationId: approval.conversationId,
       attentionHints: {
         requiresAction: false,
         urgency: "medium",
@@ -651,7 +651,7 @@ async function handleAccessRequestApproval(
     void emitNotificationSignal({
       sourceEventName: "ingress.trusted_contact.denied",
       sourceChannel: approval.channel as NotificationSourceChannel,
-      sourceSessionId: approval.conversationId,
+      sourceConversationId: approval.conversationId,
       attentionHints: {
         requiresAction: false,
         urgency: "low",
@@ -719,7 +719,7 @@ async function handleAccessRequestApproval(
     void emitNotificationSignal({
       sourceEventName: "ingress.trusted_contact.guardian_decision",
       sourceChannel: approval.channel as NotificationSourceChannel,
-      sourceSessionId: approval.conversationId,
+      sourceConversationId: approval.conversationId,
       attentionHints: {
         requiresAction: false,
         urgency: "medium",
@@ -745,7 +745,7 @@ async function handleAccessRequestApproval(
     void emitNotificationSignal({
       sourceEventName: "ingress.trusted_contact.verification_sent",
       sourceChannel: approval.channel as NotificationSourceChannel,
-      sourceSessionId: approval.conversationId,
+      sourceConversationId: approval.conversationId,
       attentionHints: {
         requiresAction: false,
         urgency: "low",
