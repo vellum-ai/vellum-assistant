@@ -25,8 +25,25 @@ export const servicesConfigMigration: WorkspaceMigration = {
       return;
     }
 
-    // Already migrated -- skip (idempotency guard for crash recovery)
-    if (config.services !== undefined) return;
+    // Skip if no legacy fields remain — either already migrated or a fresh install
+    // where schema defaults are correct. We check for legacy fields instead of
+    // services existence because backfillConfigDefaults may have written a default
+    // services object before migrations run.
+    const hasLegacyFields =
+      "provider" in config ||
+      "model" in config ||
+      "imageGenModel" in config ||
+      "webSearchProvider" in config;
+    if (!hasLegacyFields) return;
+
+    // Start from existing services (may have been backfilled by loadConfig defaults)
+    // so we don't discard any non-default values already written there.
+    const existingServices =
+      config.services != null &&
+      typeof config.services === "object" &&
+      !Array.isArray(config.services)
+        ? (config.services as Record<string, Record<string, unknown>>)
+        : {};
 
     // Determine inference mode
     let inferenceMode: "managed" | "your-own" = "your-own";
@@ -62,21 +79,31 @@ export const servicesConfigMigration: WorkspaceMigration = {
       // Can't determine -- default to "your-own"
     }
 
-    const services: Record<string, Record<string, unknown>> = {};
+    const services: Record<string, Record<string, unknown>> = {
+      ...existingServices,
+    };
 
     services.inference = {
+      ...(existingServices.inference ?? {}),
       mode: inferenceMode,
       provider:
-        typeof config.provider === "string" ? config.provider : "anthropic",
+        typeof config.provider === "string"
+          ? config.provider
+          : (existingServices.inference?.provider ?? "anthropic"),
       model:
-        typeof config.model === "string" ? config.model : "claude-opus-4-6",
+        typeof config.model === "string"
+          ? config.model
+          : (existingServices.inference?.model ?? "claude-opus-4-6"),
     };
 
     const imageGenModel =
       typeof config.imageGenModel === "string"
         ? config.imageGenModel
-        : "gemini-2.5-flash-image";
+        : typeof existingServices["image-generation"]?.model === "string"
+          ? (existingServices["image-generation"].model as string)
+          : "gemini-2.5-flash-image";
     services["image-generation"] = {
+      ...(existingServices["image-generation"] ?? {}),
       mode: "your-own",
       provider:
         imageGenModel.startsWith("dall-e") || imageGenModel.startsWith("gpt")
@@ -86,11 +113,12 @@ export const servicesConfigMigration: WorkspaceMigration = {
     };
 
     services["web-search"] = {
+      ...(existingServices["web-search"] ?? {}),
       mode: "your-own",
       provider:
         typeof config.webSearchProvider === "string"
           ? config.webSearchProvider
-          : "anthropic-native",
+          : (existingServices["web-search"]?.provider ?? "anthropic-native"),
     };
 
     config.services = services;
