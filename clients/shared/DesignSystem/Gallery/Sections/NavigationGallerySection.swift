@@ -74,6 +74,31 @@ struct NavigationGallerySection: View {
 
             Divider().background(VColor.borderBase).padding(.vertical, VSpacing.md)
 
+            // MARK: - VSegmentedControl (Compact Pill)
+            GallerySectionHeader(
+                title: "VSegmentedControl (Compact Pill)",
+                description: "Compact pill-style segmented control for inline use in toolbars and headers."
+            )
+
+            VCard(padding: VSpacing.lg) {
+                VStack(alignment: .leading, spacing: VSpacing.md) {
+                    Divider().background(VColor.borderBase)
+
+                    VSegmentedControl(
+                        items: [
+                            (label: "Preview", tag: "preview"),
+                            (label: "Source", tag: "source"),
+                        ],
+                        selection: $pillSelection,
+                        style: .pill,
+                        size: .compact
+                    )
+                    .fixedSize()
+                }
+            }
+
+            Divider().background(VColor.borderBase).padding(.vertical, VSpacing.md)
+
             // MARK: - VTabBar + VTab
             GallerySectionHeader(
                 title: "VTabBar + VTab",

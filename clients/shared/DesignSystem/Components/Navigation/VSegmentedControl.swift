@@ -5,22 +5,30 @@ public enum VSegmentedControlStyle {
     case pill
 }
 
+public enum VSegmentedControlSize {
+    case regular
+    case compact
+}
+
 public struct VSegmentedControl<SelectionValue: Hashable>: View {
     public let items: [(label: String, icon: String?, tag: SelectionValue)]
     @Binding public var selection: SelectionValue
     public let style: VSegmentedControlStyle
+    public let size: VSegmentedControlSize
 
-    public init(items: [(label: String, icon: String?, tag: SelectionValue)], selection: Binding<SelectionValue>, style: VSegmentedControlStyle = .underline) {
+    public init(items: [(label: String, icon: String?, tag: SelectionValue)], selection: Binding<SelectionValue>, style: VSegmentedControlStyle = .underline, size: VSegmentedControlSize = .regular) {
         self.items = items
         self._selection = selection
         self.style = style
+        self.size = size
     }
 
     /// Convenience init without icons.
-    public init(items: [(label: String, tag: SelectionValue)], selection: Binding<SelectionValue>, style: VSegmentedControlStyle = .underline) {
+    public init(items: [(label: String, tag: SelectionValue)], selection: Binding<SelectionValue>, style: VSegmentedControlStyle = .underline, size: VSegmentedControlSize = .regular) {
         self.items = items.map { (label: $0.label, icon: nil, tag: $0.tag) }
         self._selection = selection
         self.style = style
+        self.size = size
     }
 
     public var body: some View {
@@ -71,6 +79,7 @@ public struct VSegmentedControl<SelectionValue: Hashable>: View {
                 PillSegment(
                     label: item.label,
                     icon: item.icon,
+                    size: size,
                     isSelected: selection == item.tag,
                     action: { selection = item.tag }
                 )
@@ -78,7 +87,7 @@ public struct VSegmentedControl<SelectionValue: Hashable>: View {
         }
         .padding(2)
         .background(
-            RoundedRectangle(cornerRadius: VRadius.md)
+            RoundedRectangle(cornerRadius: size == .compact ? VRadius.sm + 1 : VRadius.md)
                 .fill(VColor.surfaceActive)
         )
         .animation(VAnimation.fast, value: selection)
@@ -88,11 +97,12 @@ public struct VSegmentedControl<SelectionValue: Hashable>: View {
 // MARK: - Int convenience initializer
 
 public extension VSegmentedControl where SelectionValue == Int {
-    init(items: [String], selection: Binding<Int>, style: VSegmentedControlStyle = .underline) {
+    init(items: [String], selection: Binding<Int>, style: VSegmentedControlStyle = .underline, size: VSegmentedControlSize = .regular) {
         self.init(
             items: items.enumerated().map { (label: $0.element, icon: nil as String?, tag: $0.offset) },
             selection: selection,
-            style: style
+            style: style,
+            size: size
         )
     }
 }
@@ -102,6 +112,7 @@ public extension VSegmentedControl where SelectionValue == Int {
 private struct PillSegment: View {
     let label: String
     var icon: String? = nil
+    let size: VSegmentedControlSize
     let isSelected: Bool
     let action: () -> Void
 
@@ -111,20 +122,20 @@ private struct PillSegment: View {
         Button(action: action) {
             Group {
                 if let icon {
-                    VIconView(.resolve(icon), size: 12)
+                    VIconView(.resolve(icon), size: size == .compact ? 10 : 12)
                         .foregroundColor(isSelected ? VColor.contentDefault : VColor.contentTertiary)
                 } else {
                     Text(label)
-                        .font(VFont.body)
+                        .font(size == .compact ? VFont.captionMedium : VFont.body)
                         .fixedSize()
                         .foregroundColor(isSelected ? selectedTextColor : VColor.contentSecondary)
                 }
             }
-            .padding(.horizontal, icon != nil ? VSpacing.sm : VSpacing.lg)
+            .padding(.horizontal, icon != nil ? VSpacing.sm : (size == .compact ? VSpacing.sm : VSpacing.lg))
             .frame(maxWidth: .infinity)
-            .frame(height: 32)
+            .frame(height: size == .compact ? 24 : 32)
             .background(
-                RoundedRectangle(cornerRadius: VRadius.md - 1)
+                RoundedRectangle(cornerRadius: size == .compact ? VRadius.sm : VRadius.md - 1)
                     .fill(segmentBackground)
                     .shadow(color: isSelected ? VColor.auxBlack.opacity(0.08) : .clear, radius: 2, x: 0, y: 1)
             )
