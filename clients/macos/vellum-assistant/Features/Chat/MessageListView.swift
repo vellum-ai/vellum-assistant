@@ -599,6 +599,7 @@ struct MessageListView: View {
                             selectedModel: selectedModel,
                             configuredProviders: configuredProviders
                         )
+                        .equatable()
                     }
 
                     ForEach(orphanSubagents) { subagent in
@@ -1092,7 +1093,25 @@ struct MessageListView: View {
 /// Per-message cell extracted from the ForEach body so SwiftUI has a typed
 /// struct boundary for diffing: when all `let` inputs are equal, SwiftUI can
 /// skip re-evaluating the body during LazySubviewPlacements.updateValue.
-private struct MessageCellView: View {
+private struct MessageCellView: View, Equatable {
+    static func == (lhs: MessageCellView, rhs: MessageCellView) -> Bool {
+        lhs.message.id == rhs.message.id
+            && lhs.message.text.count == rhs.message.text.count
+            && lhs.message.isStreaming == rhs.message.isStreaming
+            && lhs.message.toolCalls.count == rhs.message.toolCalls.count
+            && lhs.message.status == rhs.message.status
+            && lhs.index == rhs.index
+            && lhs.showTimestamp == rhs.showTimestamp
+            && lhs.activePendingRequestId == rhs.activePendingRequestId
+            && lhs.latestAssistantId == rhs.latestAssistantId
+            && lhs.canInlineProcessing == rhs.canInlineProcessing
+            && lhs.shouldShowThinkingIndicator == rhs.shouldShowThinkingIndicator
+            && lhs.assistantStatusText == rhs.assistantStatusText
+            && lhs.dismissedDocumentSurfaceIds == rhs.dismissedDocumentSurfaceIds
+            && lhs.activeSurfaceId == rhs.activeSurfaceId
+            && lhs.selectedModel == rhs.selectedModel
+    }
+
     let message: ChatMessage
     let index: Int
     let displayMessages: [ChatMessage]
