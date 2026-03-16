@@ -70,10 +70,9 @@ struct ImproveExperienceStepView: View {
                 )
 
                 // ToS consent checkbox
-                HStack {
-                    tosConsentText
-                    Spacer()
+                HStack(spacing: VSpacing.md) {
                     VCheckbox(isOn: $tosAccepted)
+                    tosConsentText
                 }
                 .padding(VSpacing.lg)
                 .overlay(
@@ -117,7 +116,7 @@ struct ImproveExperienceStepView: View {
     private var tosConsentText: some View {
         VStack(alignment: .leading, spacing: VSpacing.xs) {
             Text(.init("I agree to the [Terms of Service](https://www.vellum.ai/docs/vellum-terms-of-use) and [Privacy Policy](https://www.vellum.ai/docs/privacy-policy)"))
-                .font(VFont.body)
+                .font(VFont.bodyBold)
                 .foregroundColor(VColor.contentSecondary)
                 .tint(VColor.primaryBase)
                 .environment(\.openURL, OpenURLAction { url in
