@@ -650,7 +650,7 @@ struct MessageListView: View {
                         } else {
                             thinkingIndicatorRow(displayMessages: state.displayMessages)
                         }
-                    } else if isCompacting && !shouldShowThinkingIndicator && !canInlineProcessing {
+                    } else if isCompacting && !state.shouldShowThinkingIndicator && !state.canInlineProcessing {
                         compactingIndicatorRow()
                     }
 
