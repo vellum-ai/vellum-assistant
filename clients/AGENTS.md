@@ -96,7 +96,7 @@ Prefer built-in SwiftUI primitives over custom `NSViewRepresentable` / AppKit wr
 |------|----------|----------|
 | Multi-line text input (short/medium) | `TextField(axis: .vertical)` + `.lineLimit(1...N)` | Custom `NSTextView` in `NSScrollView` |
 | Multi-line text input (scrollable) | `TextField(axis: .vertical)` inside `ScrollView` with GeometryReader height measurement (see chat composer) | Custom AppKit `NSScrollView` + `NSClipView` + `NSTextView` stack |
-| Long-form text editing | `TextEditor` (acceptable for editor-like surfaces where the user expects a full text-editing experience, e.g., contact notes, skill editing, tool permission tester). Exception: syntax-highlighted code views use `HighlightedTextView` (approved AppKit bridge) | Custom AppKit `NSScrollView` + `NSClipView` + `NSTextView` stack |
+| Long-form text editing | `TextEditor` (acceptable for editor-like surfaces where the user expects a full text-editing experience, e.g., contact notes, skill editing, tool permission tester). Syntax-highlighted code views use `HighlightedTextView` (pure SwiftUI, `AttributedString` + `Text`) | Custom AppKit `NSScrollView` + `NSClipView` + `NSTextView` stack |
 | Vertical centering in text field | Native `TextField` behavior | Custom `NSClipView` subclass |
 | Auto-growing height | `ScrollView` + `GeometryReader` on inner content + `.frame(height: clamp(measured, min, max))` | Custom AppKit height sync. Note: `.lineLimit(1...N)` truncates instead of scrolling on macOS when content exceeds N lines — only use it for short-form inputs where truncation is acceptable (e.g., `VTextEditor`) |
 | Return-to-send in chat input | `.onSubmit { sendAction() }` (native SwiftUI) | `.onKeyPress(.return)` (returning `.ignored` doesn't fall back to TextField's newline behavior) |
@@ -114,7 +114,6 @@ Prefer built-in SwiftUI primitives over custom `NSViewRepresentable` / AppKit wr
 - Intercepting return-key shortcuts that SwiftUI cannot route precisely before `.onSubmit` fires, including `Cmd+Enter` send, `Shift+Return` newline, and default-mode `Option+Return` send
 - Registering window-level event monitors (`NSEvent.addLocalMonitorForEvents`)
 - Accessing `NSWindow` properties (e.g., typing redirect handlers, container view registration)
-- Syntax-highlighted text display and editing (`HighlightedTextView`) — requires `NSTextView` + `NSTextStorage` for per-token attributed text coloring, which SwiftUI's `TextEditor` and `Text` cannot provide
 
 ---
 
