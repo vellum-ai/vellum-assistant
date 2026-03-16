@@ -1,4 +1,7 @@
-import { setPlatformBaseUrl } from "../../config/env.js";
+import {
+  setPlatformAssistantId,
+  setPlatformBaseUrl,
+} from "../../config/env.js";
 import {
   API_KEY_PROVIDERS,
   getConfig,
@@ -162,6 +165,9 @@ export async function handleAddSecret(
       if (service === "vellum" && field === "platform_base_url") {
         setPlatformBaseUrl(value);
       }
+      if (service === "vellum" && field === "platform_assistant_id") {
+        setPlatformAssistantId(value);
+      }
       if (isManagedProxyCredential(service, field)) {
         await initializeProviders(getConfig());
         if (service === "vellum" && field === "assistant_api_key") {
@@ -284,6 +290,9 @@ export async function handleDeleteSecret(req: Request): Promise<Response> {
       deleteCredentialMetadata(service, field);
       if (service === "vellum" && field === "platform_base_url") {
         setPlatformBaseUrl(undefined);
+      }
+      if (service === "vellum" && field === "platform_assistant_id") {
+        setPlatformAssistantId(undefined);
       }
       if (isManagedProxyCredential(service, field)) {
         await initializeProviders(getConfig());

@@ -144,12 +144,18 @@ export function getPlatformBaseUrl(): string {
   return str("PLATFORM_BASE_URL") ?? _platformBaseUrlOverride ?? "";
 }
 
+let _platformAssistantIdOverride: string | undefined;
+
+export function setPlatformAssistantId(value: string | undefined): void {
+  _platformAssistantIdOverride = value;
+}
+
 /**
  * PLATFORM_ASSISTANT_ID — UUID of this assistant on the platform.
  * Required for registering callback routes when containerized.
  */
 export function getPlatformAssistantId(): string {
-  return str("PLATFORM_ASSISTANT_ID") ?? "";
+  return str("PLATFORM_ASSISTANT_ID") ?? _platformAssistantIdOverride ?? "";
 }
 
 /**

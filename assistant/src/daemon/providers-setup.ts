@@ -1,4 +1,4 @@
-import { setPlatformBaseUrl } from "../config/env.js";
+import { setPlatformAssistantId, setPlatformBaseUrl } from "../config/env.js";
 import type { AssistantConfig } from "../config/types.js";
 import { getMcpServerManager } from "../mcp/manager.js";
 import { gmailMessagingProvider } from "../messaging/providers/gmail/adapter.js";
@@ -39,6 +39,22 @@ export async function initializeProvidersAndTools(
     log.warn(
       { error: err instanceof Error ? err.message : String(err) },
       "Failed to rehydrate platform base URL from credential store (non-fatal)",
+    );
+  }
+
+  // Rehydrate the platform assistant ID from the credential store so
+  // isPlatformManaged() works after assistant restarts.
+  try {
+    const key = credentialKey("vellum", "platform_assistant_id");
+    const persisted = await getSecureKeyAsync(key);
+    if (persisted) {
+      setPlatformAssistantId(persisted);
+      log.info("Rehydrated platform assistant ID from credential store");
+    }
+  } catch (err) {
+    log.warn(
+      { error: err instanceof Error ? err.message : String(err) },
+      "Failed to rehydrate platform assistant ID from credential store (non-fatal)",
     );
   }
 
