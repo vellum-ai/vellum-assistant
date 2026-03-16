@@ -83,6 +83,11 @@ struct ReauthView: View {
 
                 if hasNonManagedAssistant {
                     Button {
+                        // Pre-select a non-managed assistant so proceedToApp() doesn't
+                        // fall back to a managed assistant whose session was invalidated.
+                        if let nonManaged = LockfileAssistant.loadAll().first(where: { !$0.isManaged }) {
+                            UserDefaults.standard.set(nonManaged.assistantId, forKey: "connectedAssistantId")
+                        }
                         onComplete()
                     } label: {
                         Text("Skip")
