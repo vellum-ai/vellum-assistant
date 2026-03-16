@@ -820,6 +820,7 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
             title: conversation.title,
             createdAt: Date(timeIntervalSince1970: TimeInterval(effectiveCreatedAt) / 1000.0),
             conversationId: conversation.id,
+            isArchived: isConversationArchived(conversation.id),
             isPinned: conversation.isPinned ?? false,
             pinnedOrder: (conversation.isPinned ?? false) ? conversation.displayOrder.map { Int($0) } : nil,
             displayOrder: conversation.displayOrder.map { Int($0) },
