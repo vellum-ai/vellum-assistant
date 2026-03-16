@@ -4,17 +4,17 @@ import Testing
 @testable import VellumAssistantShared
 
 /// End-to-end behavior tests verifying that private conversations persist correctly
-/// and reappear with the right kind after a session restore cycle.
-@Suite("PrivateThreadPersistence")
-struct PrivateThreadPersistenceTests {
+/// and reappear with the right kind after a restore cycle.
+@Suite("PrivateConversationPersistence")
+struct PrivateConversationPersistenceTests {
 
     // MARK: - End-to-end Flow
 
-    /// Verifies the full lifecycle: create a private thread via ConversationManager,
-    /// simulate the daemon assigning a session ID, then confirm the session
-    /// restorer reconstructs it as a private thread.
+    /// Verifies the full lifecycle: create a private conversation via ConversationManager,
+    /// simulate the daemon assigning a conversation ID, then confirm the
+    /// restorer reconstructs it as a private conversation.
     @Test @MainActor
-    func privateThreadCreatedAndRestoredAsPrivate() {
+    func privateConversationCreatedAndRestoredAsPrivate() {
         let dc = DaemonClient()
         dc.isConnected = true
         dc.sendOverride = { _ in }
@@ -29,11 +29,11 @@ struct PrivateThreadPersistenceTests {
         manager.createPrivateConversation()
         #expect(manager.conversations.count == 1)
 
-        let privateThread = manager.conversations.first!
-        #expect(privateThread.kind == .private)
-        #expect(manager.activeConversationId == privateThread.id)
+        let privateConversation = manager.conversations.first!
+        #expect(privateConversation.kind == .private)
+        #expect(manager.activeConversationId == privateConversation.id)
 
-        // Simulate daemon assigning a session ID via session_info callback
+        // Simulate daemon assigning a conversation ID via conversation_info callback
         let vm = manager.activeViewModel!
         let correlationId = vm.bootstrapCorrelationId!
         let info = ConversationInfoMessage(
@@ -43,23 +43,23 @@ struct PrivateThreadPersistenceTests {
         )
         vm.handleServerMessage(.conversationInfo(info))
 
-        // Session ID should be backfilled into the ConversationModel
-        let updatedThread = manager.conversations.first(where: { $0.id == privateThread.id })!
-        #expect(updatedThread.conversationId == "private-session-e2e")
-        #expect(updatedThread.kind == .private)
+        // Conversation ID should be backfilled into the ConversationModel
+        let updatedConversation = manager.conversations.first(where: { $0.id == privateConversation.id })!
+        #expect(updatedConversation.conversationId == "private-session-e2e")
+        #expect(updatedConversation.kind == .private)
 
-        // Now simulate a fresh restore: build a session list response
-        // that includes this session with conversationType "private", and verify
+        // Now simulate a fresh restore: build a conversation list response
+        // that includes this conversation with conversationType "private", and verify
         // the restorer creates it with .private kind.
         let restorer = ConversationRestorer(daemonClient: dc)
         let delegate = MockConversationRestorerDelegate(daemonClient: dc)
         restorer.delegate = delegate
 
-        let defaultThread = ConversationModel()
-        delegate.conversations = [defaultThread]
-        delegate.viewModels[defaultThread.id] = delegate.makeViewModel()
+        let defaultConversation = ConversationModel()
+        delegate.conversations = [defaultConversation]
+        delegate.viewModels[defaultConversation.id] = delegate.makeViewModel()
 
-        let sessionListJSON: [String: Any] = [
+        let conversationListJSON: [String: Any] = [
             "type": "conversation_list_response",
             "conversations": [
                 [
@@ -71,21 +71,21 @@ struct PrivateThreadPersistenceTests {
                 ]
             ]
         ]
-        let data = try! JSONSerialization.data(withJSONObject: sessionListJSON)
+        let data = try! JSONSerialization.data(withJSONObject: conversationListJSON)
         let response = try! JSONDecoder().decode(ConversationListResponseMessage.self, from: data)
         restorer.handleConversationListResponse(response)
 
-        // Private conversations are excluded from restoration — the default thread
-        // is removed (it was empty) and no private sessions are restored,
-        // so a new empty thread is created via createConversation().
+        // Private conversations are excluded from restoration — the default conversation
+        // is removed (it was empty) and no private conversations are restored,
+        // so a new empty conversation is created via createConversation().
         #expect(delegate.conversations.count == 1)
         #expect(delegate.conversations[0].kind == .standard)
     }
 
-    /// Verifies that a standard thread round-trips correctly through
-    /// create and restore (control case for the private thread test above).
+    /// Verifies that a standard conversation round-trips correctly through
+    /// create and restore (control case for the private conversation test above).
     @Test @MainActor
-    func standardThreadCreatedAndRestoredAsStandard() {
+    func standardConversationCreatedAndRestoredAsStandard() {
         let dc = DaemonClient()
         dc.isConnected = true
         dc.sendOverride = { _ in }
@@ -94,16 +94,16 @@ struct PrivateThreadPersistenceTests {
         // ConversationManager.init enters draft mode — no conversations in the array yet
         #expect(manager.conversations.isEmpty)
 
-        // Restore a session list with a standard thread
+        // Restore a conversation list with a standard conversation
         let restorer = ConversationRestorer(daemonClient: dc)
         let delegate = MockConversationRestorerDelegate(daemonClient: dc)
         restorer.delegate = delegate
 
-        let defaultThread = ConversationModel()
-        delegate.conversations = [defaultThread]
-        delegate.viewModels[defaultThread.id] = delegate.makeViewModel()
+        let defaultConversation = ConversationModel()
+        delegate.conversations = [defaultConversation]
+        delegate.viewModels[defaultConversation.id] = delegate.makeViewModel()
 
-        let sessionListJSON: [String: Any] = [
+        let conversationListJSON: [String: Any] = [
             "type": "conversation_list_response",
             "conversations": [
                 [
@@ -115,7 +115,7 @@ struct PrivateThreadPersistenceTests {
                 ]
             ]
         ]
-        let data = try! JSONSerialization.data(withJSONObject: sessionListJSON)
+        let data = try! JSONSerialization.data(withJSONObject: conversationListJSON)
         let response = try! JSONDecoder().decode(ConversationListResponseMessage.self, from: data)
         restorer.handleConversationListResponse(response)
 
@@ -126,20 +126,20 @@ struct PrivateThreadPersistenceTests {
 
     // MARK: - Mixed Conversation Restore
 
-    /// Verifies that a session list containing both private and standard conversations
+    /// Verifies that a conversation list containing both private and standard conversations
     /// restores each with the correct kind.
     @Test @MainActor
-    func mixedThreadTypesRestoreCorrectly() {
+    func mixedConversationTypesRestoreCorrectly() {
         let dc = DaemonClient()
         let restorer = ConversationRestorer(daemonClient: dc)
         let delegate = MockConversationRestorerDelegate(daemonClient: dc)
         restorer.delegate = delegate
 
-        let defaultThread = ConversationModel()
-        delegate.conversations = [defaultThread]
-        delegate.viewModels[defaultThread.id] = delegate.makeViewModel()
+        let defaultConversation = ConversationModel()
+        delegate.conversations = [defaultConversation]
+        delegate.viewModels[defaultConversation.id] = delegate.makeViewModel()
 
-        let sessionListJSON: [String: Any] = [
+        let conversationListJSON: [String: Any] = [
             "type": "conversation_list_response",
             "conversations": [
                 ["id": "s-private-1", "title": "Private A", "createdAt": 4000, "updatedAt": 5000, "conversationType": "private"],
@@ -147,11 +147,11 @@ struct PrivateThreadPersistenceTests {
                 ["id": "s-private-2", "title": "Private C", "createdAt": 2000, "updatedAt": 3000, "conversationType": "private"],
             ]
         ]
-        let data = try! JSONSerialization.data(withJSONObject: sessionListJSON)
+        let data = try! JSONSerialization.data(withJSONObject: conversationListJSON)
         let response = try! JSONDecoder().decode(ConversationListResponseMessage.self, from: data)
         restorer.handleConversationListResponse(response)
 
-        // Private conversations are filtered out before restore — only standard conversations appear
+        // Private conversations are filtered out during restore — only standard conversations appear
         #expect(delegate.conversations.count == 1)
         #expect(delegate.conversations[0].kind == .standard)
         #expect(delegate.conversations[0].conversationId == "s-standard-1")
@@ -159,8 +159,8 @@ struct PrivateThreadPersistenceTests {
 
     // MARK: - Legacy Daemon Payload Fallback
 
-    /// Older daemon versions do not include the conversationType field in session
-    /// list responses. Verify that these sessions default to .standard.
+    /// Older daemon versions do not include the conversationType field in conversation
+    /// list responses. Verify that these conversations default to .standard.
     @Test @MainActor
     func legacyPayloadWithoutConversationTypeDefaultsToStandard() {
         let dc = DaemonClient()
@@ -168,9 +168,9 @@ struct PrivateThreadPersistenceTests {
         let delegate = MockConversationRestorerDelegate(daemonClient: dc)
         restorer.delegate = delegate
 
-        let defaultThread = ConversationModel()
-        delegate.conversations = [defaultThread]
-        delegate.viewModels[defaultThread.id] = delegate.makeViewModel()
+        let defaultConversation = ConversationModel()
+        delegate.conversations = [defaultConversation]
+        delegate.viewModels[defaultConversation.id] = delegate.makeViewModel()
 
         // JSON with no conversationType key at all — simulates an older daemon
         let legacyJSON: [String: Any] = [
@@ -188,8 +188,8 @@ struct PrivateThreadPersistenceTests {
         #expect(delegate.conversations[0].conversationId == "legacy-1")
     }
 
-    /// Verifies that a session list mixing legacy (no conversationType) and modern
-    /// (with conversationType) sessions restores correctly.
+    /// Verifies that a conversation list mixing legacy (no conversationType) and modern
+    /// (with conversationType) conversations restores correctly.
     @Test @MainActor
     func mixedLegacyAndModernPayloadsRestoreCorrectly() {
         let dc = DaemonClient()
@@ -197,11 +197,11 @@ struct PrivateThreadPersistenceTests {
         let delegate = MockConversationRestorerDelegate(daemonClient: dc)
         restorer.delegate = delegate
 
-        let defaultThread = ConversationModel()
-        delegate.conversations = [defaultThread]
-        delegate.viewModels[defaultThread.id] = delegate.makeViewModel()
+        let defaultConversation = ConversationModel()
+        delegate.conversations = [defaultConversation]
+        delegate.viewModels[defaultConversation.id] = delegate.makeViewModel()
 
-        // Build sessions array manually: first has conversationType, second doesn't
+        // Build conversations array manually: first has conversationType, second doesn't
         let conversations: [[String: Any]] = [
             ["id": "modern-1", "title": "Modern Private", "createdAt": 4000, "updatedAt": 5000, "conversationType": "private"],
             ["id": "legacy-1", "title": "Legacy Chat", "createdAt": 3000, "updatedAt": 4000],
@@ -211,7 +211,7 @@ struct PrivateThreadPersistenceTests {
         let response = try! JSONDecoder().decode(ConversationListResponseMessage.self, from: data)
         restorer.handleConversationListResponse(response)
 
-        // Private conversations are filtered out — only the legacy standard thread is restored
+        // Private conversations are filtered out — only the legacy standard conversation is restored
         #expect(delegate.conversations.count == 1)
         #expect(delegate.conversations[0].kind == .standard)
         #expect(delegate.conversations[0].title == "Legacy Chat")
@@ -219,11 +219,11 @@ struct PrivateThreadPersistenceTests {
 
     // MARK: - ConversationManager.createPrivateConversation Immediate Persistence
 
-    /// Verifies that createPrivateConversation() immediately sends a session_create
-    /// with conversationType "private" — the thread is persisted on the daemon side
+    /// Verifies that createPrivateConversation() immediately sends a conversation_create
+    /// with conversationType "private" — the conversation is persisted on the daemon side
     /// before the user sends any messages.
     @Test @MainActor
-    func privateThreadPersistsImmediatelyViaSessionCreate() {
+    func privateConversationPersistsImmediatelyViaConversationCreate() {
         let dc = DaemonClient()
         dc.isConnected = true
         var captured: [Any] = []
@@ -238,16 +238,16 @@ struct PrivateThreadPersistenceTests {
         #expect(vm.isBootstrapping)
         #expect(vm.conversationType == "private")
 
-        // The session_create is dispatched asynchronously via Task; the
+        // The conversation_create is dispatched asynchronously via Task; the
         // correlation ID and conversationType are set synchronously, confirming
         // the intent to persist immediately.
         #expect(vm.bootstrapCorrelationId != nil)
     }
 
-    /// Verifies that a private thread's kind survives the session backfill
+    /// Verifies that a private conversation's kind survives the ID backfill
     /// callback — the kind should remain .private after the daemon responds.
     @Test @MainActor
-    func privateConversationKindSurvivesSessionBackfill() {
+    func privateConversationKindSurvivesIdBackfill() {
         let dc = DaemonClient()
         dc.isConnected = true
         dc.sendOverride = { _ in }
@@ -255,13 +255,13 @@ struct PrivateThreadPersistenceTests {
         let manager = ConversationManager(daemonClient: dc)
         manager.createPrivateConversation()
 
-        let privateThread = manager.conversations.first!
-        #expect(privateThread.kind == .private)
+        let privateConversation = manager.conversations.first!
+        #expect(privateConversation.kind == .private)
 
         let vm = manager.activeViewModel!
         let correlationId = vm.bootstrapCorrelationId!
 
-        // Simulate daemon session_info response
+        // Simulate daemon conversation_info response
         let info = ConversationInfoMessage(
             conversationId: "persist-check",
             title: "Test",
@@ -270,7 +270,7 @@ struct PrivateThreadPersistenceTests {
         vm.handleServerMessage(.conversationInfo(info))
 
         // Kind must still be .private after backfill
-        let updated = manager.conversations.first(where: { $0.id == privateThread.id })!
+        let updated = manager.conversations.first(where: { $0.id == privateConversation.id })!
         #expect(updated.kind == .private)
         #expect(updated.conversationId == "persist-check")
     }

@@ -3,7 +3,7 @@ import XCTest
 @testable import VellumAssistantShared
 
 @MainActor
-final class ConversationManagerPrivateThreadTests: XCTestCase {
+final class ConversationManagerPrivateConversationTests: XCTestCase {
 
     private var daemonClient: DaemonClient!
     private var conversationManager: ConversationManager!
@@ -31,101 +31,101 @@ final class ConversationManagerPrivateThreadTests: XCTestCase {
 
     // MARK: - createPrivateConversation
 
-    func testCreatePrivateThreadAddsThreadWithPrivateKind() {
+    func testCreatePrivateConversationAddsConversationWithPrivateKind() {
         conversationManager.createPrivateConversation()
 
         // init enters draft mode (conversations empty), createPrivateConversation adds one
         XCTAssertEqual(conversationManager.conversations.count, 1)
-        let privateThread = conversationManager.conversations.first!
-        XCTAssertEqual(privateThread.kind, .private, "New thread should have kind .private")
+        let privateConversation = conversationManager.conversations.first!
+        XCTAssertEqual(privateConversation.kind, .private, "New conversation should have kind .private")
     }
 
-    func testCreatePrivateThreadSetsActiveThread() {
+    func testCreatePrivateConversationSetsActiveConversation() {
         conversationManager.createPrivateConversation()
 
-        let privateThread = conversationManager.conversations.first!
-        XCTAssertEqual(conversationManager.activeConversationId, privateThread.id)
+        let privateConversation = conversationManager.conversations.first!
+        XCTAssertEqual(conversationManager.activeConversationId, privateConversation.id)
     }
 
-    func testCreatePrivateThreadCallsCreateSessionIfNeeded() {
+    func testCreatePrivateConversationCallsCreateConversationIfNeeded() {
         conversationManager.createPrivateConversation()
 
         let vm = conversationManager.activeViewModel!
-        // Message-less session creates (private thread pre-allocation) don't set isSending.
+        // Message-less conversation creates (private conversation pre-allocation) don't set isSending.
         XCTAssertFalse(vm.isSending, "Message-less bootstrap should not set isSending")
-        XCTAssertTrue(vm.isBootstrapping, "Should be bootstrapping a session")
+        XCTAssertTrue(vm.isBootstrapping, "Should be bootstrapping a conversation")
         XCTAssertEqual(vm.conversationType, "private", "conversationType should be set to private")
     }
 
-    func testCreatePrivateThreadSendsSessionCreate() {
+    func testCreatePrivateConversationSendsConversationCreate() {
         conversationManager.createPrivateConversation()
 
         // Allow the async Task in bootstrapConversation to execute
-        let expectation = XCTestExpectation(description: "session_create sent")
+        let expectation = XCTestExpectation(description: "conversation_create sent")
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
             expectation.fulfill()
         }
         wait(for: [expectation], timeout: 1.0)
 
-        let sessionCreates = capturedMessages.compactMap { $0 as? ConversationCreateMessage }
-        XCTAssertEqual(sessionCreates.count, 1, "Should send exactly one session_create")
-        XCTAssertEqual(sessionCreates.first?.conversationType, "private", "session_create should include private conversationType")
-        XCTAssertNotNil(sessionCreates.first?.correlationId, "session_create should include correlationId")
+        let conversationCreates = capturedMessages.compactMap { $0 as? ConversationCreateMessage }
+        XCTAssertEqual(conversationCreates.count, 1, "Should send exactly one conversation_create")
+        XCTAssertEqual(conversationCreates.first?.conversationType, "private", "conversation_create should include private conversationType")
+        XCTAssertNotNil(conversationCreates.first?.correlationId, "conversation_create should include correlationId")
     }
 
-    func testCreatePrivateThreadDoesNotReuseEmptyStandardThread() {
+    func testCreatePrivateConversationDoesNotReuseEmptyStandardConversation() {
         // init enters draft mode (activeConversationId is nil) — createPrivateConversation
-        // should create a new private thread, not reuse the draft.
+        // should create a new private conversation, not reuse the draft.
         let draftId = conversationManager.activeConversationId
         conversationManager.createPrivateConversation()
 
         XCTAssertNotEqual(conversationManager.activeConversationId, draftId,
-                          "Should create a new thread, not reuse the draft")
+                          "Should create a new conversation, not reuse the draft")
         XCTAssertEqual(conversationManager.conversations.count, 1)
     }
 
-    // MARK: - Session backfill
+    // MARK: - Conversation ID backfill
 
-    func testPrivateThreadSessionBackfill() {
+    func testPrivateConversationIdBackfill() {
         conversationManager.createPrivateConversation()
-        let privateThread = conversationManager.conversations.first!
+        let privateConversation = conversationManager.conversations.first!
         let vm = conversationManager.activeViewModel!
         let correlationId = vm.bootstrapCorrelationId!
 
-        // Simulate daemon responding with session_info
+        // Simulate daemon responding with conversation_info
         let info = ConversationInfoMessage(conversationId: "private-session-42", title: "Test", correlationId: correlationId)
         vm.handleServerMessage(.conversationInfo(info))
 
-        // The thread's conversationId should be backfilled via onConversationCreated
-        let updatedThread = conversationManager.conversations.first(where: { $0.id == privateThread.id })!
-        XCTAssertEqual(updatedThread.conversationId, "private-session-42", "Session ID should be backfilled into the ConversationModel")
+        // The conversation's conversationId should be backfilled via onConversationCreated
+        let updatedConversation = conversationManager.conversations.first(where: { $0.id == privateConversation.id })!
+        XCTAssertEqual(updatedConversation.conversationId, "private-session-42", "Conversation ID should be backfilled into the ConversationModel")
         XCTAssertEqual(vm.conversationId, "private-session-42")
-        XCTAssertFalse(vm.isSending, "Should reset isSending after session_info for message-less create")
-        XCTAssertFalse(vm.isBootstrapping, "Should no longer be bootstrapping after session_info")
+        XCTAssertFalse(vm.isSending, "Should reset isSending after conversation_info for message-less create")
+        XCTAssertFalse(vm.isBootstrapping, "Should no longer be bootstrapping after conversation_info")
     }
 
-    func testPrivateThreadTitleCallbackStillWorks() {
+    func testPrivateConversationTitleCallbackStillWorks() {
         conversationManager.createPrivateConversation()
-        let privateThread = conversationManager.conversations.first!
+        let privateConversation = conversationManager.conversations.first!
         let vm = conversationManager.activeViewModel!
         let correlationId = vm.bootstrapCorrelationId!
 
-        // Complete the session bootstrap
+        // Complete the conversation bootstrap
         let info = ConversationInfoMessage(conversationId: "private-sess", title: "Test", correlationId: correlationId)
         vm.handleServerMessage(.conversationInfo(info))
 
         // Simulate the user sending a message — the onFirstUserMessage callback
         // should still fire and set the title to "Untitled" as a placeholder.
-        vm.inputText = "Hello private thread"
+        vm.inputText = "Hello private conversation"
         vm.sendMessage()
 
-        let updatedThread = conversationManager.conversations.first(where: { $0.id == privateThread.id })!
-        XCTAssertEqual(updatedThread.title, "Untitled", "First user message should trigger title update")
+        let updatedConversation = conversationManager.conversations.first(where: { $0.id == privateConversation.id })!
+        XCTAssertEqual(updatedConversation.title, "Untitled", "First user message should trigger title update")
     }
 
-    func testCreatePrivateThreadSetsOnSessionCreatedCallback() {
+    func testCreatePrivateConversationSetsOnConversationCreatedCallback() {
         conversationManager.createPrivateConversation()
         let vm = conversationManager.activeViewModel!
-        XCTAssertNotNil(vm.onConversationCreated, "onConversationCreated should be set for session ID backfill")
+        XCTAssertNotNil(vm.onConversationCreated, "onConversationCreated should be set for conversation ID backfill")
     }
 }
