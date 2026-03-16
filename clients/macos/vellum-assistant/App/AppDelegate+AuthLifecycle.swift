@@ -290,6 +290,10 @@ extension AppDelegate {
                 }
             } catch {
                 log.error("Failed to provision local assistant API key: \(error.localizedDescription)")
+                self.mainWindow?.windowState.showToast(
+                    message: "Failed to set up Vellum credentials. You may need to sign out and sign in again.",
+                    style: .error
+                )
             }
         }
     }
