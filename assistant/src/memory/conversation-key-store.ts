@@ -151,7 +151,7 @@ export function getOrCreateConversation(
 
     // Check if the conversationKey itself is an existing conversation ID.
     // This happens when the client loads a conversation from the conversations list
-    // and uses the server's conversationId as its local sessionId / conversationKey.
+    // and uses the server's conversationId as its local conversationKey.
     const existingConversation = tx
       .select({ id: conversations.id })
       .from(conversations)

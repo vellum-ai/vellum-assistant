@@ -246,14 +246,14 @@ describe("standalone approval endpoints — HTTP layer", () => {
   });
 
   async function startServer(
-    sessionFactory: () => Conversation,
+    conversationFactory: () => Conversation,
   ): Promise<void> {
     port = 20000 + Math.floor(Math.random() * 1000);
     server = new RuntimeHttpServer({
       port,
       bearerToken: TEST_TOKEN,
       sendMessageDeps: {
-        getOrCreateConversation: async () => sessionFactory(),
+        getOrCreateConversation: async () => conversationFactory(),
         assistantEventHub: eventHub,
         resolveAttachments: () => [],
       },
