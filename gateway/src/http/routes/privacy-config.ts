@@ -1,53 +1,11 @@
-import {
-  readFileSync,
-  writeFileSync,
-  mkdirSync,
-  existsSync,
-  renameSync,
-} from "node:fs";
-import { join, dirname } from "node:path";
-import { randomBytes } from "node:crypto";
-import { getRootDir } from "../../credential-reader.js";
 import { getLogger } from "../../logger.js";
+import {
+  enqueueConfigWrite,
+  readConfigFile,
+  writeConfigFileAtomic,
+} from "./config-file-utils.js";
 
 const log = getLogger("privacy-config");
-
-/** Serializes config writes so concurrent PATCH requests don't race. */
-let configWriteChain: Promise<void> = Promise.resolve();
-
-function getConfigPath(): string {
-  return join(getRootDir(), "workspace", "config.json");
-}
-
-function readConfigFile():
-  | { ok: true; data: Record<string, unknown> }
-  | { ok: false; detail: string } {
-  const cfgPath = getConfigPath();
-  if (!existsSync(cfgPath)) {
-    return { ok: true, data: {} };
-  }
-  try {
-    const raw = readFileSync(cfgPath, "utf-8");
-    const parsed = JSON.parse(raw);
-    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
-      return { ok: false, detail: "Config file is not a JSON object" };
-    }
-    return { ok: true, data: parsed };
-  } catch (err) {
-    return { ok: false, detail: String(err) };
-  }
-}
-
-function writeConfigFileAtomic(data: Record<string, unknown>): void {
-  const cfgPath = getConfigPath();
-  const dir = dirname(cfgPath);
-  if (!existsSync(dir)) {
-    mkdirSync(dir, { recursive: true });
-  }
-  const tmpPath = join(dir, `.config.${randomBytes(6).toString("hex")}.tmp`);
-  writeFileSync(tmpPath, JSON.stringify(data, null, 2) + "\n", "utf-8");
-  renameSync(tmpPath, cfgPath);
-}
 
 export function createPrivacyConfigPatchHandler() {
   return async (req: Request): Promise<Response> => {
@@ -101,7 +59,7 @@ export function createPrivacyConfigPatchHandler() {
     }
 
     const writeResult = new Promise<Response>((resolve) => {
-      configWriteChain = configWriteChain.then(() => {
+      enqueueConfigWrite(() => {
         try {
           const result = readConfigFile();
           if (!result.ok) {
