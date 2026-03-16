@@ -22,9 +22,9 @@ describe("buildLocalAuthContext", () => {
     expect(ctx.assistantId).toBe("self");
   });
 
-  test("includes sessionId from argument", () => {
+  test("includes conversationId from argument", () => {
     const ctx = buildLocalAuthContext("my-session-123");
-    expect(ctx.sessionId).toBe("my-session-123");
+    expect(ctx.conversationId).toBe("my-session-123");
   });
 
   test("uses local_v1 scope profile", () => {
@@ -62,10 +62,10 @@ describe("buildLocalAuthContext", () => {
     expect(typeof ctx.scopes.has).toBe("function");
   });
 
-  test("different session IDs produce different subjects", () => {
+  test("different conversation IDs produce different subjects", () => {
     const ctx1 = buildLocalAuthContext("session-1");
     const ctx2 = buildLocalAuthContext("session-2");
     expect(ctx1.subject).not.toBe(ctx2.subject);
-    expect(ctx1.sessionId).not.toBe(ctx2.sessionId);
+    expect(ctx1.conversationId).not.toBe(ctx2.conversationId);
   });
 });
