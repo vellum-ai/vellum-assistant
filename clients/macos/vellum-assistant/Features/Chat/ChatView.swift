@@ -68,6 +68,8 @@ struct ChatView: View {
     var onRequestGreeting: (() -> Void)? = nil
     /// When set, scroll to this message ID and clear the binding.
     @Binding var anchorMessageId: UUID?
+    /// Message ID to visually highlight after an anchor scroll completes.
+    @Binding var highlightedMessageId: UUID?
 
     // MARK: - BTW Side-Chain
 
@@ -222,6 +224,7 @@ struct ChatView: View {
                             loadPreviousMessagePage: loadPreviousMessagePage,
                             threadId: threadId,
                             anchorMessageId: $anchorMessageId,
+                            highlightedMessageId: $highlightedMessageId,
                             isNearBottom: $isNearBottom,
                             containerWidth: containerWidth
                         )
@@ -790,6 +793,7 @@ struct ScrollWheelPassthrough: NSViewRepresentable {
 private struct ChatViewPreviewWrapper: View {
     @State private var text = ""
     @State private var anchorMessageId: UUID?
+    @State private var highlightedMessageId: UUID?
 
     private let sampleMessages: [ChatMessage] = [
         ChatMessage(role: .assistant, text: "Hello! How can I help you today?"),
@@ -834,7 +838,8 @@ private struct ChatViewPreviewWrapper: View {
                 watchSession: nil,
                 onStopWatch: {},
                 subagentDetailStore: SubagentDetailStore(),
-                anchorMessageId: $anchorMessageId
+                anchorMessageId: $anchorMessageId,
+                highlightedMessageId: $highlightedMessageId
             )
         }
     }
