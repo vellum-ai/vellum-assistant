@@ -129,7 +129,7 @@ export async function handleConfirm(
   // Validation passed — consume the pending interaction.
   const interaction = pendingInteractions.resolve(requestId)!;
 
-  interaction.session.handleConfirmationResponse(
+  interaction.conversation.handleConfirmationResponse(
     requestId,
     decision as UserDecision,
     selectedPattern,
@@ -186,7 +186,7 @@ export async function handleSecret(
     );
   }
 
-  interaction.session.handleSecretResponse(
+  interaction.conversation.handleSecretResponse(
     requestId,
     value,
     delivery as "store" | "transient_send" | undefined,

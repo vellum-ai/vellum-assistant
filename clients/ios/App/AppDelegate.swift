@@ -302,7 +302,9 @@ extension AppDelegate: @preconcurrency UNUserNotificationCenterDelegate {
         if response.actionIdentifier == "REPLY_ACTION",
            let textResponse = response as? UNTextInputNotificationResponse {
             let replyText = textResponse.userText
-            let conversationId = response.notification.request.content.userInfo["session_id"] as? String
+            let conversationId =
+                response.notification.request.content.userInfo["conversationId"] as? String ??
+                response.notification.request.content.userInfo["conversation_id"] as? String
 
             Task { @MainActor in
                 // If not connected (e.g. background launch via notification reply with no scene

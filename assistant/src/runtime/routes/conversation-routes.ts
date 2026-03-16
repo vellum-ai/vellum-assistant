@@ -794,7 +794,7 @@ export async function handleSendMessage(
         mapping.conversationId,
       )) {
         if (
-          interaction.session === session &&
+          interaction.conversation === session &&
           interaction.kind === "confirmation"
         ) {
           session.emitConfirmationStateChanged({
@@ -825,7 +825,7 @@ export async function handleSendMessage(
       mapping.conversationId,
     )) {
       if (
-        interaction.session === session &&
+        interaction.conversation === session &&
         interaction.kind === "confirmation"
       ) {
         session.emitConfirmationStateChanged({

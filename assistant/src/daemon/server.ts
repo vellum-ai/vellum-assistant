@@ -149,16 +149,16 @@ function resolveCanonicalRequestSourceType(
  * Build an onEvent callback that registers pending interactions when the agent
  * loop emits confirmation_request, secret_request, host_bash_request, or
  * host_file_request events. This ensures that channel approval interception
- * can look up the session by requestId.
+ * can look up the conversation by requestId.
  */
 function makePendingInteractionRegistrar(
-  session: Conversation,
+  conversation: Conversation,
   conversationId: string,
 ): (msg: ServerMessage) => void {
   return (msg: ServerMessage) => {
     if (msg.type === "confirmation_request") {
       pendingInteractions.register(msg.requestId, {
-        session,
+        conversation,
         conversationId,
         kind: "confirmation",
         confirmationDetails: {
@@ -176,7 +176,7 @@ function makePendingInteractionRegistrar(
       // Create a canonical guardian request so HTTP handlers can find it
       // via applyCanonicalGuardianDecision.
       try {
-        const trustContext = session.trustContext;
+        const trustContext = conversation.trustContext;
         const sourceChannel = trustContext?.sourceChannel ?? "vellum";
         const canonicalRequest = createCanonicalGuardianRequest({
           id: msg.requestId,
@@ -202,7 +202,8 @@ function makePendingInteractionRegistrar(
             trustContext,
             conversationId,
             toolName: msg.toolName,
-            assistantId: session.assistantId ?? DAEMON_INTERNAL_ASSISTANT_ID,
+            assistantId:
+              conversation.assistantId ?? DAEMON_INTERNAL_ASSISTANT_ID,
           });
         }
       } catch (err) {
@@ -213,25 +214,25 @@ function makePendingInteractionRegistrar(
       }
     } else if (msg.type === "secret_request") {
       pendingInteractions.register(msg.requestId, {
-        session,
+        conversation,
         conversationId,
         kind: "secret",
       });
     } else if (msg.type === "host_bash_request") {
       pendingInteractions.register(msg.requestId, {
-        session,
+        conversation,
         conversationId,
         kind: "host_bash",
       });
     } else if (msg.type === "host_file_request") {
       pendingInteractions.register(msg.requestId, {
-        session,
+        conversation,
         conversationId,
         kind: "host_file",
       });
     } else if (msg.type === "host_cu_request") {
       pendingInteractions.register(msg.requestId, {
-        session,
+        conversation,
         conversationId,
         kind: "host_cu",
       });
