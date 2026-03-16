@@ -27,7 +27,7 @@ enum ActivationKey: String, CaseIterable {
 final class OnboardingState {
     /// Bump this version whenever the default-flow step order changes so that
     /// persisted step indices from a previous layout are not consumed as-is.
-    private static let currentFlowVersion = 11
+    private static let currentFlowVersion = 12
 
     var currentStep: Int = 0
     var assistantName: String = "Velly"
@@ -142,8 +142,11 @@ final class OnboardingState {
         // Clamp restored step to the variant's maximum to prevent out-of-range
         // rendering (e.g. a step saved from the 8-step default flow would be
         // invalid for the 5-step first-meeting flow).
+        let isManagedSignIn = MacOSClientFeatureFlagManager.shared.isEnabled("managed_sign_in_enabled")
         let maxStep: Int
-        if onboardingVariant == .firstMeeting {
+        if isManagedSignIn {
+            maxStep = 2
+        } else if onboardingVariant == .firstMeeting {
             maxStep = 4
         } else {
             maxStep = 2
@@ -152,6 +155,15 @@ final class OnboardingState {
             currentStep = maxStep
         }
 
+        // Opt in to usage data and performance reports by default for new users.
+        // Previously handled by ImproveExperienceStepView.onAppear; that view was
+        // removed so we set the defaults here to keep the same behavior.
+        if UserDefaults.standard.object(forKey: "collectUsageDataEnabled") == nil {
+            UserDefaults.standard.set(true, forKey: "collectUsageDataEnabled")
+        }
+        if UserDefaults.standard.object(forKey: "sendPerformanceReports") == nil {
+            UserDefaults.standard.set(true, forKey: "sendPerformanceReports")
+        }
     }
 
     func advance(by steps: Int = 1) {
