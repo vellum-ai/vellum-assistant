@@ -577,15 +577,17 @@ export async function runDaemon(): Promise<void> {
           renameConversation(conversationId, name),
         clearAllConversations: () =>
           clearAllConversations(server.getHandlerContext()),
-        cancelGeneration: (sessionId) =>
-          cancelGeneration(sessionId, server.getHandlerContext()),
-        destroyConversation: (sessionId) => server.destroySession(sessionId),
-        undoLastMessage: (sessionId) =>
-          undoLastMessage(sessionId, server.getHandlerContext()),
-        regenerateResponse: (sessionId) => {
+        cancelGeneration: (conversationId) =>
+          cancelGeneration(conversationId, server.getHandlerContext()),
+        destroyConversation: (conversationId) =>
+          server.destroyConversation(conversationId),
+        undoLastMessage: (conversationId) =>
+          undoLastMessage(conversationId, server.getHandlerContext()),
+        regenerateResponse: (conversationId) => {
           // Resolve conversation key up front so SSE events are tagged with
           // the internal conversation ID, not the raw client key.
-          const resolvedId = resolveConversationId(sessionId) ?? sessionId;
+          const resolvedId =
+            resolveConversationId(conversationId) ?? conversationId;
           let hubChain: Promise<void> = Promise.resolve();
           const sendEvent = (event: ServerMessage) => {
             const ae = buildAssistantEvent(
@@ -606,7 +608,7 @@ export async function runDaemon(): Promise<void> {
             })();
           };
           return regenerateResponse(
-            sessionId,
+            conversationId,
             server.getHandlerContext(),
             sendEvent,
           );

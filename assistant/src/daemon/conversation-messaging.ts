@@ -35,7 +35,7 @@ import type {
   UserMessageAttachment,
 } from "./message-protocol.js";
 
-const log = getLogger("session-messaging");
+const log = getLogger("conversation-messaging");
 
 interface IngressSecretTarget {
   service: string;
@@ -166,7 +166,7 @@ function resolveIngressSecretTarget(
 
 // ── Context Interface ────────────────────────────────────────────────
 
-export interface MessagingSessionContext {
+export interface MessagingConversationContext {
   readonly conversationId: string;
   messages: Message[];
   processing: boolean;
@@ -205,7 +205,7 @@ function extractTurnInterfaceContext(
 // ── enqueueMessage ───────────────────────────────────────────────────
 
 export function enqueueMessage(
-  ctx: MessagingSessionContext,
+  ctx: MessagingConversationContext,
   content: string,
   attachments: UserMessageAttachment[],
   onEvent: (msg: ServerMessage) => void,
@@ -256,7 +256,7 @@ export function enqueueMessage(
 // ── persistUserMessage ───────────────────────────────────────────────
 
 export async function persistUserMessage(
-  ctx: MessagingSessionContext,
+  ctx: MessagingConversationContext,
   content: string,
   attachments: UserMessageAttachment[],
   requestId?: string,
