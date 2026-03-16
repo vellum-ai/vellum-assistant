@@ -391,6 +391,7 @@ extension AppDelegate {
                         case .daemonStartupFailed(let startupError):
                             log.error("Daemon startup failed [\(startupError.category)]: \(startupError.message, privacy: .private)")
                             self.daemonStartupError = startupError
+                            MetricKitManager.reportDaemonStartupFailure(startupError)
                         default:
                             log.error("Failed to hatch assistant during daemon setup: \(error)")
                         }
