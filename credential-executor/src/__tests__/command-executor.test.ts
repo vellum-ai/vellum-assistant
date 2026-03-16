@@ -604,7 +604,11 @@ describe("executeAuthenticatedCommand — credential materialization", () => {
         },
       },
     });
-    const { digest } = publishTestBundle(manifest);
+    const { digest } = publishTestBundle(
+      manifest,
+      "local",
+      '#!/bin/sh\necho "credential materialization test"\n',
+    );
 
     const deps = buildDeps({
       materializeCredential: failMaterializer("Credential store is locked"),
@@ -815,7 +819,11 @@ describe("executeAuthenticatedCommand — egress enforcement", () => {
     const manifest = buildManifest({
       egressMode: EgressMode.ProxyRequired,
     });
-    const { digest } = publishTestBundle(manifest);
+    const { digest } = publishTestBundle(
+      manifest,
+      "local",
+      '#!/bin/sh\necho "egress enforcement test"\n',
+    );
 
     const deps = buildDeps({
       egressHooks: undefined, // No hooks provided
