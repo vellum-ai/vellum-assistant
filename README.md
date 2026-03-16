@@ -314,7 +314,7 @@ All three tools require explicit user approval before execution (Risk Level = Hi
 
 - Snippets must export a `default` or `run` function with signature `(input: unknown) => unknown | Promise<unknown>`.
 - If evaluation fails after 3 attempts, the assistant asks for user guidance instead of retrying.
-- After a skill is written or deleted, the file watcher triggers session eviction. The next turn runs in a fresh session.
+- After a skill is written or deleted, the file watcher triggers conversation eviction. The next turn runs in a fresh conversation.
 - Managed skills appear in the macOS Settings UI with Inspect and Delete controls.
 
 ### Child Skill Includes

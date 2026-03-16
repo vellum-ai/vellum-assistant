@@ -28,7 +28,7 @@ const log = getLogger("turn-commit");
 export interface TurnCommitMetadata {
   /** Conversation/conversation identifier */
   conversationId: string;
-  /** 1-based turn number within the session */
+  /** 1-based turn number within the conversation */
   turnNumber: number;
   /** ISO 8601 timestamp of when the turn completed */
   timestamp: string;
@@ -43,11 +43,11 @@ export interface TurnCommitMetadata {
  * creates a single commit with structured metadata.
  *
  * This function should be awaited so it completes before the next turn
- * starts. All errors are caught and logged to avoid disrupting the session.
+ * starts. All errors are caught and logged to avoid disrupting the conversation.
  *
  * @param workspaceDir - Absolute path to the workspace directory
  * @param conversationId - Conversation/conversation identifier
- * @param turnNumber - 1-based turn number within the session
+ * @param turnNumber - 1-based turn number within the conversation
  * @param provider - Optional commit message provider (defaults to deterministic)
  * @param deadlineMs - Optional absolute deadline (Date.now()) after which the commit should be skipped
  */

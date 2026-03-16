@@ -2,7 +2,7 @@
  * HTTP route definitions for model configuration, conversation search,
  * message content, and queued message deletion.
  *
- * These routes expose session query functionality over the HTTP API.
+ * These routes expose conversation query functionality over the HTTP API.
  *
  * GET    /v1/model                   — current model info
  * PUT    /v1/model                   — set model
@@ -31,9 +31,9 @@ import type { RouteDefinition } from "../http-router.js";
 // ---------------------------------------------------------------------------
 
 export interface ConversationQueryRouteDeps {
-  /** Lazy factory for model set context (config reload suppression, session eviction). */
+  /** Lazy factory for model set context (config reload suppression, conversation eviction). */
   getModelSetContext?: () => ModelSetContext;
-  /** Lookup an active session by ID for queued message deletion. */
+  /** Lookup an active conversation by ID for queued message deletion. */
   findConversationForQueue?: (
     id: string,
   ) => { removeQueuedMessage(requestId: string): boolean } | undefined;
