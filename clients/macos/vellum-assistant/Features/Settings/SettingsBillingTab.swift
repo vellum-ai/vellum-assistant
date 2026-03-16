@@ -152,7 +152,14 @@ struct SettingsBillingTab: View {
         isLoading = true
         error = nil
         do {
-            summary = try await BillingService.shared.getBillingSummary()
+            var result = try await BillingService.shared.getBillingSummary()
+            // Bootstrap billing for pre-billing orgs with all-zero balances
+            if result.effective_balance_usd == "0.00" && result.settled_balance_usd == "0.00" && result.pending_compute_usd == "0.00" {
+                if let bootstrapped = try? await BillingService.shared.bootstrapBillingSummary() {
+                    result = bootstrapped
+                }
+            }
+            summary = result
         } catch {
             self.error = "Unable to load billing information. Please try again."
         }
