@@ -269,6 +269,9 @@ export async function upsertApp(
   if (clientSecretValue) {
     const stored = await setSecureKeyAsync(credPath, clientSecretValue);
     if (!stored) {
+      // Roll back the just-inserted row to avoid an orphaned app pointing
+      // at a non-existent client_secret in secure storage.
+      db.delete(oauthApps).where(eq(oauthApps.id, id)).run();
       throw new Error("Failed to store client_secret in secure storage");
     }
   }
