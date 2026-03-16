@@ -28,6 +28,11 @@ struct AgentPanelContent: View {
         globalSkillSearchQuery.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
     }
 
+    /// Whether any files in the selected skill are viewable (non-binary with content).
+    private var hasViewableFiles: Bool {
+        skillsManager.selectedSkillFiles?.files.contains { !$0.isBinary && $0.content != nil } ?? false
+    }
+
     private var hasActiveSearch: Bool { !normalizedSkillQuery.isEmpty }
 
     var body: some View {
@@ -375,14 +380,17 @@ struct AgentPanelContent: View {
                    let content = file.content {
                     skillFileContentPane(file: file, content: content)
                 } else {
-                    // Empty state when no file is selected or loading
-                    FileViewerEmptyState()
-                        .background(VColor.surfaceOverlay)
-                        .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
-                        .overlay(
-                            RoundedRectangle(cornerRadius: VRadius.md)
-                                .stroke(VColor.borderBase, lineWidth: 1)
-                        )
+                    // Empty state when no file is selected or all files are binary
+                    VEmptyState(
+                        title: hasViewableFiles ? "Select a file to view" : "No viewable files",
+                        icon: VIcon.fileText.rawValue
+                    )
+                    .background(VColor.surfaceOverlay)
+                    .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: VRadius.md)
+                            .stroke(VColor.borderBase, lineWidth: 1)
+                    )
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)

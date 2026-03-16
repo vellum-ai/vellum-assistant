@@ -41,23 +41,6 @@ func formatFileSize(_ bytes: Int) -> String {
     return String(format: "%.1f GB", gb)
 }
 
-/// Empty state shown when no file is selected in a file viewer pane.
-struct FileViewerEmptyState: View {
-    var body: some View {
-        VStack {
-            Spacer()
-            VIconView(.fileText, size: 32)
-                .foregroundColor(VColor.contentTertiary)
-                .padding(.bottom, VSpacing.sm)
-            Text("Select a file to view")
-                .font(VFont.body)
-                .foregroundColor(VColor.contentTertiary)
-            Spacer()
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-    }
-}
-
 /// Scrollable read-only monospace text display for file content.
 struct ReadOnlyCodeContent: View {
     let content: String
