@@ -386,6 +386,18 @@ extension AppDelegate {
                     let assistantName = assistant?.assistantId
                     do {
                         try await assistantCli.hatch(name: assistantName, daemonOnly: daemonOnly)
+                    } catch let error as AssistantCli.CLIError {
+                        switch error {
+                        case .daemonStartupFailed(let startupError):
+                            log.error("Daemon startup failed [\(startupError.category)]: \(startupError.message, privacy: .private)")
+                            self.daemonStartupError = startupError
+                        default:
+                            log.error("Failed to hatch assistant during daemon setup: \(error)")
+                        }
+                        if needsLockfileEntry {
+                            log.info("Full hatch failed on first launch — retrying daemon-only as fallback")
+                            try? await assistantCli.hatch(name: assistantName, daemonOnly: true)
+                        }
                     } catch {
                         log.error("Failed to hatch assistant during daemon setup: \(error)")
                         if needsLockfileEntry {

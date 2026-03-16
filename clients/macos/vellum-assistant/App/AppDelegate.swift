@@ -128,6 +128,12 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
     /// Last time we surfaced the denied-notification permission toast.
     var lastNotificationPermissionToastAtMs: Double = 0
 
+    /// Structured error from the most recent daemon startup failure.
+    /// Populated by `setupDaemonClient()` when `hatch()` throws a
+    /// `CLIError.daemonStartupFailed`. Read by the UI (PR 3) to show a
+    /// contextual error view instead of a generic failure message.
+    @Published var daemonStartupError: DaemonStartupError?
+
     /// Whether the current assistant runs remotely (cloud != "local").
     /// When true, local daemon hatching is skipped.
     var isCurrentAssistantRemote = false
