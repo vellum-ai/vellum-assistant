@@ -90,7 +90,6 @@ public final class BillingService {
         }
 
         let task = Task<BillingSummaryResponse?, Never> {
-            defer { bootstrapTasks[orgId] = nil }
             do {
                 let result = try await postBootstrapBillingSummary()
                 // Only persist the flag on success so transient failures don't permanently suppress retries
@@ -102,7 +101,12 @@ public final class BillingService {
             }
         }
         bootstrapTasks[orgId] = task
-        return await task.value
+        let result = await task.value
+        // Only clear if this is still the current task — avoid clobbering a newer reference
+        if bootstrapTasks[orgId] === task {
+            bootstrapTasks[orgId] = nil
+        }
+        return result
     }
 
     /// POST to the billing summary endpoint to create the BillingAccount with initial credit.
