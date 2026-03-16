@@ -142,6 +142,20 @@ struct APIKeyEntryStepView: View {
         APIKeyManager.setKey(trimmed, for: "anthropic")
         APIKeyManager.syncKeyToDaemon(provider: "anthropic", value: trimmed)
 
+        // Set default inference mode to "your-own" if not already configured
+        let existingConfig = WorkspaceConfigIO.read()
+        if let services = existingConfig["services"] as? [String: Any],
+           let inference = services["inference"] as? [String: Any],
+           inference["mode"] != nil {
+            // Already configured
+        } else {
+            var services = existingConfig["services"] as? [String: Any] ?? [:]
+            var inference = services["inference"] as? [String: Any] ?? [:]
+            inference["mode"] = "your-own"
+            services["inference"] = inference
+            try? WorkspaceConfigIO.merge(["services": services])
+        }
+
         saveModelToConfig("claude-opus-4-6")
         state.isHatching = true
     }

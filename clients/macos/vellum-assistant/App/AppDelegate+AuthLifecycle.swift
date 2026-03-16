@@ -314,6 +314,21 @@ extension AppDelegate {
                 case .registeredAndProvisioned(let id):
                     log.info("Local assistant API key provisioned: \(id, privacy: .public)")
                 }
+
+                // Set default inference mode to "managed" if not already configured
+                let existingConfig = WorkspaceConfigIO.read()
+                if let services = existingConfig["services"] as? [String: Any],
+                   let inference = services["inference"] as? [String: Any],
+                   inference["mode"] != nil {
+                    // Already configured — don't overwrite explicit user choice
+                } else {
+                    var services = existingConfig["services"] as? [String: Any] ?? [:]
+                    var inference = services["inference"] as? [String: Any] ?? [:]
+                    inference["mode"] = "managed"
+                    services["inference"] = inference
+                    try? WorkspaceConfigIO.merge(["services": services])
+                }
+
                 self.localBootstrapDidComplete = true
                 NotificationCenter.default.post(name: .localBootstrapCompleted, object: nil)
             } catch {
