@@ -1394,7 +1394,7 @@ final class ChatViewModelTests: XCTestCase {
         viewModel.handleServerMessage(.conversationError(errorMsg))
 
         XCTAssertEqual(viewModel.errorText, "Provider returned 500",
-                       "session_error should populate errorText for backward compatibility")
+                       "conversation_error should populate errorText for backward compatibility")
     }
 
     func testConversationErrorFromDifferentConversationIsIgnored() {
@@ -1409,7 +1409,7 @@ final class ChatViewModelTests: XCTestCase {
         viewModel.handleServerMessage(.conversationError(errorMsg))
 
         XCTAssertNil(viewModel.conversationError,
-                      "session_error from a different session should be ignored")
+                      "conversation_error from a different conversation should be ignored")
         XCTAssertNil(viewModel.errorText)
     }
 
@@ -1426,7 +1426,7 @@ final class ChatViewModelTests: XCTestCase {
         viewModel.handleServerMessage(.conversationError(errorMsg))
 
         XCTAssertNil(viewModel.conversationError,
-                      "session_error should be ignored before session is claimed")
+                      "conversation_error should be ignored before conversation is claimed")
         XCTAssertNil(viewModel.errorText)
     }
 
@@ -1447,7 +1447,7 @@ final class ChatViewModelTests: XCTestCase {
         viewModel.handleServerMessage(.conversationError(errorMsg))
 
         XCTAssertFalse(viewModel.messages[0].isStreaming,
-                        "session_error should finalize streaming assistant message")
+                        "conversation_error should finalize streaming assistant message")
         XCTAssertEqual(viewModel.messages[0].text, "Partial",
                         "Partial text should be preserved")
     }
@@ -1474,7 +1474,7 @@ final class ChatViewModelTests: XCTestCase {
         viewModel.handleServerMessage(.conversationError(errorMsg))
 
         XCTAssertEqual(viewModel.messages[1].status, .sent,
-                        "session_error should reset processing messages to .sent")
+                        "conversation_error should reset processing messages to .sent")
     }
 
     func testDismissConversationErrorClearsBothErrorStates() {
@@ -1590,7 +1590,7 @@ final class ChatViewModelTests: XCTestCase {
         )
         viewModel.handleServerMessage(.conversationError(secondError))
         XCTAssertEqual(viewModel.conversationError?.category, .rateLimit,
-                        "Latest session_error should replace previous one")
+                        "Latest conversation_error should replace previous one")
         XCTAssertEqual(viewModel.conversationError?.message, "Rate limited")
     }
 

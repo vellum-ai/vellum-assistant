@@ -154,7 +154,7 @@ final class InterviewViewModel {
                 case .conversationError(let error) where error.conversationId == self.conversationId && self.conversationId != nil:
                     self.isThinking = false
                     self.streamingText = ""
-                    log.error("Interview start failed (session_error): \(error.userMessage)")
+                    log.error("Interview start failed (conversation_error): \(error.userMessage)")
                     self.messages.append(InterviewMessage(
                         role: .assistant,
                         text: "I'm having trouble connecting. Please try again in a moment."
@@ -274,7 +274,7 @@ final class InterviewViewModel {
                 case .conversationError(let error) where error.conversationId == conversationId:
                     self.isThinking = false
                     self.streamingText = ""
-                    log.error("Session error during follow-up (session_error): \(error.userMessage)")
+                    log.error("Conversation error during follow-up (conversation_error): \(error.userMessage)")
                     self.messages.append(InterviewMessage(
                         role: .assistant,
                         text: "Something went wrong. Please try again."
