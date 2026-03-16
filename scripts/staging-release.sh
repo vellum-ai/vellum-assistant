@@ -13,8 +13,9 @@
 #   ./scripts/staging-release.sh [--cleanup]
 #
 # Options:
-#   --cleanup   After installing, SCP the mac-mini-cleanup.sh script to the
-#               mini, run it, then remove it.
+#   --cleanup   Before installing, SCP the mac-mini-cleanup.sh script to the
+#               mini, run it, then remove it. Resets the environment to a
+#               clean state before installing the staging app.
 
 set -euo pipefail
 
@@ -174,7 +175,29 @@ fi
 rm -rf "$DMG_STAGING"
 
 # ---------------------------------------------------------------------------
-# 3. Upload to Mac mini and install into /Applications
+# 3. (Optional) Run cleanup script on the Mac mini before installing
+# ---------------------------------------------------------------------------
+
+if [ "$RUN_CLEANUP" = true ]; then
+  CLEANUP_SCRIPT="${SCRIPT_DIR}/mac-mini-cleanup.sh"
+  REMOTE_CLEANUP="/tmp/mac-mini-cleanup.sh"
+
+  if [ ! -f "$CLEANUP_SCRIPT" ]; then
+    echo "ERROR: Cleanup script not found at $CLEANUP_SCRIPT"
+    exit 1
+  fi
+
+  echo "Uploading cleanup script to ${SCP_HOST}..."
+  remote_scp "$CLEANUP_SCRIPT" "${SCP_HOST}:${REMOTE_CLEANUP}"
+
+  echo "Running cleanup script on ${SCP_HOST}..."
+  remote_ssh "${SCP_HOST}" "bash '${REMOTE_CLEANUP}'; rm -f '${REMOTE_CLEANUP}'"
+
+  echo "Cleanup complete on ${SCP_HOST}."
+fi
+
+# ---------------------------------------------------------------------------
+# 4. Upload to Mac mini and install into /Applications
 # ---------------------------------------------------------------------------
 
 REMOTE_DMG="/tmp/vellum-assistant-staging.dmg"
@@ -207,25 +230,3 @@ echo "Installed: /Applications/Vellum (Staging).app"
 REMOTE_SCRIPT
 
 echo "Done! Staging app installed to /Applications on ${SCP_HOST}"
-
-# ---------------------------------------------------------------------------
-# 4. (Optional) Run cleanup script on the Mac mini
-# ---------------------------------------------------------------------------
-
-if [ "$RUN_CLEANUP" = true ]; then
-  CLEANUP_SCRIPT="${SCRIPT_DIR}/mac-mini-cleanup.sh"
-  REMOTE_CLEANUP="/tmp/mac-mini-cleanup.sh"
-
-  if [ ! -f "$CLEANUP_SCRIPT" ]; then
-    echo "ERROR: Cleanup script not found at $CLEANUP_SCRIPT"
-    exit 1
-  fi
-
-  echo "Uploading cleanup script to ${SCP_HOST}..."
-  remote_scp "$CLEANUP_SCRIPT" "${SCP_HOST}:${REMOTE_CLEANUP}"
-
-  echo "Running cleanup script on ${SCP_HOST}..."
-  remote_ssh "${SCP_HOST}" "bash '${REMOTE_CLEANUP}'; rm -f '${REMOTE_CLEANUP}'"
-
-  echo "Cleanup complete on ${SCP_HOST}."
-fi
