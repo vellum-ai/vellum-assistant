@@ -197,24 +197,28 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
         // are captured. Privacy opt-out is checked after the daemon is ready and
         // applied via SentrySDK.close() — matching the daemon-side pattern in
         // lifecycle.ts (init at top, close after config load if flag disabled).
-        let collectUsageData = UserDefaults.standard.object(forKey: "collectUsageDataEnabled") as? Bool ?? true
-        let perfOptIn = collectUsageData && UserDefaults.standard.bool(forKey: "sendPerformanceReports")
-        let appVersion = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "unknown"
-        let buildNumber = Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "0"
-        SentrySDK.start { options in
-            options.dsn = MetricKitManager.macosDSN
-            options.releaseName = "vellum-macos@\(appVersion)"
-            options.dist = buildNumber
-            options.environment = SentryDeviceInfo.sentryEnvironment
-            options.debug = false
-            options.tracesSampleRate = 0.1
-            options.configureProfiling = { profilingOptions in
-                profilingOptions.sessionSampleRate = perfOptIn ? 1.0 : 0
+        // Gated on sendDiagnostics: if disabled, Sentry is never initialized.
+        let sendDiagnostics = UserDefaults.standard.object(forKey: "sendDiagnostics") as? Bool
+            ?? UserDefaults.standard.object(forKey: "sendPerformanceReports") as? Bool
+            ?? true
+        if sendDiagnostics {
+            let appVersion = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "unknown"
+            let buildNumber = Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "0"
+            SentrySDK.start { options in
+                options.dsn = MetricKitManager.macosDSN
+                options.releaseName = "vellum-macos@\(appVersion)"
+                options.dist = buildNumber
+                options.environment = SentryDeviceInfo.sentryEnvironment
+                options.debug = false
+                options.tracesSampleRate = 0.1
+                options.configureProfiling = { profilingOptions in
+                    profilingOptions.sessionSampleRate = 1.0
+                }
+                options.sendDefaultPii = false
+                options.maxAttachmentSize = MetricKitManager.sentryMaxAttachmentSize
             }
-            options.sendDefaultPii = false
-            options.maxAttachmentSize = MetricKitManager.sentryMaxAttachmentSize
+            SentryDeviceInfo.configureSentryScope()
         }
-        SentryDeviceInfo.configureSentryScope()
 
         // Surface any crash log from the previous session so the user can send
         // it. Also records this launch timestamp for the next session's check.
