@@ -54,12 +54,11 @@ public final class DirectoryStore: ObservableObject {
 
             let result = await stream.firstMatch { message -> [AppItem]? in
                 if case .appsListResponse(let response) = message {
-                    return response.apps
+                    return response.success ? response.apps : nil
                 }
                 return nil
             }
-            // Only replace if we got actual apps — empty response may be an error fallback
-            if let apps = result, !apps.isEmpty {
+            if let apps = result {
                 self.localApps = apps
             }
             isLoadingApps = false
