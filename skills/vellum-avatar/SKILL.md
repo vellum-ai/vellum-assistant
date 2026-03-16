@@ -95,15 +95,35 @@ Tell the user their avatar has been updated. The client will pick up the new ima
 
 ## Mode 3: AI-Generated Image
 
-The user describes what they want their avatar to look like. Use `bash` to call the gateway's avatar generation endpoint:
+The user describes what they want their avatar to look like. Use `bash` to call the Gemini image generation model via the runtime proxy:
 
 ```bash
-curl -s -X POST "$INTERNAL_GATEWAY_BASE_URL/v1/settings/avatar/generate" \
+curl -s -X POST "$INTERNAL_GATEWAY_BASE_URL/v1/runtime-proxy/vertex/projects/$GCP_PROJECT_ID/locations/global/publishers/google/models/gemini-2.5-flash-image:generateContent" \
   -H "Content-Type: application/json" \
-  -d '{"description": "<user'\''s description>"}'
+  -d '{
+    "contents": [
+      {
+        "role": "user",
+        "parts": [
+          { "text": "Generate a simple, friendly avatar image on a transparent background. The avatar should be: <user description here>" }
+        ]
+      }
+    ],
+    "generationConfig": {
+      "responseModalities": ["TEXT", "IMAGE"]
+    }
+  }'
 ```
 
-This generates an image using AI and saves it to `data/avatar/avatar-image.png`. After the image is generated, remove the native character files:
+The response contains base64-encoded image data in `candidates[0].content.parts`. Find the part with `inlineData` and decode it:
+
+```bash
+mkdir -p "$VELLUM_DATA_DIR/avatar"
+# Extract the base64 image data from the response and save it
+echo '<base64 data from response>' | base64 --decode > "$VELLUM_DATA_DIR/avatar/avatar-image.png"
+```
+
+After saving the image, remove the native character files since a custom image overrides the native character:
 
 ```bash
 rm -f "$VELLUM_DATA_DIR/avatar/character-traits.json"
