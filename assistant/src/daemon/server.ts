@@ -367,32 +367,35 @@ export class DaemonServer {
       }
     };
     getAcpSessionManager().onAcpSessionFinished = async (
-      parentSessionId,
+      parentConversationId,
       message,
       sendToClient,
     ) => {
-      const parentSession = this.sessions.get(parentSessionId);
-      if (!parentSession) {
+      const parentConversation = this.conversations.get(parentConversationId);
+      if (!parentConversation) {
         log.warn(
-          { parentSessionId },
-          "ACP agent finished but parent session not found",
+          { parentConversationId },
+          "ACP agent finished but parent conversation not found",
         );
         return;
       }
       const requestId = `acp-notify-${Date.now()}`;
-      const enqueueResult = parentSession.enqueueMessage(
+      const enqueueResult = parentConversation.enqueueMessage(
         message,
         [],
         sendToClient,
         requestId,
       );
       if (!enqueueResult.queued && !enqueueResult.rejected) {
-        const messageId = await parentSession.persistUserMessage(message, []);
-        parentSession
+        const messageId = await parentConversation.persistUserMessage(
+          message,
+          [],
+        );
+        parentConversation
           .runAgentLoop(message, messageId, sendToClient)
           .catch((err) => {
             log.error(
-              { parentSessionId, err },
+              { parentConversationId, err },
               "Failed to process ACP notification in parent",
             );
           });
