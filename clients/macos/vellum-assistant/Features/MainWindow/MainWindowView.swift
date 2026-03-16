@@ -184,7 +184,7 @@ struct MainWindowView: View {
         )
     }
 
-    func copyActiveThreadToClipboard() {
+    func copyActiveConversationToClipboard() {
         let messages = conversationManager.activeViewModel?.messages ?? []
         let title = conversationManager.activeConversation?.title
         let names = resolveParticipantNames()
@@ -199,7 +199,7 @@ struct MainWindowView: View {
         windowState.showToast(message: "Conversation copied to clipboard", style: .success)
     }
 
-    private var threadHeaderPresentation: ConversationHeaderPresentation {
+    private var conversationHeaderPresentation: ConversationHeaderPresentation {
         ConversationHeaderPresentation(
             activeConversation: conversationManager.activeConversation,
             activeViewModel: conversationManager.activeViewModel,
@@ -207,7 +207,7 @@ struct MainWindowView: View {
         )
     }
 
-    func dismissThreadDrawer() {
+    func dismissConversationDrawer() {
         withAnimation(.spring(response: 0.35, dampingFraction: 0.7)) {
             showConversationActionsDrawer = false
         }
@@ -376,24 +376,24 @@ struct MainWindowView: View {
             Spacer()
             if windowState.isConversationVisible {
                 ConversationTitleActionsControl(
-                    presentation: threadHeaderPresentation,
-                    onCopy: { copyActiveThreadToClipboard(); dismissThreadDrawer() },
+                    presentation: conversationHeaderPresentation,
+                    onCopy: { copyActiveConversationToClipboard(); dismissConversationDrawer() },
                     onPin: {
                         guard let id = conversationManager.activeConversationId else { return }
-                        conversationManager.pinThread(id: id)
-                        dismissThreadDrawer()
+                        conversationManager.pinConversation(id: id)
+                        dismissConversationDrawer()
                     },
                     onUnpin: {
                         guard let id = conversationManager.activeConversationId else { return }
-                        conversationManager.unpinThread(id: id)
-                        dismissThreadDrawer()
+                        conversationManager.unpinConversation(id: id)
+                        dismissConversationDrawer()
                     },
                     onArchive: {
                         guard let id = conversationManager.activeConversationId else { return }
                         conversationManager.archiveConversation(id: id)
-                        dismissThreadDrawer()
+                        dismissConversationDrawer()
                     },
-                    onRename: { startRenameActiveThread(); dismissThreadDrawer() },
+                    onRename: { startRenameActiveThread(); dismissConversationDrawer() },
                     showDrawer: $showConversationActionsDrawer
                 )
                 .background(GeometryReader { proxy in
@@ -490,31 +490,31 @@ struct MainWindowView: View {
                     if showConversationActionsDrawer {
                         Color.clear
                             .contentShape(Rectangle())
-                            .onTapGesture { dismissThreadDrawer() }
+                            .onTapGesture { dismissConversationDrawer() }
                     }
                 }
                 .overlay(alignment: .topLeading) {
                     if showConversationActionsDrawer {
-                        let presentation = threadHeaderPresentation
+                        let presentation = conversationHeaderPresentation
                         ConversationActionsDrawer(
                             presentation: presentation,
-                            onCopy: { copyActiveThreadToClipboard(); dismissThreadDrawer() },
+                            onCopy: { copyActiveConversationToClipboard(); dismissConversationDrawer() },
                             onPin: {
                                 guard let id = conversationManager.activeConversationId else { return }
-                                conversationManager.pinThread(id: id)
-                                dismissThreadDrawer()
+                                conversationManager.pinConversation(id: id)
+                                dismissConversationDrawer()
                             },
                             onUnpin: {
                                 guard let id = conversationManager.activeConversationId else { return }
-                                conversationManager.unpinThread(id: id)
-                                dismissThreadDrawer()
+                                conversationManager.unpinConversation(id: id)
+                                dismissConversationDrawer()
                             },
                             onArchive: {
                                 guard let id = conversationManager.activeConversationId else { return }
                                 conversationManager.archiveConversation(id: id)
-                                dismissThreadDrawer()
+                                dismissConversationDrawer()
                             },
-                            onRename: { startRenameActiveThread(); dismissThreadDrawer() }
+                            onRename: { startRenameActiveThread(); dismissConversationDrawer() }
                         )
                         .offset(x: conversationTitleFrame.minX, y: conversationTitleFrame.maxY)
                         .zIndex(10)

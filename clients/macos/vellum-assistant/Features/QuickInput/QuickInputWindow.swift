@@ -42,7 +42,7 @@ final class QuickInputWindow {
     /// Includes optional image data from a screen capture.
     var onSubmit: ((String, Data?) -> Void)?
     /// Callback invoked when the user submits a message to an existing thread.
-    var onSubmitToThread: ((String, Data?) -> Void)?
+    var onSubmitToConversation: ((String, Data?) -> Void)?
     /// Callback invoked when the user taps the microphone button.
     var onMicrophoneToggle: (() -> Void)?
     /// Callback invoked when the user toggles the notification bell.
@@ -171,7 +171,7 @@ final class QuickInputWindow {
                     self?.onSelectConversation?(conversationId)
                     // Small delay so the conversation switches before we send the message
                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-                        self?.onSubmitToThread?(message, self?.attachedImageData)
+                        self?.onSubmitToConversation?(message, self?.attachedImageData)
                     }
                 } else {
                     self?.onSubmit?(message, self?.attachedImageData)

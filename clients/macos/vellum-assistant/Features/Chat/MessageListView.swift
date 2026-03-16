@@ -136,11 +136,11 @@ struct MessageListView: View {
     /// Suppresses bottom auto-scroll for the ~32ms layout window after pagination
     /// restores scroll position, preventing a jump back to the bottom.
     @State private var isSuppressingBottomScroll: Bool = false
-    @State private var isThreadContentHovered: Bool = false
+    @State private var isConversationContentHovered: Bool = false
     @State private var isAppActive: Bool = NSApp.isActive
     @State private var hoverExitDebounceTask: Task<Void, Never>?
-    @State private var threadSwitchSuppressionTask: Task<Void, Never>?
-    @State private var suppressScrollbarDuringThreadSwitch: Bool = false
+    @State private var conversationSwitchSuppressionTask: Task<Void, Never>?
+    @State private var suppressScrollbarDuringConversationSwitch: Bool = false
     @State private var expandSuppressionTask: Task<Void, Never>?
     /// Tracks the last pending confirmation request ID that triggered an
     /// auto-focus handoff. Used to detect nil→non-nil transitions so we
@@ -441,15 +441,15 @@ struct MessageListView: View {
         }
     }
 
-    private var shouldShowThreadScrollbar: Bool {
-        isAppActive && isThreadContentHovered && !suppressScrollbarDuringThreadSwitch
+    private var shouldShowConversationScrollbar: Bool {
+        isAppActive && isConversationContentHovered && !suppressScrollbarDuringConversationSwitch
     }
 
     private func handleThreadContentHover(_ hovering: Bool) {
         if hovering {
             hoverExitDebounceTask?.cancel()
             hoverExitDebounceTask = nil
-            isThreadContentHovered = true
+            isConversationContentHovered = true
             return
         }
 
@@ -463,7 +463,7 @@ struct MessageListView: View {
                 return
             }
             guard !Task.isCancelled else { return }
-            isThreadContentHovered = false
+            isConversationContentHovered = false
             hoverExitDebounceTask = nil
         }
     }
@@ -790,7 +790,7 @@ struct MessageListView: View {
                         hasReceivedScrollEvent = true
                     }
                 )
-                ConversationScrollbarVisibilityController(shouldShow: shouldShowThreadScrollbar)
+                ConversationScrollbarVisibilityController(shouldShow: shouldShowConversationScrollbar)
             }
             .onPreferenceChange(ScrollViewportHeightKey.self) { height in
                 os_signpost(.begin, log: PerfSignposts.log, name: "anchorPreferenceChange")
@@ -891,9 +891,9 @@ struct MessageListView: View {
             .onDisappear {
                 hoverExitDebounceTask?.cancel()
                 hoverExitDebounceTask = nil
-                threadSwitchSuppressionTask?.cancel()
-                threadSwitchSuppressionTask = nil
-                suppressScrollbarDuringThreadSwitch = false
+                conversationSwitchSuppressionTask?.cancel()
+                conversationSwitchSuppressionTask = nil
+                suppressScrollbarDuringConversationSwitch = false
                 anchorTimeoutTask?.cancel()
                 anchorTimeoutTask = nil
                 resizeScrollTask?.cancel()
@@ -1072,9 +1072,9 @@ struct MessageListView: View {
                 hoverExitDebounceTask = nil
                 anchorTimeoutTask?.cancel()
                 anchorTimeoutTask = nil
-                threadSwitchSuppressionTask?.cancel()
-                suppressScrollbarDuringThreadSwitch = true
-                threadSwitchSuppressionTask = Task { @MainActor in
+                conversationSwitchSuppressionTask?.cancel()
+                suppressScrollbarDuringConversationSwitch = true
+                conversationSwitchSuppressionTask = Task { @MainActor in
                     // Let the newly-selected thread finish its first layout pass so
                     // the scroller style/metrics settle before allowing re-show.
                     do {
@@ -1083,10 +1083,10 @@ struct MessageListView: View {
                         return
                     }
                     guard !Task.isCancelled else { return }
-                    suppressScrollbarDuringThreadSwitch = false
-                    threadSwitchSuppressionTask = nil
+                    suppressScrollbarDuringConversationSwitch = false
+                    conversationSwitchSuppressionTask = nil
                 }
-                isThreadContentHovered = false
+                isConversationContentHovered = false
                 avatarTargetY = .infinity
                 avatarDisplayY = .infinity
                 pendingAvatarY = nil
@@ -1180,10 +1180,10 @@ struct MessageListView: View {
                 isAppActive = false
                 hoverExitDebounceTask?.cancel()
                 hoverExitDebounceTask = nil
-                threadSwitchSuppressionTask?.cancel()
-                threadSwitchSuppressionTask = nil
-                suppressScrollbarDuringThreadSwitch = false
-                isThreadContentHovered = false
+                conversationSwitchSuppressionTask?.cancel()
+                conversationSwitchSuppressionTask = nil
+                suppressScrollbarDuringConversationSwitch = false
+                isConversationContentHovered = false
             }
         }
     }

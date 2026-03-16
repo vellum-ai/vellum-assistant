@@ -94,7 +94,7 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
             // Clear stale anchor when switching away from the conversation that
             // owns it — prevents the anchor from suppressing scroll-to-bottom
             // on unrelated conversation switches.
-            if let anchorThread = pendingAnchorConversationId, anchorThread != activeConversationId {
+            if let anchorConversation = pendingAnchorConversationId, anchorConversation != activeConversationId {
                 pendingAnchorMessageId = nil
                 pendingAnchorConversationId = nil
             }
@@ -567,12 +567,12 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
         // Batch mutations into a single array write to avoid multiple
         // @Published objectWillChange emissions that can cause SwiftUI
         // ForEach re-entrancy crashes.
-        var thread = conversations[index]
-        thread.isPinned = false
-        thread.pinnedOrder = nil
-        thread.displayOrder = nil
-        thread.isArchived = true
-        conversations[index] = thread
+        var conversation = conversations[index]
+        conversation.isPinned = false
+        conversation.pinnedOrder = nil
+        conversation.displayOrder = nil
+        conversation.isArchived = true
+        conversations[index] = conversation
 
         if wasPinned {
             recompactPinnedOrders()
@@ -697,11 +697,11 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
             // If a local conversation already exists, merge server pin/order metadata.
             if let existingIdx = conversations.firstIndex(where: { $0.conversationId == session.id }) {
                 let isPinned = session.isPinned ?? false
-                var thread = conversations[existingIdx]
-                thread.isPinned = isPinned
-                thread.pinnedOrder = isPinned ? (session.displayOrder.map { Int($0) } ?? nextPinnedOrder) : nil
-                thread.displayOrder = session.displayOrder.map { Int($0) }
-                conversations[existingIdx] = thread
+                var conversation = conversations[existingIdx]
+                conversation.isPinned = isPinned
+                conversation.pinnedOrder = isPinned ? (session.displayOrder.map { Int($0) } ?? nextPinnedOrder) : nil
+                conversation.displayOrder = session.displayOrder.map { Int($0) }
+                conversations[existingIdx] = conversation
                 mergeAssistantAttention(from: session, intoConversationAt: existingIdx)
                 if isPinned && session.displayOrder == nil { nextPinnedOrder += 1 }
                 continue
@@ -900,28 +900,28 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
 
     // MARK: - Pinning & Ordering
 
-    func pinThread(id: UUID) {
+    func pinConversation(id: UUID) {
         guard let index = conversations.firstIndex(where: { $0.id == id }) else { return }
         let nextOrder = (conversations.compactMap(\.pinnedOrder).max() ?? -1) + 1
-        var thread = conversations[index]
-        thread.isPinned = true
-        thread.pinnedOrder = nextOrder
-        conversations[index] = thread
+        var conversation = conversations[index]
+        conversation.isPinned = true
+        conversation.pinnedOrder = nextOrder
+        conversations[index] = conversation
         sendReorderConversations()
     }
 
-    func unpinThread(id: UUID) {
+    func unpinConversation(id: UUID) {
         guard let index = conversations.firstIndex(where: { $0.id == id }) else { return }
-        var thread = conversations[index]
-        thread.isPinned = false
-        thread.pinnedOrder = nil
-        thread.displayOrder = nil
-        conversations[index] = thread
+        var conversation = conversations[index]
+        conversation.isPinned = false
+        conversation.pinnedOrder = nil
+        conversation.displayOrder = nil
+        conversations[index] = conversation
         recompactPinnedOrders()
         sendReorderConversations()
     }
 
-    func reorderPinnedThreads(from source: IndexSet, to destination: Int) {
+    func reorderPinnedConversations(from source: IndexSet, to destination: Int) {
         var pinned = visibleConversations.filter(\.isPinned)
         pinned.move(fromOffsets: source, toOffset: destination)
         var draft = conversations
@@ -936,16 +936,16 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
 
     func updateLastInteracted(conversationId: UUID) {
         guard let index = conversations.firstIndex(where: { $0.id == conversationId }) else { return }
-        var thread = conversations[index]
-        thread.lastInteractedAt = Date()
+        var conversation = conversations[index]
+        conversation.lastInteractedAt = Date()
         // Clear explicit displayOrder so the conversation reverts to recency-based sorting.
         // This ensures actively-used conversations float to the top naturally and new conversations
         // aren't permanently stuck below explicitly-ordered conversations.
-        let hadOrder = thread.displayOrder != nil
+        let hadOrder = conversation.displayOrder != nil
         if hadOrder {
-            thread.displayOrder = nil
+            conversation.displayOrder = nil
         }
-        conversations[index] = thread
+        conversations[index] = conversation
         if hadOrder {
             sendReorderConversations()
         }
@@ -965,19 +965,19 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
     func moveConversation(sourceId: UUID, targetId: UUID) -> Bool {
         guard let sourceIdx = conversations.firstIndex(where: { $0.id == sourceId }),
               let targetIdx = conversations.firstIndex(where: { $0.id == targetId }) else { return false }
-        let targetThread = conversations[targetIdx]
+        let targetConversation = conversations[targetIdx]
 
         // Work on a local copy to batch all mutations into a single
         // @Published write, preventing SwiftUI ForEach re-entrancy crashes.
         var draft = conversations
 
-        if targetThread.isPinned {
+        if targetConversation.isPinned {
             // Dropping onto a pinned conversation — pin the source if needed and reorder
             let sourceWasPinned = draft[sourceIdx].isPinned
             if !sourceWasPinned {
                 draft[sourceIdx].isPinned = true
             }
-            let targetOrder = targetThread.pinnedOrder ?? 0
+            let targetOrder = targetConversation.pinnedOrder ?? 0
             let sourceOrder = sourceWasPinned ? (draft[sourceIdx].pinnedOrder ?? Int.max) : Int.max
 
             // Direction-aware: if source is above target (lower order), insert after target
@@ -1017,8 +1017,8 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
             var reordered = unpinned.filter { $0.id != sourceId }
 
             let insertPos: Int
-            let sourceThread = draft[sourceIdx]
-            if targetThread.isScheduleConversation && !sourceThread.isScheduleConversation {
+            let sourceConversation = draft[sourceIdx]
+            if targetConversation.isScheduleConversation && !sourceConversation.isScheduleConversation {
                 // Cross-section drag: insert at section boundary
                 insertPos = reordered.firstIndex(where: { $0.isScheduleConversation }) ?? reordered.endIndex
             } else {
@@ -1043,8 +1043,8 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
                 }
             }
 
-            if let movedThread = unpinned.first(where: { $0.id == sourceId }) ?? [draft[sourceIdx]].first {
-                reordered.insert(movedThread, at: insertPos)
+            if let movedConversation = unpinned.first(where: { $0.id == sourceId }) ?? [draft[sourceIdx]].first {
+                reordered.insert(movedConversation, at: insertPos)
             }
 
             // Assign displayOrder to ALL conversations in the reordered list. When a
@@ -1309,17 +1309,17 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
            case .unread = pendingAttentionOverrides[daemonId] {
             pendingAttentionOverrides.removeValue(forKey: daemonId)
         }
-        var thread = conversations[idx]
-        thread.hasUnseenLatestAssistantMessage = false
-        if let daemonId = thread.conversationId {
+        var conversation = conversations[idx]
+        conversation.hasUnseenLatestAssistantMessage = false
+        if let daemonId = conversation.conversationId {
             pendingAttentionOverrides[daemonId] = .seen(
-                latestAssistantMessageAt: thread.latestAssistantMessageAt
+                latestAssistantMessageAt: conversation.latestAssistantMessageAt
             )
-            thread.lastSeenAssistantMessageAt = thread.latestAssistantMessageAt
-            conversations[idx] = thread
+            conversation.lastSeenAssistantMessageAt = conversation.latestAssistantMessageAt
+            conversations[idx] = conversation
             emitConversationSeenSignal(conversationId: daemonId)
         } else {
-            conversations[idx] = thread
+            conversations[idx] = conversation
         }
     }
 
@@ -1338,10 +1338,10 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
         pendingAttentionOverrides[daemonConversationId] = .unread(
             latestAssistantMessageAt: latestAssistantMessageAt
         )
-        var thread = conversations[idx]
-        thread.hasUnseenLatestAssistantMessage = true
-        thread.lastSeenAssistantMessageAt = nil
-        conversations[idx] = thread
+        var conversation = conversations[idx]
+        conversation.hasUnseenLatestAssistantMessage = true
+        conversation.lastSeenAssistantMessageAt = nil
+        conversations[idx] = conversation
         Task { @MainActor [weak self] in
             guard let self else { return }
             do {

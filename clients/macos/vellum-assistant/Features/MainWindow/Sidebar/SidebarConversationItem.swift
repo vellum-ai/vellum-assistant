@@ -50,9 +50,9 @@ struct SidebarConversationItem: View {
                     Button {
                         withAnimation(VAnimation.standard) {
                             if conversation.isPinned {
-                                conversationManager.unpinThread(id: conversation.id)
+                                conversationManager.unpinConversation(id: conversation.id)
                             } else {
-                                conversationManager.pinThread(id: conversation.id)
+                                conversationManager.pinConversation(id: conversation.id)
                             }
                         }
                     } label: {
@@ -166,9 +166,9 @@ struct SidebarConversationItem: View {
             Button {
                 withAnimation(VAnimation.standard) {
                     if conversation.isPinned {
-                        conversationManager.unpinThread(id: conversation.id)
+                        conversationManager.unpinConversation(id: conversation.id)
                     } else {
-                        conversationManager.pinThread(id: conversation.id)
+                        conversationManager.pinConversation(id: conversation.id)
                     }
                 }
             } label: {
