@@ -342,16 +342,21 @@ public struct ToolConfirmationBubble: View {
     // MARK: - Button Row
 
     /// Build the ordered list of top-level actions based on current confirmation state.
-    /// Temporary options come first (matching visual top-to-bottom, left-to-right order).
+    /// Order matches visual layout (top-to-bottom, left-to-right) so keyboard Tab
+    /// navigation follows the same sequence the user sees on screen.
     private var topLevelActions: [ToolConfirmationKeyboardModel.Action] {
         var actions: [ToolConfirmationKeyboardModel.Action] = []
+        // Top row (Recommended): allow10m, dontAllow — only when temporary options exist
         if hasAllow10m { actions.append(.allow10m) }
+        if hasTemporaryOptions { actions.append(.dontAllow) }
+        // Bottom row (More Options): allowOnce, alwaysAllow?, allowConversation?
         actions.append(.allowOnce)
-        actions.append(.dontAllow)
         if hasRuleOptions && confirmation.persistentDecisionsAllowed {
             actions.append(.alwaysAllow)
         }
         if hasAllowConversation { actions.append(.allowConversation) }
+        // When no temporary options, dontAllow is at the end of the single row
+        if !hasTemporaryOptions { actions.append(.dontAllow) }
         return actions
     }
 
