@@ -69,11 +69,13 @@ struct ImproveExperienceStepView: View {
                         .stroke(VColor.borderBase, lineWidth: 1)
                 )
 
-                // ToS consent toggle
-                HStack {
+                // ToS consent checkbox
+                HStack(alignment: .top, spacing: VSpacing.md) {
+                    Toggle("", isOn: $tosAccepted)
+                        .toggleStyle(.checkbox)
+                        .labelsHidden()
+                        .padding(.top, 2)
                     tosConsentText
-                    Spacer()
-                    VToggle(isOn: $tosAccepted)
                 }
                 .padding(VSpacing.lg)
                 .overlay(
