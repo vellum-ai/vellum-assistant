@@ -91,9 +91,11 @@ public struct VButton: View {
             return VColor.auxWhite
         case .contrast:
             return VColor.contentInset
-        case .ghost, .outlined, .dangerOutline:
+        case .ghost, .outlined:
             if isActive { return VColor.primaryActive }
             return VColor.primaryBase
+        case .dangerOutline:
+            return VColor.systemNegativeStrong
         }
     }
 }

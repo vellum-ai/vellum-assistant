@@ -48,6 +48,7 @@ struct MemoriesPanel: View {
     @StateObject private var store: MemoryItemsStore
     @State private var showCreateSheet = false
     @State private var selectedItem: MemoryItemPayload?
+    @State private var selectedKind: MemoryKind?
     @State private var statusFilter: MemoryStatusFilter = .active
     @State private var sortOption: MemorySortOption = .newest
     @State private var searchDebounceTask: Task<Void, Never>?
@@ -61,7 +62,11 @@ struct MemoriesPanel: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             filterBar
-            contentView
+            HStack(alignment: .top, spacing: VSpacing.xxl) {
+                kindSidebar
+                contentView
+            }
+            .padding(.top, VSpacing.lg)
         }
         .task { await store.loadItems() }
         .task(id: focusedMemoryId) {
@@ -110,7 +115,7 @@ struct MemoriesPanel: View {
                 selection: $statusFilter,
                 options: MemoryStatusFilter.allCases.map { ($0.rawValue, $0) }
             )
-            .frame(width: 110)
+            .frame(width: 130)
             .onChange(of: statusFilter) {
                 store.statusFilter = statusFilter.apiValue
                 Task { await store.loadItems() }
@@ -121,7 +126,7 @@ struct MemoriesPanel: View {
                 selection: $sortOption,
                 options: MemorySortOption.allCases.map { ($0.rawValue, $0) }
             )
-            .frame(width: 120)
+            .frame(width: 130)
             .onChange(of: sortOption) {
                 store.sortField = sortOption.sortField
                 store.sortOrder = sortOption.sortOrder
@@ -136,6 +141,48 @@ struct MemoriesPanel: View {
         .padding(.horizontal, VSpacing.md)
         .padding(.top, VSpacing.sm)
         .padding(.bottom, VSpacing.md)
+    }
+
+    // MARK: - Kind Sidebar
+
+    @ViewBuilder
+    private var kindSidebar: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            kindSidebarItem(label: "All", isSelected: selectedKind == nil) {
+                selectedKind = nil
+                store.kindFilter = nil
+                Task { await store.loadItems() }
+            }
+            .accessibilityAddTraits(selectedKind == nil ? .isSelected : [])
+
+            ForEach(MemoryKind.allCases) { kind in
+                kindSidebarItem(label: kind.label, isSelected: selectedKind == kind) {
+                    selectedKind = kind
+                    store.kindFilter = kind.rawValue
+                    Task { await store.loadItems() }
+                }
+                .accessibilityAddTraits(selectedKind == kind ? .isSelected : [])
+            }
+        }
+        .frame(width: 220)
+        .padding(.leading, VSpacing.md)
+    }
+
+    @ViewBuilder
+    private func kindSidebarItem(label: String, isSelected: Bool, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Text(label)
+                .font(VFont.body)
+                .foregroundColor(isSelected ? VColor.contentEmphasized : VColor.contentSecondary)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.vertical, VSpacing.sm)
+                .padding(.horizontal, VSpacing.sm)
+                .contentShape(Rectangle())
+                .background(isSelected ? VColor.surfaceActive : Color.clear)
+                .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("\(label) filter")
     }
 
     // MARK: - Content View
@@ -157,7 +204,7 @@ struct MemoriesPanel: View {
             )
         } else {
             ScrollView {
-                LazyVStack(spacing: VSpacing.xs) {
+                LazyVStack(spacing: VSpacing.sm) {
                     ForEach(store.items) { item in
                         MemoryItemRow(
                             item: item,
@@ -168,7 +215,7 @@ struct MemoriesPanel: View {
                         )
                     }
                 }
-                .padding(VSpacing.md)
+                .padding(.trailing, VSpacing.md)
                 .background { OverlayScrollerStyle() }
             }
             .scrollContentBackground(.hidden)

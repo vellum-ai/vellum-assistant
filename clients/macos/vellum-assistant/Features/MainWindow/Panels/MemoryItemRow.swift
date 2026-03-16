@@ -9,36 +9,39 @@ struct MemoryItemRow: View {
 
     var body: some View {
         Button(action: onSelect) {
-            VStack(alignment: .leading, spacing: VSpacing.xxs) {
-                HStack(spacing: VSpacing.sm) {
-                    Text(item.subject)
-                        .font(VFont.bodyBold)
-                        .foregroundColor(VColor.contentDefault)
+            HStack(alignment: .center, spacing: VSpacing.lg) {
+                VStack(alignment: .leading, spacing: VSpacing.xs) {
+                    HStack(spacing: VSpacing.sm) {
+                        Text(item.subject)
+                            .font(VFont.bodyBold)
+                            .foregroundColor(VColor.contentDefault)
 
-                    kindBadge
-
-                    Spacer()
-
-                    if item.isUserConfirmed {
-                        VIconView(.circleCheck, size: 12)
-                            .foregroundColor(VColor.systemPositiveStrong)
-                            .accessibilityLabel("User confirmed")
+                        kindTag
                     }
 
-                    Text(item.relativeLastSeen)
-                        .font(VFont.caption)
+                    Text(item.statement)
+                        .font(VFont.body)
                         .foregroundColor(VColor.contentTertiary)
+                        .lineLimit(1)
+                        .multilineTextAlignment(.leading)
                 }
 
-                Text(item.statement)
-                    .font(VFont.body)
-                    .foregroundColor(VColor.contentSecondary)
-                    .lineLimit(2)
-                    .multilineTextAlignment(.leading)
+                Spacer()
+
+                Text(item.relativeLastSeen)
+                    .font(VFont.caption)
+                    .foregroundColor(VColor.contentTertiary)
+
+                VButton(label: "Delete", iconOnly: VIcon.trash.rawValue, style: .dangerOutline, action: onDelete)
+                    .accessibilityLabel("Delete memory")
             }
-            .padding(VSpacing.md)
+            .padding(VSpacing.lg)
             .background(isHovered ? VColor.surfaceActive : Color.clear)
-            .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
+            .overlay(
+                RoundedRectangle(cornerRadius: VRadius.xl)
+                    .stroke(VColor.borderDisabled, lineWidth: 2)
+            )
+            .clipShape(RoundedRectangle(cornerRadius: VRadius.xl))
         }
         .buttonStyle(.plain)
         .onHover { isHovered = $0 }
@@ -48,14 +51,21 @@ struct MemoryItemRow: View {
         .accessibilityElement(children: .combine)
     }
 
-    // MARK: - Kind Badge
+    // MARK: - Kind Tag
 
     @ViewBuilder
-    private var kindBadge: some View {
+    private var kindTag: some View {
         let memoryKind = MemoryKind(rawValue: item.kind)
         let color = memoryKind?.color ?? VColor.contentTertiary
         let label = memoryKind?.label ?? item.kind.capitalized
 
-        VBadge(style: .label(label), color: color)
+        Text(label)
+            .font(VFont.caption)
+            .foregroundColor(VColor.contentEmphasized)
+            .padding(.horizontal, VSpacing.sm)
+            .padding(.vertical, VSpacing.xs)
+            .background(color.opacity(0.2))
+            .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
+            .accessibilityLabel(label)
     }
 }
