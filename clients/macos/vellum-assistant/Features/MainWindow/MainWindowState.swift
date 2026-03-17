@@ -263,8 +263,8 @@ public final class MainWindowState: ObservableObject {
     ///     by the user (via the X button), as opposed to a primary action.
     /// - Returns: The unique ID of the displayed toast, useful for targeted dismissal.
     @discardableResult
-    func showToast(message: String, style: ToastInfo.Style, primaryAction: VToastAction? = nil, onDismiss: (() -> Void)? = nil) -> UUID {
-        let toast = ToastInfo(message: message, style: style, primaryAction: primaryAction, onDismiss: onDismiss)
+    func showToast(message: String, style: ToastInfo.Style, copyableDetail: String? = nil, primaryAction: VToastAction? = nil, onDismiss: (() -> Void)? = nil) -> UUID {
+        let toast = ToastInfo(message: message, style: style, copyableDetail: copyableDetail, primaryAction: primaryAction, onDismiss: onDismiss)
         toastInfo = toast
         return toast.id
     }
@@ -304,14 +304,16 @@ struct ToastInfo {
     let id: UUID
     let message: String
     let style: Style
+    let copyableDetail: String?
     let primaryAction: VToastAction?
     /// Called when the toast is dismissed via the X button (not via primary action).
     let onDismiss: (() -> Void)?
 
-    init(message: String, style: Style, primaryAction: VToastAction? = nil, onDismiss: (() -> Void)? = nil) {
+    init(message: String, style: Style, copyableDetail: String? = nil, primaryAction: VToastAction? = nil, onDismiss: (() -> Void)? = nil) {
         self.id = UUID()
         self.message = message
         self.style = style
+        self.copyableDetail = copyableDetail
         self.primaryAction = primaryAction
         self.onDismiss = onDismiss
     }

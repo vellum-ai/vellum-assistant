@@ -690,6 +690,7 @@ struct MainWindowView: View {
                 VToast(
                     message: toast.message,
                     style: toast.style == .success ? .success : toast.style == .warning ? .warning : .error,
+                    copyableDetail: toast.copyableDetail,
                     primaryAction: toast.primaryAction,
                     onDismiss: { windowState.dismissToast() }
                 )
