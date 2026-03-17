@@ -148,7 +148,9 @@ public final class MacOSClientFeatureFlagManager: @unchecked Sendable {
     }
 
     private static func normalize(_ name: String) -> String {
-        name.lowercased().replacingOccurrences(of: "_", with: "")
+        name.lowercased()
+            .replacingOccurrences(of: "_", with: "")
+            .replacingOccurrences(of: "-", with: "")
     }
 
     private static func parseBool(_ value: String) -> Bool {
