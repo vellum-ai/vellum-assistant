@@ -15,8 +15,11 @@ struct UsageDashboardView: View {
                 .navigationTitle("Usage & Cost")
                 .navigationBarTitleDisplayMode(.inline)
                 .task {
+                    await store.refresh()
+                }
+                .onChange(of: store.needsRefresh) {
                     if store.needsRefresh {
-                        await store.refresh()
+                        Task { await store.refresh() }
                     }
                 }
         }
