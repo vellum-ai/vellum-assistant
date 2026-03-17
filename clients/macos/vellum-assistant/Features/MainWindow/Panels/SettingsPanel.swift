@@ -116,7 +116,7 @@ struct SettingsPanel: View {
                 settingsNav
                     .frame(width: 200)
 
-                if selectedTab == .contacts || (selectedTab == .archivedConversations && conversationManager.archivedConversations.isEmpty) {
+                if selectedTab == .contacts || selectedTab == .automation || (selectedTab == .archivedConversations && conversationManager.archivedConversations.isEmpty) {
                     selectedTabContent
                         .padding(.trailing, VSpacing.xl)
                         .padding(.bottom, VSpacing.xl)
