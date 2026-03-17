@@ -133,7 +133,11 @@ if [ "$INTEL_BUILD" = true ]; then
 else
   echo "Building staging release (arm64)..."
 fi
-"$MACOS_BUILD_DIR/build.sh" release
+if [ "$INTEL_BUILD" = true ]; then
+  "$MACOS_BUILD_DIR/build.sh" release --universal
+else
+  "$MACOS_BUILD_DIR/build.sh" release
+fi
 
 # ---------------------------------------------------------------------------
 # 2. Package the .app into a DMG
