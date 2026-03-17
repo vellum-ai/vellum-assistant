@@ -62,7 +62,8 @@ struct FileContentView: View {
                     VSegmentedControl(
                         items: modes.map { (label: viewModeLabel($0), tag: $0) },
                         selection: $viewMode,
-                        style: .pill
+                        style: .pill,
+                        size: .compact
                     )
                     .fixedSize()
                 }
