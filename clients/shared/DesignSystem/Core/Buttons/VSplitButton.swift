@@ -33,8 +33,8 @@ public struct VSplitButton<MenuContent: View>: View {
         self.menuContent = menuContent
     }
 
-    /// Matches the height logic in VButton's ButtonLayoutModifier.
-    private var zoneHeight: CGFloat { size == .regular ? VSpacing.xxl : VSpacing.xl }
+    /// Matches VButton's ButtonLayoutModifier: regular=32, compact/pill=24.
+    private var zoneHeight: CGFloat { size == .regular ? 32 : 24 }
     /// Dropdown zone is square (width == height).
     private var dropdownWidth: CGFloat { zoneHeight }
 
@@ -87,6 +87,7 @@ public struct VSplitButton<MenuContent: View>: View {
                 }
                 .menuStyle(.borderlessButton)
                 .menuIndicator(.hidden)
+                .accessibilityLabel("\(label) options")
             }
             .frame(width: dropdownWidth, height: zoneHeight)
             .clipped()
