@@ -173,12 +173,6 @@ extension AppDelegate {
             self?.deliverNotificationIntent(msg)
         }
 
-        // Handle open_bundle_response from the daemon
-        daemonClient.onOpenBundleResponse = { [weak self] response in
-            guard let self else { return }
-            self.handleOpenBundleResponse(response)
-        }
-
         // Refresh skills cache whenever skill state changes through any path
         daemonClient.onSkillStateChanged = { [weak self] _ in
             self?.refreshSkillsCache()

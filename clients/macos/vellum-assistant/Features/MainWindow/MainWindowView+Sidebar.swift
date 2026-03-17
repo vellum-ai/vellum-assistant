@@ -582,6 +582,6 @@ extension MainWindowView {
             previewBase64: app.previewBase64,
             appType: app.appType
         )
-        try? daemonClient.sendAppOpen(appId: app.id)
+        Task { await AppsClient().openApp(id: app.id) }
     }
 }

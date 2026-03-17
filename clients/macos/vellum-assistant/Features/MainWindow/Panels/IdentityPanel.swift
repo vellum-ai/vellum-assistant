@@ -215,19 +215,9 @@ struct IdentityPanel: View {
 
     private func fetchSkills() {
         Task {
-            let stream = daemonClient.subscribe()
-
-            do {
-                try daemonClient.send(SkillsListRequestMessage())
-            } catch {
-                return
-            }
-
-            for await message in stream {
-                if case .skillsListResponse(let response) = message {
-                    skills = response.skills.filter { $0.state == "enabled" }
-                    return
-                }
+            let response = await SkillsClient().fetchSkillsList()
+            if let response {
+                skills = response.skills.filter { $0.state == "enabled" }
             }
         }
     }

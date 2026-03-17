@@ -490,19 +490,13 @@ struct GeneratedPanel: View {
 
             async let localResult: [AppItem] = {
                 do {
-                    return try await AppsLoader.load(using: daemonClient)
+                    return try await AppsLoader.load()
                 } catch {
                     return []
                 }
             }()
 
-            async let sharedResult: [SharedAppItem] = {
-                do {
-                    return try await SharedAppsLoader.load(using: daemonClient)
-                } catch {
-                    return []
-                }
-            }()
+            async let sharedResult: [SharedAppItem] = SharedAppsLoader.load()
 
             let (fetchedLocal, fetchedShared) = await (localResult, sharedResult)
             guard fetchAppsGeneration == generation else { return }
@@ -521,34 +515,11 @@ struct GeneratedPanel: View {
         // Skip if already cached (including empty-string sentinel) or in-flight
         guard previewCache[appId] == nil, previewTasks[appId] == nil else { return }
 
-        let stream = daemonClient.subscribe()
-        do {
-            try daemonClient.sendAppPreview(appId: appId)
-        } catch { return }
-
         let task = Task { @MainActor in
-            let timeout = Task { try await Task.sleep(nanoseconds: 10_000_000_000) }
-            defer {
-                timeout.cancel()
-                self.previewTasks.removeValue(forKey: appId)
-            }
-
-            for await message in stream {
-                if Task.isCancelled { break }
-                if case .appPreviewResponse(let response) = message,
-                   response.appId == appId {
-                    self.previewCache[appId] = response.preview ?? ""
-                    return
-                }
-            }
+            let response = await AppsClient().fetchAppPreview(appId: appId)
+            self.previewCache[appId] = response?.preview ?? ""
+            self.previewTasks.removeValue(forKey: appId)
         }
-
-        // Cancel after timeout
-        Task {
-            try? await Task.sleep(nanoseconds: 10_000_000_000)
-            if !task.isCancelled { task.cancel() }
-        }
-
         previewTasks[appId] = task
     }
 
@@ -606,7 +577,7 @@ struct GeneratedPanel: View {
             // When onOpenApp is set, the daemon's response will be intercepted
             // by SurfaceManager and routed to the workspace (see PR 5).
             onRecordAppOpen?(localId, item.name, item.icon, item.appType)
-            try? daemonClient.sendAppOpen(appId: localId)
+            Task { await AppsClient().openApp(id: localId) }
         } else if let uuid = item.sharedUUID {
             // Shared apps: construct surface from unpacked files on disk
             // Sanitize to prevent XSS — name comes from external bundle metadata
@@ -648,22 +619,7 @@ struct GeneratedPanel: View {
         isBundling = true
 
         Task { @MainActor in
-            let stream = daemonClient.subscribe()
-
-            do {
-                try daemonClient.sendBundleApp(appId: appId)
-            } catch {
-                isBundling = false
-                sharingAppId = nil
-                return
-            }
-
-            let response = await stream.firstMatch { message -> BundleAppResponseMessage? in
-                if case .bundleAppResponse(let response) = message {
-                    return response
-                }
-                return nil
-            }
+            let response = await AppsClient().bundleApp(appId: appId)
 
             if let response {
                 let url = MainWindowView.cleanBundleURL(bundlePath: response.bundlePath, appName: response.manifest.name)
@@ -674,7 +630,6 @@ struct GeneratedPanel: View {
                 self.isBundling = false
                 self.showShareSheet = true
             } else {
-                // Timeout or stream ended — reset bundling state to avoid stuck UI
                 self.isBundling = false
                 self.sharingAppId = nil
             }
@@ -699,21 +654,8 @@ struct GeneratedPanel: View {
         guard let uuid = item.sharedUUID else { return }
 
         Task { @MainActor in
-            let stream = daemonClient.subscribe()
-
-            do {
-                try daemonClient.sendSharedAppDelete(uuid: uuid)
-            } catch {
-                return
-            }
-
-            let success = await stream.firstMatch { message -> Bool? in
-                if case .sharedAppDeleteResponse(let response) = message {
-                    return response.success
-                }
-                return nil
-            }
-            if success == true {
+            let response = await AppsClient().deleteSharedApp(uuid: uuid)
+            if response?.success == true {
                 self.sharedApps.removeAll { $0.uuid == uuid }
                 self.buildDisplayItems()
             }
@@ -726,21 +668,8 @@ struct GeneratedPanel: View {
         guard let uuid = item.sharedUUID else { return }
 
         Task { @MainActor in
-            let stream = daemonClient.subscribe()
-
-            do {
-                try daemonClient.sendForkSharedApp(uuid: uuid)
-            } catch {
-                return
-            }
-
-            let success = await stream.firstMatch { message -> Bool? in
-                if case .forkSharedAppResponse(let response) = message {
-                    return response.success
-                }
-                return nil
-            }
-            if success == true {
+            let response = await AppsClient().forkSharedApp(uuid: uuid)
+            if response?.success == true {
                 self.fetchApps()
             }
         }
