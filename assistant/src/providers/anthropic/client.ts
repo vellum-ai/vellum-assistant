@@ -770,8 +770,8 @@ export class AnthropicProvider implements Provider {
       for (let i = 0; i < params.messages.length; i++) {
         if (params.messages[i].role === "user") userIndices.push(i);
       }
-      // Prefer the second-to-last user turn; fall back to the last if only one exists.
-      for (const idx of userIndices.length >= 2 ? userIndices.slice(-2, -1) : userIndices.slice(-1)) {
+      // slice(-2, -1) gives the second-to-last; empty array if < 2 user turns.
+      for (const idx of userIndices.slice(-2, -1)) {
         const content = params.messages[idx].content;
         if (Array.isArray(content) && content.length > 0) {
           (
