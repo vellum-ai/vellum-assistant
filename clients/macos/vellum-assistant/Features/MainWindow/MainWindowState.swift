@@ -63,6 +63,7 @@ public final class MainWindowState: ObservableObject {
     @Published var pendingMemoryId: String?
     @Published var activeDynamicSurface: UiSurfaceShowMessage?
     @Published var activeDynamicParsedSurface: Surface?
+    @Published var activeDynamicUserAppsDirectory: URL?
     @Published var hasAPIKey: Bool
     @Published var workspaceComposerExpanded = false
     @Published var layoutConfig: LayoutConfig

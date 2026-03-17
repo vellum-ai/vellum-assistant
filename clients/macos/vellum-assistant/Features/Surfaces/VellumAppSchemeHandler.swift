@@ -1,5 +1,6 @@
 import Foundation
 @preconcurrency import WebKit
+import VellumAssistantShared
 import os
 
 private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "VellumAppScheme")
@@ -13,15 +14,24 @@ final class VellumAppSchemeHandler: NSObject, WKURLSchemeHandler {
 
     /// Base directory for shared app content.
     private let baseDirectory: URL
+    private let userAppsDirectory: URL
 
     /// Base directory for user-created app content.
     static var userAppsDirectory: URL {
-        FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent(".vellum/workspace/data/apps")
+        resolveUserAppsDirectory()
     }
 
-    init(baseDirectory: URL = BundleSandbox.sharedAppsDirectory) {
+    static func resolveUserAppsDirectory(environment: [String: String]? = nil) -> URL {
+        URL(fileURLWithPath: resolveVellumDir(environment: environment), isDirectory: true)
+            .appendingPathComponent("workspace/data/apps", isDirectory: true)
+    }
+
+    init(
+        baseDirectory: URL = BundleSandbox.sharedAppsDirectory,
+        userAppsDirectory: URL = VellumAppSchemeHandler.userAppsDirectory
+    ) {
         self.baseDirectory = baseDirectory
+        self.userAppsDirectory = userAppsDirectory
     }
     func webView(_ webView: WKWebView, start urlSchemeTask: WKURLSchemeTask) {
         guard let url = urlSchemeTask.request.url else {
@@ -40,7 +50,7 @@ final class VellumAppSchemeHandler: NSObject, WKURLSchemeHandler {
 
         // Resolve file path — try user apps directory first, then shared apps.
         let candidateDirs = [
-            Self.userAppsDirectory.appendingPathComponent(uuid),
+            userAppsDirectory.appendingPathComponent(uuid),
             baseDirectory.appendingPathComponent(uuid)
         ]
 

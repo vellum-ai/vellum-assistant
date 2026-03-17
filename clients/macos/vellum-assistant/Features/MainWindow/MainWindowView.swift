@@ -807,6 +807,12 @@ struct MainWindowView: View {
                 // Full message from daemon live event (AppDelegate path)
                 windowState.activeDynamicSurface = msg
                 windowState.activeDynamicParsedSurface = Surface.from(msg)
+                if let path = notification.userInfo?["userAppsDirectoryPath"] as? String, !path.isEmpty {
+                    windowState.activeDynamicUserAppsDirectory = URL(fileURLWithPath: path, isDirectory: true)
+                } else {
+                    let env = daemonClient.config.instanceDir.map { ["BASE_DATA_DIR": $0] }
+                    windowState.activeDynamicUserAppsDirectory = VellumAppSchemeHandler.resolveUserAppsDirectory(environment: env)
+                }
                 // Determine the app ID from the surface if available
                 if let surface = windowState.activeDynamicParsedSurface,
                    case .dynamicPage(let dpData) = surface.data,
@@ -825,6 +831,8 @@ struct MainWindowView: View {
                 // (e.g. "app-open-<uuid>") that doesn't match any real app.
                 let reopenId = ref.appId ?? ref.surfaceId
                 windowState.selection = .app(reopenId)
+                let env = daemonClient.config.instanceDir.map { ["BASE_DATA_DIR": $0] }
+                windowState.activeDynamicUserAppsDirectory = VellumAppSchemeHandler.resolveUserAppsDirectory(environment: env)
                 try? daemonClient.sendAppOpen(appId: reopenId)
             }
         }

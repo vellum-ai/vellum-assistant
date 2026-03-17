@@ -52,9 +52,15 @@ extension NSApplication {
 
 extension AppDelegate {
 
+    private func currentUserAppsDirectory() -> URL {
+        let env = daemonClient.config.instanceDir.map { ["BASE_DATA_DIR": $0] }
+        return VellumAppSchemeHandler.resolveUserAppsDirectory(environment: env)
+    }
+
     func setupSurfaceManager() {
         daemonClient.onSurfaceShow = { [weak self] msg in
             guard let self else { return }
+            self.surfaceManager.userAppsDirectory = self.currentUserAppsDirectory()
             self.surfaceManager.showSurface(msg)
         }
         daemonClient.onSurfaceUpdate = { [weak self] msg in
@@ -135,7 +141,10 @@ extension AppDelegate {
             NotificationCenter.default.post(
                 name: .openDynamicWorkspace,
                 object: nil,
-                userInfo: ["surfaceMessage": msg]
+                userInfo: [
+                    "surfaceMessage": msg,
+                    "userAppsDirectoryPath": self.currentUserAppsDirectory().path
+                ]
             )
         }
     }

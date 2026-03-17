@@ -92,6 +92,7 @@ struct DynamicPageSurfaceView: NSViewRepresentable {
     let data: DynamicPageSurfaceData
     let onAction: (String, Any?) -> Void
     let appId: String?
+    let userAppsDirectory: URL?
     let onDataRequest: ((String, String, String?, [String: Any]?) -> Void)?
     let onCoordinatorReady: ((Coordinator) -> Void)?
     /// Called when the user navigates to a different page in a multi-page app.
@@ -112,6 +113,7 @@ struct DynamicPageSurfaceView: NSViewRepresentable {
         data: DynamicPageSurfaceData,
         onAction: @escaping (String, Any?) -> Void,
         appId: String? = nil,
+        userAppsDirectory: URL? = nil,
         onDataRequest: ((String, String, String?, [String: Any]?) -> Void)? = nil,
         onCoordinatorReady: ((Coordinator) -> Void)? = nil,
         onPageChanged: ((String) -> Void)? = nil,
@@ -126,6 +128,7 @@ struct DynamicPageSurfaceView: NSViewRepresentable {
         self.data = data
         self.onAction = onAction
         self.appId = appId
+        self.userAppsDirectory = userAppsDirectory
         self.onDataRequest = onDataRequest
         self.onCoordinatorReady = onCoordinatorReady
         self.onPageChanged = onPageChanged
@@ -314,7 +317,12 @@ struct DynamicPageSurfaceView: NSViewRepresentable {
         contentController.add(context.coordinator, name: "vellumBridge")
 
         let configuration = WKWebViewConfiguration()
-        configuration.setURLSchemeHandler(VellumAppSchemeHandler(), forURLScheme: VellumAppSchemeHandler.scheme)
+        configuration.setURLSchemeHandler(
+            VellumAppSchemeHandler(
+                userAppsDirectory: userAppsDirectory ?? VellumAppSchemeHandler.userAppsDirectory
+            ),
+            forURLScheme: VellumAppSchemeHandler.scheme
+        )
         configuration.userContentController = contentController
 
         #if DEBUG
@@ -430,7 +438,8 @@ struct DynamicPageSurfaceView: NSViewRepresentable {
         if let appId = appId {
             // App-backed surface — serve from disk via scheme handler.
             // Multifile apps have a compiled dist/ directory; prefer it over root index.html.
-            let appDir = VellumAppSchemeHandler.userAppsDirectory.appendingPathComponent(appId)
+            let appsDirectory = userAppsDirectory ?? VellumAppSchemeHandler.userAppsDirectory
+            let appDir = appsDirectory.appendingPathComponent(appId)
             let distIndex = appDir.appendingPathComponent("dist/index.html")
             let hasSrcDir = FileManager.default.fileExists(atPath: appDir.appendingPathComponent("src").path)
 

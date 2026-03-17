@@ -13,6 +13,7 @@ final class SurfaceViewModel: ObservableObject {
     let onAction: (String, [String: Any]?) -> Void
     let onDismiss: () -> Void
     let appId: String?
+    let userAppsDirectory: URL?
     let onDataRequest: ((String, String, String?, [String: Any]?) -> Void)?
     let onCoordinatorReady: ((DynamicPageSurfaceView.Coordinator) -> Void)?
     let onLinkOpen: ((String, [String: Any]?) -> Void)?
@@ -23,6 +24,7 @@ final class SurfaceViewModel: ObservableObject {
         onAction: @escaping (String, [String: Any]?) -> Void,
         onDismiss: @escaping () -> Void,
         appId: String? = nil,
+        userAppsDirectory: URL? = nil,
         onDataRequest: ((String, String, String?, [String: Any]?) -> Void)? = nil,
         onCoordinatorReady: ((DynamicPageSurfaceView.Coordinator) -> Void)? = nil,
         onLinkOpen: ((String, [String: Any]?) -> Void)? = nil,
@@ -32,6 +34,7 @@ final class SurfaceViewModel: ObservableObject {
         self.onAction = onAction
         self.onDismiss = onDismiss
         self.appId = appId
+        self.userAppsDirectory = userAppsDirectory
         self.onDataRequest = onDataRequest
         self.onCoordinatorReady = onCoordinatorReady
         self.onLinkOpen = onLinkOpen
@@ -57,6 +60,12 @@ final class SurfaceManager: ObservableObject {
 
     /// Tracks appId per surface for persistent app RPC routing.
     var surfaceAppIds: [String: String] = [:]
+
+    /// Tracks the user apps directory captured when a surface was shown.
+    var surfaceUserAppsDirectories: [String: URL] = [:]
+
+    /// Current user apps directory for newly shown surfaces.
+    var userAppsDirectory: URL?
 
     /// Tracks Coordinator per surface for routing data responses back to WebView.
     var surfaceCoordinators: [String: DynamicPageSurfaceView.Coordinator] = [:]
@@ -121,6 +130,9 @@ final class SurfaceManager: ObservableObject {
             let keys = dict.keys.joined(separator: ", ")
             log.warning("dynamic_page surface has no appId — data bridge will not be injected. Keys in data: [\(keys)]")
         }
+        if let userAppsDirectory {
+            surfaceUserAppsDirectories[surface.id] = userAppsDirectory
+        }
 
         // Route dynamic pages to workspace if callback is set.
         // Registration above ensures update/dismiss messages still work.
@@ -153,6 +165,7 @@ final class SurfaceManager: ObservableObject {
                 self.dismissSurfaceById(surface.id)
             },
             appId: appId,
+            userAppsDirectory: surfaceUserAppsDirectories[surface.id],
             onDataRequest: appId != nil ? { [weak self] callId, method, recordId, data in
                 guard let appId = self?.surfaceAppIds[surface.id] else { return }
                 self?.onDataRequest?(surface.id, callId, method, appId, recordId, data)
@@ -342,6 +355,7 @@ final class SurfaceManager: ObservableObject {
 
         surfaceOrder.removeAll()
         surfaceAppIds.removeAll()
+        surfaceUserAppsDirectories.removeAll()
         surfaceCoordinators.removeAll()
         respondedSurfaces.removeAll()
 
@@ -365,6 +379,7 @@ final class SurfaceManager: ObservableObject {
         viewModels.removeValue(forKey: surfaceId)
         activeSurfaces.removeValue(forKey: surfaceId)
         surfaceAppIds.removeValue(forKey: surfaceId)
+        surfaceUserAppsDirectories.removeValue(forKey: surfaceId)
         surfaceCoordinators.removeValue(forKey: surfaceId)
         respondedSurfaces.remove(surfaceId)
         surfaceOrder.removeAll { $0 == surfaceId }
