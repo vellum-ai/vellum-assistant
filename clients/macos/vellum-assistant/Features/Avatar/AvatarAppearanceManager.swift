@@ -1,5 +1,4 @@
 import AppKit
-import CoreServices
 import Foundation
 import VellumAssistantShared
 import os
@@ -525,9 +524,18 @@ final class AvatarAppearanceManager {
             return
         }
 
-        // Tell LaunchServices to re-read the bundle so the Dock picks up
-        // the new display name.
-        LSRegisterURL(bundleURL as CFURL, true)
+        // Force LaunchServices to re-read the bundle so the Dock picks up
+        // the new display name. The deprecated LSRegisterURL API is
+        // unreliable on modern macOS; use the lsregister CLI tool instead.
+        let lsregister = "/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister"
+        if FileManager.default.fileExists(atPath: lsregister) {
+            let process = Process()
+            process.executableURL = URL(fileURLWithPath: lsregister)
+            process.arguments = ["-f", bundleURL.path]
+            process.standardOutput = FileHandle.nullDevice
+            process.standardError = FileHandle.nullDevice
+            try? process.run()
+        }
     }
 
     // MARK: - Image Utilities
