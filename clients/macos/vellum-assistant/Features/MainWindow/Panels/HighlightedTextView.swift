@@ -33,9 +33,12 @@ struct HighlightedTextView: View {
                     editableView
                 } else {
                     readOnlyView
-                        .contentShape(Rectangle())
-                        .onTapGesture {
-                            isActivelyEditing = true
+                        .overlay {
+                            Color.clear
+                                .contentShape(Rectangle())
+                                .onTapGesture {
+                                    isActivelyEditing = true
+                                }
                         }
                 }
             } else {
