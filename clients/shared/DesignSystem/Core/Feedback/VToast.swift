@@ -20,19 +20,24 @@ public struct VToast: View {
 
     public let message: String
     public var style: Style = .info
+    public var copyableDetail: String?
     public var primaryAction: VToastAction?
     public var secondaryAction: VToastAction?
     public var onDismiss: (() -> Void)?
 
+    @State private var showCopied = false
+
     public init(
         message: String,
         style: Style = .info,
+        copyableDetail: String? = nil,
         primaryAction: VToastAction? = nil,
         secondaryAction: VToastAction? = nil,
         onDismiss: (() -> Void)? = nil
     ) {
         self.message = message
         self.style = style
+        self.copyableDetail = copyableDetail
         self.primaryAction = primaryAction
         self.secondaryAction = secondaryAction
         self.onDismiss = onDismiss
@@ -49,8 +54,30 @@ public struct VToast: View {
 
             Spacer(minLength: 0)
 
-            if primaryAction != nil || secondaryAction != nil || onDismiss != nil {
+            if copyableDetail != nil || primaryAction != nil || secondaryAction != nil || onDismiss != nil {
                 HStack(spacing: VSpacing.sm) {
+                    if let detail = copyableDetail {
+                        Button {
+                            #if os(macOS)
+                            NSPasteboard.general.clearContents()
+                            NSPasteboard.general.setString(detail, forType: .string)
+                            #elseif os(iOS)
+                            UIPasteboard.general.string = detail
+                            #endif
+                            showCopied = true
+                            Task {
+                                try? await Task.sleep(nanoseconds: 1_500_000_000)
+                                showCopied = false
+                            }
+                        } label: {
+                            VIconView(showCopied ? .check : .copy, size: 12)
+                                .foregroundColor(showCopied ? VColor.systemPositiveStrong : VColor.contentSecondary)
+                                .frame(width: 24, height: 24)
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("Copy error details")
+                        .help("Copy error details")
+                    }
                     if let secondary = secondaryAction {
                         VButton(label: secondary.label, style: .outlined, action: secondary.action)
                     }
