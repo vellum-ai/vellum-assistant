@@ -177,7 +177,8 @@ export function buildSystemPrompt(options?: BuildSystemPromptOptions): string {
   // tool routing lives in tool descriptions.
   // External Communications Identity removed — guidance lives in messaging
   // and phone-calls skill SKILL.md files.
-  dynamicParts.push(buildIntegrationSection());
+  const integrationSection = buildIntegrationSection();
+  if (integrationSection) dynamicParts.push(integrationSection);
 
   const dynamicWithSkills = appendSkillsCatalog(dynamicParts.join("\n\n"));
 
