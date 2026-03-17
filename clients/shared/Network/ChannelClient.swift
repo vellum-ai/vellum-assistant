@@ -70,7 +70,7 @@ public struct ChannelClient: ChannelClientProtocol {
     public func fetchChannelReadiness() async -> [String: ChannelReadinessInfo] {
         do {
             let response = try await GatewayHTTPClient.get(
-                path: "channels/readiness", timeout: 10
+                path: "assistants/{assistantId}/channels/readiness", timeout: 10
             )
             guard response.isSuccess else {
                 log.error("fetchChannelReadiness failed (HTTP \(response.statusCode))")

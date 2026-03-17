@@ -194,8 +194,7 @@ public enum GatewayHTTPClient {
     /// - Throws: `ClientError` if the request cannot be constructed, or network errors from `URLSession`.
     public static func rawGet(absolutePath: String, timeout: TimeInterval = 30) async throws -> Response {
         let connection = try resolveConnection()
-        let trailingSlash = absolutePath.hasSuffix("/") ? "" : "/"
-        guard let url = URL(string: "\(connection.baseURL)\(absolutePath)\(trailingSlash)") else {
+        guard let url = URL(string: "\(connection.baseURL)\(absolutePath)") else {
             throw ClientError.invalidURL
         }
         var request = URLRequest(url: url)

@@ -17,7 +17,7 @@ public struct IdentityClient: IdentityClientProtocol {
     public func fetchRemoteIdentity() async -> RemoteIdentityInfo? {
         do {
             let response = try await GatewayHTTPClient.get(
-                path: "identity", timeout: 10
+                path: "assistants/{assistantId}/identity", timeout: 10
             )
             guard response.isSuccess else {
                 log.error("fetchRemoteIdentity failed (HTTP \(response.statusCode))")

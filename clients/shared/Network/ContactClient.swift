@@ -142,7 +142,7 @@ public struct ContactClient: ContactClientProtocol {
 
     public func triggerInviteCall(inviteId: String) async throws -> Bool {
         let response = try await GatewayHTTPClient.post(
-            path: "contacts/invites/\(inviteId)/call", json: [:], timeout: 10
+            path: "assistants/{assistantId}/contacts/invites/\(inviteId)/call", json: [:], timeout: 10
         )
         guard response.isSuccess else {
             log.error("triggerInviteCall failed (HTTP \(response.statusCode))")
