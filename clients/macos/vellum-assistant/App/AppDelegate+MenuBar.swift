@@ -238,7 +238,7 @@ extension AppDelegate {
         updateItem.image = VIcon.circleArrowDown.nsImage
         menu.addItem(updateItem)
 
-        if MacOSClientFeatureFlagManager.shared.isEnabled("developer-menu-items") {
+        if MacOSClientFeatureFlagManager.shared.isEnabled("developer_menu_items_enabled") {
             menu.addItem(NSMenuItem.separator())
 
             let onboardingItem = NSMenuItem(title: "Replay Onboarding", action: #selector(replayOnboarding), keyEquivalent: "")
