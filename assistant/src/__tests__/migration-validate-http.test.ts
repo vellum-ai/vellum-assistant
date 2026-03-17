@@ -306,26 +306,27 @@ describe("validateVBundle", () => {
     expect(manifestError).toBeDefined();
   });
 
-  test("missing data/db/assistant.db returns MISSING_ENTRY error", () => {
-    const manifestData = new TextEncoder().encode(
-      JSON.stringify({
-        schema_version: "1.0",
-        created_at: new Date().toISOString(),
-        files: [],
-        manifest_sha256: "placeholder",
-      }),
-    );
+  test("bundle with only manifest (no data files) is structurally valid", () => {
+    // After the workspace walk refactor, only manifest.json is required.
+    // But the manifest checksum must match for full validity.
+    const manifestWithoutChecksum = {
+      schema_version: "1.0",
+      created_at: new Date().toISOString(),
+      files: [],
+    };
+    const manifestSha256 = sha256Hex(canonicalizeJson(manifestWithoutChecksum));
+    const manifest = {
+      ...manifestWithoutChecksum,
+      manifest_sha256: manifestSha256,
+    };
+    const manifestData = new TextEncoder().encode(JSON.stringify(manifest));
     const tar = createTarArchive([
       { name: "manifest.json", data: manifestData },
     ]);
     const vbundle = gzipSync(tar);
     const result = validateVBundle(vbundle);
 
-    expect(result.is_valid).toBe(false);
-    const dbError = result.errors.find(
-      (e) => e.code === "MISSING_ENTRY" && e.path === "data/db/assistant.db",
-    );
-    expect(dbError).toBeDefined();
+    expect(result.is_valid).toBe(true);
   });
 
   test("invalid manifest JSON returns INVALID_MANIFEST_JSON error", () => {

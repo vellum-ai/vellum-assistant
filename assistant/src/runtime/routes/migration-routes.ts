@@ -20,11 +20,8 @@ import { clearCache as clearTrustCache } from "../../permissions/trust-store.js"
 import { getLogger } from "../../util/logger.js";
 import {
   getDbPath,
-  getHooksDir,
   getRootDir,
-  getWorkspaceConfigPath,
   getWorkspaceDir,
-  getWorkspaceSkillsDir,
 } from "../../util/platform.js";
 import { httpError } from "../http-errors.js";
 import type { RouteDefinition } from "../http-router.js";
@@ -144,12 +141,8 @@ export async function handleMigrationExport(req: Request): Promise<Response> {
 
   try {
     const { archive, manifest } = buildExportVBundle({
-      dbPath: getDbPath(),
-      configPath: getWorkspaceConfigPath(),
       trustPath: join(getRootDir(), "protected", "trust.json"),
-      skillsDir: getWorkspaceSkillsDir(),
       workspaceDir: getWorkspaceDir(),
-      hooksDir: getHooksDir(),
       source: "runtime-export",
       description,
       checkpoint: () => {
@@ -302,12 +295,8 @@ export async function handleMigrationImportPreflight(
 
     // Step 2: Analyze what would change on import
     const pathResolver = new DefaultPathResolver(
-      getDbPath(),
-      getWorkspaceConfigPath(),
       join(getRootDir(), "protected"),
-      getWorkspaceSkillsDir(),
       getWorkspaceDir(),
-      getHooksDir(),
     );
 
     const report = analyzeImport({
@@ -388,12 +377,8 @@ export async function handleMigrationImport(req: Request): Promise<Response> {
     }
 
     const pathResolver = new DefaultPathResolver(
-      getDbPath(),
-      getWorkspaceConfigPath(),
       join(getRootDir(), "protected"),
-      getWorkspaceSkillsDir(),
       getWorkspaceDir(),
-      getHooksDir(),
     );
 
     // Close the live SQLite connection before overwriting assistant.db on disk.
@@ -405,6 +390,7 @@ export async function handleMigrationImport(req: Request): Promise<Response> {
       pathResolver,
       preValidatedManifest: validation.manifest,
       preValidatedEntries: validation.entries,
+      workspaceDir: getWorkspaceDir(),
     });
 
     if (!result.ok) {

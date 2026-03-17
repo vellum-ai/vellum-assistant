@@ -3,8 +3,9 @@
  *
  * A .vbundle is a gzip-compressed tar archive containing:
  * - manifest.json: metadata with schema_version, checksums, and bundle info
- * - data/db/assistant.db: the SQLite database
- * - Additional config files as declared in the manifest
+ * - workspace/: the entire workspace directory tree (new format), OR
+ *   data/db/assistant.db + config/settings.json (old format)
+ * - trust/trust.json: trust rules (optional)
  *
  * Validation steps:
  * 1. Archive structure: valid gzip tar with required entries
@@ -192,7 +193,9 @@ function canonicalizeJson(obj: unknown): string {
 // Core validation
 // ---------------------------------------------------------------------------
 
-const REQUIRED_ENTRIES = ["manifest.json", "data/db/assistant.db"];
+// Only manifest.json is structurally required. The DB and config live under
+// workspace/ (new format) or data/db/ + config/ (old format) — both are valid.
+const REQUIRED_ENTRIES = ["manifest.json"];
 
 // 2 GB — must accommodate large but valid migrations from buildExportVBundle()
 const MAX_DECOMPRESSED_SIZE = 2 * 1024 * 1024 * 1024;

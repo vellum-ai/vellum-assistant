@@ -160,35 +160,37 @@ describe("PAX extended header round-trip", () => {
 // ---------------------------------------------------------------------------
 
 describe("buildExportVBundle with symlinked skills directory", () => {
-  test("follows symlink to skills directory", () => {
-    // Set up: real dir with a skill file, symlink pointing to it
+  test("skips symlinked directory inside workspace", () => {
+    // Set up: workspace with a real skills dir and a symlinked dir
+    const wsDir = join(testDir, "export-workspace");
     const realSkillsDir = join(testDir, "real-skills");
     mkdirSync(realSkillsDir, { recursive: true });
     writeFileSync(join(realSkillsDir, "my-skill.md"), "# Skill");
 
-    const symlinkDir = join(testDir, "linked-skills");
-    symlinkSync(realSkillsDir, symlinkDir);
-
-    // Create minimal required files
-    const dbPath = join(testDir, "export-test.db");
-    writeFileSync(dbPath, "SQLite");
-    const configPath = join(testDir, "export-config.json");
-    writeFileSync(configPath, "{}");
+    // Create workspace with a symlink to the skills dir — walkDirectory
+    // skips symlinks, so the symlinked dir should not appear in the archive.
+    mkdirSync(join(wsDir, "skills"), { recursive: true });
+    writeFileSync(join(wsDir, "skills", "real-skill.md"), "# Real");
+    symlinkSync(realSkillsDir, join(wsDir, "linked-skills"));
 
     const { archive, manifest } = buildExportVBundle({
-      dbPath,
-      configPath,
-      skillsDir: symlinkDir,
+      workspaceDir: wsDir,
     });
 
     // Validate archive
     const result = validateVBundle(archive);
     expect(result.is_valid).toBe(true);
 
-    // The skill file should be in the manifest
-    const skillFile = manifest.files.find(
-      (f) => f.path === "skills/my-skill.md",
+    // Real skill file is in the manifest under workspace/ prefix
+    const realSkill = manifest.files.find(
+      (f) => f.path === "workspace/skills/real-skill.md",
     );
-    expect(skillFile).toBeDefined();
+    expect(realSkill).toBeDefined();
+
+    // Symlinked directory is skipped
+    const linkedSkill = manifest.files.find(
+      (f) => f.path === "workspace/linked-skills/my-skill.md",
+    );
+    expect(linkedSkill).toBeUndefined();
   });
 });
