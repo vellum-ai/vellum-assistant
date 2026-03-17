@@ -34,32 +34,24 @@ struct UsageDashboardPanel: View {
 
     @ViewBuilder
     private func timeRangeStrip(store: UsageDashboardStore) -> some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: VSpacing.sm) {
-                ForEach(UsageTimeRange.allCases, id: \.rawValue) { range in
-                    Button {
+        HStack {
+            VDropdown(
+                placeholder: "Time range",
+                selection: Binding(
+                    get: { store.selectedRange },
+                    set: { newRange in
                         refreshTask?.cancel()
                         breakdownTask?.cancel()
-                        refreshTask = Task { await store.selectRange(range) }
-                    } label: {
-                        Text(range.rawValue)
-                            .font(VFont.captionMedium)
-                            .foregroundColor(store.selectedRange == range ? VColor.contentDefault : VColor.contentTertiary)
-                            .padding(.horizontal, VSpacing.sm)
-                            .padding(.vertical, VSpacing.xs)
-                            .background(
-                                store.selectedRange == range
-                                    ? VColor.borderBase.opacity(0.5)
-                                    : Color.clear
-                            )
-                            .cornerRadius(6)
+                        refreshTask = Task { await store.selectRange(newRange) }
                     }
-                    .buttonStyle(.plain)
-                }
-            }
-            .padding(.horizontal, VSpacing.lg)
-            .padding(.vertical, VSpacing.sm)
+                ),
+                options: UsageTimeRange.allCases.map { ($0.rawValue, $0) }
+            )
+            .frame(width: 160)
+            Spacer()
         }
+        .padding(.horizontal, VSpacing.lg)
+        .padding(.vertical, VSpacing.sm)
     }
 
     // MARK: - Content
@@ -120,33 +112,46 @@ struct UsageDashboardPanel: View {
         }
     }
 
+    private let barChartHeight: CGFloat = 140
+
     @ViewBuilder
     private func dailyTrendList(_ buckets: [UsageDayBucket]) -> some View {
         let maxCost = buckets.map(\.totalEstimatedCostUsd).max() ?? 1.0
 
         VStack(spacing: VSpacing.xs) {
-            ForEach(buckets, id: \.date) { bucket in
-                HStack(spacing: VSpacing.sm) {
-                    Text(bucket.date)
+            // Bar chart
+            HStack(alignment: .bottom, spacing: 2) {
+                ForEach(buckets, id: \.date) { bucket in
+                    let fraction = maxCost > 0 ? bucket.totalEstimatedCostUsd / maxCost : 0
+                    VStack(spacing: VSpacing.xxs) {
+                        Spacer(minLength: 0)
+                        RoundedRectangle(cornerRadius: VRadius.xs)
+                            .fill(VColor.systemPositiveStrong)
+                            .frame(height: max(2, barChartHeight * fraction))
+                    }
+                    .frame(maxWidth: .infinity)
+                }
+            }
+            .frame(height: barChartHeight)
+
+            // Date labels
+            HStack(spacing: 2) {
+                ForEach(buckets, id: \.date) { bucket in
+                    Text(formatShortDate(bucket.date))
                         .font(VFont.small)
                         .foregroundColor(VColor.contentTertiary)
-                        .frame(width: 80, alignment: .leading)
-
-                    GeometryReader { geo in
-                        let fraction = maxCost > 0 ? bucket.totalEstimatedCostUsd / maxCost : 0
-                        RoundedRectangle(cornerRadius: 3)
-                            .fill(VColor.systemPositiveStrong)
-                            .frame(width: max(2, geo.size.width * fraction))
-                    }
-                    .frame(height: 12)
-
-                    Text(formatCost(bucket.totalEstimatedCostUsd))
-                        .font(VFont.small)
-                        .foregroundColor(VColor.contentSecondary)
-                        .frame(width: 60, alignment: .trailing)
+                        .frame(maxWidth: .infinity)
+                        .lineLimit(1)
                 }
             }
         }
+    }
+
+    /// Formats a date string (e.g. "2026-03-15") to a short label (e.g. "15").
+    private func formatShortDate(_ dateString: String) -> String {
+        let parts = dateString.split(separator: "-")
+        guard parts.count == 3 else { return dateString }
+        return String(parts[2]).replacingOccurrences(of: "^0", with: "", options: .regularExpression)
     }
 
     // MARK: - Breakdown Section
@@ -179,27 +184,18 @@ struct UsageDashboardPanel: View {
 
     @ViewBuilder
     private func groupByPicker(store: UsageDashboardStore) -> some View {
-        HStack(spacing: VSpacing.xs) {
-            ForEach(UsageGroupByDimension.allCases, id: \.rawValue) { dimension in
-                Button {
+        VDropdown(
+            placeholder: "Group by",
+            selection: Binding(
+                get: { store.selectedGroupBy },
+                set: { newDimension in
                     breakdownTask?.cancel()
-                    breakdownTask = Task { await store.selectGroupBy(dimension) }
-                } label: {
-                    Text(dimension.rawValue.capitalized)
-                        .font(VFont.small)
-                        .foregroundColor(store.selectedGroupBy == dimension ? VColor.contentDefault : VColor.contentTertiary)
-                        .padding(.horizontal, VSpacing.xs)
-                        .padding(.vertical, 2)
-                        .background(
-                            store.selectedGroupBy == dimension
-                                ? VColor.borderBase.opacity(0.5)
-                                : Color.clear
-                        )
-                        .cornerRadius(4)
+                    breakdownTask = Task { await store.selectGroupBy(newDimension) }
                 }
-                .buttonStyle(.plain)
-            }
-        }
+            ),
+            options: UsageGroupByDimension.allCases.map { ($0.rawValue.capitalized, $0) }
+        )
+        .frame(width: 120)
     }
 
     @ViewBuilder
