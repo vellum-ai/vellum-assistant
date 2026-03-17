@@ -29,6 +29,78 @@ func viewModeLabel(_ mode: FileViewMode) -> String {
     }
 }
 
+// MARK: - File Icon
+
+func fileIcon(for mimeType: String) -> VIcon {
+    if mimeType.hasPrefix("image/") { return .image }
+    if mimeType.hasPrefix("video/") { return .video }
+    if mimeType.hasPrefix("text/") { return .fileText }
+    if mimeType == "application/json" || mimeType == "application/javascript" || mimeType == "application/typescript" { return .fileCode }
+    return .file
+}
+
+// MARK: - File Content View
+
+struct FileContentView: View {
+    let fileName: String
+    let mimeType: String
+    let fileSize: String
+    @Binding var content: String
+    @Binding var viewMode: FileViewMode
+    var isEditable: Bool = false
+    var showReadOnlyBadge: Bool = false
+    var onTextChange: ((String) -> Void)? = nil
+
+    var body: some View {
+        let modes = availableViewModes(for: fileName, mimeType: mimeType)
+        let effectiveMode = modes.contains(viewMode) ? viewMode : (modes.first ?? .source)
+
+        VStack(alignment: .leading, spacing: 0) {
+            FileContentHeaderBar(
+                icon: fileIcon(for: mimeType),
+                fileName: fileName,
+                fileSize: fileSize
+            ) {
+                if modes.count > 1 {
+                    VSegmentedControl(
+                        items: modes.map { (label: viewModeLabel($0), tag: $0) },
+                        selection: $viewMode,
+                        style: .pill
+                    )
+                    .fixedSize()
+                }
+
+                if showReadOnlyBadge {
+                    Text("Read-only")
+                        .font(VFont.caption)
+                        .foregroundColor(VColor.contentTertiary)
+                }
+            }
+
+            Divider().background(VColor.borderBase)
+
+            switch effectiveMode {
+            case .source:
+                HighlightedTextView(
+                    text: isEditable ? $content : .constant(content),
+                    language: SyntaxLanguage.detect(fileName: fileName, mimeType: mimeType),
+                    isEditable: isEditable,
+                    onTextChange: onTextChange
+                )
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            case .preview:
+                MarkdownPreviewView(content: content)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            case .tree:
+                JSONTreeView(content: content)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            }
+        }
+    }
+}
+
+// MARK: - File Content Header Bar
+
 /// Header bar showing file icon, name, and size for file content viewers.
 struct FileContentHeaderBar<Trailing: View>: View {
     let icon: VIcon
