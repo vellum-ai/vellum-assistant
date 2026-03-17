@@ -1,6 +1,6 @@
 ---
 name: sequences
-description: Create and manage automated email drip sequences with enrollment, scheduling, and analytics
+description: Create and manage automated email drip sequences
 compatibility: "Designed for Vellum personal assistants"
 metadata:
   emoji: "📧"
