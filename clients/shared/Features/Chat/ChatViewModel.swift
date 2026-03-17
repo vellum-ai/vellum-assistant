@@ -538,6 +538,11 @@ public final class ChatViewModel: ObservableObject {
     /// Parameters: (requestId, decision)
     public var onInlineConfirmationResponse: ((String, String) -> Void)?
 
+    /// Tracks requestIds for which onInlineConfirmationResponse has already been called locally
+    /// (via respondToConfirmation / respondToAlwaysAllow). When the daemon's confirmationStateChanged
+    /// event arrives for the same requestId, we skip the duplicate callback.
+    var inlineResponseHandledRequestIds = Set<String>()
+
     /// Called to determine whether this ChatViewModel should accept a `confirmationRequest`.
     /// Set by ConversationManager to coordinate routing when multiple ChatViewModels are active.
     public var shouldAcceptConfirmation: (() -> Bool)?
@@ -2409,6 +2414,7 @@ public final class ChatViewModel: ObservableObject {
         clearPendingConfirmation(requestId: requestId)
         // Dismiss the corresponding floating panel / native notification if one exists
         onInlineConfirmationResponse?(requestId, decision)
+        inlineResponseHandledRequestIds.insert(requestId)
     }
 
     /// Respond to a tool confirmation with "always_allow", sending the selected pattern and scope
@@ -2443,6 +2449,7 @@ public final class ChatViewModel: ObservableObject {
         clearPendingConfirmation(requestId: requestId)
         // Dismiss the corresponding floating panel / native notification if one exists
         onInlineConfirmationResponse?(requestId, "allow")
+        inlineResponseHandledRequestIds.insert(requestId)
     }
 
     /// Update the inline confirmation message state without sending a response to the daemon.
