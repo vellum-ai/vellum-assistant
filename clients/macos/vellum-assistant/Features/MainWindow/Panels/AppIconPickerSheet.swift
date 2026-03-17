@@ -24,38 +24,30 @@ struct AppIconPickerSheet: View {
     private let iconColumns = Array(repeating: GridItem(.flexible(), spacing: VSpacing.sm), count: 6)
 
     var body: some View {
-        VStack(spacing: VSpacing.xl) {
-            // Header
-            Text("Change Icon")
-                .font(VFont.headline)
-                .foregroundColor(VColor.contentDefault)
+        VModal(title: "Change Icon", titleFont: VFont.headline, onClose: { dismiss() }) {
+            VStack(spacing: VSpacing.xl) {
+                // Live preview
+                VStack(spacing: VSpacing.sm) {
+                    ZStack {
+                        RoundedRectangle(cornerRadius: 96 * 0.22, style: .continuous)
+                            .fill(VColor.surfaceBase)
+                        VIconView(selectedIcon, size: 42)
+                            .foregroundColor(VColor.contentTertiary)
+                    }
+                    .frame(width: 96, height: 96)
 
-            // Live preview
-            VStack(spacing: VSpacing.sm) {
-                ZStack {
-                    RoundedRectangle(cornerRadius: 96 * 0.22, style: .continuous)
-                        .fill(VColor.surfaceBase)
-                    VIconView(selectedIcon, size: 42)
-                        .foregroundColor(VColor.contentTertiary)
+                    Text(appName)
+                        .font(VFont.caption)
+                        .foregroundColor(VColor.contentSecondary)
                 }
-                .frame(width: 96, height: 96)
 
-                Text(appName)
-                    .font(VFont.caption)
-                    .foregroundColor(VColor.contentSecondary)
-            }
+                // Icon picker
+                VStack(alignment: .leading, spacing: VSpacing.sm) {
+                    Text("ICON")
+                        .font(VFont.caption)
+                        .foregroundColor(VColor.contentTertiary)
+                        .tracking(1.2)
 
-            Divider()
-                .background(VColor.borderBase)
-
-            // Icon picker
-            VStack(alignment: .leading, spacing: VSpacing.sm) {
-                Text("ICON")
-                    .font(VFont.caption)
-                    .foregroundColor(VColor.contentTertiary)
-                    .tracking(1.2)
-
-                ScrollView {
                     LazyVGrid(columns: iconColumns, spacing: VSpacing.sm) {
                         ForEach(VAppIconGenerator.icons, id: \.self) { icon in
                             Button {
@@ -91,13 +83,8 @@ struct AppIconPickerSheet: View {
                         }
                     }
                 }
-                .frame(maxHeight: 180)
             }
-
-            Divider()
-                .background(VColor.borderBase)
-
-            // Buttons
+        } footer: {
             HStack {
                 Button("Cancel") {
                     dismiss()
@@ -117,9 +104,7 @@ struct AppIconPickerSheet: View {
                 .font(VFont.bodyBold)
             }
         }
-        .padding(VSpacing.xl)
         .frame(width: 320)
-        .background(VColor.surfaceOverlay)
     }
 }
 

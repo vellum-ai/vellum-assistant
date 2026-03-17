@@ -32,69 +32,7 @@ struct MemoryItemDetailSheet: View {
     }
 
     var body: some View {
-        VStack(spacing: 0) {
-            header
-            Divider().background(VColor.borderBase)
-
-            ScrollView {
-                VStack(alignment: .leading, spacing: VSpacing.xl) {
-                    if isEditing {
-                        editModeContent
-                    } else {
-                        viewModeContent
-                    }
-                }
-                .padding(VSpacing.xl)
-            }
-
-            if let errorMessage {
-                HStack(spacing: VSpacing.xs) {
-                    VIconView(.circleAlert, size: 11)
-                        .foregroundColor(VColor.systemNegativeStrong)
-                    Text(errorMessage)
-                        .font(VFont.caption)
-                        .foregroundColor(VColor.systemNegativeStrong)
-                }
-                .padding(.horizontal, VSpacing.xl)
-                .padding(.bottom, VSpacing.sm)
-            }
-
-            footer
-        }
-        .frame(width: 480, height: 520)
-        .background(VColor.surfaceOverlay)
-        .clipShape(RoundedRectangle(cornerRadius: VRadius.lg))
-        .alert("Delete this memory?", isPresented: $showDeleteConfirm) {
-            Button("Cancel", role: .cancel) {}
-            Button("Delete", role: .destructive) {
-                Task {
-                    let success = await store.deleteItem(id: item.id)
-                    if success {
-                        onDismiss()
-                    } else {
-                        errorMessage = "Failed to delete memory. Please try again."
-                    }
-                }
-            }
-        } message: {
-            Text("This action cannot be undone.")
-        }
-        .task {
-            detailItem = await store.fetchDetail(id: item.id)
-        }
-    }
-
-    // MARK: - Header
-
-    private var header: some View {
-        HStack(alignment: .center, spacing: VSpacing.sm) {
-            Text(displayItem.subject)
-                .font(VFont.cardTitle)
-                .foregroundColor(VColor.contentDefault)
-                .lineLimit(1)
-
-            Spacer()
-
+        VModal(title: displayItem.subject, titleFont: VFont.cardTitle, onClose: onDismiss, headerActions: {
             if !isEditing {
                 HStack(spacing: VSpacing.xs) {
                     VButton(
@@ -114,29 +52,77 @@ struct MemoryItemDetailSheet: View {
                     ) {
                         showDeleteConfirm = true
                     }
+                }
+            }
+        }) {
+            VStack(alignment: .leading, spacing: VSpacing.xl) {
+                if isEditing {
+                    editModeContent
+                } else {
+                    viewModeContent
+                }
+            }
+
+            if let errorMessage {
+                HStack(spacing: VSpacing.xs) {
+                    VIconView(.circleAlert, size: 11)
+                        .foregroundColor(VColor.systemNegativeStrong)
+                    Text(errorMessage)
+                        .font(VFont.caption)
+                        .foregroundColor(VColor.systemNegativeStrong)
+                }
+            }
+        } footer: {
+            HStack {
+                if isEditing {
+                    Button {
+                        isEditing = false
+                        errorMessage = nil
+                        editSubject = item.subject
+                        editStatement = item.statement
+                        editKind = item.kind
+                        editStatus = item.status
+                        editImportance = item.importance ?? 0.5
+                    } label: {
+                        Text("Cancel")
+                            .font(VFont.bodyMedium)
+                            .foregroundColor(VColor.contentSecondary)
+                    }
+                    .buttonStyle(.plain)
+
+                    Spacer()
 
                     VButton(
-                        label: "Close",
-                        iconOnly: VIcon.x.rawValue,
-                        style: .ghost,
-                        tooltip: "Close"
+                        label: isSaving ? "Saving..." : "Save",
+                        style: .primary,
+                        isDisabled: !isEditFormValid || isSaving
                     ) {
-                        onDismiss()
+                        save()
                     }
-                }
-            } else {
-                VButton(
-                    label: "Close",
-                    iconOnly: VIcon.x.rawValue,
-                    style: .ghost,
-                    tooltip: "Close"
-                ) {
-                    onDismiss()
+                } else {
+                    Spacer()
                 }
             }
         }
-        .padding(.horizontal, VSpacing.xl)
-        .padding(.vertical, VSpacing.lg)
+        .frame(width: 480, height: 520)
+        .alert("Delete this memory?", isPresented: $showDeleteConfirm) {
+            Button("Cancel", role: .cancel) {}
+            Button("Delete", role: .destructive) {
+                Task {
+                    let success = await store.deleteItem(id: item.id)
+                    if success {
+                        onDismiss()
+                    } else {
+                        errorMessage = "Failed to delete memory. Please try again."
+                    }
+                }
+            }
+        } message: {
+            Text("This action cannot be undone.")
+        }
+        .task {
+            detailItem = await store.fetchDetail(id: item.id)
+        }
     }
 
     // MARK: - View Mode
@@ -289,43 +275,6 @@ struct MemoryItemDetailSheet: View {
         }
     }
 
-    // MARK: - Footer
-
-    private var footer: some View {
-        HStack {
-            if isEditing {
-                Button {
-                    isEditing = false
-                    errorMessage = nil
-                    // Reset to original values
-                    editSubject = item.subject
-                    editStatement = item.statement
-                    editKind = item.kind
-                    editStatus = item.status
-                    editImportance = item.importance ?? 0.5
-                } label: {
-                    Text("Cancel")
-                        .font(VFont.bodyMedium)
-                        .foregroundColor(VColor.contentSecondary)
-                }
-                .buttonStyle(.plain)
-
-                Spacer()
-
-                VButton(
-                    label: isSaving ? "Saving..." : "Save",
-                    style: .primary,
-                    isDisabled: !isEditFormValid || isSaving
-                ) {
-                    save()
-                }
-            } else {
-                Spacer()
-            }
-        }
-        .padding(.horizontal, VSpacing.xl)
-        .padding(.vertical, VSpacing.lg)
-    }
 
     // MARK: - Validation
 

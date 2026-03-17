@@ -8,6 +8,39 @@ struct LayoutGallerySection: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: VSpacing.xxl) {
+            // MARK: - VModal
+            GallerySectionHeader(
+                title: "VModal",
+                description: "Standardized modal container with header, scrollable content, and optional footer."
+            )
+
+            VCard(padding: 0) {
+                VModal(title: "Example Modal", titleIcon: .sparkles, onClose: {}) {
+                    VStack(alignment: .leading, spacing: VSpacing.md) {
+                        Text("Modal content goes here")
+                            .font(VFont.body)
+                            .foregroundColor(VColor.contentDefault)
+                        Text("This modal has a standard header with icon, title, and close button, plus a footer with actions.")
+                            .font(VFont.caption)
+                            .foregroundColor(VColor.contentSecondary)
+                    }
+                } footer: {
+                    HStack {
+                        Button {} label: {
+                            Text("Cancel")
+                                .font(VFont.bodyMedium)
+                                .foregroundColor(VColor.contentSecondary)
+                        }
+                        .buttonStyle(.plain)
+                        Spacer()
+                        VButton(label: "Confirm", style: .primary) {}
+                    }
+                }
+                .frame(width: 360, height: 220)
+            }
+
+            Divider().background(VColor.borderBase).padding(.vertical, VSpacing.md)
+
             // MARK: - VToolbar
             GallerySectionHeader(
                 title: "VToolbar",
