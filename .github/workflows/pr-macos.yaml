@@ -63,15 +63,12 @@ jobs:
     if: contains(github.event.pull_request.labels.*.name, 'preview')
     name: macOS Build
     runs-on: macos-15
-    timeout-minutes: 45
+    timeout-minutes: 30
     defaults:
       run:
         working-directory: clients/macos
     env:
-      APP_DISPLAY_NAME: Vellum ${{ github.event.pull_request.number }}
-      DMG_PATH: build/vellum-assistant-pr-${{ github.event.pull_request.number }}.dmg
-      KEYCHAIN_NAME: build.keychain
-      KEYCHAIN_PASSWORD: temporary-ci-password
+      APP_DISPLAY_NAME: Vellum
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -79,35 +76,10 @@ jobs:
       - name: Select Xcode 26.2
         run: sudo xcode-select -s /Applications/Xcode_26.2.app/Contents/Developer
 
-      - name: Import code-signing certificate
-        env:
-          CERT_P12: ${{ secrets.DEVID_CERTIFICATE_P12 }}
-          CERT_PASSWORD: ${{ secrets.DEVID_CERTIFICATE_PASSWORD }}
-        run: |
-          KEYCHAIN_PATH="$HOME/Library/Keychains/$KEYCHAIN_NAME-db"
-
-          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_NAME"
-          security set-keychain-settings -lut 3600 "$KEYCHAIN_PATH"
-          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
-
-          echo "$CERT_P12" | base64 -D > /tmp/certificate.p12
-          security import /tmp/certificate.p12 \
-            -k "$KEYCHAIN_PATH" \
-            -P "$CERT_PASSWORD" \
-            -T /usr/bin/codesign \
-            -T /usr/bin/security
-          rm /tmp/certificate.p12
-
-          security set-key-partition-list -S apple-tool:,apple: -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
-          security list-keychains -d user -s "$KEYCHAIN_PATH" $(security list-keychains -d user | tr -d '"')
-          security default-keychain -s "$KEYCHAIN_PATH"
-
-          security find-identity -v -p codesigning "$KEYCHAIN_PATH"
-
-      - name: Verify signing identity
-        run: |
-          security find-identity -v -p codesigning | grep -q "Developer ID Application" \
-            || { echo "::error::Developer ID Application identity not found in keychain. Check the DEVID_CERTIFICATE_P12 secret."; exit 1; }
+      - name: Install Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: '1.3.9'
 
       - name: Compute cache week
         id: week
@@ -117,36 +89,21 @@ jobs:
         uses: actions/cache@v5
         with:
           path: clients/.build
-          key: macos-spm-release-week${{ steps.week.outputs.num }}-${{ hashFiles('clients/Package.resolved') }}
+          key: macos-spm-debug-week${{ steps.week.outputs.num }}-${{ hashFiles('clients/Package.resolved') }}
           restore-keys: |
-            macos-spm-release-week${{ steps.week.outputs.num }}-
-            macos-spm-release-
+            macos-spm-debug-week${{ steps.week.outputs.num }}-
+            macos-spm-debug-
 
-      - name: Cache Bun dependencies (assistant)
-        uses: actions/cache@v5
-        with:
-          path: assistant/node_modules
-          key: macos-bun-assistant-${{ hashFiles('assistant/bun.lock') }}
-          restore-keys: macos-bun-assistant-
+      - name: Design token guard
+        working-directory: .
+        run: bash clients/scripts/check-design-tokens.sh --mode=strict
 
-      - name: Cache Bun dependencies (cli)
-        uses: actions/cache@v5
-        with:
-          path: cli/node_modules
-          key: macos-bun-cli-${{ hashFiles('cli/bun.lock') }}
-          restore-keys: macos-bun-cli-
+      - name: Build executable
+        working-directory: clients
+        run: swift build --product vellum-assistant
 
-      - name: Cache Bun dependencies (gateway)
-        uses: actions/cache@v5
-        with:
-          path: gateway/node_modules
-          key: macos-bun-gateway-${{ hashFiles('gateway/bun.lock') }}
-          restore-keys: macos-bun-gateway-
-
-      - name: Install Bun
-        uses: oven-sh/setup-bun@v2
-        with:
-          bun-version: '1.3.9'
+      - name: Run tests
+        run: ./build.sh test
 
       - name: Configure GitHub auth for SPM binary downloads
         env:
@@ -155,11 +112,7 @@ jobs:
           printf "machine github.com\nlogin oauth2\npassword %s\n" "${GH_TOKEN}" > ~/.netrc
           chmod 600 ~/.netrc
 
-      - name: Design token guard
-        working-directory: .
-        run: bash clients/scripts/check-design-tokens.sh --mode=strict
-
-      - name: Install linked package dependencies
+      - name: Install nested package dependencies
         working-directory: .
         run: |
           pids=()
@@ -174,191 +127,24 @@ jobs:
           done
 
       - name: Build binaries
+        timeout-minutes: 5
         run: ./build.sh binaries
 
-      - name: Build release .app
+      - name: Build macOS app
+        timeout-minutes: 15
         run: |
-          BUNDLE_DISPLAY_NAME="$APP_DISPLAY_NAME" \
-          SIGN_IDENTITY="Developer ID Application" \
-          RELEASE_ARCH_FLAGS="--arch arm64" \
+          set -o pipefail
           SKIP_BUN_REBUILD=1 \
-          SKIP_CLEAN=1 \
-          ./build.sh release
-
-          APP_PATH="dist/$APP_DISPLAY_NAME.app"
-          ls -la "$APP_PATH"
-          codesign --verify --strict "$APP_PATH"
-          echo "Code signature verified"
-
-          echo "Main executable architecture:"
-          file "$APP_PATH/Contents/MacOS/$APP_DISPLAY_NAME"
-
-      - name: Run tests
-        run: ./build.sh test
-
-      - name: Free disk space
-        run: |
-          rm -rf daemon-bin cli-bin gateway-bin
-          rm -rf ../../assistant/node_modules ../../cli/node_modules ../../gateway/node_modules
-          rm -rf ~/Library/Developer/Xcode/DerivedData 2>/dev/null || true
-          rm -rf ~/Library/Caches/org.swift.swiftpm 2>/dev/null || true
-          df -h .
-
-      - name: Cache Homebrew create-dmg
-        id: cache-create-dmg
-        uses: actions/cache@v5
-        with:
-          path: |
-            /usr/local/Cellar/create-dmg
-            /opt/homebrew/Cellar/create-dmg
-          key: create-dmg-v1-${{ runner.os }}-${{ runner.arch }}
-
-      - name: Install create-dmg
-        if: steps.cache-create-dmg.outputs.cache-hit != 'true'
-        run: brew install create-dmg
-
-      - name: Link create-dmg
-        if: steps.cache-create-dmg.outputs.cache-hit == 'true'
-        run: brew link create-dmg 2>/dev/null || true
-
-      - name: Create DMG
-        run: |
-          APP_PATH="dist/$APP_DISPLAY_NAME.app"
-
-          DMG_STAGING="build/dmg-staging"
-          mkdir -p "$DMG_STAGING"
-          cp -R "$APP_PATH" "$DMG_STAGING/"
-          ln -s /Applications "$DMG_STAGING/Applications"
-
-          create-dmg \
-            --volname "$APP_DISPLAY_NAME" \
-            --background "dmg/dmg-background@2x.png" \
-            --window-pos 200 120 \
-            --window-size 660 400 \
-            --icon-size 128 \
-            --text-size 10 \
-            --icon "$APP_DISPLAY_NAME.app" 175 190 \
-            --icon "Applications" 530 190 \
-            --hide-extension "$APP_DISPLAY_NAME.app" \
-            --no-internet-enable \
-            "$DMG_PATH" \
-            "$DMG_STAGING/" \
-          || {
-            EXIT_CODE=$?
-            if [ $EXIT_CODE -eq 2 ] && [ -f "$DMG_PATH" ]; then
-              echo "create-dmg exited with warning (code 2), but DMG was created successfully"
-            else
-              echo "create-dmg failed with exit code $EXIT_CODE"
-              exit $EXIT_CODE
-            fi
-          }
-
-          echo "DMG created at $DMG_PATH"
-          ls -lh "$DMG_PATH"
-
-      - name: Sign DMG
-        run: |
-          codesign --sign "Developer ID Application" \
-            --timestamp \
-            "$DMG_PATH"
-
-          codesign --verify --verbose "$DMG_PATH"
-          echo "DMG signature verified"
-
-      - name: Notarize DMG
-        env:
-          ASC_KEY_P8: ${{ secrets.ASC_KEY_P8 }}
-          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
-          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
-        run: |
-          mkdir -p ~/.private_keys
-          echo "$ASC_KEY_P8" > ~/.private_keys/AuthKey_${ASC_KEY_ID}.p8
-
-          echo "Submitting DMG for notarization..."
-          NOTARIZE_OUTPUT=$(xcrun notarytool submit "$DMG_PATH" \
-            --key ~/.private_keys/AuthKey_${ASC_KEY_ID}.p8 \
-            --key-id "$ASC_KEY_ID" \
-            --issuer "$ASC_ISSUER_ID" \
-            --wait \
-            --timeout 30m \
-            2>&1) || NOTARIZE_FAILED=true
-
-          echo "$NOTARIZE_OUTPUT"
-
-          SUBMISSION_ID=$(echo "$NOTARIZE_OUTPUT" | grep -oE '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}' | head -1)
-
-          if [ "$NOTARIZE_FAILED" = "true" ] || echo "$NOTARIZE_OUTPUT" | grep -q "status: Invalid"; then
-            echo "::error::Notarization failed (status: Invalid or command error)"
-            if [ -n "$SUBMISSION_ID" ]; then
-              echo "Fetching notarization log for submission $SUBMISSION_ID..."
-              xcrun notarytool log "$SUBMISSION_ID" \
-                --key ~/.private_keys/AuthKey_${ASC_KEY_ID}.p8 \
-                --key-id "$ASC_KEY_ID" \
-                --issuer "$ASC_ISSUER_ID" \
-                || echo "::warning::Could not fetch notarization log"
-            fi
-            exit 1
-          fi
-
-          echo "Notarization succeeded (status: Accepted)"
-
-      - name: Staple notarization ticket
-        run: |
-          MAX_ATTEMPTS=15
-          WAIT_SECS=60
-          for i in $(seq 1 $MAX_ATTEMPTS); do
-            STAPLE_OUTPUT=$(xcrun stapler staple "$DMG_PATH" 2>&1)
-            STAPLE_EXIT=$?
-            if [ $STAPLE_EXIT -eq 0 ]; then
-              echo "Stapling succeeded on attempt $i"
-              echo "$STAPLE_OUTPUT"
-              break
-            fi
-            echo "::warning::Stapling attempt $i/$MAX_ATTEMPTS failed (exit code $STAPLE_EXIT):"
-            echo "$STAPLE_OUTPUT"
-            if [ "$i" -eq "$MAX_ATTEMPTS" ]; then
-              echo "::error::Stapling failed after $MAX_ATTEMPTS attempts"
-              exit 1
-            fi
-            echo "Waiting ${WAIT_SECS}s for CDN propagation..."
-            sleep $WAIT_SECS
-            WAIT_SECS=$((WAIT_SECS + 15))
+          BUNDLE_DISPLAY_NAME="$APP_DISPLAY_NAME" \
+          SIGN_IDENTITY="-" \
+          ./build.sh 2>&1 | while IFS= read -r line; do
+            echo "[$(date -u '+%H:%M:%S')] $line"
           done
 
-          xcrun stapler validate "$DMG_PATH"
-          echo "Notarization ticket stapled and validated"
-
-      - name: Upload DMG artifact
+      - name: Upload app artifact
         uses: actions/upload-artifact@v4
         with:
-          name: vellum-assistant-pr-${{ github.event.pull_request.number }}.dmg
-          path: clients/macos/build/vellum-assistant-pr-${{ github.event.pull_request.number }}.dmg
-          if-no-files-found: error
+          name: macos-app-pr-${{ github.event.pull_request.number }}
+          path: clients/macos/dist/${{ env.APP_DISPLAY_NAME }}.app
           retention-days: 7
-
-      - name: Cleanup keychain and keys
-        if: always()
-        run: |
-          KEYCHAIN_PATH="$HOME/Library/Keychains/$KEYCHAIN_NAME-db"
-          security delete-keychain "$KEYCHAIN_PATH" 2>/dev/null || true
-          rm -rf ~/.private_keys 2>/dev/null || true
-
-      - name: Generate GitHub App token
-        if: github.event.pull_request.head.repo.full_name == github.repository
-        id: app-token
-        uses: actions/create-github-app-token@v2
-        with:
-          app-id: ${{ secrets.VELLUM_AUTOMATION_GITHUB_APP_ID }}
-          private-key: ${{ secrets.VELLUM_AUTOMATION_GITHUB_PRIVATE_KEY }}
-
-      - name: Comment artifact link on PR
-        if: github.event.pull_request.head.repo.full_name == github.repository
-        env:
-          GH_TOKEN: ${{ steps.app-token.outputs.token }}
-        run: |
-          ARTIFACT_NAME="vellum-assistant-pr-${{ github.event.pull_request.number }}.dmg"
-          ARTIFACT_ID=$(gh api "/repos/${{ github.repository }}/actions/runs/${{ github.run_id }}/artifacts" \
-            --jq ".artifacts[] | select(.name == \"$ARTIFACT_NAME\") | .id")
-          ARTIFACT_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}/artifacts/$ARTIFACT_ID"
-          PR_NUMBER="${{ github.event.pull_request.number }}"
-          gh pr comment "$PR_NUMBER" --body "📦 **macOS DMG artifact** for this PR is ready for download: [Download $ARTIFACT_NAME]($ARTIFACT_URL)"
+          if-no-files-found: error
