@@ -39,7 +39,7 @@ struct ReauthView: View {
                 .foregroundColor(VColor.contentDefault)
                 .padding(.bottom, VSpacing.xs)
 
-            Text("Sign in to continue.")
+            Text("Log in to continue.")
                 .font(.system(size: 16))
                 .foregroundColor(VColor.contentSecondary)
                 .padding(.bottom, VSpacing.xxl)
@@ -60,18 +60,18 @@ struct ReauthView: View {
                         ProgressView()
                             .controlSize(.small)
                             .progressViewStyle(.circular)
-                        Text("Signing in...")
+                        Text("Logging in...")
                             .font(VFont.monoMedium)
                             .foregroundColor(VColor.contentSecondary)
                     }
                     .frame(height: 36)
                 } else {
-                    OnboardingButton(title: "Sign In", style: .primary) {
+                    OnboardingButton(title: "Log In", style: .primary) {
                         Task {
                             await authManager.startWorkOSLogin()
                         }
                     }
-                    .accessibilityLabel("Sign In")
+                    .accessibilityLabel("Log In")
                 }
 
                 if let error = authManager.errorMessage {

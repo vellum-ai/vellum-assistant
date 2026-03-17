@@ -71,7 +71,7 @@ struct WakeUpStepView: View {
                     ProgressView()
                         .controlSize(.small)
                         .progressViewStyle(.circular)
-                    Text("Signing in...")
+                    Text("Logging in...")
                         .font(VFont.monoMedium)
                         .foregroundColor(VColor.contentSecondary)
                 }
