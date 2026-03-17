@@ -378,7 +378,7 @@ struct AssistantChannelsDetailView: View {
 
                 // Right: status or action
                 if let status, status == .connected {
-                    VButton(label: "Connected", leftIcon: VIcon.check.rawValue, style: .ghost) {}
+                    VButton(label: "Connected", leftIcon: VIcon.check.rawValue, style: .primary) {}
                 } else if let setupAction {
                     VButton(label: "Set up", style: .outlined) {
                         setupAction()
