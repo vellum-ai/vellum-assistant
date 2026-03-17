@@ -145,15 +145,42 @@ struct AssistantChannelsDetailView: View {
             }
 
             VStack(alignment: .leading, spacing: 0) {
-                slackRow
+                // MOCK: all channels connected for visual preview
+                mockConnectedRow(name: "Slack", value: "@cartman-bot", icon: .hash, expandedBinding: $slackRowExpanded)
                 SettingsDivider()
-                telegramRow
+                mockConnectedRow(name: "Telegram", value: "@CartmanAssistant", icon: .send, expandedBinding: $telegramRowExpanded)
                 SettingsDivider()
-                voiceRow
-                if isEmailEnabled {
-                    SettingsDivider()
-                    emailRow
+                mockConnectedRow(name: "Phone Calling", value: "(914) 677-2270", icon: .phone, expandedBinding: $voiceRowExpanded)
+                SettingsDivider()
+                mockConnectedRow(name: "Email", value: "cartman@vellum.ai", icon: .mail, expandedBinding: $emailRowExpanded)
+            }
+        }
+    }
+
+    // MARK: - Mock Connected Row (temporary preview)
+
+    @ViewBuilder
+    private func mockConnectedRow(name: String, value: String, icon: VIcon, expandedBinding: Binding<Bool>) -> some View {
+        VStack(alignment: .leading, spacing: VSpacing.sm) {
+            ChannelRowHeader(
+                name: name,
+                icon: icon,
+                channelKey: name.lowercased(),
+                value: value,
+                isConnected: true,
+                isDisconnectDisabled: false,
+                onDisconnect: { _ in },
+                isExpanded: expandedBinding
+            )
+            .padding(.vertical, VSpacing.sm)
+
+            if expandedBinding.wrappedValue {
+                VStack(alignment: .leading, spacing: VSpacing.sm) {
+                    Text("Configuration options would appear here")
+                        .font(VFont.caption)
+                        .foregroundColor(VColor.contentTertiary)
                 }
+                .padding(.leading, 30)
             }
         }
     }
