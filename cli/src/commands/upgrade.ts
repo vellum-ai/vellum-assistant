@@ -285,7 +285,7 @@ async function upgradePlatform(
 
   const orgId = await fetchOrganizationId(token);
 
-  const url = `${getPlatformUrl()}/v1/assistants/${encodeURIComponent(entry.assistantId)}/upgrade/`;
+  const url = `${getPlatformUrl()}/v1/assistants/upgrade/`;
   const body: { version?: string } = {};
   if (version) {
     body.version = version;
