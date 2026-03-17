@@ -730,8 +730,17 @@ export async function hatchDocker(
           resolve();
         };
 
+        // SIGINT (Ctrl+C): full cleanup including stopping containers.
         process.on("SIGINT", () => void cleanup());
-        process.on("SIGTERM", () => void cleanup());
+
+        // SIGTERM (from `vellum retire`): exit quickly — the caller
+        // handles container teardown, so we only need to close the
+        // file watchers and let the process terminate.
+        process.on("SIGTERM", () => {
+          stopWatcher();
+          saveAssistantEntry({ ...dockerEntry, watcherPid: undefined });
+          resolve();
+        });
       });
     }
   } finally {
