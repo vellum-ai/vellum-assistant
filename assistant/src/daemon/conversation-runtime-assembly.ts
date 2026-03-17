@@ -708,29 +708,46 @@ export function buildInboundActorContextBlock(
     return singleLine.length > 0 ? singleLine : "unknown";
   };
 
+  const canon = sanitizeInlineContextValue(ctx.canonicalActorIdentity);
+
+  // Helper: only emit a field when its sanitized value differs from the
+  // canonical identity and is not "unknown" (i.e. it adds new information).
+  const differs = (v: string | null | undefined): boolean => {
+    const s = sanitizeInlineContextValue(v);
+    return s !== "unknown" && s !== canon;
+  };
+
   const lines: string[] = ["<inbound_actor_context>"];
   lines.push(
     `source_channel: ${sanitizeInlineContextValue(ctx.sourceChannel)}`,
   );
-  lines.push(
-    `canonical_actor_identity: ${sanitizeInlineContextValue(ctx.canonicalActorIdentity)}`,
-  );
-  lines.push(
-    `actor_identifier: ${sanitizeInlineContextValue(ctx.actorIdentifier)}`,
-  );
-  lines.push(
-    `actor_display_name: ${sanitizeInlineContextValue(ctx.actorDisplayName)}`,
-  );
-  lines.push(
-    `actor_sender_display_name: ${sanitizeInlineContextValue(ctx.actorSenderDisplayName)}`,
-  );
-  lines.push(
-    `actor_member_display_name: ${sanitizeInlineContextValue(ctx.actorMemberDisplayName)}`,
-  );
+  lines.push(`canonical_actor_identity: ${canon}`);
+  if (differs(ctx.actorIdentifier)) {
+    lines.push(
+      `actor_identifier: ${sanitizeInlineContextValue(ctx.actorIdentifier)}`,
+    );
+  }
+  if (differs(ctx.actorDisplayName)) {
+    lines.push(
+      `actor_display_name: ${sanitizeInlineContextValue(ctx.actorDisplayName)}`,
+    );
+  }
+  if (differs(ctx.actorSenderDisplayName)) {
+    lines.push(
+      `actor_sender_display_name: ${sanitizeInlineContextValue(ctx.actorSenderDisplayName)}`,
+    );
+  }
+  if (differs(ctx.actorMemberDisplayName)) {
+    lines.push(
+      `actor_member_display_name: ${sanitizeInlineContextValue(ctx.actorMemberDisplayName)}`,
+    );
+  }
   lines.push(`trust_class: ${sanitizeInlineContextValue(ctx.trustClass)}`);
-  lines.push(
-    `guardian_identity: ${sanitizeInlineContextValue(ctx.guardianIdentity)}`,
-  );
+  if (differs(ctx.guardianIdentity)) {
+    lines.push(
+      `guardian_identity: ${sanitizeInlineContextValue(ctx.guardianIdentity)}`,
+    );
+  }
   if (ctx.memberStatus) {
     lines.push(
       `member_status: ${sanitizeInlineContextValue(ctx.memberStatus)}`,
@@ -741,9 +758,9 @@ export function buildInboundActorContextBlock(
       `member_policy: ${sanitizeInlineContextValue(ctx.memberPolicy)}`,
     );
   }
-  // Contact metadata — only included when the sender has a contact record
+  // Contact metadata - only included when the sender has a contact record
   // with non-default values.
-  if (ctx.contactNotes) {
+  if (ctx.contactNotes && sanitizeInlineContextValue(ctx.contactNotes) !== ctx.trustClass) {
     lines.push(
       `contact_notes: ${sanitizeInlineContextValue(ctx.contactNotes)}`,
     );

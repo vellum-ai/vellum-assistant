@@ -790,9 +790,13 @@ describe("injectInboundActorContext", () => {
     expect(text).toContain("trust_class: guardian");
     expect(text).toContain("source_channel: phone");
     expect(text).toContain("canonical_actor_identity: guardian-user-1");
+    // Display names differ from canonical, so they should appear
+    expect(text).toContain("actor_identifier: +15550001111");
     expect(text).toContain("actor_display_name: Guardian Name");
     expect(text).toContain("actor_sender_display_name: Guardian Name");
     expect(text).toContain("actor_member_display_name: Guardian Name");
+    // guardian_identity matches canonical, so it should be omitted
+    expect(text).not.toContain("guardian_identity:");
     expect(text).toContain("</inbound_actor_context>");
   });
 
@@ -923,6 +927,38 @@ describe("injectInboundActorContext", () => {
     const result = injectInboundActorContext(baseUserMessage, ctx);
     const text = (result.content[0] as { type: "text"; text: string }).text;
     expect(text).not.toContain("non-guardian account");
+  });
+
+  test("omits redundant fields when they match canonical_actor_identity", () => {
+    const uuid = "vellum-principal-b77e94f5-67c0-4599-8baa-871b925b3da8";
+    const ctx: InboundActorContext = {
+      sourceChannel: "vellum",
+      canonicalActorIdentity: uuid,
+      actorIdentifier: uuid,
+      actorDisplayName: uuid,
+      actorSenderDisplayName: undefined,
+      actorMemberDisplayName: uuid,
+      trustClass: "guardian",
+      guardianIdentity: uuid,
+      memberStatus: "active",
+      memberPolicy: "allow",
+      contactNotes: "guardian",
+    };
+
+    const result = injectInboundActorContext(baseUserMessage, ctx);
+    const text = (result.content[0] as { type: "text"; text: string }).text;
+    // Only essential fields should remain
+    expect(text).toContain("source_channel: vellum");
+    expect(text).toContain(`canonical_actor_identity: ${uuid}`);
+    expect(text).toContain("trust_class: guardian");
+    // Redundant fields should be omitted
+    expect(text).not.toContain("actor_identifier:");
+    expect(text).not.toContain("actor_display_name:");
+    expect(text).not.toContain("actor_sender_display_name:");
+    expect(text).not.toContain("actor_member_display_name:");
+    expect(text).not.toContain("guardian_identity:");
+    // contact_notes: "guardian" matches trust_class, should be omitted
+    expect(text).not.toContain("contact_notes:");
   });
 
   test("omits member_status and member_policy when not provided", () => {
