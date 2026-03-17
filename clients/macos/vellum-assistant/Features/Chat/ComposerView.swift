@@ -68,6 +68,9 @@ struct ComposerView: View {
     @Environment(\.cmdEnterToSend) private var cmdEnterToSend
     @FocusState private var composerFocus: Bool
     @State private var isComposerFocused = false
+    /// Incremented when inputText is cleared externally (e.g. after send) to force
+    /// the TextField to rebuild, clearing its stale field editor buffer.
+    @State private var composerResetId = 0
 
     @State var showSlashMenu = false
     @State var slashFilter = ""
@@ -187,6 +190,7 @@ struct ComposerView: View {
         .lineSpacing(4)
         .foregroundColor(hasSlashHighlight ? .clear : VColor.contentDefault)
         .tint(VColor.primaryBase)
+        .id(composerResetId)
         .focused($composerFocus)
         .disabled(!hasAPIKey)
         .onSubmit { handleComposerSubmit() }
@@ -276,6 +280,13 @@ struct ComposerView: View {
         .onChange(of: inputText) {
             if inputText.isEmpty {
                 withAnimation(VAnimation.fast) { showSlashMenu = false }
+                // Force TextField rebuild to clear its stale field editor buffer.
+                // On macOS, TextField(axis: .vertical) can desync when the binding
+                // is cleared externally — the field editor writes stale text back.
+                composerResetId += 1
+                DispatchQueue.main.async {
+                    composerFocus = true
+                }
             } else {
                 updateSlashState()
             }
@@ -375,9 +386,10 @@ struct ComposerView: View {
     /// selection, ghost-text acceptance, and pending-confirmation approval
     /// all working regardless of how "send" is triggered.
     private func performSendAction() {
-        inputText = inputText.replacingOccurrences(
-            of: "\\n$", with: "", options: .regularExpression
-        )
+        // Do not mutate inputText before onSend(). The ViewModel already trims
+        // whitespace, and mutating here races with the ViewModel's clearing of
+        // inputText — the TextField's internal buffer can write stale text back
+        // through the binding, preventing the composer from clearing.
         if ghostSuffix != nil { onAcceptSuggestion() }
         if showSlashMenu {
             handleSlashNavigation(.select)
@@ -409,8 +421,7 @@ struct ComposerView: View {
             content()
         }
         .padding(.vertical, VSpacing.sm)
-        .padding(.leading, VSpacing.md)
-        .padding(.trailing, VSpacing.sm)
+        .padding(.horizontal, VSpacing.sm)
         .background(
             RoundedRectangle(cornerRadius: VRadius.window)
                 .fill(VColor.surfaceOverlay)
