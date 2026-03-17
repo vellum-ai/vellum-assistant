@@ -2,7 +2,7 @@ import SwiftUI
 import VellumAssistantShared
 
 /// Displays the list of contacts, with an assistant section at the top,
-/// a guardian section, search, channel icons, and status indicators.
+/// a guardian section, search, channel names, and status indicators.
 @MainActor
 struct ContactsListView: View {
     @ObservedObject var viewModel: ContactsViewModel
@@ -124,10 +124,14 @@ struct ContactsListView: View {
                 selection = .contact(contact.id)
             } label: {
                 HStack(spacing: VSpacing.md) {
-                    Text(contact.displayName)
-                        .font(VFont.bodyBold)
-                        .foregroundColor(VColor.contentDefault)
-                        .lineLimit(1)
+                    VStack(alignment: .leading, spacing: VSpacing.xs) {
+                        Text(contact.displayName)
+                            .font(VFont.bodyBold)
+                            .foregroundColor(VColor.contentDefault)
+                            .lineLimit(1)
+
+                        channelNamesText(contact.channels)
+                    }
 
                     Spacer()
                 }
@@ -212,9 +216,7 @@ struct ContactsListView: View {
                             .lineLimit(1)
                     }
 
-                    if !contact.channels.isEmpty {
-                        channelIconsRow(contact.channels)
-                    }
+                    channelNamesText(contact.channels)
                 }
 
                 Spacer()
@@ -232,17 +234,17 @@ struct ContactsListView: View {
         }
     }
 
-    // MARK: - Channel Icons Row
+    // MARK: - Channel Names Text
 
-    private func channelIconsRow(_ channels: [ContactChannelPayload]) -> some View {
-        HStack(spacing: VSpacing.sm) {
-            let channelTypes = Set(channels.filter { $0.status != "revoked" }.map(\.type))
-            ForEach(Array(channelTypes.sorted()), id: \.self) { type in
-                VIconView(channelIcon(for: type), size: 11)
-                    .foregroundColor(VColor.contentTertiary)
-                    .help(channelLabel(for: type))
-            }
-        }
+    private func channelNamesText(_ channels: [ContactChannelPayload]) -> some View {
+        let activeTypes = Set(channels.filter { $0.status != "revoked" }.map(\.type))
+        let label = activeTypes.isEmpty
+            ? "No channels"
+            : activeTypes.sorted().map { channelLabel(for: $0) }.joined(separator: " | ")
+        return Text(label)
+            .font(VFont.caption)
+            .foregroundColor(VColor.contentTertiary)
+            .lineLimit(1)
     }
 
     // MARK: - Status Indicator
@@ -293,21 +295,11 @@ struct ContactsListView: View {
 
     // MARK: - Helpers
 
-    /// Maps channel type to a VIcon.
-    private func channelIcon(for type: String) -> VIcon {
-        switch type {
-        case "telegram": return .send
-        case "phone": return .phoneCall
-        case "email": return .mail
-        case "slack": return .hash
-        default: return .messageCircle
-        }
-    }
-
     /// Maps channel type to a human-readable label.
     private func channelLabel(for type: String) -> String {
         switch type {
         case "telegram": return "Telegram"
+        case "whatsapp": return "WhatsApp"
         case "phone": return "Phone"
         case "email": return "Email"
         case "slack": return "Slack"
