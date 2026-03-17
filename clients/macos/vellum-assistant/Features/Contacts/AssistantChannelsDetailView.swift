@@ -328,6 +328,16 @@ struct AssistantChannelsDetailView: View {
         case connected
     }
 
+    private func channelIcon(for name: String) -> VIcon {
+        switch name {
+        case "Slack": return .hash
+        case "Telegram": return .send
+        case "Phone Calling": return .phone
+        case "Email": return .mail
+        default: return .messageCircle
+        }
+    }
+
     private func channelRowHeader(
         name: String,
         channelKey: String? = nil,
@@ -339,6 +349,7 @@ struct AssistantChannelsDetailView: View {
     ) -> some View {
         ChannelRowHeader(
             name: name,
+            icon: channelIcon(for: name),
             channelKey: channelKey,
             value: value,
             status: status,
@@ -352,6 +363,7 @@ struct AssistantChannelsDetailView: View {
     /// A single channel row with hover-reveal kebab menu for disconnect.
     private struct ChannelRowHeader: View {
         let name: String
+        var icon: VIcon = .messageCircle
         var channelKey: String?
         let value: String?
         let status: ChannelStatus?
@@ -364,7 +376,9 @@ struct AssistantChannelsDetailView: View {
 
         var body: some View {
             HStack(spacing: VSpacing.sm) {
-                // Left: channel name
+                // Left: channel icon + name
+                VIconView(icon, size: 16)
+                    .foregroundColor(VColor.contentSecondary)
                 Text(name)
                     .font(VFont.bodyMedium)
                     .foregroundColor(VColor.contentDefault)
@@ -384,7 +398,7 @@ struct AssistantChannelsDetailView: View {
                 if let status, status == .connected {
                     VBadge(label: "Connected", tone: .positive)
                 } else if let setupAction {
-                    VButton(label: "Set up", style: .ghost) {
+                    VButton(label: "Set up", style: .outlined) {
                         setupAction()
                     }
                 }
@@ -416,6 +430,7 @@ struct AssistantChannelsDetailView: View {
                 }
                 .frame(width: 24)
             }
+            .frame(minHeight: 36)
             .contentShape(Rectangle())
             .onHover { hovering in
                 isHovered = hovering
