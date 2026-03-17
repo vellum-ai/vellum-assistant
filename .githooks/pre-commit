@@ -150,7 +150,7 @@ declare -a SAFE_LINE_PATTERNS=(
     # Bash: password variable assigned from a shell parameter expansion, not a
     # hardcoded value. E.g. `MAC_MINI_PASSWORD="${MAC_MINI_PASSWORD:-}"` or
     # `ACTIVE_PASSWORD="${INTEL_PASSWORD}"`.
-    "[Pp][Aa][Ss][Ss][Ww][Oo][Rr][Dd][[:space:]]*=[[:space:]]*['\"]\\\$\\{[^}]+\\}['\"]"    
+    "[Pp][Aa][Ss][Ss][Ww][Oo][Rr][Dd][[:space:]]*=[[:space:]]*['\"]\\\$\\{[^}]+\\}['\"]"
     # AWS well-known example key used in documentation
     "AKIAIOSFODNN7EXAMPLE"
     # Swift let/var constants used as UserDefaults key names (not secrets).
