@@ -6,6 +6,10 @@ metadata:
   emoji: "🍎"
   vellum:
     display-name: "macOS Automation"
+    activation-hints:
+      - "Interacting with native macOS apps (Messages, Contacts, Calendar, Mail, Reminders, Music, Finder, etc.) via osascript"
+    avoid-when:
+      - "Tasks that can be done entirely in the sandbox or via CLI tools"
 ---
 
 Use this skill to interact with native macOS apps and system-level features via `osascript` (AppleScript) through `host_bash`. Always prefer osascript over browser automation or computer-use for anything involving a native macOS app.
