@@ -43,7 +43,7 @@ struct WakeUpStepView: View {
             .foregroundColor(VColor.contentDefault)
             .opacity(showTitle ? 1 : 0)
             .offset(y: showTitle ? 0 : 8)
-            .padding(.bottom, VSpacing.md)
+            .padding(.bottom, VSpacing.xs)
 
         // Subtitle
         Text("Your personal AI assistant,\nrunning on your terms.")
@@ -54,7 +54,7 @@ struct WakeUpStepView: View {
             .offset(y: showSubtext ? 0 : 8)
             .padding(.bottom, VSpacing.xxl)
 
-        Spacer()
+        Color.clear.frame(height: VSpacing.xxl)
 
         // Buttons
         VStack(spacing: VSpacing.md) {
