@@ -160,6 +160,7 @@ export async function startCli(): Promise<void> {
   let pendingConfirmation = false;
   let pendingCopySession = false;
   let toolStreaming = false;
+  let lastDisplayedError: string | null = null;
   let eventSubscription: EventStreamWatcher | null = null;
   const spinner = new Spinner();
 
@@ -844,7 +845,10 @@ export async function startCli(): Promise<void> {
 
       case "conversation_error":
         spinner.stop();
-        process.stdout.write(`\n[Error: ${msg.userMessage}]\n`);
+        if (lastDisplayedError !== msg.userMessage) {
+          process.stdout.write(`\n[Error: ${msg.userMessage}]\n`);
+        }
+        lastDisplayedError = null;
         break;
 
       case "error":
@@ -857,6 +861,7 @@ export async function startCli(): Promise<void> {
           rl.removeAllListeners("line");
           rl.on("line", handleLine);
         }
+        lastDisplayedError = msg.message;
         process.stdout.write(`\n[Error: ${msg.message}]\n`);
         prompt();
         break;
