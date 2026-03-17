@@ -41,6 +41,7 @@ import {
   migrateCallSessionMode,
   migrateCanonicalGuardianDeliveriesDestinationIndex,
   migrateCanonicalGuardianRequesterChatId,
+  migrateCapabilityCardColumns,
   migrateChannelInboundDeliveredSegments,
   migrateChannelInteractionColumns,
   migrateContactChannelsAccessFields,
@@ -427,6 +428,9 @@ export function initializeDb(): void {
 
   // 73. Create thread_starters table for personalized empty-thread suggestions
   migrateCreateThreadStartersTable(database);
+
+  // 74. Add capability card columns to thread_starters + category relevance table
+  migrateCapabilityCardColumns(database);
 
   validateMigrationState(database);
 

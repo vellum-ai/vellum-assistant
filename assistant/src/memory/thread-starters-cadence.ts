@@ -1,7 +1,7 @@
 /**
- * Cadence logic for thread starters generation.
+ * Cadence logic for thread starters and capability cards generation.
  *
- * Decides whether a new generation job should be enqueued based on how many
+ * Decides whether new generation jobs should be enqueued based on how many
  * active memory items have accumulated since the last generation.
  */
 
@@ -9,6 +9,7 @@ import { and, eq, inArray, like } from "drizzle-orm";
 
 import { getLogger } from "../util/logger.js";
 import { getDb } from "./db.js";
+import { CAPABILITY_CARD_CATEGORIES } from "./job-handlers/capability-cards.js";
 import { enqueueMemoryJob } from "./jobs-store.js";
 import { rawGet } from "./raw-query.js";
 import { memoryCheckpoints, memoryJobs } from "./schema.js";
@@ -17,7 +18,7 @@ const log = getLogger("thread-starters-cadence");
 
 /**
  * Check whether enough new memory items have accumulated to justify
- * generating a fresh batch of thread starters.
+ * generating a fresh batch of thread starters and capability cards.
  */
 export function maybeEnqueueThreadStartersJob(scopeId: string): void {
   const db = getDb();
@@ -71,4 +72,36 @@ export function maybeEnqueueThreadStartersJob(scopeId: string): void {
     { totalActive, lastCount, delta, threshold, scopeId },
     "Enqueued thread starters generation job",
   );
+
+  // Also enqueue capability card regeneration for all categories
+  maybeEnqueueCapabilityCardJobs(scopeId);
+}
+
+/**
+ * Enqueue capability card generation jobs for all categories.
+ * Skips categories that already have pending/running jobs.
+ */
+function maybeEnqueueCapabilityCardJobs(scopeId: string): void {
+  const db = getDb();
+
+  for (const category of CAPABILITY_CARD_CATEGORIES) {
+    const existing = db
+      .select({ id: memoryJobs.id })
+      .from(memoryJobs)
+      .where(
+        and(
+          eq(memoryJobs.type, "generate_capability_cards"),
+          inArray(memoryJobs.status, ["pending", "running"]),
+          like(memoryJobs.payload, `%"scopeId":"${scopeId}"%`),
+          like(memoryJobs.payload, `%"category":"${category}"%`),
+        ),
+      )
+      .get();
+
+    if (!existing) {
+      enqueueMemoryJob("generate_capability_cards", { scopeId, category });
+    }
+  }
+
+  log.info({ scopeId }, "Enqueued capability card generation jobs");
 }

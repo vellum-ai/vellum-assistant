@@ -3,6 +3,7 @@ import type { AssistantConfig } from "../config/types.js";
 import { getLogger } from "../util/logger.js";
 import { rawRun } from "./db.js";
 import { backfillJob } from "./job-handlers/backfill.js";
+import { generateCapabilityCardsJob } from "./job-handlers/capability-cards.js";
 import {
   cleanupStaleSupersededItemsJob,
   pruneOldConversationsJob,
@@ -309,6 +310,9 @@ async function processJob(
       return;
     case "generate_thread_starters":
       await generateThreadStartersJob(job);
+      return;
+    case "generate_capability_cards":
+      await generateCapabilityCardsJob(job);
       return;
     default:
       throw new Error(
