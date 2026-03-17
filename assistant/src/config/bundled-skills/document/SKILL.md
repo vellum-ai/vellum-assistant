@@ -1,6 +1,6 @@
 ---
 name: document
-description: Write, draft, or compose long-form text (blog posts, articles, essays, reports, guides). Use when the user says write, draft, compose, or create a blog/article/essay.
+description: Write, draft, or compose long-form text (blog posts, articles, essays, reports, guides)
 compatibility: "Designed for Vellum personal assistants"
 metadata:
   emoji: "📄"
