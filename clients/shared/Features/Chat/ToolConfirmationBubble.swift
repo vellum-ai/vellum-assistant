@@ -468,33 +468,40 @@ public struct ToolConfirmationBubble: View {
             VSplitButton(label: primaryAllowLabel, style: .primary, size: .compact, action: {
                 firePrimaryAllow()
             }) {
-                if primary != "allow_once" {
-                    Button("Allow once") {
-                        markCommandExplanationSeen()
-                        preferredAllowAction = "allow_once"
-                        onAllow()
+                // "This action" — scoped to this specific invocation or pattern
+                Section("This action") {
+                    if primary != "allow_once" {
+                        Button("Allow once") {
+                            markCommandExplanationSeen()
+                            preferredAllowAction = "allow_once"
+                            onAllow()
+                        }
+                    }
+
+                    if hasAlwaysAllow {
+                        alwaysAllowMenuItems
                     }
                 }
 
-                if hasAllow10m && primary != "allow_10m" {
-                    Button("Allow for 10 minutes") {
-                        markCommandExplanationSeen()
-                        preferredAllowAction = "allow_10m"
-                        onTemporaryAllow?(confirmation.requestId, "allow_10m")
-                    }
-                }
+                // "All actions" — blanket approval for a duration
+                if hasAllow10m || hasAllowConversation {
+                    Section("All actions") {
+                        if hasAllow10m && primary != "allow_10m" {
+                            Button("Allow for 10 minutes") {
+                                markCommandExplanationSeen()
+                                preferredAllowAction = "allow_10m"
+                                onTemporaryAllow?(confirmation.requestId, "allow_10m")
+                            }
+                        }
 
-                if hasAllowConversation && primary != "allow_conversation" {
-                    Button("Allow for this conversation") {
-                        markCommandExplanationSeen()
-                        preferredAllowAction = "allow_conversation"
-                        onTemporaryAllow?(confirmation.requestId, "allow_conversation")
+                        if hasAllowConversation && primary != "allow_conversation" {
+                            Button("Allow for this conversation") {
+                                markCommandExplanationSeen()
+                                preferredAllowAction = "allow_conversation"
+                                onTemporaryAllow?(confirmation.requestId, "allow_conversation")
+                            }
+                        }
                     }
-                }
-
-                if hasAlwaysAllow {
-                    Divider()
-                    alwaysAllowMenuItems
                 }
             }
         } else {
@@ -506,48 +513,14 @@ public struct ToolConfirmationBubble: View {
 
     @ViewBuilder
     private var alwaysAllowMenuItems: some View {
-        if confirmation.allowlistOptions.count > 1 {
-            // Multiple patterns — show each as a menu item or submenu
-            ForEach(Array(confirmation.allowlistOptions.enumerated()), id: \.element.pattern) { _, option in
-                if needsScopeChoice {
-                    Menu(option.label) {
-                        ForEach(Array(confirmation.scopeOptions.enumerated()), id: \.element.scope) { _, scopeOption in
-                            Button(scopeOption.label) {
-                                markCommandExplanationSeen()
-                                onAlwaysAllow(confirmation.requestId, option.pattern, scopeOption.scope, alwaysAllowDecision)
-                            }
-                        }
-                    }
-                } else {
-                    Button(option.label) {
-                        markCommandExplanationSeen()
-                        if option.pattern.isEmpty {
-                            onAllow()
-                        } else {
-                            onAlwaysAllow(confirmation.requestId, option.pattern, "everywhere", alwaysAllowDecision)
-                        }
-                    }
-                }
-            }
-        } else if let option = confirmation.allowlistOptions.first {
-            if needsScopeChoice {
-                Menu("Always allow") {
-                    ForEach(Array(confirmation.scopeOptions.enumerated()), id: \.element.scope) { _, scopeOption in
-                        Button(scopeOption.label) {
-                            markCommandExplanationSeen()
-                            onAlwaysAllow(confirmation.requestId, option.pattern, scopeOption.scope, alwaysAllowDecision)
-                        }
-                    }
-                }
+        Button("Always allow") {
+            markCommandExplanationSeen()
+            let pattern = confirmation.allowlistOptions.first?.pattern ?? ""
+            let scope = confirmation.scopeOptions.first?.scope ?? "everywhere"
+            if pattern.isEmpty {
+                onAllow()
             } else {
-                Button("Always allow") {
-                    markCommandExplanationSeen()
-                    if option.pattern.isEmpty {
-                        onAllow()
-                    } else {
-                        onAlwaysAllow(confirmation.requestId, option.pattern, "everywhere", alwaysAllowDecision)
-                    }
-                }
+                onAlwaysAllow(confirmation.requestId, pattern, scope, alwaysAllowDecision)
             }
         }
     }
