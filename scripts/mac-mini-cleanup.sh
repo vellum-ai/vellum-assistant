@@ -245,9 +245,13 @@ if [ -f "/usr/local/bin/colima" ]; then
     rm -f /usr/local/bin/colima
     echo "       ✅ Removed /usr/local/bin/colima"
     COLIMA_REMOVED=true
-elif [ -f "$HOMEBREW_PREFIX/bin/colima" ] 2>/dev/null; then
+elif [ -n "$HOMEBREW_PREFIX" ] && [ -f "$HOMEBREW_PREFIX/bin/colima" ]; then
     rm -f "$HOMEBREW_PREFIX/bin/colima"
     echo "       ✅ Removed $HOMEBREW_PREFIX/bin/colima"
+    COLIMA_REMOVED=true
+elif [ -f "/opt/homebrew/bin/colima" ]; then
+    rm -f /opt/homebrew/bin/colima
+    echo "       ✅ Removed /opt/homebrew/bin/colima"
     COLIMA_REMOVED=true
 fi
 if [ "$COLIMA_REMOVED" = false ]; then
