@@ -116,7 +116,9 @@ describe("wipeConversation", () => {
       }
     ).$client;
     const itemARow = raw
-      .query("SELECT status, superseded_by FROM memory_items WHERE id = 'itemA'")
+      .query(
+        "SELECT status, superseded_by FROM memory_items WHERE id = 'itemA'",
+      )
       .get() as { status: string; superseded_by: string | null } | null;
     expect(itemARow).not.toBeNull();
     expect(itemARow!.status).toBe("active");
