@@ -41,7 +41,7 @@ public struct UsedToolsListCompact: View {
                         .animation(VAnimation.fast, value: isExpanded)
                 }
                 .padding(.horizontal, VSpacing.sm)
-                .padding(.vertical, VSpacing.xs)
+                .padding(.vertical, VSpacing.sm)
                 .background(
                     RoundedRectangle(cornerRadius: VRadius.lg)
                         .fill(VColor.surfaceBase.opacity(0.3))

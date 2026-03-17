@@ -214,7 +214,7 @@ struct MainWindowView: View {
     }
 
     func dismissConversationDrawer() {
-        withAnimation(.spring(response: 0.35, dampingFraction: 0.7)) {
+        withAnimation(VAnimation.fast) {
             showConversationActionsDrawer = false
         }
     }
