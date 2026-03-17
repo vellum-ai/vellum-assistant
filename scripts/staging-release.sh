@@ -10,12 +10,15 @@
 # Configuration is read from scripts/.env (see scripts/.env.example).
 #
 # Usage:
-#   ./scripts/staging-release.sh [--cleanup]
+#   ./scripts/staging-release.sh [--cleanup] [--intel <user@host>]
 #
 # Options:
 #   --cleanup   Before installing, SCP the mac-mini-cleanup.sh script to the
 #               mini, run it, then remove it. Resets the environment to a
 #               clean state before installing the staging app.
+#   --intel <user@host>
+#               Build for x86_64 (Intel) instead of arm64 (Apple Silicon)
+#               and deploy to the specified Mac via SSH.
 
 set -euo pipefail
 
@@ -24,11 +27,24 @@ set -euo pipefail
 # ---------------------------------------------------------------------------
 
 RUN_CLEANUP=false
-for arg in "$@"; do
-  case "$arg" in
+INTEL_BUILD=false
+INTEL_HOST=""
+
+while [ $# -gt 0 ]; do
+  case "$1" in
     --cleanup) RUN_CLEANUP=true ;;
-    *) echo "Unknown option: $arg"; exit 1 ;;
+    --intel)
+      INTEL_BUILD=true
+      if [ -z "${2:-}" ] || [[ "$2" == --* ]]; then
+        echo "ERROR: --intel requires a <user@host> argument"
+        exit 1
+      fi
+      INTEL_HOST="$2"
+      shift
+      ;;
+    *) echo "Unknown option: $1"; exit 1 ;;
   esac
+  shift
 done
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -45,8 +61,12 @@ fi
 # Configuration (override via scripts/.env or environment)
 # ---------------------------------------------------------------------------
 
-# SSH host of the Mac mini (required). Can include the user, e.g. user@host.
-MAC_MINI_HOST="${MAC_MINI_HOST:?MAC_MINI_HOST is required -- set it in scripts/.env}"
+# SSH host of the Mac mini (required unless --intel provides its own target).
+if [ "$INTEL_BUILD" = true ]; then
+  MAC_MINI_HOST="${MAC_MINI_HOST:-}"
+else
+  MAC_MINI_HOST="${MAC_MINI_HOST:?MAC_MINI_HOST is required -- set it in scripts/.env}"
+fi
 
 # SSH user. Only needed if MAC_MINI_HOST doesn't already include a user@ prefix.
 MAC_MINI_USER="${MAC_MINI_USER:-}"
@@ -61,10 +81,14 @@ MAC_MINI_SSH_KEY="${MAC_MINI_SSH_KEY:-}"
 # Derived values
 # ---------------------------------------------------------------------------
 
-if [ -n "$MAC_MINI_USER" ]; then
-  SCP_HOST="${MAC_MINI_USER}@${MAC_MINI_HOST}"
+if [ "$INTEL_BUILD" = true ]; then
+  SCP_HOST="${INTEL_HOST}"
 else
-  SCP_HOST="${MAC_MINI_HOST}"
+  if [ -n "$MAC_MINI_USER" ]; then
+    SCP_HOST="${MAC_MINI_USER}@${MAC_MINI_HOST}"
+  else
+    SCP_HOST="${MAC_MINI_HOST}"
+  fi
 fi
 
 # If a password is configured, make sure sshpass is available.
@@ -103,7 +127,12 @@ MACOS_BUILD_DIR="$SCRIPT_DIR/../clients/macos"
 export BUNDLE_DISPLAY_NAME="Vellum (Staging)"
 export COMMIT_SHA="${COMMIT_SHA:-$(git -C "$SCRIPT_DIR" rev-parse HEAD 2>/dev/null || echo "")}"
 
-echo "Building staging release (arm64)..."
+if [ "$INTEL_BUILD" = true ]; then
+  export RELEASE_ARCH_FLAGS="--arch x86_64"
+  echo "Building staging release (x86_64 / Intel)..."
+else
+  echo "Building staging release (arm64)..."
+fi
 "$MACOS_BUILD_DIR/build.sh" release
 
 # ---------------------------------------------------------------------------
