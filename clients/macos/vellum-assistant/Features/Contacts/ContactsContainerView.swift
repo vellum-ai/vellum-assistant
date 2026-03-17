@@ -60,18 +60,23 @@ struct ContactsContainerView: View {
                         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
                 case .contact(let contactId):
                     if let contact = viewModel.contacts.first(where: { $0.id == contactId }) {
-                        ContactDetailView(
-                            contact: contact,
-                            daemonClient: daemonClient,
-                            store: store,
-                            onDelete: {
-                                selection = .assistant
-                                viewModel.loadContacts()
-                            },
-                            guardianName: viewModel.guardianContact?.displayName
-                        )
-                        .id(contactId)
-                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+                        if contact.role == "guardian" {
+                            guardianDetailView(contact: contact)
+                                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+                        } else {
+                            ContactDetailView(
+                                contact: contact,
+                                daemonClient: daemonClient,
+                                store: store,
+                                onDelete: {
+                                    selection = .assistant
+                                    viewModel.loadContacts()
+                                },
+                                guardianName: viewModel.guardianContact?.displayName
+                            )
+                            .id(contactId)
+                            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+                        }
                     }
                 case nil:
                     // True empty state — contacts loaded but none selected
@@ -108,6 +113,55 @@ struct ContactsContainerView: View {
     }
 
     @State private var cachedAssistantName: String = AssistantDisplayName.placeholder
+
+    /// Guardian detail with the same card header as other contacts, plus
+    /// the existing verification/setup content.
+    private func guardianDetailView(contact: ContactPayload) -> some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: VSpacing.lg) {
+                // Header card matching the unified style
+                VStack(alignment: .leading, spacing: VSpacing.xs) {
+                    HStack(spacing: VSpacing.sm) {
+                        Text(contact.displayName)
+                            .font(VFont.display)
+                            .foregroundColor(VColor.contentDefault)
+                        Text("Guardian")
+                            .font(VFont.captionMedium)
+                            .foregroundColor(VColor.contentDefault)
+                            .padding(.horizontal, VSpacing.sm)
+                            .padding(.vertical, VSpacing.xs)
+                            .background(VColor.tagGuardian)
+                            .clipShape(RoundedRectangle(cornerRadius: VRadius.sm + 2))
+                    }
+                    Text("\(contact.interactionCount) interaction\(contact.interactionCount == 1 ? "" : "s")")
+                        .font(VFont.caption)
+                        .foregroundColor(VColor.contentTertiary)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(VSpacing.lg)
+                .overlay(
+                    RoundedRectangle(cornerRadius: VRadius.xl)
+                        .stroke(VColor.borderDisabled, lineWidth: 2)
+                )
+
+                // Channels card with existing verification content
+                GuardianChannelsDetailView(
+                    contact: contact,
+                    daemonClient: daemonClient,
+                    store: store,
+                    onSelectAssistant: { selection = .assistant }
+                )
+                .padding(VSpacing.lg)
+                .overlay(
+                    RoundedRectangle(cornerRadius: VRadius.xl)
+                        .stroke(VColor.borderDisabled, lineWidth: 2)
+                )
+            }
+            .padding(VSpacing.lg)
+        }
+        .background(VColor.surfaceOverlay)
+        .id(contact.id)
+    }
 
     /// Assistant detail with the same card header as human contacts, plus
     /// the existing AssistantChannelsDetailView for channel configuration.
