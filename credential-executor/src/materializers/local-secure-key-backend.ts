@@ -23,11 +23,13 @@
  *   `userInfo().homedir`, so the key is only correct when CES runs as the
  *   same OS user as the assistant.
  *
- * **Managed-mode restriction:** This backend must not be used in managed
- * (sidecar) deployments. For legacy v1 stores, the different container user
- * identity produces a different PBKDF2-derived key, causing silent
- * decryption failures. Managed deployments must use `platform_oauth`
- * handles exclusively.
+ * **Managed-mode restriction (v1 only):** For legacy v1 stores, the
+ * different container user identity produces a different PBKDF2-derived
+ * key, causing silent decryption failures. v2 stores use a
+ * UID-independent `store.key` file that can be shared via volume mount,
+ * removing this technical barrier. Managed deployments currently use
+ * `platform_oauth` handles exclusively as a policy choice (simpler
+ * lifecycle, centralized token management).
  */
 
 import {
