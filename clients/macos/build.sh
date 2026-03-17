@@ -95,7 +95,14 @@ APP_NAME="vellum-assistant"
 _DOCK_LABEL_FILE="$HOME/.vellum/.dock-display-name"
 if [ -z "${BUNDLE_DISPLAY_NAME:-}" ] && [ -f "$_DOCK_LABEL_FILE" ]; then
     _SAVED_NAME="$(cat "$_DOCK_LABEL_FILE" 2>/dev/null | tr -d '\n')"
-    BUNDLE_DISPLAY_NAME="${_SAVED_NAME:-Vellum}"
+    # Reject names containing XML-reserved chars (&, <, >) or path separators (/)
+    # that would produce invalid Info.plist XML or break file paths.
+    if [[ "${_SAVED_NAME:-}" =~ [/\<\>\&] ]]; then
+        echo "Warning: dock-display-name contains unsafe characters, falling back to 'Vellum'" >&2
+        BUNDLE_DISPLAY_NAME="Vellum"
+    else
+        BUNDLE_DISPLAY_NAME="${_SAVED_NAME:-Vellum}"
+    fi
 fi
 BUNDLE_DISPLAY_NAME="${BUNDLE_DISPLAY_NAME:-Vellum}"
 APP_DIR="$SCRIPT_DIR/dist/$BUNDLE_DISPLAY_NAME.app"
@@ -1218,9 +1225,9 @@ if [ "$RELEASE_APP_MODE" = true ]; then
             --window-size 660 400 \
             --icon-size 128 \
             --text-size 10 \
-            --icon "Vellum.app" 175 190 \
+            --icon "$BUNDLE_DISPLAY_NAME.app" 175 190 \
             --icon "Applications" 530 190 \
-            --hide-extension "Vellum.app" \
+            --hide-extension "$BUNDLE_DISPLAY_NAME.app" \
             --no-internet-enable \
             "$DMG_PATH" \
             "$DMG_STAGING/" \
