@@ -70,7 +70,11 @@ export type TelegramConfigResult = Omit<TelegramConfigResponse, "type">;
 // -- Extracted business logic functions --
 
 export async function getTelegramConfig(): Promise<TelegramConfigResult> {
-  await syncManualTokenConnection("telegram");
+  const botUsername = getTelegramBotUsername();
+  await syncManualTokenConnection(
+    "telegram",
+    botUsername ? `@${botUsername}` : undefined,
+  );
   const hasBotToken = !!(await getSecureKeyAsync(
     credentialKey("telegram", "bot_token"),
   ));
@@ -80,7 +84,6 @@ export async function getTelegramConfig(): Promise<TelegramConfigResult> {
   const conn = getConnectionByProvider("telegram");
   const connected = !!(conn && conn.status === "active");
   const botId = getTelegramBotId();
-  const botUsername = getTelegramBotUsername();
   return {
     success: true,
     hasBotToken,
