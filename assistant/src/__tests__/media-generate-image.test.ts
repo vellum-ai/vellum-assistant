@@ -11,6 +11,7 @@ import type { ToolContext } from "../tools/types.js";
 // ---------------------------------------------------------------------------
 
 let mockApiKey: string | undefined = "test-gemini-key";
+let mockImageGenMode: "your-own" | "managed" = "your-own";
 let mockGenerateResult = {
   images: [{ mimeType: "image/png", dataBase64: "generated-data" }],
   text: "A beautiful image",
@@ -29,7 +30,7 @@ mock.module("../config/loader.js", () => ({
         model: "claude-opus-4-6",
       },
       "image-generation": {
-        mode: "your-own",
+        mode: mockImageGenMode,
         provider: "gemini",
         model: "gemini-3.1-flash-image-preview",
       },
@@ -41,6 +42,10 @@ mock.module("../config/loader.js", () => ({
 mock.module("../security/secure-keys.js", () => ({
   getSecureKeyAsync: async (account: string) => {
     if (account === "gemini") return mockApiKey;
+    return undefined;
+  },
+  getProviderKeyAsync: async (provider: string) => {
+    if (provider === "gemini") return mockApiKey;
     return undefined;
   },
 }));
@@ -171,6 +176,7 @@ const CONFIG_DIR = join(
 
 beforeEach(() => {
   mockApiKey = "test-gemini-key";
+  mockImageGenMode = "your-own";
   mockGenerateResult = {
     images: [{ mimeType: "image/png", dataBase64: "generated-data" }],
     text: "A beautiful image",
@@ -208,8 +214,8 @@ describe("image-studio skill script wrapper", () => {
     expect(result.content).toContain("No Gemini API key");
   });
 
-  test("falls back to managed proxy when no API key is configured", async () => {
-    mockApiKey = undefined;
+  test("managed mode uses managed proxy credentials", async () => {
+    mockImageGenMode = "managed";
     mockManagedBaseUrl = "https://platform.example.com/v1/runtime-proxy/vertex";
     mockManagedProxyContext = {
       enabled: true,
@@ -228,7 +234,19 @@ describe("image-studio skill script wrapper", () => {
     });
   });
 
-  test("prefers direct API key over managed proxy", async () => {
+  test("managed mode returns error when managed proxy is unavailable", async () => {
+    mockImageGenMode = "managed";
+    mockApiKey = "direct-key"; // should be ignored in managed mode
+    mockManagedBaseUrl = undefined;
+
+    const result = await run({ prompt: "a cat" }, fakeContext);
+
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain("Managed proxy is not available");
+  });
+
+  test("your-own mode uses direct API key", async () => {
+    mockImageGenMode = "your-own";
     mockApiKey = "direct-key";
     mockManagedBaseUrl = "https://platform.example.com/v1/runtime-proxy/vertex";
     mockManagedProxyContext = {
