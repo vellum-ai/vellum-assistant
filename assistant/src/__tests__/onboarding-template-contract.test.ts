@@ -16,8 +16,8 @@ describe("onboarding template contracts", () => {
     test("contains identity discovery prompts", () => {
       const lower = bootstrap.toLowerCase();
       expect(lower).toContain("your name");
-      expect(lower).toContain("your nature");
-      expect(lower).toContain("your emoji");
+      expect(lower).toContain("personality");
+      expect(lower).toContain("avatar");
     });
 
     test("infers personality organically instead of asking directly", () => {
@@ -34,11 +34,11 @@ describe("onboarding template contracts", () => {
     });
 
     test("asks about user after assistant identity", () => {
-      const nameIdx = bootstrap.indexOf("Your name.");
-      const whoIdx = bootstrap.indexOf("Who they are.");
+      const nameIdx = bootstrap.indexOf("Your name");
+      const guardianIdx = bootstrap.indexOf("Your guardian");
       expect(nameIdx).toBeGreaterThan(-1);
-      expect(whoIdx).toBeGreaterThan(-1);
-      expect(nameIdx).toBeLessThan(whoIdx);
+      expect(guardianIdx).toBeGreaterThan(-1);
+      expect(nameIdx).toBeLessThan(guardianIdx);
     });
 
     test("gathers user context: work role, hobbies, daily tools", () => {
@@ -60,7 +60,7 @@ describe("onboarding template contracts", () => {
       expect(lower).toContain("do not delete this file");
       expect(lower).toContain("you have a name");
       expect(lower).toContain("vibe");
-      expect(lower).toContain("2 suggestions");
+      expect(lower).toContain("two suggestions");
     });
 
     test("contains refusal policy", () => {
@@ -68,7 +68,7 @@ describe("onboarding template contracts", () => {
       expect(lower).toContain("hard-required");
       expect(lower).toContain("best-effort");
       expect(lower).toContain("declined");
-      expect(lower).toContain("do not push");
+      expect(lower).toContain("don't push");
     });
 
     test("defines resolved as provided, inferred, or declined", () => {

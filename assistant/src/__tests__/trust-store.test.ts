@@ -790,6 +790,7 @@ describe("Trust Store", () => {
         "skill_execute",
         "skill_load",
         "ui_dismiss",
+        "ui_show",
         "ui_update",
       ]);
     });
