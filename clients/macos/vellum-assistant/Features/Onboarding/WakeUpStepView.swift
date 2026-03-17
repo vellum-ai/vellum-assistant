@@ -54,6 +54,8 @@ struct WakeUpStepView: View {
             .offset(y: showSubtext ? 0 : 8)
             .padding(.bottom, VSpacing.xxl)
 
+        Spacer()
+
         // Buttons
         VStack(spacing: VSpacing.md) {
             if authManager?.isLoading == true {

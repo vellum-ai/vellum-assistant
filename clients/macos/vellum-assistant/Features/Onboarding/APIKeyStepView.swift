@@ -30,7 +30,7 @@ struct APIKeyStepView: View {
             .padding(.bottom, VSpacing.xxl)
 
         VStack(spacing: VSpacing.md) {
-            VStack(spacing: VSpacing.md) {
+            VStack(spacing: 0) {
                 hostingCards
 
                 Button {
@@ -48,7 +48,8 @@ struct APIKeyStepView: View {
                 .buttonStyle(.plain)
                 .pointerCursor()
                 .accessibilityLabel("Need help deciding?")
-                .padding(.top, VSpacing.xs)
+                .padding(.top, VSpacing.sm)
+                .padding(.bottom, VSpacing.xl)
 
                 OnboardingButton(
                     title: continueButtonTitle,
@@ -62,7 +63,7 @@ struct APIKeyStepView: View {
                     OnboardingButton(title: "Back", style: .ghost) {
                         goBack()
                     }
-                    .padding(.top, VSpacing.xs)
+                    .padding(.top, VSpacing.md)
                 }
             }
         }

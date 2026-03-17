@@ -34,8 +34,10 @@ struct APIKeyEntryStepView: View {
             .offset(y: showTitle ? 0 : 8)
             .padding(.bottom, VSpacing.xxl)
 
+        Spacer()
+
         VStack(spacing: VSpacing.md) {
-            VStack(spacing: VSpacing.md) {
+            VStack(spacing: 0) {
                 apiKeyField
 
                 Button {
@@ -53,7 +55,8 @@ struct APIKeyEntryStepView: View {
                 .buttonStyle(.plain)
                 .pointerCursor()
                 .accessibilityLabel("Get an API key")
-                .padding(.top, VSpacing.xs)
+                .padding(.top, VSpacing.sm)
+                .padding(.bottom, VSpacing.xl)
 
                 OnboardingButton(
                     title: "Continue",
@@ -66,6 +69,7 @@ struct APIKeyEntryStepView: View {
                 OnboardingButton(title: "Back", style: .ghost) {
                     goBack()
                 }
+                .padding(.top, VSpacing.md)
             }
         }
         .padding(.horizontal, VSpacing.xxl)
