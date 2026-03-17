@@ -272,11 +272,9 @@ describe("buildSystemPrompt", () => {
     expect(result).not.toContain("## Routing: Starter Tasks");
   });
 
-  test("includes memory persistence section", () => {
+  test("does not include removed memory persistence section", () => {
     const result = buildSystemPrompt();
-    expect(result).toContain("## Memory Persistence");
-    expect(result).toContain("memory_manage");
-    expect(result).toContain("Saved > unsaved. Always.");
+    expect(result).not.toContain("## Memory Persistence");
   });
 
   test("config section uses workspace directory from platform util", () => {
