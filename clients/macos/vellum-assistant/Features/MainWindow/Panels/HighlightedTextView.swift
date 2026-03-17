@@ -3,8 +3,8 @@ import VellumAssistantShared
 
 /// A code viewer with line numbers, horizontal scrolling, and syntax highlighting.
 ///
-/// Uses pure SwiftUI rendering (TextEditor for editable mode, Text for read-only)
-/// to avoid NSTextView compositing issues inside SwiftUI view hierarchies.
+/// Uses `SyntaxTextView` (NSTextView) for editable mode with live syntax highlighting,
+/// and SwiftUI `Text` for read-only mode with line numbers and custom search.
 struct HighlightedTextView: View {
     @Binding var text: String
     let language: SyntaxLanguage
@@ -52,61 +52,21 @@ struct HighlightedTextView: View {
 
     // MARK: - Editable Mode
 
-    /// TextEditor-based editable view — no line numbers but text is visible and editable.
-    /// Shows search bar with match count but does not highlight matches inline
-    /// (TextEditor doesn't support AttributedString).
+    /// Syntax-highlighted editable view backed by NSTextView via SyntaxTextView.
+    /// Native Cmd+F find bar is provided by NSTextView.usesFindBar.
     private var editableView: some View {
-        VStack(spacing: 0) {
-            if isSearchVisible {
-                SourceSearchBar(
-                    searchQuery: $searchQuery,
-                    currentMatchIndex: $currentMatchIndex,
-                    matchCount: searchMatchCount,
-                    onDismiss: dismissSearch
-                )
-            }
-
-            TextEditor(text: editableBinding)
-                .font(VFont.mono)
-                .foregroundStyle(VColor.contentDefault)
-                .scrollContentBackground(.hidden)
-                .background(Self.editorBackground)
-                .scrollDisabled(false)
-        }
-        .onKeyPress("f", phases: .down) { press in
-            guard press.modifiers == .command else { return .ignored }
-            isSearchVisible = true
-            return .handled
-        }
+        SyntaxTextView(
+            text: $text,
+            language: language,
+            onTextChange: onTextChange
+        )
         .onKeyPress(.escape) {
-            if isSearchVisible {
-                dismissSearch()
-                return .handled
-            }
             if isActivelyEditing {
                 isActivelyEditing = false
                 return .handled
             }
             return .ignored
         }
-        .onChange(of: text) { _, _ in
-            let count = searchMatchCount
-            if count == 0 {
-                currentMatchIndex = 0
-            } else if currentMatchIndex >= count {
-                currentMatchIndex = max(0, count - 1)
-            }
-        }
-    }
-
-    private var editableBinding: Binding<String> {
-        Binding(
-            get: { text },
-            set: { newValue in
-                text = newValue
-                onTextChange?(newValue)
-            }
-        )
     }
 
     // MARK: - Read-Only Mode
