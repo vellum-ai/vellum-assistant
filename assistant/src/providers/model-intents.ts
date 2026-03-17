@@ -22,7 +22,7 @@ const PROVIDER_MODEL_INTENTS: Record<
   },
   openai: {
     "latency-optimized": "gpt-5.4-nano",
-    "quality-optimized": "gpt-5.2",
+    "quality-optimized": "gpt-5.4",
     "vision-optimized": "gpt-5.4",
   },
   gemini: {
