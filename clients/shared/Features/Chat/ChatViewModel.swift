@@ -348,10 +348,6 @@ public final class ChatViewModel: ObservableObject {
         set { errorManager.connectionDiagnosticHint = newValue }
     }
 
-    // MARK: - Static size limits (forwarded to attachment manager for use in extensions)
-
-    /// Maximum file size per attachment (100 MB).
-    static let maxFileSize = ChatAttachmentManager.maxFileSize
     /// Maximum image size before compression (4 MB - leaves headroom for base64 encoding).
     /// Anthropic has a 5MB limit per image; base64 encoding adds ~33% overhead.
     static let maxImageSize = ChatAttachmentManager.maxImageSize
