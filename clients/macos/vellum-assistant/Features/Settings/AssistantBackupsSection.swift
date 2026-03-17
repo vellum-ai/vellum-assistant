@@ -357,7 +357,7 @@ extension AssistantBackupsSection {
                 }
             }
         } message: {
-            Text("This will replace the assistant's current data with the backup. This action cannot be undone.")
+            Text("This will replace the assistant's current data with the backup and restart it. This action cannot be undone.")
         }
     }
 
@@ -394,7 +394,15 @@ extension AssistantBackupsSection {
             if httpResponse.statusCode == 200 {
                 if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
                    let success = json["success"] as? Bool, success {
-                    successMessage = "Backup restored successfully. You may need to restart the assistant."
+                    successMessage = "Backup restored. Restarting assistant..."
+
+                    // Auto-restart the assistant so restored state takes effect
+                    let assistantName = assistant.assistantId
+                    Task {
+                        AppDelegate.shared?.assistantCli.stop(name: nil)
+                        try? await Task.sleep(nanoseconds: 500_000_000)
+                        try? await AppDelegate.shared?.assistantCli.wake(name: assistantName)
+                    }
                 } else {
                     errorMessage = "Import completed with warnings. Check assistant logs for details."
                 }

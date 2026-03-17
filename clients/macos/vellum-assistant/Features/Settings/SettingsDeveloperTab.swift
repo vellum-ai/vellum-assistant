@@ -73,11 +73,14 @@ struct SettingsDeveloperTab: View {
             if let assistant = lockfileAssistants.first(where: { $0.assistantId == selectedAssistantId }),
                assistant.isManaged || assistant.isRemote {
                 restartAssistantSection
-                AssistantBackupsSection(assistant: assistant, store: store)
-                    .withRestoreConfirmation
                 if assistant.isManaged {
                     sshTerminalSection
                 }
+            }
+            // Backups (all assistant types)
+            if let assistant = lockfileAssistants.first(where: { $0.assistantId == selectedAssistantId }) {
+                AssistantBackupsSection(assistant: assistant, store: store)
+                    .withRestoreConfirmation
             }
             // Transfer (local ↔ managed)
             if let assistant = lockfileAssistants.first(where: { $0.assistantId == selectedAssistantId }),
