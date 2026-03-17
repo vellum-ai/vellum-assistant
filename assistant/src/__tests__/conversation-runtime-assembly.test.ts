@@ -1040,9 +1040,9 @@ describe("buildChannelTurnContextBlock", () => {
       conversationOriginChannel: "telegram",
     });
     expect(block).toBe(
-      "<channel_turn_context>\n" +
+      "<turn_context>\n" +
         "channel: telegram\n" +
-        "</channel_turn_context>",
+        "</turn_context>",
     );
   });
 
@@ -1094,9 +1094,9 @@ describe("injectChannelTurnContext", () => {
     const injected = result.content[0];
     expect(injected.type).toBe("text");
     const text = (injected as { type: "text"; text: string }).text;
-    expect(text).toContain("<channel_turn_context>");
+    expect(text).toContain("<turn_context>");
     expect(text).toContain("channel: telegram");
-    expect(text).toContain("</channel_turn_context>");
+    expect(text).toContain("</turn_context>");
   });
 
   test("preserves original message content", () => {
@@ -1127,7 +1127,7 @@ describe("stripChannelTurnContext", () => {
         content: [
           {
             type: "text",
-            text: "<channel_turn_context>\nuser_message_channel: telegram\n</channel_turn_context>",
+            text: "<turn_context>\nuser_message_channel: telegram\n</turn_context>",
           },
           { type: "text", text: "Hello" },
         ],
@@ -1155,7 +1155,7 @@ describe("stripChannelTurnContext", () => {
         content: [
           {
             type: "text",
-            text: "<channel_turn_context>\nuser_message_channel: macos\n</channel_turn_context>",
+            text: "<turn_context>\nuser_message_channel: macos\n</turn_context>",
           },
         ],
       },
@@ -1208,7 +1208,7 @@ describe("applyRuntimeInjections with channelTurnContext", () => {
     expect(result[0].content.length).toBe(2);
     const injected = result[0].content[0];
     expect((injected as { type: "text"; text: string }).text).toContain(
-      "<channel_turn_context>",
+      "<turn_context>",
     );
   });
 
@@ -1355,8 +1355,8 @@ describe("applyRuntimeInjections — injection mode", () => {
     expect(allText).toContain("<channel_command_context>");
     expect(allText).toContain("<active_workspace>");
     expect(allText).toContain("<channel_capabilities>");
-    expect(allText).toContain("<channel_turn_context>");
-    expect(allText).toContain("<interface_turn_context>");
+    expect(allText).toContain("<turn_context>");
+    expect(allText).toContain("<turn_context>");
     expect(allText).toContain("<inbound_actor_context>");
     expect(allText).toContain("<non_interactive_context>");
   });
@@ -1405,8 +1405,8 @@ describe("applyRuntimeInjections — injection mode", () => {
       .join("\n");
 
     // Kept in minimal mode
-    expect(allText).toContain("<channel_turn_context>");
-    expect(allText).toContain("<interface_turn_context>");
+    expect(allText).toContain("<turn_context>");
+    expect(allText).toContain("<turn_context>");
     expect(allText).toContain("<inbound_actor_context>");
     expect(allText).toContain("<non_interactive_context>");
     expect(allText).toContain("<channel_capabilities>");

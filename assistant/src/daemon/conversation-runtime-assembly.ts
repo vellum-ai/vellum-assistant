@@ -644,43 +644,75 @@ export interface ChannelTurnContextParams {
 }
 
 /**
- * Build the `<channel_turn_context>` text block that informs the model
- * which channels are active for the current turn and the conversation's
- * origin channel.
+ * Build the `<turn_context>` text block that informs the model which
+ * interfaces and channels are active for the current turn. Collapses
+ * to single-value shorthand when all values within a dimension match.
  */
-export function buildChannelTurnContextBlock(
-  params: ChannelTurnContextParams,
+export function buildTurnContextBlock(
+  channelParams?: ChannelTurnContextParams,
+  interfaceParams?: InterfaceTurnContextParams,
 ): string {
-  const { turnContext, conversationOriginChannel } = params;
-  const user = turnContext.userMessageChannel;
-  const assistant = turnContext.assistantMessageChannel;
-  const origin = conversationOriginChannel ?? "unknown";
+  const lines: string[] = ["<turn_context>"];
 
-  const lines: string[] = ["<channel_turn_context>"];
-  if (user === assistant && user === origin) {
-    lines.push(`channel: ${user}`);
-  } else {
-    lines.push(`user_message_channel: ${user}`);
-    lines.push(`assistant_message_channel: ${assistant}`);
-    lines.push(`conversation_origin_channel: ${origin}`);
+  if (interfaceParams) {
+    const user = interfaceParams.turnContext.userMessageInterface;
+    const assistant = interfaceParams.turnContext.assistantMessageInterface;
+    const origin = interfaceParams.conversationOriginInterface ?? "unknown";
+    if (user === assistant && user === origin) {
+      lines.push(`interface: ${user}`);
+    } else {
+      lines.push(`user_message_interface: ${user}`);
+      lines.push(`assistant_message_interface: ${assistant}`);
+      lines.push(`conversation_origin_interface: ${origin}`);
+    }
   }
-  lines.push("</channel_turn_context>");
+
+  if (channelParams) {
+    const user = channelParams.turnContext.userMessageChannel;
+    const assistant = channelParams.turnContext.assistantMessageChannel;
+    const origin = channelParams.conversationOriginChannel ?? "unknown";
+    if (user === assistant && user === origin) {
+      lines.push(`channel: ${user}`);
+    } else {
+      lines.push(`user_message_channel: ${user}`);
+      lines.push(`assistant_message_channel: ${assistant}`);
+      lines.push(`conversation_origin_channel: ${origin}`);
+    }
+  }
+
+  lines.push("</turn_context>");
   return lines.join("\n");
 }
 
 /**
- * Prepend channel turn context to the last user message so the model
- * knows which channels are involved in this turn.
+ * Prepend unified turn context to the last user message.
  */
-export function injectChannelTurnContext(
+export function injectTurnContext(
   message: Message,
-  params: ChannelTurnContextParams,
+  channelParams?: ChannelTurnContextParams,
+  interfaceParams?: InterfaceTurnContextParams,
 ): Message {
-  const block = buildChannelTurnContextBlock(params);
+  const block = buildTurnContextBlock(channelParams, interfaceParams);
   return {
     ...message,
     content: [{ type: "text", text: block }, ...message.content],
   };
+}
+
+// Keep legacy wrappers for backwards compatibility with existing callers.
+/** @deprecated Use {@link buildTurnContextBlock} instead. */
+export function buildChannelTurnContextBlock(
+  params: ChannelTurnContextParams,
+): string {
+  return buildTurnContextBlock(params, undefined);
+}
+
+/** @deprecated Use {@link injectTurnContext} instead. */
+export function injectChannelTurnContext(
+  message: Message,
+  params: ChannelTurnContextParams,
+): Message {
+  return injectTurnContext(message, params, undefined);
 }
 
 /**
@@ -936,13 +968,16 @@ export function stripChannelCommandContext(messages: Message[]): Message[] {
   return stripUserTextBlocksByPrefix(messages, ["<channel_command_context>"]);
 }
 
-/** Strip `<channel_turn_context>` blocks injected by `injectChannelTurnContext`. */
+/** Strip turn context blocks (both legacy separate and unified). */
 export function stripChannelTurnContext(messages: Message[]): Message[] {
-  return stripUserTextBlocksByPrefix(messages, ["<channel_turn_context>"]);
+  return stripUserTextBlocksByPrefix(messages, [
+    "<channel_turn_context>",
+    "<turn_context>",
+  ]);
 }
 
 // ---------------------------------------------------------------------------
-// Interface turn context injection
+// Interface turn context
 // ---------------------------------------------------------------------------
 
 /** Parameters for building the interface turn context block. */
@@ -951,49 +986,27 @@ export interface InterfaceTurnContextParams {
   conversationOriginInterface: InterfaceId | null;
 }
 
-/**
- * Build the `<interface_turn_context>` text block that informs the model
- * which interfaces are active for the current turn and the conversation's
- * origin interface.
- */
+/** @deprecated Use {@link buildTurnContextBlock} instead. */
 export function buildInterfaceTurnContextBlock(
   params: InterfaceTurnContextParams,
 ): string {
-  const { turnContext, conversationOriginInterface } = params;
-  const user = turnContext.userMessageInterface;
-  const assistant = turnContext.assistantMessageInterface;
-  const origin = conversationOriginInterface ?? "unknown";
-
-  const lines: string[] = ["<interface_turn_context>"];
-  if (user === assistant && user === origin) {
-    lines.push(`interface: ${user}`);
-  } else {
-    lines.push(`user_message_interface: ${user}`);
-    lines.push(`assistant_message_interface: ${assistant}`);
-    lines.push(`conversation_origin_interface: ${origin}`);
-  }
-  lines.push("</interface_turn_context>");
-  return lines.join("\n");
+  return buildTurnContextBlock(undefined, params);
 }
 
-/**
- * Prepend interface turn context to the last user message so the model
- * knows which interfaces are involved in this turn.
- */
+/** @deprecated Use {@link injectTurnContext} instead. */
 export function injectInterfaceTurnContext(
   message: Message,
   params: InterfaceTurnContextParams,
 ): Message {
-  const block = buildInterfaceTurnContextBlock(params);
-  return {
-    ...message,
-    content: [{ type: "text", text: block }, ...message.content],
-  };
+  return injectTurnContext(message, undefined, params);
 }
 
-/** Strip `<interface_turn_context>` blocks injected by `injectInterfaceTurnContext`. */
+/** Strip interface turn context blocks (both legacy separate and unified). */
 export function stripInterfaceTurnContext(messages: Message[]): Message[] {
-  return stripUserTextBlocksByPrefix(messages, ["<interface_turn_context>"]);
+  return stripUserTextBlocksByPrefix(messages, [
+    "<interface_turn_context>",
+    "<turn_context>",
+  ]);
 }
 
 /** Prefixes stripped by the pipeline (order doesn't matter — single pass). */
@@ -1004,6 +1017,7 @@ const RUNTIME_INJECTION_PREFIXES = [
   "<guardian_context>",
   "<inbound_actor_context>",
   "<interface_turn_context>",
+  "<turn_context>",
   "<memory_context __injected>",
   "<voice_call_control>",
   "<workspace_top_level>",
@@ -1123,22 +1137,16 @@ export function applyRuntimeInjections(
     }
   }
 
-  if (options.channelTurnContext) {
+  if (options.channelTurnContext || options.interfaceTurnContext) {
     const userTail = result[result.length - 1];
     if (userTail && userTail.role === "user") {
       result = [
         ...result.slice(0, -1),
-        injectChannelTurnContext(userTail, options.channelTurnContext),
-      ];
-    }
-  }
-
-  if (options.interfaceTurnContext) {
-    const userTail = result[result.length - 1];
-    if (userTail && userTail.role === "user") {
-      result = [
-        ...result.slice(0, -1),
-        injectInterfaceTurnContext(userTail, options.interfaceTurnContext),
+        injectTurnContext(
+          userTail,
+          options.channelTurnContext ?? undefined,
+          options.interfaceTurnContext ?? undefined,
+        ),
       ];
     }
   }
