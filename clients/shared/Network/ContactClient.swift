@@ -30,6 +30,11 @@ public protocol ContactClientProtocol {
     ) async throws -> (inviteId: String, token: String?, shareUrl: String?, inviteCode: String?, voiceCode: String?, guardianInstruction: String?, channelHandle: String?)?
 
     func triggerInviteCall(inviteId: String) async throws -> Bool
+
+    func fetchContactsList(limit: Int, role: String?) async throws -> [ContactPayload]
+    func fetchContact(contactId: String) async throws -> ContactPayload?
+    func deleteContact(contactId: String) async throws -> Bool
+    func updateContactChannel(channelId: String, status: String?, policy: String?, reason: String?) async throws -> ContactPayload?
 }
 
 /// Gateway-backed implementation of ``ContactClientProtocol``.
@@ -149,5 +154,74 @@ public struct ContactClient: ContactClientProtocol {
             return false
         }
         return true
+    }
+
+    // MARK: - Contact Queries
+
+    private struct ContactsListResponse: Decodable {
+        let ok: Bool
+        let contacts: [ContactPayload]
+    }
+
+    private struct SingleContactResponse: Decodable {
+        let ok: Bool
+        let contact: ContactPayload?
+    }
+
+    public func fetchContactsList(limit: Int = 50, role: String? = nil) async throws -> [ContactPayload] {
+        var params: [String: String] = ["limit": "\(limit)"]
+        if let role { params["role"] = role }
+
+        let response = try await GatewayHTTPClient.get(
+            path: "assistants/{assistantId}/contacts", params: params, timeout: 10
+        )
+        guard response.isSuccess else {
+            log.error("fetchContactsList failed (HTTP \(response.statusCode))")
+            return []
+        }
+        return try JSONDecoder().decode(ContactsListResponse.self, from: response.data).contacts
+    }
+
+    public func fetchContact(contactId: String) async throws -> ContactPayload? {
+        let response = try await GatewayHTTPClient.get(
+            path: "assistants/{assistantId}/contacts/\(contactId)", timeout: 10
+        )
+        guard response.isSuccess else {
+            log.error("fetchContact failed (HTTP \(response.statusCode))")
+            return nil
+        }
+        return try JSONDecoder().decode(SingleContactResponse.self, from: response.data).contact
+    }
+
+    public func deleteContact(contactId: String) async throws -> Bool {
+        let response = try await GatewayHTTPClient.delete(
+            path: "assistants/{assistantId}/contacts/\(contactId)", timeout: 10
+        )
+        guard response.isSuccess || response.statusCode == 204 else {
+            log.error("deleteContact failed (HTTP \(response.statusCode))")
+            return false
+        }
+        return true
+    }
+
+    public func updateContactChannel(
+        channelId: String,
+        status: String? = nil,
+        policy: String? = nil,
+        reason: String? = nil
+    ) async throws -> ContactPayload? {
+        var body: [String: Any] = [:]
+        if let status { body["status"] = status }
+        if let policy { body["policy"] = policy }
+        if let reason { body["reason"] = reason }
+
+        let response = try await GatewayHTTPClient.patch(
+            path: "assistants/{assistantId}/contact-channels/\(channelId)", json: body, timeout: 10
+        )
+        guard response.isSuccess else {
+            log.error("updateContactChannel failed (HTTP \(response.statusCode))")
+            return nil
+        }
+        return try JSONDecoder().decode(SingleContactResponse.self, from: response.data).contact
     }
 }

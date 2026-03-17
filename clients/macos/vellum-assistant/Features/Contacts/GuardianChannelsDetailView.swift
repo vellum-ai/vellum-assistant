@@ -12,6 +12,7 @@ struct GuardianChannelsDetailView: View {
 
     let contact: ContactPayload
     var daemonClient: DaemonClient?
+    var contactClient: ContactClientProtocol = ContactClient()
     var channelClient: ChannelClientProtocol = ChannelClient()
     var store: SettingsStore?
     var onSelectAssistant: (() -> Void)?
@@ -308,48 +309,22 @@ struct GuardianChannelsDetailView: View {
     // MARK: - Disconnect Channel
 
     private func disconnectChannel(channelId: String, type: String) {
-        guard let daemonClient else { return }
         guard actionInProgress == nil else { return }
         actionInProgress = channelId
         errorMessage = nil
         errorChannelType = nil
 
         Task {
-            let stream = daemonClient.subscribe()
-
             do {
-                try daemonClient.sendUpdateContactChannel(channelId: channelId, status: "revoked")
+                _ = try await contactClient.updateContactChannel(channelId: channelId, status: "revoked", policy: nil, reason: nil)
+                let refreshed = try await contactClient.fetchContact(contactId: displayContact.id)
+                if let refreshed {
+                    currentContact = refreshed
+                }
             } catch {
                 errorMessage = "Failed to update channel: \(error.localizedDescription)"
                 errorChannelType = type
-                actionInProgress = nil
-                return
             }
-
-            for await message in stream {
-                if case .contactsResponse(let response) = message {
-                    if response.success {
-                        try? daemonClient.sendGetContact(contactId: displayContact.id)
-                    } else {
-                        errorMessage = response.error ?? "Failed to update channel"
-                        errorChannelType = type
-                        actionInProgress = nil
-                        return
-                    }
-                    break
-                }
-            }
-
-            for await message in stream {
-                if case .contactsResponse(let response) = message {
-                    if let updatedContact = response.contact {
-                        currentContact = updatedContact
-                    }
-                    actionInProgress = nil
-                    return
-                }
-            }
-
             actionInProgress = nil
         }
     }

@@ -3,7 +3,7 @@ import Foundation
 
 /// Cross-platform store for contacts data operations.
 ///
-/// Encapsulates all daemon communication for listing, getting, updating,
+/// Encapsulates all communication for listing, getting, updating,
 /// and deleting contacts. Platform-specific UI state (search filtering,
 /// panel presentation, etc.) remains in the platform view model that
 /// delegates here.
@@ -30,13 +30,15 @@ public final class ContactsStore: ObservableObject {
     // MARK: - Private State
 
     private let daemonClient: DaemonClient
+    private let contactClient: ContactClientProtocol
     private var contactsChangedTask: Task<Void, Never>?
     private var subscriptionTask: Task<Void, Never>?
 
     // MARK: - Init
 
-    public init(daemonClient: DaemonClient) {
+    public init(daemonClient: DaemonClient, contactClient: ContactClientProtocol = ContactClient()) {
         self.daemonClient = daemonClient
+        self.contactClient = contactClient
         subscribeToContactsChanged()
     }
 
@@ -47,52 +49,31 @@ public final class ContactsStore: ObservableObject {
 
     // MARK: - Actions
 
-    /// Request the list of contacts from the daemon.
+    /// Fetch the list of contacts via the gateway.
     public func loadContacts() {
         isLoading = true
 
         Task {
-            let stream = daemonClient.subscribe()
-
             do {
-                try daemonClient.sendListContacts(limit: 500)
+                let result = try await contactClient.fetchContactsList(limit: 500, role: nil)
+                self.contacts = result
             } catch {
-                isLoading = false
-                return
+                // Keep existing contacts on failure
             }
-
-            let result = await stream.firstMatch { message -> [ContactPayload]? in
-                if case .contactsResponse(let response) = message {
-                    guard response.contacts != nil else { return nil }
-                    return response.contacts ?? []
-                }
-                return nil
-            }
-            self.contacts = result ?? self.contacts
             isLoading = false
         }
     }
 
-    /// Request a single contact by ID.
+    /// Fetch a single contact by ID and update the local list.
     public func getContact(id: String) {
         Task {
-            let stream = daemonClient.subscribe()
-
             do {
-                try daemonClient.sendGetContact(contactId: id)
-            } catch {
-                return
-            }
-
-            let contact = await stream.firstMatch { message -> ContactPayload? in
-                if case .contactsResponse(let response) = message {
-                    guard response.contact != nil else { return nil }
-                    return response.contact
+                let contact = try await contactClient.fetchContact(contactId: id)
+                if let contact, let index = contacts.firstIndex(where: { $0.id == contact.id }) {
+                    contacts[index] = contact
                 }
-                return nil
-            }
-            if let contact, let index = contacts.firstIndex(where: { $0.id == contact.id }) {
-                contacts[index] = contact
+            } catch {
+                // Silently ignore fetch errors
             }
         }
     }
@@ -100,47 +81,25 @@ public final class ContactsStore: ObservableObject {
     /// Update a contact channel's status and/or policy.
     public func updateContactChannel(channelId: String, status: String? = nil, policy: String? = nil, reason: String? = nil) {
         Task {
-            let stream = daemonClient.subscribe()
-
             do {
-                try daemonClient.sendUpdateContactChannel(channelId: channelId, status: status, policy: policy, reason: reason)
-            } catch {
-                return
-            }
-
-            let success = await stream.firstMatch { message -> Bool? in
-                if case .contactsResponse(let response) = message {
-                    guard response.contact != nil || !response.success else { return nil }
-                    return response.success
-                }
-                return nil
-            }
-            if success == true {
+                _ = try await contactClient.updateContactChannel(channelId: channelId, status: status, policy: policy, reason: reason)
                 loadContacts()
+            } catch {
+                // Silently ignore update errors
             }
         }
     }
 
-    /// Request deletion of a contact by ID.
+    /// Delete a contact by ID.
     public func deleteContact(id: String) {
         Task {
-            let stream = daemonClient.subscribe()
-
             do {
-                try daemonClient.sendDeleteContact(contactId: id)
-            } catch {
-                return
-            }
-
-            let success = await stream.firstMatch { message -> Bool? in
-                if case .contactsResponse(let response) = message {
-                    guard response.contact == nil && response.contacts == nil else { return nil }
-                    return response.success
+                let success = try await contactClient.deleteContact(contactId: id)
+                if success {
+                    contacts.removeAll { $0.id == id }
                 }
-                return nil
-            }
-            if success == true {
-                contacts.removeAll { $0.id == id }
+            } catch {
+                // Silently ignore delete errors
             }
         }
     }
