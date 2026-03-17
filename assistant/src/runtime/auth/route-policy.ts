@@ -291,6 +291,9 @@ const ACTOR_ENDPOINTS: Array<{ endpoint: string; scopes: Scope[] }> = [
   { endpoint: "usage/daily", scopes: ["settings.read"] },
   { endpoint: "usage/breakdown", scopes: ["settings.read"] },
 
+  // Lifecycle telemetry
+  { endpoint: "telemetry/lifecycle", scopes: ["settings.write"] },
+
   // Debug
   { endpoint: "debug", scopes: ["settings.read"] },
 

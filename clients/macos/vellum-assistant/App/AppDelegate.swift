@@ -388,8 +388,8 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
 
                 if ready {
                     // Record lifecycle telemetry events (fire-and-forget).
-                    Task { await daemonClient.httpTransport?.recordLifecycleEvent("hatch") }
-                    Task { await daemonClient.httpTransport?.recordLifecycleEvent("app_open") }
+                    Task { await TelemetryClient().recordLifecycleEvent("hatch") }
+                    Task { await TelemetryClient().recordLifecycleEvent("app_open") }
 
                     // If the user is signed in with a local assistant, wait for
                     // credential provisioning to complete before sending the wake-up
@@ -423,7 +423,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
             Task {
                 let ready = await awaitDaemonReady(timeout: 10)
                 if ready {
-                    await daemonClient.httpTransport?.recordLifecycleEvent("app_open")
+                    await TelemetryClient().recordLifecycleEvent("app_open")
                 }
             }
             showMainWindow()
