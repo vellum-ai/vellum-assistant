@@ -15,7 +15,7 @@
 
 import { createHash } from "node:crypto";
 import { existsSync, readFileSync, statSync } from "node:fs";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 
 import type { ManifestType } from "./vbundle-validator.js";
 
@@ -97,7 +97,12 @@ export class DefaultPathResolver implements PathResolver {
           return join(this.protectedDir, "trust.json");
         }
         if (archivePath.startsWith("skills/") && this.skillsDir) {
-          return join(this.skillsDir, archivePath.slice("skills/".length));
+          const resolved = resolve(this.skillsDir, archivePath.slice("skills/".length));
+          const skillsRoot = resolve(this.skillsDir);
+          if (resolved !== skillsRoot && !resolved.startsWith(skillsRoot + "/")) {
+            return null;
+          }
+          return resolved;
         }
         return null;
     }
