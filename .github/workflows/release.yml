@@ -946,7 +946,7 @@ jobs:
 
       - name: Cache Homebrew create-dmg
         id: cache-create-dmg
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: |
             /usr/local/Cellar/create-dmg
@@ -1080,7 +1080,7 @@ jobs:
 
       - name: Cache Homebrew Sparkle
         id: cache-sparkle
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: |
             /usr/local/Caskroom/sparkle
@@ -1333,7 +1333,7 @@ jobs:
 
       - name: Cache Homebrew create-dmg
         id: cache-create-dmg-x64
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: |
             /usr/local/Cellar/create-dmg
@@ -1799,7 +1799,7 @@ jobs:
 
       - name: Cache Homebrew XcodeGen
         id: cache-xcodegen-build
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: |
             /usr/local/Cellar/xcodegen
@@ -1887,7 +1887,7 @@ jobs:
 
       - name: Cache Homebrew XcodeGen
         id: cache-xcodegen-release
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: |
             /usr/local/Cellar/xcodegen

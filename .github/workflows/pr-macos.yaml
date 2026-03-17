@@ -38,7 +38,7 @@ jobs:
         run: echo "num=$(date -u +%V)" >> "$GITHUB_OUTPUT"
 
       - name: Cache SPM build artifacts
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: clients/.build
           key: macos-spm-debug-week${{ steps.week.outputs.num }}-${{ hashFiles('clients/Package.resolved') }}
@@ -114,7 +114,7 @@ jobs:
         run: echo "num=$(date -u +%V)" >> "$GITHUB_OUTPUT"
 
       - name: Cache SPM build artifacts
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: clients/.build
           key: macos-spm-release-week${{ steps.week.outputs.num }}-${{ hashFiles('clients/Package.resolved') }}
@@ -123,21 +123,21 @@ jobs:
             macos-spm-release-
 
       - name: Cache Bun dependencies (assistant)
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: assistant/node_modules
           key: macos-bun-assistant-${{ hashFiles('assistant/bun.lock') }}
           restore-keys: macos-bun-assistant-
 
       - name: Cache Bun dependencies (cli)
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: cli/node_modules
           key: macos-bun-cli-${{ hashFiles('cli/bun.lock') }}
           restore-keys: macos-bun-cli-
 
       - name: Cache Bun dependencies (gateway)
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: gateway/node_modules
           key: macos-bun-gateway-${{ hashFiles('gateway/bun.lock') }}
@@ -188,7 +188,7 @@ jobs:
 
       - name: Cache Homebrew create-dmg
         id: cache-create-dmg
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: |
             /usr/local/Cellar/create-dmg
