@@ -490,7 +490,22 @@ export type DeleteKeyResult = "deleted" | "not-found" | "error";
  */
 export function deleteKey(account: string): DeleteKeyResult {
   try {
-    const store = getOrCreateStore();
+    const existing = readStore();
+    if (!existing) return "not-found";
+
+    // Ensure v1→v2 migration happens when a store exists
+    let store: StoreFileV2;
+    if (existing.version === 1) {
+      const migrated = migrateV1ToV2(existing);
+      if (!migrated) {
+        throw new Error("Failed to migrate encrypted store from v1 to v2");
+      }
+      writeStore(migrated);
+      store = migrated;
+    } else {
+      store = existing;
+    }
+
     if (!Object.prototype.hasOwnProperty.call(store.entries, account))
       return "not-found";
 
