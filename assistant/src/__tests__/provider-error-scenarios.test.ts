@@ -479,7 +479,7 @@ describe("RetryProvider — streaming corruption retries", () => {
     );
     const provider = new RetryProvider(inner);
 
-    const result = await provider.sendMessage(MESSAGES);
+    await provider.sendMessage(MESSAGES);
     expect(inner.calls).toBe(2);
   });
 
