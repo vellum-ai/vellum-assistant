@@ -64,6 +64,7 @@ struct MainWindowView: View {
     /// Mirrors `AppDelegate.daemonStartupError` so SwiftUI re-renders the
     /// daemon loading overlay when a structured error arrives or is cleared.
     @State private var daemonStartupError: DaemonStartupError?
+    @State private var autoWakeTask: Task<Void, Never>?
 
     init(conversationManager: ConversationManager, appListManager: AppListManager, zoomManager: ZoomManager, conversationZoomManager: ConversationZoomManager, traceStore: TraceStore, usageDashboardStore: UsageDashboardStore, daemonClient: DaemonClient, surfaceManager: SurfaceManager, ambientAgent: AmbientAgent, settingsStore: SettingsStore, authManager: AuthManager, windowState: MainWindowState, documentManager: DocumentManager, onMicrophoneToggle: @escaping () -> Void = {}, voiceModeManager: VoiceModeManager, updateManager: UpdateManager, onSendWakeUp: (() -> Void)? = nil) {
         self.conversationManager = conversationManager
@@ -724,9 +725,10 @@ struct MainWindowView: View {
                !appDelegate.isCurrentAssistantRemote {
                 let env: [String: String]? = daemonClient.config.instanceDir.map { ["BASE_DATA_DIR": $0] }
                 if !DaemonClient.isDaemonProcessAlive(environment: env) {
-                    Task {
+                    autoWakeTask = Task {
                         let name = UserDefaults.standard.string(forKey: "connectedAssistantId") ?? "default"
                         try? await appDelegate.assistantCli.wake(name: name)
+                        guard !Task.isCancelled else { return }
                         if !daemonClient.isConnected {
                             try? await daemonClient.connect()
                         }
@@ -751,6 +753,8 @@ struct MainWindowView: View {
                 sharing.previousVercelHandler = nil
             }
             daemonClient.stopSSE()
+            autoWakeTask?.cancel()
+            autoWakeTask = nil
         }
         .onReceive(NotificationCenter.default.publisher(for: .apiKeyManagerDidChange)) { _ in
             windowState.refreshAPIKeyStatus(isConnected: daemonClient.isConnected, isAuthenticated: authManager.isAuthenticated)
