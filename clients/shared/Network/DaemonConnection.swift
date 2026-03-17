@@ -67,7 +67,7 @@ extension DaemonClient {
             #if os(macOS)
             // Auto-wake: if the daemon process is not alive and a wake handler is
             // configured, try waking the daemon and retrying the connection once.
-            if let wakeHandler, !DaemonClient.isDaemonProcessAlive(environment: config.instanceDir.map { ["BASE_DATA_DIR": $0] }) {
+            if let wakeHandler, config.transportMetadata.routeMode == .runtimeFlat, !DaemonClient.isDaemonProcessAlive(environment: config.instanceDir.map { ["BASE_DATA_DIR": $0] }) {
                 log.info("connect: daemon process not alive — attempting auto-wake before retry")
                 do {
                     try await wakeHandler()
