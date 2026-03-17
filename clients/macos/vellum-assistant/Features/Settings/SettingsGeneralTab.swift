@@ -12,6 +12,7 @@ struct SettingsGeneralTab: View {
     var onSignIn: (() -> Void)?
 
     @State private var showingPairingQR: Bool = false
+    @State private var showLogoutAlert = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: VSpacing.lg) {
@@ -92,7 +93,11 @@ struct SettingsGeneralTab: View {
                 }
             } else if authManager.currentUser != nil {
                 VButton(label: "Log Out", style: .danger) {
-                    AppDelegate.shared?.performLogout()
+                    if store.hasManagedServices {
+                        showLogoutAlert = true
+                    } else {
+                        AppDelegate.shared?.performLogout()
+                    }
                 }
             } else {
                 VButton(
@@ -110,6 +115,17 @@ struct SettingsGeneralTab: View {
                     }
                 }
             }
+        }
+        .alert("Heads up", isPresented: $showLogoutAlert) {
+            Button("Cancel", role: .cancel) {}
+            Button("Log Out", role: .destructive) {
+                AppDelegate.shared?.performLogout()
+            }
+        } message: {
+            Text(
+                "Some of your services rely on being logged in."
+                    + " They won't work until you log back in or switch them to use your own API keys."
+            )
         }
     }
 }
