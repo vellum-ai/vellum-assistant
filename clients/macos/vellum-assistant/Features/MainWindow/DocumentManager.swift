@@ -33,6 +33,7 @@ final class DocumentManager: ObservableObject {
 
     /// Reference to daemon client for saving documents
     weak var daemonClient: DaemonClient?
+    private let documentClient: DocumentClientProtocol = DocumentClient()
 
     /// Reference to the document editor coordinator for sending content updates.
     /// Set by DocumentEditorView when the coordinator is ready.
@@ -153,9 +154,8 @@ final class DocumentManager: ObservableObject {
 
     func save() {
         guard let surfaceId = surfaceId,
-              let conversationId = conversationId,
-              let daemonClient = daemonClient else {
-            log.warning("Cannot save: missing surfaceId, conversationId, or daemonClient")
+              let conversationId = conversationId else {
+            log.warning("Cannot save: missing surfaceId or conversationId")
             lastSaveError = "Cannot save: missing document information"
             return
         }
@@ -164,19 +164,19 @@ final class DocumentManager: ObservableObject {
         isSaving = true
         lastSaveError = nil
 
-        do {
-            try daemonClient.sendDocumentSave(
+        Task {
+            let response = await documentClient.saveDocument(
                 surfaceId: surfaceId,
                 conversationId: conversationId,
                 title: title,
                 content: contentToSave,
                 wordCount: wordCount
             )
+            handleSaveResponse(
+                success: response?.success ?? false,
+                error: response?.error ?? (response == nil ? "Network error" : nil)
+            )
             log.info("Document save requested: \(surfaceId) - \(self.wordCount) words")
-        } catch {
-            log.error("Failed to send document save: \(error.localizedDescription)")
-            lastSaveError = error.localizedDescription
-            isSaving = false
         }
     }
 

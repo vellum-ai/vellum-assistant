@@ -875,8 +875,8 @@ struct MainWindowView: View {
                 // Document already in memory — just show the panel
                 windowState.selection = .panel(.documentEditor)
             } else {
-                // Load from daemon — handleDocumentLoadResponse will open the panel when ready
-                try? daemonClient.sendDocumentLoad(surfaceId: surfaceId)
+                // Load from gateway — handleDocumentLoadResponse will open the panel when ready
+                Task { _ = await DocumentClient().fetchDocument(surfaceId: surfaceId) }
             }
         }
         .onReceive(NotificationCenter.default.publisher(for: .updateDynamicWorkspace)) { notification in

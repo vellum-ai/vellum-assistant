@@ -27,14 +27,16 @@ public final class ChannelTrustStore: ObservableObject {
 
     private let daemonClient: DaemonClient
     private let contactsStore: ContactsStore
+    private let guardianClient: GuardianClientProtocol
     private var fetchTask: Task<Void, Never>?
     private var decideTask: Task<Void, Never>?
 
     // MARK: - Init
 
-    public init(daemonClient: DaemonClient, contactsStore: ContactsStore) {
+    public init(daemonClient: DaemonClient, contactsStore: ContactsStore, guardianClient: GuardianClientProtocol = GuardianClient()) {
         self.daemonClient = daemonClient
         self.contactsStore = contactsStore
+        self.guardianClient = guardianClient
 
         // Forward guardian state from ContactsStore
         contactsStore.$contacts
@@ -77,22 +79,9 @@ public final class ChannelTrustStore: ObservableObject {
         isLoadingActions = true
         fetchTask?.cancel()
         fetchTask = Task { [weak self] in
-            guard let daemonClient = self?.daemonClient else { return }
-            let stream = daemonClient.subscribe()
-            do {
-                try daemonClient.sendGuardianActionsPendingRequest(conversationId: conversationId)
-            } catch {
-                self?.isLoadingActions = false
-                return
-            }
-            let prompts = await stream.firstMatch { message -> [GuardianDecisionPromptWire]? in
-                if case .guardianActionsPendingResponse(let response) = message {
-                    guard response.conversationId == conversationId else { return nil }
-                    return response.prompts
-                }
-                return nil
-            }
-            self?.pendingActions = prompts ?? []
+            guard let guardianClient = self?.guardianClient else { return }
+            let response = await guardianClient.fetchPendingActions(conversationId: conversationId)
+            self?.pendingActions = response?.prompts ?? []
             self?.isLoadingActions = false
         }
     }
@@ -101,19 +90,9 @@ public final class ChannelTrustStore: ObservableObject {
     public func decideAction(requestId: String, action: String, conversationId: String? = nil) {
         decideTask?.cancel()
         decideTask = Task { [weak self] in
-            guard let daemonClient = self?.daemonClient else { return }
-            let stream = daemonClient.subscribe()
-            do {
-                try daemonClient.sendGuardianActionDecision(requestId: requestId, action: action, conversationId: conversationId)
-            } catch { return }
-            let applied = await stream.firstMatch { message -> Bool? in
-                if case .guardianActionDecisionResponse(let response) = message {
-                    guard response.requestId == requestId else { return nil }
-                    return response.applied
-                }
-                return nil
-            }
-            if applied == true {
+            guard let guardianClient = self?.guardianClient else { return }
+            let response = await guardianClient.submitDecision(requestId: requestId, action: action, conversationId: conversationId)
+            if response?.applied == true {
                 self?.pendingActions.removeAll { $0.requestId == requestId }
             }
         }
