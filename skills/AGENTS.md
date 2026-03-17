@@ -1,6 +1,7 @@
 # Skills Contribution Guide
 
 - **Skills must be self-contained and portable**
+  - No interactive prompts. Use relative paths only.
   - Use `scripts/` for supporting logic with inline dependencies
   - When including code assets, utilities, or tools, load the [scripts best practices specification](https://agentskills.io/skill-creation/using-scripts.md) first
   - **External dependencies in Bun/TypeScript scripts**: pin versions directly in the import path (e.g., `import { Command } from "commander@13.1.0"`). Bun auto-installs missing packages at runtime when no `node_modules` directory is found. Do NOT add a `package.json` or `bun.lock` to skill directories - this disables Bun's auto-install behavior and breaks portability.
