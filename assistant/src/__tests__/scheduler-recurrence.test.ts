@@ -108,7 +108,9 @@ describe("scheduler RRULE execution", () => {
     ) => {
       // Use a small real delay so fire-and-forget async ticks have time to
       // settle, while still cutting the 500ms waits down dramatically.
-      return origSetTimeout(fn, 50, ...args);
+      // 200ms gives headroom for the run_task path which does a dynamic
+      // import of task-runner.js on first invocation.
+      return origSetTimeout(fn, 200, ...args);
     }) as typeof setTimeout;
   });
 

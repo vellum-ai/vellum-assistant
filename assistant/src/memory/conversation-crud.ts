@@ -406,6 +406,7 @@ export function wipeConversation(id: string): WipeConversationResult {
            AND mi_active.scope_id = mi_old.scope_id
            AND mi_active.status = 'active'
            AND mi_active.id != mi_old.id
+           AND mi_active.id != mi_new.id
        )`,
     id,
     id,
