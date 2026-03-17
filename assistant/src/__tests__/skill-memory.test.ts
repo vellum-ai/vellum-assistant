@@ -50,7 +50,7 @@ let mockResolveCatalog: () => Promise<import("../skills/catalog-install.js").Cat
   async () => [];
 
 mock.module("../skills/catalog-install.js", () => ({
-  resolveCatalog: (...args: unknown[]) => mockResolveCatalog(),
+  resolveCatalog: (..._args: unknown[]) => mockResolveCatalog(),
 }));
 
 import { DEFAULT_CONFIG } from "../config/defaults.js";
