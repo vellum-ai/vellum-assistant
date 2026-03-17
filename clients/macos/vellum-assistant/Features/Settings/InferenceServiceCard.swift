@@ -5,7 +5,7 @@ import VellumAssistantShared
 ///
 /// Shows different content based on mode and auth state:
 /// - **Managed + logged in**: Model picker, Save button
-/// - **Managed + not logged in**: "Log in to select" tooltip on Managed segment, falls back to Your Own content
+/// - **Managed + not logged in**: Empty state prompting login
 /// - **Your Own**: API key field, model picker, Save + Reset buttons
 @MainActor
 struct InferenceServiceCard: View {
@@ -17,8 +17,6 @@ struct InferenceServiceCard: View {
     @State private var draftMode: String = "your-own"
     /// Snapshot of the model at card appear — used to detect model-only changes.
     @State private var initialModel: String = ""
-    /// Whether the Managed segment is being hovered (for tooltip).
-    @State private var isManagedHovered: Bool = false
 
     private var isConnected: Bool {
         store.hasKey
@@ -26,11 +24,6 @@ struct InferenceServiceCard: View {
 
     private var isLoggedIn: Bool {
         authManager.isAuthenticated
-    }
-
-    /// Whether managed mode is available to select (requires login).
-    private var isManagedAvailable: Bool {
-        isLoggedIn
     }
 
     /// True when the user has made changes worth saving.
@@ -43,11 +36,8 @@ struct InferenceServiceCard: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: VSpacing.md) {
-            // Header: title + subtitle
+            // Header: title + subtitle + mode toggle
             header
-
-            // Integration Mode segmented control
-            modeSelector
 
             Divider()
                 .background(VColor.borderBase)
@@ -67,22 +57,11 @@ struct InferenceServiceCard: View {
         .vCard(background: VColor.surfaceOverlay)
         .onAppear {
             draftMode = store.inferenceMode
-            if draftMode == "managed" && !authManager.isAuthenticated {
-                draftMode = "your-own"
-            }
             initialModel = store.selectedModel
         }
         .onChange(of: store.inferenceMode) { _, newValue in
             // Sync draft when external changes arrive (e.g. daemon reload)
             draftMode = newValue
-            if draftMode == "managed" && !authManager.isAuthenticated {
-                draftMode = "your-own"
-            }
-        }
-        .onChange(of: authManager.isAuthenticated) { _, isAuthenticated in
-            if !isAuthenticated && draftMode == "managed" {
-                draftMode = "your-own"
-            }
         }
     }
 
@@ -90,25 +69,11 @@ struct InferenceServiceCard: View {
 
     private var header: some View {
         VStack(alignment: .leading, spacing: VSpacing.xs) {
-            Text("Inference")
-                .font(VFont.sectionTitle)
-                .foregroundColor(VColor.contentDefault)
-            Text("Configure which LLM provider and model to use to power your assistant")
-                .font(VFont.sectionDescription)
-                .foregroundColor(VColor.contentTertiary)
-        }
-    }
-
-    // MARK: - Mode Selector
-
-    private var modeSelector: some View {
-        HStack {
-            Text("Integration Mode")
-                .font(VFont.body)
-                .foregroundColor(VColor.contentTertiary)
-            Spacer()
-
-            if isManagedAvailable {
+            HStack {
+                Text("Inference")
+                    .font(VFont.sectionTitle)
+                    .foregroundColor(VColor.contentDefault)
+                Spacer()
                 VSegmentedControl(
                     items: [
                         (label: "Managed", tag: "managed"),
@@ -118,40 +83,45 @@ struct InferenceServiceCard: View {
                     style: .pill
                 )
                 .frame(width: 220)
-            } else {
-                // Not logged in — show segmented control with Managed disabled + tooltip
-                ZStack(alignment: .leading) {
-                    VSegmentedControl(
-                        items: [
-                            (label: "Managed", tag: "managed"),
-                            (label: "Your Own", tag: "your-own"),
-                        ],
-                        selection: .constant("your-own"),
-                        style: .pill
-                    )
-
-                    // Invisible hover target over the "Managed" half
-                    Color.clear
-                        .frame(width: 110, height: 36)
-                        .contentShape(Rectangle())
-                        .onHover { isManagedHovered = $0 }
-                        .popover(isPresented: $isManagedHovered, arrowEdge: .top) {
-                            Text("Log in to select")
-                                .font(VFont.captionMedium)
-                                .foregroundColor(VColor.contentInset)
-                                .padding(.horizontal, VSpacing.sm)
-                                .padding(.vertical, VSpacing.xs)
-                        }
-                }
-                .frame(width: 220)
             }
+            Text("Configure which LLM provider and model to use to power your assistant")
+                .font(VFont.sectionDescription)
+                .foregroundColor(VColor.contentTertiary)
         }
     }
 
     // MARK: - Managed Content
 
     private var managedContent: some View {
-        modelPicker
+        Group {
+            if isLoggedIn {
+                modelPicker
+            } else {
+                managedLoginPrompt
+            }
+        }
+    }
+
+    // MARK: - Managed Login Prompt
+
+    private var managedLoginPrompt: some View {
+        VStack(spacing: VSpacing.md) {
+            Text("In order to use the managed inference service, you must be logged in to Vellum.")
+                .font(VFont.body)
+                .foregroundColor(VColor.contentTertiary)
+                .multilineTextAlignment(.center)
+            VButton(
+                label: authManager.isSubmitting ? "Logging in..." : "Log In",
+                style: .primary,
+                isDisabled: authManager.isSubmitting
+            ) {
+                Task {
+                    await authManager.startWorkOSLogin()
+                }
+            }
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, VSpacing.lg)
     }
 
     // MARK: - Your Own Content
@@ -204,13 +174,17 @@ struct InferenceServiceCard: View {
 
     private var actionButtons: some View {
         HStack(spacing: VSpacing.sm) {
-            VButton(label: "Save", style: .primary, isDisabled: !hasChanges) {
-                save()
-            }
-            if draftMode == "your-own" && isConnected {
-                VButton(label: "Reset (disconnect)", style: .danger) {
-                    store.clearAPIKey()
-                    apiKeyText = ""
+            if draftMode == "managed" && !isLoggedIn {
+                EmptyView()
+            } else {
+                VButton(label: "Save", style: .primary, isDisabled: !hasChanges) {
+                    save()
+                }
+                if draftMode == "your-own" && isConnected {
+                    VButton(label: "Reset", style: .danger) {
+                        store.clearAPIKey()
+                        apiKeyText = ""
+                    }
                 }
             }
         }
