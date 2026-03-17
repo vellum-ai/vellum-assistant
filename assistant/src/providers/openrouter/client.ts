@@ -19,6 +19,7 @@ export class OpenRouterProvider extends OpenAIProvider {
       providerName: "openrouter",
       providerLabel: "OpenRouter",
       streamTimeoutMs: options.streamTimeoutMs,
+      extraCreateParams: { reasoning: { enabled: true } },
     });
   }
 }

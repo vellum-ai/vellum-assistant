@@ -19,6 +19,8 @@ export interface OpenAICompatibleProviderOptions {
   providerName?: string;
   providerLabel?: string;
   streamTimeoutMs?: number;
+  /** Extra params spread into every chat.completions.create call (e.g. reasoning). */
+  extraCreateParams?: Record<string, unknown>;
 }
 
 const OPENAI_SUPPORTED_IMAGE_TYPES = new Set([
@@ -34,6 +36,7 @@ export class OpenAIProvider implements Provider {
   private client: OpenAI;
   private model: string;
   private streamTimeoutMs: number;
+  private extraCreateParams: Record<string, unknown>;
 
   constructor(
     apiKey: string,
@@ -48,6 +51,7 @@ export class OpenAIProvider implements Provider {
     });
     this.model = model;
     this.streamTimeoutMs = options.streamTimeoutMs ?? 300_000;
+    this.extraCreateParams = options.extraCreateParams ?? {};
   }
 
   async sendMessage(
@@ -70,6 +74,7 @@ export class OpenAIProvider implements Provider {
           messages: openaiMessages,
           stream: true as const,
           stream_options: { include_usage: true },
+          ...this.extraCreateParams,
         };
 
       if (maxTokens) {

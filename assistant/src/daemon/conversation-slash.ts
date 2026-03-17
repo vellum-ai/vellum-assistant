@@ -110,10 +110,10 @@ const PROVIDER_MODEL_SHORTCUTS: Record<
     model: "x-ai/grok-4",
     displayName: "Grok 4 (OpenRouter)",
   },
-  "grok-multi": {
+  "grok-beta": {
     provider: "openrouter",
-    model: "x-ai/grok-4.20-multi-agent-beta",
-    displayName: "Grok 4.20 Multi-Agent (OpenRouter)",
+    model: "x-ai/grok-4.20-beta",
+    displayName: "Grok 4.20 Beta (OpenRouter)",
   },
 };
 

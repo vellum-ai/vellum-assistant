@@ -42,7 +42,7 @@ const PROVIDER_MODEL_INTENTS: Record<
   },
   openrouter: {
     "latency-optimized": "x-ai/grok-4",
-    "quality-optimized": "x-ai/grok-4.20-multi-agent-beta",
+    "quality-optimized": "x-ai/grok-4.20-beta",
     "vision-optimized": "x-ai/grok-4",
   },
 };
