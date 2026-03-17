@@ -347,11 +347,12 @@ struct MessageListView: View {
     }
 
     private func updateAvatarFollower(anchorY: CGFloat) {
-        // Only update @State when the visibility boundary is crossed or the value
-        // changes by more than 1pt. Preference changes fire on every scroll frame;
-        // unconditionally setting avatarTargetY would trigger a full view re-render
-        // per frame, creating layout passes that race with the scroll and cause
-        // the "tweaking" jitter.
+        // Only update @State when the visibility boundary is crossed or finitude
+        // changes. avatarTargetY is only consumed by shouldShowConversationTailAvatar
+        // (a binary visible/hidden check), so continuous position tracking is
+        // unnecessary. The previous `abs(delta) > 1` threshold caused ~60 @State
+        // updates/sec during scroll, each triggering a full MessageListView body
+        // re-evaluation and expensive LazyVStack re-measurement of complex messages.
         let visibilityChanged: Bool = {
             let wasVisible = avatarTargetY.isFinite
                 && ConversationAvatarFollower.shouldShow(anchorY: avatarTargetY, viewportHeight: scrollViewportHeight)
@@ -359,7 +360,7 @@ struct MessageListView: View {
                 && ConversationAvatarFollower.shouldShow(anchorY: anchorY, viewportHeight: scrollViewportHeight)
             return wasVisible != nowVisible
         }()
-        if visibilityChanged || abs(avatarTargetY - anchorY) > 1 || !avatarTargetY.isFinite != !anchorY.isFinite {
+        if visibilityChanged || !avatarTargetY.isFinite != !anchorY.isFinite {
             avatarTargetY = anchorY
         }
 
