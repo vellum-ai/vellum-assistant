@@ -19,14 +19,6 @@ import { join, resolve } from "node:path";
 
 import type { ManifestType } from "./vbundle-validator.js";
 
-/** Only these prompt filenames are accepted during import. */
-const ALLOWED_PROMPT_FILENAMES = new Set([
-  "IDENTITY.md",
-  "SOUL.md",
-  "USER.md",
-  "UPDATES.md",
-]);
-
 // ---------------------------------------------------------------------------
 // Public types
 // ---------------------------------------------------------------------------
@@ -84,87 +76,77 @@ export interface ImportDryRunReport {
  */
 export interface PathResolver {
   resolve(archivePath: string): string | null;
-  /** Resolves the root directory for a given archive path prefix (e.g. "skills/", "hooks/"). */
-  resolveRoot?(prefix: string): string | null;
 }
 
 export class DefaultPathResolver implements PathResolver {
   constructor(
-    private dbPath: string,
-    private configPath: string,
     private protectedDir?: string,
-    private skillsDir?: string,
     private workspaceDir?: string,
-    private hooksDir?: string,
   ) {}
 
-  resolveRoot(prefix: string): string | null {
-    switch (prefix) {
-      case "skills/":
-        return this.skillsDir ? resolve(this.skillsDir) : null;
-      case "hooks/":
-        return this.hooksDir ? resolve(this.hooksDir) : null;
-      case "prompts/":
-        return this.workspaceDir ? resolve(this.workspaceDir) : null;
-      default:
-        return null;
-    }
-  }
-
   resolve(archivePath: string): string | null {
-    switch (archivePath) {
-      case "data/db/assistant.db":
-        return this.dbPath;
-      case "config/settings.json":
-        return this.configPath;
-      default:
-        if (archivePath === "trust/trust.json" && this.protectedDir) {
-          return join(this.protectedDir, "trust.json");
-        }
-        if (archivePath.startsWith("skills/") && this.skillsDir) {
-          const resolved = resolve(
-            this.skillsDir,
-            archivePath.slice("skills/".length),
-          );
-          const skillsRoot = resolve(this.skillsDir);
-          if (
-            resolved !== skillsRoot &&
-            !resolved.startsWith(skillsRoot + "/")
-          ) {
-            return null;
-          }
-          return resolved;
-        }
-        if (archivePath.startsWith("prompts/") && this.workspaceDir) {
-          const filename = archivePath.slice("prompts/".length);
-          // Only allow known prompt filenames — reject anything else to
-          // prevent a crafted bundle from writing arbitrary workspace files.
-          if (!ALLOWED_PROMPT_FILENAMES.has(filename)) {
-            return null;
-          }
-          const resolved = resolve(this.workspaceDir, filename);
-          const workspaceRoot = resolve(this.workspaceDir);
-          if (
-            resolved !== workspaceRoot &&
-            !resolved.startsWith(workspaceRoot + "/")
-          ) {
-            return null;
-          }
-          return resolved;
-        }
-        if (archivePath.startsWith("hooks/") && this.hooksDir) {
-          const resolved = resolve(
-            this.hooksDir,
-            archivePath.slice("hooks/".length),
-          );
-          const hooksRoot = resolve(this.hooksDir);
-          if (resolved !== hooksRoot && !resolved.startsWith(hooksRoot + "/")) {
-            return null;
-          }
-          return resolved;
-        }
+    // New format: workspace/ prefix — maps directly into the workspace dir
+    if (archivePath.startsWith("workspace/") && this.workspaceDir) {
+      const relPath = archivePath.slice("workspace/".length);
+      if (!relPath) return null;
+      const resolved = resolve(this.workspaceDir, relPath);
+      const wsRoot = resolve(this.workspaceDir);
+      // Path traversal containment
+      if (resolved !== wsRoot && !resolved.startsWith(wsRoot + "/")) {
         return null;
+      }
+      return resolved;
     }
+
+    // Backward compat: old bundle formats with specific archive paths
+    if (archivePath === "data/db/assistant.db" && this.workspaceDir) {
+      return join(this.workspaceDir, "data", "db", "assistant.db");
+    }
+    if (archivePath === "config/settings.json" && this.workspaceDir) {
+      return join(this.workspaceDir, "config.json");
+    }
+    if (archivePath === "trust/trust.json" && this.protectedDir) {
+      return join(this.protectedDir, "trust.json");
+    }
+    if (archivePath.startsWith("skills/") && this.workspaceDir) {
+      const resolved = resolve(
+        this.workspaceDir,
+        "skills",
+        archivePath.slice("skills/".length),
+      );
+      const skillsRoot = resolve(this.workspaceDir, "skills");
+      if (resolved !== skillsRoot && !resolved.startsWith(skillsRoot + "/")) {
+        return null;
+      }
+      return resolved;
+    }
+    if (archivePath.startsWith("prompts/") && this.workspaceDir) {
+      // Old bundles stored prompts as prompts/IDENTITY.md etc — these map
+      // to the workspace root (e.g. workspace/IDENTITY.md).
+      const resolved = resolve(
+        this.workspaceDir,
+        archivePath.slice("prompts/".length),
+      );
+      const wsRoot = resolve(this.workspaceDir);
+      if (resolved !== wsRoot && !resolved.startsWith(wsRoot + "/")) {
+        return null;
+      }
+      return resolved;
+    }
+    if (archivePath.startsWith("hooks/") && this.workspaceDir) {
+      const resolved = resolve(
+        this.workspaceDir,
+        "hooks",
+        archivePath.slice("hooks/".length),
+      );
+      const hooksRoot = resolve(this.workspaceDir, "hooks");
+      if (resolved !== hooksRoot && !resolved.startsWith(hooksRoot + "/")) {
+        return null;
+      }
+      return resolved;
+    }
+
+    return null;
   }
 }
 

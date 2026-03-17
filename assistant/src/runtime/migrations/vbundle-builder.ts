@@ -3,22 +3,14 @@
  *
  * A .vbundle is a gzip-compressed tar archive containing:
  * - manifest.json: metadata with schema_version, checksums, and bundle info
- * - data/db/assistant.db: the SQLite database with conversations and memory
- * - config/settings.json: the assistant configuration
- * - trust/trust.json: trust rules (optional)
- * - skills/: workspace skills (optional)
- * - prompts/: workspace prompt files — IDENTITY.md, SOUL.md, USER.md, UPDATES.md (optional)
- * - hooks/: workspace hooks directory (optional)
+ * - workspace/: the entire ~/.vellum/workspace/ directory tree (DB, config,
+ *   skills, hooks, prompts, attachments, etc.) — excluding large/regenerable
+ *   dirs (embedding-models/, data/qdrant/)
+ * - trust/trust.json: trust rules (optional, lives in protected/ outside workspace)
  */
 
 import { createHash } from "node:crypto";
-import {
-  existsSync,
-  lstatSync,
-  readdirSync,
-  readFileSync,
-  statSync,
-} from "node:fs";
+import { existsSync, lstatSync, readdirSync, readFileSync } from "node:fs";
 import { join, relative } from "node:path";
 import { gzipSync } from "node:zlib";
 
@@ -313,11 +305,26 @@ export function buildVBundle(options: BuildVBundleOptions): BuildVBundleResult {
 // Directory walker — recursively collects files for archive inclusion
 // ---------------------------------------------------------------------------
 
+interface WalkDirectoryOptions {
+  /** Include binary files (files containing null bytes). Default: false. */
+  includeBinary?: boolean;
+  /** Directory names to skip (matched against immediate child name). */
+  skipDirs?: string[];
+}
+
 /**
- * Recursively walk a directory and return all non-binary, non-symlink files
- * as VBundleFileEntry objects with paths prefixed by `archivePrefix`.
+ * Recursively walk a directory and return all non-symlink files as
+ * VBundleFileEntry objects with paths prefixed by `archivePrefix`.
+ *
+ * By default, binary files (detected via null-byte heuristic in the first
+ * 8 KB) are skipped. Pass `includeBinary: true` to include them.
  */
-function walkDirectory(dir: string, archivePrefix: string): VBundleFileEntry[] {
+function walkDirectory(
+  dir: string,
+  archivePrefix: string,
+  options: WalkDirectoryOptions = {},
+): VBundleFileEntry[] {
+  const { includeBinary = false, skipDirs = [] } = options;
   const entries: VBundleFileEntry[] = [];
 
   function walk(currentDir: string): void {
@@ -330,20 +337,27 @@ function walkDirectory(dir: string, archivePrefix: string): VBundleFileEntry[] {
       if (stat.isSymbolicLink()) continue;
 
       if (stat.isDirectory()) {
+        // Check skip list against the relative path from the walk root
+        const relDir = relative(dir, fullPath);
+        if (skipDirs.some((s) => relDir === s || relDir.startsWith(s + "/"))) {
+          continue;
+        }
         walk(fullPath);
       } else if (stat.isFile()) {
         const data = new Uint8Array(readFileSync(fullPath));
 
-        // Skip binary files: check first 8KB for null bytes
-        const checkLength = Math.min(data.length, 8192);
-        let isBinary = false;
-        for (let i = 0; i < checkLength; i++) {
-          if (data[i] === 0) {
-            isBinary = true;
-            break;
+        // Skip binary files unless explicitly included
+        if (!includeBinary) {
+          const checkLength = Math.min(data.length, 8192);
+          let isBinary = false;
+          for (let i = 0; i < checkLength; i++) {
+            if (data[i] === 0) {
+              isBinary = true;
+              break;
+            }
           }
+          if (isBinary) continue;
         }
-        if (isBinary) continue;
 
         const relativePath = relative(dir, fullPath);
         entries.push({
@@ -363,27 +377,26 @@ function walkDirectory(dir: string, archivePrefix: string): VBundleFileEntry[] {
 // ---------------------------------------------------------------------------
 
 export interface BuildExportVBundleOptions {
-  /** Path to the SQLite database file (e.g. ~/.vellum/workspace/data/db/assistant.db). */
-  dbPath: string;
-  /** Path to the config file (e.g. ~/.vellum/workspace/config.json). */
-  configPath: string;
   /** Source identifier. Defaults to "runtime-export". */
   source?: string;
   /** Human-readable description. */
   description?: string;
   /** Absolute path to trust.json. If provided and the file exists, it is included in the archive. */
   trustPath?: string;
-  /** Absolute path to the workspace skills directory. If provided and exists, all non-binary files are included. */
-  skillsDir?: string;
-  /** Absolute path to the workspace directory. If provided and exists, prompt files (IDENTITY.md, SOUL.md, USER.md, UPDATES.md) are included. */
+  /**
+   * Absolute path to the workspace directory (~/.vellum/workspace/).
+   * When provided and exists, the entire directory tree is walked and
+   * included in the archive under the "workspace/" prefix, skipping
+   * large/regenerable dirs (embedding-models/, data/qdrant/).
+   * Binary files (SQLite DB, attachments) are included.
+   */
   workspaceDir?: string;
-  /** Absolute path to the workspace hooks directory. If provided and exists, all hook files are included. */
-  hooksDir?: string;
   /**
    * Optional callback to checkpoint the WAL before reading the database file.
    * In WAL mode, committed rows may live in the -wal file and not yet be
    * flushed to the main .db file. Callers should pass a function that runs
    * PRAGMA wal_checkpoint(TRUNCATE) on the live database connection.
+   * Called before the workspace walk so the DB file is up to date.
    */
   checkpoint?: () => void;
 }
@@ -391,28 +404,19 @@ export interface BuildExportVBundleOptions {
 /**
  * Build a .vbundle archive populated with real assistant data.
  *
- * Reads the actual SQLite database (which contains all conversations,
- * messages, memory segments, embeddings, and other assistant state) and
- * the config file from disk. Returns a complete, self-validating archive
- * ready for migration import.
+ * Walks the entire workspace directory (~/.vellum/workspace/) and includes
+ * all files in the archive, skipping only large/regenerable directories
+ * (embedding-models/, data/qdrant/). Binary files (SQLite DB, attachments)
+ * are included. Trust rules (in protected/, outside workspace) are handled
+ * separately.
  *
- * Falls back gracefully: if the database does not exist, an empty file is
- * included. If the config does not exist, an empty JSON object is used.
+ * The WAL is checkpointed before the walk so the exported DB file contains
+ * all committed rows.
  */
 export function buildExportVBundle(
   options: BuildExportVBundleOptions,
 ): BuildVBundleResult {
-  const {
-    dbPath,
-    configPath,
-    source,
-    description,
-    checkpoint,
-    trustPath,
-    skillsDir,
-    workspaceDir,
-    hooksDir,
-  } = options;
+  const { source, description, checkpoint, trustPath, workspaceDir } = options;
 
   // Flush WAL to the main database file before reading so the export
   // captures all committed rows (SQLite WAL mode keeps recent writes
@@ -421,46 +425,23 @@ export function buildExportVBundle(
     checkpoint();
   }
 
-  const dbData = existsSync(dbPath)
-    ? new Uint8Array(readFileSync(dbPath))
-    : new Uint8Array(0);
+  const files: VBundleFileEntry[] = [];
 
-  // Read the config file (settings, provider config, feature flags, etc.).
-  const configData = existsSync(configPath)
-    ? new Uint8Array(readFileSync(configPath))
-    : new TextEncoder().encode("{}");
+  // Walk the entire workspace directory, including binary files (DB,
+  // attachments) but skipping large/regenerable subdirectories.
+  if (workspaceDir && existsSync(workspaceDir) && lstatSync(workspaceDir).isDirectory()) {
+    files.push(
+      ...walkDirectory(workspaceDir, "workspace", {
+        includeBinary: true,
+        skipDirs: ["embedding-models", "data/qdrant"],
+      }),
+    );
+  }
 
-  const files: VBundleFileEntry[] = [
-    { path: "data/db/assistant.db", data: dbData },
-    { path: "config/settings.json", data: configData },
-  ];
-
-  // Include trust rules if the file exists.
+  // Include trust rules if the file exists (lives in protected/, outside workspace).
   if (trustPath && existsSync(trustPath)) {
     const trustData = new Uint8Array(readFileSync(trustPath));
     files.push({ path: "trust/trust.json", data: trustData });
-  }
-
-  // Include workspace skills if the path exists and is a directory.
-  if (skillsDir && existsSync(skillsDir) && statSync(skillsDir).isDirectory()) {
-    files.push(...walkDirectory(skillsDir, "skills"));
-  }
-
-  // Include workspace prompt files if the directory exists.
-  if (workspaceDir && existsSync(workspaceDir)) {
-    const promptFiles = ["IDENTITY.md", "SOUL.md", "USER.md", "UPDATES.md"];
-    for (const filename of promptFiles) {
-      const filePath = join(workspaceDir, filename);
-      if (existsSync(filePath)) {
-        const data = new Uint8Array(readFileSync(filePath));
-        files.push({ path: `prompts/${filename}`, data });
-      }
-    }
-  }
-
-  // Include workspace hooks if the directory exists.
-  if (hooksDir && existsSync(hooksDir)) {
-    files.push(...walkDirectory(hooksDir, "hooks"));
   }
 
   return buildVBundle({

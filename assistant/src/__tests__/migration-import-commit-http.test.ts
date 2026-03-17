@@ -48,13 +48,14 @@ function toArrayBuffer(data: Uint8Array): ArrayBuffer {
 const testDir = realpathSync(
   mkdtempSync(join(tmpdir(), "migration-import-commit-http-test-")),
 );
-const testDbDir = join(testDir, "db");
+const testDbDir = join(testDir, "data", "db");
 const testDbPath = join(testDbDir, "assistant.db");
 const testConfigPath = join(testDir, "config.json");
 
 mock.module("../util/platform.js", () => ({
   getRootDir: () => testDir,
-  getDataDir: () => testDir,
+  getDataDir: () => join(testDir, "data"),
+  getWorkspaceDir: () => testDir,
   getWorkspaceConfigPath: () => testConfigPath,
   isMacOS: () => process.platform === "darwin",
   isLinux: () => process.platform === "linux",
@@ -376,7 +377,10 @@ describe("handleMigrationImport", () => {
     expect(writtenData).toEqual(newDbData);
   });
 
-  test("creates backup of existing files before overwriting", async () => {
+  test("workspace is cleared before restore — files are created fresh", async () => {
+    // With workspace clearing, existing files are removed before writing,
+    // so all files in the bundle are "created" (not "overwritten") and
+    // no backups are made.
     const newDbData = new Uint8Array([0x01, 0x02, 0x03]);
     const vbundle = createValidVBundle([
       { path: "data/db/assistant.db", data: newDbData },
@@ -391,24 +395,14 @@ describe("handleMigrationImport", () => {
     const body = (await res.json()) as ImportCommitResponse;
 
     expect(body.success).toBe(true);
-    expect(body.summary.backups_created).toBeGreaterThan(0);
+    expect(body.summary.backups_created).toBe(0);
 
-    // Verify backup was created
     const dbFile = body.files.find((f) => f.path === "data/db/assistant.db");
     expect(dbFile).toBeDefined();
-    expect(dbFile!.action).toBe("overwritten");
-    expect(dbFile!.backup_path).not.toBeNull();
-    expect(existsSync(dbFile!.backup_path!)).toBe(true);
-
-    // Verify backup contains the original data
-    const backupData = new Uint8Array(readFileSync(dbFile!.backup_path!));
-    expect(backupData).toEqual(EXISTING_DB_DATA);
+    expect(dbFile!.action).toBe("created");
   });
 
-  test("reports correct actions for created and overwritten files", async () => {
-    // Remove the config file so it will be "created" instead of "overwritten"
-    rmSync(testConfigPath, { force: true });
-
+  test("reports all files as created after workspace clear", async () => {
     const newDbData = new Uint8Array([0xaa, 0xbb]);
     const newConfigData = new TextEncoder().encode('{"provider":"openai"}');
     const vbundle = createValidVBundle([
@@ -431,9 +425,9 @@ describe("handleMigrationImport", () => {
       (f) => f.path === "config/settings.json",
     );
 
-    expect(dbFile!.action).toBe("overwritten");
+    // Both are "created" because workspace was cleared before writing
+    expect(dbFile!.action).toBe("created");
     expect(configFile!.action).toBe("created");
-    expect(configFile!.backup_path).toBeNull();
   });
 
   test("summary counts match file details", async () => {
@@ -640,7 +634,7 @@ describe("commitImport", () => {
       { path: "data/db/assistant.db", data: newDbData },
     ]);
 
-    const resolver = new DefaultPathResolver(testDbPath, testConfigPath);
+    const resolver = new DefaultPathResolver(undefined, testDir);
     const result = commitImport({
       archiveData: vbundle,
       pathResolver: resolver,
@@ -654,7 +648,7 @@ describe("commitImport", () => {
   });
 
   test("returns validation_failed for invalid bundles", () => {
-    const resolver = new DefaultPathResolver(testDbPath, testConfigPath);
+    const resolver = new DefaultPathResolver(undefined, testDir);
     const result = commitImport({
       archiveData: new Uint8Array([0xba, 0xad]),
       pathResolver: resolver,
@@ -670,17 +664,16 @@ describe("commitImport", () => {
   });
 
   test("creates parent directories if they do not exist", () => {
-    // Use a path that does not exist yet
-    const nonexistentDir = join(testDir, "new-subdir");
-    const newDbPath = join(nonexistentDir, "assistant.db");
-    const newConfigPath = join(testDir, "new-config.json");
+    // Use a workspace that does not exist yet
+    const nonexistentWorkspace = join(testDir, "new-workspace");
+    const expectedDbPath = join(nonexistentWorkspace, "data", "db", "assistant.db");
 
     const dbData = new Uint8Array([0x01, 0x02, 0x03]);
     const vbundle = createValidVBundle([
       { path: "data/db/assistant.db", data: dbData },
     ]);
 
-    const resolver = new DefaultPathResolver(newDbPath, newConfigPath);
+    const resolver = new DefaultPathResolver(undefined, nonexistentWorkspace);
     const result = commitImport({
       archiveData: vbundle,
       pathResolver: resolver,
@@ -689,11 +682,11 @@ describe("commitImport", () => {
     expect(result.ok).toBe(true);
     if (result.ok) {
       expect(result.report.files[0].action).toBe("created");
-      expect(existsSync(newDbPath)).toBe(true);
+      expect(existsSync(expectedDbPath)).toBe(true);
     }
 
     // Clean up
-    rmSync(nonexistentDir, { recursive: true, force: true });
+    rmSync(nonexistentWorkspace, { recursive: true, force: true });
   });
 
   test("post-write integrity: written file SHA-256 matches expected", () => {
@@ -704,7 +697,7 @@ describe("commitImport", () => {
       { path: "data/db/assistant.db", data: newDbData },
     ]);
 
-    const resolver = new DefaultPathResolver(testDbPath, testConfigPath);
+    const resolver = new DefaultPathResolver(undefined, testDir);
     const result = commitImport({
       archiveData: vbundle,
       pathResolver: resolver,
@@ -734,7 +727,7 @@ describe("commitImport", () => {
       { path: "config/settings.json", data: newConfigData },
     ]);
 
-    const resolver = new DefaultPathResolver(testDbPath, testConfigPath);
+    const resolver = new DefaultPathResolver(undefined, testDir);
     const result = commitImport({
       archiveData: vbundle,
       pathResolver: resolver,
@@ -755,46 +748,38 @@ describe("commitImport", () => {
 });
 
 // ---------------------------------------------------------------------------
-// Skills/hooks directory clearing tests
+// Workspace clearing tests
 // ---------------------------------------------------------------------------
 
-describe("commitImport — directory clearing", () => {
-  let skillsDir: string;
-  let hooksDir: string;
-
-  beforeEach(() => {
-    skillsDir = join(testDir, "skills");
-    hooksDir = join(testDir, "hooks");
-  });
+describe("commitImport — workspace clearing", () => {
+  const skillsDir = join(testDir, "skills");
+  const hooksDir = join(testDir, "hooks");
 
   afterEach(() => {
-    // Clean up skills/hooks dirs and any backup dirs
-    for (const entry of readdirSync(testDir)) {
-      if (entry.startsWith("skills") || entry.startsWith("hooks")) {
-        rmSync(join(testDir, entry), { recursive: true, force: true });
-      }
+    // Restore test fixture files for subsequent tests
+    mkdirSync(testDbDir, { recursive: true });
+    writeFileSync(testDbPath, EXISTING_DB_DATA);
+    writeFileSync(testConfigPath, JSON.stringify(EXISTING_CONFIG, null, 2));
+    // Clean up skills/hooks dirs
+    for (const dir of [skillsDir, hooksDir]) {
+      if (existsSync(dir)) rmSync(dir, { recursive: true, force: true });
     }
   });
 
-  test("clears stale skills not present in the bundle", () => {
+  test("clears stale skills via workspace clearing", () => {
     mkdirSync(join(skillsDir, "stale-skill"), { recursive: true });
     writeFileSync(join(skillsDir, "stale-skill", "SKILL.md"), "stale");
 
     const skillData = new TextEncoder().encode("# New Skill");
     const vbundle = createValidVBundle([
-      { path: "data/db/assistant.db", data: new Uint8Array([0x01]) },
       { path: "skills/new-skill/SKILL.md", data: skillData },
     ]);
 
-    const resolver = new DefaultPathResolver(
-      testDbPath,
-      testConfigPath,
-      undefined,
-      skillsDir,
-    );
+    const resolver = new DefaultPathResolver(undefined, testDir);
     const result = commitImport({
       archiveData: vbundle,
       pathResolver: resolver,
+      workspaceDir: testDir,
     });
 
     expect(result.ok).toBe(true);
@@ -806,96 +791,24 @@ describe("commitImport — directory clearing", () => {
       "# New Skill",
     );
 
-    // Stale skill removed from active directory
+    // Stale skill removed by workspace clearing
     expect(existsSync(join(skillsDir, "stale-skill"))).toBe(false);
   });
 
-  test("preserves backup of existing skills directory", () => {
-    mkdirSync(join(skillsDir, "old-skill"), { recursive: true });
-    writeFileSync(join(skillsDir, "old-skill", "SKILL.md"), "old content");
-
-    const skillData = new TextEncoder().encode("# New Skill");
-    const vbundle = createValidVBundle([
-      { path: "data/db/assistant.db", data: new Uint8Array([0x01]) },
-      { path: "skills/new-skill/SKILL.md", data: skillData },
-    ]);
-
-    const resolver = new DefaultPathResolver(
-      testDbPath,
-      testConfigPath,
-      undefined,
-      skillsDir,
-    );
-    const result = commitImport({
-      archiveData: vbundle,
-      pathResolver: resolver,
-    });
-
-    expect(result.ok).toBe(true);
-
-    // A backup directory should exist alongside the skills dir
-    const backupDirs = readdirSync(testDir).filter((f) =>
-      f.startsWith("skills.pre-import-backup-"),
-    );
-    expect(backupDirs.length).toBe(1);
-
-    // Backup contains the old skill
-    expect(
-      existsSync(join(testDir, backupDirs[0], "old-skill", "SKILL.md")),
-    ).toBe(true);
-    expect(
-      readFileSync(
-        join(testDir, backupDirs[0], "old-skill", "SKILL.md"),
-        "utf8",
-      ),
-    ).toBe("old content");
-  });
-
-  test("skips clearing when resolver has no skills root", () => {
-    // Resolver without skillsDir — resolveRoot returns null
-    const resolver = new DefaultPathResolver(testDbPath, testConfigPath);
-
-    const skillData = new TextEncoder().encode("# Skill");
-    const vbundle = createValidVBundle([
-      { path: "data/db/assistant.db", data: new Uint8Array([0x01]) },
-      { path: "skills/my-skill/SKILL.md", data: skillData },
-    ]);
-
-    const result = commitImport({
-      archiveData: vbundle,
-      pathResolver: resolver,
-    });
-
-    // Skills entry is skipped (no disk target), but import succeeds
-    expect(result.ok).toBe(true);
-    if (!result.ok) return;
-    const skillsFile = result.report.files.find(
-      (f) => f.path === "skills/my-skill/SKILL.md",
-    );
-    expect(skillsFile?.action).toBe("skipped");
-  });
-
-  test("clears stale hooks not present in the bundle", () => {
+  test("clears stale hooks via workspace clearing", () => {
     mkdirSync(join(hooksDir, "stale-hook"), { recursive: true });
     writeFileSync(join(hooksDir, "stale-hook", "hook.sh"), "stale");
 
     const hookData = new TextEncoder().encode("#!/bin/sh\necho new");
     const vbundle = createValidVBundle([
-      { path: "data/db/assistant.db", data: new Uint8Array([0x01]) },
       { path: "hooks/new-hook/hook.sh", data: hookData },
     ]);
 
-    const resolver = new DefaultPathResolver(
-      testDbPath,
-      testConfigPath,
-      undefined,
-      undefined,
-      undefined,
-      hooksDir,
-    );
+    const resolver = new DefaultPathResolver(undefined, testDir);
     const result = commitImport({
       archiveData: vbundle,
       pathResolver: resolver,
+      workspaceDir: testDir,
     });
 
     expect(result.ok).toBe(true);
@@ -905,24 +818,19 @@ describe("commitImport — directory clearing", () => {
     expect(existsSync(join(hooksDir, "stale-hook"))).toBe(false);
   });
 
-  test("does not clear directory when bundle has no entries for that prefix", () => {
+  test("without workspaceDir, no clearing happens", () => {
     mkdirSync(join(skillsDir, "existing-skill"), { recursive: true });
     writeFileSync(
       join(skillsDir, "existing-skill", "SKILL.md"),
       "should survive",
     );
 
-    // Bundle with only db data, no skills
     const vbundle = createValidVBundle([
-      { path: "data/db/assistant.db", data: new Uint8Array([0x01]) },
+      { path: "skills/new-skill/SKILL.md", data: new TextEncoder().encode("new") },
     ]);
 
-    const resolver = new DefaultPathResolver(
-      testDbPath,
-      testConfigPath,
-      undefined,
-      skillsDir,
-    );
+    const resolver = new DefaultPathResolver(undefined, testDir);
+    // No workspaceDir — no clearing
     const result = commitImport({
       archiveData: vbundle,
       pathResolver: resolver,
@@ -930,13 +838,10 @@ describe("commitImport — directory clearing", () => {
 
     expect(result.ok).toBe(true);
 
-    // Skills directory untouched
+    // Existing skill survives (no workspace clearing without workspaceDir)
     expect(existsSync(join(skillsDir, "existing-skill", "SKILL.md"))).toBe(
       true,
     );
-    expect(
-      readFileSync(join(skillsDir, "existing-skill", "SKILL.md"), "utf8"),
-    ).toBe("should survive");
   });
 });
 

@@ -18,11 +18,11 @@ import {
   existsSync,
   mkdirSync,
   readFileSync,
-  renameSync,
-  unlinkSync,
+  readdirSync,
+  rmSync,
   writeFileSync,
 } from "node:fs";
-import { dirname } from "node:path";
+import { dirname, join } from "node:path";
 
 import type { PathResolver } from "./vbundle-import-analyzer.js";
 import type { ManifestType, VBundleTarEntry } from "./vbundle-validator.js";
@@ -115,6 +115,12 @@ export interface ImportCommitOptions {
   preValidatedManifest?: ManifestType;
   /** Pre-parsed tar entries from a prior validateVBundle call. */
   preValidatedEntries?: Map<string, VBundleTarEntry>;
+  /**
+   * Absolute path to the workspace directory. When set and the bundle
+   * contains workspace/ entries, the workspace is cleared (except
+   * skip dirs) before writing to ensure an exact-match restore.
+   */
+  workspaceDir?: string;
 }
 
 /**
@@ -130,6 +136,7 @@ export function commitImport(options: ImportCommitOptions): ImportCommitResult {
     pathResolver,
     preValidatedManifest,
     preValidatedEntries,
+    workspaceDir,
   } = options;
 
   let manifest: ManifestType;
@@ -156,54 +163,56 @@ export function commitImport(options: ImportCommitOptions): ImportCommitResult {
     entryMap = validation.entries;
   }
 
-  // Step 1b: Back up and clear directories that will be fully restored from
-  // the bundle. We rename (not delete) to preserve a recoverable backup in
-  // case a later write fails — this prevents irrecoverable data loss.
-  for (const prefix of ["skills/", "hooks/"] as const) {
-    const hasEntries = manifest.files.some((f) => f.path.startsWith(prefix));
-    if (!hasEntries) continue;
+  // Directories to preserve when clearing the workspace (large/regenerable).
+  const WORKSPACE_SKIP_DIRS = new Set(["embedding-models"]);
+  // data/qdrant is nested — we skip "qdrant" inside "data/"
+  const DATA_SKIP_DIRS = new Set(["qdrant"]);
 
-    const dirRoot = pathResolver.resolveRoot?.(prefix);
-    if (!dirRoot || !existsSync(dirRoot)) continue;
+  // Step 1b: Clear the workspace directory before restore if the bundle
+  // contains workspace/ entries. This ensures an exact-match restore with
+  // no stale files left behind. Skips embedding-models/ and data/qdrant/
+  // (large, regenerable). Also handles old-format bundles that use skills/
+  // or hooks/ prefixes.
+  const hasWorkspaceEntries = manifest.files.some(
+    (f) =>
+      f.path.startsWith("workspace/") ||
+      f.path.startsWith("skills/") ||
+      f.path.startsWith("hooks/") ||
+      f.path.startsWith("prompts/") ||
+      f.path === "data/db/assistant.db" ||
+      f.path === "config/settings.json",
+  );
 
-    const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
-    const backupPath = `${dirRoot}.pre-import-backup-${timestamp}`;
+  if (hasWorkspaceEntries && workspaceDir && existsSync(workspaceDir)) {
     try {
-      renameSync(dirRoot, backupPath);
+      // Clear workspace contents selectively, preserving skip dirs
+      const topEntries = readdirSync(workspaceDir, { withFileTypes: true });
+      for (const entry of topEntries) {
+        if (WORKSPACE_SKIP_DIRS.has(entry.name)) continue;
+
+        const entryPath = join(workspaceDir, entry.name);
+        if (entry.name === "data" && entry.isDirectory()) {
+          // Inside data/, preserve qdrant/ but clear everything else
+          const dataEntries = readdirSync(entryPath, { withFileTypes: true });
+          for (const dataEntry of dataEntries) {
+            if (DATA_SKIP_DIRS.has(dataEntry.name)) continue;
+            rmSync(join(entryPath, dataEntry.name), {
+              recursive: true,
+              force: true,
+            });
+          }
+        } else {
+          rmSync(entryPath, { recursive: true, force: true });
+        }
+      }
     } catch (err) {
-      const label = prefix.slice(0, -1); // "skills" or "hooks"
       return {
         ok: false,
         reason: "write_failed",
-        message: `Failed to backup ${label} directory "${dirRoot}": ${
+        message: `Failed to clear workspace directory "${workspaceDir}": ${
           err instanceof Error ? err.message : String(err)
         }`,
       };
-    }
-  }
-
-  // Step 1d: Clear stale prompt files if the bundle contains prompts entries.
-  // Only the known prompt filenames are accepted, so delete each one that
-  // currently exists to avoid stale prompts surviving a restore.
-  const hasPromptsEntries = manifest.files.some((f) =>
-    f.path.startsWith("prompts/"),
-  );
-  if (hasPromptsEntries) {
-    const PROMPT_FILENAMES = [
-      "IDENTITY.md",
-      "SOUL.md",
-      "USER.md",
-      "UPDATES.md",
-    ];
-    for (const filename of PROMPT_FILENAMES) {
-      const diskPath = pathResolver.resolve(`prompts/${filename}`);
-      if (diskPath && existsSync(diskPath)) {
-        try {
-          unlinkSync(diskPath);
-        } catch {
-          // Non-fatal — the file will be overwritten or left as-is
-        }
-      }
     }
   }
 
