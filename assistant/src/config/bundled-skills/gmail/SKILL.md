@@ -1,6 +1,6 @@
 ---
 name: gmail
-description: Archive, label, draft, unsubscribe, and manage Gmail with smart inbox tools
+description: Archive, label, draft, unsubscribe, and manage Gmail
 compatibility: "Designed for Vellum personal assistants"
 metadata:
   emoji: "📨"
