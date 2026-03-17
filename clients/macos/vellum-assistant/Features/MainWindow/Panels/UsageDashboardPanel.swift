@@ -116,8 +116,8 @@ struct UsageDashboardPanel: View {
 
     @ViewBuilder
     private func dailyBarChart(_ buckets: [UsageDayBucket]) -> some View {
-        let sorted = buckets.sorted { $0.totalEstimatedCostUsd > $1.totalEstimatedCostUsd }
-        let maxCost = sorted.first?.totalEstimatedCostUsd ?? 1.0
+        let sorted = buckets.sorted { $0.date > $1.date }
+        let maxCost = buckets.map(\.totalEstimatedCostUsd).max() ?? 1.0
 
         ScrollView(.horizontal, showsIndicators: false) {
             VStack(alignment: .leading, spacing: VSpacing.xs) {
