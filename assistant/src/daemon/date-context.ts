@@ -1,9 +1,8 @@
 /**
- * Temporal context formatter for future weekday/weekend grounding.
+ * Temporal context formatter for date/time grounding.
  *
  * Produces a compact, deterministic payload describing the current date,
- * upcoming weekend/work-week windows, and a short horizon of labelled
- * future dates.  Intended for runtime injection into the model context.
+ * time, and timezone.  Intended for runtime injection into the model context.
  */
 
 export interface TemporalContextOptions {
@@ -17,12 +16,7 @@ export interface TemporalContextOptions {
   configuredUserTimeZone?: string | null;
   /** IANA timezone inferred from user profile/memory (if available). */
   userTimeZone?: string | null;
-  /** Number of future days to list (default 14, hard-capped at 14). */
-  horizonDays?: number;
 }
-
-const MAX_OUTPUT_CHARS = 1500;
-const MAX_HORIZON_ENTRIES = 14;
 
 const WEEKDAY_NAMES = [
   "Sunday",
@@ -317,34 +311,7 @@ function formatLocalIsoWithOffset(date: Date, timeZone: string): string {
 }
 
 /**
- * Advance a date by `days` calendar days in the given timezone.
- *
- * Computes the local date, adds days to the day component, then anchors
- * the result at noon local time to avoid DST-transition edge cases.
- */
-function addDays(date: Date, days: number, timeZone: string): Date {
-  const parts = localDateParts(date, timeZone);
-  // Use Date.UTC for calendar overflow (e.g. Jan 32 → Feb 1).
-  const ref = new Date(Date.UTC(parts.year, parts.month - 1, parts.day + days));
-  const tY = ref.getUTCFullYear();
-  const tM = ref.getUTCMonth() + 1;
-  const tD = ref.getUTCDate();
-  // Noon UTC covers UTC-12 through ~UTC+11.  For far-east timezones
-  // (UTC+12/+13/+14) noon UTC is already the next local day, so fall
-  // back to midnight UTC which resolves correctly there.
-  const noonUTC = new Date(Date.UTC(tY, tM - 1, tD, 12, 0, 0));
-  const r = localDateParts(noonUTC, timeZone);
-  if (r.year === tY && r.month === tM && r.day === tD) {
-    return noonUTC;
-  }
-  return new Date(Date.UTC(tY, tM - 1, tD, 0, 0, 0));
-}
-
-/**
  * Build a compact temporal context string for model injection.
- *
- * Output is hard-capped at {@link MAX_OUTPUT_CHARS} characters and
- * {@link MAX_HORIZON_ENTRIES} horizon entries.
  */
 export function buildTemporalContext(
   options: TemporalContextOptions = {},
@@ -376,33 +343,9 @@ export function buildTemporalContext(
       : resolvedUserTimeZone
         ? "user_profile_memory"
         : "assistant_host_fallback";
-  const horizonDays = Math.min(
-    options.horizonDays ?? MAX_HORIZON_ENTRIES,
-    MAX_HORIZON_ENTRIES,
-  );
-
   const todayParts = localDateParts(now, timeZone);
   const todayStr = formatLocalDate(now, timeZone);
   const todayWeekday = WEEKDAY_NAMES[todayParts.weekday];
-
-  // ── Next weekend (Saturday-Sunday) ──
-  const daysUntilSaturday = (6 - todayParts.weekday + 7) % 7 || 7;
-  const nextSaturday = addDays(now, daysUntilSaturday, timeZone);
-  const nextSunday = addDays(now, daysUntilSaturday + 1, timeZone);
-
-  // ── Next work week (Monday-Friday) ──
-  const daysUntilMonday = (1 - todayParts.weekday + 7) % 7 || 7;
-  const nextMonday = addDays(now, daysUntilMonday, timeZone);
-  const nextFriday = addDays(now, daysUntilMonday + 4, timeZone);
-
-  // ── Horizon list ──
-  const horizonLines: string[] = [];
-  for (let i = 1; i <= horizonDays; i++) {
-    const futureDate = addDays(now, i, timeZone);
-    const futureParts = localDateParts(futureDate, timeZone);
-    const label = WEEKDAY_NAMES[futureParts.weekday];
-    horizonLines.push(`  ${formatLocalDate(futureDate, timeZone)} ${label}`);
-  }
 
   const lines = [
     `<temporal_context>`,
@@ -410,33 +353,17 @@ export function buildTemporalContext(
     `Timezone: ${timeZone}`,
     `Current local time: ${formatLocalIsoWithOffset(now, timeZone)}`,
     `Current UTC time: ${now.toISOString()}`,
-    `Clock source: assistant host machine`,
-    `Assistant host timezone: ${resolvedHostTimeZone}`,
-    `User timezone: ${userTimeZone ?? "unknown"}`,
     `Timezone source: ${timeZoneSource}`,
-    ``,
-    `Week definitions: work week = Monday–Friday, weekend = Saturday–Sunday`,
-    ``,
-    `Next weekend: ${formatLocalDate(
-      nextSaturday,
-      timeZone,
-    )} – ${formatLocalDate(nextSunday, timeZone)}`,
-    `Next work week: ${formatLocalDate(
-      nextMonday,
-      timeZone,
-    )} – ${formatLocalDate(nextFriday, timeZone)}`,
-    ``,
-    `Upcoming dates:`,
-    ...horizonLines,
-    `</temporal_context>`,
   ];
 
-  let output = lines.join("\n");
-
-  // Hard cap: truncate if somehow over budget (shouldn't happen with 14 entries).
-  if (output.length > MAX_OUTPUT_CHARS) {
-    output = output.slice(0, MAX_OUTPUT_CHARS - 25) + "\n</temporal_context>";
+  if (userTimeZone && userTimeZone !== timeZone) {
+    lines.push(`User timezone: ${userTimeZone}`);
+  }
+  if (resolvedHostTimeZone !== timeZone) {
+    lines.push(`Assistant host timezone: ${resolvedHostTimeZone}`);
   }
 
-  return output;
+  lines.push(`</temporal_context>`);
+
+  return lines.join("\n");
 }
