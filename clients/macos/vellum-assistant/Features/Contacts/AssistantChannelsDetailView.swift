@@ -228,7 +228,7 @@ struct AssistantChannelsDetailView: View {
     private var voiceRow: some View {
         let status = store.channelSetupStatus["phone"]
         return Group {
-            if status == "ready" || (status == "incomplete" && store.twilioHasCredentials) {
+            if store.twilioHasCredentials {
                 VStack(alignment: .leading, spacing: VSpacing.sm) {
                     channelRowHeader(
                         name: "Phone Calling",
@@ -238,25 +238,22 @@ struct AssistantChannelsDetailView: View {
                         hasDisconnect: true,
                         isDisconnectDisabled: store.twilioSaveInProgress
                     )
-                    // Phone number dropdown in connected state
-                    if store.twilioHasCredentials {
-                        HStack(spacing: VSpacing.sm) {
-                            Text("Phone Number")
-                                .font(VFont.caption)
-                                .foregroundColor(VColor.contentSecondary)
-                            VDropdown(
-                                placeholder: "Not Set",
-                                selection: Binding(
-                                    get: { store.twilioPhoneNumber ?? "" },
-                                    set: { newValue in
-                                        store.assignTwilioNumber(phoneNumber: newValue)
-                                    }
-                                ),
-                                options: store.twilioNumbers.map { (label: $0.friendlyName, value: $0.phoneNumber) },
-                                emptyValue: ""
-                            )
-                            .frame(maxWidth: 280)
-                        }
+                    HStack(spacing: VSpacing.sm) {
+                        Text("Phone Number")
+                            .font(VFont.caption)
+                            .foregroundColor(VColor.contentSecondary)
+                        VDropdown(
+                            placeholder: "Not Set",
+                            selection: Binding(
+                                get: { store.twilioPhoneNumber ?? "" },
+                                set: { newValue in
+                                    store.assignTwilioNumber(phoneNumber: newValue)
+                                }
+                            ),
+                            options: store.twilioNumbers.map { (label: $0.friendlyName, value: $0.phoneNumber) },
+                            emptyValue: ""
+                        )
+                        .frame(maxWidth: 280)
                     }
                 }
                 .padding(.vertical, VSpacing.sm)
@@ -709,12 +706,11 @@ struct AssistantChannelsDetailView: View {
     private var voiceCard: some View {
         let status = store.channelSetupStatus["phone"]
         return SettingsCard(title: "Phone Calling", subtitle: "Receive and make phone calls via Twilio", showBorder: showCardBorders) {
-            if status == "ready" || (status == "incomplete" && store.twilioHasCredentials) {
+            if store.twilioHasCredentials {
                 VBadge(label: "Connected", tone: .positive)
             }
         } content: {
-            // Phone number dropdown: show when credentials are configured
-            if (status == "ready" || status == "incomplete") && store.twilioHasCredentials {
+            if store.twilioHasCredentials {
                 VStack(alignment: .leading, spacing: VSpacing.sm) {
                     Text("Phone Number")
                         .font(VFont.inputLabel)
