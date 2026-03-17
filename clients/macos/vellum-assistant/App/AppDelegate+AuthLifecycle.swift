@@ -180,8 +180,10 @@ extension AppDelegate {
                 await authManager.logout()
             }
 
-            // Clear managed proxy credentials from the running daemon (local assistants only)
-            if !isCurrentAssistantManaged && !isCurrentAssistantRemote {
+            // Clear managed proxy credentials from the running daemon (local assistants only).
+            // Skip when the daemon was never set up (e.g. logout during onboarding) —
+            // there are no credentials to clear and no daemon to stop.
+            if !isCurrentAssistantManaged && !isCurrentAssistantRemote && hasSetupDaemon {
                 if let token = actorToken, !token.isEmpty {
                     let assistantId = connectedAssistantId ?? ""
                     let port = LockfileAssistant.loadByName(assistantId)?.daemonPort ?? 7821
