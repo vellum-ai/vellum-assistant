@@ -68,11 +68,17 @@ struct ContactDetailView: View {
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: VSpacing.lg) {
+            VStack(alignment: .leading, spacing: 0) {
                 headerSection
+                VColor.surfaceBase.frame(height: 1).padding(.vertical, VSpacing.lg)
                 channelsSection
             }
-            .padding(VSpacing.xl)
+            .padding(VSpacing.lg)
+            .overlay(
+                RoundedRectangle(cornerRadius: VRadius.xl)
+                    .stroke(VColor.borderDisabled, lineWidth: 2)
+            )
+            .padding(VSpacing.lg)
         }
         .background(VColor.surfaceOverlay)
         .confirmationDialog(
@@ -127,11 +133,6 @@ struct ContactDetailView: View {
             headerActions
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(VSpacing.lg)
-        .overlay(
-            RoundedRectangle(cornerRadius: 16)
-                .stroke(VColor.borderDisabled, lineWidth: 1)
-        )
         .onAppear {
             editedName = displayContact.displayName
             editedNotes = displayContact.notes ?? ""
@@ -228,9 +229,7 @@ struct ContactDetailView: View {
                         .font(VFont.body)
                         .foregroundColor(VColor.contentTertiary)
                 }
-                .padding(VSpacing.lg)
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .vCard(background: VColor.surfaceOverlay)
             } else if visibleTypes.isEmpty {
                 VStack(alignment: .leading, spacing: VSpacing.sm) {
                     Text("No channels available")
@@ -240,9 +239,7 @@ struct ContactDetailView: View {
                         .font(VFont.body)
                         .foregroundColor(VColor.contentTertiary)
                 }
-                .padding(VSpacing.lg)
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .vCard(background: VColor.surfaceOverlay)
             } else {
                 channelsList(visibleTypes: visibleTypes, channelsByType: channelsByType)
             }
@@ -314,13 +311,7 @@ struct ContactDetailView: View {
                 }
             }
         }
-        .padding(VSpacing.lg)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .overlay(
-            RoundedRectangle(cornerRadius: 16)
-                .stroke(VColor.borderDisabled, lineWidth: 1)
-        )
-        .clipShape(RoundedRectangle(cornerRadius: 16))
     }
 
     /// A flat row for a configured/verified channel: icon + name/description + timestamp + action button.

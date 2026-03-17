@@ -39,8 +39,6 @@ struct ContactsContainerView: View {
             .frame(maxHeight: .infinity, alignment: .top)
             .background(VColor.surfaceOverlay)
 
-            Divider()
-                .background(VColor.borderBase)
 
             // Right pane: detail, loading, or placeholder
             if viewModel.isLoading && viewModel.contacts.isEmpty {
