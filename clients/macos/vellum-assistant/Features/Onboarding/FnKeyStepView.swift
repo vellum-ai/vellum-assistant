@@ -134,18 +134,12 @@ struct FnKeyStepView: View {
                 .buttonStyle(.plain)
                 .pointerCursor()
 
-                Button(action: {
+                OnboardingButton(title: "Back", style: .ghost) {
                     stopPolling()
                     withAnimation(.spring(duration: 0.6, bounce: 0.15)) {
                         state.currentStep = 3
                     }
-                }) {
-                    Text("Back")
-                        .font(.system(size: 13))
-                        .foregroundColor(VColor.contentTertiary)
                 }
-                .buttonStyle(.plain)
-                .pointerCursor()
             }
             .padding(.top, VSpacing.xs)
         }
