@@ -128,7 +128,7 @@ export function buildSystemPrompt(options?: BuildSystemPromptOptions): string {
   const staticParts: string[] = [];
   if (getIsContainerized()) staticParts.push(buildContainerizedSection());
   staticParts.push(buildCliReferenceSection());
-  if (!hasNoClient) staticParts.push(buildToolPermissionSection());
+  // Tool Permissions section removed — guidance lives in tool descriptions.
   staticParts.push(buildTaskScheduleReminderRoutingSection());
   staticParts.push(buildAttachmentSection());
   staticParts.push(buildInChatConfigurationSection());
@@ -341,50 +341,6 @@ export function buildStarterTaskPlaybookSection(): string {
   ].join("\n");
 }
 
-function buildToolPermissionSection(): string {
-  return [
-    "## Tool Permissions",
-    "",
-    "Some tools (host_bash, host_file_write, host_file_edit, host_file_read) require your user's approval before they run. When you call one of these tools, your user sees **Allow / Don't Allow** buttons in the chat directly below your message.",
-    "",
-    "**CRITICAL RULE:** You MUST ALWAYS output a text message BEFORE calling any tool that requires approval. NEVER call a permission-gated tool without preceding text. Your user needs context to decide whether to allow.",
-    "",
-    '**IMPORTANT:** If your user has already granted broad approval for the current conversation (e.g. via "Allow for 10 minutes", "Allow for this conversation", or "Always Allow"), do NOT ask for permission again. Instead, just briefly describe what you\'re about to do and proceed. Only ask "Can you allow?" on the FIRST tool call when you haven\'t been granted permission yet.',
-    "",
-    "Your text should follow this pattern:",
-    "1. **Acknowledge** the request conversationally.",
-    '2. **Explain what you need at a high level** (e.g. "I\'ll need to look through your Downloads folder"). Do NOT include raw terminal commands or backtick code. Keep it non-technical.',
-    "3. **State safety** in plain language. Is it read-only? Will it change anything?",
-    "4. **Ask for permission** only if this is the first time and you haven't been previously approved. If you have been approved, just say what you're doing.",
-    "",
-    "Style rules:",
-    '- NEVER use em dashes (the long dash). Use commas, periods, or "and" instead.',
-    "- NEVER show raw commands in backticks like `ls -lt ~/Downloads`. Describe the action in plain English.",
-    "- Keep it conversational, like you're talking to a friend.",
-    "",
-    'First time (no prior approval): "To show your recent downloads, I\'ll need to look through your Downloads folder. This is read-only. Can you allow this?"',
-    'Already approved: "Let me check your Downloads folder real quick."',
-    'Bad: "I\'ll run `ls -lt ~/Desktop/`" (raw command), or calling a tool with no preceding text.',
-    "",
-    "### Handling Permission Denials",
-    "",
-    'When your user denies a tool permission (clicks "Don\'t Allow"), you will receive an error indicating the denial. Follow these rules:',
-    "",
-    "1. **Do NOT immediately retry the tool call.** Retrying without waiting creates another permission prompt, which is annoying and disrespectful of the user's decision.",
-    "2. **Acknowledge the denial.** Tell the user that the action was not performed because they chose not to allow it.",
-    "3. **Ask before retrying.** Ask if they would like you to try again, or if they would prefer a different approach.",
-    "4. **Wait for an explicit response.** Only retry the tool call after the user explicitly confirms they want you to try again.",
-    "5. **Offer alternatives.** If possible, suggest alternative approaches that might not require the denied permission.",
-    "",
-    "Example:",
-    '- Tool denied → "No problem! I wasn\'t able to access your Downloads folder since you chose not to allow it. Would you like me to try again, or is there another way I can help?"',
-    "",
-    "### Always-Available Tools (No Approval Required)",
-    "",
-    "- **file_read** on your workspace directory — You can freely read any file under your `.vellum` workspace at any time. Use this proactively to check files, load context, and inform your responses without asking. **Always use `file_read` for workspace files, never `host_file_read`.** Note: your core prompt files (IDENTITY.md, SOUL.md, USER.md) are already loaded into your system prompt — no need to re-read them at the start of a conversation.",
-    "- **web_search** — You can search the web at any time without approval. Use this to look up documentation, current information, or anything you need.",
-  ].join("\n");
-}
 
 function buildSystemPermissionSection(): string {
   return [

@@ -6,7 +6,8 @@ import type { Tool, ToolContext, ToolExecutionResult } from "../types.js";
 
 class HostFileReadTool implements Tool {
   name = "host_file_read";
-  description = "Read the contents of a file on the host filesystem";
+  description =
+    "Read the contents of a file on the host filesystem. Not for workspace files under .vellum (use file_read instead).";
   category = "host-filesystem";
   defaultRiskLevel = RiskLevel.Medium;
 
