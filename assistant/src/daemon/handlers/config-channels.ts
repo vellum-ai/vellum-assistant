@@ -551,9 +551,14 @@ export async function handleChannelVerificationSession(
           rebind: msg.rebind,
           originConversationId: msg.originConversationId,
         });
+        if (result._pendingSlackDm) {
+          const { userId, text, assistantId: aid } = result._pendingSlackDm;
+          deliverVerificationSlack(userId, text, aid);
+        }
+        const { _pendingSlackDm: _, ...publicResult } = result;
         ctx.send({
           type: "channel_verification_session_response",
-          ...result,
+          ...publicResult,
         });
       } else {
         const result = createInboundChallenge(
@@ -591,9 +596,14 @@ export async function handleChannelVerificationSession(
         channel,
         originConversationId: msg.originConversationId,
       });
+      if (result._pendingSlackDm) {
+        const { userId, text, assistantId: aid } = result._pendingSlackDm;
+        deliverVerificationSlack(userId, text, aid);
+      }
+      const { _pendingSlackDm: _, ...publicResult } = result;
       ctx.send({
         type: "channel_verification_session_response",
-        ...result,
+        ...publicResult,
       });
     } else {
       ctx.send({
