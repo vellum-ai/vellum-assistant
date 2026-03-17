@@ -24,10 +24,10 @@ final class AvatarIconRenderingTests: XCTestCase {
         bitmap.size = NSSize(width: size, height: size)
 
         NSGraphicsContext.saveGraphicsState()
+        defer { NSGraphicsContext.restoreGraphicsState() }
         NSGraphicsContext.current = NSGraphicsContext(bitmapImageRep: bitmap)
         icon.draw(in: NSRect(origin: .zero, size: NSSize(width: size, height: size)),
                   from: .zero, operation: .copy, fraction: 1.0)
-        NSGraphicsContext.restoreGraphicsState()
 
         XCTAssertEqual(bitmap.pixelsWide, 512)
         XCTAssertEqual(bitmap.pixelsHigh, 512)

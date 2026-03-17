@@ -81,10 +81,10 @@ extension UNMutableNotificationContent {
         bitmap.size = NSSize(width: size, height: size)
 
         NSGraphicsContext.saveGraphicsState()
+        defer { NSGraphicsContext.restoreGraphicsState() }
         NSGraphicsContext.current = NSGraphicsContext(bitmapImageRep: bitmap)
         icon.draw(in: NSRect(origin: .zero, size: NSSize(width: size, height: size)),
                   from: .zero, operation: .copy, fraction: 1.0)
-        NSGraphicsContext.restoreGraphicsState()
 
         guard let pngData = bitmap.representation(using: .png, properties: [:]) else { return nil }
 
