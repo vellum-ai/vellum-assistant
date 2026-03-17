@@ -329,9 +329,15 @@ extension HTTPTransport {
 
     /// Send an HTTP request with an Encodable body.
     func sendEncodablePost<T: Encodable>(_ endpoint: Endpoint, body: T, method: String = "POST", label: String) async {
-        guard let url = buildURL(for: endpoint) else {
+        guard var url = buildURL(for: endpoint) else {
             log.error("Failed to build URL for \(label)")
             return
+        }
+
+        // GET requests cannot carry a body on macOS (URLError.dataLengthExceedsMaximum).
+        // Encode the body's top-level properties as URL query parameters instead.
+        if method == "GET" {
+            url = appendQueryItems(to: url, from: body)
         }
 
         var request = URLRequest(url: url)
@@ -340,8 +346,6 @@ extension HTTPTransport {
         applyAuth(&request)
 
         do {
-            // Only set body for methods that support it — GET requests with
-            // a body cause URLError.dataLengthExceedsMaximum on macOS.
             if method != "GET" {
                 request.httpBody = try encoder.encode(body)
             }
@@ -372,9 +376,15 @@ extension HTTPTransport {
         label: String,
         channel: String? = nil
     ) async {
-        guard let url = buildURL(for: endpoint) else {
+        guard var url = buildURL(for: endpoint) else {
             log.error("Failed to build URL for \(label)")
             return
+        }
+
+        // GET requests cannot carry a body on macOS (URLError.dataLengthExceedsMaximum).
+        // Encode the body's top-level properties as URL query parameters instead.
+        if method == "GET" {
+            url = appendQueryItems(to: url, from: body)
         }
 
         var request = URLRequest(url: url)
@@ -383,8 +393,6 @@ extension HTTPTransport {
         applyAuth(&request)
 
         do {
-            // Only set body for methods that support it — GET requests with
-            // a body cause URLError.dataLengthExceedsMaximum on macOS.
             if method != "GET" {
                 request.httpBody = try encoder.encode(body)
             }
@@ -447,6 +455,35 @@ extension HTTPTransport {
            let serverMessage = try? decoder.decode(ServerMessage.self, from: syntheticData) {
             onMessage?(serverMessage)
         }
+    }
+
+    /// Encode the top-level properties of an `Encodable` value as URL query items.
+    /// The `type` key is excluded since it is a message discriminant, not a server parameter.
+    private func appendQueryItems<T: Encodable>(to url: URL, from body: T) -> URL {
+        guard let data = try? encoder.encode(body),
+              let dict = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            return url
+        }
+        guard var components = URLComponents(url: url, resolvingAgainstBaseURL: false) else {
+            return url
+        }
+        var items = components.queryItems ?? []
+        for (key, value) in dict {
+            if key == "type" { continue }
+            let stringValue: String
+            if let s = value as? String {
+                stringValue = s
+            } else if let n = value as? NSNumber {
+                stringValue = n.stringValue
+            } else {
+                continue
+            }
+            items.append(URLQueryItem(name: key, value: stringValue))
+        }
+        if !items.isEmpty {
+            components.queryItems = items
+        }
+        return components.url ?? url
     }
 
     /// Fetch a follow-up suggestion via GET and dispatch the response through
