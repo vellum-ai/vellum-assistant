@@ -160,8 +160,13 @@ struct GuardianChannelsDetailView: View {
                 channelCardContent(type: type, existingChannels: existingChannels, activeChannel: activeChannel, isVerified: isVerified)
             }
         } else {
+            let needsSetup = !isVerified
+                && store?.channelVerificationState(for: type).verified != true
+                && (existingChannels.isEmpty || dismissedChannels.contains(type))
+                && !setupExpanded.contains(type)
+
             VStack(alignment: .leading, spacing: VSpacing.sm) {
-                // Row header: icon + name + status
+                // Row header: icon + name + inline status/action
                 HStack(spacing: VSpacing.sm) {
                     VIconView(channelIcon(for: type), size: 16)
                         .foregroundColor(isVerified ? VColor.systemPositiveStrong : VColor.contentSecondary)
@@ -171,11 +176,19 @@ struct GuardianChannelsDetailView: View {
                     Spacer()
                     if isVerified {
                         VBadge(label: "Verified", tone: .positive)
+                    } else if needsSetup {
+                        VButton(label: "Set up", style: .outlined) {
+                            dismissedChannels.remove(type)
+                            setupExpanded.insert(type)
+                        }
                     }
                 }
                 .frame(minHeight: 36)
-                // Expandable content below the row
-                channelCardContent(type: type, existingChannels: existingChannels, activeChannel: activeChannel, isVerified: isVerified)
+
+                // Expanded content below the row (verification flow or verified identity)
+                if !needsSetup {
+                    channelCardContent(type: type, existingChannels: existingChannels, activeChannel: activeChannel, isVerified: isVerified)
+                }
             }
         }
     }
@@ -188,16 +201,10 @@ struct GuardianChannelsDetailView: View {
             || (!existingChannels.isEmpty && !dismissedChannels.contains(type))
             || setupExpanded.contains(type) {
             verificationFlowContent(for: type)
-        } else {
-            VButton(label: "Set Up", style: .outlined) {
-                dismissedChannels.remove(type)
-                setupExpanded.insert(type)
-            }
         }
 
-            if errorChannelType == type, let errorMessage {
-                VInlineMessage(errorMessage)
-            }
+        if errorChannelType == type, let errorMessage {
+            VInlineMessage(errorMessage)
         }
     }
 
