@@ -112,8 +112,6 @@ struct ContactsContainerView: View {
         }
     }
 
-    @State private var cachedAssistantName: String = AssistantDisplayName.placeholder
-
     /// Guardian detail — name+tag header card, then existing channel content in a second card.
     private func guardianDetailView(contact: ContactPayload) -> some View {
         ScrollView {
@@ -149,26 +147,15 @@ struct ContactsContainerView: View {
         .id(contact.id)
     }
 
-    /// Assistant detail with the same card header as human contacts, plus
-    /// the existing AssistantChannelsDetailView for channel configuration.
+    @State private var cachedAssistantName: String = AssistantDisplayName.placeholder
+
+    /// Assistant detail — channels card only (top summary tile removed per design review).
     @ViewBuilder
     private var assistantDetailView: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: VSpacing.lg) {
-                VStack(alignment: .leading, spacing: VSpacing.md) {
-                    HStack(spacing: VSpacing.sm) {
-                        Text(cachedAssistantName)
-                            .font(VFont.display)
-                            .foregroundColor(VColor.contentDefault)
-                        VBadge(label: "Assistant", tone: .neutral)
-                    }
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(VSpacing.lg)
-                .vCard(radius: VRadius.lg, background: VColor.surfaceOverlay)
-
                 if let store {
-                    AssistantChannelsDetailView(store: store, daemonClient: daemonClient, isEmailEnabled: isEmailEnabled, showCardBorders: false)
+                    AssistantChannelsDetailView(store: store, daemonClient: daemonClient, assistantName: cachedAssistantName, isEmailEnabled: isEmailEnabled, showCardBorders: false)
                         .padding(VSpacing.lg)
                         .vCard(radius: VRadius.lg, background: VColor.surfaceOverlay)
                 }

@@ -50,65 +50,51 @@ struct ContactsListView: View {
                 .accessibilityLabel("Add contact")
             }
 
-            VStack(alignment: .leading, spacing: VSpacing.xs) {
-                contactListRow(
-                    name: cachedAssistantDisplayName,
-                    channelText: "Assistant channels",
-                    tag: "Assistant",
-                    isSelected: selection == .assistant,
-                    isHovered: isAssistantHovered,
-                    onTap: { selection = .assistant },
-                    onHover: { isAssistantHovered = $0 }
-                )
+            searchBar
 
-                if let guardian = viewModel.guardianContact {
-                    contactListRow(
-                        name: "\(guardian.displayName) (You)",
-                        channelText: channelNamesText(guardian.channels),
-                        tag: "Guardian",
-                        isSelected: selection == .contact(guardian.id),
-                        isHovered: hoveredContactId == guardian.id,
-                        onTap: { selection = .contact(guardian.id) },
-                        onHover: { hoveredContactId = $0 ? guardian.id : nil }
-                    )
+            ScrollView {
+                VStack(alignment: .leading, spacing: VSpacing.sm) {
+                    // Assistant row (virtual — not a real contact)
+                    if matchesSearch(cachedAssistantDisplayName) {
+                        contactListRow(
+                            name: cachedAssistantDisplayName,
+                            tag: "Assistant",
+                            isSelected: selection == .assistant,
+                            isHovered: isAssistantHovered,
+                            onTap: { selection = .assistant },
+                            onHover: { isAssistantHovered = $0 }
+                        )
+                    }
+
+                    // All contacts in natural order
+                    ForEach(viewModel.filteredContacts, id: \.id) { contact in
+                        let isGuardian = contact.role == "guardian"
+                        contactListRow(
+                            name: isGuardian ? "\(contact.displayName) (You)" : contact.displayName,
+                            tag: formatContactType(contact.role),
+                            isSelected: selection == .contact(contact.id),
+                            isHovered: hoveredContactId == contact.id,
+                            onTap: { selection = .contact(contact.id) },
+                            onHover: { hoveredContactId = $0 ? contact.id : nil }
+                        )
+                    }
+
+                    if viewModel.filteredContacts.isEmpty && !viewModel.contacts.isEmpty && !matchesSearch(cachedAssistantDisplayName) {
+                        VStack(spacing: VSpacing.sm) {
+                            Text("No matching contacts")
+                                .font(VFont.body)
+                                .foregroundColor(VColor.contentSecondary)
+                            Text("Try a different search term")
+                                .font(VFont.caption)
+                                .foregroundColor(VColor.contentTertiary)
+                        }
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, VSpacing.xl)
+                    }
                 }
             }
 
-            SettingsDivider()
-
-            searchBar
-
-            if viewModel.hasNonGuardianContacts {
-                ScrollView {
-                    VStack(alignment: .leading, spacing: VSpacing.xs) {
-                        ForEach(viewModel.otherContacts, id: \.id) { contact in
-                            contactListRow(
-                                name: contact.displayName,
-                                channelText: channelNamesText(contact.channels),
-                                tag: formatContactType(contact.role),
-                                isSelected: selection == .contact(contact.id),
-                                isHovered: hoveredContactId == contact.id,
-                                onTap: { selection = .contact(contact.id) },
-                                onHover: { hoveredContactId = $0 ? contact.id : nil }
-                            )
-                        }
-
-                        if viewModel.filteredContacts.isEmpty && !viewModel.contacts.isEmpty {
-                            VStack(spacing: VSpacing.sm) {
-                                Text("No matching contacts")
-                                    .font(VFont.body)
-                                    .foregroundColor(VColor.contentSecondary)
-                                Text("Try a different search term")
-                                    .font(VFont.caption)
-                                    .foregroundColor(VColor.contentTertiary)
-                            }
-                            .frame(maxWidth: .infinity)
-                            .padding(.vertical, VSpacing.xl)
-                        }
-                    }
-                }
-            } else {
-                // Empty state centered in remaining space
+            if viewModel.contacts.isEmpty {
                 Spacer()
                 VEmptyState(
                     title: "No contacts yet",
@@ -126,11 +112,17 @@ struct ContactsListView: View {
         .vCard(radius: VRadius.lg, background: VColor.surfaceOverlay)
     }
 
+    /// Whether a name matches the current search query (or query is empty).
+    private func matchesSearch(_ name: String) -> Bool {
+        let query = viewModel.searchQuery.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !query.isEmpty else { return true }
+        return name.lowercased().contains(query.lowercased())
+    }
+
     // MARK: - Contact List Row
 
     private func contactListRow(
         name: String,
-        channelText: String,
         tag: String,
         isSelected: Bool,
         isHovered: Bool,
@@ -139,32 +131,21 @@ struct ContactsListView: View {
     ) -> some View {
         Button(action: onTap) {
             HStack(spacing: VSpacing.xs) {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(name)
-                        .font(VFont.bodyMedium)
-                        .foregroundColor(isSelected ? VColor.contentEmphasized : VColor.contentDefault)
-                        .lineLimit(1)
-
-                    Text(channelText)
-                        .font(VFont.small)
-                        .foregroundColor(isSelected ? VColor.contentSecondary : VColor.contentTertiary)
-                        .lineLimit(1)
-                }
+                Text(name)
+                    .font(VFont.bodyMedium)
+                    .foregroundColor(isSelected ? VColor.contentEmphasized : VColor.contentDefault)
+                    .lineLimit(1)
 
                 Spacer()
 
-                VBadge(label: tag, tone: .neutral)
+                Text(tag)
+                    .font(VFont.caption)
+                    .foregroundColor(VColor.contentTertiary)
             }
-            .padding(VSpacing.sm)
+            .padding(.horizontal, VSpacing.sm)
+            .padding(.vertical, VSpacing.md)
             .background(rowBackground(isSelected: isSelected, isHovered: isHovered))
             .overlay(rowBorder(isSelected: isSelected, isHovered: isHovered))
-            .overlay(alignment: .leading) {
-                Capsule()
-                    .fill(isSelected ? VColor.primaryBase : .clear)
-                    .frame(width: 4)
-                    .padding(.vertical, VSpacing.sm)
-                    .padding(.leading, 2)
-            }
             .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
             .contentShape(RoundedRectangle(cornerRadius: VRadius.md))
         }
@@ -211,23 +192,6 @@ struct ContactsListView: View {
     }
 
     // MARK: - Helpers
-
-    private func channelNamesText(_ channels: [ContactChannelPayload]) -> String {
-        let activeTypes = Set(channels.filter { $0.status != "revoked" }.map(\.type))
-        guard !activeTypes.isEmpty else { return "No channels" }
-        return activeTypes.sorted().map { channelLabel(for: $0) }.joined(separator: " | ")
-    }
-
-    private func channelLabel(for type: String) -> String {
-        switch type {
-        case "telegram": return "Telegram"
-        case "whatsapp": return "WhatsApp"
-        case "phone": return "Phone"
-        case "email": return "Email"
-        case "slack": return "Slack"
-        default: return type.capitalized
-        }
-    }
 
     private func formatContactType(_ role: String?) -> String {
         switch role {

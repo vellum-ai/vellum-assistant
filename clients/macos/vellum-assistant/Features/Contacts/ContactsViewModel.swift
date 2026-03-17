@@ -38,16 +38,45 @@ final class ContactsViewModel: ObservableObject {
 
     // MARK: - Computed Properties
 
-    /// Non-guardian contacts filtered by the current search query, matching
-    /// against displayName and channel addresses. Guardians are excluded
-    /// because they have a dedicated section in the list.
+    /// Contacts deduplicated by role+displayName, with channels merged.
+    /// The daemon may return separate entries per channel for the same person
+    /// (especially guardians).
+    var deduplicatedContacts: [ContactPayload] {
+        var seen: [String: Int] = [:]
+        var result: [ContactPayload] = []
+        for contact in contacts {
+            // Guardian contacts are always unique by role; others by id
+            let key = contact.role == "guardian" ? "guardian" : contact.id
+            if let idx = seen[key] {
+                let existing = result[idx]
+                let mergedChannels = existing.channels + contact.channels
+                result[idx] = ContactPayload(
+                    id: existing.id,
+                    displayName: existing.displayName,
+                    role: existing.role,
+                    notes: existing.notes ?? contact.notes,
+                    contactType: existing.contactType ?? contact.contactType,
+                    lastInteraction: existing.lastInteraction ?? contact.lastInteraction,
+                    interactionCount: existing.interactionCount + contact.interactionCount,
+                    channels: mergedChannels
+                )
+            } else {
+                seen[key] = result.count
+                result.append(contact)
+            }
+        }
+        return result
+    }
+
+    /// All contacts filtered by the current search query, matching
+    /// against displayName and channel addresses.
     var filteredContacts: [ContactPayload] {
-        let nonGuardian = contacts.filter { $0.role != "guardian" }
+        let base = deduplicatedContacts
         guard !searchQuery.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-            return nonGuardian
+            return base
         }
         let query = searchQuery.lowercased()
-        return nonGuardian.filter { contact in
+        return base.filter { contact in
             if contact.displayName.lowercased().contains(query) {
                 return true
             }
@@ -58,22 +87,8 @@ final class ContactsViewModel: ObservableObject {
     }
 
     /// The guardian contact, if present.
-    /// Uses the unfiltered contacts array so the guardian is always found
-    /// regardless of the active search query.
     var guardianContact: ContactPayload? {
-        contacts.first { $0.role == "guardian" }
-    }
-
-    /// All non-guardian contacts from the filtered set.
-    var otherContacts: [ContactPayload] {
-        filteredContacts.filter { $0.role != "guardian" }
-    }
-
-    /// Whether any non-guardian contacts exist in the unfiltered list.
-    /// Used for empty-state checks so search filtering doesn't
-    /// incorrectly trigger the "No contacts yet" message.
-    var hasNonGuardianContacts: Bool {
-        contacts.contains { $0.role != "guardian" }
+        deduplicatedContacts.first { $0.role == "guardian" }
     }
 
     // MARK: - Actions
