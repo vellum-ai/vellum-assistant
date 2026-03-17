@@ -284,6 +284,8 @@ extension MainWindowView {
                             Spacer()
                         }
                         .padding(.leading, VSpacing.xs + SidebarLayoutMetrics.iconSlotSize + VSpacing.xs - VSpacing.sm)
+                        .padding(.top, VSpacing.sm)
+                        .padding(.bottom, VSpacing.xs)
                     }
 
                     if !scheduleConversations.isEmpty {
@@ -432,6 +434,8 @@ extension MainWindowView {
                                 Spacer()
                             }
                             .padding(.leading, VSpacing.xs + SidebarLayoutMetrics.iconSlotSize + VSpacing.xs - VSpacing.sm)
+                            .padding(.top, VSpacing.sm)
+                            .padding(.bottom, VSpacing.xs)
                         }
                     }
                 }
