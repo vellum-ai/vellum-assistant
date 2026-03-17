@@ -1,4 +1,4 @@
-import { and, asc, eq, gt, lt } from "drizzle-orm";
+import { and, asc, eq, gt, lt, sql } from "drizzle-orm";
 
 import type {
   TraceEvent,
@@ -127,4 +127,22 @@ export function deleteOldTraceEvents(maxAgeDays: number): number {
   const cutoff = Date.now() - maxAgeDays * 24 * 60 * 60 * 1000;
   db.delete(traceEvents).where(lt(traceEvents.createdAt, cutoff)).run();
   return rawChanges();
+}
+
+// ---------------------------------------------------------------------------
+// Sequence
+// ---------------------------------------------------------------------------
+
+/**
+ * Return the highest sequence number persisted for a conversation,
+ * or 0 if no events exist yet.
+ */
+export function getMaxSequence(conversationId: string): number {
+  const db = getDb();
+  const row = db
+    .select({ maxSeq: sql<number>`MAX(${traceEvents.sequence})` })
+    .from(traceEvents)
+    .where(eq(traceEvents.conversationId, conversationId))
+    .get();
+  return row?.maxSeq ?? 0;
 }

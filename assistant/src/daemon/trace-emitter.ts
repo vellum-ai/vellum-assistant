@@ -1,6 +1,9 @@
 import { v4 as uuid } from "uuid";
 
-import { persistTraceEvent } from "../memory/trace-event-store.js";
+import {
+  getMaxSequence,
+  persistTraceEvent,
+} from "../memory/trace-event-store.js";
 import { getLogger } from "../util/logger.js";
 import type { ServerMessage, TraceEventKind } from "./message-protocol.js";
 import type { TraceEvent } from "./message-types/messages.js";
@@ -24,12 +27,21 @@ export interface TraceEmitOptions {
  * even if timestamps collide.
  */
 export class TraceEmitter {
-  private sequence = 0;
+  private sequence: number;
 
   constructor(
     private readonly conversationId: string,
     private sendToClient: (msg: ServerMessage) => void,
-  ) {}
+  ) {
+    // Seed from the highest persisted sequence so that new events always
+    // have strictly higher sequence numbers, even across daemon restarts.
+    try {
+      const maxPersisted = getMaxSequence(conversationId);
+      this.sequence = maxPersisted > 0 ? maxPersisted + 1 : 0;
+    } catch {
+      this.sequence = 0;
+    }
+  }
 
   updateSender(sendToClient: (msg: ServerMessage) => void): void {
     this.sendToClient = sendToClient;
