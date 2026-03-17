@@ -538,11 +538,12 @@ struct SettingsPanel: View {
     // MARK: - Permission Row
 
     private func permissionRow(label: String, subtitle: String, granted: Bool, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            VToggle(isOn: .constant(granted), label: label, helperText: subtitle)
-                .allowsHitTesting(false)
-        }
-        .buttonStyle(.plain)
+        VToggle(isOn: .constant(granted), label: label, helperText: subtitle)
+            .allowsHitTesting(false)
+            .contentShape(Rectangle())
+            .onTapGesture {
+                action()
+            }
     }
 
     // MARK: - Permission Helpers
