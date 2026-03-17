@@ -161,13 +161,10 @@ struct AssistantChannelsDetailView: View {
                     .help("Copy email address")
                 }
             } else {
-                HStack(spacing: VSpacing.sm) {
-                    VIconView(.triangleAlert, size: 12)
-                        .foregroundColor(VColor.systemNegativeHover)
-                    Text("Not configured — run the Email Setup skill to assign an address")
-                        .font(VFont.caption)
-                        .foregroundColor(VColor.contentTertiary)
-                }
+                feedbackMessage(
+                    "Not configured — run the Email Setup skill to assign an address",
+                    tone: .warning
+                )
             }
         }
     }
@@ -178,7 +175,7 @@ struct AssistantChannelsDetailView: View {
         let status = store.channelSetupStatus["telegram"]
         return SettingsCard(title: "Telegram", subtitle: "Message your assistant from Telegram", showBorder: showCardBorders) {
             if status == "ready" {
-                VBadge(style: .label("Connected"), color: VColor.systemPositiveStrong)
+                VBadge(label: "Connected", tone: .positive)
             }
         } content: {
             if status == "ready" {
@@ -207,7 +204,7 @@ struct AssistantChannelsDetailView: View {
                                 .lineLimit(1)
                         }
                     }
-                    VButton(label: "Disconnect", style: .danger, isDisabled: store.telegramSaveInProgress) {
+                    VButton(label: "Disconnect", style: .dangerGhost, isDisabled: store.telegramSaveInProgress) {
                         store.clearTelegramCredentials()
                         telegramBotTokenText = ""
                         telegramSetupExpanded = false
@@ -223,7 +220,7 @@ struct AssistantChannelsDetailView: View {
             }
 
             if let error = store.telegramError {
-                Text(error).font(VFont.caption).foregroundColor(VColor.systemNegativeStrong)
+                feedbackMessage(error)
             }
 
         }
@@ -256,11 +253,11 @@ struct AssistantChannelsDetailView: View {
                 }
             } else {
                 HStack(spacing: VSpacing.sm) {
-                    VButton(label: "Connect", style: .outlined, isDisabled: telegramBotTokenText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty) {
+                    VButton(label: "Connect", style: .primary, isDisabled: telegramBotTokenText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty) {
                         store.saveTelegramToken(botToken: telegramBotTokenText)
                         telegramBotTokenText = ""
                     }
-                    VButton(label: "Cancel", style: .outlined) {
+                    VButton(label: "Cancel", style: .ghost) {
                         telegramSetupExpanded = false
                         telegramBotTokenText = ""
                     }
@@ -275,7 +272,7 @@ struct AssistantChannelsDetailView: View {
         let status = store.channelSetupStatus["slack"]
         return SettingsCard(title: "Slack", subtitle: "Message your assistant from Slack", showBorder: showCardBorders) {
             if status == "ready" {
-                VBadge(style: .label("Connected"), color: VColor.systemPositiveStrong)
+                VBadge(label: "Connected", tone: .positive)
             }
         } content: {
             if status == "ready" {
@@ -305,7 +302,7 @@ struct AssistantChannelsDetailView: View {
                             }
                         }
                     }
-                    VButton(label: "Disconnect", style: .danger, isDisabled: store.slackChannelSaveInProgress) {
+                    VButton(label: "Disconnect", style: .dangerGhost, isDisabled: store.slackChannelSaveInProgress) {
                         store.clearSlackChannelConfig()
                         slackChannelBotTokenInput = ""
                         slackChannelAppTokenInput = ""
@@ -322,7 +319,7 @@ struct AssistantChannelsDetailView: View {
             }
 
             if let error = store.slackChannelError {
-                Text(error).font(VFont.caption).foregroundColor(VColor.systemNegativeStrong)
+                feedbackMessage(error)
             }
 
         }
@@ -362,7 +359,7 @@ struct AssistantChannelsDetailView: View {
                 HStack(spacing: VSpacing.sm) {
                     VButton(
                         label: "Connect",
-                        style: .outlined,
+                        style: .primary,
                         isDisabled: slackChannelBotTokenInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
                             || slackChannelAppTokenInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
                     ) {
@@ -373,7 +370,7 @@ struct AssistantChannelsDetailView: View {
                         slackChannelBotTokenInput = ""
                         slackChannelAppTokenInput = ""
                     }
-                    VButton(label: "Cancel", style: .outlined) {
+                    VButton(label: "Cancel", style: .ghost) {
                         slackChannelSetupExpanded = false
                         slackChannelBotTokenInput = ""
                         slackChannelAppTokenInput = ""
@@ -389,7 +386,7 @@ struct AssistantChannelsDetailView: View {
         let status = store.channelSetupStatus["phone"]
         return SettingsCard(title: "Phone Calling", subtitle: "Receive and make phone calls via Twilio", showBorder: showCardBorders) {
             if status == "ready" {
-                VBadge(style: .label("Connected"), color: VColor.systemPositiveStrong)
+                VBadge(label: "Connected", tone: .positive)
             }
         } content: {
             // Phone number dropdown: show when credentials are configured
@@ -414,7 +411,7 @@ struct AssistantChannelsDetailView: View {
             }
 
             if status == "ready" {
-                VButton(label: "Disconnect", style: .danger, isDisabled: store.twilioSaveInProgress) {
+                VButton(label: "Disconnect", style: .dangerGhost, isDisabled: store.twilioSaveInProgress) {
                     store.clearTwilioCredentials()
                     store.channelSetupStatus["phone"] = "not_configured"
                 }
@@ -427,15 +424,11 @@ struct AssistantChannelsDetailView: View {
             }
 
             if let warning = store.twilioWarning {
-                Text(warning)
-                    .font(VFont.caption)
-                    .foregroundColor(VColor.systemNegativeHover)
+                feedbackMessage(warning, tone: .warning)
             }
 
             if let error = store.twilioError {
-                Text(error)
-                    .font(VFont.caption)
-                    .foregroundColor(VColor.systemNegativeStrong)
+                feedbackMessage(error)
             }
 
         }
@@ -471,7 +464,7 @@ struct AssistantChannelsDetailView: View {
                 HStack(spacing: VSpacing.sm) {
                     VButton(
                         label: "Connect",
-                        style: .outlined,
+                        style: .primary,
                         isDisabled: voiceAccountSidText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
                             voiceAuthTokenText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
                     ) {
@@ -482,7 +475,7 @@ struct AssistantChannelsDetailView: View {
                         voiceAccountSidText = ""
                         voiceAuthTokenText = ""
                     }
-                    VButton(label: "Cancel", style: .outlined) {
+                    VButton(label: "Cancel", style: .ghost) {
                         voiceSetupExpanded = false
                         voiceAccountSidText = ""
                         voiceAuthTokenText = ""
@@ -490,6 +483,34 @@ struct AssistantChannelsDetailView: View {
                 }
             }
         }
+    }
+
+    private enum FeedbackTone {
+        case error
+        case warning
+    }
+
+    private func feedbackMessage(_ text: String, tone: FeedbackTone = .error) -> some View {
+        let foreground = tone == .warning ? VColor.systemMidStrong : VColor.systemNegativeStrong
+        let background = tone == .warning ? VColor.systemMidWeak : VColor.systemNegativeWeak
+
+        return HStack(alignment: .top, spacing: VSpacing.xs) {
+            VIconView(.triangleAlert, size: 12)
+                .foregroundColor(foreground)
+                .padding(.top, 1)
+            Text(text)
+                .font(VFont.caption)
+                .foregroundColor(foreground)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(.horizontal, VSpacing.sm)
+        .padding(.vertical, VSpacing.xs)
+        .background(background)
+        .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
+        .overlay(
+            RoundedRectangle(cornerRadius: VRadius.md)
+                .stroke(foreground.opacity(0.16), lineWidth: 1)
+        )
     }
 
 }

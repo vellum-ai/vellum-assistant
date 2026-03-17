@@ -14,6 +14,7 @@ struct GuardianChannelsDetailView: View {
     var daemonClient: DaemonClient?
     var store: SettingsStore?
     var onSelectAssistant: (() -> Void)?
+    var showCardBorders: Bool = true
 
     @State var currentContact: ContactPayload?
     @State private var isLoadingReadiness: Bool = true
@@ -26,6 +27,7 @@ struct GuardianChannelsDetailView: View {
     @State private var verificationStoreRevision: Int = 0
     @State private var actionInProgress: String? = nil
     @State private var errorMessage: String? = nil
+    @State private var errorChannelType: String? = nil
 
     var displayContact: ContactPayload {
         currentContact ?? contact
@@ -34,52 +36,12 @@ struct GuardianChannelsDetailView: View {
     var body: some View {
         let _ = verificationStoreRevision
 
-        ScrollView {
-            VStack(alignment: .leading, spacing: VSpacing.lg) {
-                // Header
-                VStack(alignment: .leading, spacing: VSpacing.xs) {
-                    Text("Channels")
-                        .font(VFont.sectionTitle)
-                        .foregroundColor(VColor.contentDefault)
-                    Text("Once verified, your assistant will recognize you when you message from these channels.")
-                        .font(VFont.caption)
-                        .foregroundColor(VColor.contentTertiary)
-                }
-
-                // One card per channel type (only show configured or existing)
-                let visibleTypes = Self.allChannelTypes.filter { type in
-                    let hasExisting = displayContact.channels.contains { $0.type == type && $0.status != "revoked" }
-                    return hasExisting || channelReadiness[type]?.ready == true
-                }
-
-                if isLoadingReadiness && visibleTypes.isEmpty {
-                    ProgressView()
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, VSpacing.xl)
-                } else if visibleTypes.isEmpty {
-                    VStack(spacing: VSpacing.md) {
-                        VIconView(.messageCircle, size: 24)
-                            .foregroundColor(VColor.contentTertiary)
-                        Text("No Channels Available")
-                            .font(VFont.body)
-                            .foregroundColor(VColor.contentSecondary)
-                        Text("Set up channels on your assistant first to verify your identity.")
-                            .font(VFont.caption)
-                            .foregroundColor(VColor.contentTertiary)
-                            .multilineTextAlignment(.center)
-                        VButton(label: "Set Up Assistant", style: .outlined) {
-                            onSelectAssistant?()
-                        }
-                    }
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, VSpacing.xl)
-                } else {
-                    ForEach(visibleTypes, id: \.self) { type in
-                        channelCard(for: type)
-                    }
-                }
+        Group {
+            if showCardBorders {
+                ScrollView { content }
+            } else {
+                content
             }
-            .padding(VSpacing.lg)
         }
         .onAppear {
             startVerificationCountdownTimer()
@@ -102,18 +64,78 @@ struct GuardianChannelsDetailView: View {
         }
     }
 
+    private var visibleTypes: [String] {
+        Self.allChannelTypes.filter { type in
+            let hasExisting = displayContact.channels.contains { $0.type == type && $0.status != "revoked" }
+            return hasExisting || channelReadiness[type]?.ready == true
+        }
+    }
+
+    private var content: some View {
+        VStack(alignment: .leading, spacing: VSpacing.xl) {
+            VStack(alignment: .leading, spacing: VSpacing.xs) {
+                Text("Channels")
+                    .font(VFont.sectionTitle)
+                    .foregroundColor(VColor.contentDefault)
+                Text("Once verified, your assistant will recognize you when you message from these channels.")
+                    .font(VFont.caption)
+                    .foregroundColor(VColor.contentTertiary)
+            }
+
+            if isLoadingReadiness && visibleTypes.isEmpty {
+                ProgressView()
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, VSpacing.xl)
+            } else if visibleTypes.isEmpty {
+                VStack(spacing: VSpacing.md) {
+                    VIconView(.messageCircle, size: 24)
+                        .foregroundColor(VColor.contentTertiary)
+                    Text("No Channels Available")
+                        .font(VFont.body)
+                        .foregroundColor(VColor.contentSecondary)
+                    Text("Set up channels on your assistant first to verify your identity.")
+                        .font(VFont.caption)
+                        .foregroundColor(VColor.contentTertiary)
+                        .multilineTextAlignment(.center)
+                    VButton(label: "Set Up Assistant", style: .outlined) {
+                        onSelectAssistant?()
+                    }
+                }
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, VSpacing.xl)
+            } else if showCardBorders {
+                VStack(alignment: .leading, spacing: VSpacing.lg) {
+                    ForEach(visibleTypes, id: \.self) { type in
+                        channelCard(for: type)
+                    }
+                }
+            } else {
+                VStack(alignment: .leading, spacing: 0) {
+                    ForEach(Array(visibleTypes.enumerated()), id: \.element) { index, type in
+                        channelCard(for: type)
+                        if index < visibleTypes.count - 1 {
+                            SettingsDivider()
+                                .padding(.vertical, VSpacing.sm)
+                        }
+                    }
+                }
+            }
+        }
+        .padding(showCardBorders ? VSpacing.lg : 0)
+    }
+
     // MARK: - Channel Card
 
     @ViewBuilder
     private func channelCard(for type: String) -> some View {
-        SettingsCard(title: channelLabel(for: type), subtitle: channelSubtitle(for: type)) {
+        SettingsCard(title: channelLabel(for: type), subtitle: channelSubtitle(for: type), showBorder: showCardBorders) {
             let existingChannels = displayContact.channels.filter { $0.type == type && $0.status != "revoked" }
             let activeChannel = existingChannels.first(where: { $0.status == "active" && $0.verifiedAt != nil })
                 ?? existingChannels.first
             if let channel = activeChannel, channel.status == "active", channel.verifiedAt != nil {
-                VBadge(style: .label("Verified"), color: VColor.systemPositiveStrong)
+                VBadge(label: "Verified", tone: .positive)
             } else if store?.channelVerificationState(for: type).verified == true {
-                VBadge(style: .label("Verified"), color: VColor.systemPositiveStrong)
+                VBadge(label: "Verified", tone: .positive)
             }
         } content: {
             let existingChannels = displayContact.channels.filter { $0.type == type && $0.status != "revoked" }
@@ -137,6 +159,10 @@ struct GuardianChannelsDetailView: View {
                     dismissedChannels.remove(type)
                     setupExpanded.insert(type)
                 }
+            }
+
+            if errorChannelType == type, let errorMessage {
+                inlineMessage(errorMessage)
             }
         }
     }
@@ -165,8 +191,8 @@ struct GuardianChannelsDetailView: View {
             }
 
             if daemonClient != nil {
-                VButton(label: "Disconnect", style: .danger, isDisabled: actionInProgress != nil) {
-                    disconnectChannel(channelId: channel.id)
+                VButton(label: "Disconnect", style: .dangerGhost, isDisabled: actionInProgress != nil) {
+                    disconnectChannel(channelId: channel.id, type: type)
                 }
             }
         }
@@ -280,11 +306,12 @@ struct GuardianChannelsDetailView: View {
 
     // MARK: - Disconnect Channel
 
-    private func disconnectChannel(channelId: String) {
+    private func disconnectChannel(channelId: String, type: String) {
         guard let daemonClient else { return }
         guard actionInProgress == nil else { return }
         actionInProgress = channelId
         errorMessage = nil
+        errorChannelType = nil
 
         Task {
             let stream = daemonClient.subscribe()
@@ -293,6 +320,7 @@ struct GuardianChannelsDetailView: View {
                 try daemonClient.sendUpdateContactChannel(channelId: channelId, status: "revoked")
             } catch {
                 errorMessage = "Failed to update channel: \(error.localizedDescription)"
+                errorChannelType = type
                 actionInProgress = nil
                 return
             }
@@ -303,6 +331,7 @@ struct GuardianChannelsDetailView: View {
                         try? daemonClient.sendGetContact(contactId: displayContact.id)
                     } else {
                         errorMessage = response.error ?? "Failed to update channel"
+                        errorChannelType = type
                         actionInProgress = nil
                         return
                     }
@@ -322,6 +351,25 @@ struct GuardianChannelsDetailView: View {
 
             actionInProgress = nil
         }
+    }
+
+    private func inlineMessage(_ text: String) -> some View {
+        HStack(alignment: .top, spacing: VSpacing.xs) {
+            VIconView(.triangleAlert, size: 12)
+                .foregroundColor(VColor.systemNegativeStrong)
+                .padding(.top, 1)
+            Text(text)
+                .font(VFont.caption)
+                .foregroundColor(VColor.systemNegativeStrong)
+        }
+        .padding(.horizontal, VSpacing.sm)
+        .padding(.vertical, VSpacing.xs)
+        .background(VColor.systemNegativeWeak)
+        .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
+        .overlay(
+            RoundedRectangle(cornerRadius: VRadius.md)
+                .stroke(VColor.systemNegativeStrong.opacity(0.16), lineWidth: 1)
+        )
     }
 
     // MARK: - Verification Flow Content

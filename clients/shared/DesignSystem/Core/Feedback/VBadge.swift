@@ -7,12 +7,34 @@ public struct VBadge: View {
         case label(String)
     }
 
+    public enum Tone {
+        case accent
+        case neutral
+        case positive
+        case warning
+        case danger
+    }
+
+    public enum Emphasis {
+        case solid
+        case subtle
+    }
+
     public let style: Style
     public var color: Color = VColor.primaryBase
+    public var tone: Tone?
+    public var emphasis: Emphasis = .solid
 
     public init(style: Style, color: Color = VColor.primaryBase) {
         self.style = style
         self.color = color
+    }
+
+    public init(label: String, tone: Tone = .accent, emphasis: Emphasis = .subtle) {
+        self.style = .label(label)
+        self.color = VColor.primaryBase
+        self.tone = tone
+        self.emphasis = emphasis
     }
 
     public var body: some View {
@@ -35,13 +57,89 @@ public struct VBadge: View {
         case .label(let text):
             Text(text)
                 .font(VFont.caption)
-                .foregroundColor(VColor.auxWhite)
-                .padding(.horizontal, VSpacing.md)
+                .foregroundColor(labelForegroundColor)
+                .padding(.horizontal, VSpacing.sm)
                 .padding(.vertical, VSpacing.xxs)
-                .background(color)
+                .background(labelBackgroundColor)
+                .overlay(
+                    Capsule()
+                        .stroke(labelBorderColor, lineWidth: labelBorderWidth)
+                )
                 .clipShape(Capsule())
                 .accessibilityLabel(text)
         }
     }
-}
 
+    private var labelForegroundColor: Color {
+        guard let tone else { return VColor.auxWhite }
+
+        switch (tone, emphasis) {
+        case (.accent, .solid), (.positive, .solid), (.danger, .solid):
+            return VColor.auxWhite
+        case (.warning, .solid):
+            return VColor.contentEmphasized
+        case (.neutral, .solid):
+            return VColor.contentSecondary
+        case (.accent, .subtle):
+            return VColor.primaryBase
+        case (.neutral, .subtle):
+            return VColor.contentSecondary
+        case (.positive, .subtle):
+            return VColor.systemPositiveStrong
+        case (.warning, .subtle):
+            return VColor.systemMidStrong
+        case (.danger, .subtle):
+            return VColor.systemNegativeStrong
+        }
+    }
+
+    private var labelBackgroundColor: Color {
+        guard let tone else { return color }
+
+        switch (tone, emphasis) {
+        case (.accent, .solid):
+            return VColor.primaryBase
+        case (.neutral, .solid):
+            return VColor.surfaceBase
+        case (.positive, .solid):
+            return VColor.systemPositiveStrong
+        case (.warning, .solid):
+            return VColor.systemMidStrong
+        case (.danger, .solid):
+            return VColor.systemNegativeStrong
+        case (.accent, .subtle):
+            return VColor.primaryBase.opacity(0.10)
+        case (.neutral, .subtle):
+            return VColor.surfaceBase
+        case (.positive, .subtle):
+            return VColor.systemPositiveWeak
+        case (.warning, .subtle):
+            return VColor.systemMidWeak
+        case (.danger, .subtle):
+            return VColor.systemNegativeWeak
+        }
+    }
+
+    private var labelBorderColor: Color {
+        guard let tone else { return Color.clear }
+
+        switch (tone, emphasis) {
+        case (_, .solid):
+            return Color.clear
+        case (.accent, .subtle):
+            return VColor.primaryBase.opacity(0.18)
+        case (.neutral, .subtle):
+            return VColor.borderBase.opacity(0.55)
+        case (.positive, .subtle):
+            return VColor.systemPositiveStrong.opacity(0.14)
+        case (.warning, .subtle):
+            return VColor.systemMidStrong.opacity(0.16)
+        case (.danger, .subtle):
+            return VColor.systemNegativeStrong.opacity(0.16)
+        }
+    }
+
+    private var labelBorderWidth: CGFloat {
+        tone == nil ? 0 : 1
+    }
+}

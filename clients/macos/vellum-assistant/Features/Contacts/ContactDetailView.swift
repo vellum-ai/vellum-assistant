@@ -72,17 +72,11 @@ struct ContactDetailView: View {
             VStack(alignment: .leading, spacing: VSpacing.lg) {
                 headerSection
                     .padding(VSpacing.lg)
-                    .overlay(
-                        RoundedRectangle(cornerRadius: VRadius.xl)
-                            .stroke(VColor.borderDisabled, lineWidth: 2)
-                    )
+                    .vCard(radius: VRadius.lg, background: VColor.surfaceOverlay)
 
                 channelsSection
                     .padding(VSpacing.lg)
-                    .overlay(
-                        RoundedRectangle(cornerRadius: VRadius.xl)
-                            .stroke(VColor.borderDisabled, lineWidth: 2)
-                    )
+                    .vCard(radius: VRadius.lg, background: VColor.surfaceOverlay)
             }
             .padding(VSpacing.lg)
         }
@@ -135,10 +129,11 @@ struct ContactDetailView: View {
     // MARK: - Header Section
 
     private var headerSection: some View {
-        VStack(alignment: .leading, spacing: VSpacing.md) {
+        VStack(alignment: .leading, spacing: VSpacing.lg) {
             headerTitle
             headerFields
             headerActions
+            dangerZone
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .onAppear {
@@ -183,23 +178,12 @@ struct ContactDetailView: View {
                 Text("Notes")
                     .font(VFont.inputLabel)
                     .foregroundColor(VColor.contentSecondary)
-                ZStack(alignment: .topLeading) {
-                    if editedNotes.isEmpty {
-                        Text("Optional notes about the human which AI will take into account")
-                            .font(VFont.body)
-                            .foregroundColor(VColor.contentTertiary)
-                            .padding(.horizontal, VSpacing.xs)
-                            .padding(.vertical, VSpacing.sm)
-                    }
-                    TextEditor(text: $editedNotes)
-                        .font(VFont.body)
-                        .foregroundColor(VColor.contentDefault)
-                        .scrollContentBackground(.hidden)
-                        .frame(minHeight: 60, maxHeight: 160)
-                }
-                .padding(VSpacing.xs)
-                .background(VColor.surfaceActive)
-                .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
+                VTextEditor(
+                    placeholder: "Optional notes about the human which AI will take into account",
+                    text: $editedNotes,
+                    minHeight: 80,
+                    maxHeight: 180
+                )
             }
         }
     }
@@ -209,29 +193,59 @@ struct ContactDetailView: View {
             VButton(label: "Save", style: .primary, isDisabled: isSaving || editedName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty) {
                 Task { await saveCardEdits() }
             }
-            VButton(label: "Delete Contact", style: .danger, isDisabled: isDeleting || actionInProgress != nil || verificationInProgress != nil) {
+            if isSaving {
+                ProgressView()
+                    .controlSize(.small)
+            }
+        }
+    }
+
+    private var contactTypeBadge: some View {
+        VBadge(label: formatContactType(displayContact.role), tone: .neutral)
+    }
+
+    private var dangerZone: some View {
+        VStack(alignment: .leading, spacing: VSpacing.sm) {
+            SettingsDivider()
+
+            Text("Danger Zone")
+                .font(VFont.inputLabel)
+                .foregroundColor(VColor.contentSecondary)
+
+            Text("Delete this contact and revoke all of their channels.")
+                .font(VFont.caption)
+                .foregroundColor(VColor.contentTertiary)
+
+            VButton(
+                label: "Delete Contact",
+                leftIcon: VIcon.trash.rawValue,
+                style: .dangerGhost,
+                isDisabled: isDeleting || actionInProgress != nil || verificationInProgress != nil
+            ) {
                 showDeleteConfirmation = true
             }
             .accessibilityLabel("Delete contact")
         }
     }
 
-    private var contactTypeBadge: some View {
-        Text(formatContactType(displayContact.role))
-            .font(VFont.captionMedium)
-            .foregroundColor(VColor.contentDefault)
-            .padding(.horizontal, VSpacing.sm)
-            .padding(.vertical, VSpacing.xs)
-            .background(tagColor(for: displayContact.role))
-            .clipShape(RoundedRectangle(cornerRadius: VRadius.sm + 2))
-    }
-
-    private func tagColor(for role: String?) -> Color {
-        switch role {
-        case "guardian": return VColor.tagGuardian
-        case "assistant": return VColor.tagAssistant
-        default: return VColor.tagHuman
+    private func inlineMessage(_ text: String) -> some View {
+        HStack(alignment: .top, spacing: VSpacing.xs) {
+            VIconView(.triangleAlert, size: 12)
+                .foregroundColor(VColor.systemNegativeStrong)
+                .padding(.top, 1)
+            Text(text)
+                .font(VFont.caption)
+                .foregroundColor(VColor.systemNegativeStrong)
+                .fixedSize(horizontal: false, vertical: true)
         }
+        .padding(.horizontal, VSpacing.sm)
+        .padding(.vertical, VSpacing.xs)
+        .background(VColor.systemNegativeWeak)
+        .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
+        .overlay(
+            RoundedRectangle(cornerRadius: VRadius.md)
+                .stroke(VColor.systemNegativeStrong.opacity(0.16), lineWidth: 1)
+        )
     }
 
     // MARK: - Channels Section
@@ -274,9 +288,7 @@ struct ContactDetailView: View {
             }
 
             if let errorMessage {
-                Text(errorMessage)
-                    .font(VFont.caption)
-                    .foregroundColor(VColor.systemNegativeStrong)
+                inlineMessage(errorMessage)
             }
         }
         .task {
@@ -298,13 +310,12 @@ struct ContactDetailView: View {
         channelsByType: [String: [ContactChannelPayload]]
     ) -> some View {
         VStack(alignment: .leading, spacing: VSpacing.lg) {
-            // Section header
             VStack(alignment: .leading, spacing: VSpacing.xs) {
                 Text("Channels")
-                    .font(VFont.display)
+                    .font(VFont.sectionTitle)
                     .foregroundColor(VColor.contentEmphasized)
                 Text("Set up different ways to interact with your Assistant")
-                    .font(VFont.bodyMedium)
+                    .font(VFont.caption)
                     .foregroundColor(VColor.contentTertiary)
             }
 
@@ -400,72 +411,21 @@ struct ContactDetailView: View {
         let isVerified = channel.status == "active" && channel.verifiedAt != nil
 
         if isVerified {
-            // Danger "Disable" button for verified channels
-            Button {
+            VButton(label: "Disable", style: .dangerGhost, size: .compact, isDisabled: anyActionInFlight) {
                 updateChannelStatus(channelId: channel.id, status: "revoked")
-            } label: {
-                Text("Disable")
-                    .font(VFont.inputLabel)
-                    .foregroundColor(VColor.systemNegativeStrong)
-                    .padding(.horizontal, VSpacing.md)
-                    .padding(.vertical, VSpacing.xs)
-                    .overlay(
-                        RoundedRectangle(cornerRadius: VRadius.sm)
-                            .stroke(VColor.systemNegativeStrong, lineWidth: 1)
-                    )
             }
-            .buttonStyle(.plain)
-            .disabled(anyActionInFlight)
         } else if channel.status == "unverified" || channel.status == "pending" {
-            // "Invite" button for unverified channels
-            Button {
+            VButton(label: "Send Verification", style: .outlined, size: .compact, isDisabled: anyActionInFlight) {
                 initiateVerification(for: channel)
-            } label: {
-                Text("Send Verification")
-                    .font(VFont.inputLabel)
-                    .foregroundColor(VColor.primaryBase)
-                    .padding(.horizontal, VSpacing.md)
-                    .padding(.vertical, VSpacing.xs)
-                    .overlay(
-                        RoundedRectangle(cornerRadius: VRadius.sm)
-                            .stroke(VColor.primaryBase, lineWidth: 1)
-                    )
             }
-            .buttonStyle(.plain)
-            .disabled(anyActionInFlight)
         } else if channel.status == "blocked" {
-            Button {
+            VButton(label: "Restore", style: .outlined, size: .compact, isDisabled: anyActionInFlight) {
                 updateChannelStatus(channelId: channel.id, status: "active")
-            } label: {
-                Text("Restore")
-                    .font(VFont.inputLabel)
-                    .foregroundColor(VColor.primaryBase)
-                    .padding(.horizontal, VSpacing.md)
-                    .padding(.vertical, VSpacing.xs)
-                    .overlay(
-                        RoundedRectangle(cornerRadius: VRadius.sm)
-                            .stroke(VColor.primaryBase, lineWidth: 1)
-                    )
             }
-            .buttonStyle(.plain)
-            .disabled(anyActionInFlight)
         } else {
-            // Active but not verified — show revoke
-            Button {
+            VButton(label: "Disable", style: .dangerGhost, size: .compact, isDisabled: anyActionInFlight) {
                 updateChannelStatus(channelId: channel.id, status: "revoked")
-            } label: {
-                Text("Disable")
-                    .font(VFont.inputLabel)
-                    .foregroundColor(VColor.systemNegativeStrong)
-                    .padding(.horizontal, VSpacing.md)
-                    .padding(.vertical, VSpacing.xs)
-                    .overlay(
-                        RoundedRectangle(cornerRadius: VRadius.sm)
-                            .stroke(VColor.systemNegativeStrong, lineWidth: 1)
-                    )
             }
-            .buttonStyle(.plain)
-            .disabled(anyActionInFlight)
         }
     }
 
@@ -494,36 +454,15 @@ struct ContactDetailView: View {
             Spacer()
 
             if isReady {
-                // Primary outlined "Invite" button
-                Button {
+                VButton(label: "Invite", style: .outlined, size: .compact) {
                     inviteExpanded.insert(type)
                     if type == "telegram" || type == "slack" {
                         createInviteForChannel(type: type)
                     }
-                } label: {
-                    Text("Invite")
-                        .font(VFont.inputLabel)
-                        .foregroundColor(VColor.primaryBase)
-                        .padding(.horizontal, VSpacing.md)
-                        .padding(.vertical, VSpacing.xs)
-                        .overlay(
-                            RoundedRectangle(cornerRadius: VRadius.sm)
-                                .stroke(VColor.primaryBase, lineWidth: 1)
-                        )
                 }
-                .buttonStyle(.plain)
                 .accessibilityHint("\(channelLabel(for: type)) is not connected for this contact")
             } else {
-                // Disabled "Not Available" button
-                Text("Not Available")
-                    .font(VFont.inputLabel)
-                    .foregroundColor(VColor.contentDisabled)
-                    .padding(.horizontal, VSpacing.md)
-                    .padding(.vertical, VSpacing.xs)
-                    .overlay(
-                        RoundedRectangle(cornerRadius: VRadius.sm)
-                            .stroke(VColor.borderDisabled, lineWidth: 1)
-                    )
+                VBadge(label: "Not Available", tone: .neutral)
             }
         }
     }
@@ -578,7 +517,7 @@ struct ContactDetailView: View {
                         VButton(label: "Invite", style: .outlined, isDisabled: inviteInProgress != nil) {
                             createInviteForChannel(type: type)
                         }
-                        VButton(label: "Cancel", style: .outlined) {
+                        VButton(label: "Cancel", style: .ghost) {
                             inviteExpanded.remove(type)
                             if inviteResult?.type == type {
                                 inviteResult = nil
@@ -591,9 +530,7 @@ struct ContactDetailView: View {
 
                 // Inline error display so the message appears inside the channel card
                 if let inviteError, inviteErrorChannel == type {
-                    Text(inviteError)
-                        .font(VFont.caption)
-                        .foregroundColor(VColor.systemNegativeStrong)
+                    inlineMessage(inviteError)
                 }
             } else if type == "phone" {
                 // Phone channel: code-based invite flow
@@ -605,10 +542,7 @@ struct ContactDetailView: View {
                         if type == "phone" {
                             TextField("+1234567890", text: $invitePhoneNumber)
                                 .font(VFont.mono)
-                                .textFieldStyle(.plain)
-                                .padding(VSpacing.sm)
-                                .background(VColor.surfaceActive)
-                                .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
+                                .vInputStyle()
                         }
                         if inviteResult?.type != type {
                             HStack(spacing: VSpacing.sm) {
@@ -619,7 +553,7 @@ struct ContactDetailView: View {
                                 ) {
                                     createInviteForChannel(type: type)
                                 }
-                                VButton(label: "Cancel", style: .outlined) {
+                                VButton(label: "Cancel", style: .ghost) {
                                     inviteExpanded.remove(type)
                                     inviteError = nil
                                     inviteErrorChannel = nil
@@ -635,9 +569,7 @@ struct ContactDetailView: View {
 
                 // Inline error display so the message appears inside the channel card
                 if let inviteError, inviteErrorChannel == type {
-                    Text(inviteError)
-                        .font(VFont.caption)
-                        .foregroundColor(VColor.systemNegativeStrong)
+                    inlineMessage(inviteError)
                 }
             }
         }
@@ -704,10 +636,7 @@ struct ContactDetailView: View {
                     .foregroundColor(VColor.contentSecondary)
                 TextField(type == "telegram" ? "@username" : "@display_name", text: $inviteHandleInput)
                     .font(VFont.mono)
-                    .textFieldStyle(.plain)
-                    .padding(VSpacing.sm)
-                    .background(VColor.surfaceActive)
-                    .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
+                    .vInputStyle()
             }
 
             // Buttons: Send reveals the already-generated invite code (the invite
@@ -717,7 +646,7 @@ struct ContactDetailView: View {
                     inviteCodeRevealed = true
                 }
                 .disabled(inviteHandleInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                VButton(label: "Cancel", style: .outlined) {
+                VButton(label: "Cancel", style: .ghost) {
                     inviteExpanded.remove(type)
                     if inviteResult?.type == type {
                         inviteResult = nil
@@ -879,7 +808,7 @@ struct ContactDetailView: View {
                         }
                     }
 
-                    VButton(label: "Cancel", style: .outlined) {
+                    VButton(label: "Cancel", style: .ghost) {
                         inviteExpanded.remove(type)
                         inviteResult = nil
                         inviteError = nil
@@ -916,7 +845,7 @@ struct ContactDetailView: View {
                     }
                 }
 
-                VButton(label: "Cancel", style: .outlined) {
+                VButton(label: "Cancel", style: .ghost) {
                     inviteExpanded.remove(type)
                     inviteResult = nil
                     inviteError = nil
@@ -930,7 +859,7 @@ struct ContactDetailView: View {
                     .font(VFont.caption)
                     .foregroundColor(VColor.contentSecondary)
 
-                VButton(label: "Cancel", style: .outlined) {
+                VButton(label: "Cancel", style: .ghost) {
                     inviteExpanded.remove(type)
                     inviteResult = nil
                     inviteError = nil
@@ -1411,4 +1340,3 @@ struct ContactDetailView: View {
     }
     .preferredColorScheme(.dark)
 }
-

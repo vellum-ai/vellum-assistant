@@ -92,7 +92,7 @@ struct ChannelVerificationFlowView: View {
                 }
                 Spacer()
             }
-            VButton(label: "Disconnect", style: .danger) {
+            VButton(label: "Disconnect", style: .dangerGhost) {
                 onRevoke()
             }
         }
@@ -280,7 +280,7 @@ struct ChannelVerificationFlowView: View {
                     .disabled(!canResend)
                     .frame(width: 160)
 
-                    VButton(label: "Cancel", style: .outlined) {
+                    VButton(label: "Cancel", style: .ghost) {
                         onCancelOutbound()
                     }
                 }
@@ -399,7 +399,7 @@ struct ChannelVerificationFlowView: View {
                     .padding(.leading, leadingPadding)
             }
 
-            VButton(label: "Cancel", style: .outlined) {
+            VButton(label: "Cancel", style: .ghost) {
                 onCancelSession()
             }
         }
@@ -447,13 +447,13 @@ struct ChannelVerificationFlowView: View {
             }
 
             HStack(spacing: VSpacing.sm) {
-                VButton(label: "Send", style: .outlined) {
+                VButton(label: "Send", style: .primary) {
                     onStartOutbound(destination)
                 }
                 .disabled(destination.isEmpty)
 
                 if let onCancel {
-                    VButton(label: "Cancel", style: .outlined) {
+                    VButton(label: "Cancel", style: .ghost) {
                         onCancel()
                     }
                 }
@@ -468,9 +468,23 @@ struct ChannelVerificationFlowView: View {
         let leadingPadding: CGFloat = showLabel ? labelColumnWidth + VSpacing.sm : 0
 
         VStack(alignment: .leading, spacing: VSpacing.xs) {
-            Text(error)
-                .font(VFont.caption)
-                .foregroundColor(VColor.systemNegativeStrong)
+            HStack(alignment: .top, spacing: VSpacing.xs) {
+                VIconView(.triangleAlert, size: 12)
+                    .foregroundColor(VColor.systemNegativeStrong)
+                    .padding(.top, 1)
+                Text(error)
+                    .font(VFont.caption)
+                    .foregroundColor(VColor.systemNegativeStrong)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .padding(.horizontal, VSpacing.sm)
+            .padding(.vertical, VSpacing.xs)
+            .background(VColor.systemNegativeWeak)
+            .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
+            .overlay(
+                RoundedRectangle(cornerRadius: VRadius.md)
+                    .stroke(VColor.systemNegativeStrong.opacity(0.16), lineWidth: 1)
+            )
             if state.alreadyBound {
                 VButton(label: "Replace", style: .outlined) {
                     onStartSession(true)
