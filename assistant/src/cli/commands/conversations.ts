@@ -8,11 +8,6 @@ import {
 import { getConfig } from "../../config/loader.js";
 import { shouldAutoStartDaemon } from "../../daemon/connection-policy.js";
 import { healthCheckHost, isHttpHealthy } from "../../daemon/daemon-control.js";
-import {
-  initAuthSigningKey,
-  loadOrCreateSigningKey,
-  mintDaemonDeliveryToken,
-} from "../../runtime/auth/token-service.js";
 import { ensureDaemonRunning } from "../../daemon/lifecycle.js";
 import { formatJson, formatMarkdown } from "../../export/formatter.js";
 import {
@@ -29,6 +24,11 @@ import {
 } from "../../memory/embedding-backend.js";
 import { enqueueMemoryJob } from "../../memory/jobs-store.js";
 import { initQdrantClient } from "../../memory/qdrant-client.js";
+import {
+  initAuthSigningKey,
+  loadOrCreateSigningKey,
+  mintDaemonDeliveryToken,
+} from "../../runtime/auth/token-service.js";
 import { timeAgo } from "../../util/time.js";
 import { initializeDb } from "../db.js";
 import { log } from "../logger.js";
