@@ -56,45 +56,22 @@ struct ContactsContainerView: View {
             } else {
                 switch selection {
                 case .assistant:
-                    if let store {
-                        AssistantChannelsDetailView(store: store, daemonClient: daemonClient, isEmailEnabled: isEmailEnabled)
-                            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-                    } else {
-                        VStack(spacing: VSpacing.md) {
-                            ProgressView()
-                                .controlSize(.regular)
-                            Text("Loading assistant channels...")
-                                .font(VFont.body)
-                                .foregroundColor(VColor.contentSecondary)
-                        }
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                        .background(VColor.surfaceOverlay)
-                    }
+                    assistantDetailView
+                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
                 case .contact(let contactId):
                     if let contact = viewModel.contacts.first(where: { $0.id == contactId }) {
-                        if contact.role == "guardian" {
-                            GuardianChannelsDetailView(
-                                contact: contact,
-                                daemonClient: daemonClient,
-                                store: store,
-                                onSelectAssistant: { selection = .assistant }
-                            )
-                            .id(contactId)
-                            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-                        } else {
-                            ContactDetailView(
-                                contact: contact,
-                                daemonClient: daemonClient,
-                                store: store,
-                                onDelete: {
-                                    selection = .assistant
-                                    viewModel.loadContacts()
-                                },
-                                guardianName: viewModel.guardianContact?.displayName
-                            )
-                            .id(contactId)
-                            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-                        }
+                        ContactDetailView(
+                            contact: contact,
+                            daemonClient: daemonClient,
+                            store: store,
+                            onDelete: {
+                                selection = .assistant
+                                viewModel.loadContacts()
+                            },
+                            guardianName: viewModel.guardianContact?.displayName
+                        )
+                        .id(contactId)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
                     }
                 case nil:
                     // True empty state — contacts loaded but none selected
@@ -127,6 +104,54 @@ struct ContactsContainerView: View {
                     await createPlaceholderContact()
                 }
             }
+        }
+    }
+
+    @State private var cachedAssistantName: String = AssistantDisplayName.placeholder
+
+    /// Assistant detail with the same card header as human contacts, plus
+    /// the existing AssistantChannelsDetailView for channel configuration.
+    @ViewBuilder
+    private var assistantDetailView: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: VSpacing.lg) {
+                // Header card matching human contact style
+                VStack(alignment: .leading, spacing: VSpacing.md) {
+                    HStack(spacing: VSpacing.sm) {
+                        Text(cachedAssistantName)
+                            .font(VFont.display)
+                            .foregroundColor(VColor.contentDefault)
+                        Text("Assistant")
+                            .font(VFont.captionMedium)
+                            .foregroundColor(VColor.contentDefault)
+                            .padding(.horizontal, VSpacing.sm)
+                            .padding(.vertical, VSpacing.xs)
+                            .background(VColor.tagAssistant)
+                            .clipShape(RoundedRectangle(cornerRadius: VRadius.sm + 2))
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(VSpacing.lg)
+                .overlay(
+                    RoundedRectangle(cornerRadius: VRadius.xl)
+                        .stroke(VColor.borderDisabled, lineWidth: 2)
+                )
+
+                // Channels card
+                if let store {
+                    AssistantChannelsDetailView(store: store, daemonClient: daemonClient, isEmailEnabled: isEmailEnabled)
+                        .padding(VSpacing.lg)
+                        .overlay(
+                            RoundedRectangle(cornerRadius: VRadius.xl)
+                                .stroke(VColor.borderDisabled, lineWidth: 2)
+                        )
+                }
+            }
+            .padding(VSpacing.lg)
+        }
+        .background(VColor.surfaceOverlay)
+        .task {
+            cachedAssistantName = AssistantDisplayName.firstUserFacing(from: [IdentityInfo.load()?.name]) ?? AssistantDisplayName.placeholder
         }
     }
 
