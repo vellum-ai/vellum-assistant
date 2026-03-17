@@ -97,22 +97,13 @@ Tell the user their avatar has been updated. The client will pick up the new ima
 
 ## Mode 3: AI-Generated Image
 
-The user describes what they want their avatar to look like. Use `bash` to call the gateway's avatar generation endpoint:
+The user describes what they want their avatar to look like. Use the CLI to generate the avatar:
 
 ```bash
-curl -s -X POST "$INTERNAL_GATEWAY_BASE_URL/v1/settings/avatar/generate" \
-  -H "Content-Type: application/json" \
-  -d '{"description": "<user'\''s description>"}'
+assistant avatar generate --description "<user's description>"
 ```
 
-This generates an image using AI and saves it to `data/avatar/avatar-image.png`. After the image is generated, remove the native character files:
-
-```bash
-rm -f "$VELLUM_DATA_DIR/avatar/character-traits.json"
-rm -f "$VELLUM_DATA_DIR/avatar/character-ascii.txt"
-```
-
-The generated avatar will appear automatically in the client.
+This generates an image using AI, saves it to `data/avatar/avatar-image.png`, and removes any native character files automatically. The generated avatar will appear automatically in the client.
 
 ## UX Guidelines
 

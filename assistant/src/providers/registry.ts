@@ -235,8 +235,7 @@ async function resolveProviderCredentials(
 } | null> {
   if (mode === "managed") {
     // In managed mode, try managed proxy first, then fall back to user key
-    const proxyName = providerName === "gemini" ? "vertex" : providerName;
-    const managedBaseUrl = await buildManagedBaseUrl(proxyName);
+    const managedBaseUrl = await buildManagedBaseUrl(providerName);
     if (managedBaseUrl) {
       const ctx = await resolveManagedProxyContext();
       return {
@@ -258,8 +257,7 @@ async function resolveProviderCredentials(
     return { apiKey: userKey, source: "user-key" };
   }
   // Fall back to managed proxy even in your-own mode (backwards compat)
-  const proxyName = providerName === "gemini" ? "vertex" : providerName;
-  const managedBaseUrl = await buildManagedBaseUrl(proxyName);
+  const managedBaseUrl = await buildManagedBaseUrl(providerName);
   if (managedBaseUrl) {
     const ctx = await resolveManagedProxyContext();
     return {

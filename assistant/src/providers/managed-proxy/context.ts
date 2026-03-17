@@ -47,7 +47,6 @@ export async function resolveManagedProxyContext(): Promise<ManagedProxyContext>
   const platformBaseUrl = getPlatformBaseUrl().replace(/\/+$/, "");
   const assistantApiKey =
     (await getSecureKeyAsync(ASSISTANT_API_KEY_STORAGE_KEY)) ?? "";
-
   const enabled = !!platformBaseUrl && !!assistantApiKey;
   _managedProxyEnabled = enabled;
 

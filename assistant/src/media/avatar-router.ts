@@ -20,7 +20,7 @@ export async function generateAvatar(
   let credentials: ImageGenCredentials | undefined;
 
   if (imageGenMode === "managed") {
-    const managedBaseUrl = await buildManagedBaseUrl("vertex");
+    const managedBaseUrl = await buildManagedBaseUrl("gemini");
     if (managedBaseUrl) {
       const ctx = await resolveManagedProxyContext();
       credentials = {

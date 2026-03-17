@@ -38,7 +38,7 @@ export const MANAGED_PROVIDER_META: Record<string, ManagedProviderMeta> = {
   gemini: {
     name: "gemini",
     managed: true,
-    proxyPath: "/v1/runtime-proxy/vertex",
+    proxyPath: "/v1/runtime-proxy/gemini",
   },
   fireworks: {
     name: "fireworks",
@@ -48,11 +48,5 @@ export const MANAGED_PROVIDER_META: Record<string, ManagedProviderMeta> = {
     name: "openrouter",
     managed: false,
   },
-  vertex: {
-    name: "vertex",
-    managed: true,
-    proxyPath: "/v1/runtime-proxy/vertex",
-  },
   ollama: { name: "ollama", managed: false },
 };
-

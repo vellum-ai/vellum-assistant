@@ -285,6 +285,7 @@ public final class LocalAssistantBootstrapService {
             timeout: 10
         )
         guard response.isSuccess else {
+            log.error("Failed to inject API key into daemon: status=\(response.statusCode, privacy: .public) body=\(String(data: response.data, encoding: .utf8) ?? "<non-utf8>", privacy: .public)")
             throw LocalBootstrapError.daemonInjectionFailed
         }
     }

@@ -43,7 +43,7 @@ export async function generateAppIcon(
   let credentials: ImageGenCredentials | undefined;
 
   if (imageGenMode === "managed") {
-    const managedBaseUrl = await buildManagedBaseUrl("vertex");
+    const managedBaseUrl = await buildManagedBaseUrl("gemini");
     if (managedBaseUrl) {
       const ctx = await resolveManagedProxyContext();
       credentials = {

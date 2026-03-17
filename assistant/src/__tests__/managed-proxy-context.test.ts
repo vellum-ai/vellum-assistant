@@ -110,10 +110,7 @@ describe("buildManagedBaseUrl", () => {
       "https://platform.example.com/v1/runtime-proxy/anthropic",
     );
     expect(await buildManagedBaseUrl("gemini")).toBe(
-      "https://platform.example.com/v1/runtime-proxy/vertex",
-    );
-    expect(await buildManagedBaseUrl("vertex")).toBe(
-      "https://platform.example.com/v1/runtime-proxy/vertex",
+      "https://platform.example.com/v1/runtime-proxy/gemini",
     );
   });
 
@@ -132,7 +129,7 @@ describe("buildManagedBaseUrl", () => {
     mockPlatformBaseUrl = "";
     mockAssistantApiKey = null;
     expect(await buildManagedBaseUrl("anthropic")).toBeUndefined();
-    expect(await buildManagedBaseUrl("vertex")).toBeUndefined();
+    expect(await buildManagedBaseUrl("gemini")).toBeUndefined();
   });
 });
 

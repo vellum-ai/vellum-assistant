@@ -1,4 +1,4 @@
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, unlinkSync } from "node:fs";
 import { join } from "node:path";
 
 import type { Command } from "commander";
@@ -9,6 +9,10 @@ import {
   type CharacterTraits,
   writeTraitsAndRenderAvatar,
 } from "../../avatar/traits-png-sync.js";
+import { setPlatformBaseUrl } from "../../config/env.js";
+import { credentialKey } from "../../security/credential-key.js";
+import { getSecureKeyAsync } from "../../security/secure-keys.js";
+import { generateAndSaveAvatar } from "../../tools/system/avatar-generator.js";
 import { getWorkspaceDir } from "../../util/platform.js";
 import { log } from "../logger.js";
 import { writeOutput } from "../output.js";
@@ -39,8 +43,66 @@ Files are stored in ~/.vellum/workspace/data/avatar/:
 Examples:
   $ assistant avatar character update --body-shape blob --eye-style curious --color green
   $ assistant avatar character components
-  $ assistant avatar character ascii`,
+  $ assistant avatar character ascii
+  $ assistant avatar generate --description "a cute blue cat"`,
   );
+
+  avatar
+    .command("generate")
+    .description("Generate an AI avatar from a text description")
+    .requiredOption(
+      "--description <text>",
+      "Description of the avatar to generate",
+    )
+    .addHelpText(
+      "after",
+      `
+Generates an avatar image using AI based on the provided text description
+and saves it as the assistant's avatar PNG. This replaces any existing
+native character avatar — the character traits and ASCII files are removed.
+
+On success, writes avatar-image.png to ~/.vellum/workspace/data/avatar/
+and removes character-traits.json and character-ascii.txt if they exist.
+
+Examples:
+  $ assistant avatar generate --description "a cute blue cat"
+  $ assistant avatar generate --description "a friendly robot with green eyes"`,
+    )
+    .action(async (opts: { description: string }) => {
+      // Rehydrate the platform base URL from the credential store so the
+      // managed proxy fallback works. The CLI runs as a separate process
+      // without the daemon's in-memory state.
+      try {
+        const key = credentialKey("vellum", "platform_base_url");
+        const persisted = await getSecureKeyAsync(key);
+        if (persisted) {
+          setPlatformBaseUrl(persisted);
+        }
+      } catch {
+        // Non-fatal — direct Gemini key may still work
+      }
+
+      const result = await generateAndSaveAvatar(opts.description);
+
+      if (result.isError) {
+        log.error(result.content);
+        process.exitCode = 1;
+        return;
+      }
+
+      // Remove native character files since AI-generated image takes precedence
+      const avatarDir = join(getWorkspaceDir(), "data", "avatar");
+      const traitsPath = join(avatarDir, "character-traits.json");
+      const asciiPath = join(avatarDir, "character-ascii.txt");
+      try {
+        if (existsSync(traitsPath)) unlinkSync(traitsPath);
+        if (existsSync(asciiPath)) unlinkSync(asciiPath);
+      } catch {
+        // Best-effort cleanup
+      }
+
+      log.info(result.content);
+    });
 
   const character = avatar
     .command("character")

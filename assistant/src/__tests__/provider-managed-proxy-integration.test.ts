@@ -206,7 +206,7 @@ describe("managed proxy integration — credential precedence", () => {
       expect(baseURL).toContain("/v1/runtime-proxy/anthropic");
     });
 
-    test("managed gemini uses vertex proxy path", async () => {
+    test("managed gemini uses gemini proxy path", async () => {
       enableManagedProxy();
       mockProviderKeys = {};
       await initializeProviders(makeProvidersConfig("anthropic", "test-model"));
@@ -216,8 +216,7 @@ describe("managed proxy integration — credential precedence", () => {
         | { baseUrl?: string }
         | undefined;
       expect(httpOptions).toBeDefined();
-      expect(httpOptions!.baseUrl).toContain("/v1/runtime-proxy/vertex");
-      expect(httpOptions!.baseUrl).not.toContain("/v1/runtime-proxy/gemini");
+      expect(httpOptions!.baseUrl).toContain("/v1/runtime-proxy/gemini");
     });
   });
 
@@ -309,8 +308,8 @@ describe("managed proxy integration — ollama exclusion", () => {
 });
 
 describe("managed proxy integration — constants integrity", () => {
-  test("anthropic, gemini, and vertex have metadata with managed=true and a proxyPath", () => {
-    for (const provider of ["anthropic", "gemini", "vertex"]) {
+  test("anthropic and gemini have metadata with managed=true and a proxyPath", () => {
+    for (const provider of ["anthropic", "gemini"]) {
       const meta = MANAGED_PROVIDER_META[provider];
       expect(meta).toBeDefined();
       expect(meta.managed).toBe(true);
@@ -325,9 +324,9 @@ describe("managed proxy integration — constants integrity", () => {
     );
   });
 
-  test("gemini routes through vertex proxy path", () => {
+  test("gemini routes through gemini proxy path", () => {
     expect(MANAGED_PROVIDER_META.gemini.proxyPath).toBe(
-      "/v1/runtime-proxy/vertex",
+      "/v1/runtime-proxy/gemini",
     );
   });
 

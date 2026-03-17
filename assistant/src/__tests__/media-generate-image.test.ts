@@ -216,7 +216,7 @@ describe("image-studio skill script wrapper", () => {
 
   test("managed mode uses managed proxy credentials", async () => {
     mockImageGenMode = "managed";
-    mockManagedBaseUrl = "https://platform.example.com/v1/runtime-proxy/vertex";
+    mockManagedBaseUrl = "https://platform.example.com/v1/runtime-proxy/gemini";
     mockManagedProxyContext = {
       enabled: true,
       platformBaseUrl: "https://platform.example.com",
@@ -230,7 +230,7 @@ describe("image-studio skill script wrapper", () => {
     expect(lastGenerateCredentials).toEqual({
       type: "managed-proxy",
       assistantApiKey: "managed-key-123",
-      baseUrl: "https://platform.example.com/v1/runtime-proxy/vertex",
+      baseUrl: "https://platform.example.com/v1/runtime-proxy/gemini",
     });
   });
 
@@ -248,7 +248,7 @@ describe("image-studio skill script wrapper", () => {
   test("your-own mode uses direct API key", async () => {
     mockImageGenMode = "your-own";
     mockApiKey = "direct-key";
-    mockManagedBaseUrl = "https://platform.example.com/v1/runtime-proxy/vertex";
+    mockManagedBaseUrl = "https://platform.example.com/v1/runtime-proxy/gemini";
     mockManagedProxyContext = {
       enabled: true,
       platformBaseUrl: "https://platform.example.com",
