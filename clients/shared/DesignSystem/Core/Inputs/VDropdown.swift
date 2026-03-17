@@ -3,9 +3,9 @@ import SwiftUI
 /// A generic dropdown that looks pixel-identical to VTextField with a trailing chevron.
 ///
 /// Uses a `Menu` containing an inline `Picker` for proper selection semantics
-/// (automatic checkmarks, accessibility). The visual label is fully custom and
-/// the `.frame(maxWidth: .infinity)` is applied inside the label closure so the
-/// button style expands to fill the parent width.
+/// (automatic checkmarks, accessibility). The visual label is fully custom.
+/// Expands to fill available width by default; callers can constrain with
+/// `.frame(width:)` as needed.
 public struct VDropdown<T: Hashable>: View {
     public let placeholder: String
     @Binding public var selection: T
@@ -69,6 +69,7 @@ public struct VDropdown<T: Hashable>: View {
         .buttonStyle(.plain)
         .menuIndicator(.hidden)
         .accessibilityLabel(selectedLabel ?? placeholder)
+        .frame(maxWidth: .infinity)
     }
 }
 
