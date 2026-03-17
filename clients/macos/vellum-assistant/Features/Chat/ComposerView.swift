@@ -520,11 +520,8 @@ struct ComposerView: View {
                 )
                 .disabled(!hasAPIKey)
                 .popover(isPresented: $showVoiceModeHover, arrowEdge: .top) {
-                    Text("Start a live voice conversation with your assistant. Unlike the mic button, this is a real-time back-and-forth voice call.")
+                    Text("Live voice conversation (not dictation)")
                         .font(VFont.caption)
-                        .multilineTextAlignment(.leading)
-                        .frame(width: 200)
-                        .fixedSize(horizontal: false, vertical: true)
                         .padding(VSpacing.sm)
                 }
                 .onHover { hovering in
