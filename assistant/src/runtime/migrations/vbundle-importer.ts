@@ -187,7 +187,7 @@ export function commitImport(options: ImportCommitOptions): ImportCommitResult {
       f.path.startsWith("prompts/") ||
       f.path === "data/db/assistant.db" ||
       f.path === "config/settings.json";
-    return isWorkspaceScoped && pathResolver.resolve(f.path) !== null;
+    return isWorkspaceScoped && !!pathResolver.resolve(f.path);
   });
 
   if (hasWorkspaceEntries && workspaceDir && existsSync(workspaceDir)) {
