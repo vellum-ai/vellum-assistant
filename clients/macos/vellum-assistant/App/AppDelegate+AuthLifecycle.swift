@@ -398,10 +398,9 @@ extension AppDelegate {
                     log.info("Local assistant API key provisioned: \(id, privacy: .public)")
                 }
 
-                // After successful managed-proxy bootstrap, set all service modes to "managed".
-                // This overwrites the schema default ("your-own") that the daemon materializes
-                // on first load. If the user later switches mode in settings, the per-service
-                // setter will overwrite individual values.
+                // Set service modes to "managed" for any services that don't already have a
+                // mode configured. On first bootstrap this sets all three; on subsequent app
+                // restarts the user's existing choices are preserved.
                 WorkspaceConfigIO.initializeServiceDefaults(defaultMode: "managed")
 
                 self.localBootstrapDidComplete = true

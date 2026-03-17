@@ -132,10 +132,8 @@ struct APIKeyEntryStepView: View {
         APIKeyManager.setKey(trimmed, for: "anthropic")
         APIKeyManager.syncKeyToDaemon(provider: "anthropic", value: trimmed)
 
-        // After BYOK onboarding, set all service modes to "your-own".
-        // This overwrites the schema default that the daemon materializes on
-        // first load. If the user later switches mode in settings, the per-service
-        // setter will overwrite individual values.
+        // Set service modes to "your-own" for any services that don't already
+        // have a mode configured (first-time BYOK onboarding).
         WorkspaceConfigIO.initializeServiceDefaults(defaultMode: "your-own")
 
         saveModelToConfig("claude-opus-4-6")
