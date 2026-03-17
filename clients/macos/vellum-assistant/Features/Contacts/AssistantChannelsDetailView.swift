@@ -101,30 +101,17 @@ struct AssistantChannelsDetailView: View {
 
     // MARK: - Layouts
 
-    /// Settings tab layout: individual bordered cards per channel, own ScrollView.
+    /// Settings tab layout: individual bordered cards per channel (matches Models & Services layout).
     private var borderedLayout: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: VSpacing.xl) {
-                VStack(alignment: .leading, spacing: VSpacing.xs) {
-                    Text("Channels")
-                        .font(VFont.sectionTitle)
-                        .foregroundColor(VColor.contentDefault)
-                    Text("Manage where \(assistantName) can be reached.")
-                        .font(VFont.caption)
-                        .foregroundColor(VColor.contentTertiary)
-                }
-
-                VStack(alignment: .leading, spacing: VSpacing.lg) {
-                    slackChannelCard
-                    telegramCard
-                    voiceCard
-                    if isEmailEnabled {
-                        emailCard
-                    }
-                }
+        VStack(alignment: .leading, spacing: VSpacing.lg) {
+            slackChannelCard
+            telegramCard
+            voiceCard
+            if isEmailEnabled {
+                emailCard
             }
-            .padding(VSpacing.lg)
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     /// Contacts tab layout: compact row list with dividers, no ScrollView (container scrolls).
