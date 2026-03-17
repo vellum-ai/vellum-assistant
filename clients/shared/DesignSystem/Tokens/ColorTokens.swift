@@ -384,6 +384,11 @@ public enum VColor {
     public static let funTeal   = Color(hex: 0x0E9B8B)
     public static let funGreen  = Color(hex: 0x4C9B50)
 
+    // Role tag backgrounds — soft pastel backgrounds for contact role badges
+    public static let tagAssistant = Color(hex: 0xF0D9E0)
+    public static let tagGuardian  = Color(hex: 0xC8E5E2)
+    public static let tagHuman     = Color(hex: 0xEFE8C4)
+
     /// Deterministic conversation icon background palette — semantic compositions of existing tokens.
     public static let conversationIconBackgrounds: [Color] = [
         primaryBase, primaryHover, primaryActive,

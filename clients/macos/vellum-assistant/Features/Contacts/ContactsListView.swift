@@ -1,8 +1,9 @@
 import SwiftUI
 import VellumAssistantShared
 
-/// Displays the list of contacts, with an assistant section at the top,
-/// a guardian section, search, channel names, and status indicators.
+/// Contacts list panel matching the Figma design: a single bordered card
+/// with header, assistant/guardian rows, divider, search, and contact rows
+/// with colored role tags and channel name text.
 @MainActor
 struct ContactsListView: View {
     @ObservedObject var viewModel: ContactsViewModel
@@ -13,15 +14,18 @@ struct ContactsListView: View {
     @State private var cachedAssistantDisplayName: String = AssistantDisplayName.placeholder
 
     var body: some View {
-        VStack(alignment: .leading, spacing: VSpacing.lg) {
+        VStack(alignment: .leading, spacing: 0) {
             if viewModel.isLoading && viewModel.contacts.isEmpty {
                 loadingState
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else if viewModel.contacts.isEmpty {
                 emptyState
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
-                contactsList
+                contactsCard
             }
         }
+        .frame(maxHeight: .infinity, alignment: .top)
         .onAppear {
             viewModel.loadContacts()
         }
@@ -33,228 +37,174 @@ struct ContactsListView: View {
         }
     }
 
+    // MARK: - Contacts Card
+
+    private var contactsCard: some View {
+        VStack(alignment: .leading, spacing: VSpacing.lg) {
+            // Header: "Contacts" + add button
+            HStack {
+                Text("Contacts")
+                    .font(VFont.sectionTitle)
+                    .foregroundColor(VColor.contentEmphasized)
+                Spacer()
+                VButton(label: "Add", iconOnly: VIcon.plus.rawValue, style: .outlined, size: .compact) {
+                    viewModel.isCreatingContact = true
+                }
+                .accessibilityLabel("Add contact")
+            }
+
+            // All rows in a single scrollable area
+            ScrollView {
+                VStack(alignment: .leading, spacing: VSpacing.xs) {
+                    // Assistant row
+                    contactListRow(
+                        name: cachedAssistantDisplayName,
+                        channelText: "Assistant channels",
+                        tag: "Assistant",
+                        tagColor: VColor.tagAssistant,
+                        isSelected: selection == .assistant,
+                        isHovered: isAssistantHovered,
+                        onTap: { selection = .assistant },
+                        onHover: { isAssistantHovered = $0 }
+                    )
+
+                    // Guardian row
+                    if let guardian = viewModel.guardianContact {
+                        contactListRow(
+                            name: "\(guardian.displayName) (You)",
+                            channelText: channelNamesText(guardian.channels),
+                            tag: "Guardian",
+                            tagColor: VColor.tagGuardian,
+                            isSelected: selection == .contact(guardian.id),
+                            isHovered: hoveredContactId == guardian.id,
+                            onTap: { selection = .contact(guardian.id) },
+                            onHover: { hoveredContactId = $0 ? guardian.id : nil }
+                        )
+                    }
+
+                    // Divider between pinned rows and contacts
+                    VColor.surfaceBase.frame(height: 1)
+
+                    // Search + contact rows
+                    VStack(alignment: .leading, spacing: VSpacing.xs) {
+                        if viewModel.hasNonGuardianContacts {
+                            searchBar
+                                .padding(.top, VSpacing.sm)
+                        }
+
+                        if !viewModel.hasNonGuardianContacts {
+                            VEmptyState(
+                                title: "No contacts yet",
+                                icon: VIcon.users.rawValue,
+                                actionLabel: "Add Contact",
+                                actionIcon: VIcon.plus.rawValue,
+                                action: { viewModel.isCreatingContact = true }
+                            )
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, VSpacing.lg)
+                        } else {
+                            ForEach(viewModel.otherContacts, id: \.id) { contact in
+                                contactListRow(
+                                    name: contact.displayName,
+                                    channelText: channelNamesText(contact.channels),
+                                    tag: formatContactType(contact.role),
+                                    tagColor: tagColor(for: contact.role),
+                                    isSelected: selection == .contact(contact.id),
+                                    isHovered: hoveredContactId == contact.id,
+                                    onTap: { selection = .contact(contact.id) },
+                                    onHover: { hoveredContactId = $0 ? contact.id : nil }
+                                )
+                            }
+
+                            // No search results
+                            if viewModel.filteredContacts.isEmpty && !viewModel.contacts.isEmpty {
+                                VStack(spacing: VSpacing.sm) {
+                                    Text("No matching contacts")
+                                        .font(VFont.body)
+                                        .foregroundColor(VColor.contentSecondary)
+                                    Text("Try a different search term")
+                                        .font(VFont.caption)
+                                        .foregroundColor(VColor.contentTertiary)
+                                }
+                                .frame(maxWidth: .infinity)
+                                .padding(.vertical, VSpacing.xl)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        .padding(VSpacing.lg)
+        .frame(maxHeight: .infinity, alignment: .top)
+        .overlay(
+            RoundedRectangle(cornerRadius: VRadius.xl)
+                .stroke(VColor.borderDisabled, lineWidth: 2)
+        )
+    }
+
+    // MARK: - Contact List Row
+
+    private func contactListRow(
+        name: String,
+        channelText: String,
+        tag: String,
+        tagColor: Color,
+        isSelected: Bool,
+        isHovered: Bool,
+        onTap: @escaping () -> Void,
+        onHover: @escaping (Bool) -> Void
+    ) -> some View {
+        Button(action: onTap) {
+            HStack(spacing: VSpacing.xs) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(name)
+                        .font(VFont.bodyMedium)
+                        .foregroundColor(VColor.contentDefault)
+                        .lineLimit(1)
+
+                    Text(channelText)
+                        .font(VFont.small)
+                        .foregroundColor(VColor.contentTertiary)
+                        .lineLimit(1)
+                }
+
+                Spacer()
+
+                Text(tag)
+                    .font(VFont.captionMedium)
+                    .foregroundColor(VColor.contentDefault)
+                    .padding(.horizontal, VSpacing.sm)
+                    .padding(.vertical, VSpacing.xs)
+                    .background(tagColor)
+                    .clipShape(RoundedRectangle(cornerRadius: VRadius.sm + 2))
+            }
+            .padding(VSpacing.sm)
+            .background(
+                isSelected
+                    ? VColor.surfaceActive
+                    : (isHovered ? VColor.surfaceActive.opacity(0.5) : VColor.surfaceOverlay)
+            )
+            .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .onHover(perform: onHover)
+    }
+
     // MARK: - Search Bar
 
     private var searchBar: some View {
-        HStack(spacing: VSpacing.sm) {
+        HStack(spacing: VSpacing.xs) {
             VIconView(.search, size: 12)
                 .foregroundColor(VColor.contentTertiary)
-            TextField("Search contacts...", text: $viewModel.searchQuery)
+            TextField("Search Contacts", text: $viewModel.searchQuery)
                 .textFieldStyle(.plain)
                 .font(VFont.body)
                 .foregroundColor(VColor.contentDefault)
         }
         .padding(VSpacing.sm)
-        .background(VColor.surfaceActive)
+        .background(VColor.surfaceBase)
         .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
-    }
-
-    // MARK: - Contacts List
-
-    private var contactsList: some View {
-        VStack(alignment: .leading, spacing: VSpacing.lg) {
-            // Assistant section (always visible, unaffected by search)
-            assistantSection
-
-            // Guardian section
-            if let guardian = viewModel.guardianContact {
-                guardianSection(guardian)
-            }
-
-            // Other contacts section
-            otherContactsSection
-
-            // Filtered-empty state (contacts exist but search yields nothing)
-            if viewModel.filteredContacts.isEmpty && !viewModel.contacts.isEmpty {
-                VStack(spacing: VSpacing.sm) {
-                    Text("No matching contacts")
-                        .font(VFont.body)
-                        .foregroundColor(VColor.contentSecondary)
-                    Text("Try a different search term")
-                        .font(VFont.caption)
-                        .foregroundColor(VColor.contentTertiary)
-                }
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, VSpacing.xl)
-            }
-        }
-    }
-
-    // MARK: - Assistant Section
-
-    private var assistantSection: some View {
-        VStack(alignment: .leading, spacing: VSpacing.md) {
-            Text("Assistant")
-                .font(VFont.sectionTitle)
-                .foregroundColor(VColor.contentDefault)
-
-            Button {
-                selection = .assistant
-            } label: {
-                HStack(spacing: VSpacing.md) {
-                    Text(cachedAssistantDisplayName)
-                        .font(VFont.bodyBold)
-                        .foregroundColor(VColor.contentDefault)
-                        .lineLimit(1)
-
-                    Spacer()
-                }
-                .padding(VSpacing.lg)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .background(selection == .assistant ? VColor.contentEmphasized.opacity(0.08) : (isAssistantHovered ? VColor.contentEmphasized.opacity(0.04) : Color.clear))
-                .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .onHover { hovering in
-                isAssistantHovered = hovering
-            }
-            .vCard(background: VColor.surfaceOverlay)
-        }
-    }
-
-    // MARK: - Guardian Section
-
-    private func guardianSection(_ contact: ContactPayload) -> some View {
-        VStack(alignment: .leading, spacing: VSpacing.md) {
-            Text("Guardian (You)")
-                .font(VFont.sectionTitle)
-                .foregroundColor(VColor.contentDefault)
-
-            Button {
-                selection = .contact(contact.id)
-            } label: {
-                HStack(spacing: VSpacing.md) {
-                    VStack(alignment: .leading, spacing: VSpacing.xs) {
-                        Text(contact.displayName)
-                            .font(VFont.bodyBold)
-                            .foregroundColor(VColor.contentDefault)
-                            .lineLimit(1)
-
-                        channelNamesText(contact.channels)
-                    }
-
-                    Spacer()
-                }
-                .padding(VSpacing.lg)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .background(selection == .contact(contact.id) ? VColor.contentEmphasized.opacity(0.08) : (hoveredContactId == contact.id ? VColor.contentEmphasized.opacity(0.04) : Color.clear))
-                .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .onHover { hovering in
-                hoveredContactId = hovering ? contact.id : nil
-            }
-            .vCard(background: VColor.surfaceOverlay)
-        }
-    }
-
-    // MARK: - Other Contacts Section
-
-    private var otherContactsSection: some View {
-        VStack(alignment: .leading, spacing: VSpacing.md) {
-            HStack {
-                Text("Contacts")
-                    .font(VFont.sectionTitle)
-                    .foregroundColor(VColor.contentDefault)
-                Spacer()
-                if viewModel.hasNonGuardianContacts {
-                    Button { viewModel.isCreatingContact = true } label: {
-                        VIconView(.plus, size: 14)
-                            .foregroundColor(VColor.primaryBase)
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel("Add contact")
-                }
-            }
-
-            if viewModel.hasNonGuardianContacts {
-                searchBar
-            }
-
-            if !viewModel.hasNonGuardianContacts {
-                VEmptyState(
-                    title: "No contacts yet",
-                    icon: VIcon.users.rawValue,
-                    actionLabel: "Add Contact",
-                    actionIcon: VIcon.plus.rawValue,
-                    action: { viewModel.isCreatingContact = true }
-                )
-                .padding(.vertical, VSpacing.lg)
-                .frame(maxWidth: .infinity)
-                .vCard(background: VColor.surfaceOverlay)
-            } else if !viewModel.otherContacts.isEmpty {
-                VStack(spacing: 0) {
-                    ForEach(Array(viewModel.otherContacts.enumerated()), id: \.element.id) { index, contact in
-                        if index > 0 {
-                            Divider().background(VColor.borderBase)
-                        }
-                        contactRow(contact)
-                    }
-                }
-                .vCard(background: VColor.surfaceOverlay)
-            }
-        }
-    }
-
-    // MARK: - Contact Row
-
-    private func contactRow(_ contact: ContactPayload) -> some View {
-        Button {
-            selection = .contact(contact.id)
-        } label: {
-            HStack(spacing: VSpacing.md) {
-                VStack(alignment: .leading, spacing: VSpacing.xs) {
-                    Text(contact.displayName)
-                        .font(VFont.bodyBold)
-                        .foregroundColor(VColor.contentDefault)
-                        .lineLimit(1)
-
-                    if let notes = contact.notes, !notes.isEmpty {
-                        Text(notes.components(separatedBy: .newlines).first ?? notes)
-                            .font(VFont.caption)
-                            .foregroundColor(VColor.contentSecondary)
-                            .lineLimit(1)
-                    }
-
-                    channelNamesText(contact.channels)
-                }
-
-                Spacer()
-
-                statusIndicator(for: contact)
-            }
-            .padding(VSpacing.lg)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(selection == .contact(contact.id) ? VColor.contentEmphasized.opacity(0.08) : (hoveredContactId == contact.id ? VColor.contentEmphasized.opacity(0.04) : Color.clear))
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .onHover { hovering in
-            hoveredContactId = hovering ? contact.id : nil
-        }
-    }
-
-    // MARK: - Channel Names Text
-
-    private func channelNamesText(_ channels: [ContactChannelPayload]) -> some View {
-        let activeTypes = Set(channels.filter { $0.status != "revoked" }.map(\.type))
-        let label = activeTypes.isEmpty
-            ? "No channels"
-            : activeTypes.sorted().map { channelLabel(for: $0) }.joined(separator: " | ")
-        return Text(label)
-            .font(VFont.caption)
-            .foregroundColor(VColor.contentTertiary)
-            .lineLimit(1)
-    }
-
-    // MARK: - Status Indicator
-
-    private func statusIndicator(for contact: ContactPayload) -> some View {
-        let status = aggregateChannelStatus(contact.channels)
-        return Circle()
-            .fill(status.color)
-            .frame(width: 8, height: 8)
-            .help(status.label)
     }
 
     // MARK: - Loading State
@@ -267,8 +217,6 @@ struct ContactsListView: View {
                 .font(VFont.body)
                 .foregroundColor(VColor.contentSecondary)
         }
-        .frame(maxWidth: .infinity)
-        .padding(.vertical, VSpacing.xxxl)
     }
 
     // MARK: - Empty State
@@ -289,13 +237,16 @@ struct ContactsListView: View {
                 viewModel.isCreatingContact = true
             }
         }
-        .frame(maxWidth: .infinity)
-        .padding(.vertical, VSpacing.xxxl)
     }
 
     // MARK: - Helpers
 
-    /// Maps channel type to a human-readable label.
+    private func channelNamesText(_ channels: [ContactChannelPayload]) -> String {
+        let activeTypes = Set(channels.filter { $0.status != "revoked" }.map(\.type))
+        guard !activeTypes.isEmpty else { return "No channels" }
+        return activeTypes.sorted().map { channelLabel(for: $0) }.joined(separator: " | ")
+    }
+
     private func channelLabel(for type: String) -> String {
         switch type {
         case "telegram": return "Telegram"
@@ -307,93 +258,19 @@ struct ContactsListView: View {
         }
     }
 
-    /// Aggregates channel statuses into a single status indicator.
-    /// Green = all active/verified, Yellow = some pending, Red = any blocked.
-    /// Revoked channels are treated as uninvited and excluded from aggregation.
-    private func aggregateChannelStatus(_ channels: [ContactChannelPayload]) -> (color: Color, label: String) {
-        let active = channels.filter { $0.status != "revoked" }
-        guard !active.isEmpty else {
-            return (VColor.contentTertiary, "No channels")
-        }
-
-        let hasBlocked = active.contains { $0.status == "blocked" }
-        let hasPending = active.contains { $0.status == "pending" || $0.status == "unverified" }
-
-        if hasBlocked {
-            return (VColor.systemNegativeStrong, "Some channels blocked")
-        } else if hasPending {
-            return (VColor.systemNegativeHover, "Some channels pending verification")
-        } else {
-            return (VColor.systemPositiveStrong, "All channels active")
+    private func formatContactType(_ role: String?) -> String {
+        switch role {
+        case "guardian": return "Guardian"
+        case "assistant": return "Assistant"
+        default: return "Human"
         }
     }
-}
 
-// MARK: - Preview
-
-#Preview {
-    let viewModel = ContactsViewModel(daemonClient: nil)
-
-    // Populate with sample data for preview
-    let _ = {
-        viewModel.contacts = [
-            ContactPayload(
-                id: "guardian-1",
-                displayName: "Noah",
-                role: "guardian",
-                lastInteraction: Date().timeIntervalSince1970 * 1000,
-                interactionCount: 42,
-                channels: [
-                    ContactChannelPayload(
-                        id: "ch-1", type: "telegram", address: "@noah",
-                        isPrimary: true, status: "verified", policy: "allow"
-                    ),
-                    ContactChannelPayload(
-                        id: "ch-3", type: "phone", address: "+15551234567",
-                        isPrimary: false, status: "verified", policy: "allow"
-                    ),
-                ]
-            ),
-            ContactPayload(
-                id: "contact-2",
-                displayName: "Alice Chen",
-                role: "contact",
-                notes: "Colleague",
-                lastInteraction: Date().timeIntervalSince1970 * 1000 - 86400000,
-                interactionCount: 15,
-                channels: [
-                    ContactChannelPayload(
-                        id: "ch-4", type: "telegram", address: "@alice_c",
-                        isPrimary: true, status: "verified", policy: "allow"
-                    ),
-                ]
-            ),
-            ContactPayload(
-                id: "contact-3",
-                displayName: "Bob Williams",
-                role: "contact",
-                notes: "Friend",
-                lastInteraction: nil,
-                interactionCount: 3,
-                channels: [
-                    ContactChannelPayload(
-                        id: "ch-5", type: "email", address: "bob@example.com",
-                        isPrimary: true, status: "pending", policy: "ask"
-                    ),
-                ]
-            ),
-        ]
-    }()
-
-    ZStack {
-        VColor.surfaceOverlay.ignoresSafeArea()
-        ScrollView {
-            ContactsListView(
-                viewModel: viewModel,
-                selection: .constant(.assistant)
-            )
-            .padding(VSpacing.lg)
+    private func tagColor(for role: String?) -> Color {
+        switch role {
+        case "guardian": return VColor.tagGuardian
+        case "assistant": return VColor.tagAssistant
+        default: return VColor.tagHuman
         }
     }
-    .frame(width: 500, height: 600)
 }
