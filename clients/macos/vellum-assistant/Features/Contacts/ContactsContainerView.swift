@@ -20,6 +20,8 @@ struct ContactsContainerView: View {
     @StateObject private var viewModel: ContactsViewModel
     @State private var selection: ContactSelection? = .assistant
 
+    private let contactClient: ContactClientProtocol = ContactClient()
+
     init(daemonClient: DaemonClient?, store: SettingsStore? = nil, isEmailEnabled: Bool = false) {
         self.daemonClient = daemonClient
         self.store = store
@@ -38,7 +40,6 @@ struct ContactsContainerView: View {
             .frame(width: 320)
             .frame(maxHeight: .infinity, alignment: .top)
             .background(VColor.surfaceOverlay)
-
 
             // Right pane: detail, loading, or placeholder
             if viewModel.isLoading && viewModel.contacts.isEmpty {
@@ -120,15 +121,33 @@ struct ContactsContainerView: View {
                 selection = .assistant
             }
         }
-        .sheet(isPresented: $viewModel.isCreatingContact) {
-            ContactCreateView(
-                daemonClient: daemonClient,
-                isPresented: $viewModel.isCreatingContact,
-                onCreated: { contact in
-                    selection = .contact(contact.id)
-                    viewModel.loadContacts()
+        .onChange(of: viewModel.isCreatingContact) { _, isCreating in
+            if isCreating {
+                Task {
+                    await createPlaceholderContact()
                 }
+            }
+        }
+    }
+
+    /// Creates a placeholder contact with a default name, selects it in the
+    /// list, and shows the detail pane so the user can edit inline.
+    private func createPlaceholderContact() async {
+        viewModel.isCreatingContact = false
+        do {
+            let contact = try await contactClient.createContact(
+                displayName: "New Contact",
+                notes: nil,
+                channels: nil
             )
+            if let contact {
+                viewModel.loadContacts()
+                // Small delay to let the contacts list refresh before selecting
+                try? await Task.sleep(nanoseconds: 200_000_000)
+                selection = .contact(contact.id)
+            }
+        } catch {
+            // Silently fail — user can retry via the + button
         }
     }
 }
