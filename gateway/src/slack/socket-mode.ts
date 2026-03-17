@@ -217,8 +217,13 @@ export class SlackSocketModeClient {
           { code: closeEvent.code, reason: closeEvent.reason },
           "Slack Socket Mode disconnected",
         );
-        this.ws = null;
-        this.scheduleReconnect();
+        // Only reconnect if this socket is still the active one.
+        // forceReconnect nulls this.ws before initiating a new connection,
+        // so a stale close event should be ignored.
+        if (this.ws === ws) {
+          this.ws = null;
+          this.scheduleReconnect();
+        }
       });
 
       ws.addEventListener("error", (errorEvent) => {
