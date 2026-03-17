@@ -663,6 +663,13 @@ async function main() {
         channelReadinessProxy.handleRefreshChannelReadiness(req),
     },
 
+    {
+      path: /^\/v1\/assistants\/([^/]+)\/channels\/readiness\/$/,
+      method: "GET",
+      auth: "edge",
+      handler: (req) => channelReadinessProxy.handleGetChannelReadiness(req),
+    },
+
     // ── Integration status ──
     {
       path: "/integrations/status",
