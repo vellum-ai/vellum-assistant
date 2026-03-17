@@ -903,8 +903,6 @@ struct ContactDetailView: View {
         }
     }
 
-    // MARK: - Formatting Helpers
-
     // MARK: - Helpers
 
     private func channelIcon(for type: String) -> VIcon {
