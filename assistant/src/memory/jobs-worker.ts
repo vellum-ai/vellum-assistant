@@ -314,6 +314,9 @@ async function processJob(
     case "generate_capability_cards":
       await generateCapabilityCardsJob(job);
       return;
+    case "generate_thread_starters":
+      // Thread starters renamed to conversation starters — silently drop legacy jobs
+      return;
     default:
       throw new Error(
         `Unknown memory job type: ${(job as { type: string }).type}`,
