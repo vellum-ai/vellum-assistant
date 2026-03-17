@@ -171,7 +171,7 @@ private struct VCheckbox: View {
                         .fill(VColor.primaryBase)
 
                     VIconView(.check, size: 12)
-                        .foregroundColor(.white)
+                        .foregroundColor(VColor.auxWhite)
                 } else {
                     RoundedRectangle(cornerRadius: cornerRadius)
                         .fill(Color.clear)
