@@ -116,6 +116,12 @@ export interface OutboundActionResult {
   pendingBootstrap?: boolean;
   /** Echoed back so consumers know which conversation to target for pointers. */
   originConversationId?: string;
+  /** Internal: Slack DM delivery payload for the caller to dispatch.
+   *  The shared startOutbound/resendOutbound functions no longer fire the
+   *  delivery themselves because CLI subprocesses are sandboxed and cannot
+   *  reach the gateway.  The daemon HTTP route handler calls
+   *  deliverVerificationSlack() after receiving this payload. */
+  _pendingSlackDm?: { userId: string; text: string; assistantId: string };
 }
 
 // ---------------------------------------------------------------------------
@@ -486,42 +492,52 @@ function startOutboundVoice(
 
 /**
  * Deliver a verification Slack DM via the gateway's /deliver/slack endpoint.
- * Fire-and-forget with error logging.
+ * Returns a promise that resolves when the delivery attempt completes.
+ */
+export async function deliverVerificationSlackAsync(
+  userId: string,
+  text: string,
+  assistantId: string,
+): Promise<void> {
+  try {
+    const gatewayUrl = getGatewayInternalBaseUrl();
+    const bearerToken = mintDaemonDeliveryToken();
+    const url = `${gatewayUrl}/deliver/slack`;
+    const resp = await fetch(url, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${bearerToken}`,
+      },
+      body: JSON.stringify({ chatId: userId, text, assistantId }),
+    });
+    if (!resp.ok) {
+      const body = await resp.text().catch(() => "<unreadable>");
+      log.error(
+        { userId, assistantId, status: resp.status, body },
+        "Gateway /deliver/slack failed for verification",
+      );
+    } else {
+      log.info({ userId, assistantId }, "Verification Slack DM delivered");
+    }
+  } catch (err) {
+    log.error(
+      { err, userId, assistantId },
+      "Failed to deliver verification Slack DM",
+    );
+  }
+}
+
+/**
+ * Deliver a verification Slack DM via the gateway's /deliver/slack endpoint.
+ * Fire-and-forget wrapper for use in the daemon process (HTTP route handlers).
  */
 export function deliverVerificationSlack(
   userId: string,
   text: string,
   assistantId: string,
 ): void {
-  (async () => {
-    try {
-      const gatewayUrl = getGatewayInternalBaseUrl();
-      const bearerToken = mintDaemonDeliveryToken();
-      const url = `${gatewayUrl}/deliver/slack`;
-      const resp = await fetch(url, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${bearerToken}`,
-        },
-        body: JSON.stringify({ chatId: userId, text, assistantId }),
-      });
-      if (!resp.ok) {
-        const body = await resp.text().catch(() => "<unreadable>");
-        log.error(
-          { userId, assistantId, status: resp.status, body },
-          "Gateway /deliver/slack failed for verification",
-        );
-      } else {
-        log.info({ userId, assistantId }, "Verification Slack DM delivered");
-      }
-    } catch (err) {
-      log.error(
-        { err, userId, assistantId },
-        "Failed to deliver verification Slack DM",
-      );
-    }
-  })();
+  deliverVerificationSlackAsync(userId, text, assistantId);
 }
 
 function startOutboundSlack(
@@ -588,7 +604,6 @@ function startOutboundSlack(
   const sendCount = 1;
 
   updateSessionDelivery(sessionResult.sessionId, now, sendCount, nextResendAt);
-  deliverVerificationSlack(destination, slackBody, assistantId);
 
   return {
     success: true,
@@ -599,6 +614,7 @@ function startOutboundSlack(
     sendCount,
     channel,
     originConversationId,
+    _pendingSlackDm: { userId: destination, text: slackBody, assistantId },
   };
 }
 
@@ -788,7 +804,6 @@ export function resendOutbound(
       newSendCount,
       nextResendAt,
     );
-    deliverVerificationSlack(destination, slackBody, assistantId);
 
     return {
       success: true,
@@ -798,6 +813,7 @@ export function resendOutbound(
       sendCount: newSendCount,
       channel,
       originConversationId,
+      _pendingSlackDm: { userId: destination, text: slackBody, assistantId },
     };
   }
 
