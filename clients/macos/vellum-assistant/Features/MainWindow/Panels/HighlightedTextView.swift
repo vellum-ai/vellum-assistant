@@ -260,7 +260,14 @@ private struct LineNumberTextEditor: NSViewRepresentable {
         textContainer.widthTracksTextView = false
         layoutManager.addTextContainer(textContainer)
 
-        let textView = NSTextView(frame: .zero, textContainer: textContainer)
+        let scrollView = NSScrollView()
+        scrollView.hasVerticalScroller = true
+        scrollView.hasHorizontalScroller = true
+        scrollView.autohidesScrollers = true
+        scrollView.drawsBackground = false
+
+        let contentSize = scrollView.contentSize
+        let textView = NSTextView(frame: NSRect(origin: .zero, size: contentSize), textContainer: textContainer)
         textView.isEditable = true
         textView.isSelectable = true
         textView.allowsUndo = true
@@ -273,6 +280,8 @@ private struct LineNumberTextEditor: NSViewRepresentable {
         textView.textContainerInset = NSSize(width: 4, height: 8)
         textView.isVerticallyResizable = true
         textView.isHorizontallyResizable = true
+        textView.autoresizingMask = [.width]
+        textView.minSize = NSSize(width: contentSize.width, height: 0)
         textView.maxSize = NSSize(
             width: CGFloat.greatestFiniteMagnitude,
             height: CGFloat.greatestFiniteMagnitude
@@ -280,12 +289,7 @@ private struct LineNumberTextEditor: NSViewRepresentable {
         textView.string = text
         textView.delegate = context.coordinator
 
-        let scrollView = NSScrollView()
         scrollView.documentView = textView
-        scrollView.hasVerticalScroller = true
-        scrollView.hasHorizontalScroller = true
-        scrollView.autohidesScrollers = true
-        scrollView.drawsBackground = false
 
         // Install the line number ruler
         let ruler = LineNumberRulerView(textView: textView)
@@ -294,6 +298,11 @@ private struct LineNumberTextEditor: NSViewRepresentable {
         scrollView.rulersVisible = true
 
         context.coordinator.textView = textView
+
+        // Make the text view first responder so the user can immediately type
+        DispatchQueue.main.async {
+            textView.window?.makeFirstResponder(textView)
+        }
 
         return scrollView
     }
