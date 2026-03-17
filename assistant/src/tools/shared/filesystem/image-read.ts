@@ -14,7 +14,8 @@ export const IMAGE_EXTENSIONS = new Set([
   ".webp",
 ]);
 
-const MAX_SIZE_BYTES = 20 * 1024 * 1024; // 20 MB
+const MAX_SIZE_BYTES = 20 * 1024 * 1024; // 20 MB — LLM API transport limit (post-optimization)
+const MAX_SOURCE_SIZE_BYTES = 100 * 1024 * 1024; // 100 MB — pre-optimization guard
 
 // Images above this threshold get auto-optimized via sips (macOS) to avoid
 // sending multi-MB base64 payloads to the LLM API.
@@ -120,10 +121,10 @@ export function readImageFile(resolvedPath: string): ToolExecutionResult {
     return { content: `Error: ${resolvedPath} is not a file`, isError: true };
   }
 
-  if (stat.size > MAX_SIZE_BYTES) {
+  if (stat.size > MAX_SOURCE_SIZE_BYTES) {
     const sizeMB = (stat.size / (1024 * 1024)).toFixed(1);
     return {
-      content: `Error: image too large (${sizeMB} MB). Maximum is 20 MB.`,
+      content: `Error: image too large (${sizeMB} MB). Maximum source file size is 100 MB.`,
       isError: true,
     };
   }
@@ -155,6 +156,14 @@ export function readImageFile(resolvedPath: string): ToolExecutionResult {
         /* ignore cleanup errors */
       }
     }
+  }
+
+  if (buffer.length > MAX_SIZE_BYTES) {
+    const sizeMB = (buffer.length / (1024 * 1024)).toFixed(1);
+    return {
+      content: `Error: image too large after optimization (${sizeMB} MB). Maximum is 20 MB.`,
+      isError: true,
+    };
   }
 
   // Detect actual format from magic bytes - never trust the file extension
