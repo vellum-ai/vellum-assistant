@@ -1327,6 +1327,158 @@ describe("AnthropicProvider — Cache-Control Characterization", () => {
     expect(userMsgs[2].content[0].cache_control).toBeUndefined();
     expect(userMsgs[2].content[1].cache_control).toBeUndefined();
   });
+
+  // -----------------------------------------------------------------------
+  // is_error + contentBlocks — non-text blocks must be stripped
+  // -----------------------------------------------------------------------
+
+  test("is_error tool_result strips non-text contentBlocks (images)", async () => {
+    const messages: Message[] = [
+      userMsg("Do something"),
+      toolUseMsg("tu_img", "file_read"),
+      {
+        role: "user",
+        content: [
+          {
+            type: "tool_result",
+            tool_use_id: "tu_img",
+            content: "Error: file not found",
+            is_error: true,
+            contentBlocks: [
+              {
+                type: "image",
+                source: {
+                  type: "base64",
+                  media_type: "image/png",
+                  data: "iVBOR",
+                },
+              },
+              { type: "text", text: "extra error detail" },
+            ],
+          },
+        ],
+      },
+    ];
+    await provider.sendMessage(messages);
+
+    const sent = lastStreamParams!.messages as Array<{
+      role: string;
+      content: Array<{
+        type: string;
+        tool_use_id?: string;
+        is_error?: boolean;
+        content?: unknown;
+      }>;
+    }>;
+
+    const toolResult = sent[2].content.find(
+      (b) => b.type === "tool_result" && b.tool_use_id === "tu_img",
+    )!;
+    expect(toolResult.is_error).toBe(true);
+
+    // Content should be an array with only text blocks (no images)
+    const parts = toolResult.content as Array<{ type: string }>;
+    expect(Array.isArray(parts)).toBe(true);
+    expect(parts.every((p) => p.type === "text")).toBe(true);
+    // Original text + the extra text contentBlock
+    expect(parts).toHaveLength(2);
+  });
+
+  test("is_error tool_result with only image contentBlocks falls back to text-only", async () => {
+    const messages: Message[] = [
+      userMsg("Do something"),
+      toolUseMsg("tu_img2", "file_read"),
+      {
+        role: "user",
+        content: [
+          {
+            type: "tool_result",
+            tool_use_id: "tu_img2",
+            content: "Error: file not found",
+            is_error: true,
+            contentBlocks: [
+              {
+                type: "image",
+                source: {
+                  type: "base64",
+                  media_type: "image/png",
+                  data: "iVBOR",
+                },
+              },
+            ],
+          },
+        ],
+      },
+    ];
+    await provider.sendMessage(messages);
+
+    const sent = lastStreamParams!.messages as Array<{
+      role: string;
+      content: Array<{
+        type: string;
+        tool_use_id?: string;
+        is_error?: boolean;
+        content?: unknown;
+      }>;
+    }>;
+
+    const toolResult = sent[2].content.find(
+      (b) => b.type === "tool_result" && b.tool_use_id === "tu_img2",
+    )!;
+    expect(toolResult.is_error).toBe(true);
+
+    // All images stripped → no usable blocks → falls back to text-only content
+    expect(toolResult.content).toBe("Error: file not found");
+  });
+
+  test("non-error tool_result preserves image contentBlocks", async () => {
+    const messages: Message[] = [
+      userMsg("Do something"),
+      toolUseMsg("tu_img3", "file_read"),
+      {
+        role: "user",
+        content: [
+          {
+            type: "tool_result",
+            tool_use_id: "tu_img3",
+            content: "Success",
+            is_error: false,
+            contentBlocks: [
+              {
+                type: "image",
+                source: {
+                  type: "base64",
+                  media_type: "image/png",
+                  data: "iVBOR",
+                },
+              },
+            ],
+          },
+        ],
+      },
+    ];
+    await provider.sendMessage(messages);
+
+    const sent = lastStreamParams!.messages as Array<{
+      role: string;
+      content: Array<{
+        type: string;
+        tool_use_id?: string;
+        is_error?: boolean;
+        content?: unknown;
+      }>;
+    }>;
+
+    const toolResult = sent[2].content.find(
+      (b) => b.type === "tool_result" && b.tool_use_id === "tu_img3",
+    )!;
+    expect(toolResult.is_error).toBe(false);
+
+    // Non-error: images should be preserved in the content array
+    const parts = toolResult.content as Array<{ type: string }>;
+    expect(Array.isArray(parts)).toBe(true);
+    expect(parts.some((p) => p.type === "image")).toBe(true);
+  });
 });
 
 // ---------------------------------------------------------------------------

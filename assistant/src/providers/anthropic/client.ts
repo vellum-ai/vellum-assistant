@@ -1092,12 +1092,17 @@ export class AnthropicProvider implements Provider {
         };
       case "tool_result": {
         const toolUseId = sanitizeToolId(block.tool_use_id);
-        if (block.contentBlocks && block.contentBlocks.length > 0) {
+        // Anthropic API: when is_error is true, all content must be type "text".
+        // Filter out non-text blocks (e.g. images) for error results.
+        const usableBlocks = block.is_error
+          ? block.contentBlocks?.filter((cb) => cb.type === "text")
+          : block.contentBlocks;
+        if (usableBlocks && usableBlocks.length > 0) {
           // Build rich content array: text + images for Anthropic's native multi-part tool results
           const parts: Anthropic.ToolResultBlockParam["content"] = [
             { type: "text" as const, text: block.content },
           ];
-          for (const cb of block.contentBlocks) {
+          for (const cb of usableBlocks) {
             if (cb.type === "image") {
               parts.push({
                 type: "image" as const,
