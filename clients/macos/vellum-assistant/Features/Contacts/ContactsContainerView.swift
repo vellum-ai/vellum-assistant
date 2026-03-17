@@ -171,6 +171,10 @@ struct ContactsContainerView: View {
                                 .controlSize(.small)
                         }
                     }
+
+                    if let guardianErrorMessage {
+                        VInlineMessage(guardianErrorMessage)
+                    }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(VSpacing.lg)
@@ -205,6 +209,7 @@ struct ContactsContainerView: View {
         let trimmedNotes = guardianEditedNotes.trimmingCharacters(in: .whitespacesAndNewlines)
 
         guardianIsSaving = true
+        guardianErrorMessage = nil
         do {
             if let updated = try await contactClient.updateContact(
                 contactId: contact.id,
@@ -216,7 +221,7 @@ struct ContactsContainerView: View {
                 viewModel.loadContacts()
             }
         } catch {
-            // Silently fail — user can retry
+            guardianErrorMessage = "Failed to save changes. Please try again."
         }
         guardianIsSaving = false
     }
@@ -224,6 +229,7 @@ struct ContactsContainerView: View {
     @State private var guardianEditedName: String = ""
     @State private var guardianEditedNotes: String = ""
     @State private var guardianIsSaving: Bool = false
+    @State private var guardianErrorMessage: String?
     @State private var isCreatingContact: Bool = false
     @State private var createContactError: String?
 
