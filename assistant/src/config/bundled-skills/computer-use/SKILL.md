@@ -1,6 +1,6 @@
 ---
 name: computer-use
-description: Computer-use action tools for controlling the macOS desktop via accessibility and screen capture.
+description: Control the macOS desktop
 compatibility: "Designed for Vellum personal assistants"
 metadata:
   emoji: "🖥️"
