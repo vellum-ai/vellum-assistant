@@ -751,6 +751,9 @@ struct DynamicWorkspaceWrapper: View {
     @State private var publishUrlCopied = false
     @State private var showShareDrawer = false
     @State private var shareButtonFrame: CGRect = .zero
+    @State private var isDeployToVercelEnabled = false
+
+    private static let deployToVercelFlagKey = "feature_flags.deploy-to-vercel.enabled"
 
     /// Corner radius for the WKWebView clipping container — no rounding needed since the
     /// outer page container handles corner rounding.
@@ -832,7 +835,7 @@ struct DynamicWorkspaceWrapper: View {
                             ProgressView()
                                 .controlSize(.small)
                                 .frame(height: 32)
-                        } else if sharing.publishedUrl == nil {
+                        } else if sharing.publishedUrl == nil && isDeployToVercelEnabled {
                             VButton(label: "Publish", iconOnly: VIcon.arrowUpRight.rawValue, style: .outlined, iconSize: 32, tooltip: "Publish to Vercel") {
                                 onPublishPage(data.html, data.preview?.title, data.appId)
                             }
@@ -954,7 +957,8 @@ struct DynamicWorkspaceWrapper: View {
                     onPublish: {
                         showShareDrawer = false
                         onPublishPage(data.html, data.preview?.title, data.appId)
-                    }
+                    },
+                    isDeployToVercelEnabled: isDeployToVercelEnabled
                 )
                 .offset(
                     x: shareButtonFrame.maxX - 180,
@@ -962,6 +966,23 @@ struct DynamicWorkspaceWrapper: View {
                 )
                 .zIndex(10)
                 .transition(.opacity)
+            }
+        }
+        .task {
+            do {
+                let flags = try await daemonClient.getFeatureFlags()
+                if let flag = flags.first(where: { $0.key == Self.deployToVercelFlagKey }) {
+                    isDeployToVercelEnabled = flag.enabled
+                }
+            } catch {
+                // Flag stays disabled on error
+            }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .assistantFeatureFlagDidChange)) { notification in
+            if let key = notification.userInfo?["key"] as? String,
+               let enabled = notification.userInfo?["enabled"] as? Bool,
+               key == Self.deployToVercelFlagKey {
+                isDeployToVercelEnabled = enabled
             }
         }
     }
@@ -1021,18 +1042,21 @@ private struct PublishedButton: View {
 
 // MARK: - Share Drawer
 
-/// Popover menu with "Share" and "Publish to Vercel" options.
+/// Popover menu with "Share" and optionally "Publish to Vercel" options.
 /// Styled to match ConversationSwitcherDrawer / DrawerMenuView.
 private struct ShareDrawer: View {
     let onShare: () -> Void
     let onPublish: () -> Void
+    let isDeployToVercelEnabled: Bool
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             ShareDrawerRow(icon: .share, label: "Share", action: onShare)
-            VColor.borderBase.frame(height: 1)
-                .padding(.horizontal, VSpacing.xs)
-            ShareDrawerRow(icon: .arrowUpRight, label: "Publish to Vercel", action: onPublish)
+            if isDeployToVercelEnabled {
+                VColor.borderBase.frame(height: 1)
+                    .padding(.horizontal, VSpacing.xs)
+                ShareDrawerRow(icon: .arrowUpRight, label: "Publish to Vercel", action: onPublish)
+            }
         }
         .padding(.vertical, VSpacing.xs)
         .frame(width: 180)
