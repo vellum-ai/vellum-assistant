@@ -261,12 +261,14 @@ struct HighlightedTextView: View {
         .background(Self.gutterBackground)
     }
 
-    /// Line height for the text content font, computed from actual NSFont metrics
-    /// so the gutter stays aligned even if the font or size changes.
+    /// Line height for the text content font, derived from NSLayoutManager so the
+    /// gutter matches the actual line spacing NSTextView uses (which rounds each
+    /// metric component individually rather than ceiling the sum).
     private static let lineHeight: CGFloat = {
         let nsFont = NSFont(name: "DMMono-Regular", size: 13)
             ?? NSFont.monospacedSystemFont(ofSize: 13, weight: .regular)
-        return ceil(nsFont.ascender - nsFont.descender + nsFont.leading)
+        let layoutManager = NSLayoutManager()
+        return layoutManager.defaultLineHeight(for: nsFont)
     }()
 
     /// Width of a single monospace character, used to calculate the minimum editor
