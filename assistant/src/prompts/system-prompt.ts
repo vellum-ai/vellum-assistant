@@ -123,7 +123,7 @@ export function buildSystemPrompt(options?: BuildSystemPromptOptions): string {
   // Tool Routing section removed — guidance lives in tool descriptions.
   staticParts.push(buildAttachmentSection());
   staticParts.push(buildInChatConfigurationSection());
-  if (!hasNoClient) staticParts.push(buildSystemPermissionSection());
+  // System Permissions section removed — guidance lives in request_system_permission tool description.
   staticParts.push(buildSwarmGuidanceSection());
   staticParts.push(buildAccessPreferenceSection(hasNoClient));
   staticParts.push(buildMemoryPersistenceSection());
@@ -209,21 +209,6 @@ function buildInChatConfigurationSection(): string {
 }
 
 
-
-function buildSystemPermissionSection(): string {
-  return [
-    "## System Permissions",
-    "",
-    'When a tool execution fails with a permission/access error (e.g. "Operation not permitted", "EACCES", sandbox denial), use `request_system_permission` to ask your user to grant the required macOS permission through System Settings.',
-    "",
-    "Common cases:",
-    "- Reading files in ~/Documents, ~/Desktop, ~/Downloads → `full_disk_access`",
-    "- Screen capture / recording → `screen_recording`",
-    "- Accessibility / UI automation → `accessibility`",
-    "",
-    "Do NOT explain how to open System Settings manually — the tool handles it with a clickable button.",
-  ].join("\n");
-}
 
 export function buildExternalCommsIdentitySection(): string {
   const userRef = resolveUserReference();
