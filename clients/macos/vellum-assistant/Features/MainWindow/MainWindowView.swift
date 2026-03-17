@@ -569,6 +569,7 @@ struct MainWindowView: View {
                         let drawerY = bottomPad + SidebarLayoutMetrics.rowMinHeight + dividerHeight + VSpacing.xs
                         DrawerMenuView(
                             authManager: authManager,
+                            settingsStore: settingsStore,
                             onSettings: {
                                 sidebar.showPreferencesDrawer = false
                                 windowState.selection = .panel(.settings)
