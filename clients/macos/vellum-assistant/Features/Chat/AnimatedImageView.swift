@@ -87,13 +87,13 @@ struct AnimatedImageView: View {
 
         // Resolve relative workspace paths (e.g. "data/avatar/avatar-image.png")
         if !urlString.contains("://") {
-            // Use the connected assistant's baseDataDir for multi-instance support,
+            // Use the connected assistant's workspace dir for multi-instance support,
             // falling back to the default ~/.vellum/workspace path.
             let workspaceDir: String
             if let assistantId = UserDefaults.standard.string(forKey: "connectedAssistantId"),
                let assistant = LockfileAssistant.loadByName(assistantId),
-               let baseDataDir = assistant.baseDataDir {
-                workspaceDir = baseDataDir + "/workspace"
+               let resolved = assistant.workspaceDir {
+                workspaceDir = resolved
             } else {
                 workspaceDir = NSHomeDirectory() + "/.vellum/workspace"
             }

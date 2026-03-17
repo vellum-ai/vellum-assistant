@@ -99,14 +99,13 @@ final class AvatarAppearanceManager {
     }
 
     private var customAvatarURL: URL {
-        // Resolve from the connected assistant's baseDataDir so multi-instance
+        // Resolve from the connected assistant's workspace dir so multi-instance
         // setups (e.g. XDG-based paths) find the correct avatar file.
         if let assistantId = UserDefaults.standard.string(forKey: "connectedAssistantId"),
            let assistant = LockfileAssistant.loadByName(assistantId),
-           let baseDataDir = assistant.baseDataDir {
-            // baseDataDir is the .vellum root (e.g. ~/.local/share/vellum/assistants/foo/.vellum)
-            return URL(fileURLWithPath: baseDataDir)
-                .appendingPathComponent("workspace/data/avatar/avatar-image.png")
+           let workspace = assistant.workspaceDir {
+            return URL(fileURLWithPath: workspace)
+                .appendingPathComponent("data/avatar/avatar-image.png")
         }
         return Self.workspaceCustomAvatarURL()
     }
