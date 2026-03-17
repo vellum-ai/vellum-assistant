@@ -30,7 +30,7 @@ struct ContactsContainerView: View {
     }
 
     var body: some View {
-        HStack(alignment: .top, spacing: 0) {
+        HStack(alignment: .top, spacing: VSpacing.lg) {
             // Left pane: contacts list (full height, internal scrolling)
             ContactsListView(
                 viewModel: viewModel,
@@ -38,8 +38,6 @@ struct ContactsContainerView: View {
             )
             .frame(width: 320)
             .frame(maxHeight: .infinity, alignment: .top)
-            .background(VColor.surfaceOverlay)
-
             // Right pane: detail, loading, or placeholder
             if viewModel.isLoading && viewModel.contacts.isEmpty {
                 // Loading state — contacts are being fetched
