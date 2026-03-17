@@ -729,7 +729,7 @@ struct MainWindowView: View {
                         let name = UserDefaults.standard.string(forKey: "connectedAssistantId") ?? "default"
                         try? await appDelegate.assistantCli.wake(name: name)
                         guard !Task.isCancelled else { return }
-                        if !daemonClient.isConnected {
+                        if !daemonClient.isConnected && !daemonClient.isConnecting {
                             try? await daemonClient.connect()
                         }
                     }
