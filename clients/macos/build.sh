@@ -90,6 +90,13 @@ cd "$SCRIPT_DIR"
 
 BUNDLE_ID="com.vellum.vellum-assistant"
 APP_NAME="vellum-assistant"
+# Read the dock display name persisted by the running app (assistant name),
+# falling back to "Vellum" if not set. Can be overridden via env var.
+_DOCK_LABEL_FILE="$HOME/.vellum/.dock-display-name"
+if [ -z "${BUNDLE_DISPLAY_NAME:-}" ] && [ -f "$_DOCK_LABEL_FILE" ]; then
+    _SAVED_NAME="$(cat "$_DOCK_LABEL_FILE" 2>/dev/null | tr -d '\n')"
+    BUNDLE_DISPLAY_NAME="${_SAVED_NAME:-Vellum}"
+fi
 BUNDLE_DISPLAY_NAME="${BUNDLE_DISPLAY_NAME:-Vellum}"
 APP_DIR="$SCRIPT_DIR/dist/$BUNDLE_DISPLAY_NAME.app"
 CONTENTS="$APP_DIR/Contents"
