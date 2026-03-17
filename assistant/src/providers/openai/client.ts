@@ -1,5 +1,6 @@
 import OpenAI from "openai";
 
+import { SYSTEM_PROMPT_CACHE_BOUNDARY } from "../../prompts/system-prompt.js";
 import { ProviderError } from "../../util/errors.js";
 import { extractRetryAfterMs } from "../../util/retry.js";
 import { escapeXmlAttr } from "../../util/xml.js";
@@ -224,7 +225,10 @@ export class OpenAIProvider implements Provider {
     const result: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [];
 
     if (systemPrompt) {
-      result.push({ role: "system", content: systemPrompt });
+      result.push({
+        role: "system",
+        content: systemPrompt.replaceAll(SYSTEM_PROMPT_CACHE_BOUNDARY, "\n"),
+      });
     }
 
     for (const msg of messages) {

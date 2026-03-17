@@ -134,9 +134,6 @@ export function buildSystemPrompt(options?: BuildSystemPromptOptions): string {
   staticParts.push(buildTaskScheduleReminderRoutingSection());
   staticParts.push(buildAttachmentSection());
   staticParts.push(buildInChatConfigurationSection());
-  if (!isOnboardingComplete()) {
-    staticParts.push(buildStarterTaskPlaybookSection());
-  }
   if (!hasNoClient) staticParts.push(buildSystemPermissionSection());
   staticParts.push(buildSwarmGuidanceSection());
   staticParts.push(buildAccessPreferenceSection(hasNoClient));
@@ -189,6 +186,9 @@ export function buildSystemPrompt(options?: BuildSystemPromptOptions): string {
         "- When you are satisfied all updates have been actioned or communicated, delete `UPDATES.md` to signal completion.",
       ].join("\n"),
     );
+  }
+  if (!isOnboardingComplete()) {
+    dynamicParts.push(buildStarterTaskPlaybookSection());
   }
   dynamicParts.push(buildConfigSection(hasNoClient));
   dynamicParts.push(buildExternalCommsIdentitySection());

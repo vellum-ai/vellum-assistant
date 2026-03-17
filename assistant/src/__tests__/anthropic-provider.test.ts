@@ -67,6 +67,7 @@ import {
   PLACEHOLDER_BLOCKS_OMITTED,
   PLACEHOLDER_EMPTY_TURN,
 } from "../providers/anthropic/client.js";
+import { SYSTEM_PROMPT_CACHE_BOUNDARY } from "../prompts/system-prompt.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -153,6 +154,25 @@ describe("AnthropicProvider — Cache-Control Characterization", () => {
     await provider.sendMessage([userMsg("Hi")]);
 
     expect(lastStreamParams!.system).toBeUndefined();
+  });
+
+  test("splits system prompt into two cache blocks on boundary marker", async () => {
+    const staticBlock = "You are a helpful assistant.";
+    const dynamicBlock = "User workspace files here.";
+    const prompt = staticBlock + SYSTEM_PROMPT_CACHE_BOUNDARY + dynamicBlock;
+
+    await provider.sendMessage([userMsg("Hi")], undefined, prompt);
+
+    const system = lastStreamParams!.system as Array<{
+      type: string;
+      text: string;
+      cache_control?: { type: string };
+    }>;
+    expect(system).toHaveLength(2);
+    expect(system[0].text).toBe(staticBlock);
+    expect(system[0].cache_control).toEqual({ type: "ephemeral" });
+    expect(system[1].text).toBe(dynamicBlock);
+    expect(system[1].cache_control).toEqual({ type: "ephemeral" });
   });
 
   // -----------------------------------------------------------------------

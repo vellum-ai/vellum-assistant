@@ -1,6 +1,7 @@
 import type * as genai from "@google/genai";
 import { ApiError, GoogleGenAI } from "@google/genai";
 
+import { SYSTEM_PROMPT_CACHE_BOUNDARY } from "../../prompts/system-prompt.js";
 import { ProviderError } from "../../util/errors.js";
 import { createStreamTimeout } from "../stream-timeout.js";
 import type {
@@ -65,7 +66,10 @@ export class GeminiProvider implements Provider {
       const geminiConfig: genai.GenerateContentConfig = {};
 
       if (systemPrompt) {
-        geminiConfig.systemInstruction = systemPrompt;
+        geminiConfig.systemInstruction = systemPrompt.replaceAll(
+          SYSTEM_PROMPT_CACHE_BOUNDARY,
+          "\n",
+        );
       }
       if (maxTokens) {
         geminiConfig.maxOutputTokens = maxTokens;
