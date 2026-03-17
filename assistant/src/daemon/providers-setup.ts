@@ -49,7 +49,7 @@ export async function initializeProvidersAndTools(
   }
 
   // Rehydrate the platform assistant ID from the credential store so
-  // isPlatformManaged() works after assistant restarts.
+  // shouldUsePlatformCallbacks() works after assistant restarts.
   try {
     const key = credentialKey("vellum", "platform_assistant_id");
     const persisted = await getSecureKeyAsync(key);
