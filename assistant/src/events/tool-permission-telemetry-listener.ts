@@ -8,25 +8,28 @@ const log = getLogger("tool-permission-telemetry");
 export function registerToolPermissionTelemetryListener(
   eventBus: EventBus<AssistantDomainEvents>,
 ): Subscription {
-  // Track which request IDs were actually prompted so we only record
+  // Track which tool calls were actually prompted so we only record
   // decided telemetry for real user interactions, not auto-allowed tools.
-  const promptedRequestIds = new Set<string>();
+  // Uses a composite key (requestId:toolName) because requestId is per-message,
+  // not per-tool-call — parallel tool_use blocks share the same requestId.
+  const promptedToolCalls = new Set<string>();
 
   return eventBus.onAny((event) => {
     try {
       switch (event.type) {
-        case "tool.permission.requested":
-          if (event.payload.requestId) {
-            promptedRequestIds.add(event.payload.requestId);
+        case "tool.permission.requested": {
+          const { requestId, toolName } = event.payload;
+          if (requestId) {
+            promptedToolCalls.add(`${requestId}:${toolName}`);
+            recordLifecycleEvent(`permission_prompt:${toolName}`);
           }
-          recordLifecycleEvent(
-            `permission_prompt:${event.payload.toolName}`,
-          );
           return;
+        }
         case "tool.permission.decided": {
           const { requestId, toolName, decision } = event.payload;
-          if (requestId && promptedRequestIds.has(requestId)) {
-            promptedRequestIds.delete(requestId);
+          const key = requestId ? `${requestId}:${toolName}` : undefined;
+          if (key && promptedToolCalls.has(key)) {
+            promptedToolCalls.delete(key);
             recordLifecycleEvent(
               `permission_decided:${toolName}:${decision}`,
             );
