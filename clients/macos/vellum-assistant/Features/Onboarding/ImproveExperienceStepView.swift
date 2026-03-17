@@ -187,6 +187,7 @@ private struct VCheckbox: View {
         .buttonStyle(.plain)
         .animation(VAnimation.fast, value: isOn)
         .accessibilityLabel("Agree to Terms of Service and Privacy Policy")
+        .accessibilityValue(isOn ? "Checked" : "Unchecked")
         .accessibilityAddTraits(.isToggle)
     }
 }
