@@ -66,12 +66,14 @@ struct ContactDetailView: View {
             focusTask?.cancel()
             focusTask = nil
             currentContact = nil
+            errorMessage = nil
             let name = contact.displayName
             editedName = (name == "New Contact") ? "" : name
             editedNotes = contact.notes ?? ""
         }
         .onChange(of: contact) { _, _ in
             currentContact = nil
+            errorMessage = nil
             let name = contact.displayName
             editedName = (name == "New Contact") ? "" : name
             editedNotes = contact.notes ?? ""

@@ -269,6 +269,9 @@ struct ContactsContainerView: View {
                 guardianEditedNotes = updated.notes ?? ""
                 viewModel.loadContacts()
                 showToast?("Contact saved", .success)
+            } else {
+                guardianErrorMessage = "Failed to save changes. Please try again."
+                showToast?("Failed to save contact", .error)
             }
         } catch {
             guardianErrorMessage = "Failed to save changes. Please try again."
