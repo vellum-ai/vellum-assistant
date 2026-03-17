@@ -138,7 +138,7 @@ All guardian approval decisions — regardless of how they arrive — route thro
 | `src/runtime/routes/guardian-action-routes.ts` | HTTP route handlers for `GET /v1/guardian-actions/pending` and `POST /v1/guardian-actions/decision`                                               |
 | `src/runtime/channel-approval-types.ts`        | Channel-facing approval action types and `toApprovalActionOptions` bridge                                                                         |
 
-### Temporary Approval Modes (Session-Scoped Overrides)
+### Temporary Approval Modes (Conversation-Scoped Overrides)
 
 In addition to persistent trust rules (`always_allow` / `always_deny`), the approval system supports two **temporary** approval modes that auto-approve tool confirmations for the duration of a conversation or a fixed time window. These exist to reduce prompt fatigue during intensive sessions without permanently altering the trust configuration.
 
@@ -147,7 +147,7 @@ In addition to persistent trust rules (`always_allow` / `always_deny`), the appr
 1. **`allow_conversation`** — Auto-approve all tool confirmations for the remainder of the current conversation. The override persists until the session ends, the conversation is closed, or the mode is explicitly cleared.
 2. **`allow_10m`** — Auto-approve all tool confirmations for 10 minutes (configurable). The override expires lazily on the next read after the TTL elapses — no background sweep runs.
 
-**Session-scoped, in-memory only:** Overrides are keyed by `conversationId` and stored in an in-memory `Map` inside `conversation-approval-overrides.ts`. They do not survive daemon restarts, which is intentional — temporary approvals should not outlive the session that created them.
+**Conversation-scoped, in-memory only:** Overrides are keyed by `conversationId` and stored in an in-memory `Map` inside `conversation-approval-overrides.ts`. They do not survive daemon restarts, which is intentional — temporary approvals should not outlive the conversation that created them.
 
 **Integration with the permission pipeline:** The permission checker (`src/tools/permission-checker.ts`) checks for an active temporary override via `getEffectiveMode()` before prompting the user. If an active override exists for the current conversation, the confirmation is auto-approved without surfacing a prompt. This check runs after persistent trust rules, so a persistent `deny` rule still takes precedence.
 
@@ -783,10 +783,10 @@ All client-server communication uses HTTP for request/response operations and Se
 
 The daemon emits two distinct error message types via SSE:
 
-| Message type         | Scope          | Purpose                                                                                                        | Payload                                                                       |
-| -------------------- | -------------- | -------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------- |
-| `conversation_error` | Session-scoped | Typed, actionable failures during chat/session runtime (e.g., provider network error, rate limit, API failure) | `sessionId`, `code` (typed enum), `userMessage`, `retryable`, `debugDetails?` |
-| `error`              | Global         | Generic, non-session failures (e.g., daemon startup errors, unknown message types)                             | `message` (string)                                                            |
+| Message type         | Scope               | Purpose                                                                                                        | Payload                                                                       |
+| -------------------- | ------------------- | -------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------- |
+| `conversation_error` | Conversation-scoped | Typed, actionable failures during conversation runtime (e.g., provider network error, rate limit, API failure) | `sessionId`, `code` (typed enum), `userMessage`, `retryable`, `debugDetails?` |
+| `error`              | Global              | Generic, non-session failures (e.g., daemon startup errors, unknown message types)                             | `message` (string)                                                            |
 
 **Design rationale:** `conversation_error` carries structured metadata (error code, retryable flag, debug details) so the client can present actionable UI — a toast with retry/dismiss buttons — rather than a generic error banner. The older `error` type is retained for backward compatibility with non-session contexts.
 
@@ -845,7 +845,7 @@ sequenceDiagram
     end
 ```
 
-1. **Daemon** encounters a session-scoped failure, classifies it via `classifyConversationError()`, and sends a `conversation_error` SSE event with the session ID, typed error code, user-facing message, retryable flag, and optional debug details. Session-scoped failures emit _only_ `conversation_error` (never the generic `error` type) to prevent cross-session bleed.
+1. **Daemon** encounters a conversation-scoped failure, classifies it via `classifyConversationError()`, and sends a `conversation_error` SSE event with the conversation ID, typed error code, user-facing message, retryable flag, and optional debug details. Conversation-scoped failures emit _only_ `conversation_error` (never the generic `error` type) to prevent cross-conversation bleed.
 2. **ChatViewModel** receives the error via DaemonClient's `subscribe()` stream (each view model gets an independent stream), sets the `conversationError` property, and transitions out of the streaming/loading state so the UI is interactive. If the error arrives during an active cancel (`wasCancelling == true`), it is suppressed — cancel only shows `generation_cancelled` behavior.
 3. **ChatView** observes the published `conversationError` and displays an actionable toast with a category-specific icon and accent color:
    - **Retry** (shown when `retryable` is true): calls `retryAfterConversationError()`, which clears the error and sends a `regenerate` message to the daemon.
