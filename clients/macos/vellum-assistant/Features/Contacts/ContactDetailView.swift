@@ -156,6 +156,7 @@ struct ContactDetailView: View {
                 focusTask?.cancel()
                 focusTask = Task { @MainActor in
                     try? await Task.sleep(nanoseconds: 300_000_000)
+                    guard !Task.isCancelled else { return }
                     isNameFocused = true
                 }
             }
