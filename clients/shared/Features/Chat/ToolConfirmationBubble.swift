@@ -219,11 +219,19 @@ public struct ToolConfirmationBubble: View {
 
                 HStack(spacing: VSpacing.sm) {
                     allowSplitButton
+                        .overlay(
+                            RoundedRectangle(cornerRadius: VRadius.md)
+                                .stroke(VColor.primaryBase, lineWidth: isPrimaryAllowKeyboardSelected ? 2 : 0)
+                        )
 
                     VButton(label: "Deny", style: .danger, size: .compact) {
                         markCommandExplanationSeen()
                         onDeny()
                     }
+                    .overlay(
+                        RoundedRectangle(cornerRadius: VRadius.md)
+                            .stroke(VColor.systemNegativeStrong, lineWidth: keyboardModel?.selectedAction == .dontAllow ? 2 : 0)
+                    )
                 }
             }
 
@@ -397,6 +405,15 @@ public struct ToolConfirmationBubble: View {
     }
 
     // MARK: - Allow Split Button
+
+    private var isPrimaryAllowKeyboardSelected: Bool {
+        guard let selected = keyboardModel?.selectedAction else { return false }
+        switch effectivePrimaryAction {
+        case "allow_10m": return selected == .allow10m
+        case "allow_conversation": return selected == .allowConversation
+        default: return selected == .allowOnce
+        }
+    }
 
     /// The effective primary action, resolving the persisted preference against
     /// what this confirmation actually supports.
