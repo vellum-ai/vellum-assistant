@@ -1363,6 +1363,10 @@ public final class SettingsStore: ObservableObject {
                 applyNumbers: true
             )
             twilioListInProgress = false
+            // Auto-select the first available number if none is assigned
+            if twilioPhoneNumber == nil, let first = twilioNumbers.first {
+                assignTwilioNumber(phoneNumber: first.phoneNumber)
+            }
         }
     }
 

@@ -228,28 +228,7 @@ struct AssistantChannelsDetailView: View {
     private var voiceRow: some View {
         let status = store.channelSetupStatus["phone"]
         return Group {
-            if voiceSetupExpanded || (status == "incomplete" && store.twilioHasCredentials) {
-                VStack(alignment: .leading, spacing: VSpacing.sm) {
-                    channelRowHeader(name: "Phone Calling", value: nil, status: nil)
-                    // Phone number dropdown when credentials exist
-                    if store.twilioHasCredentials {
-                        VDropdown(
-                            placeholder: "Not Set",
-                            selection: Binding(
-                                get: { store.twilioPhoneNumber ?? "" },
-                                set: { newValue in
-                                    store.assignTwilioNumber(phoneNumber: newValue)
-                                }
-                            ),
-                            options: store.twilioNumbers.map { (label: $0.friendlyName, value: $0.phoneNumber) },
-                            emptyValue: ""
-                        )
-                        .frame(maxWidth: 360)
-                    }
-                    voiceCredentialEntry
-                }
-                .padding(.vertical, VSpacing.sm)
-            } else if status == "ready" {
+            if status == "ready" || (status == "incomplete" && store.twilioHasCredentials) {
                 VStack(alignment: .leading, spacing: VSpacing.sm) {
                     channelRowHeader(
                         name: "Phone Calling",
@@ -279,6 +258,12 @@ struct AssistantChannelsDetailView: View {
                             .frame(maxWidth: 280)
                         }
                     }
+                }
+                .padding(.vertical, VSpacing.sm)
+            } else if voiceSetupExpanded {
+                VStack(alignment: .leading, spacing: VSpacing.sm) {
+                    channelRowHeader(name: "Phone Calling", value: nil, status: nil)
+                    voiceCredentialEntry
                 }
                 .padding(.vertical, VSpacing.sm)
             } else {

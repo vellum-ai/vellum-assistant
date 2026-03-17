@@ -196,17 +196,12 @@ struct ContactsContainerView: View {
         guard !trimmedName.isEmpty else { return }
         let trimmedNotes = guardianEditedNotes.trimmingCharacters(in: .whitespacesAndNewlines)
 
-        let originalNotes = contact.notes ?? ""
-        if trimmedName == contact.displayName && trimmedNotes == originalNotes {
-            return
-        }
-
         guardianIsSaving = true
         do {
             if let updated = try await contactClient.updateContact(
                 contactId: contact.id,
                 displayName: trimmedName,
-                notes: trimmedNotes
+                notes: trimmedNotes.isEmpty ? nil : trimmedNotes
             ) {
                 guardianEditedName = updated.displayName
                 guardianEditedNotes = updated.notes ?? ""
