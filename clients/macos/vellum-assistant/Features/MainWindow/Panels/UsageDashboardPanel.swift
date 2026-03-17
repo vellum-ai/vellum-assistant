@@ -155,7 +155,9 @@ struct UsageDashboardPanel: View {
     private static let shortDateFormatter: DateFormatter = {
         let f = DateFormatter()
         f.dateFormat = "MMM d"
-        f.timeZone = .current
+        // Use UTC for both parse and display since these are calendar dates,
+        // not timestamps — "2026-03-15" should always show as "Mar 15".
+        f.timeZone = TimeZone(identifier: "UTC")!
         return f
     }()
 
@@ -167,8 +169,7 @@ struct UsageDashboardPanel: View {
         return f
     }()
 
-    /// Formats a date string (e.g. "2026-03-15") to a short label (e.g. "Mar 15")
-    /// using the computer's local timezone.
+    /// Formats a date string (e.g. "2026-03-15") to a short label (e.g. "Mar 15").
     private func formatShortDate(_ dateString: String) -> String {
         guard let date = Self.isoParser.date(from: dateString) else { return dateString }
         return Self.shortDateFormatter.string(from: date)
