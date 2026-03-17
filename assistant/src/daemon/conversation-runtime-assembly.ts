@@ -1075,7 +1075,7 @@ const RUNTIME_INJECTION_PREFIXES = [
   "<guardian_context>",
   "<inbound_actor_context>",
   "<interface_turn_context>",
-  "<memory_context>",
+  "<memory_context __injected>",
   "<voice_call_control>",
   "<workspace_top_level>",
   TEMPORAL_INJECTED_PREFIX,

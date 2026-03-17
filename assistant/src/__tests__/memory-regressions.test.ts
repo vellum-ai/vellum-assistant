@@ -311,7 +311,7 @@ describe("Memory regressions", () => {
 
   test("memory recall injection as user block and stripped from runtime history", () => {
     const memoryRecallText =
-      "<memory_context>\n\n<relevant_context>\nuser prefers concise answers\n</relevant_context>\n\n</memory_context>";
+      "<memory_context __injected>\n\n<relevant_context>\nuser prefers concise answers\n</relevant_context>\n\n</memory_context>";
     const originalMessages: Message[] = [
       {
         role: "user",
@@ -333,7 +333,7 @@ describe("Memory regressions", () => {
     expect(b1.type === "text" && b1.text).toBe("Actual user request");
 
     // Stripped by prefix-based stripping
-    const cleaned = stripUserTextBlocksByPrefix(injected, ["<memory_context>"]);
+    const cleaned = stripUserTextBlocksByPrefix(injected, ["<memory_context __injected>"]);
     expect(cleaned).toHaveLength(1);
     expect(cleaned[0].content).toHaveLength(1);
     const cb0 = cleaned[0].content[0];
@@ -342,9 +342,9 @@ describe("Memory regressions", () => {
 
   test("prefix-based stripping removes all <memory_context> blocks from merged content", () => {
     const memoryRecallText =
-      "<memory_context>\n\n<relevant_context>\nuser prefers concise answers\n</relevant_context>\n\n</memory_context>";
+      "<memory_context __injected>\n\n<relevant_context>\nuser prefers concise answers\n</relevant_context>\n\n</memory_context>";
     // Simulate deep-repair merging where multiple memory context blocks exist.
-    // Prefix-based stripping removes all blocks starting with <memory_context>.
+    // Prefix-based stripping removes all blocks starting with <memory_context __injected>.
     const mergedUserMessage: Message = {
       role: "user",
       content: [
@@ -357,7 +357,7 @@ describe("Memory regressions", () => {
 
     const cleaned = stripUserTextBlocksByPrefix(
       [mergedUserMessage],
-      ["<memory_context>"],
+      ["<memory_context __injected>"],
     );
     expect(cleaned).toHaveLength(1);
     expect(cleaned[0].content).toEqual([
@@ -376,7 +376,7 @@ describe("Memory regressions", () => {
       },
     ];
     const recallText =
-      "<memory_context>\n\n<relevant_context>\nSome recalled fact\n</relevant_context>\n\n</memory_context>";
+      "<memory_context __injected>\n\n<relevant_context>\nSome recalled fact\n</relevant_context>\n\n</memory_context>";
     const result = injectMemoryRecallAsUserBlock(history, recallText);
     // Same number of messages — no synthetic pair
     expect(result).toHaveLength(3);
@@ -399,7 +399,7 @@ describe("Memory regressions", () => {
 
   test("stripUserTextBlocksByPrefix removes memory_context block from user message", () => {
     const recallText =
-      "<memory_context>\n\n<relevant_context>\nSome recalled fact\n</relevant_context>\n\n</memory_context>";
+      "<memory_context __injected>\n\n<relevant_context>\nSome recalled fact\n</relevant_context>\n\n</memory_context>";
     const msgs: Message[] = [
       { role: "user", content: [{ type: "text" as const, text: "Hello" }] },
       {
@@ -414,7 +414,7 @@ describe("Memory regressions", () => {
         ],
       },
     ];
-    const cleaned = stripUserTextBlocksByPrefix(msgs, ["<memory_context>"]);
+    const cleaned = stripUserTextBlocksByPrefix(msgs, ["<memory_context __injected>"]);
     expect(cleaned).toHaveLength(3);
     const c0 = cleaned[0].content[0];
     const c1 = cleaned[1].content[0];
