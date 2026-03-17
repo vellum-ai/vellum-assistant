@@ -1,4 +1,7 @@
 import SwiftUI
+#if os(macOS)
+import AppKit
+#endif
 import VellumAssistantShared
 
 /// Maps syntax token types to SwiftUI colors and builds syntax-highlighted `AttributedString` values.
@@ -63,4 +66,62 @@ struct SyntaxTheme {
 
         return attributedString
     }
+
+    // MARK: - AppKit Bridging
+
+    #if os(macOS)
+    /// Returns the `NSColor` for the given syntax token type (for NSTextStorage use).
+    static func nsColor(for tokenType: SyntaxTokenType) -> NSColor {
+        NSColor(color(for: tokenType))
+    }
+
+    /// The monospaced `NSFont` matching `VFont.mono` for NSTextView use.
+    static var nsMonoFont: NSFont {
+        let baseName = "DMMono-Regular"
+        let size: CGFloat = 13
+        guard let base = NSFont(name: baseName, size: size) else {
+            return NSFont.monospacedSystemFont(ofSize: size, weight: .regular)
+        }
+        // Apply ss05 stylistic set (conventional "f" glyph), same as VFont.dmMono()
+        let descriptor = base.fontDescriptor.addingAttributes([
+            .featureSettings: [[
+                NSFontDescriptor.FeatureKey.typeIdentifier: kStylisticAlternativesType,
+                NSFontDescriptor.FeatureKey.selectorIdentifier: kStylisticAltFiveOnSelector,
+            ]]
+        ])
+        return NSFont(descriptor: descriptor, size: size) ?? base
+    }
+
+    /// Applies syntax highlighting to an `NSMutableAttributedString` in-place.
+    /// Sets the base font and foreground color, then overlays token colors.
+    static func applyHighlighting(to storage: NSMutableAttributedString, language: SyntaxLanguage) {
+        let fullRange = NSRange(location: 0, length: storage.length)
+        let text = storage.string
+
+        // Set base attributes
+        storage.addAttribute(.font, value: nsMonoFont, range: fullRange)
+        storage.addAttribute(.foregroundColor, value: NSColor(VColor.contentDefault), range: fullRange)
+
+        guard language != .plain else { return }
+
+        let tokens = SyntaxTokenizer.tokenize(text, language: language)
+        for token in tokens {
+            guard token.range.location + token.range.length <= storage.length else { continue }
+            storage.addAttribute(.foregroundColor, value: nsColor(for: token.type), range: token.range)
+
+            switch token.type {
+            case .heading, .bold:
+                if let boldFont = NSFontManager.shared.convert(nsMonoFont, toHaveTrait: .boldFontMask) as NSFont? {
+                    storage.addAttribute(.font, value: boldFont, range: token.range)
+                }
+            case .italic:
+                if let italicFont = NSFontManager.shared.convert(nsMonoFont, toHaveTrait: .italicFontMask) as NSFont? {
+                    storage.addAttribute(.font, value: italicFont, range: token.range)
+                }
+            default:
+                break
+            }
+        }
+    }
+    #endif
 }
