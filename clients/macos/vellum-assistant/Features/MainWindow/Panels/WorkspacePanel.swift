@@ -715,7 +715,6 @@ private struct WorkspaceFileViewer: View {
                 FileContentView(
                     fileName: detail.name,
                     mimeType: detail.mimeType,
-                    fileSize: formatFileSize(detail.size),
                     content: $state.editableContent,
                     viewMode: $state.viewMode,
                     isEditable: !readOnly,
@@ -727,8 +726,7 @@ private struct WorkspaceFileViewer: View {
             } else {
                 FileContentHeaderBar(
                     icon: fileIcon(for: mime),
-                    fileName: detail.name,
-                    fileSize: formatFileSize(detail.size)
+                    fileName: detail.name
                 )
                 Divider().background(VColor.borderBase)
 
