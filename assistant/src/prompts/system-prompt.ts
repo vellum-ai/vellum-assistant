@@ -15,9 +15,9 @@ import {
   getWorkspacePromptPath,
   isMacOS,
 } from "../util/platform.js";
+import { SYSTEM_PROMPT_CACHE_BOUNDARY } from "./cache-boundary.js";
 import { resolveUserPronouns, resolveUserReference } from "./user-reference.js";
 
-import { SYSTEM_PROMPT_CACHE_BOUNDARY } from "./cache-boundary.js";
 export { SYSTEM_PROMPT_CACHE_BOUNDARY };
 
 const log = getLogger("system-prompt");
