@@ -77,17 +77,17 @@ bun run src/index.ts                # interactive CLI session
 
 ### CLI commands
 
-| Command                                       | Description                                      |
-| --------------------------------------------- | ------------------------------------------------ |
-| `vellum wake`                                 | Start assistant + gateway from current checkout  |
-| `vellum sleep`                                | Stop assistant + gateway processes               |
-| `vellum ps`                                   | List assistants and per-assistant process status |
-| `assistant`                                   | Launch interactive CLI session                   |
-| `assistant sessions list\|new\|export\|clear` | Manage conversation sessions                     |
-| `assistant config set\|get\|list`             | Manage configuration                             |
-| `assistant keys set\|list\|delete`            | Manage API keys in secure storage                |
-| `assistant trust list\|remove\|clear`         | Manage trust rules                               |
-| `assistant doctor`                            | Run diagnostic checks                            |
+| Command                                            | Description                                      |
+| -------------------------------------------------- | ------------------------------------------------ |
+| `vellum wake`                                      | Start assistant + gateway from current checkout  |
+| `vellum sleep`                                     | Stop assistant + gateway processes               |
+| `vellum ps`                                        | List assistants and per-assistant process status |
+| `assistant`                                        | Launch interactive CLI session                   |
+| `assistant conversations list\|new\|export\|clear` | Manage conversations                             |
+| `assistant config set\|get\|list`                  | Manage configuration                             |
+| `assistant keys set\|list\|delete`                 | Manage API keys in secure storage                |
+| `assistant trust list\|remove\|clear`              | Manage trust rules                               |
+| `assistant doctor`                                 | Run diagnostic checks                            |
 
 ## Project Structure
 
