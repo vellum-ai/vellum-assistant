@@ -13,7 +13,7 @@ final class ConversationHeaderPresentationTests: XCTestCase {
             activeViewModel: nil,
             isConversationVisible: true
         )
-        XCTAssertEqual(p.displayTitle, "New thread")
+        XCTAssertEqual(p.displayTitle, "New conversation")
         XCTAssertFalse(p.isStarted)
         XCTAssertFalse(p.showsActionsMenu)
         XCTAssertFalse(p.canCopy)
@@ -26,7 +26,7 @@ final class ConversationHeaderPresentationTests: XCTestCase {
             activeViewModel: nil,
             isConversationVisible: false
         )
-        XCTAssertEqual(p.displayTitle, "New thread")
+        XCTAssertEqual(p.displayTitle, "New conversation")
         XCTAssertFalse(p.showsActionsMenu)
     }
 

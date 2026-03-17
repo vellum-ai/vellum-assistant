@@ -64,7 +64,7 @@ final class DocumentEditorConversationVisibilityTests: XCTestCase {
         )
 
         XCTAssertEqual(presentation.displayTitle, "Doc Session Conversation",
-                        "Document editor should show actual conversation title, not 'New thread'")
+                        "Document editor should show actual conversation title, not 'New conversation'")
         XCTAssertTrue(presentation.isStarted)
         XCTAssertTrue(presentation.showsActionsMenu)
     }
@@ -76,7 +76,7 @@ final class DocumentEditorConversationVisibilityTests: XCTestCase {
             isConversationVisible: true
         )
 
-        XCTAssertEqual(presentation.displayTitle, "New thread")
+        XCTAssertEqual(presentation.displayTitle, "New conversation")
         XCTAssertFalse(presentation.isStarted)
     }
 }
