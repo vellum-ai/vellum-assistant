@@ -14,8 +14,6 @@ struct HighlightedTextView: View {
     @State private var isSearchVisible = false
     @State private var searchQuery = ""
     @State private var currentMatchIndex = 0
-    @State private var isActivelyEditing = false
-
     private static let editorBackground = VColor.surfaceOverlay
     private static let gutterBackground = VColor.surfaceBase
     private static let gutterTextColor = VColor.contentTertiary
@@ -27,26 +25,10 @@ struct HighlightedTextView: View {
     }
 
     var body: some View {
-        Group {
-            if isEditable {
-                if isActivelyEditing {
-                    editableView
-                } else {
-                    readOnlyView
-                        .overlay {
-                            Color.clear
-                                .contentShape(Rectangle())
-                                .onTapGesture {
-                                    isActivelyEditing = true
-                                }
-                        }
-                }
-            } else {
-                readOnlyView
-            }
-        }
-        .onChange(of: language) { _, _ in
-            isActivelyEditing = false
+        if isEditable {
+            editableView
+        } else {
+            readOnlyView
         }
     }
 
@@ -60,13 +42,6 @@ struct HighlightedTextView: View {
             language: language,
             onTextChange: onTextChange
         )
-        .onKeyPress(.escape) {
-            if isActivelyEditing {
-                isActivelyEditing = false
-                return .handled
-            }
-            return .ignored
-        }
     }
 
     // MARK: - Read-Only Mode
