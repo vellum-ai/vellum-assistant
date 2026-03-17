@@ -21,7 +21,11 @@ import { getDb } from "../db.js";
 import { asString } from "../job-utils.js";
 import type { MemoryJob } from "../jobs-store.js";
 import { rawAll, rawGet } from "../raw-query.js";
-import { conversationStarters, memoryCheckpoints, memoryItems } from "../schema.js";
+import {
+  conversationStarters,
+  memoryCheckpoints,
+  memoryItems,
+} from "../schema.js";
 
 const log = getLogger("conversation-starters-gen");
 
@@ -137,7 +141,8 @@ export const CONVERSATION_STARTER_CATEGORIES = [
   "integration",
 ] as const;
 
-export type ConversationStarterCategory = (typeof CONVERSATION_STARTER_CATEGORIES)[number];
+export type ConversationStarterCategory =
+  (typeof CONVERSATION_STARTER_CATEGORIES)[number];
 
 interface GeneratedStarter {
   label: string;
@@ -160,19 +165,26 @@ async function generateStarters(scopeId: string): Promise<GeneratedStarter[]> {
   const diff = buildNewItemsDiff(scopeId);
   const skills = buildSkillsSummary();
 
-  const systemPrompt = `You are generating conversation starter suggestions for a personal AI assistant's empty conversation page. These are clickable chips that help the user discover what the assistant can do, personalized to their context.
+  const systemPrompt = `You are choosing the top suggested starts for a personal AI assistant. These appear as clickable chips on the empty conversation page — the user's first impression of what they can do right now.
 
-Given the user's accumulated memories and the assistant's available skills, generate 4-6 conversation starters. Each starter has:
-- label: Short chip text (max 50 chars). Start with a verb. Be specific and actionable.
-- prompt: The full message that will be sent when clicked (1-2 natural sentences).
-- category: One of: ${CONVERSATION_STARTER_CATEGORIES.join(", ")}. Pick the best-fit capability category.
+Given the user's accumulated memories and the assistant's available skills, generate 4-6 suggested starts. Each has:
+- label: A one-second read (max 40 chars). Compress the user's likely intent into a short phrase starting with a verb. It should feel like something the user would actually say, not a feature name.
+- prompt: The full message sent when clicked (1-2 natural sentences, written as the user).
+- category: One of: ${CONVERSATION_STARTER_CATEGORIES.join(", ")}. Pick the best-fit category.
 
-Rules:
-- Cross user context (who they are, what they work on) with assistant capabilities (skills).
-- Be specific to THIS user — generic suggestions like "Tell me a joke" are not useful.
-- Vary across different skills and memory categories.
-- Labels should be concise and scannable.
-- Prompts should be natural, as if the user typed them.
+Quality bar for labels — bias toward:
+- Relief: remove a pain point or unblock something stuck.
+- Momentum: advance work already in progress.
+- Confidence: surface information the user needs to make a decision.
+- Curiosity: highlight something timely or surprising.
+- Timely usefulness: prioritize what matters this week over what matters in general.
+
+Coherence rules:
+- The full set of 4-6 starters must read as one coherent row — same abstraction level, no jarring mix of setup chores and strategic projects.
+- Do NOT suggest setup, admin, or configuration tasks unless they are genuinely blocking or time-sensitive. Users rarely want "configure X" as their first action.
+- Every starter must be specific to THIS user's context — generic prompts like "Tell me a joke" or "Summarize my day" are not useful.
+- Vary across different skills and memory areas, but keep the row feeling intentional, not random.
+- Prompts should sound natural, as if the user typed them unprompted.
 
 ${rollup}
 ${diff}
@@ -201,7 +213,7 @@ ${skills}`;
                     label: {
                       type: "string",
                       description:
-                        "Short chip text (max 50 chars, starts with a verb)",
+                        "Short chip text (max 40 chars, starts with a verb, compressed user intent)",
                     },
                     prompt: {
                       type: "string",
@@ -226,7 +238,10 @@ ${skills}`;
         config: {
           modelIntent: "quality-optimized",
           max_tokens: 1024,
-          tool_choice: { type: "tool" as const, name: "store_conversation_starters" },
+          tool_choice: {
+            type: "tool" as const,
+            name: "store_conversation_starters",
+          },
         },
         signal,
       },
@@ -235,7 +250,9 @@ ${skills}`;
 
     const toolBlock = extractToolUse(response);
     if (!toolBlock) {
-      log.warn("No tool_use block in conversation starters generation response");
+      log.warn(
+        "No tool_use block in conversation starters generation response",
+      );
       return [];
     }
 
@@ -254,11 +271,13 @@ ${skills}`;
           s.prompt.length > 0,
       )
       .map((s) => ({
-        label: truncate(s.label, 50, ""),
+        label: truncate(s.label, 40, ""),
         prompt: truncate(s.prompt, 500, ""),
         category:
           typeof s.category === "string" &&
-          (CONVERSATION_STARTER_CATEGORIES as readonly string[]).includes(s.category)
+          (CONVERSATION_STARTER_CATEGORIES as readonly string[]).includes(
+            s.category,
+          )
             ? s.category
             : "productivity",
       }));
@@ -270,7 +289,9 @@ ${skills}`;
 
 // ── Job handler ───────────────────────────────────────────────────
 
-export async function generateConversationStartersJob(job: MemoryJob): Promise<void> {
+export async function generateConversationStartersJob(
+  job: MemoryJob,
+): Promise<void> {
   const scopeId = asString(job.payload.scopeId) ?? "default";
 
   const starters = await generateStarters(scopeId);
