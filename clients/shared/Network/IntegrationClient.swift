@@ -24,8 +24,8 @@ public struct IntegrationClient: IntegrationClientProtocol {
 
     public func fetchIntegrationsStatus() async -> IntegrationsStatusResponse? {
         do {
-            let response = try await GatewayHTTPClient.rawGet(
-                absolutePath: "/integrations/status", timeout: 5
+            let response = try await GatewayHTTPClient.get(
+                path: "assistants/{assistantId}/integrations/status", timeout: 5
             )
             guard response.isSuccess else {
                 log.error("fetchIntegrationsStatus failed (HTTP \(response.statusCode))")

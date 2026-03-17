@@ -180,34 +180,6 @@ public enum GatewayHTTPClient {
         return try await URLSession.shared.bytes(for: request)
     }
 
-    // MARK: - Raw Path API
-
-    /// Performs an authenticated GET request using an absolute path (not prefixed with `/v1/`).
-    ///
-    /// Use this for gateway-only endpoints that live outside the `/v1/` namespace
-    /// (e.g. `/integrations/status`).
-    ///
-    /// - Parameters:
-    ///   - absolutePath: Full path from root (e.g. `"/integrations/status"`).
-    ///   - timeout: Request timeout in seconds. Defaults to 30.
-    /// - Returns: A `Response` with the raw data and HTTP status code.
-    /// - Throws: `ClientError` if the request cannot be constructed, or network errors from `URLSession`.
-    public static func rawGet(absolutePath: String, timeout: TimeInterval = 30) async throws -> Response {
-        let connection = try resolveConnection()
-        guard let url = URL(string: "\(connection.baseURL)\(absolutePath)") else {
-            throw ClientError.invalidURL
-        }
-        var request = URLRequest(url: url)
-        request.httpMethod = "GET"
-        request.timeoutInterval = timeout
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.setValue(connection.authHeader.value, forHTTPHeaderField: connection.authHeader.field)
-        if let orgId = UserDefaults.standard.string(forKey: "connectedOrganizationId"), !orgId.isEmpty {
-            request.setValue(orgId, forHTTPHeaderField: "Vellum-Organization-Id")
-        }
-        return try await execute(request)
-    }
-
     // MARK: - Internals
 
     #if os(macOS)

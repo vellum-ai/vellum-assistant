@@ -675,6 +675,17 @@ async function main() {
           },
         }),
     },
+    {
+      path: "/v1/integrations/status",
+      method: "GET",
+      auth: "edge",
+      handler: () =>
+        Response.json({
+          email: {
+            address: configFileCache.getString("email", "address") ?? null,
+          },
+        }),
+    },
 
     // ── Feature flags (scope-protected) ──
     {
