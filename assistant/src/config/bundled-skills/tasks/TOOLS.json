@@ -17,7 +17,7 @@
             "type": "string",
             "description": "Optional override for the auto-generated task title"
           },
-          "reason": {
+          "activity": {
             "type": "string",
             "description": "Brief non-technical explanation of why this tool is being called"
           }
@@ -50,7 +50,7 @@
               "type": "string"
             }
           },
-          "reason": {
+          "activity": {
             "type": "string",
             "description": "Brief non-technical explanation of why this tool is being called"
           }
@@ -67,7 +67,7 @@
       "input_schema": {
         "type": "object",
         "properties": {
-          "reason": {
+          "activity": {
             "type": "string",
             "description": "Brief non-technical explanation of why this tool is being called"
           }
@@ -91,7 +91,7 @@
             },
             "description": "One or more task IDs to delete."
           },
-          "reason": {
+          "activity": {
             "type": "string",
             "description": "Brief non-technical explanation of why this tool is being called"
           }
@@ -123,7 +123,7 @@
             ],
             "description": "Optional status filter. A single status string (e.g. \"queued\") or an array of statuses to include."
           },
-          "reason": {
+          "activity": {
             "type": "string",
             "description": "Brief non-technical explanation of why this tool is being called"
           }
@@ -180,7 +180,7 @@
             },
             "description": "Tools the task will need at execution time. Always specify this \u2014 think about what tools are needed to accomplish the task (e.g. [\"host_bash\"] for shell commands, [\"host_file_read\", \"host_file_write\"] for file operations, [\"web_search\"] for web lookups). The user must approve these before the task runs. Pass [] if no tools are needed."
           },
-          "reason": {
+          "activity": {
             "type": "string",
             "description": "Brief non-technical explanation of why this tool is being called"
           }
@@ -259,7 +259,7 @@
             "type": "number",
             "description": "Disambiguation filter: pick the Nth oldest match (1 = oldest, 2 = second oldest, etc.) when multiple items share the same title/task_id."
           },
-          "reason": {
+          "activity": {
             "type": "string",
             "description": "Brief non-technical explanation of why this tool is being called"
           }
@@ -311,7 +311,7 @@
             "type": "number",
             "description": "Disambiguator: 1-indexed creation order among matches (1 = oldest, 2 = second oldest, etc.)"
           },
-          "reason": {
+          "activity": {
             "type": "string",
             "description": "Brief non-technical explanation of why this tool is being called"
           }
@@ -340,7 +340,7 @@
             "type": "string",
             "description": "Work item title to search for (case-insensitive substring match)"
           },
-          "reason": {
+          "activity": {
             "type": "string",
             "description": "Brief non-technical explanation of why this tool is being called"
           }

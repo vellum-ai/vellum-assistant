@@ -17,7 +17,7 @@
           "value": {
             "description": "The new value for the setting (type depends on setting)"
           },
-          "reason": {
+          "activity": {
             "type": "string",
             "description": "Brief non-technical explanation of what you are changing and why, shown to the user as a status update. Use simple language a non-technical person would understand."
           }
@@ -39,7 +39,7 @@
             "enum": ["microphone", "speech_recognition"],
             "description": "The System Settings pane to open"
           },
-          "reason": {
+          "activity": {
             "type": "string",
             "description": "Brief non-technical explanation of what you are opening and why, shown to the user as a status update. Use simple language a non-technical person would understand."
           }
@@ -70,7 +70,7 @@
             ],
             "description": "The settings tab to navigate to"
           },
-          "reason": {
+          "activity": {
             "type": "string",
             "description": "Brief non-technical explanation of what you are navigating to and why, shown to the user as a status update. Use simple language a non-technical person would understand."
           }

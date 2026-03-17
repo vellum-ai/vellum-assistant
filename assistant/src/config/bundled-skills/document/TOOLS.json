@@ -17,7 +17,7 @@
             "type": "string",
             "description": "Initial Markdown content to populate the editor (optional)"
           },
-          "reason": {
+          "activity": {
             "type": "string",
             "description": "Brief non-technical explanation of why this tool is being called"
           }
@@ -47,7 +47,7 @@
             "enum": ["replace", "append"],
             "description": "Whether to replace all content or append to the end. Defaults to append."
           },
-          "reason": {
+          "activity": {
             "type": "string",
             "description": "Brief non-technical explanation of why this tool is being called"
           }

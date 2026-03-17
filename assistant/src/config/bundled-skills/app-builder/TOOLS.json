@@ -75,7 +75,7 @@
             },
             "required": ["title"]
           },
-          "reason": {
+          "activity": {
             "type": "string",
             "description": "Brief non-technical explanation of why this tool is being called"
           }
@@ -93,7 +93,7 @@
       "input_schema": {
         "type": "object",
         "properties": {
-          "reason": {
+          "activity": {
             "type": "string",
             "description": "Brief non-technical explanation of why this tool is being called"
           }
@@ -114,7 +114,7 @@
             "type": "string",
             "description": "The ID of the app to query records for"
           },
-          "reason": {
+          "activity": {
             "type": "string",
             "description": "Brief non-technical explanation of why this tool is being called"
           }
@@ -159,7 +159,7 @@
               "type": "string"
             }
           },
-          "reason": {
+          "activity": {
             "type": "string",
             "description": "Brief non-technical explanation of why this tool is being called"
           }
@@ -181,7 +181,7 @@
             "type": "string",
             "description": "The ID of the app to delete"
           },
-          "reason": {
+          "activity": {
             "type": "string",
             "description": "Brief non-technical explanation of why this tool is being called"
           }
@@ -203,7 +203,7 @@
             "type": "string",
             "description": "The ID of the app"
           },
-          "reason": {
+          "activity": {
             "type": "string",
             "description": "Brief non-technical explanation of why this tool is being called"
           }
@@ -237,7 +237,7 @@
             "type": "number",
             "description": "Number of lines to return (default: all)"
           },
-          "reason": {
+          "activity": {
             "type": "string",
             "description": "Brief non-technical explanation of why this tool is being called"
           }
@@ -279,7 +279,7 @@
             "type": "string",
             "description": "Optional short human-readable progress message shown to the user (e.g. 'adding dark mode styles')"
           },
-          "reason": {
+          "activity": {
             "type": "string",
             "description": "Brief non-technical explanation of why this tool is being called"
           }
@@ -313,7 +313,7 @@
             "type": "string",
             "description": "Optional short human-readable progress message shown to the user (e.g. 'adding dark mode styles')"
           },
-          "reason": {
+          "activity": {
             "type": "string",
             "description": "Brief non-technical explanation of why this tool is being called"
           }
@@ -339,7 +339,7 @@
             "type": "string",
             "description": "Optional description to guide icon generation (e.g. 'a blue calendar with a checkmark'). If omitted, the app name and description are used."
           },
-          "reason": {
+          "activity": {
             "type": "string",
             "description": "Brief non-technical explanation of why this tool is being called"
           }

@@ -33,7 +33,7 @@
             "type": "object",
             "description": "Provider-specific configuration (e.g. filter criteria)"
           },
-          "reason": {
+          "activity": {
             "type": "string",
             "description": "Brief non-technical explanation of why this tool is being called"
           }
@@ -59,7 +59,7 @@
             "type": "boolean",
             "description": "When true, only show enabled watchers. Defaults to false."
           },
-          "reason": {
+          "activity": {
             "type": "string",
             "description": "Brief non-technical explanation of why this tool is being called"
           }
@@ -101,7 +101,7 @@
             "type": "object",
             "description": "New provider-specific configuration"
           },
-          "reason": {
+          "activity": {
             "type": "string",
             "description": "Brief non-technical explanation of why this tool is being called"
           }
@@ -123,7 +123,7 @@
             "type": "string",
             "description": "The ID of the watcher to delete"
           },
-          "reason": {
+          "activity": {
             "type": "string",
             "description": "Brief non-technical explanation of why this tool is being called"
           }
@@ -153,7 +153,7 @@
             "type": "number",
             "description": "Maximum number of events to return. Defaults to 50."
           },
-          "reason": {
+          "activity": {
             "type": "string",
             "description": "Brief non-technical explanation of why this tool is being called"
           }

@@ -21,7 +21,7 @@
             "type": "object",
             "description": "Optional JSON metadata to attach to the asset (e.g., pipeline config, source info)"
           },
-          "reason": {
+          "activity": {
             "type": "string",
             "description": "Brief non-technical explanation of why this tool is being called"
           }
@@ -52,7 +52,7 @@
             "enum": ["registered", "processing", "indexed", "failed"],
             "description": "Filter assets by processing status"
           },
-          "reason": {
+          "activity": {
             "type": "string",
             "description": "Brief non-technical explanation of why this tool is being called"
           }
@@ -106,7 +106,7 @@
             "enum": ["api", "local"],
             "description": "Transcription backend: 'api' (OpenAI Whisper cloud) or 'local' (whisper.cpp). Default: 'local'."
           },
-          "reason": {
+          "activity": {
             "type": "string",
             "description": "Brief non-technical explanation of why this tool is being called"
           }
@@ -159,7 +159,7 @@
             "minimum": 0,
             "description": "Maximum retry attempts per segment on failure. Default: 3"
           },
-          "reason": {
+          "activity": {
             "type": "string",
             "description": "Brief non-technical explanation of why this tool is being called"
           }
@@ -193,7 +193,7 @@
             "type": "string",
             "description": "LLM model to use for analysis. Default: 'claude-sonnet-4-6'"
           },
-          "reason": {
+          "activity": {
             "type": "string",
             "description": "Brief non-technical explanation of why this tool is being called"
           }
@@ -240,7 +240,7 @@
             "type": "string",
             "description": "Short descriptive title for the clip (e.g. 'snow-dive-closeup', 'goal-celebration'). Used as the filename. If omitted, falls back to timestamp-based naming."
           },
-          "reason": {
+          "activity": {
             "type": "string",
             "description": "Brief non-technical explanation of why this tool is being called"
           }

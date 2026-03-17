@@ -29,7 +29,7 @@
             "type": "string",
             "description": "Optional recurrence schedule ID to fire a reminder when overdue"
           },
-          "reason": {
+          "activity": {
             "type": "string",
             "description": "Brief non-technical explanation of why this tool is being called"
           }
@@ -64,7 +64,7 @@
             "type": "boolean",
             "description": "When true, return only pending follow-ups past their expected response deadline"
           },
-          "reason": {
+          "activity": {
             "type": "string",
             "description": "Brief non-technical explanation of why this tool is being called"
           }
@@ -94,7 +94,7 @@
             "type": "string",
             "description": "Conversation ID to match (used with channel for auto-resolution)"
           },
-          "reason": {
+          "activity": {
             "type": "string",
             "description": "Brief non-technical explanation of why this tool is being called"
           }

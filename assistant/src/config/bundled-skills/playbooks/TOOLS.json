@@ -34,7 +34,7 @@
             "type": "number",
             "description": "Relative priority \u2014 higher numbers take precedence. Defaults to 0."
           },
-          "reason": {
+          "activity": {
             "type": "string",
             "description": "Brief non-technical explanation of why this tool is being called"
           }
@@ -60,7 +60,7 @@
             "type": "string",
             "description": "Filter by category (e.g. \"scheduling\", \"triage\"). Omit to show all."
           },
-          "reason": {
+          "activity": {
             "type": "string",
             "description": "Brief non-technical explanation of why this tool is being called"
           }
@@ -106,7 +106,7 @@
             "type": "number",
             "description": "Updated priority"
           },
-          "reason": {
+          "activity": {
             "type": "string",
             "description": "Brief non-technical explanation of why this tool is being called"
           }
@@ -128,7 +128,7 @@
             "type": "string",
             "description": "ID of the playbook to delete (from playbook_list results)"
           },
-          "reason": {
+          "activity": {
             "type": "string",
             "description": "Brief non-technical explanation of why this tool is being called"
           }

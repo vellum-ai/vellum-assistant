@@ -52,7 +52,7 @@
               "required": ["type", "address"]
             }
           },
-          "reason": {
+          "activity": {
             "type": "string",
             "description": "Brief non-technical explanation of why this tool is being called"
           }
@@ -86,7 +86,7 @@
             "type": "number",
             "description": "Maximum results to return (default 20, max 100)"
           },
-          "reason": {
+          "activity": {
             "type": "string",
             "description": "Brief non-technical explanation of why this tool is being called"
           }
@@ -112,7 +112,7 @@
             "type": "string",
             "description": "ID of the contact to merge into the kept contact (will be deleted)"
           },
-          "reason": {
+          "activity": {
             "type": "string",
             "description": "Brief non-technical explanation of why this tool is being called"
           }
@@ -147,7 +147,7 @@
             "type": "string",
             "description": "Pagination token (for list)"
           },
-          "reason": {
+          "activity": {
             "type": "string",
             "description": "Brief non-technical explanation of why this tool is being called"
           },

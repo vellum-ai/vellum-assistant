@@ -38,7 +38,7 @@
             "enum": ["startTime", "updated"],
             "description": "Sort order (default \"startTime\"). Only valid when single_events is true."
           },
-          "reason": {
+          "activity": {
             "type": "string",
             "description": "Brief non-technical explanation of why this tool is being called"
           },
@@ -67,7 +67,7 @@
             "type": "string",
             "description": "Calendar ID (default \"primary\")"
           },
-          "reason": {
+          "activity": {
             "type": "string",
             "description": "Brief non-technical explanation of why this tool is being called"
           },
@@ -128,7 +128,7 @@
             "type": "number",
             "description": "Confidence score (0-1) for this action"
           },
-          "reason": {
+          "activity": {
             "type": "string",
             "description": "Brief non-technical explanation of why this tool is being called"
           },
@@ -169,7 +169,7 @@
             "type": "string",
             "description": "IANA timezone for interpreting results (e.g. \"America/New_York\")"
           },
-          "reason": {
+          "activity": {
             "type": "string",
             "description": "Brief non-technical explanation of why this tool is being called"
           },
@@ -208,7 +208,7 @@
             "type": "number",
             "description": "Confidence score (0-1) for this action"
           },
-          "reason": {
+          "activity": {
             "type": "string",
             "description": "Brief non-technical explanation of why this tool is being called"
           },

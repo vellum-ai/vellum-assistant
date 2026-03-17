@@ -52,7 +52,7 @@
             "type": "object",
             "description": "Additional routing metadata (e.g. preferred channel identifiers)"
           },
-          "reason": {
+          "activity": {
             "type": "string",
             "description": "Brief non-technical explanation of why this tool is being called"
           }
@@ -78,7 +78,7 @@
             "type": "string",
             "description": "If provided, show detailed info and recent runs for this specific job."
           },
-          "reason": {
+          "activity": {
             "type": "string",
             "description": "Brief non-technical explanation of why this tool is being called"
           }
@@ -139,7 +139,7 @@
             "type": "object",
             "description": "Additional routing metadata (e.g. preferred channel identifiers)"
           },
-          "reason": {
+          "activity": {
             "type": "string",
             "description": "Brief non-technical explanation of why this tool is being called"
           }
@@ -161,7 +161,7 @@
             "type": "string",
             "description": "The ID of the schedule to delete"
           },
-          "reason": {
+          "activity": {
             "type": "string",
             "description": "Brief non-technical explanation of why this tool is being called"
           }

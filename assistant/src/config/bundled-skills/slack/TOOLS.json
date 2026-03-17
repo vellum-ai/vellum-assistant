@@ -33,7 +33,7 @@
             "enum": ["text", "blocks"],
             "description": "Output format: 'text' returns JSON (default), 'blocks' returns Slack Block Kit structured output"
           },
-          "reason": {
+          "activity": {
             "type": "string",
             "description": "Brief non-technical explanation of why this tool is being called"
           }
@@ -54,7 +54,7 @@
             "type": "string",
             "description": "The Slack channel ID to get details for"
           },
-          "reason": {
+          "activity": {
             "type": "string",
             "description": "Brief non-technical explanation of why this tool is being called"
           }
@@ -84,7 +84,7 @@
             },
             "description": "Channel IDs to add, remove, or set (not needed for 'list')"
           },
-          "reason": {
+          "activity": {
             "type": "string",
             "description": "Brief non-technical explanation of why this tool is being called"
           }
@@ -118,7 +118,7 @@
             "type": "number",
             "description": "Confidence score (0-1) for this action"
           },
-          "reason": {
+          "activity": {
             "type": "string",
             "description": "Brief non-technical explanation of why this tool is being called"
           }
@@ -148,7 +148,7 @@
             "type": "number",
             "description": "Confidence score (0-1) for this action"
           },
-          "reason": {
+          "activity": {
             "type": "string",
             "description": "Brief non-technical explanation of why this tool is being called"
           }
@@ -182,7 +182,7 @@
             "type": "number",
             "description": "Confidence score (0-1) for this action"
           },
-          "reason": {
+          "activity": {
             "type": "string",
             "description": "Brief non-technical explanation of why this tool is being called"
           }
@@ -208,7 +208,7 @@
             "type": "number",
             "description": "Confidence score (0-1) for this action"
           },
-          "reason": {
+          "activity": {
             "type": "string",
             "description": "Brief non-technical explanation of why this tool is being called"
           }
@@ -258,7 +258,7 @@
             "enum": ["restricted", "standard"],
             "description": "Trust level override: 'restricted' limits tool access, 'standard' uses defaults (for 'set' action)"
           },
-          "reason": {
+          "activity": {
             "type": "string",
             "description": "Brief non-technical explanation of why this tool is being called"
           }

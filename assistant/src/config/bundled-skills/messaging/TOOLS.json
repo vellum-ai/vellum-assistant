@@ -17,7 +17,7 @@
             "type": "string",
             "description": "Email address of the account to use. Required when multiple accounts are connected for the same platform. If omitted, uses the most recently connected account."
           },
-          "reason": {
+          "activity": {
             "type": "string",
             "description": "Brief non-technical explanation of why this tool is being called"
           }
@@ -54,7 +54,7 @@
             "type": "number",
             "description": "Maximum number of conversations to return (default 200)"
           },
-          "reason": {
+          "activity": {
             "type": "string",
             "description": "Brief non-technical explanation of why this tool is being called"
           }
@@ -91,7 +91,7 @@
             "type": "number",
             "description": "Maximum number of messages to return (default 50)"
           },
-          "reason": {
+          "activity": {
             "type": "string",
             "description": "Brief non-technical explanation of why this tool is being called"
           }
@@ -125,7 +125,7 @@
             "type": "number",
             "description": "Maximum number of results to return (default 20)"
           },
-          "reason": {
+          "activity": {
             "type": "string",
             "description": "Brief non-technical explanation of why this tool is being called"
           }
@@ -182,7 +182,7 @@
             "type": "number",
             "description": "Confidence score (0-1) for this action"
           },
-          "reason": {
+          "activity": {
             "type": "string",
             "description": "Brief non-technical explanation of why this tool is being called"
           }
@@ -216,7 +216,7 @@
             "type": "string",
             "description": "Specific message ID to mark as read (optional)"
           },
-          "reason": {
+          "activity": {
             "type": "string",
             "description": "Brief non-technical explanation of why this tool is being called"
           }
@@ -250,7 +250,7 @@
             "type": "string",
             "description": "Optional search filter (e.g. 'to:alice@example.com' for Gmail, 'from:@me' for Slack)"
           },
-          "reason": {
+          "activity": {
             "type": "string",
             "description": "Brief non-technical explanation of why this tool is being called"
           }
@@ -296,7 +296,7 @@
             "type": "string",
             "description": "Draft ID (for delete)"
           },
-          "reason": {
+          "activity": {
             "type": "string",
             "description": "Brief non-technical explanation of why this tool is being called"
           }
@@ -338,7 +338,7 @@
             "type": "string",
             "description": "Resume token from a previous scan (rarely needed - scans now cover up to 5,000 messages in a single call)"
           },
-          "reason": {
+          "activity": {
             "type": "string",
             "description": "Brief non-technical explanation of why this tool is being called"
           }
@@ -371,7 +371,7 @@
             "type": "number",
             "description": "Confidence score (0-1) for this action"
           },
-          "reason": {
+          "activity": {
             "type": "string",
             "description": "Brief non-technical explanation of why this tool is being called"
           }

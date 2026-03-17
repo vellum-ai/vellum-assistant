@@ -13,7 +13,7 @@
             "type": "string",
             "description": "Absolute path to the ChatGPT export ZIP file"
           },
-          "reason": {
+          "activity": {
             "type": "string",
             "description": "Brief non-technical explanation of why this tool is being called"
           }

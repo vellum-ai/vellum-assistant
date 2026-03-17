@@ -17,7 +17,7 @@
             "type": "boolean",
             "description": "If true, allows navigation to localhost/private-network hosts. Disabled by default for SSRF safety."
           },
-          "reason": {
+          "activity": {
             "type": "string",
             "description": "Brief non-technical explanation of why this tool is being called"
           }
@@ -35,7 +35,7 @@
       "input_schema": {
         "type": "object",
         "properties": {
-          "reason": {
+          "activity": {
             "type": "string",
             "description": "Brief non-technical explanation of why this tool is being called"
           }
@@ -56,7 +56,7 @@
             "type": "boolean",
             "description": "Capture the full scrollable page instead of just the viewport."
           },
-          "reason": {
+          "activity": {
             "type": "string",
             "description": "Brief non-technical explanation of why this tool is being called"
           }
@@ -77,7 +77,7 @@
             "type": "boolean",
             "description": "If true, close all browser pages and the browser context. Default: false (close only the current conversation page)."
           },
-          "reason": {
+          "activity": {
             "type": "string",
             "description": "Brief non-technical explanation of why this tool is being called"
           }
@@ -102,7 +102,7 @@
             "type": "string",
             "description": "A CSS selector to target. Used as fallback when element_id is not available."
           },
-          "reason": {
+          "activity": {
             "type": "string",
             "description": "Brief non-technical explanation of why this tool is being called"
           }
@@ -139,7 +139,7 @@
             "type": "boolean",
             "description": "If true, press Enter after typing the text."
           },
-          "reason": {
+          "activity": {
             "type": "string",
             "description": "Brief non-technical explanation of why this tool is being called"
           }
@@ -169,7 +169,7 @@
             "type": "string",
             "description": "Optional CSS selector to target."
           },
-          "reason": {
+          "activity": {
             "type": "string",
             "description": "Brief non-technical explanation of why this tool is being called"
           }
@@ -204,7 +204,7 @@
             "type": "string",
             "description": "Optional CSS selector of element to scroll within."
           },
-          "reason": {
+          "activity": {
             "type": "string",
             "description": "Brief non-technical explanation of why this tool is being called"
           }
@@ -242,7 +242,7 @@
             "type": "number",
             "description": "The zero-based index of the <option> to select."
           },
-          "reason": {
+          "activity": {
             "type": "string",
             "description": "Brief non-technical explanation of why this tool is being called"
           }
@@ -267,7 +267,7 @@
             "type": "string",
             "description": "A CSS selector to target. Used as fallback when element_id is not available."
           },
-          "reason": {
+          "activity": {
             "type": "string",
             "description": "Brief non-technical explanation of why this tool is being called"
           }
@@ -300,7 +300,7 @@
             "type": "number",
             "description": "Maximum wait time in milliseconds (default and max: 30000)."
           },
-          "reason": {
+          "activity": {
             "type": "string",
             "description": "Brief non-technical explanation of why this tool is being called"
           }
@@ -321,7 +321,7 @@
             "type": "boolean",
             "description": "If true, include a list of links found on the page (up to 200)."
           },
-          "reason": {
+          "activity": {
             "type": "string",
             "description": "Brief non-technical explanation of why this tool is being called"
           }
@@ -342,7 +342,7 @@
             "type": "number",
             "description": "Maximum wait time in milliseconds (default: 30000, max: 120000)."
           },
-          "reason": {
+          "activity": {
             "type": "string",
             "description": "Brief non-technical explanation of why this tool is being called"
           }
@@ -379,7 +379,7 @@
             "type": "boolean",
             "description": "Press Enter after filling"
           },
-          "reason": {
+          "activity": {
             "type": "string",
             "description": "Brief non-technical explanation of why this tool is being called"
           }

@@ -39,7 +39,7 @@
             "type": "number",
             "description": "Confidence score (0-1) for this action"
           },
-          "reason": {
+          "activity": {
             "type": "string",
             "description": "Brief non-technical explanation of why this tool is being called"
           },
@@ -90,7 +90,7 @@
             "type": "number",
             "description": "Confidence score (0-1) for this action"
           },
-          "reason": {
+          "activity": {
             "type": "string",
             "description": "Brief non-technical explanation of why this tool is being called"
           },
@@ -120,7 +120,7 @@
             "type": "number",
             "description": "Confidence score (0-1) for this action"
           },
-          "reason": {
+          "activity": {
             "type": "string",
             "description": "Brief non-technical explanation of why this tool is being called"
           },
@@ -150,7 +150,7 @@
             "type": "number",
             "description": "Confidence score (0-1) for this action"
           },
-          "reason": {
+          "activity": {
             "type": "string",
             "description": "Brief non-technical explanation of why this tool is being called"
           },
@@ -196,7 +196,7 @@
             "type": "string",
             "description": "BCC recipients (comma-separated email addresses)"
           },
-          "reason": {
+          "activity": {
             "type": "string",
             "description": "Brief non-technical explanation of why this tool is being called"
           },
@@ -226,7 +226,7 @@
             "type": "number",
             "description": "Confidence score (0-1) for this action"
           },
-          "reason": {
+          "activity": {
             "type": "string",
             "description": "Brief non-technical explanation of why this tool is being called"
           },
@@ -265,7 +265,7 @@
             "type": "string",
             "description": "Filename to save as (required for download)"
           },
-          "reason": {
+          "activity": {
             "type": "string",
             "description": "Brief non-technical explanation of why this tool is being called"
           },
@@ -303,7 +303,7 @@
             "type": "number",
             "description": "Confidence score (0-1) for this action"
           },
-          "reason": {
+          "activity": {
             "type": "string",
             "description": "Brief non-technical explanation of why this tool is being called"
           },
@@ -338,7 +338,7 @@
             "type": "number",
             "description": "Confidence score (0-1) for this action"
           },
-          "reason": {
+          "activity": {
             "type": "string",
             "description": "Brief non-technical explanation of why this tool is being called"
           },
@@ -411,7 +411,7 @@
             "type": "number",
             "description": "Confidence score (0-1) for this action"
           },
-          "reason": {
+          "activity": {
             "type": "string",
             "description": "Brief non-technical explanation of why this tool is being called"
           },
@@ -466,7 +466,7 @@
             "type": "number",
             "description": "Confidence score (0-1) for this action"
           },
-          "reason": {
+          "activity": {
             "type": "string",
             "description": "Brief non-technical explanation of why this tool is being called"
           },
@@ -504,7 +504,7 @@
             "type": "string",
             "description": "Resume token from a previous scan (rarely needed - scans now cover up to 10,000 messages in a single call)"
           },
-          "reason": {
+          "activity": {
             "type": "string",
             "description": "Brief non-technical explanation of why this tool is being called"
           },
@@ -541,7 +541,7 @@
             "type": "string",
             "description": "Resume token from a previous scan (rarely needed - scans now cover up to 5,000 messages in a single call)"
           },
-          "reason": {
+          "activity": {
             "type": "string",
             "description": "Brief non-technical explanation of why this tool is being called"
           },

@@ -55,7 +55,7 @@
             "type": "boolean",
             "description": "Whether to stop the sequence when the contact replies (default true)"
           },
-          "reason": {
+          "activity": {
             "type": "string",
             "description": "Brief non-technical explanation of why this tool is being called"
           }
@@ -78,7 +78,7 @@
             "enum": ["active", "paused", "archived"],
             "description": "Filter by sequence status"
           },
-          "reason": {
+          "activity": {
             "type": "string",
             "description": "Brief non-technical explanation of why this tool is being called"
           }
@@ -99,7 +99,7 @@
             "type": "string",
             "description": "Sequence ID"
           },
-          "reason": {
+          "activity": {
             "type": "string",
             "description": "Brief non-technical explanation of why this tool is being called"
           }
@@ -177,7 +177,7 @@
             },
             "description": "Replacement steps (replaces all existing steps)"
           },
-          "reason": {
+          "activity": {
             "type": "string",
             "description": "Brief non-technical explanation of why this tool is being called"
           }
@@ -202,7 +202,7 @@
             "type": "string",
             "description": "Sequence ID to delete"
           },
-          "reason": {
+          "activity": {
             "type": "string",
             "description": "Brief non-technical explanation of why this tool is being called"
           }
@@ -242,7 +242,7 @@
             "type": "object",
             "description": "Optional context object with personalization variables for the enrolled contacts"
           },
-          "reason": {
+          "activity": {
             "type": "string",
             "description": "Brief non-technical explanation of why this tool is being called"
           }
@@ -276,7 +276,7 @@
             ],
             "description": "Filter by enrollment status"
           },
-          "reason": {
+          "activity": {
             "type": "string",
             "description": "Brief non-technical explanation of why this tool is being called"
           }
@@ -305,7 +305,7 @@
             "type": "boolean",
             "description": "Set to true to enroll contacts (default false = preview mode)"
           },
-          "reason": {
+          "activity": {
             "type": "string",
             "description": "Brief non-technical explanation of why this tool is being called"
           }
@@ -327,7 +327,7 @@
             "type": "string",
             "description": "Optional sequence ID for detailed step funnel view"
           },
-          "reason": {
+          "activity": {
             "type": "string",
             "description": "Brief non-technical explanation of why this tool is being called"
           }
