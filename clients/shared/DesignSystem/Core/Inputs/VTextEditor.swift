@@ -28,12 +28,7 @@ public struct VTextEditor: View {
             .frame(minHeight: minHeight, maxHeight: maxHeight, alignment: .topLeading)
             .padding(.horizontal, VSpacing.md)
             .padding(.vertical, VSpacing.sm)
-            .background(VColor.surfaceActive)
-            .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
-            .overlay(
-                RoundedRectangle(cornerRadius: VRadius.md)
-                    .stroke(isFocused ? VColor.borderBase : VColor.borderBase.opacity(0.5), lineWidth: 1)
-            )
+            .vInputChrome(isFocused: isFocused)
     }
 }
 

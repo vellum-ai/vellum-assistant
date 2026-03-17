@@ -1,7 +1,6 @@
 import SwiftUI
 
-/// A ViewModifier that applies the design system input styling.
-/// Strips the native macOS text field background and applies VColor.surfaceActive.
+/// A ViewModifier that applies the shared input chrome across text inputs.
 /// Use on raw TextField / SecureField instances: `.vInputStyle()`
 public struct VInputStyleModifier: ViewModifier {
     public init() {}
@@ -12,18 +11,45 @@ public struct VInputStyleModifier: ViewModifier {
             .padding(.horizontal, VSpacing.md)
             .padding(.vertical, VSpacing.xs)
             .frame(height: 32)
-            .background(VColor.surfaceActive)
-            .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
-            .overlay(
-                RoundedRectangle(cornerRadius: VRadius.md)
-                    .stroke(VColor.borderBase, lineWidth: 1)
-            )
+            .vInputChrome()
     }
 }
 
 extension View {
     public func vInputStyle() -> some View {
         modifier(VInputStyleModifier())
+    }
+
+    public func vInputChrome(isFocused: Bool = false, cornerRadius: CGFloat = VRadius.md) -> some View {
+        modifier(VInputChromeModifier(isFocused: isFocused, cornerRadius: cornerRadius))
+    }
+}
+
+public struct VInputChromeModifier: ViewModifier {
+    public let isFocused: Bool
+    public let cornerRadius: CGFloat
+
+    public init(isFocused: Bool = false, cornerRadius: CGFloat = VRadius.md) {
+        self.isFocused = isFocused
+        self.cornerRadius = cornerRadius
+    }
+
+    public func body(content: Content) -> some View {
+        let shape = RoundedRectangle(cornerRadius: cornerRadius)
+
+        content
+            .background(shape.fill(VColor.surfaceBase))
+            .overlay(
+                shape.strokeBorder(
+                    isFocused ? VColor.borderActive : VColor.borderBase.opacity(0.72),
+                    lineWidth: isFocused ? 1.5 : 1
+                )
+            )
+            .shadow(
+                color: isFocused ? VColor.primaryBase.opacity(0.10) : .clear,
+                radius: 4
+            )
+            .clipShape(shape)
     }
 }
 
@@ -70,12 +96,7 @@ public struct VTextField: View {
         .padding(.horizontal, VSpacing.md)
         .padding(.vertical, VSpacing.xs)
         .frame(height: 32)
-        .background(VColor.surfaceActive)
-        .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
-        .overlay(
-            RoundedRectangle(cornerRadius: VRadius.md)
-                .stroke(isFocused ? VColor.borderBase : VColor.borderBase.opacity(0.5), lineWidth: 1)
-        )
+        .vInputChrome(isFocused: isFocused)
     }
 }
 
