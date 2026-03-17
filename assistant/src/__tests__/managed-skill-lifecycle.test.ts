@@ -138,10 +138,10 @@ describe("managed skill lifecycle: scaffold → catalog → prompt → delete", 
     expect(found!.name).toBe("Lifecycle Test");
     expect(found!.description).toBe("Integration test skill.");
 
-    // Step 4: Verify skill appears in system prompt
+    // Step 4: Verify skill appears in system prompt (markdown bullet: **id**: description)
     const prompt = buildSystemPrompt();
-    expect(prompt).toContain("lifecycle-test");
-    expect(prompt).toContain("Lifecycle Test");
+    expect(prompt).toContain("**lifecycle-test**");
+    expect(prompt).toContain("Integration test skill.");
     expect(prompt).toContain("## Dynamic Skill Authoring Workflow");
 
     // Step 5: Delete the skill
