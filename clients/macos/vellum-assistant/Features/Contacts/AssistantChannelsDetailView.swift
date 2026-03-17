@@ -189,6 +189,7 @@ struct AssistantChannelsDetailView: View {
 
             if expandedBinding.wrappedValue {
                 expandContent()
+                    .padding(.top, VSpacing.sm)
             }
         }
     }
