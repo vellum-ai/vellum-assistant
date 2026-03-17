@@ -351,12 +351,12 @@ struct MessageListView: View {
     }
 
     private func updateAvatarFollower(anchorY: CGFloat) {
-        // Only update @State when the visibility boundary is crossed or finitude
-        // changes. avatarTargetY is only consumed by shouldShowConversationTailAvatar
-        // (a binary visible/hidden check), so continuous position tracking is
-        // unnecessary. The previous `abs(delta) > 1` threshold caused ~60 @State
-        // updates/sec during scroll, each triggering a full MessageListView body
-        // re-evaluation and expensive LazyVStack re-measurement of complex messages.
+        // Only update @State when the visibility boundary is crossed, finitude
+        // changes, or the stored value drifts too far from reality. The relaxed
+        // threshold (20pt) keeps avatarTargetY fresh enough that the coalescing
+        // flush path (onChange of shouldCoalesceAvatarUpdates) won't see a large
+        // stale jump, while still avoiding the ~60 @State updates/sec that the
+        // original 1pt threshold caused during scroll.
         let visibilityChanged: Bool = {
             let wasVisible = avatarTargetY.isFinite
                 && ConversationAvatarFollower.shouldShow(anchorY: avatarTargetY, viewportHeight: scrollViewportHeight)
@@ -364,7 +364,7 @@ struct MessageListView: View {
                 && ConversationAvatarFollower.shouldShow(anchorY: anchorY, viewportHeight: scrollViewportHeight)
             return wasVisible != nowVisible
         }()
-        if visibilityChanged || !avatarTargetY.isFinite != !anchorY.isFinite {
+        if visibilityChanged || abs(avatarTargetY - anchorY) > 20 || !avatarTargetY.isFinite != !anchorY.isFinite {
             avatarTargetY = anchorY
         }
 
