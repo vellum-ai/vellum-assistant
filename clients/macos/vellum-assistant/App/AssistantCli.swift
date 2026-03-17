@@ -80,7 +80,7 @@ final class AssistantCli {
 
     /// Environment variable keys forwarded from the host process to CLI
     /// child processes. Centralised so every call site stays in sync.
-    private static let forwardedEnvKeys: [String] = [
+    nonisolated(unsafe) private static let forwardedEnvKeys: [String] = [
         "ANTHROPIC_API_KEY", "BASE_DATA_DIR",
         "VELLUM_PLATFORM_URL", "RUNTIME_HTTP_PORT",
         "SENTRY_DSN", "TMPDIR", "USER", "LANG",
