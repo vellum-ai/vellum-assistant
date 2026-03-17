@@ -261,8 +261,6 @@ struct ContactDetailView: View {
 
         return VStack(alignment: .leading, spacing: VSpacing.md) {
             if !channelReadinessLoaded && visibleTypes.isEmpty {
-                // Still loading channel readiness — show a spinner instead of a
-                // false "No channels available" message.
                 HStack(spacing: VSpacing.sm) {
                     ProgressView()
                         .controlSize(.small)
@@ -286,30 +284,7 @@ struct ContactDetailView: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .vCard(background: VColor.surfaceOverlay)
             } else {
-                ForEach(visibleTypes, id: \.self) { type in
-                    SettingsCard(title: channelLabel(for: type), subtitle: channelSubtitle(for: type)) {
-                        if let channels = channelsByType[type] {
-                            ForEach(Array(channels.enumerated()), id: \.element.id) { channelIndex, channel in
-                                channelRow(channel)
-                                if channelIndex < channels.count - 1 {
-                                    SettingsDivider()
-                                }
-                            }
-                        } else {
-                            if inviteExpanded.contains(type) {
-                                unconfiguredChannelContent(type: type)
-                            } else {
-                                VButton(label: "Invite", style: .outlined) {
-                                    inviteExpanded.insert(type)
-                                    if type == "telegram" || type == "slack" {
-                                        createInviteForChannel(type: type)
-                                    }
-                                }
-                                .accessibilityHint("\(channelLabel(for: type)) is not connected for this contact")
-                            }
-                        }
-                    }
-                }
+                channelsList(visibleTypes: visibleTypes, channelsByType: channelsByType)
             }
 
             if let errorMessage {
@@ -330,90 +305,280 @@ struct ContactDetailView: View {
         }
     }
 
+    /// Flat channel rows inside a single bordered container.
     @ViewBuilder
-    private func channelRow(_ channel: ContactChannelPayload) -> some View {
-        VStack(alignment: .leading, spacing: VSpacing.sm) {
-            HStack(spacing: VSpacing.sm) {
-                VIconView(channelIcon(for: channel.type), size: 14)
+    private func channelsList(
+        visibleTypes: [String],
+        channelsByType: [String: [ContactChannelPayload]]
+    ) -> some View {
+        VStack(alignment: .leading, spacing: VSpacing.lg) {
+            // Section header
+            VStack(alignment: .leading, spacing: VSpacing.xs) {
+                Text("Channels")
+                    .font(.custom("Inter-SemiBold", size: 18))
+                    .foregroundColor(VColor.contentEmphasized)
+                Text("Set up different ways to interact with your Assistant")
+                    .font(.custom("Inter-Medium", size: 14))
+                    .foregroundColor(VColor.contentTertiary)
+            }
+
+            // Channel rows
+            VStack(alignment: .leading, spacing: 0) {
+                ForEach(Array(visibleTypes.enumerated()), id: \.element) { typeIndex, type in
+                    if let channels = channelsByType[type] {
+                        // Configured channels — show one row per channel
+                        ForEach(Array(channels.enumerated()), id: \.element.id) { channelIndex, channel in
+                            configuredChannelRow(channel)
+
+                            // Expanded invite/verification content below the row
+                            channelActions(for: channel)
+
+                            if typeIndex < visibleTypes.count - 1 || channelIndex < channels.count - 1 {
+                                SettingsDivider()
+                                    .padding(.vertical, VSpacing.sm)
+                            }
+                        }
+                    } else {
+                        // Unconfigured channel — show invite row or expanded invite content
+                        if inviteExpanded.contains(type) {
+                            unconfiguredChannelRowExpanded(type: type)
+                        } else {
+                            unconfiguredChannelRow(type: type)
+                        }
+
+                        if typeIndex < visibleTypes.count - 1 {
+                            SettingsDivider()
+                                .padding(.vertical, VSpacing.sm)
+                        }
+                    }
+                }
+            }
+        }
+        .padding(VSpacing.lg)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .overlay(
+            RoundedRectangle(cornerRadius: 16)
+                .stroke(VColor.borderDisabled, lineWidth: 1)
+        )
+        .clipShape(RoundedRectangle(cornerRadius: 16))
+    }
+
+    /// A flat row for a configured/verified channel: icon + name/description + timestamp + action button.
+    @ViewBuilder
+    private func configuredChannelRow(_ channel: ContactChannelPayload) -> some View {
+        let isVerified = channel.status == "active" && channel.verifiedAt != nil
+        let iconColor = isVerified ? VColor.systemPositiveStrong : VColor.contentSecondary
+
+        HStack(spacing: VSpacing.md) {
+            VIconView(channelIcon(for: channel.type), size: 20)
+                .foregroundColor(iconColor)
+                .frame(width: 20, height: 20)
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(isVerified ? channel.address : channelLabel(for: channel.type))
+                    .font(.custom("Inter-SemiBold", size: 14))
+                    .foregroundColor(VColor.contentDefault)
+                    .lineLimit(1)
+
+                channelDescription(for: channel)
+            }
+
+            Spacer()
+
+            if let verifiedAt = channel.verifiedAt, verifiedAt > 0 {
+                Text(relativeTime(epochMs: Int(verifiedAt)))
+                    .font(.custom("Inter-Medium", size: 12))
+                    .foregroundColor(VColor.contentTertiary)
+            }
+
+            channelActionButton(for: channel)
+        }
+    }
+
+    /// Description text below the channel name in a configured row.
+    @ViewBuilder
+    private func channelDescription(for channel: ContactChannelPayload) -> some View {
+        let isVerified = channel.status == "active" && channel.verifiedAt != nil
+
+        if isVerified, let verifiedAt = channel.verifiedAt, verifiedAt > 0 {
+            Text("Verified via \(channelLabel(for: channel.type)) \u{00B7} \(formatDate(epochMs: Int(verifiedAt)))")
+                .font(.custom("Inter-Medium", size: 12))
+                .foregroundColor(VColor.contentTertiary)
+                .lineLimit(1)
+        } else {
+            Text(channelSubtitle(for: channel.type))
+                .font(.custom("Inter-Medium", size: 12))
+                .foregroundColor(VColor.contentTertiary)
+                .lineLimit(1)
+        }
+    }
+
+    /// The trailing action button for a configured channel row.
+    @ViewBuilder
+    private func channelActionButton(for channel: ContactChannelPayload) -> some View {
+        let anyActionInFlight = actionInProgress != nil || verificationInProgress != nil || isDeleting
+        let isVerified = channel.status == "active" && channel.verifiedAt != nil
+
+        if isVerified {
+            // Danger "Disable" button for verified channels
+            Button {
+                updateChannelStatus(channelId: channel.id, status: "revoked")
+            } label: {
+                Text("Disable")
+                    .font(.custom("Inter-Medium", size: 12))
+                    .foregroundColor(VColor.systemNegativeStrong)
+                    .padding(.horizontal, VSpacing.md)
+                    .padding(.vertical, VSpacing.xs)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: VRadius.sm)
+                            .stroke(VColor.systemNegativeStrong, lineWidth: 1)
+                    )
+            }
+            .buttonStyle(.plain)
+            .disabled(anyActionInFlight)
+        } else if channel.status == "unverified" || channel.status == "pending" {
+            // "Invite" button for unverified channels
+            Button {
+                initiateVerification(for: channel)
+            } label: {
+                Text("Send Verification")
+                    .font(.custom("Inter-Medium", size: 12))
+                    .foregroundColor(VColor.primaryBase)
+                    .padding(.horizontal, VSpacing.md)
+                    .padding(.vertical, VSpacing.xs)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: VRadius.sm)
+                            .stroke(VColor.primaryBase, lineWidth: 1)
+                    )
+            }
+            .buttonStyle(.plain)
+            .disabled(anyActionInFlight)
+        } else if channel.status == "blocked" {
+            Button {
+                updateChannelStatus(channelId: channel.id, status: "active")
+            } label: {
+                Text("Restore")
+                    .font(.custom("Inter-Medium", size: 12))
+                    .foregroundColor(VColor.primaryBase)
+                    .padding(.horizontal, VSpacing.md)
+                    .padding(.vertical, VSpacing.xs)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: VRadius.sm)
+                            .stroke(VColor.primaryBase, lineWidth: 1)
+                    )
+            }
+            .buttonStyle(.plain)
+            .disabled(anyActionInFlight)
+        } else {
+            // Active but not verified — show revoke
+            Button {
+                updateChannelStatus(channelId: channel.id, status: "revoked")
+            } label: {
+                Text("Disable")
+                    .font(.custom("Inter-Medium", size: 12))
+                    .foregroundColor(VColor.systemNegativeStrong)
+                    .padding(.horizontal, VSpacing.md)
+                    .padding(.vertical, VSpacing.xs)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: VRadius.sm)
+                            .stroke(VColor.systemNegativeStrong, lineWidth: 1)
+                    )
+            }
+            .buttonStyle(.plain)
+            .disabled(anyActionInFlight)
+        }
+    }
+
+    /// A flat row for an unconfigured channel (not yet invited): dimmed icon + name + "Not Available" or "Invite".
+    @ViewBuilder
+    private func unconfiguredChannelRow(type: String) -> some View {
+        let isReady = channelReadiness[type]?.ready == true
+
+        HStack(spacing: VSpacing.md) {
+            VIconView(channelIcon(for: type), size: 20)
+                .foregroundColor(isReady ? VColor.contentSecondary : VColor.contentDisabled)
+                .frame(width: 20, height: 20)
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(channelLabel(for: type))
+                    .font(.custom("Inter-SemiBold", size: 14))
+                    .foregroundColor(isReady ? VColor.contentDefault : VColor.contentDisabled)
+                    .lineLimit(1)
+
+                Text(channelSubtitle(for: type))
+                    .font(.custom("Inter-Medium", size: 12))
+                    .foregroundColor(isReady ? VColor.contentTertiary : VColor.contentDisabled)
+                    .lineLimit(1)
+            }
+
+            Spacer()
+
+            if isReady {
+                // Primary outlined "Invite" button
+                Button {
+                    inviteExpanded.insert(type)
+                    if type == "telegram" || type == "slack" {
+                        createInviteForChannel(type: type)
+                    }
+                } label: {
+                    Text("Invite")
+                        .font(.custom("Inter-Medium", size: 12))
+                        .foregroundColor(VColor.primaryBase)
+                        .padding(.horizontal, VSpacing.md)
+                        .padding(.vertical, VSpacing.xs)
+                        .overlay(
+                            RoundedRectangle(cornerRadius: VRadius.sm)
+                                .stroke(VColor.primaryBase, lineWidth: 1)
+                        )
+                }
+                .buttonStyle(.plain)
+                .accessibilityHint("\(channelLabel(for: type)) is not connected for this contact")
+            } else {
+                // Disabled "Not Available" button
+                Text("Not Available")
+                    .font(.custom("Inter-Medium", size: 12))
+                    .foregroundColor(VColor.contentDisabled)
+                    .padding(.horizontal, VSpacing.md)
+                    .padding(.vertical, VSpacing.xs)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: VRadius.sm)
+                            .stroke(VColor.borderDisabled, lineWidth: 1)
+                    )
+            }
+        }
+    }
+
+    /// Expanded invite content for an unconfigured channel row.
+    @ViewBuilder
+    private func unconfiguredChannelRowExpanded(type: String) -> some View {
+        VStack(alignment: .leading, spacing: VSpacing.md) {
+            // Show the channel row header with a collapse action
+            HStack(spacing: VSpacing.md) {
+                VIconView(channelIcon(for: type), size: 20)
                     .foregroundColor(VColor.contentSecondary)
-                    .frame(width: 20, alignment: .center)
+                    .frame(width: 20, height: 20)
 
                 VStack(alignment: .leading, spacing: 2) {
-                    HStack(spacing: VSpacing.sm) {
-                        Text(channel.address)
-                            .font(VFont.body)
-                            .foregroundColor(VColor.contentDefault)
-                            .lineLimit(1)
+                    Text(channelLabel(for: type))
+                        .font(.custom("Inter-SemiBold", size: 14))
+                        .foregroundColor(VColor.contentDefault)
+                        .lineLimit(1)
 
-                        statusBadge(for: channel)
-                    }
-
-                    // Platform user ID with profile link
-                    if channel.type == "telegram",
-                       let externalUserId = channel.externalUserId,
-                       !externalUserId.isEmpty {
-                        HStack(spacing: 0) {
-                            Text("Telegram ID: ")
-                                .font(VFont.caption)
-                                .foregroundColor(VColor.contentTertiary)
-                            if let url = URL(string: "https://web.telegram.org/a/#\(externalUserId)") {
-                                Link(externalUserId, destination: url)
-                                    .font(VFont.caption)
-                                    .lineLimit(1)
-                                    .pointerCursor()
-                            } else {
-                                Text(externalUserId)
-                                    .font(VFont.caption)
-                                    .foregroundColor(VColor.contentTertiary)
-                                    .lineLimit(1)
-                            }
-                        }
-                    }
-
-                    if channel.type == "slack",
-                       let externalUserId = channel.externalUserId,
-                       !externalUserId.isEmpty {
-                        HStack(spacing: 0) {
-                            Text("Slack ID: ")
-                                .font(VFont.caption)
-                                .foregroundColor(VColor.contentTertiary)
-                            if let teamId = store?.slackChannelTeamId,
-                               !teamId.isEmpty,
-                               let url = URL(string: "slack://user?team=\(teamId)&id=\(externalUserId)") {
-                                Link(externalUserId, destination: url)
-                                    .font(VFont.caption)
-                                    .lineLimit(1)
-                                    .pointerCursor()
-                            } else {
-                                Text(externalUserId)
-                                    .font(VFont.caption)
-                                    .foregroundColor(VColor.contentTertiary)
-                                    .lineLimit(1)
-                            }
-                        }
-                    }
-
-                    if let verifiedAt = channel.verifiedAt, verifiedAt > 0 {
-                        let dateStr = formatDate(epochMs: verifiedAt)
-                        Text("Verified on \(dateStr)")
-                            .font(VFont.caption)
-                            .foregroundColor(VColor.contentTertiary)
-                    }
-
-                    if channel.policy != "allow" {
-                        VBadge(
-                            style: .label("Policy: \(channel.policy.capitalized)"),
-                            color: VColor.systemNegativeHover
-                        )
-                    }
+                    Text(channelSubtitle(for: type))
+                        .font(.custom("Inter-Medium", size: 12))
+                        .foregroundColor(VColor.contentTertiary)
+                        .lineLimit(1)
                 }
 
                 Spacer()
             }
 
-            channelActions(for: channel)
+            // Invite flow content
+            unconfiguredChannelContent(type: type)
         }
     }
+
+
 
     @ViewBuilder
     private func unconfiguredChannelContent(type: String) -> some View {
@@ -795,138 +960,66 @@ struct ContactDetailView: View {
         }
     }
 
+    /// Inline feedback shown below a configured channel row when an action is in-flight.
     @ViewBuilder
     private func channelActions(for channel: ContactChannelPayload) -> some View {
-        // Disable ALL action buttons while any channel action is in-flight to
-        // serialize updates and prevent response correlation mix-ups.
-        let anyActionInFlight = actionInProgress != nil || verificationInProgress != nil || isDeleting
         let isThisChannel = actionInProgress == channel.id
 
-        VStack(alignment: .leading, spacing: VSpacing.sm) {
-            HStack(spacing: VSpacing.sm) {
-                switch channel.status {
-                case "blocked":
-                    VButton(
-                        label: "Restore Access",
-                        style: .outlined,
-                        isDisabled: anyActionInFlight
-                    ) {
-                        updateChannelStatus(channelId: channel.id, status: "active")
-                    }
-                case "unverified", "pending":
-                    VButton(
-                        label: "Send Verification",
-                        style: .primary,
-                        isDisabled: anyActionInFlight
-                    ) {
-                        initiateVerification(for: channel)
-                    }
-                    VButton(
-                        label: "Revoke",
-                        style: .dangerOutline,
-                        isDisabled: anyActionInFlight
-                    ) {
-                        updateChannelStatus(channelId: channel.id, status: "revoked")
-                    }
-                default:
-                    VButton(
-                        label: "Revoke",
-                        style: .dangerOutline,
-                        isDisabled: anyActionInFlight
-                    ) {
-                        updateChannelStatus(channelId: channel.id, status: "revoked")
-                    }
-                    VButton(
-                        label: "Block",
-                        style: .dangerOutline,
-                        isDisabled: anyActionInFlight
-                    ) {
-                        updateChannelStatus(channelId: channel.id, status: "blocked")
-                    }
-                }
-
-                if isThisChannel {
-                    ProgressView()
-                        .controlSize(.small)
-                }
+        if isThisChannel {
+            HStack(spacing: VSpacing.xs) {
+                ProgressView()
+                    .controlSize(.small)
+                Text("Updating...")
+                    .font(VFont.caption)
+                    .foregroundColor(VColor.contentSecondary)
             }
-
-            // Verification feedback
-            if verificationInProgress == channel.id {
-                HStack(spacing: VSpacing.xs) {
-                    ProgressView()
-                        .controlSize(.small)
-                    Text("Sending verification code...")
-                        .font(VFont.caption)
-                        .foregroundColor(VColor.contentSecondary)
-                }
-            }
-
-            if verificationSuccessChannelId == channel.id {
-                HStack(spacing: VSpacing.xs) {
-                    VIconView(.circleCheck, size: 12)
-                        .foregroundColor(VColor.systemPositiveStrong)
-                    Text("Verification code sent")
-                        .font(VFont.caption)
-                        .foregroundColor(VColor.systemPositiveStrong)
-                }
-            }
-
-            // Telegram bootstrap: the guardian needs to open a deep link before
-            // a verification code can be delivered.
-            if telegramBootstrapChannelId == channel.id, let urlString = telegramBootstrapUrl, let url = URL(string: urlString) {
-                VStack(alignment: .leading, spacing: VSpacing.xs) {
-                    Text("Ask your contact to open this link to start the Telegram chat:")
-                        .font(VFont.caption)
-                        .foregroundColor(VColor.contentTertiary)
-
-                    Button {
-                        NSWorkspace.shared.open(url)
-                    } label: {
-                        HStack(spacing: VSpacing.xs) {
-                            VIconView(.externalLink, size: 11)
-                            Text("Open Telegram")
-                                .font(VFont.caption)
-                        }
-                        .foregroundColor(VColor.primaryBase)
-                    }
-                    .buttonStyle(.plain)
-                    .pointerCursor()
-                }
-            }
+            .padding(.leading, 20 + VSpacing.md) // align with text, past icon
         }
-    }
 
-    // MARK: - Status Badge
-
-    @ViewBuilder
-    private func statusBadge(for channel: ContactChannelPayload) -> some View {
-        let (label, bgColor, fgColor) = statusBadgeStyle(for: channel)
-
-        Text(label)
-            .font(VFont.captionMedium)
-            .foregroundColor(fgColor)
-            .padding(.horizontal, VSpacing.sm)
-            .padding(.vertical, VSpacing.xxs)
-            .background(bgColor)
-            .clipShape(RoundedRectangle(cornerRadius: VRadius.pill))
-    }
-
-    private func statusBadgeStyle(for channel: ContactChannelPayload) -> (String, Color, Color) {
-        if channel.status == "active" && channel.verifiedAt != nil {
-            return ("Verified", VColor.systemPositiveWeak, VColor.systemPositiveStrong)
+        if verificationInProgress == channel.id {
+            HStack(spacing: VSpacing.xs) {
+                ProgressView()
+                    .controlSize(.small)
+                Text("Sending verification code...")
+                    .font(VFont.caption)
+                    .foregroundColor(VColor.contentSecondary)
+            }
+            .padding(.leading, 20 + VSpacing.md)
         }
-        switch channel.status {
-        case "active":
-            return ("Active", VColor.systemPositiveWeak, VColor.systemPositiveStrong)
-        case "pending":
-            return ("Pending", VColor.systemMidWeak, VColor.systemNegativeHover)
-        case "revoked":
-            return ("Revoked", VColor.systemNegativeWeak, VColor.systemNegativeStrong)
-        case "blocked":
-            return ("Blocked", VColor.systemNegativeWeak, VColor.systemNegativeStrong)
-        default:
-            return ("Unverified", VColor.surfaceOverlay, VColor.contentTertiary)
+
+        if verificationSuccessChannelId == channel.id {
+            HStack(spacing: VSpacing.xs) {
+                VIconView(.circleCheck, size: 12)
+                    .foregroundColor(VColor.systemPositiveStrong)
+                Text("Verification code sent")
+                    .font(VFont.caption)
+                    .foregroundColor(VColor.systemPositiveStrong)
+            }
+            .padding(.leading, 20 + VSpacing.md)
+        }
+
+        // Telegram bootstrap: the guardian needs to open a deep link before
+        // a verification code can be delivered.
+        if telegramBootstrapChannelId == channel.id, let urlString = telegramBootstrapUrl, let url = URL(string: urlString) {
+            VStack(alignment: .leading, spacing: VSpacing.xs) {
+                Text("Ask your contact to open this link to start the Telegram chat:")
+                    .font(VFont.caption)
+                    .foregroundColor(VColor.contentTertiary)
+
+                Button {
+                    NSWorkspace.shared.open(url)
+                } label: {
+                    HStack(spacing: VSpacing.xs) {
+                        VIconView(.externalLink, size: 11)
+                        Text("Open Telegram")
+                            .font(VFont.caption)
+                    }
+                    .foregroundColor(VColor.primaryBase)
+                }
+                .buttonStyle(.plain)
+                .pointerCursor()
+            }
+            .padding(.leading, 20 + VSpacing.md)
         }
     }
 
@@ -948,11 +1041,13 @@ struct ContactDetailView: View {
         case "telegram":
             return .send
         case "phone":
-            return .phoneCall
+            return .lock
         case "email":
             return .mail
-        case "whatsapp", "slack":
-            return .messageCircle
+        case "whatsapp":
+            return .messageSquare
+        case "slack":
+            return .hash
         default:
             return .globe
         }
