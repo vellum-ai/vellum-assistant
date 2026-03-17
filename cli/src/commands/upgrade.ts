@@ -261,14 +261,6 @@ async function upgradeDocker(
     }
   }
 
-  // Ensure the assistant-only network exists. Instances hatched before the
-  // network isolation change will not have it, so create it defensively.
-  try {
-    await exec("docker", ["network", "create", res.assistantNetwork]);
-  } catch {
-    // Network already exists — safe to ignore
-  }
-
   console.log("🚀 Starting upgraded containers...");
   await startContainers(
     {
