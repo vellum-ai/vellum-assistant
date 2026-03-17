@@ -441,6 +441,28 @@ export function wipeConversation(id: string): WipeConversationResult {
   // Step D — Get the conversation's memoryScopeId before deletion.
   const scopeId = getConversationMemoryScopeId(id);
 
+  // Step D.5 — Collect kind + subject pairs of items that will be orphaned
+  // by deleteConversation. These are items sourced from this conversation's
+  // messages that have NO sources from any other conversation. We need this
+  // before deletion so we can scope Step F to only restore superseded items
+  // matching the specific kind + subject pairs that just lost their active
+  // replacement.
+  const orphanedKindSubjects = rawAll<{ kind: string; subject: string }>(
+    `SELECT DISTINCT mi.kind, mi.subject
+     FROM memory_items mi
+     JOIN memory_item_sources mis ON mis.memory_item_id = mi.id
+     JOIN messages m ON m.id = mis.message_id
+     WHERE m.conversation_id = ?
+       AND NOT EXISTS (
+         SELECT 1 FROM memory_item_sources mis2
+         JOIN messages m2 ON m2.id = mis2.message_id
+         WHERE mis2.memory_item_id = mi.id
+           AND m2.conversation_id != ?
+       )`,
+    id,
+    id,
+  );
+
   // Step E — Delegate to deleteConversation which handles messages (cascade
   // segments, item_sources, attachments), llmRequestLogs, toolInvocations,
   // orphaned memory items + embeddings, and the conversation row.
@@ -449,22 +471,35 @@ export function wipeConversation(id: string): WipeConversationResult {
   // Step F — Restore orphaned subject-match superseded items. After
   // deleteConversation removes superseding items, find superseded items
   // with no supersededBy link where no active item with the same
-  // kind + subject + scope_id exists.
-  const orphanedSuperseded = rawAll<{ id: string }>(
-    `SELECT id FROM memory_items
-     WHERE status = 'superseded'
-       AND superseded_by IS NULL
-       AND scope_id = ?
-       AND NOT EXISTS (
-         SELECT 1 FROM memory_items mi2
-         WHERE mi2.kind = memory_items.kind
-           AND mi2.subject = memory_items.subject
-           AND mi2.scope_id = memory_items.scope_id
-           AND mi2.status = 'active'
-           AND mi2.id != memory_items.id
-       )`,
-    scopeId,
-  );
+  // kind + subject + scope_id exists. Scoped to only the kind + subject
+  // pairs of items that were just orphaned by deleteConversation, so we
+  // don't accidentally restore items superseded by unrelated conversations.
+  let orphanedSuperseded: Array<{ id: string }> = [];
+  if (orphanedKindSubjects.length > 0) {
+    const placeholders = orphanedKindSubjects
+      .map(() => "(?, ?)")
+      .join(", ");
+    const params: Array<string> = [scopeId];
+    for (const { kind, subject } of orphanedKindSubjects) {
+      params.push(kind, subject);
+    }
+    orphanedSuperseded = rawAll<{ id: string }>(
+      `SELECT id FROM memory_items
+       WHERE status = 'superseded'
+         AND superseded_by IS NULL
+         AND scope_id = ?
+         AND (kind, subject) IN (VALUES ${placeholders})
+         AND NOT EXISTS (
+           SELECT 1 FROM memory_items mi2
+           WHERE mi2.kind = memory_items.kind
+             AND mi2.subject = memory_items.subject
+             AND mi2.scope_id = memory_items.scope_id
+             AND mi2.status = 'active'
+             AND mi2.id != memory_items.id
+         )`,
+      ...params,
+    );
+  }
   for (const { id: itemId } of orphanedSuperseded) {
     rawRun("UPDATE memory_items SET status = 'active' WHERE id = ?", itemId);
     enqueueMemoryJob("embed_item", { itemId });
