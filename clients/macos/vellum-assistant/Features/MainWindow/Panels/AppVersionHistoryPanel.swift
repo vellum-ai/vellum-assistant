@@ -260,11 +260,11 @@ struct AppVersionHistoryPanel: View {
         isLoading = true
         historyTimeoutTask?.cancel()
         historyTimeoutTask = Task {
-            if let response = await AppClient().fetchHistory(appId: appId),
-               response.appId == appId {
+            let response = await AppClient().fetchHistory(appId: appId)
+            guard fetchHistoryId == currentId else { return }
+            if let response, response.appId == appId {
                 versions = response.versions
             }
-            guard fetchHistoryId == currentId else { return }
             isLoading = false
         }
     }

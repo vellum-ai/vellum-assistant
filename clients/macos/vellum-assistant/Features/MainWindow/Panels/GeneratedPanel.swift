@@ -580,17 +580,13 @@ struct GeneratedPanel: View {
 
     @MainActor private func openApp(_ item: DisplayAppItem) {
         if let localId = item.localAppId {
-            // Local apps: open via the gateway.
-            // When onOpenApp is set, the response will be intercepted
-            // by SurfaceManager and routed to the workspace.
+            // Local apps: open via the gateway and route through onSurfaceShow
+            // so the full SurfaceManager + notification chain runs (selection,
+            // activeDynamicUserAppsDirectory, surfaceAppIds registration).
             onRecordAppOpen?(localId, item.name, item.icon, item.appType)
             Task {
                 if let surfaceMsg = await AppClient().open(appId: localId) {
-                    if let onOpenApp {
-                        onOpenApp(surfaceMsg)
-                    } else {
-                        daemonClient.onSurfaceShow?(surfaceMsg)
-                    }
+                    daemonClient.onSurfaceShow?(surfaceMsg)
                 }
             }
         } else if let uuid = item.sharedUUID {
