@@ -26,20 +26,6 @@ public struct ModelListBubble: View {
 
     private static let providerGroups: [(key: String, name: String, models: [(cmd: String, model: String, display: String)])] = [
         ("anthropic", "Anthropic", anthropicModels),
-        ("openai", "OpenAI", [
-            ("gpt4", "gpt-4", "GPT-4"),
-            ("gpt4o", "gpt-4o", "GPT-4o"),
-            ("gpt5", "gpt-5.2", "GPT-5.2"),
-        ]),
-        ("gemini", "Google", [
-            ("gemini", "gemini-3-flash", "Gemini 3 Flash"),
-        ]),
-        ("ollama", "Ollama", [
-            ("ollama", "llama3.2", "Llama 3.2"),
-        ]),
-        ("fireworks", "Fireworks", [
-            ("fireworks", "accounts/fireworks/models/kimi-k2p5", "Kimi K2.5"),
-        ]),
     ]
 
     private var groups: [ProviderGroup] {
