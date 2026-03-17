@@ -29,15 +29,14 @@ struct ContactsContainerView: View {
 
     var body: some View {
         HStack(alignment: .top, spacing: 0) {
-            // Left pane: contacts list
-            ScrollView {
-                ContactsListView(
-                    viewModel: viewModel,
-                    selection: $selection
-                )
-                .padding(VSpacing.lg)
-            }
+            // Left pane: contacts list (full height, internal scrolling)
+            ContactsListView(
+                viewModel: viewModel,
+                selection: $selection
+            )
+            .padding(VSpacing.lg)
             .frame(width: 320)
+            .frame(maxHeight: .infinity, alignment: .top)
             .background(VColor.surfaceOverlay)
 
             Divider()
