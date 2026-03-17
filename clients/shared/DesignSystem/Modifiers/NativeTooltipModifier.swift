@@ -3,18 +3,12 @@ import SwiftUI
 #if os(macOS)
 import AppKit
 
-/// Sets `NSView.toolTip` directly via AppKit, bypassing SwiftUI's `.help()` modifier.
+/// Bridges AppKit's `NSView.toolTip` into SwiftUI via `.background()`.
 ///
-/// SwiftUI's `.help()` relies on the same event system as gesture recognizers.
-/// In views with complex gesture hierarchies (`.onTapGesture` + `.contextMenu`
-/// + `.onDrag` + `.onHover`), `.help()` tooltips may never fire because the
-/// competing tracking areas consume the idle-mouse events that the tooltip
-/// system depends on.
-///
-/// This modifier uses AppKit's `NSView.toolTip` via `.background()`, which
-/// tracks mouse idle at the window level independently of SwiftUI gestures.
-/// This is the standard recommended workaround for `.help()` reliability issues
-/// on macOS.
+/// AppKit tooltip tracking operates at the window level, independently of
+/// SwiftUI's gesture system. This makes it reliable in views where `.help()`
+/// fails due to competing tracking areas from gesture modifiers like
+/// `.onTapGesture`, `.contextMenu`, `.onDrag`, and `.onHover`.
 private struct NativeTooltipView: NSViewRepresentable {
     let text: String
 
