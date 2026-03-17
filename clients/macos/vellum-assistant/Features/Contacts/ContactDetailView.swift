@@ -197,12 +197,21 @@ struct ContactDetailView: View {
     }
 
     private var contactTypeBadge: some View {
-        VBadge(
-            style: .label(formatContactType(displayContact.contactType)),
-            color: displayContact.contactType == "assistant"
-                ? VColor.primaryBase
-                : VColor.contentSecondary
-        )
+        Text(formatContactType(displayContact.role))
+            .font(VFont.captionMedium)
+            .foregroundColor(VColor.contentDefault)
+            .padding(.horizontal, VSpacing.sm)
+            .padding(.vertical, VSpacing.xs)
+            .background(tagColor(for: displayContact.role))
+            .clipShape(RoundedRectangle(cornerRadius: VRadius.sm + 2))
+    }
+
+    private func tagColor(for role: String?) -> Color {
+        switch role {
+        case "guardian": return VColor.tagGuardian
+        case "assistant": return VColor.tagAssistant
+        default: return VColor.tagHuman
+        }
     }
 
     // MARK: - Channels Section
