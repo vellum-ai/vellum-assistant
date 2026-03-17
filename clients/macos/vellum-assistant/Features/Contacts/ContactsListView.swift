@@ -53,85 +53,81 @@ struct ContactsListView: View {
                 .accessibilityLabel("Add contact")
             }
 
-            // All rows in a single scrollable area
-            ScrollView {
-                VStack(alignment: .leading, spacing: VSpacing.xs) {
-                    // Assistant row
+            // Pinned rows (assistant + guardian)
+            VStack(alignment: .leading, spacing: VSpacing.xs) {
+                contactListRow(
+                    name: cachedAssistantDisplayName,
+                    channelText: "Assistant channels",
+                    tag: "Assistant",
+                    tagColor: VColor.tagAssistant,
+                    isSelected: selection == .assistant,
+                    isHovered: isAssistantHovered,
+                    onTap: { selection = .assistant },
+                    onHover: { isAssistantHovered = $0 }
+                )
+
+                if let guardian = viewModel.guardianContact {
                     contactListRow(
-                        name: cachedAssistantDisplayName,
-                        channelText: "Assistant channels",
-                        tag: "Assistant",
-                        tagColor: VColor.tagAssistant,
-                        isSelected: selection == .assistant,
-                        isHovered: isAssistantHovered,
-                        onTap: { selection = .assistant },
-                        onHover: { isAssistantHovered = $0 }
+                        name: "\(guardian.displayName) (You)",
+                        channelText: channelNamesText(guardian.channels),
+                        tag: "Guardian",
+                        tagColor: VColor.tagGuardian,
+                        isSelected: selection == .contact(guardian.id),
+                        isHovered: hoveredContactId == guardian.id,
+                        onTap: { selection = .contact(guardian.id) },
+                        onHover: { hoveredContactId = $0 ? guardian.id : nil }
                     )
+                }
+            }
 
-                    // Guardian row
-                    if let guardian = viewModel.guardianContact {
-                        contactListRow(
-                            name: "\(guardian.displayName) (You)",
-                            channelText: channelNamesText(guardian.channels),
-                            tag: "Guardian",
-                            tagColor: VColor.tagGuardian,
-                            isSelected: selection == .contact(guardian.id),
-                            isHovered: hoveredContactId == guardian.id,
-                            onTap: { selection = .contact(guardian.id) },
-                            onHover: { hoveredContactId = $0 ? guardian.id : nil }
-                        )
-                    }
+            VColor.surfaceBase.frame(height: 1)
 
-                    // Divider between pinned rows and contacts
-                    VColor.surfaceBase.frame(height: 1)
-
-                    // Search + contact rows
+            // Contacts area — fills remaining height
+            if viewModel.hasNonGuardianContacts {
+                ScrollView {
                     VStack(alignment: .leading, spacing: VSpacing.xs) {
-                        if viewModel.hasNonGuardianContacts {
-                            searchBar
-                                .padding(.top, VSpacing.sm)
+                        searchBar
+                            .padding(.top, VSpacing.sm)
+
+                        ForEach(viewModel.otherContacts, id: \.id) { contact in
+                            contactListRow(
+                                name: contact.displayName,
+                                channelText: channelNamesText(contact.channels),
+                                tag: formatContactType(contact.role),
+                                tagColor: tagColor(for: contact.role),
+                                isSelected: selection == .contact(contact.id),
+                                isHovered: hoveredContactId == contact.id,
+                                onTap: { selection = .contact(contact.id) },
+                                onHover: { hoveredContactId = $0 ? contact.id : nil }
+                            )
                         }
 
-                        if !viewModel.hasNonGuardianContacts {
-                            VEmptyState(
-                                title: "No contacts yet",
-                                icon: VIcon.users.rawValue,
-                                actionLabel: "Add Contact",
-                                actionIcon: VIcon.plus.rawValue,
-                                action: { viewModel.isCreatingContact = true }
-                            )
+                        if viewModel.filteredContacts.isEmpty && !viewModel.contacts.isEmpty {
+                            VStack(spacing: VSpacing.sm) {
+                                Text("No matching contacts")
+                                    .font(VFont.body)
+                                    .foregroundColor(VColor.contentSecondary)
+                                Text("Try a different search term")
+                                    .font(VFont.caption)
+                                    .foregroundColor(VColor.contentTertiary)
+                            }
                             .frame(maxWidth: .infinity)
-                            .padding(.vertical, VSpacing.lg)
-                        } else {
-                            ForEach(viewModel.otherContacts, id: \.id) { contact in
-                                contactListRow(
-                                    name: contact.displayName,
-                                    channelText: channelNamesText(contact.channels),
-                                    tag: formatContactType(contact.role),
-                                    tagColor: tagColor(for: contact.role),
-                                    isSelected: selection == .contact(contact.id),
-                                    isHovered: hoveredContactId == contact.id,
-                                    onTap: { selection = .contact(contact.id) },
-                                    onHover: { hoveredContactId = $0 ? contact.id : nil }
-                                )
-                            }
-
-                            // No search results
-                            if viewModel.filteredContacts.isEmpty && !viewModel.contacts.isEmpty {
-                                VStack(spacing: VSpacing.sm) {
-                                    Text("No matching contacts")
-                                        .font(VFont.body)
-                                        .foregroundColor(VColor.contentSecondary)
-                                    Text("Try a different search term")
-                                        .font(VFont.caption)
-                                        .foregroundColor(VColor.contentTertiary)
-                                }
-                                .frame(maxWidth: .infinity)
-                                .padding(.vertical, VSpacing.xl)
-                            }
+                            .padding(.vertical, VSpacing.xl)
                         }
                     }
                 }
+            } else {
+                // Empty state centered in remaining space
+                Spacer()
+                VEmptyState(
+                    title: "No contacts yet",
+                    icon: VIcon.users.rawValue,
+                    actionLabel: "Add Contact",
+                    actionIcon: VIcon.plus.rawValue,
+                    action: { viewModel.isCreatingContact = true }
+                )
+                .frame(maxWidth: .infinity)
+                Spacer()
             }
         }
         .padding(VSpacing.lg)
