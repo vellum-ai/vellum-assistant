@@ -70,7 +70,7 @@ Slack connects via Socket Mode using a bot token and app-level token (not OAuth)
 - Call `skill_load` with `skill: "slack-app-setup"` to load the dependency skill.
 - Tell the user Slack isn't connected yet and briefly explain what the setup involves, then follow the skill's guided flow.
 
-The slack-app-setup skill handles: manifest-driven app creation, app token and bot token collection via secure prompt (never accept tokens pasted in plaintext chat), token validation, workspace metadata storage, and optional guardian verification. Socket Mode connects automatically once both credentials are stored.
+The slack-app-setup skill handles: manifest-driven app creation, app token and bot token collection via secure prompt (never accept tokens pasted in plaintext chat), and Slack connection setup through the same settings handler used by the Settings UI. That handler validates the bot token, stores workspace metadata, and activates Socket Mode. The skill also covers optional guardian verification.
 
 ### Telegram
 

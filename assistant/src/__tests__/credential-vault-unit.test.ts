@@ -71,6 +71,10 @@ mock.module("../oauth/oauth-store.js", () => {
 });
 
 let manualConnectionStore: Record<string, string> = {};
+let slackChannelConfigCalls: Array<{
+  botToken?: string;
+  appToken?: string;
+}> = [];
 
 mock.module("../oauth/manual-token-connection.js", () => ({
   syncManualTokenConnection: async (providerKey: string) => {
@@ -90,6 +94,93 @@ mock.module("../oauth/manual-token-connection.js", () => ({
         delete manualConnectionStore[providerKey];
       }
     }
+  },
+}));
+
+mock.module("../daemon/handlers/config-slack-channel.js", () => ({
+  setSlackChannelConfig: async (botToken?: string, appToken?: string) => {
+    slackChannelConfigCalls.push({ botToken, appToken });
+
+    const { credentialKey } = await import("../security/credential-key.js");
+    const {
+      getSecureKeyAsync,
+      setSecureKeyAsync,
+    } = await import("../security/secure-keys.js");
+    const { upsertCredentialMetadata } = await import(
+      "../tools/credentials/metadata-store.js"
+    );
+
+    const hasExistingBotToken = !!(await getSecureKeyAsync(
+      credentialKey("slack_channel", "bot_token"),
+    ));
+    const hasExistingAppToken = !!(await getSecureKeyAsync(
+      credentialKey("slack_channel", "app_token"),
+    ));
+
+    if (appToken && !appToken.startsWith("xapp-")) {
+      return {
+        success: false,
+        hasBotToken: hasExistingBotToken,
+        hasAppToken: hasExistingAppToken,
+        connected: hasExistingBotToken && hasExistingAppToken,
+        error: 'Invalid app token: must start with "xapp-"',
+      };
+    }
+
+    if (botToken === "xoxb-invalid-token") {
+      return {
+        success: false,
+        hasBotToken: hasExistingBotToken,
+        hasAppToken: hasExistingAppToken,
+        connected: hasExistingBotToken && hasExistingAppToken,
+        error: "Slack API validation failed: invalid_auth",
+      };
+    }
+
+    if (botToken) {
+      await setSecureKeyAsync(
+        credentialKey("slack_channel", "bot_token"),
+        botToken,
+      );
+      upsertCredentialMetadata("slack_channel", "bot_token", {});
+    }
+    if (appToken) {
+      await setSecureKeyAsync(
+        credentialKey("slack_channel", "app_token"),
+        appToken,
+      );
+      upsertCredentialMetadata("slack_channel", "app_token", {});
+    }
+
+    const hasBotToken = !!(await getSecureKeyAsync(
+      credentialKey("slack_channel", "bot_token"),
+    ));
+    const hasAppToken = !!(await getSecureKeyAsync(
+      credentialKey("slack_channel", "app_token"),
+    ));
+
+    if (hasBotToken && hasAppToken) {
+      manualConnectionStore["slack_channel"] = "active";
+    } else {
+      delete manualConnectionStore["slack_channel"];
+    }
+
+    const warning =
+      hasBotToken && !hasAppToken
+        ? "Bot token stored but app token is missing - connection incomplete."
+        : !hasBotToken && hasAppToken
+          ? "App token stored but bot token is missing - connection incomplete."
+          : undefined;
+
+    return {
+      success: true,
+      hasBotToken,
+      hasAppToken,
+      connected: hasBotToken && hasAppToken,
+      teamName: hasBotToken ? "Test Team" : undefined,
+      botUsername: hasBotToken ? "testbot" : undefined,
+      warning,
+    };
   },
 }));
 
@@ -148,6 +239,7 @@ const _ctx: ToolContext = {
 
 beforeEach(() => {
   manualConnectionStore = {};
+  slackChannelConfigCalls = [];
 });
 
 afterAll(() => {
@@ -554,6 +646,10 @@ describe("credential_store tool — prompt action", () => {
     );
     expect(appResult.isError).toBe(false);
     expect(manualConnectionStore["slack_channel"]).toBeUndefined();
+    expect(slackChannelConfigCalls).toEqual([
+      { appToken: "xapp-test-token" },
+    ]);
+    expect(appResult.content).toContain("connection incomplete");
 
     const botResult = await credentialStoreTool.execute(
       {
@@ -566,6 +662,75 @@ describe("credential_store tool — prompt action", () => {
     );
     expect(botResult.isError).toBe(false);
     expect(manualConnectionStore["slack_channel"]).toBe("active");
+    expect(slackChannelConfigCalls).toEqual([
+      { appToken: "xapp-test-token" },
+      { botToken: "xoxb-test-token" },
+    ]);
+    expect(botResult.content).toContain(
+      "Slack channel connected to Test Team (@testbot).",
+    );
+  });
+
+  test("slack_channel prompt rejects transient send delivery", async () => {
+    const ctxWithPrompt: ToolContext = {
+      ..._ctx,
+      requestSecret: async () => ({
+        value: "xapp-test-token",
+        delivery: "transient_send" as const,
+      }),
+    };
+
+    const result = await credentialStoreTool.execute(
+      {
+        action: "prompt",
+        service: "slack_channel",
+        field: "app_token",
+        label: "App-Level Token",
+      },
+      ctxWithPrompt,
+    );
+
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain("must be saved to secure storage");
+    expect(slackChannelConfigCalls).toEqual([]);
+  });
+
+  test("slack_channel bot token prompt fails through the settings handler", async () => {
+    const promptValues = ["xapp-test-token", "xoxb-invalid-token"];
+    const ctxWithPrompt: ToolContext = {
+      ..._ctx,
+      requestSecret: async () => ({
+        value: promptValues.shift() ?? "",
+        delivery: "store" as const,
+      }),
+    };
+
+    const appResult = await credentialStoreTool.execute(
+      {
+        action: "prompt",
+        service: "slack_channel",
+        field: "app_token",
+        label: "App-Level Token",
+      },
+      ctxWithPrompt,
+    );
+    expect(appResult.isError).toBe(false);
+
+    const botResult = await credentialStoreTool.execute(
+      {
+        action: "prompt",
+        service: "slack_channel",
+        field: "bot_token",
+        label: "Bot User OAuth Token",
+      },
+      ctxWithPrompt,
+    );
+
+    expect(botResult.isError).toBe(true);
+    expect(botResult.content).toContain("invalid_auth");
+    expect(
+      await getSecureKeyAsync(credentialKey("slack_channel", "bot_token")),
+    ).toBeUndefined();
   });
 
   test("prompt rejects invalid policy input", async () => {

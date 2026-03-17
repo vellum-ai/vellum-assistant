@@ -1,4 +1,8 @@
 import { getConfig } from "../../config/loader.js";
+import {
+  setSlackChannelConfig,
+  type SlackChannelConfigResult,
+} from "../../daemon/handlers/config-slack-channel.js";
 import { orchestrateOAuthConnect } from "../../oauth/connect-orchestrator.js";
 import { syncManualTokenConnection } from "../../oauth/manual-token-connection.js";
 import {
@@ -42,6 +46,39 @@ import type {
 import { toPolicyFromInput, validatePolicyInput } from "./policy-validate.js";
 
 const log = getLogger("credential-vault");
+
+function isSlackChannelCredential(
+  service: string,
+  field: string,
+): field is "bot_token" | "app_token" {
+  return (
+    service === "slack_channel" &&
+    (field === "bot_token" || field === "app_token")
+  );
+}
+
+async function storeSlackChannelCredential(
+  field: "bot_token" | "app_token",
+  value: string,
+): Promise<SlackChannelConfigResult> {
+  return field === "bot_token"
+    ? setSlackChannelConfig(value, undefined)
+    : setSlackChannelConfig(undefined, value);
+}
+
+function formatSlackChannelStatus(
+  result: SlackChannelConfigResult,
+): string {
+  if (result.connected) {
+    const teamLabel = result.teamName ?? "Slack";
+    const botLabel = result.botUsername ? ` (@${result.botUsername})` : "";
+    return ` Slack channel connected to ${teamLabel}${botLabel}.`;
+  }
+  if (result.warning) {
+    return ` ${result.warning}`;
+  }
+  return "";
+}
 
 class CredentialStoreTool implements Tool {
   name = "credential_store";
@@ -323,13 +360,27 @@ class CredentialStoreTool implements Tool {
           };
         }
 
-        const key = credentialKey(service, field);
-        const ok = await setSecureKeyAsync(key, value);
-        if (!ok) {
-          return {
-            content: "Error: failed to store credential",
-            isError: true,
-          };
+        let slackChannelResult: SlackChannelConfigResult | undefined;
+        if (isSlackChannelCredential(service, field)) {
+          slackChannelResult = await storeSlackChannelCredential(field, value);
+          if (!slackChannelResult.success) {
+            return {
+              content: `Error: ${
+                slackChannelResult.error ??
+                "failed to configure Slack channel"
+              }`,
+              isError: true,
+            };
+          }
+        } else {
+          const key = credentialKey(service, field);
+          const ok = await setSecureKeyAsync(key, value);
+          if (!ok) {
+            return {
+              content: "Error: failed to store credential",
+              isError: true,
+            };
+          }
         }
         try {
           upsertCredentialMetadata(service, field, {
@@ -345,13 +396,19 @@ class CredentialStoreTool implements Tool {
             "metadata write failed after storing credential",
           );
         }
-        await syncManualTokenConnection(service);
+        if (!isSlackChannelCredential(service, field)) {
+          await syncManualTokenConnection(service);
+        }
         const metadata = getCredentialMetadata(service, field);
         const credIdSuffix = metadata
           ? ` (credential_id: ${metadata.credentialId})`
           : "";
         return {
-          content: `Stored credential for ${service}/${field}.${credIdSuffix}`,
+          content: `Stored credential for ${service}/${field}.${credIdSuffix}${
+            slackChannelResult
+              ? formatSlackChannelStatus(slackChannelResult)
+              : ""
+          }`,
           isError: false,
         };
       }
@@ -655,6 +712,13 @@ class CredentialStoreTool implements Tool {
 
         // Handle one-time send delivery: inject into context without persisting
         if (result.delivery === "transient_send") {
+          if (isSlackChannelCredential(service, field)) {
+            return {
+              content:
+                "Error: Slack channel credentials must be saved to secure storage. Re-run the secure prompt and choose to store the token.",
+              isError: true,
+            };
+          }
           const config = getConfig();
           if (!config.secretDetection.allowOneTimeSend) {
             log.warn(
@@ -705,14 +769,31 @@ class CredentialStoreTool implements Tool {
           };
         }
 
-        // Default: persist to keychain
-        const key = credentialKey(service, field);
-        const ok = await setSecureKeyAsync(key, result.value);
-        if (!ok) {
-          return {
-            content: "Error: failed to store credential",
-            isError: true,
-          };
+        let slackChannelResult: SlackChannelConfigResult | undefined;
+        if (isSlackChannelCredential(service, field)) {
+          slackChannelResult = await storeSlackChannelCredential(
+            field,
+            result.value,
+          );
+          if (!slackChannelResult.success) {
+            return {
+              content: `Error: ${
+                slackChannelResult.error ??
+                "failed to configure Slack channel"
+              }`,
+              isError: true,
+            };
+          }
+        } else {
+          // Default: persist to keychain
+          const key = credentialKey(service, field);
+          const ok = await setSecureKeyAsync(key, result.value);
+          if (!ok) {
+            return {
+              content: "Error: failed to store credential",
+              isError: true,
+            };
+          }
         }
         try {
           upsertCredentialMetadata(service, field, {
@@ -727,13 +808,19 @@ class CredentialStoreTool implements Tool {
             "metadata write failed after storing credential",
           );
         }
-        await syncManualTokenConnection(service);
+        if (!isSlackChannelCredential(service, field)) {
+          await syncManualTokenConnection(service);
+        }
         const promptMeta = getCredentialMetadata(service, field);
         const promptCredIdSuffix = promptMeta
           ? ` (credential_id: ${promptMeta.credentialId})`
           : "";
         return {
-          content: `Credential stored for ${service}/${field}.${promptCredIdSuffix}`,
+          content: `Credential stored for ${service}/${field}.${promptCredIdSuffix}${
+            slackChannelResult
+              ? formatSlackChannelStatus(slackChannelResult)
+              : ""
+          }`,
           isError: false,
         };
       }

@@ -101,19 +101,13 @@ Collect the app token securely:
 
 - Call `credential_store` with `action: "prompt"`, `service: "slack_channel"`, `field: "app_token"`, `label: "App-Level Token"`, `placeholder: "xapp-..."`, `description: "Paste the App-Level Token you just generated"`
 
-After collection, validate the app token format:
+The `slack_channel` secure prompt already routes through the same Slack settings handler used by Settings. Treat that tool result as authoritative:
 
-```bash
-APP_TOKEN=$(assistant credentials reveal --service slack_channel --field app_token)
-if [[ "$APP_TOKEN" != xapp-* ]]; then
-  echo "ERROR: App token must start with xapp-"
-  assistant credentials delete --service slack_channel --field app_token
-  exit 1
-fi
-echo "App token format valid"
-```
+- If it succeeds, continue.
+- If it returns an error, ask the user to re-enter the token.
+- If it returns a warning that the connection is incomplete, that is expected until the bot token is collected.
 
-If the token does not start with `xapp-`, inform the user it is invalid, delete it, and ask them to re-enter (repeat the collection above).
+Do NOT use `ui_show`, `ui_update`, or any regular form to collect these tokens. Do NOT ask the user to paste them in chat.
 
 ## Step 3: Install App & Collect Bot Token
 
@@ -123,33 +117,23 @@ After installation, collect the bot token securely:
 
 - Call `credential_store` with `action: "prompt"`, `service: "slack_channel"`, `field: "bot_token"`, `label: "Bot User OAuth Token"`, `placeholder: "xoxb-..."`, `description: "Paste the Bot User OAuth Token shown after installing"`
 
-## Step 4: Validate Bot Token & Store Workspace Metadata
+After the bot-token prompt succeeds, the same Slack settings handler used by Settings has already:
 
-```bash
-BOT_TOKEN=$(assistant credentials reveal --service slack_channel --field bot_token)
-AUTH_RESPONSE=$(curl -sf -X POST "https://slack.com/api/auth.test" \
-  -H "Authorization: Bearer $BOT_TOKEN")
-echo "$AUTH_RESPONSE" | jq .
-```
+- validated the bot token with Slack
+- stored workspace metadata (`teamId`, `teamName`, `botUserId`, `botUsername`)
+- activated Socket Mode when both tokens are present
 
-If `ok` is `false`, the token is invalid - ask the user to re-enter (repeat Step 3).
+Do NOT run `assistant credentials reveal`, `curl https://slack.com/api/auth.test`, or `assistant config set slack.*` in chat. That is a second implementation path and causes drift from Settings.
 
-If `ok` is `true`, parse the response and persist workspace metadata so the Settings UI can display the connected bot and workspace:
+## Step 4: Confirm Connection
 
-```bash
-TEAM_ID=$(echo "$AUTH_RESPONSE" | jq -r '.team_id')
-TEAM_NAME=$(echo "$AUTH_RESPONSE" | jq -r '.team')
-BOT_USER_ID=$(echo "$AUTH_RESPONSE" | jq -r '.user_id')
-BOT_USERNAME=$(echo "$AUTH_RESPONSE" | jq -r '.user')
-assistant config set slack.teamId "$TEAM_ID"
-assistant config set slack.teamName "$TEAM_NAME"
-assistant config set slack.botUserId "$BOT_USER_ID"
-assistant config set slack.botUsername "$BOT_USERNAME"
-```
+Use the most recent `credential_store` result as the source of truth:
 
-Report the bot username and workspace from the response.
+- If it reports the Slack channel is connected, continue.
+- If it reports an error, stop and fix that error before moving on.
+- If it reports an incomplete setup warning, collect the missing token instead of improvising extra validation commands.
 
-Socket Mode connects automatically once both credentials are stored - no further action needed.
+Guardian verification depends on Socket Mode being live, so only proceed once the connection is confirmed.
 
 ## Step 5: Guardian Verification (Optional)
 
@@ -170,13 +154,4 @@ Summarize:
 
 # Clearing Credentials
 
-To disconnect Slack:
-
-```bash
-assistant credentials delete --service slack_channel --field bot_token
-assistant credentials delete --service slack_channel --field app_token
-assistant config set slack.teamId ""
-assistant config set slack.teamName ""
-assistant config set slack.botUserId ""
-assistant config set slack.botUsername ""
-```
+To disconnect Slack, prefer the Settings UI path so the same Slack settings handler clears both secure tokens and workspace metadata together.
