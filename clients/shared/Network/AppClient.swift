@@ -35,7 +35,7 @@ public struct AppClient: AppClientProtocol {
                 log.error("fetchList failed (HTTP \(response.statusCode))")
                 return nil
             }
-            let patched = injectType("apps_list_response", into: response.data)
+            let patched = injectType("apps_list_response", into: response.data, extraFields: ["success": true])
             return try JSONDecoder().decode(AppsListResponse.self, from: patched)
         } catch {
             log.error("fetchList error: \(error.localizedDescription)")
@@ -272,11 +272,14 @@ public struct AppClient: AppClientProtocol {
         let html: String
     }
 
-    private func injectType(_ type: String, into data: Data) -> Data {
+    private func injectType(_ type: String, into data: Data, extraFields: [String: Any] = [:]) -> Data {
         guard var json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
             return data
         }
         json["type"] = type
+        for (key, value) in extraFields {
+            json[key] = value
+        }
         return (try? JSONSerialization.data(withJSONObject: json)) ?? data
     }
 }

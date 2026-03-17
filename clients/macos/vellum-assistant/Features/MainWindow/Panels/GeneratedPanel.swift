@@ -584,7 +584,15 @@ struct GeneratedPanel: View {
             // When onOpenApp is set, the response will be intercepted
             // by SurfaceManager and routed to the workspace.
             onRecordAppOpen?(localId, item.name, item.icon, item.appType)
-            Task { await AppClient().open(appId: localId) }
+            Task {
+                if let surfaceMsg = await AppClient().open(appId: localId) {
+                    if let onOpenApp {
+                        onOpenApp(surfaceMsg)
+                    } else {
+                        daemonClient.onSurfaceShow?(surfaceMsg)
+                    }
+                }
+            }
         } else if let uuid = item.sharedUUID {
             // Shared apps: construct surface from unpacked files on disk
             // Sanitize to prevent XSS — name comes from external bundle metadata

@@ -584,6 +584,10 @@ extension MainWindowView {
             previewBase64: app.previewBase64,
             appType: app.appType
         )
-        Task { await AppClient().open(appId: app.id) }
+        Task {
+            if let surfaceMsg = await AppClient().open(appId: app.id) {
+                daemonClient.onSurfaceShow?(surfaceMsg)
+            }
+        }
     }
 }

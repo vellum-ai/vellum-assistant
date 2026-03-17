@@ -60,7 +60,11 @@ extension MainWindowView {
                 daemonClient: daemonClient,
                 gatewayBaseURL: settingsStore.localGatewayTarget,
                 onOpenApp: { appId in
-                    Task { await AppClient().open(appId: appId) }
+                    Task {
+                        if let surfaceMsg = await AppClient().open(appId: appId) {
+                            daemonClient.onSurfaceShow?(surfaceMsg)
+                        }
+                    }
                     windowState.selection = .app(appId)
                 },
                 onOpenSharedApp: { surfaceMsg in
@@ -245,7 +249,11 @@ extension MainWindowView {
                 AppLoadingView(
                     appId: appId,
                     onRetry: { appId in
-                        Task { await AppClient().open(appId: appId) }
+                        Task {
+                            if let surfaceMsg = await AppClient().open(appId: appId) {
+                                daemonClient.onSurfaceShow?(surfaceMsg)
+                            }
+                        }
                     },
                     onClose: {
                         windowState.closeDynamicPanel()
@@ -260,7 +268,11 @@ extension MainWindowView {
                     daemonClient: daemonClient,
                     gatewayBaseURL: settingsStore.localGatewayTarget,
                     onOpenApp: { appId in
-                        Task { await AppClient().open(appId: appId) }
+                        Task {
+                            if let surfaceMsg = await AppClient().open(appId: appId) {
+                                daemonClient.onSurfaceShow?(surfaceMsg)
+                            }
+                        }
                         windowState.selection = .app(appId)
                     },
                     onOpenSharedApp: { surfaceMsg in
@@ -440,7 +452,11 @@ extension MainWindowView {
                 daemonClient: daemonClient,
                 gatewayBaseURL: settingsStore.localGatewayTarget,
                 onOpenApp: { appId in
-                    Task { await AppClient().open(appId: appId) }
+                    Task {
+                        if let surfaceMsg = await AppClient().open(appId: appId) {
+                            daemonClient.onSurfaceShow?(surfaceMsg)
+                        }
+                    }
                     windowState.selection = .app(appId)
                 },
                 onOpenSharedApp: { surfaceMsg in

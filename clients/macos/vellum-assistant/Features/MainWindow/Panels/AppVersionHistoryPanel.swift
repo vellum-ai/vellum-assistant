@@ -287,9 +287,9 @@ struct AppVersionHistoryPanel: View {
 
         let expectedHash = version.commitHash
         Task {
-            if let response = await AppClient().fetchDiff(appId: appId, fromCommit: previousVersion.commitHash, toCommit: version.commitHash),
-               pendingDiffCommitHash == expectedHash,
-               response.appId == appId {
+            let response = await AppClient().fetchDiff(appId: appId, fromCommit: previousVersion.commitHash, toCommit: version.commitHash)
+            guard pendingDiffCommitHash == expectedHash else { return }
+            if let response, response.appId == appId {
                 diffText = response.diff
             } else {
                 diffText = ""

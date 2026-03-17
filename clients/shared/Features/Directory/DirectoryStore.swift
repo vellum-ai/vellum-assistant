@@ -54,7 +54,11 @@ public final class DirectoryStore: ObservableObject {
 
     /// Open a local app by ID.
     public func openApp(id: String) {
-        Task { await AppClient().open(appId: id) }
+        Task {
+            if let surfaceMsg = await AppClient().open(appId: id) {
+                daemonClient.onSurfaceShow?(surfaceMsg)
+            }
+        }
     }
 
     /// Delete a local app by ID.
