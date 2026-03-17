@@ -11,9 +11,8 @@
  * results with is_valid flag and detailed error descriptions.
  */
 
-import { Database } from "bun:sqlite";
-
 import { join } from "node:path";
+import { Database } from "bun:sqlite";
 
 import { invalidateConfigCache } from "../../config/loader.js";
 import { resetDb } from "../../memory/db-connection.js";
