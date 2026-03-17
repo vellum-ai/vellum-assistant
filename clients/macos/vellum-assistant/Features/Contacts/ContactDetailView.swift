@@ -142,7 +142,7 @@ struct ContactDetailView: View {
         VStack(alignment: .leading, spacing: VSpacing.xs) {
             HStack(spacing: VSpacing.sm) {
                 Text(displayContact.displayName)
-                    .font(.system(size: 18, weight: .semibold))
+                    .font(VFont.display)
                     .foregroundColor(VColor.contentDefault)
                 contactTypeBadge
             }
@@ -275,10 +275,10 @@ struct ContactDetailView: View {
             // Section header
             VStack(alignment: .leading, spacing: VSpacing.xs) {
                 Text("Channels")
-                    .font(.custom("Inter-SemiBold", size: 18))
+                    .font(VFont.display)
                     .foregroundColor(VColor.contentEmphasized)
                 Text("Set up different ways to interact with your Assistant")
-                    .font(.custom("Inter-Medium", size: 14))
+                    .font(VFont.bodyMedium)
                     .foregroundColor(VColor.contentTertiary)
             }
 
@@ -336,7 +336,7 @@ struct ContactDetailView: View {
 
             VStack(alignment: .leading, spacing: 2) {
                 Text(isVerified ? channel.address : channelLabel(for: channel.type))
-                    .font(.custom("Inter-SemiBold", size: 14))
+                    .font(VFont.bodyBold)
                     .foregroundColor(VColor.contentDefault)
                     .lineLimit(1)
 
@@ -347,7 +347,7 @@ struct ContactDetailView: View {
 
             if let verifiedAt = channel.verifiedAt, verifiedAt > 0 {
                 Text(relativeTime(epochMs: Int(verifiedAt)))
-                    .font(.custom("Inter-Medium", size: 12))
+                    .font(VFont.inputLabel)
                     .foregroundColor(VColor.contentTertiary)
             }
 
@@ -362,12 +362,12 @@ struct ContactDetailView: View {
 
         if isVerified, let verifiedAt = channel.verifiedAt, verifiedAt > 0 {
             Text("Verified via \(channelLabel(for: channel.type)) \u{00B7} \(formatDate(epochMs: Int(verifiedAt)))")
-                .font(.custom("Inter-Medium", size: 12))
+                .font(VFont.inputLabel)
                 .foregroundColor(VColor.contentTertiary)
                 .lineLimit(1)
         } else {
             Text(channelSubtitle(for: channel.type))
-                .font(.custom("Inter-Medium", size: 12))
+                .font(VFont.inputLabel)
                 .foregroundColor(VColor.contentTertiary)
                 .lineLimit(1)
         }
@@ -385,7 +385,7 @@ struct ContactDetailView: View {
                 updateChannelStatus(channelId: channel.id, status: "revoked")
             } label: {
                 Text("Disable")
-                    .font(.custom("Inter-Medium", size: 12))
+                    .font(VFont.inputLabel)
                     .foregroundColor(VColor.systemNegativeStrong)
                     .padding(.horizontal, VSpacing.md)
                     .padding(.vertical, VSpacing.xs)
@@ -402,7 +402,7 @@ struct ContactDetailView: View {
                 initiateVerification(for: channel)
             } label: {
                 Text("Send Verification")
-                    .font(.custom("Inter-Medium", size: 12))
+                    .font(VFont.inputLabel)
                     .foregroundColor(VColor.primaryBase)
                     .padding(.horizontal, VSpacing.md)
                     .padding(.vertical, VSpacing.xs)
@@ -418,7 +418,7 @@ struct ContactDetailView: View {
                 updateChannelStatus(channelId: channel.id, status: "active")
             } label: {
                 Text("Restore")
-                    .font(.custom("Inter-Medium", size: 12))
+                    .font(VFont.inputLabel)
                     .foregroundColor(VColor.primaryBase)
                     .padding(.horizontal, VSpacing.md)
                     .padding(.vertical, VSpacing.xs)
@@ -435,7 +435,7 @@ struct ContactDetailView: View {
                 updateChannelStatus(channelId: channel.id, status: "revoked")
             } label: {
                 Text("Disable")
-                    .font(.custom("Inter-Medium", size: 12))
+                    .font(VFont.inputLabel)
                     .foregroundColor(VColor.systemNegativeStrong)
                     .padding(.horizontal, VSpacing.md)
                     .padding(.vertical, VSpacing.xs)
@@ -461,12 +461,12 @@ struct ContactDetailView: View {
 
             VStack(alignment: .leading, spacing: 2) {
                 Text(channelLabel(for: type))
-                    .font(.custom("Inter-SemiBold", size: 14))
+                    .font(VFont.bodyBold)
                     .foregroundColor(isReady ? VColor.contentDefault : VColor.contentDisabled)
                     .lineLimit(1)
 
                 Text(channelSubtitle(for: type))
-                    .font(.custom("Inter-Medium", size: 12))
+                    .font(VFont.inputLabel)
                     .foregroundColor(isReady ? VColor.contentTertiary : VColor.contentDisabled)
                     .lineLimit(1)
             }
@@ -482,7 +482,7 @@ struct ContactDetailView: View {
                     }
                 } label: {
                     Text("Invite")
-                        .font(.custom("Inter-Medium", size: 12))
+                        .font(VFont.inputLabel)
                         .foregroundColor(VColor.primaryBase)
                         .padding(.horizontal, VSpacing.md)
                         .padding(.vertical, VSpacing.xs)
@@ -496,7 +496,7 @@ struct ContactDetailView: View {
             } else {
                 // Disabled "Not Available" button
                 Text("Not Available")
-                    .font(.custom("Inter-Medium", size: 12))
+                    .font(VFont.inputLabel)
                     .foregroundColor(VColor.contentDisabled)
                     .padding(.horizontal, VSpacing.md)
                     .padding(.vertical, VSpacing.xs)
@@ -520,12 +520,12 @@ struct ContactDetailView: View {
 
                 VStack(alignment: .leading, spacing: 2) {
                     Text(channelLabel(for: type))
-                        .font(.custom("Inter-SemiBold", size: 14))
+                        .font(VFont.bodyBold)
                         .foregroundColor(VColor.contentDefault)
                         .lineLimit(1)
 
                     Text(channelSubtitle(for: type))
-                        .font(.custom("Inter-Medium", size: 12))
+                        .font(VFont.inputLabel)
                         .foregroundColor(VColor.contentTertiary)
                         .lineLimit(1)
                 }
