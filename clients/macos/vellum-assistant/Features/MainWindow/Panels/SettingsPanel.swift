@@ -116,11 +116,11 @@ struct SettingsPanel: View {
                 settingsNav
                     .frame(width: 200)
 
-                if selectedTab == .contacts || selectedTab == .channels || (selectedTab == .archivedConversations && conversationManager.archivedConversations.isEmpty) {
+                if selectedTab == .contacts || (selectedTab == .archivedConversations && conversationManager.archivedConversations.isEmpty) {
                     selectedTabContent
                         .padding(.trailing, VSpacing.xl)
                         .padding(.bottom, VSpacing.xl)
-                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: (selectedTab == .contacts || selectedTab == .channels) ? .top : .center)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: selectedTab == .contacts ? .top : .center)
                 } else {
                     ScrollView {
                         selectedTabContent
