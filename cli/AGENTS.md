@@ -6,14 +6,11 @@ The `cli/` package (`@vellumai/cli`) manages the **lifecycle of Vellum assistant
 
 This contrasts with `assistant/src/cli/`, where commands are scoped to a **single running assistant** and operate on its local state (config, memory, contacts, etc.).
 
-## When a command belongs here vs `assistant/src/cli/`
+## Scope
 
-| `cli/` (this package)                           | `assistant/src/cli/`                                |
-| ----------------------------------------------- | --------------------------------------------------- |
-| Operates on or across assistant instances       | Operates within a single assistant's workspace      |
-| Manages lifecycle (create, start, stop, delete) | Manages instance-local state (config, memory, etc.) |
-| Requires specifying which assistant to target   | Implicitly scoped to the running assistant          |
-| Works without an assistant process running      | May require or start the daemon                     |
+Commands here operate on or across **assistant instances** — creating, starting, stopping, connecting to, and deleting them. They require specifying which assistant to target and work without an assistant process running.
+
+For commands scoped to a **single running assistant's** local state (config, memory, contacts), see `assistant/src/cli/AGENTS.md`.
 
 Examples: `hatch`, `wake`, `sleep`, `retire`, `ps`, `ssh` belong here. `config`, `contacts`, `memory` belong in `assistant/src/cli/`.
 
@@ -30,9 +27,7 @@ Commands that act on a specific assistant should accept an assistant name or ID 
 
 ## Help Text Standards
 
-Every command must have high-quality `--help` output optimized for AI/LLM
-consumption. Help text is a primary interface — both humans and AI agents read
-it to understand what a command does and how to use it.
+Every command must have high-quality `--help` output. Follow the same standards as `assistant/src/cli/AGENTS.md` § Help Text Standards, adapted for this package's manual argv parsing (no Commander.js).
 
 ### Requirements
 
