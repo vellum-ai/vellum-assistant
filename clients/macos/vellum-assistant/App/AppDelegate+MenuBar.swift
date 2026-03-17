@@ -265,19 +265,11 @@ extension AppDelegate {
         restartItem.image = VIcon.refreshCw.nsImage
         menu.addItem(restartItem)
 
-        let quitItem = NSMenuItem(title: "Quit", action: #selector(performExplicitQuit), keyEquivalent: "q")
-        quitItem.target = self
+        let quitItem = NSMenuItem(title: "Quit", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
         quitItem.image = VIcon.power.nsImage
         menu.addItem(quitItem)
 
         menu.popUp(positioning: nil, at: NSPoint(x: 0, y: button.bounds.height + 2), in: button)
-    }
-
-    /// Explicitly quit the app (status bar menu "Quit"). Bypasses the
-    /// Cmd+Q hide behavior by setting `isExplicitTermination`.
-    @objc func performExplicitQuit() {
-        isExplicitTermination = true
-        NSApp.terminate(nil)
     }
 
     @objc func markAllConversationsSeen() {
