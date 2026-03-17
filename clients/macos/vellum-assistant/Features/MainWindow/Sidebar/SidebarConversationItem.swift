@@ -40,7 +40,7 @@ struct SidebarConversationItem: View {
 
     var body: some View {
         // Always reserve 20pt leading slot so text never shifts.
-        // Use a tap gesture instead of Button so .onDrag can coexist —
+        // Use a tap gesture instead of Button so .draggable() can coexist —
         // Button captures mouse-down and prevents drag initiation on macOS.
         Group {
             HStack(spacing: VSpacing.xs) {
@@ -220,10 +220,7 @@ struct SidebarConversationItem: View {
                 sidebar.setConversationHover(conversationId: conversation.id, hovering: hovering)
             }
         }
-        .onDrag {
-            sidebar.draggingConversationId = conversation.id
-            return NSItemProvider(object: conversation.id.uuidString as NSString)
-        } preview: {
+        .draggable(conversation.id.uuidString) {
             HStack(spacing: VSpacing.xs) {
                 if conversation.isPinned {
                     VIconView(.pin, size: 13)
@@ -244,6 +241,9 @@ struct SidebarConversationItem: View {
             .frame(width: 220, alignment: .leading)
             .background(VColor.surfaceBase.opacity(0.9))
             .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
+            .onAppear {
+                sidebar.draggingConversationId = conversation.id
+            }
         }
     }
 }
