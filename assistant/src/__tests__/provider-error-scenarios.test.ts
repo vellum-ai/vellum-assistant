@@ -49,6 +49,11 @@ mock.module("../util/retry.js", () => {
     return status === 429 || status >= 500;
   }
 
+  const RETRYABLE_NETWORK_MESSAGE_PATTERNS = [
+    /socket.*closed unexpectedly/i,
+    /socket hang up/i,
+  ];
+
   function isRetryableNetworkError(error: unknown): boolean {
     if (!(error instanceof Error)) return false;
     const retryableCodes = new Set([
@@ -62,6 +67,18 @@ mock.module("../util/retry.js", () => {
     if (error.cause instanceof Error) {
       const causeCode = (error.cause as NodeJS.ErrnoException).code;
       if (causeCode && retryableCodes.has(causeCode)) return true;
+    }
+    if (
+      RETRYABLE_NETWORK_MESSAGE_PATTERNS.some((p) => p.test(error.message))
+    ) {
+      return true;
+    }
+    const cause = error.cause;
+    if (
+      cause instanceof Error &&
+      RETRYABLE_NETWORK_MESSAGE_PATTERNS.some((p) => p.test(cause.message))
+    ) {
+      return true;
     }
     return false;
   }
@@ -387,6 +404,34 @@ describe("RetryProvider — network error retries", () => {
   test("retries on ECONNRESET in error cause chain", async () => {
     const cause = new Error("socket hangup");
     (cause as NodeJS.ErrnoException).code = "ECONNRESET";
+    const outer = new Error("fetch failed", { cause });
+    const inner = makeFlaky(1, outer);
+    const provider = new RetryProvider(inner);
+
+    const result = await provider.sendMessage(MESSAGES);
+    expect(inner.calls).toBe(2);
+    expect(result.content[0]).toMatchObject({ type: "text", text: "ok" });
+  });
+
+  test("retries on Bun 'socket connection was closed unexpectedly' (ProviderError wrapping)", async () => {
+    const inner = makeFlaky(
+      1,
+      new ProviderError(
+        "Anthropic request failed: The socket connection was closed unexpectedly. For more information, pass `verbose: true` in the second argument to fetch()",
+        "anthropic",
+      ),
+    );
+    const provider = new RetryProvider(inner);
+
+    const result = await provider.sendMessage(MESSAGES);
+    expect(inner.calls).toBe(2);
+    expect(result.stopReason).toBe("end_turn");
+  });
+
+  test("retries on 'socket connection was closed unexpectedly' in error cause", async () => {
+    const cause = new Error(
+      "The socket connection was closed unexpectedly. For more information, pass `verbose: true` in the second argument to fetch()",
+    );
     const outer = new Error("fetch failed", { cause });
     const inner = makeFlaky(1, outer);
     const provider = new RetryProvider(inner);

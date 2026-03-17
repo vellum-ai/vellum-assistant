@@ -66,11 +66,12 @@ describe("classifyConversationError", () => {
       "ETIMEDOUT",
       "ENOTFOUND",
       "socket hang up",
+      "The socket connection was closed unexpectedly",
+      "Anthropic request failed: The socket connection was closed unexpectedly. For more information, pass `verbose: true` in the second argument to fetch()",
       "fetch failed",
       "Connection refused by server",
       "connection reset",
       "connection timeout",
-      "The socket connection was closed unexpectedly",
     ];
 
     for (const msg of cases) {

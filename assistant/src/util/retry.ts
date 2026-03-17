@@ -75,8 +75,18 @@ export function isRetryableStatus(status: number): boolean {
 }
 
 /**
+ * Message patterns that indicate a retryable network/transport error even
+ * when no errno code is present (e.g. Bun's native fetch socket errors).
+ */
+const RETRYABLE_NETWORK_MESSAGE_PATTERNS = [
+  /socket.*closed unexpectedly/i,
+  /socket hang up/i,
+];
+
+/**
  * Whether an error is a retryable network error (ECONNRESET, ECONNREFUSED, etc.).
- * Checks both the error itself and one level of `cause` chain.
+ * Checks errno codes on the error and one level of `cause` chain, then falls
+ * back to message-based detection for runtime-specific errors (e.g. Bun fetch).
  */
 export function isRetryableNetworkError(error: unknown): boolean {
   if (!(error instanceof Error)) return false;
@@ -94,6 +104,24 @@ export function isRetryableNetworkError(error: unknown): boolean {
   if (error.cause instanceof Error) {
     const causeCode = (error.cause as NodeJS.ErrnoException).code;
     if (causeCode && retryableCodes.has(causeCode)) return true;
+  }
+
+  // Fall back to message-based detection for errors without errno codes
+  // (e.g. Bun's "The socket connection was closed unexpectedly")
+  if (
+    RETRYABLE_NETWORK_MESSAGE_PATTERNS.some((p) => p.test(error.message))
+  ) {
+    return true;
+  }
+
+  // Also check the cause's message (ProviderError wraps the original message
+  // but the cause retains the raw transport-level text)
+  const cause = error.cause;
+  if (
+    cause instanceof Error &&
+    RETRYABLE_NETWORK_MESSAGE_PATTERNS.some((p) => p.test(cause.message))
+  ) {
+    return true;
   }
 
   return false;
