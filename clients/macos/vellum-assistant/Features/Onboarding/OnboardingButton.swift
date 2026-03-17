@@ -5,6 +5,7 @@ enum OnboardingButtonStyle {
     case primary
     case secondary
     case tertiary
+    case ghost
 }
 
 struct OnboardingButton: View {
@@ -18,19 +19,30 @@ struct OnboardingButton: View {
     @State private var visible = false
     @State private var isHovered = false
 
+    private var isGhost: Bool { style == .ghost }
+
     var body: some View {
         Button(action: action) {
             Text(title)
-                .font(.system(size: 15, weight: .medium))
+                .font(isGhost ? VFont.caption : .system(size: 15, weight: .medium))
                 .foregroundColor(foregroundColor)
-                .frame(maxWidth: .infinity)
-                .padding(.horizontal, VSpacing.xl)
-                .padding(.vertical, VSpacing.lg)
+                .if(!isGhost) { $0.frame(maxWidth: .infinity) }
+                .padding(.horizontal, isGhost ? VSpacing.sm : VSpacing.xl)
+                .padding(.vertical, isGhost ? VSpacing.xs : VSpacing.lg)
                 .contentShape(Rectangle())
-                .background(background)
-                .clipShape(RoundedRectangle(cornerRadius: VRadius.lg))
+                .background(
+                    Group {
+                        if isGhost && isHovered && !disabled {
+                            RoundedRectangle(cornerRadius: VRadius.sm)
+                                .fill(VColor.borderBase.opacity(0.5))
+                        } else {
+                            background
+                        }
+                    }
+                )
+                .clipShape(RoundedRectangle(cornerRadius: isGhost ? VRadius.sm : VRadius.lg))
                 .overlay(
-                    RoundedRectangle(cornerRadius: VRadius.lg)
+                    RoundedRectangle(cornerRadius: isGhost ? VRadius.sm : VRadius.lg)
                         .stroke(borderColor, lineWidth: style == .primary ? 0 : 1)
                 )
         }
@@ -65,6 +77,8 @@ struct OnboardingButton: View {
             return disabled ? VColor.primaryBase.opacity(0.3) : VColor.primaryBase
         case .tertiary:
             return disabled ? VColor.contentDefault.opacity(0.3) : VColor.contentDefault.opacity(0.85)
+        case .ghost:
+            return disabled ? VColor.contentSecondary.opacity(0.3) : VColor.contentSecondary
         }
     }
 
@@ -75,6 +89,8 @@ struct OnboardingButton: View {
         case .secondary:
             return AnyShapeStyle(Color.clear)
         case .tertiary:
+            return AnyShapeStyle(Color.clear)
+        case .ghost:
             return AnyShapeStyle(Color.clear)
         }
     }
@@ -87,6 +103,8 @@ struct OnboardingButton: View {
             return VColor.primaryBase.opacity(disabled ? 0.2 : 0.5)
         case .tertiary:
             return VColor.contentDefault.opacity(disabled ? 0.1 : 0.25)
+        case .ghost:
+            return .clear
         }
     }
 
@@ -100,7 +118,7 @@ struct OnboardingButton: View {
         VColor.surfaceOverlay
         VStack(spacing: VSpacing.xl) {
             OnboardingButton(title: "Say hello", style: .primary) {}
-            OnboardingButton(title: "Skip", style: .tertiary) {}
+            OnboardingButton(title: "Skip", style: .ghost) {}
             OnboardingButton(title: "Disabled", style: .primary, disabled: true) {}
         }
         .frame(width: 300)

@@ -55,7 +55,7 @@ struct WakeUpStepView: View {
             .padding(.bottom, VSpacing.xxl)
 
         // Buttons
-        VStack(spacing: VSpacing.sm) {
+        VStack(spacing: VSpacing.md) {
             if authManager?.isLoading == true {
                 HStack(spacing: VSpacing.sm) {
                     ProgressView()
@@ -82,15 +82,10 @@ struct WakeUpStepView: View {
                 }
                 .accessibilityLabel("Log In")
 
-                Button {
+                OnboardingButton(title: "Skip", style: .ghost) {
                     state?.skippedAuth = true
                     onStartWithAPIKey()
-                } label: {
-                    Text("Skip")
-                        .font(VFont.caption)
-                        .foregroundColor(VColor.contentSecondary)
                 }
-                .buttonStyle(.plain)
                 .accessibilityLabel("Skip")
             } else {
                 OnboardingButton(title: "Get Started", style: .primary) {

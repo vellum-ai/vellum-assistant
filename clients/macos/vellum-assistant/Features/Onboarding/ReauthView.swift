@@ -44,7 +44,7 @@ struct ReauthView: View {
                 .foregroundColor(VColor.contentSecondary)
                 .padding(.bottom, VSpacing.xxl)
 
-            VStack(spacing: VSpacing.sm) {
+            VStack(spacing: VSpacing.md) {
                 if authManager.isLoading {
                     HStack(spacing: VSpacing.sm) {
                         ProgressView()
@@ -82,19 +82,12 @@ struct ReauthView: View {
                 }
 
                 if hasNonManagedAssistant {
-                    Button {
-                        // Pre-select a non-managed assistant so proceedToApp() doesn't
-                        // fall back to a managed assistant whose session was invalidated.
+                    OnboardingButton(title: "Skip", style: .ghost) {
                         if let nonManaged = LockfileAssistant.loadAll().first(where: { !$0.isManaged }) {
                             UserDefaults.standard.set(nonManaged.assistantId, forKey: "connectedAssistantId")
                         }
                         onComplete()
-                    } label: {
-                        Text("Skip")
-                            .font(VFont.caption)
-                            .foregroundColor(VColor.contentSecondary)
                     }
-                    .buttonStyle(.plain)
                     .accessibilityLabel("Skip")
                 }
             }
