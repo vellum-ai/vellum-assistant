@@ -24,7 +24,7 @@ const mockConfig = {
     "image-generation": {
       mode: "your-own" as const,
       provider: "gemini",
-      model: "gemini-2.5-flash-image",
+      model: "gemini-3.1-flash-image-preview",
     },
     "web-search": { mode: "your-own" as const, provider: "anthropic-native" },
   },

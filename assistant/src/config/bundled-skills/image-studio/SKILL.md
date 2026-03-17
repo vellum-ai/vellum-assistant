@@ -23,8 +23,8 @@ You are an image generation assistant. When the user asks you to create or edit 
 
 ## Models
 
-- `gemini-2.5-flash-image` (default) - fast, good quality
-- `gemini-3-pro-image` - higher quality, slower
+- `gemini-3.1-flash-image-preview` (default) - Nano Banana 2, fast, good quality
+- `gemini-3-pro-image-preview` - Nano Banana Pro, higher quality, slower
 
 ## Tips
 

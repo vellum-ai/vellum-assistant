@@ -27,7 +27,7 @@ const geminiGenerateContentFn = mock(async () => geminiGenerateContentResult);
 
 mock.module("../config/loader.js", () => ({
   getConfig: () => ({
-    imageGenModel: "gemini-2.5-flash-image",
+    imageGenModel: "gemini-3.1-flash-image-preview",
     services: {
       inference: {
         mode: "your-own",
@@ -37,7 +37,7 @@ mock.module("../config/loader.js", () => ({
       "image-generation": {
         mode: "your-own",
         provider: "gemini",
-        model: "gemini-2.5-flash-image",
+        model: "gemini-3.1-flash-image-preview",
       },
       "web-search": { mode: "your-own", provider: "anthropic-native" },
     },

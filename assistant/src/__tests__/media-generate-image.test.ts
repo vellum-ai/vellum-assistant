@@ -14,7 +14,7 @@ let mockApiKey: string | undefined = "test-gemini-key";
 let mockGenerateResult = {
   images: [{ mimeType: "image/png", dataBase64: "generated-data" }],
   text: "A beautiful image",
-  resolvedModel: "gemini-2.5-flash-image",
+  resolvedModel: "gemini-3.1-flash-image-preview",
 };
 let mockGenerateError: Error | null = null;
 let lastGenerateCredentials: unknown = null;
@@ -31,7 +31,7 @@ mock.module("../config/loader.js", () => ({
       "image-generation": {
         mode: "your-own",
         provider: "gemini",
-        model: "gemini-2.5-flash-image",
+        model: "gemini-3.1-flash-image-preview",
       },
       "web-search": { mode: "your-own", provider: "anthropic-native" },
     },
@@ -174,7 +174,7 @@ beforeEach(() => {
   mockGenerateResult = {
     images: [{ mimeType: "image/png", dataBase64: "generated-data" }],
     text: "A beautiful image",
-    resolvedModel: "gemini-2.5-flash-image",
+    resolvedModel: "gemini-3.1-flash-image-preview",
   };
   mockGenerateError = null;
   mockAttachments = [];
@@ -250,7 +250,7 @@ describe("image-studio skill script wrapper", () => {
 
     expect(result.isError).toBe(false);
     expect(result.content).toContain("Generated 1 image");
-    expect(result.content).toContain("gemini-2.5-flash-image");
+    expect(result.content).toContain("gemini-3.1-flash-image-preview");
     expect(result.content).toContain("A beautiful image");
     expect(result.contentBlocks).toHaveLength(1);
     expect(result.contentBlocks![0]).toEqual({
@@ -270,7 +270,7 @@ describe("image-studio skill script wrapper", () => {
         { mimeType: "image/png", dataBase64: "img2" },
       ],
       text: undefined as unknown as string,
-      resolvedModel: "gemini-2.5-flash-image",
+      resolvedModel: "gemini-3.1-flash-image-preview",
     };
 
     const result = await run({ prompt: "test", variants: 2 }, fakeContext);
@@ -357,8 +357,7 @@ describe("image-studio TOOLS.json manifest", () => {
     expect(props.mode.enum).toEqual(["generate", "edit"]);
     expect(props.attachment_ids.type).toBe("array");
     expect(props.model.enum).toEqual([
-      "gemini-2.5-flash-image",
-      "gemini-3-pro-image",
+      "gemini-3.1-flash-image-preview",
       "gemini-3-pro-image-preview",
     ]);
     expect(props.variants.type).toBe("number");

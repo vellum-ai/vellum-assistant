@@ -28,8 +28,7 @@
           "model": {
             "type": "string",
             "enum": [
-              "gemini-2.5-flash-image",
-              "gemini-3-pro-image",
+              "gemini-3.1-flash-image-preview",
               "gemini-3-pro-image-preview"
             ],
             "description": "Which model to use for generation. If omitted, uses the user's configured preference."

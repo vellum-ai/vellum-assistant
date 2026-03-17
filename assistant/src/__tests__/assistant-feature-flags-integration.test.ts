@@ -39,7 +39,7 @@ let currentConfig: Record<string, unknown> = {
     "image-generation": {
       mode: "your-own",
       provider: "gemini",
-      model: "gemini-2.5-flash-image",
+      model: "gemini-3.1-flash-image-preview",
     },
     "web-search": { mode: "your-own", provider: "anthropic-native" },
   },
@@ -142,7 +142,7 @@ beforeEach(() => {
       "image-generation": {
         mode: "your-own",
         provider: "gemini",
-        model: "gemini-2.5-flash-image",
+        model: "gemini-3.1-flash-image-preview",
       },
       "web-search": { mode: "your-own", provider: "anthropic-native" },
     },
@@ -215,7 +215,7 @@ describe("buildSystemPrompt assistant feature flag filtering", () => {
         "image-generation": {
           mode: "your-own",
           provider: "gemini",
-          model: "gemini-2.5-flash-image",
+          model: "gemini-3.1-flash-image-preview",
         },
         "web-search": { mode: "your-own", provider: "anthropic-native" },
       },
@@ -253,7 +253,7 @@ describe("buildSystemPrompt assistant feature flag filtering", () => {
         "image-generation": {
           mode: "your-own",
           provider: "gemini",
-          model: "gemini-2.5-flash-image",
+          model: "gemini-3.1-flash-image-preview",
         },
         "web-search": { mode: "your-own", provider: "anthropic-native" },
       },
@@ -295,7 +295,7 @@ describe("buildSystemPrompt assistant feature flag filtering", () => {
         "image-generation": {
           mode: "your-own",
           provider: "gemini",
-          model: "gemini-2.5-flash-image",
+          model: "gemini-3.1-flash-image-preview",
         },
         "web-search": { mode: "your-own", provider: "anthropic-native" },
       },
@@ -327,7 +327,7 @@ describe("buildSystemPrompt assistant feature flag filtering", () => {
         "image-generation": {
           mode: "your-own",
           provider: "gemini",
-          model: "gemini-2.5-flash-image",
+          model: "gemini-3.1-flash-image-preview",
         },
         "web-search": { mode: "your-own", provider: "anthropic-native" },
       },
@@ -358,7 +358,7 @@ describe("buildSystemPrompt assistant feature flag filtering", () => {
         "image-generation": {
           mode: "your-own",
           provider: "gemini",
-          model: "gemini-2.5-flash-image",
+          model: "gemini-3.1-flash-image-preview",
         },
         "web-search": { mode: "your-own", provider: "anthropic-native" },
       },
@@ -390,7 +390,7 @@ describe("buildSystemPrompt assistant feature flag filtering", () => {
         "image-generation": {
           mode: "your-own",
           provider: "gemini",
-          model: "gemini-2.5-flash-image",
+          model: "gemini-3.1-flash-image-preview",
         },
         "web-search": { mode: "your-own", provider: "anthropic-native" },
       },
@@ -416,7 +416,7 @@ describe("buildSystemPrompt assistant feature flag filtering", () => {
         "image-generation": {
           mode: "your-own",
           provider: "gemini",
-          model: "gemini-2.5-flash-image",
+          model: "gemini-3.1-flash-image-preview",
         },
         "web-search": { mode: "your-own", provider: "anthropic-native" },
       },

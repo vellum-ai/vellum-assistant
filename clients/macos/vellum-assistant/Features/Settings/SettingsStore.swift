@@ -40,7 +40,7 @@ public final class SettingsStore: ObservableObject {
 
     @Published var selectedModel: String = "claude-opus-4-6"
     @Published var configuredProviders: Set<String> = ["ollama"]
-    @Published var selectedImageGenModel: String = "gemini-2.5-flash-image"
+    @Published var selectedImageGenModel: String = "gemini-3.1-flash-image-preview"
 
     static let availableModels: [String] = [
         "claude-opus-4-6",
@@ -55,13 +55,13 @@ public final class SettingsStore: ObservableObject {
     ]
 
     static let availableImageGenModels: [String] = [
-        "gemini-2.5-flash-image",
+        "gemini-3.1-flash-image-preview",
         "gemini-3-pro-image-preview",
     ]
 
     static let imageGenModelDisplayNames: [String: String] = [
-        "gemini-2.5-flash-image": "Gemini 2.5 Flash Image",
-        "gemini-3-pro-image-preview": "Gemini 3 Pro Image (Preview)",
+        "gemini-3.1-flash-image-preview": "Nano Banana 2",
+        "gemini-3-pro-image-preview": "Nano Banana Pro",
     ]
 
     // MARK: - Settings Values

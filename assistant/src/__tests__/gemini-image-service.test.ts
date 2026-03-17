@@ -111,7 +111,7 @@ describe("generateImage", () => {
     expect(result.images).toHaveLength(1);
     expect(result.images[0].mimeType).toBe("image/png");
     expect(result.images[0].dataBase64).toBe("abc123");
-    expect(result.resolvedModel).toBe("gemini-2.5-flash-image");
+    expect(result.resolvedModel).toBe("gemini-3.1-flash-image-preview");
   });
 
   test("generate mode collects text commentary from response", async () => {
@@ -168,7 +168,7 @@ describe("generateImage", () => {
 
     expect(lastGenerateParams).not.toBeNull();
     expect((lastGenerateParams as Record<string, unknown>).model).toBe(
-      "gemini-2.5-flash-image",
+      "gemini-3.1-flash-image-preview",
     );
   });
 
@@ -180,12 +180,12 @@ describe("generateImage", () => {
       {
         prompt: "test",
         mode: "generate",
-        model: "gemini-3-pro-image",
+        model: "gemini-3-pro-image-preview",
       },
     );
 
     expect((lastGenerateParams as Record<string, unknown>).model).toBe(
-      "gemini-3-pro-image",
+      "gemini-3-pro-image-preview",
     );
   });
 

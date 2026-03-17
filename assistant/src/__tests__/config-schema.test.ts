@@ -93,7 +93,7 @@ describe("AssistantConfigSchema", () => {
     expect(result.services.inference.mode).toBe("your-own");
     expect(result.services["image-generation"].provider).toBe("gemini");
     expect(result.services["image-generation"].model).toBe(
-      "gemini-2.5-flash-image",
+      "gemini-3.1-flash-image-preview",
     );
     expect(result.services["image-generation"].mode).toBe("your-own");
     expect(result.services["web-search"].provider).toBe("anthropic-native");

@@ -7,7 +7,7 @@ interface ImageGenerationRequest {
   mode: "generate" | "edit";
   /** Base64-encoded source images for edit mode */
   sourceImages?: Array<{ mimeType: string; dataBase64: string }>;
-  /** Model override; defaults to 'gemini-2.5-flash-image' */
+  /** Model override; defaults to 'gemini-3.1-flash-image-preview' */
   model?: string;
   /** Number of output variants (1-4, default 1) */
   variants?: number;
@@ -43,10 +43,9 @@ interface ImageGenerationResult {
 
 // --- Constants ---
 
-const DEFAULT_MODEL = "gemini-2.5-flash-image";
+const DEFAULT_MODEL = "gemini-3.1-flash-image-preview";
 const ALLOWED_MODELS = new Set([
-  "gemini-2.5-flash-image",
-  "gemini-3-pro-image",
+  "gemini-3.1-flash-image-preview",
   "gemini-3-pro-image-preview",
 ]);
 const MAX_VARIANTS = 4;

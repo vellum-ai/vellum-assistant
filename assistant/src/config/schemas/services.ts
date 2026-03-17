@@ -30,7 +30,7 @@ export type InferenceService = z.infer<typeof InferenceServiceSchema>;
 export const ImageGenerationServiceSchema = z.object({
   mode: ServiceModeSchema.default("your-own"),
   provider: z.enum(VALID_IMAGE_GEN_PROVIDERS).default("gemini"),
-  model: z.string().default("gemini-2.5-flash-image"),
+  model: z.string().default("gemini-3.1-flash-image-preview"),
 });
 export type ImageGenerationService = z.infer<
   typeof ImageGenerationServiceSchema
