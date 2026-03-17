@@ -40,6 +40,7 @@ export function createMcpTool(
   const serverDefinesActivity = schemaDefinesProperty(
     metadata.inputSchema,
     "activity",
+    { refBehavior: "assume-defined" },
   );
 
   return {

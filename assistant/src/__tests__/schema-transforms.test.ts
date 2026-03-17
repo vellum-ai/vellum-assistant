@@ -205,9 +205,18 @@ describe("schemaDefinesProperty", () => {
     expect(schemaDefinesProperty(schema, "activity")).toBe(false);
   });
 
-  test("returns false for $ref (fail-closed)", () => {
+  test("returns false for $ref with default behavior (fail-closed)", () => {
     const schema = { $ref: "#/definitions/Foo" };
     expect(schemaDefinesProperty(schema, "activity")).toBe(false);
+  });
+
+  test("returns true for $ref with assume-defined behavior (fail-open)", () => {
+    const schema = { $ref: "#/definitions/Foo" };
+    expect(
+      schemaDefinesProperty(schema, "activity", {
+        refBehavior: "assume-defined",
+      }),
+    ).toBe(true);
   });
 
   test("returns false for null schema", () => {

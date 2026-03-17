@@ -60,21 +60,28 @@ export function injectActivityField(
 /**
  * Checks whether a JSON Schema defines a given property name.
  * Walks `allOf`, `oneOf`, `anyOf` recursively.
- * Fail-closed on `$ref`: returns false if a `$ref` is encountered.
+ *
+ * `$ref` handling is configurable via `refBehavior`:
+ * - `'assume-undefined'` (default): fail-closed, treat `$ref` as not defining
+ *   the property. Good for injection (safe to double-inject).
+ * - `'assume-defined'`: fail-open, treat `$ref` as possibly defining the
+ *   property. Good for stripping decisions (don't strip what the server may need).
  */
 export function schemaDefinesProperty(
   schema: unknown,
   propertyName: string,
+  options?: { refBehavior?: "assume-defined" | "assume-undefined" },
 ): boolean {
   if (schema == null || typeof schema !== "object") {
     return false;
   }
 
   const s = schema as Record<string, unknown>;
+  const refBehavior = options?.refBehavior ?? "assume-undefined";
 
-  // Fail-closed on $ref - we can't resolve it, so treat as "doesn't define it"
+  // $ref: we can't resolve it, so use the configured behavior
   if ("$ref" in s) {
-    return false;
+    return refBehavior === "assume-defined";
   }
 
   // Check direct properties
