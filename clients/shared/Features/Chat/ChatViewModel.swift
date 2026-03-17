@@ -63,8 +63,8 @@ public struct CapabilityCard: Identifiable, Codable, Sendable {
     /// Card size computed from content characteristics.
     public var computedSize: CardSize {
         let desc = description ?? ""
-        if tags.count >= 3 || desc.count > 80 { return .wide }
         if desc.count > 120 { return .tall }
+        if tags.count >= 3 || desc.count > 80 { return .wide }
         return .normal
     }
 
@@ -3023,6 +3023,7 @@ public final class ChatViewModel: ObservableObject {
         // @MainActor computed properties (forwarded from ChatMessageManager), which
         // cannot be referenced from nonisolated deinit. Both tasks use [weak self],
         // so they will exit naturally when self is deallocated.
+        capabilityCardPollTask?.cancel()
         reconnectLatchTimeoutTask?.cancel()
         reconnectDebounceTask?.cancel()
         btwTask?.cancel()
