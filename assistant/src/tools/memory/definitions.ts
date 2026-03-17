@@ -3,7 +3,7 @@ import type { ToolDefinition } from "../../providers/types.js";
 export const memoryRecallDefinition: ToolDefinition = {
   name: "memory_recall",
   description:
-    "Hybrid search across memory (semantic and recency) for specific information. Use this when you need to recall details about past conversations, decisions, preferences, project context, or any prior knowledge. Returns formatted memory context with item IDs for use with memory_manage.",
+    "Hybrid search across memory (semantic and recency) for specific information. Relevant memories are auto-injected each turn, so only call this when the auto-injected context doesn't contain what you need — e.g. the user references a past session, or you need deeper recall. Be specific in your query for best results. Returns formatted memory context with item IDs for use with memory_manage.",
   input_schema: {
     type: "object",
     properties: {
@@ -47,7 +47,8 @@ const memoryManageProperties = {
       "constraint",
       "event",
     ],
-    description: "Category of the memory item (required for save)",
+    description:
+      'Category of the memory item (required for save). Use "constraint" for mistakes, gotchas, discoveries, and working solutions — write as advice to your future self.',
   },
   subject: {
     type: "string" as const,
@@ -58,7 +59,7 @@ const memoryManageProperties = {
 export const memoryManageDefinition: ToolDefinition = {
   name: "memory_manage",
   description:
-    "Save, update, or delete memory items. Use 'save' for new information worth remembering, 'update' to correct existing items, 'delete' to remove outdated items.",
+    "Save, update, or delete memory items. Memory does not survive session restarts — if you want to remember something, save it now. Use 'save' for new information worth remembering (facts, preferences, mistakes, discoveries, gotchas), 'update' to correct existing items, 'delete' to remove outdated items. When a user says 'remember this', save immediately. For user profile or personality changes, update workspace files (USER.md, SOUL.md) instead.",
   input_schema: {
     type: "object",
     properties: memoryManageProperties,
