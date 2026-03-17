@@ -31,6 +31,7 @@ import {
   getApp,
   getConnectionByProvider,
   getConnectionByProviderAndAccount,
+  listActiveConnectionsByProvider,
   updateConnection,
   upsertApp,
 } from "./oauth-store.js";
@@ -141,9 +142,19 @@ export async function storeOAuth2Tokens(
   //    same account, or create a new one for a different account.
   //    First try to match by account info (email); fall back to provider-only
   //    lookup so that re-auth without userinfo still updates the right row.
-  const existingConn = resolvedAccountInfo
-    ? getConnectionByProviderAndAccount(service, resolvedAccountInfo)
-    : getConnectionByProvider(service);
+  //    However, treat provider-only matches as ambiguous when multiple active
+  //    connections exist to avoid overwriting the wrong account's tokens.
+  let existingConn: ReturnType<typeof getConnectionByProvider>;
+  if (resolvedAccountInfo) {
+    existingConn = getConnectionByProviderAndAccount(
+      service,
+      resolvedAccountInfo,
+    );
+  } else {
+    const activeConns = listActiveConnectionsByProvider(service);
+    // Only reuse the provider-only match when it's unambiguous (single connection).
+    existingConn = activeConns.length === 1 ? activeConns[0] : undefined;
+  }
   let connId: string;
 
   const hasRefreshToken = !!tokens.refreshToken;
