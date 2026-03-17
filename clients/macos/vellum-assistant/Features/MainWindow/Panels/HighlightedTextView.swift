@@ -238,7 +238,9 @@ struct HighlightedTextView: View {
     private static let lineHeight: CGFloat = {
         let nsFont = NSFont(name: "DMMono-Regular", size: 13)
             ?? NSFont.monospacedSystemFont(ofSize: 13, weight: .regular)
-        return ceil(nsFont.lineHeight)
+        // NSFont doesn't have lineHeight (that's UIFont); compute from metrics.
+        // descender is negative, so subtracting it adds the absolute value.
+        return ceil(nsFont.ascender - nsFont.descender + nsFont.leading)
     }()
 
     private func gutterWidth(for lineCount: Int) -> CGFloat {
