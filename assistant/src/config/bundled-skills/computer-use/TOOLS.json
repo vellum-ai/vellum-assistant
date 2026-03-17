@@ -253,7 +253,7 @@
     },
     {
       "name": "computer_use_run_applescript",
-      "description": "Run an AppleScript command. Prefer this over click/type when possible \u2014 it doesn't move the cursor or interrupt the user. Never use 'do shell script' inside AppleScript (blocked for security).",
+      "description": "Run an AppleScript command. Prefer this over click/type when possible - it doesn't move the cursor or interrupt the user. Never use 'do shell script' inside AppleScript (blocked for security).",
       "category": "computer-use",
       "risk": "low",
       "input_schema": {
