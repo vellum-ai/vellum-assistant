@@ -378,12 +378,12 @@ describe("handleMigrationImport", () => {
   });
 
   test("workspace is cleared before restore — files are created fresh", async () => {
-    // With workspace clearing, existing files are removed before writing,
-    // so all files in the bundle are "created" (not "overwritten") and
-    // no backups are made.
+    // Only new-format bundles (workspace/ prefix) trigger workspace clearing.
+    // With clearing, existing files are removed before writing, so all files
+    // in the bundle are "created" (not "overwritten") and no backups are made.
     const newDbData = new Uint8Array([0x01, 0x02, 0x03]);
     const vbundle = createValidVBundle([
-      { path: "data/db/assistant.db", data: newDbData },
+      { path: "workspace/data/db/assistant.db", data: newDbData },
     ]);
     const req = new Request("http://localhost/v1/migrations/import", {
       method: "POST",
@@ -397,17 +397,20 @@ describe("handleMigrationImport", () => {
     expect(body.success).toBe(true);
     expect(body.summary.backups_created).toBe(0);
 
-    const dbFile = body.files.find((f) => f.path === "data/db/assistant.db");
+    const dbFile = body.files.find(
+      (f) => f.path === "workspace/data/db/assistant.db",
+    );
     expect(dbFile).toBeDefined();
     expect(dbFile!.action).toBe("created");
   });
 
   test("reports all files as created after workspace clear", async () => {
+    // New-format workspace/ paths trigger clearing — both files are fresh.
     const newDbData = new Uint8Array([0xaa, 0xbb]);
     const newConfigData = new TextEncoder().encode('{"provider":"openai"}');
     const vbundle = createValidVBundle([
-      { path: "data/db/assistant.db", data: newDbData },
-      { path: "config/settings.json", data: newConfigData },
+      { path: "workspace/data/db/assistant.db", data: newDbData },
+      { path: "workspace/config.json", data: newConfigData },
     ]);
     const req = new Request("http://localhost/v1/migrations/import", {
       method: "POST",
@@ -420,9 +423,11 @@ describe("handleMigrationImport", () => {
 
     expect(body.success).toBe(true);
 
-    const dbFile = body.files.find((f) => f.path === "data/db/assistant.db");
+    const dbFile = body.files.find(
+      (f) => f.path === "workspace/data/db/assistant.db",
+    );
     const configFile = body.files.find(
-      (f) => f.path === "config/settings.json",
+      (f) => f.path === "workspace/config.json",
     );
 
     // Both are "created" because workspace was cleared before writing
