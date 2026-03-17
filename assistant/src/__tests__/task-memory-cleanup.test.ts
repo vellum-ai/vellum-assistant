@@ -842,7 +842,7 @@ describe("invalidateAssistantInferredItemsForConversation", () => {
     // Two jobs for the failed conversation should be cancelled
     expect(failedJobs).toHaveLength(2);
     for (const j of failedJobs) {
-      expect(j.lastError).toBe("conversation_wiped");
+      expect(j.lastError).toBe("conversation_failed");
     }
 
     // The job for the other conversation should remain pending
