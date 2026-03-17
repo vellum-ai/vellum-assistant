@@ -90,7 +90,7 @@ struct ChatEmptyStateView: View {
     // MARK: - Shared Sections
 
     private var heroSection: some View {
-        VStack(spacing: VSpacing.md) {
+        HStack(spacing: VSpacing.md) {
             Group {
                 if let body = appearance.characterBodyShape,
                    let eyes = appearance.characterEyeStyle,
@@ -106,11 +106,11 @@ struct ChatEmptyStateView: View {
                 Text(greeting)
                     .font(VFont.largeTitle)
                     .foregroundColor(VColor.contentSecondary)
-                    .multilineTextAlignment(.center)
+                    .multilineTextAlignment(.leading)
                     .transition(.opacity)
             }
         }
-        .frame(maxWidth: VSpacing.chatBubbleMaxWidth)
+        .frame(maxWidth: VSpacing.chatBubbleMaxWidth, alignment: .center)
         .animation(.easeOut(duration: 0.4), value: effectiveGreeting != nil)
         .opacity(visible ? 1 : 0)
         .scaleEffect(visible ? 1 : 0.8)
