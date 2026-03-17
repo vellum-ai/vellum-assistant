@@ -87,6 +87,7 @@ struct FileContentView: View {
                     isEditable: isEditable,
                     onTextChange: onTextChange
                 )
+                .id(fileName)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             case .preview:
                 MarkdownPreviewView(content: content)
