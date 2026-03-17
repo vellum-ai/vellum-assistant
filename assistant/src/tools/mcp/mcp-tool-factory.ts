@@ -37,9 +37,9 @@ export function createMcpTool(
 ): Tool {
   const namespacedName = mcpToolName(serverId, metadata.name);
   const riskLevel = riskMap[serverConfig.defaultRiskLevel] ?? RiskLevel.High;
-  const serverDefinesReason = schemaDefinesProperty(
+  const serverDefinesActivity = schemaDefinesProperty(
     metadata.inputSchema,
-    "reason",
+    "activity",
   );
 
   return {
@@ -64,14 +64,14 @@ export function createMcpTool(
       _context: ToolContext,
     ): Promise<ToolExecutionResult> {
       try {
-        // Strip injected reason before sending to MCP server
-        const { reason: _reason, ...mcpInput } = input as Record<
+        // Strip injected activity before sending to MCP server
+        const { activity: _activity, ...mcpInput } = input as Record<
           string,
           unknown
         > & {
-          reason?: unknown;
+          activity?: unknown;
         };
-        const forwardInput = serverDefinesReason ? input : mcpInput;
+        const forwardInput = serverDefinesActivity ? input : mcpInput;
         const result = await manager.callTool(
           serverId,
           metadata.name,

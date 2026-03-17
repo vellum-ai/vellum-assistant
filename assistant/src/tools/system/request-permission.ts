@@ -71,13 +71,13 @@ class RequestSystemPermissionTool implements Tool {
             enum: [...PERMISSION_TYPES],
             description: "The macOS system permission to request",
           },
-          reason: {
+          activity: {
             type: "string",
             description:
               "Short explanation of why this permission is needed (shown to the user)",
           },
         },
-        required: ["permission_type", "reason"],
+        required: ["permission_type", "activity"],
       },
     };
   }

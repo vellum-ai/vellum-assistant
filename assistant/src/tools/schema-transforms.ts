@@ -2,16 +2,9 @@ import type { ToolDefinition } from "../providers/types.js";
 
 /**
  * Tools that should never have an `activity` field injected into their schema.
+ * Now empty — all tools define their own `activity` property or get it injected.
  */
-export const ACTIVITY_SKIP_SET = new Set<string>([
-  "skill_execute",
-  "bash",
-  "host_bash",
-  "request_system_permission",
-]);
-
-/** @deprecated Use ACTIVITY_SKIP_SET */
-export const REASON_SKIP_SET = ACTIVITY_SKIP_SET;
+export const ACTIVITY_SKIP_SET = new Set<string>();
 
 /**
  * Injects an `activity` string property into each tool definition's input
@@ -63,9 +56,6 @@ export function injectActivityField(
     };
   });
 }
-
-/** @deprecated Use injectActivityField */
-export const injectReasonField = injectActivityField;
 
 /**
  * Checks whether a JSON Schema defines a given property name.

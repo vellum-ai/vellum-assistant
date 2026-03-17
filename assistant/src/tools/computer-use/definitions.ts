@@ -21,7 +21,7 @@ function proxyExecute(): Promise<ToolExecutionResult> {
   );
 }
 
-const reasonProperty = {
+const activityProperty = {
   type: "string" as const,
   description:
     "Brief non-technical explanation of why this tool is being called",
@@ -69,7 +69,7 @@ export const computerUseClickTool: Tool = {
             description:
               "Explanation of what you see and why you are clicking here",
           },
-          reason: reasonProperty,
+          activity: activityProperty,
         },
         required: ["reasoning"],
       },
@@ -106,7 +106,7 @@ export const computerUseTypeTextTool: Tool = {
             type: "string",
             description: "Explanation of what you are typing and why",
           },
-          reason: reasonProperty,
+          activity: activityProperty,
         },
         required: ["text", "reasoning"],
       },
@@ -144,7 +144,7 @@ export const computerUseKeyTool: Tool = {
             type: "string",
             description: "Explanation of why you are pressing this key",
           },
-          reason: reasonProperty,
+          activity: activityProperty,
         },
         required: ["key", "reasoning"],
       },
@@ -199,7 +199,7 @@ export const computerUseScrollTool: Tool = {
             type: "string",
             description: "Explanation of why you are scrolling",
           },
-          reason: reasonProperty,
+          activity: activityProperty,
         },
         required: ["direction", "amount", "reasoning"],
       },
@@ -260,7 +260,7 @@ export const computerUseDragTool: Tool = {
             type: "string",
             description: "Explanation of what you are dragging and why",
           },
-          reason: reasonProperty,
+          activity: activityProperty,
         },
         required: ["reasoning"],
       },
@@ -296,7 +296,7 @@ export const computerUseWaitTool: Tool = {
             type: "string",
             description: "Explanation of what you are waiting for",
           },
-          reason: reasonProperty,
+          activity: activityProperty,
         },
         required: ["duration_ms", "reasoning"],
       },
@@ -335,7 +335,7 @@ export const computerUseOpenAppTool: Tool = {
             description:
               "Explanation of why you need to open or switch to this app",
           },
-          reason: reasonProperty,
+          activity: activityProperty,
         },
         required: ["app_name", "reasoning"],
       },
@@ -373,7 +373,7 @@ export const computerUseRunAppleScriptTool: Tool = {
             description:
               "Explanation of what this script does and why AppleScript is better than UI interaction for this step",
           },
-          reason: reasonProperty,
+          activity: activityProperty,
         },
         required: ["script", "reasoning"],
       },
@@ -406,7 +406,7 @@ export const computerUseDoneTool: Tool = {
             type: "string",
             description: "Human-readable summary of what was accomplished",
           },
-          reason: reasonProperty,
+          activity: activityProperty,
         },
         required: ["summary"],
       },
@@ -443,7 +443,7 @@ export const computerUseRespondTool: Tool = {
             type: "string",
             description: "Explanation of how you determined the answer",
           },
-          reason: reasonProperty,
+          activity: activityProperty,
         },
         required: ["answer", "reasoning"],
       },
@@ -472,9 +472,9 @@ export const computerUseObserveTool: Tool = {
       input_schema: {
         type: "object",
         properties: {
-          reason: reasonProperty,
+          activity: activityProperty,
         },
-        required: ["reason"],
+        required: ["activity"],
       },
     };
   },

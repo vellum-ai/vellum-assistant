@@ -15,12 +15,8 @@ function makeDef(
 }
 
 describe("ACTIVITY_SKIP_SET", () => {
-  test("contains expected tool names", () => {
-    expect(ACTIVITY_SKIP_SET.has("skill_execute")).toBe(true);
-    expect(ACTIVITY_SKIP_SET.has("bash")).toBe(true);
-    expect(ACTIVITY_SKIP_SET.has("host_bash")).toBe(true);
-    expect(ACTIVITY_SKIP_SET.has("request_system_permission")).toBe(true);
-    expect(ACTIVITY_SKIP_SET.size).toBe(4);
+  test("is empty (all tools now define their own activity property)", () => {
+    expect(ACTIVITY_SKIP_SET.size).toBe(0);
   });
 });
 

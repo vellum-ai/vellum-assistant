@@ -100,7 +100,7 @@ class ShellTool implements Tool {
             type: "string",
             description: "The shell command to execute",
           },
-          reason: {
+          activity: {
             type: "string",
             description:
               'Brief non-technical explanation of what this command does and why, shown to a non-technical user in the permission prompt. Avoid jargon and technical terms. Good: "to check if a required program is installed on your computer". Bad: "to check if gcloud CLI is installed". Good: "to download a helper program". Bad: "to run npm install".',
@@ -123,7 +123,7 @@ class ShellTool implements Tool {
               'Optional list of credential IDs to inject via the proxy when network_mode is "proxied".',
           },
         },
-        required: ["command", "reason"],
+        required: ["command", "activity"],
       },
     };
   }

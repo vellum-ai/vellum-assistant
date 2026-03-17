@@ -67,7 +67,7 @@ class HostShellTool implements Tool {
             type: "string",
             description: "The host shell command to execute",
           },
-          reason: {
+          activity: {
             type: "string",
             description:
               'Brief non-technical explanation of what this command does and why, shown to a non-technical user in the permission prompt. Avoid jargon and technical terms. Good: "to check if a required program is installed on your computer". Bad: "to check if gcloud CLI is installed". Good: "to download a helper program". Bad: "to run npm install".',
@@ -83,7 +83,7 @@ class HostShellTool implements Tool {
               "Optional timeout in seconds. Uses configured default and max limits.",
           },
         },
-        required: ["command", "reason"],
+        required: ["command", "activity"],
       },
     };
   }

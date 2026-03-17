@@ -27,7 +27,7 @@ export class SkillExecuteTool implements Tool {
             description:
               "Tool-specific parameters as documented in the skill's instructions",
           },
-          reason: {
+          activity: {
             type: "string",
             description:
               "Brief non-technical explanation of what you are doing and why, shown to the user as a status update.",
