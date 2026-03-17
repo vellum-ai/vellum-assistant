@@ -366,12 +366,20 @@ export async function buildMemoryRecall(
     const inContextMessageIds = getInContextMessageIds(conversationId);
     if (inContextMessageIds) {
       for (const [key, c] of candidateMap) {
-        if (
-          c.type === "segment" &&
-          c.messageId &&
-          inContextMessageIds.has(c.messageId)
-        ) {
-          candidateMap.delete(key);
+        if (c.type === "segment") {
+          if (c.messageId) {
+            // Segment has a known source message — filter only if that
+            // message is still in the context window.
+            if (inContextMessageIds.has(c.messageId)) {
+              candidateMap.delete(key);
+            }
+          } else if (c.conversationId === conversationId) {
+            // Segment from the current conversation but missing messageId
+            // (e.g. legacy Qdrant points without message_id payload).
+            // We can't determine whether it's compacted, so err on the
+            // side of filtering to avoid token bloat from redundant segments.
+            candidateMap.delete(key);
+          }
         }
       }
     }
