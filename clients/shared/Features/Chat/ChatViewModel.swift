@@ -2299,6 +2299,7 @@ public final class ChatViewModel: ObservableObject {
         lastFailedSendError = nil
         errorText = nil
         connectionDiagnosticHint = nil
+        errorManager.isConversationErrorDisplayedInline = false
 
         if conversationId == nil {
             pendingUserMessageDisplayText = displayText
