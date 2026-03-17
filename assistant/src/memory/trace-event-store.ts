@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, gt, lt } from "drizzle-orm";
+import { and, asc, desc, eq, gt, lt, sql } from "drizzle-orm";
 
 import type {
   TraceEvent,
@@ -140,9 +140,10 @@ export function deleteOldTraceEvents(maxAgeDays: number): number {
 export function getTraceEventConversationIds(): string[] {
   const db = getDb();
   const rows = db
-    .selectDistinct({ conversationId: traceEvents.conversationId })
+    .select({ conversationId: traceEvents.conversationId })
     .from(traceEvents)
-    .orderBy(desc(traceEvents.timestampMs))
+    .groupBy(traceEvents.conversationId)
+    .orderBy(desc(sql`MAX(${traceEvents.timestampMs})`))
     .all();
   return rows.map((r) => r.conversationId);
 }
