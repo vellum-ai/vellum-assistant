@@ -425,7 +425,7 @@ describe("buildSystemPrompt assistant feature flag filtering", () => {
     const result = buildSystemPrompt();
 
     // Skills without featureFlag declared are never gated — always pass through
-    expect(result).toContain('id="my-skill"');
+    expect(result).toContain("**my-skill**");
   });
 });
 

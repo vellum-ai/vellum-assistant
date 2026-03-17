@@ -138,7 +138,7 @@ describe("Dynamic Skill Authoring Workflow prompt section", () => {
 
     const result = buildSystemPrompt();
     expect(result).toContain("## Available Skills");
-    expect(result).toContain('id="test-skill"');
+    expect(result).toContain("**test-skill**");
     expect(result).toContain("## Dynamic Skill Authoring Workflow");
   });
 
@@ -160,12 +160,12 @@ describe("Dynamic Skill Authoring Workflow prompt section", () => {
     expect(result).toContain("skill_load");
   });
 
-  test("browser skill has activation hints in available_skills XML instead of dedicated section", () => {
+  test("browser skill has activation hints in skills catalog instead of dedicated section", () => {
     writeFileSync(join(TEST_DIR, "IDENTITY.md"), "I am Vellum.");
     const result = buildSystemPrompt();
-    // Browser routing moved from dedicated section to frontmatter hints
+    // Browser routing moved from dedicated section to inline hints in catalog bullet
     expect(result).not.toContain("Browser Skill Prerequisite");
-    expect(result).toContain('id="browser"');
-    expect(result).toContain("hints=");
+    expect(result).toContain("**browser**");
+    expect(result).toContain("Load first if you need browser_* tools");
   });
 });
