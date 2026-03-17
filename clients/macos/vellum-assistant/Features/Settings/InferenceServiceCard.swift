@@ -175,6 +175,7 @@ struct InferenceServiceCard: View {
                     (label: SettingsStore.modelDisplayNames[model] ?? model, value: model)
                 }
             )
+            .frame(width: 400)
         }
     }
 
