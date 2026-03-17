@@ -62,9 +62,7 @@ Proactively remove unused code during every change. Remove code your change make
 
 ## Backwards Compatibility
 
-No aliases, fallback reads, old API shapes, migration shims, or adapters for internal interfaces — proceed with the clean implementation. Remove existing interface backwards-compat code when encountered.
-
-**Exception — persisted state and data.** We have real users with data on disk. Never ship a change that silently breaks existing persisted state. When a change alters workspace file paths, directory structure, data shapes, namespaces, column schemas, or storage formats, include a migration in the same PR.
+We have real users — maintain backwards compatibility for all interfaces, persisted state, and data. Never ship a change that silently breaks existing behavior. When a change alters workspace file paths, directory structure, data shapes, namespaces, column schemas, or storage formats, include a migration in the same PR.
 
 **Which migration strategy to use:**
 
