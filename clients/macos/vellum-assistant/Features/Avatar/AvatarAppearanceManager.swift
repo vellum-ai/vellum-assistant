@@ -456,13 +456,26 @@ final class AvatarAppearanceManager {
     /// When cleared, reverts to the default bundle icon.
     private func updateDockIcon() {
         guard let avatar = customAvatarImage else {
-            NSApplication.shared.applicationIconImage =
-                NSWorkspace.shared.icon(forFile: Bundle.main.bundlePath)
+            NSApplication.shared.applicationIconImage = nil
             NSApp.dockTile.display()
             return
         }
 
-        NSApplication.shared.applicationIconImage = Self.squircleIcon(avatar, size: 512)
+        // Standard macOS icons have ~10% padding so the artwork doesn't crowd
+        // the dock running-indicator dot or produce edge fringe artifacts.
+        let canvasSize: CGFloat = 512
+        let iconSize: CGFloat = 418  // ~82% of canvas, matching Apple icon grid
+        let padding = (canvasSize - iconSize) / 2
+        let squircle = Self.squircleIcon(avatar, size: iconSize)
+
+        let icon = NSImage(size: NSSize(width: canvasSize, height: canvasSize), flipped: false) { _ in
+            let iconRect = NSRect(x: padding, y: padding, width: iconSize, height: iconSize)
+            squircle.draw(in: iconRect, from: NSRect(origin: .zero, size: squircle.size),
+                          operation: .copy, fraction: 1.0)
+            return true
+        }
+
+        NSApplication.shared.applicationIconImage = icon
         NSApp.dockTile.display()
     }
 
