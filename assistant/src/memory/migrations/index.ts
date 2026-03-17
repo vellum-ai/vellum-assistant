@@ -116,6 +116,7 @@ export { migrateCapabilityCardColumns } from "./171-capability-card-columns.js";
 export { migrateRenameCreatedBySessionIdColumns } from "./172-rename-created-by-session-id.js";
 export { migrateRenameSourceSessionIdColumn } from "./173-rename-source-session-id.js";
 export { migrateRenameThreadStartersTable } from "./174-rename-thread-starters-table.js";
+export { createLifecycleEventsTable } from "./175-create-lifecycle-events.js";
 export {
   MIGRATION_REGISTRY,
   type MigrationRegistryEntry,

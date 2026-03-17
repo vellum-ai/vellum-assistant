@@ -22,5 +22,14 @@ export interface TurnTelemetryEvent extends TelemetryEventBase {
   type: "turn";
 }
 
+/** Lifecycle event — app_open, hatch, etc. */
+export interface LifecycleTelemetryEvent extends TelemetryEventBase {
+  type: "lifecycle";
+  event_name: string;
+}
+
 /** Discriminated union of all telemetry event types. */
-export type TelemetryEvent = LlmUsageTelemetryEvent | TurnTelemetryEvent;
+export type TelemetryEvent =
+  | LlmUsageTelemetryEvent
+  | TurnTelemetryEvent
+  | LifecycleTelemetryEvent;

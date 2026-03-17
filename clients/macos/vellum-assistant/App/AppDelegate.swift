@@ -387,6 +387,10 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
                 let ready = await awaitDaemonReady(timeout: 15)
 
                 if ready {
+                    // Record lifecycle telemetry events (fire-and-forget).
+                    Task { await daemonClient.httpTransport?.recordLifecycleEvent("hatch") }
+                    Task { await daemonClient.httpTransport?.recordLifecycleEvent("app_open") }
+
                     // If the user is signed in with a local assistant, wait for
                     // credential provisioning to complete before sending the wake-up
                     // greeting, so the managed-proxy key is available for the LLM call.
@@ -414,6 +418,14 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
                 }
             }
         } else {
+            // Record app_open telemetry event (fire-and-forget).
+            // The daemon may not be connected yet, so retry briefly.
+            Task {
+                let ready = await awaitDaemonReady(timeout: 10)
+                if ready {
+                    await daemonClient.httpTransport?.recordLifecycleEvent("app_open")
+                }
+            }
             showMainWindow()
             debugStateWriter.start(appDelegate: self)
         }

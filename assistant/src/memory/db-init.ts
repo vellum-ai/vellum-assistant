@@ -25,6 +25,7 @@ import {
   createCoreTables,
   createExternalConversationBindingsTables,
   createFollowupsTables,
+  createLifecycleEventsTable,
   createMediaAssetsTables,
   createMessagesFts,
   createNotificationTables,
@@ -443,6 +444,9 @@ export function initializeDb(): void {
 
   // 77. Rename thread_starters → conversation_starters table and indexes
   migrateRenameThreadStartersTable(database);
+
+  // 78. Lifecycle events table for app_open / hatch telemetry
+  createLifecycleEventsTable(database);
 
   validateMigrationState(database);
 

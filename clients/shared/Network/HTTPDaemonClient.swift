@@ -429,6 +429,9 @@ public final class HTTPTransport {
         // BTW side-chain
         case btw
 
+        // Telemetry
+        case telemetryLifecycle
+
         // Misc
         case channelVerificationSessions
         case channelVerificationSessionsStatus
@@ -819,6 +822,8 @@ public final class HTTPTransport {
             return ("/v1/channel-verification-sessions/revoke", nil)
         case .registerDeviceToken:
             return ("/v1/device-token", nil)
+        case .telemetryLifecycle:
+            return ("/v1/telemetry/lifecycle", nil)
         }
     }
 
@@ -1183,6 +1188,8 @@ public final class HTTPTransport {
             return ("\(prefix)/channel-verification-sessions/revoke/", nil)
         case .registerDeviceToken:
             return ("\(prefix)/device-token/", nil)
+        case .telemetryLifecycle:
+            return ("\(prefix)/telemetry/lifecycle/", nil)
         }
     }
 
@@ -2053,6 +2060,37 @@ public final class HTTPTransport {
             }
         } catch {
             log.error("Conversation seen signal error: \(error.localizedDescription)")
+        }
+    }
+
+    /// Record a lifecycle telemetry event (e.g. app_open, hatch).
+    /// Fire-and-forget — failures are logged but do not propagate.
+    func recordLifecycleEvent(_ eventName: String, isRetry: Bool = false) async {
+        guard let url = buildURL(for: .telemetryLifecycle) else { return }
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        applyAuth(&request)
+
+        let body: [String: Any] = ["event_name": eventName]
+
+        do {
+            request.httpBody = try JSONSerialization.data(withJSONObject: body)
+            let (data, response) = try await URLSession.shared.data(for: request)
+
+            if let http = response as? HTTPURLResponse {
+                if http.statusCode == 401 && !isRetry {
+                    let refreshResult = await handleAuthenticationFailureAsync(responseData: data)
+                    if case .success = refreshResult {
+                        await recordLifecycleEvent(eventName, isRetry: true)
+                    }
+                } else if http.statusCode != 200 {
+                    log.warning("Lifecycle event '\(eventName)' recording failed (\(http.statusCode))")
+                }
+            }
+        } catch {
+            log.warning("Lifecycle event '\(eventName)' recording error: \(error.localizedDescription)")
         }
     }
 

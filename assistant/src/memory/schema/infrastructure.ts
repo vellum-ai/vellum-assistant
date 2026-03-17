@@ -138,6 +138,12 @@ export const llmUsageEvents = sqliteTable(
   ],
 );
 
+export const lifecycleEvents = sqliteTable("lifecycle_events", {
+  id: text("id").primaryKey(),
+  eventName: text("event_name").notNull(), // 'app_open' | 'hatch'
+  createdAt: integer("created_at").notNull(),
+});
+
 export const actorTokenRecords = sqliteTable("actor_token_records", {
   id: text("id").primaryKey(),
   tokenHash: text("token_hash").notNull(),

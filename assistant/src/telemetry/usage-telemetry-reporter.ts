@@ -19,6 +19,7 @@ import {
   getMemoryCheckpoint,
   setMemoryCheckpoint,
 } from "../memory/checkpoints.js";
+import { queryUnreportedLifecycleEvents } from "../memory/lifecycle-events-store.js";
 import { queryUnreportedUsageEvents } from "../memory/llm-usage-store.js";
 import { queryUnreportedTurnEvents } from "../memory/turn-events-store.js";
 import { resolveManagedProxyContext } from "../providers/managed-proxy/context.js";
@@ -37,6 +38,10 @@ const CHECKPOINT_KEY_WATERMARK = "telemetry:usage:last_reported_at";
 const CHECKPOINT_KEY_WATERMARK_ID = "telemetry:usage:last_reported_id";
 const CHECKPOINT_KEY_TURN_WATERMARK = "telemetry:turns:last_reported_at";
 const CHECKPOINT_KEY_TURN_WATERMARK_ID = "telemetry:turns:last_reported_id";
+const CHECKPOINT_KEY_LIFECYCLE_WATERMARK =
+  "telemetry:lifecycle:last_reported_at";
+const CHECKPOINT_KEY_LIFECYCLE_WATERMARK_ID =
+  "telemetry:lifecycle:last_reported_id";
 const REPORT_INTERVAL_MS = 5 * 60 * 1000;
 const BATCH_SIZE = 500;
 const MAX_CONSECUTIVE_BATCHES = 10;
@@ -100,6 +105,13 @@ export class UsageTelemetryReporter {
       const turnWatermarkId =
         getMemoryCheckpoint(CHECKPOINT_KEY_TURN_WATERMARK_ID) ?? undefined;
 
+      // Read lifecycle watermark (compound cursor: createdAt + id)
+      const lifecycleWatermark = Number(
+        getMemoryCheckpoint(CHECKPOINT_KEY_LIFECYCLE_WATERMARK) ?? "0",
+      );
+      const lifecycleWatermarkId =
+        getMemoryCheckpoint(CHECKPOINT_KEY_LIFECYCLE_WATERMARK_ID) ?? undefined;
+
       // Query unreported events
       const events = queryUnreportedUsageEvents(
         watermark,
@@ -111,8 +123,18 @@ export class UsageTelemetryReporter {
         turnWatermarkId,
         BATCH_SIZE,
       );
+      const lifecycleEvents = queryUnreportedLifecycleEvents(
+        lifecycleWatermark,
+        lifecycleWatermarkId,
+        BATCH_SIZE,
+      );
 
-      if (events.length === 0 && turnEvents.length === 0) return;
+      if (
+        events.length === 0 &&
+        turnEvents.length === 0 &&
+        lifecycleEvents.length === 0
+      )
+        return;
 
       // Resolve auth context — skip flush when neither auth mode is viable
       const proxyCtx = await resolveManagedProxyContext();
@@ -151,6 +173,14 @@ export class UsageTelemetryReporter {
           (e): TelemetryEvent => ({
             type: "turn",
             daemon_event_id: e.id,
+            recorded_at: e.createdAt,
+          }),
+        ),
+        ...lifecycleEvents.map(
+          (e): TelemetryEvent => ({
+            type: "lifecycle",
+            daemon_event_id: e.id,
+            event_name: e.eventName,
             recorded_at: e.createdAt,
           }),
         ),
@@ -207,8 +237,25 @@ export class UsageTelemetryReporter {
         setMemoryCheckpoint(CHECKPOINT_KEY_TURN_WATERMARK_ID, lastTurn.id);
       }
 
-      // If we got a full batch of either type, there may be more — recurse
-      if (events.length === BATCH_SIZE || turnEvents.length === BATCH_SIZE) {
+      // Advance lifecycle watermark (compound cursor)
+      if (lifecycleEvents.length > 0) {
+        const lastLifecycle = lifecycleEvents[lifecycleEvents.length - 1];
+        setMemoryCheckpoint(
+          CHECKPOINT_KEY_LIFECYCLE_WATERMARK,
+          String(lastLifecycle.createdAt),
+        );
+        setMemoryCheckpoint(
+          CHECKPOINT_KEY_LIFECYCLE_WATERMARK_ID,
+          lastLifecycle.id,
+        );
+      }
+
+      // If we got a full batch of any type, there may be more — recurse
+      if (
+        events.length === BATCH_SIZE ||
+        turnEvents.length === BATCH_SIZE ||
+        lifecycleEvents.length === BATCH_SIZE
+      ) {
         await this._doFlush(batchCount + 1);
       }
     } catch (err) {
