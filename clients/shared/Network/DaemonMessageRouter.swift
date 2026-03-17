@@ -159,8 +159,8 @@ extension DaemonClient {
         case .modelInfo(let msg):
             currentModel = msg.model
             latestModelInfo = msg
-        case .publishPageResponse(let msg):
-            onPublishPageResponse?(msg)
+        case .publishPageResponse:
+            break
         case .openUrl(let msg):
             onOpenUrl?(msg)
         case .navigateSettings(let msg):
@@ -254,10 +254,8 @@ extension DaemonClient {
             onHeartbeatChecklistWriteResponse?(msg)
         case .pairingApprovalRequest(let msg):
             onPairingApprovalRequest?(msg)
-        case .approvedDevicesListResponse(let msg):
-            onApprovedDevicesListResponse?(msg)
-        case .approvedDeviceRemoveResponse(let msg):
-            onApprovedDeviceRemoveResponse?(msg)
+        case .approvedDevicesListResponse, .approvedDeviceRemoveResponse:
+            break
         case .recordingPause(let msg):
             onRecordingPause?(msg)
         case .recordingResume(let msg):

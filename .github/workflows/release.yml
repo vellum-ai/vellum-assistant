@@ -25,7 +25,7 @@ jobs:
 
   push-assistant-image:
     needs: extract-version
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-latest-8-cores
     timeout-minutes: 30
     permissions:
       contents: read
@@ -1669,7 +1669,7 @@ jobs:
   # notification, but downstream jobs no longer depend on it.
   ci-assistant:
     needs: extract-version
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-latest-8-cores
     timeout-minutes: 5
     continue-on-error: true
     steps:

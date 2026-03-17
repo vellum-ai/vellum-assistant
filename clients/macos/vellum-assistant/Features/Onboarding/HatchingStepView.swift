@@ -135,10 +135,7 @@ struct HatchingStepView: View {
                 Text("Waking up...")
                     .font(.system(size: 24, weight: .regular, design: .serif))
                     .foregroundColor(VColor.contentDefault)
-                Text("Getting your assistant ready\u{2026}")
-                    .font(.system(size: 14))
-                    .foregroundColor(VColor.contentSecondary)
-                Text("Your assistant will ask a few quick questions to get started.\nThis usually takes less than a minute.")
+                Text("Hang tight \u{2014} your assistant will have a few\nquestions for you once it\u{2019}s up.")
                     .font(.system(size: 13))
                     .foregroundColor(VColor.contentTertiary)
                     .multilineTextAlignment(.center)
@@ -195,9 +192,15 @@ struct HatchingStepView: View {
         state.resetForRetry()
     }
 
-    /// Called when the CLI process finishes successfully. Saves the random avatar
-    /// (for non-pairing flows) then signals completion after a brief delay.
+    /// Called when the CLI process finishes successfully or when the success
+    /// sentinel is detected in CLI output. Saves the random avatar (for
+    /// non-pairing flows) then signals completion after a brief delay.
+    /// Idempotent — safe to call multiple times.
     private func handleHatchSuccess() {
+        guard !state.hatchCompleted && !state.hatchFailed && completionTask == nil else { return }
+
+        log.info("Hatch success detected — starting completion transition")
+
         // Save the randomly-generated avatar as the user's avatar, but only for
         // non-pairing flows and only if one hasn't already been uploaded/generated
         // (preserves existing avatars when replaying onboarding during development).
@@ -229,6 +232,11 @@ struct HatchingStepView: View {
         }
     }
 
+    /// Sentinel string emitted by the CLI when Docker containers are ready.
+    /// Detecting this in output lets the desktop app proceed even when the
+    /// CLI process stays alive (e.g. `--watch` mode in DEBUG builds).
+    private static let dockerReadySentinel = "Docker containers are up and running"
+
     private func startRemoteHatch() {
         let apiKey = APIKeyManager.getKey(for: "anthropic") ?? ""
 
@@ -248,9 +256,18 @@ struct HatchingStepView: View {
             do {
                 try await cliLauncher.runRemoteHatch(config: config) { line in
                     Task { @MainActor in
+                        log.info("CLI hatch output: \(line, privacy: .public)")
                         state.hatchLogLines.append(line)
+
+                        // Detect the readiness sentinel from CLI output so we
+                        // don't have to wait for the CLI process to exit (which
+                        // never happens in --watch mode).
+                        if line.contains(Self.dockerReadySentinel) {
+                            handleHatchSuccess()
+                        }
                     }
                 }
+                log.info("CLI hatch process exited")
                 handleHatchSuccess()
             } catch {
                 log.error("Remote hatch failed: \(String(describing: error), privacy: .public)")

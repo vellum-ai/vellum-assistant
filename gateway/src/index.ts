@@ -836,6 +836,25 @@ async function main() {
         if (draining) {
           return Response.json({ status: "draining" }, { status: 503 });
         }
+        // Check that the upstream assistant is also reachable so callers
+        // know the full stack is ready, not just the gateway process.
+        try {
+          const upstream = await fetch(
+            `${config.assistantRuntimeBaseUrl}/healthz`,
+            { signal: AbortSignal.timeout(3000) },
+          );
+          if (!upstream.ok) {
+            return Response.json(
+              { status: "upstream_unhealthy", upstream: upstream.status },
+              { status: 503 },
+            );
+          }
+        } catch {
+          return Response.json(
+            { status: "upstream_unreachable" },
+            { status: 503 },
+          );
+        }
         return Response.json({ status: "ok" });
       }
 

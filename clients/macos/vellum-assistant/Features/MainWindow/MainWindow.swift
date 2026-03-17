@@ -285,6 +285,9 @@ public final class MainWindow {
         self.usageDashboardStore = UsageDashboardStore()
         self.conversationManager.ambientAgent = services.ambientAgent
         documentManager.daemonClient = daemonClient
+        services.activityNotificationService.isConversationWindowVisible = { [weak self] in
+            self?.isVisible ?? false
+        }
         services.daemonClient.onTraceEvent = { [weak self] msg in
             Task { @MainActor in
                 self?.traceStore.ingest(msg)

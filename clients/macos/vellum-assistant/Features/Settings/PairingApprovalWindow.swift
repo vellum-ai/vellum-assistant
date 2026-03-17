@@ -7,13 +7,13 @@ import VellumAssistantShared
 @MainActor
 final class PairingApprovalWindow {
     private var window: NSWindow?
-    private let daemonClient: DaemonClient
+    private let pairingClient: PairingClient
     private var currentPairingRequestId: String?
     private var responseSent: Bool = false
     private var windowDelegate: WindowCloseDelegate?
 
-    init(daemonClient: DaemonClient) {
-        self.daemonClient = daemonClient
+    init(pairingClient: PairingClient = PairingClient()) {
+        self.pairingClient = pairingClient
     }
 
     /// Show the pairing approval prompt for a specific device.
@@ -34,10 +34,12 @@ final class PairingApprovalWindow {
         let view = PairingApprovalView(deviceName: deviceName) { [weak self] decision in
             guard let self else { return }
             self.responseSent = true
-            try? self.daemonClient.sendPairingApprovalResponse(
-                pairingRequestId: pairingRequestId,
-                decision: decision
-            )
+            Task {
+                _ = try? await self.pairingClient.sendPairingApprovalResponse(
+                    pairingRequestId: pairingRequestId,
+                    decision: decision
+                )
+            }
             self.close()
         }
 
@@ -88,10 +90,12 @@ final class PairingApprovalWindow {
     private func denyIfNeeded() {
         guard let requestId = currentPairingRequestId, !responseSent else { return }
         responseSent = true
-        try? daemonClient.sendPairingApprovalResponse(
-            pairingRequestId: requestId,
-            decision: "deny"
-        )
+        Task {
+            _ = try? await pairingClient.sendPairingApprovalResponse(
+                pairingRequestId: requestId,
+                decision: "deny"
+            )
+        }
     }
 
     /// Called by the window delegate when the user clicks the X button.

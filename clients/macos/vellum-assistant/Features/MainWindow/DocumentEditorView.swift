@@ -304,9 +304,9 @@ private func generateEditorHTML(title: String, initialContent: String) -> String
     .toastui-editor-ww-content { padding: 24px 32px !important; }
     .ProseMirror { padding: 24px 32px !important; }
     .toastui-editor-md-container .toastui-editor { padding: 24px 32px !important; }
-    .toastui-editor-contents h1 { font-family: "Fraunces", Georgia, serif !important; font-size: 28px !important; font-weight: 400 !important; color: var(--v-text) !important; border-bottom: none !important; margin-top: 32px !important; margin-bottom: 12px !important; }
-    .toastui-editor-contents h2 { font-family: "Fraunces", Georgia, serif !important; font-size: 22px !important; font-weight: 400 !important; color: var(--v-text) !important; border-bottom: none !important; margin-top: 28px !important; margin-bottom: 10px !important; }
-    .toastui-editor-contents h3 { font-family: "Fraunces", Georgia, serif !important; font-size: 18px !important; font-weight: 400 !important; color: var(--v-text) !important; border-bottom: none !important; margin-top: 24px !important; margin-bottom: 8px !important; }
+    .toastui-editor-contents h1 { font-family: "Inter", -apple-system, BlinkMacSystemFont, sans-serif !important; font-size: 28px !important; font-weight: 600 !important; color: var(--v-text) !important; border-bottom: none !important; margin-top: 32px !important; margin-bottom: 12px !important; }
+    .toastui-editor-contents h2 { font-family: "Inter", -apple-system, BlinkMacSystemFont, sans-serif !important; font-size: 22px !important; font-weight: 600 !important; color: var(--v-text) !important; border-bottom: none !important; margin-top: 28px !important; margin-bottom: 10px !important; }
+    .toastui-editor-contents h3 { font-family: "Inter", -apple-system, BlinkMacSystemFont, sans-serif !important; font-size: 18px !important; font-weight: 600 !important; color: var(--v-text) !important; border-bottom: none !important; margin-top: 24px !important; margin-bottom: 8px !important; }
     .toastui-editor-contents p { margin-bottom: 12px !important; }
     .toastui-editor-contents pre { background: var(--v-surface) !important; border-radius: 8px !important; padding: 12px 16px !important; }
     .toastui-editor-contents code { background: var(--v-surface) !important; color: var(--v-text) !important; font-family: "DMMono-Regular", "SF Mono", monospace !important; border-radius: 4px !important; padding: 2px 5px !important; font-size: 13px !important; }

@@ -101,12 +101,11 @@ extension AppDelegate {
             let baseURL = "http://localhost:\(port)"
             let conversationKey = assistant?.assistantId ?? UUID().uuidString
             let instanceDir = assistant?.instanceDir
-            let featureFlagToken = instanceDir.map { readFeatureFlagToken(environment: ["BASE_DATA_DIR": $0]) } ?? readFeatureFlagToken()
             let config = DaemonConfig(transport: .http(
                 baseURL: baseURL,
                 bearerToken: nil,
                 conversationKey: conversationKey
-            ), instanceDir: instanceDir, featureFlagToken: featureFlagToken)
+            ), instanceDir: instanceDir)
             services.reconfigureDaemonClient(config: config)
             log.info("Configured local HTTP transport on port \(port)")
             return
@@ -208,7 +207,7 @@ extension AppDelegate {
         daemonClient.onPairingApprovalRequest = { [weak self] msg in
             guard let self else { return }
             if self.pairingApprovalWindow == nil {
-                self.pairingApprovalWindow = PairingApprovalWindow(daemonClient: self.daemonClient)
+                self.pairingApprovalWindow = PairingApprovalWindow()
             }
             self.pairingApprovalWindow?.show(
                 pairingRequestId: msg.pairingRequestId,

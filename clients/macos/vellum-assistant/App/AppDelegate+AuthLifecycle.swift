@@ -162,6 +162,22 @@ extension AppDelegate {
     }
 
     @objc public func performLogout() {
+        // Warn when managed services are active — they'll stop working after logout.
+        if services.settingsStore.hasManagedServices {
+            let alert = NSAlert()
+            alert.messageText = "Heads up"
+            alert.informativeText = "Some of your services rely on being logged in."
+                + " They won't work until you log back in or switch them to use your own API keys."
+            alert.addButton(withTitle: "Log Out")
+            alert.addButton(withTitle: "Cancel")
+            // Style the primary button as destructive (caution icon).
+            alert.alertStyle = .warning
+            let response = alert.runModal()
+            if response != .alertFirstButtonReturn {
+                return
+            }
+        }
+
         Task {
             // Capture assistant ID before logout clears it from UserDefaults
             let connectedAssistantId = UserDefaults.standard.string(forKey: "connectedAssistantId")
@@ -180,8 +196,10 @@ extension AppDelegate {
                 await authManager.logout()
             }
 
-            // Clear managed proxy credentials from the running daemon (local assistants only)
-            if !isCurrentAssistantManaged && !isCurrentAssistantRemote {
+            // Clear managed proxy credentials from the running daemon (local assistants only).
+            // Skip when the daemon was never set up (e.g. logout during onboarding) —
+            // there are no credentials to clear and no daemon to stop.
+            if !isCurrentAssistantManaged && !isCurrentAssistantRemote && hasSetupDaemon {
                 if let token = actorToken, !token.isEmpty {
                     let assistantId = connectedAssistantId ?? ""
                     let port = LockfileAssistant.loadByName(assistantId)?.daemonPort ?? 7821
@@ -398,10 +416,11 @@ extension AppDelegate {
                     log.info("Local assistant API key provisioned: \(id, privacy: .public)")
                 }
 
-                // Set service modes to "managed" for any services that don't already have a
-                // mode configured. On first bootstrap this sets all three; on subsequent app
-                // restarts the user's existing choices are preserved.
-                WorkspaceConfigIO.initializeServiceDefaults(defaultMode: "managed")
+                // Set service modes to "managed", forcing overwrite so that daemon-
+                // materialized schema defaults ("your-own") are replaced on first
+                // authenticated startup. On subsequent restarts the user's explicit
+                // choices are preserved because authentication is already established.
+                WorkspaceConfigIO.initializeServiceDefaults(defaultMode: "managed", force: true)
 
                 self.localBootstrapDidComplete = true
                 SentryDeviceInfo.updateOrganizationTag(UserDefaults.standard.string(forKey: "connectedOrganizationId"))

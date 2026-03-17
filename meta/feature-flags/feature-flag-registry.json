@@ -39,15 +39,7 @@
       "key": "feature_flags.app-builder-multifile.enabled",
       "label": "App Builder Multi-file",
       "description": "Enable multi-file TSX app creation with esbuild compilation instead of single-HTML apps",
-      "defaultEnabled": false
-    },
-    {
-      "id": "sentry-testing",
-      "scope": "macos",
-      "key": "sentry_testing_enabled",
-      "label": "Sentry Testing",
-      "description": "Show the Sentry Testing tab in Settings for triggering test crash reports and error events",
-      "defaultEnabled": false
+      "defaultEnabled": true
     },
     {
       "id": "mobile-pairing",
@@ -239,6 +231,14 @@
       "key": "feature_flags.deploy-to-vercel.enabled",
       "label": "Deploy to Vercel",
       "description": "Enable the Deploy to Vercel / Publish option in the app workspace header share menu",
+      "defaultEnabled": false
+    },
+    {
+      "id": "managed-google-oauth",
+      "scope": "assistant",
+      "key": "feature_flags.managed-google-oauth.enabled",
+      "label": "Managed Google OAuth",
+      "description": "Show the Google OAuth service card in Models & Services settings",
       "defaultEnabled": false
     }
   ]

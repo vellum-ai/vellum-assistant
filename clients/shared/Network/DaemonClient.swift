@@ -45,34 +45,9 @@ private func resolveInstanceDirFromLockfile() -> String? {
     return instanceDir
 }
 
-/// Resolve the feature-flag bearer token path.
-/// Uses BASE_DATA_DIR when set to match daemon root resolution.
-public func resolveFeatureFlagTokenPath(environment: [String: String]? = nil) -> String {
-    return resolveVellumDir(environment: environment) + "/feature-flag-token"
-}
-
 /// Resolve the daemon PID file path, honoring `BASE_DATA_DIR`.
 public func resolvePidPath(environment: [String: String]? = nil) -> String {
     return resolveVellumDir(environment: environment) + "/vellum.pid"
-}
-
-/// Read the feature-flag bearer token from disk.
-/// Used to authenticate PATCH /v1/feature-flags/:flagKey requests.
-public func readFeatureFlagToken(environment: [String: String]? = nil) -> String? {
-    let tokenPath = resolveFeatureFlagTokenPath(environment: environment)
-    let data: Data
-    do {
-        data = try Data(contentsOf: URL(fileURLWithPath: tokenPath))
-    } catch {
-        log.error("Failed to read feature-flag token from \(tokenPath, privacy: .public): \(error)")
-        return nil
-    }
-    guard let token = String(data: data, encoding: .utf8)?
-            .trimmingCharacters(in: .whitespacesAndNewlines),
-          !token.isEmpty else {
-        return nil
-    }
-    return token
 }
 
 /// Protocol for daemon client communication, enabling dependency injection and testing.
@@ -471,9 +446,6 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     /// The latest full model info response from the daemon stream.
     @Published public var latestModelInfo: ModelInfoMessage?
 
-    /// Called when the daemon sends a `publish_page_response` message.
-    public var onPublishPageResponse: ((PublishPageResponseMessage) -> Void)?
-
     /// Called when the daemon sends an `open_url` message.
     public var onOpenUrl: ((OpenUrlMessage) -> Void)?
 
@@ -530,12 +502,6 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
 
     /// Called when the daemon requests pairing approval from macOS.
     public var onPairingApprovalRequest: ((PairingApprovalRequestMessage) -> Void)?
-
-    /// Called when the daemon sends the approved devices list.
-    public var onApprovedDevicesListResponse: ((ApprovedDevicesListResponseMessage) -> Void)?
-
-    /// Called when the daemon confirms a device removal.
-    public var onApprovedDeviceRemoveResponse: ((ApprovedDeviceRemoveResponseMessage) -> Void)?
 
     /// Called when a subagent is spawned.
     public var onSubagentSpawned: ((SubagentSpawned) -> Void)?
@@ -1155,10 +1121,6 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
         try send(TelegramConfigRequestMessage(action: action, botToken: botToken, commands: commands))
     }
 
-    /// Publish a static page to Vercel.
-    public func sendPublishPage(html: String, title: String? = nil, appId: String? = nil) throws {
-        try send(PublishPageRequestMessage(html: html, title: title, appId: appId))
-    }
 
     /// Unpublish a page and delete its Vercel deployment.
     public func sendUnpublishPage(deploymentId: String) throws {
@@ -1186,12 +1148,6 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
         try send(EnvVarsRequestMessage())
     }
 
-    // MARK: - Link Open
-
-    /// Send a link_open_request to the daemon, requesting it open a URL externally.
-    public func sendLinkOpenRequest(url: String, metadata: [String: AnyCodable]?) throws {
-        try send(LinkOpenRequestMessage(url: url, metadata: metadata))
-    }
 
     /// Request identity info via HTTP.
     public func sendIdentityGet() throws {
@@ -1216,7 +1172,7 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     /// Build an authenticated URLRequest for a local HTTP endpoint.
     ///
     /// Token resolution order:
-    /// 1. `tokenOverride` (for callers that need a specific token, e.g. feature-flag token)
+    /// 1. `tokenOverride` (for callers that need a specific token)
     /// 2. JWT from `ActorTokenManager.getToken()` — persisted in Keychain, so available
     ///    across app restarts once the initial bootstrap has completed. On first-ever
     ///    launch the bootstrap endpoint is unprotected (pre-auth), so the lack of a
@@ -1414,27 +1370,6 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
         try send(HeartbeatChecklistWrite(type: "heartbeat_checklist_write", content: content))
     }
 
-    // MARK: - Pairing
-
-    /// Send the user's pairing approval decision.
-    public func sendPairingApprovalResponse(pairingRequestId: String, decision: String) throws {
-        try send(PairingApprovalResponseMessage(pairingRequestId: pairingRequestId, decision: decision))
-    }
-
-    /// Request the list of always-allowed devices.
-    public func sendApprovedDevicesList() throws {
-        try send(ApprovedDevicesListMessage())
-    }
-
-    /// Remove a device from the always-allow list.
-    public func sendApprovedDeviceRemove(hashedDeviceId: String) throws {
-        try send(ApprovedDeviceRemoveMessage(hashedDeviceId: hashedDeviceId))
-    }
-
-    /// Clear all approved devices.
-    public func sendApprovedDevicesClear() throws {
-        try send(ApprovedDevicesClearMessage())
-    }
 
     // MARK: - Guardian Actions
 

@@ -1,7 +1,15 @@
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
+import {
+  afterAll,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  mock,
+  test,
+} from "bun:test";
 
 const testDir = mkdtempSync(join(tmpdir(), "scheduler-recurrence-test-"));
 
@@ -86,7 +94,30 @@ function buildEndedRrule(): string {
 
 // ── RRULE schedule fires through the scheduler ──────────────────────
 
+// Replace setTimeout with a zero-delay version so the 500ms scheduler
+// wait calls fire instantly instead of waiting real time.
+let origSetTimeout: typeof globalThis.setTimeout;
+
 describe("scheduler RRULE execution", () => {
+  beforeAll(() => {
+    origSetTimeout = globalThis.setTimeout;
+    globalThis.setTimeout = ((
+      fn: TimerHandler,
+      _ms?: number,
+      ...args: unknown[]
+    ) => {
+      // Use a small real delay so fire-and-forget async ticks have time to
+      // settle, while still cutting the 500ms waits down dramatically.
+      // 200ms gives headroom for the run_task path which does a dynamic
+      // import of task-runner.js on first invocation.
+      return origSetTimeout(fn, 200, ...args);
+    }) as typeof setTimeout;
+  });
+
+  afterAll(() => {
+    globalThis.setTimeout = origSetTimeout;
+  });
+
   beforeEach(() => {
     const db = getDb();
     db.run("DELETE FROM cron_runs");
@@ -157,8 +188,11 @@ describe("scheduler RRULE execution", () => {
     forceScheduleDue(schedule.id);
 
     const directCalls: { conversationId: string; message: string }[] = [];
+    let onMessage: (() => void) | undefined;
+    const messageReceived = new Promise<void>((r) => (onMessage = r));
     const processMessage = async (conversationId: string, message: string) => {
       directCalls.push({ conversationId, message });
+      onMessage?.();
     };
 
     const scheduler = startScheduler(
@@ -166,7 +200,17 @@ describe("scheduler RRULE execution", () => {
       () => {},
       () => {},
     );
-    await new Promise((resolve) => setTimeout(resolve, 500));
+    // The run_task path involves a dynamic import which can take >50ms in CI,
+    // exceeding the patched setTimeout delay. Await the actual callback instead
+    // of relying on a fixed timeout.
+    await Promise.race([
+      messageReceived,
+      new Promise((r) => origSetTimeout(r, 2000)),
+    ]);
+    // Yield to the macrotask queue so all pending microtasks settle —
+    // the scheduler tick still needs to create the schedule run after
+    // processMessage returns.
+    await new Promise((r) => origSetTimeout(r, 0));
     scheduler.stop();
 
     // runTask renders the template, so processMessage gets the template text

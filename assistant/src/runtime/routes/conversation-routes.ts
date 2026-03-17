@@ -59,6 +59,7 @@ import { DAEMON_INTERNAL_ASSISTANT_ID } from "../assistant-scope.js";
 import type { AuthContext } from "../auth/types.js";
 import { bridgeConfirmationRequestToGuardian } from "../confirmation-request-guardian-bridge.js";
 import { routeGuardianReply } from "../guardian-reply-router.js";
+import { healGuardianBindingDrift } from "../guardian-vellum-migration.js";
 import { httpError } from "../http-errors.js";
 import type { RouteDefinition } from "../http-router.js";
 import type {
@@ -647,22 +648,43 @@ export async function handleSendMessage(
   // the same trust resolution pipeline that channel ingress uses.
   if (authContext.actorPrincipalId) {
     const assistantId = DAEMON_INTERNAL_ASSISTANT_ID;
-    const trustCtx = resolveTrustContext({
+    let trustCtx = resolveTrustContext({
       assistantId,
       sourceChannel: "vellum",
       conversationExternalId: "local",
       actorExternalId: authContext.actorPrincipalId,
     });
     if (trustCtx.trustClass === "unknown") {
-      log.warn(
-        {
-          actorPrincipalId: authContext.actorPrincipalId,
-          sourceChannel,
-          trustClass: trustCtx.trustClass,
-          principalType: authContext.principalType,
-        },
-        "JWT-verified actor resolved to unknown trust class — possible guardian binding drift (e.g. DB reset without re-bootstrap)",
-      );
+      // Attempt to heal guardian binding drift: after a DB reset the
+      // guardian binding gets a new vellum-principal-* UUID while the
+      // client still holds a valid JWT with the old one. The signing
+      // key survives the reset, so the JWT is authentic — just stale.
+      const healed = healGuardianBindingDrift(authContext.actorPrincipalId);
+      if (healed) {
+        trustCtx = resolveTrustContext({
+          assistantId,
+          sourceChannel: "vellum",
+          conversationExternalId: "local",
+          actorExternalId: authContext.actorPrincipalId,
+        });
+        log.info(
+          {
+            actorPrincipalId: authContext.actorPrincipalId,
+            trustClass: trustCtx.trustClass,
+          },
+          "Trust re-resolved after guardian binding drift heal",
+        );
+      } else {
+        log.warn(
+          {
+            actorPrincipalId: authContext.actorPrincipalId,
+            sourceChannel,
+            trustClass: trustCtx.trustClass,
+            principalType: authContext.principalType,
+          },
+          "JWT-verified actor resolved to unknown trust class — possible guardian binding drift (e.g. DB reset without re-bootstrap)",
+        );
+      }
     }
     conversation.setTrustContext(withSourceChannel(sourceChannel, trustCtx));
   } else {

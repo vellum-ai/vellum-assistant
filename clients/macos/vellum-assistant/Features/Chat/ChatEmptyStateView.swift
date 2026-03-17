@@ -104,7 +104,7 @@ struct ChatEmptyStateView: View {
 
             if let greeting = effectiveGreeting {
                 Text(greeting)
-                    .font(.custom("Fraunces", size: 28).weight(.regular))
+                    .font(VFont.largeTitle)
                     .foregroundColor(VColor.contentSecondary)
                     .multilineTextAlignment(.leading)
                     .transition(.opacity)
@@ -224,37 +224,33 @@ struct ConversationStarterPill: View {
     @State private var isPressed = false
 
     private var fillColor: Color {
-        if isPressed {
-            return VColor.surfaceOverlay.opacity(0.9)
-        } else if isHovered {
-            return VColor.surfaceOverlay
-        } else {
-            return VColor.surfaceActive
-        }
+        if isPressed { return VColor.borderBase.opacity(0.5) }
+        if isHovered { return VColor.borderBase.opacity(0.4) }
+        return VColor.borderBase.opacity(0.3)
     }
 
     private var borderColor: Color {
-        isHovered ? VColor.borderHover : VColor.borderBase
+        isHovered ? VColor.borderHover.opacity(0.5) : VColor.borderBase.opacity(0.5)
     }
 
     var body: some View {
         Button(action: action) {
             Text(label)
-                .font(VFont.bodyMedium)
+                .font(VFont.body)
                 .foregroundColor(isHovered ? VColor.contentDefault : VColor.contentSecondary)
                 .lineLimit(1)
                 .frame(maxWidth: .infinity)
                 .padding(.horizontal, VSpacing.md)
-                .padding(.vertical, VSpacing.xs + 2)
+                .padding(.vertical, VSpacing.sm)
                 .background(
-                    Capsule()
+                    RoundedRectangle(cornerRadius: VRadius.md)
                         .fill(fillColor)
                 )
                 .overlay(
-                    Capsule()
+                    RoundedRectangle(cornerRadius: VRadius.md)
                         .stroke(borderColor, lineWidth: 0.5)
                 )
-                .contentShape(Capsule())
+                .contentShape(RoundedRectangle(cornerRadius: VRadius.md))
         }
         .buttonStyle(PillButtonStyle(isPressed: $isPressed))
         .onHover { isHovered = $0 }

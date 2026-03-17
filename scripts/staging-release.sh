@@ -10,15 +10,17 @@
 # Configuration is read from scripts/.env (see scripts/.env.example).
 #
 # Usage:
-#   ./scripts/staging-release.sh [--cleanup] [--intel]
+#   ./scripts/staging-release.sh [--cleanup] [--intel] [--local]
 #
 # Options:
-#   --cleanup   Before installing, SCP the mac-mini-cleanup.sh script to the
-#               mini, run it, then remove it. Resets the environment to a
-#               clean state before installing the staging app.
+#   --cleanup   Before installing, run the mac-mini-cleanup.sh script to
+#               reset the environment to a clean state. Runs remotely by
+#               default, or locally when combined with --local.
 #   --intel     Build for x86_64 (Intel) instead of arm64 (Apple Silicon)
 #               and deploy to the Intel Mac specified by INTEL_HOST in
 #               scripts/.env. Uses INTEL_PASSWORD for SSH auth if set.
+#   --local     Install the DMG on the local machine instead of uploading
+#               to a remote Mac. --cleanup runs locally as well.
 
 set -euo pipefail
 
@@ -28,14 +30,21 @@ set -euo pipefail
 
 RUN_CLEANUP=false
 INTEL_BUILD=false
+LOCAL_INSTALL=false
 
 for arg in "$@"; do
   case "$arg" in
     --cleanup) RUN_CLEANUP=true ;;
     --intel) INTEL_BUILD=true ;;
+    --local) LOCAL_INSTALL=true ;;
     *) echo "Unknown option: $arg"; exit 1 ;;
   esac
 done
+
+if [ "$LOCAL_INSTALL" = true ] && [ "$INTEL_BUILD" = true ]; then
+  echo "ERROR: --local and --intel cannot be used together"
+  exit 1
+fi
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 ENV_FILE="${SCRIPT_DIR}/.env"
@@ -51,8 +60,8 @@ fi
 # Configuration (override via scripts/.env or environment)
 # ---------------------------------------------------------------------------
 
-# SSH host of the Mac mini (required unless --intel is used).
-if [ "$INTEL_BUILD" = true ]; then
+# SSH host of the Mac mini (required unless --intel or --local is used).
+if [ "$INTEL_BUILD" = true ] || [ "$LOCAL_INSTALL" = true ]; then
   MAC_MINI_HOST="${MAC_MINI_HOST:-}"
 else
   MAC_MINI_HOST="${MAC_MINI_HOST:?MAC_MINI_HOST is required -- set it in scripts/.env}"
@@ -82,24 +91,26 @@ fi
 # Derived values
 # ---------------------------------------------------------------------------
 
-if [ "$INTEL_BUILD" = true ]; then
-  SCP_HOST="${INTEL_HOST}"
-  ACTIVE_PASSWORD="${INTEL_PASSWORD}"
-  ACTIVE_SSH_KEY=""
-else
-  if [ -n "$MAC_MINI_USER" ]; then
-    SCP_HOST="${MAC_MINI_USER}@${MAC_MINI_HOST}"
+if [ "$LOCAL_INSTALL" = false ]; then
+  if [ "$INTEL_BUILD" = true ]; then
+    SCP_HOST="${INTEL_HOST}"
+    ACTIVE_PASSWORD="${INTEL_PASSWORD}"
+    ACTIVE_SSH_KEY=""
   else
-    SCP_HOST="${MAC_MINI_HOST}"
+    if [ -n "$MAC_MINI_USER" ]; then
+      SCP_HOST="${MAC_MINI_USER}@${MAC_MINI_HOST}"
+    else
+      SCP_HOST="${MAC_MINI_HOST}"
+    fi
+    ACTIVE_PASSWORD="${MAC_MINI_PASSWORD}"
+    ACTIVE_SSH_KEY="${MAC_MINI_SSH_KEY}"
   fi
-  ACTIVE_PASSWORD="${MAC_MINI_PASSWORD}"
-  ACTIVE_SSH_KEY="${MAC_MINI_SSH_KEY}"
-fi
 
-# If a password is configured, make sure sshpass is available.
-if [ -n "$ACTIVE_PASSWORD" ] && ! command -v sshpass &>/dev/null; then
-  echo "sshpass is required for password-based SSH but was not found. Installing via Homebrew..."
-  brew install hudochenkov/sshpass/sshpass
+  # If a password is configured, make sure sshpass is available.
+  if [ -n "$ACTIVE_PASSWORD" ] && ! command -v sshpass &>/dev/null; then
+    echo "sshpass is required for password-based SSH but was not found. Installing via Homebrew..."
+    brew install hudochenkov/sshpass/sshpass
+  fi
 fi
 
 # Build auth-aware wrappers so every scp/ssh call inherits credentials.
@@ -226,38 +237,65 @@ fi
 rm -rf "$DMG_STAGING"
 
 # ---------------------------------------------------------------------------
-# 3. (Optional) Run cleanup script on the Mac mini before installing
+# 3. (Optional) Run cleanup script before installing
 # ---------------------------------------------------------------------------
 
 if [ "$RUN_CLEANUP" = true ]; then
   CLEANUP_SCRIPT="${SCRIPT_DIR}/mac-mini-cleanup.sh"
-  REMOTE_CLEANUP="/tmp/mac-mini-cleanup.sh"
 
   if [ ! -f "$CLEANUP_SCRIPT" ]; then
     echo "ERROR: Cleanup script not found at $CLEANUP_SCRIPT"
     exit 1
   fi
 
-  echo "Uploading cleanup script to ${SCP_HOST}..."
-  remote_scp "$CLEANUP_SCRIPT" "${SCP_HOST}:${REMOTE_CLEANUP}"
+  if [ "$LOCAL_INSTALL" = true ]; then
+    echo "Running cleanup script locally..."
+    bash "$CLEANUP_SCRIPT"
+    echo "Local cleanup complete."
+  else
+    REMOTE_CLEANUP="/tmp/mac-mini-cleanup.sh"
 
-  echo "Running cleanup script on ${SCP_HOST}..."
-  remote_ssh "${SCP_HOST}" "bash '${REMOTE_CLEANUP}'; rc=\$?; rm -f '${REMOTE_CLEANUP}'; exit \$rc"
+    echo "Uploading cleanup script to ${SCP_HOST}..."
+    remote_scp "$CLEANUP_SCRIPT" "${SCP_HOST}:${REMOTE_CLEANUP}"
 
-  echo "Cleanup complete on ${SCP_HOST}."
+    echo "Running cleanup script on ${SCP_HOST}..."
+    remote_ssh "${SCP_HOST}" "bash '${REMOTE_CLEANUP}'; rc=\$?; rm -f '${REMOTE_CLEANUP}'; exit \$rc"
+
+    echo "Cleanup complete on ${SCP_HOST}."
+  fi
 fi
 
 # ---------------------------------------------------------------------------
-# 4. Upload to Mac mini and install into /Applications
+# 4. Install the staging app into /Applications
 # ---------------------------------------------------------------------------
 
-REMOTE_DMG="/tmp/vellum-assistant-staging.dmg"
+if [ "$LOCAL_INSTALL" = true ]; then
+  echo "Installing into /Applications locally..."
 
-echo "Uploading DMG to ${SCP_HOST}..."
-remote_scp "$DMG_PATH" "${SCP_HOST}:${REMOTE_DMG}"
+  # Kill running staging instance if any
+  pkill -x "Vellum (Staging)" 2>/dev/null || true
+  sleep 1
 
-echo "Installing into /Applications on ${SCP_HOST}..."
-remote_ssh "${SCP_HOST}" bash -s <<'REMOTE_SCRIPT'
+  # Mount, copy to /Applications, unmount
+  MOUNT_POINT=$(hdiutil attach "$DMG_PATH" -nobrowse -noverify | grep -o '/Volumes/.*')
+  if [ -z "$MOUNT_POINT" ]; then
+    echo "ERROR: Failed to mount DMG"
+    exit 1
+  fi
+
+  rm -rf "/Applications/Vellum (Staging).app"
+  cp -R "$MOUNT_POINT/Vellum (Staging).app" "/Applications/Vellum (Staging).app"
+  hdiutil detach "$MOUNT_POINT" -quiet 2>/dev/null || true
+
+  echo "Done! Staging app installed to /Applications locally"
+else
+  REMOTE_DMG="/tmp/vellum-assistant-staging.dmg"
+
+  echo "Uploading DMG to ${SCP_HOST}..."
+  remote_scp "$DMG_PATH" "${SCP_HOST}:${REMOTE_DMG}"
+
+  echo "Installing into /Applications on ${SCP_HOST}..."
+  remote_ssh "${SCP_HOST}" bash -s <<'REMOTE_SCRIPT'
 set -euo pipefail
 DMG="/tmp/vellum-assistant-staging.dmg"
 
@@ -280,4 +318,5 @@ rm -f "$DMG"
 echo "Installed: /Applications/Vellum (Staging).app"
 REMOTE_SCRIPT
 
-echo "Done! Staging app installed to /Applications on ${SCP_HOST}"
+  echo "Done! Staging app installed to /Applications on ${SCP_HOST}"
+fi

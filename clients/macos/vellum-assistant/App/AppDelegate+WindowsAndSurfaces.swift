@@ -115,14 +115,11 @@ extension AppDelegate {
             self?.surfaceManager.resolveDataResponse(surfaceId: msg.surfaceId, response: msg)
         }
 
-        // Link open: JS -> Swift -> daemon
-        surfaceManager.onLinkOpen = { [weak self] url, metadata in
-            guard let self else { return }
+        // Link open: JS -> Swift -> gateway
+        surfaceManager.onLinkOpen = { url, metadata in
             let codableMetadata = metadata?.mapValues { AnyCodable($0) }
-            do {
-                try self.daemonClient.sendLinkOpenRequest(url: url, metadata: codableMetadata)
-            } catch {
-                log.error("Failed to send link open request for \(url): \(error)")
+            Task {
+                _ = try? await PublishClient().openLink(url: url, metadata: codableMetadata)
             }
         }
 

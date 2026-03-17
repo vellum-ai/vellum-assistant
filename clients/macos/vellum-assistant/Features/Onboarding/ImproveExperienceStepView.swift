@@ -15,14 +15,14 @@ struct ImproveExperienceStepView: View {
     @State private var tosAccepted: Bool = UserDefaults.standard.bool(forKey: "tosAccepted")
 
     var body: some View {
-        Text("Welcome to Vellum!")
+        Text("Before You Start")
             .font(.system(size: 32, weight: .regular, design: .serif))
             .foregroundColor(VColor.contentDefault)
             .opacity(showTitle ? 1 : 0)
             .offset(y: showTitle ? 0 : 8)
             .padding(.bottom, VSpacing.md)
 
-        Text("Before we start, we need to ask you for a few permissions.")
+        Text("Here\u{2019}s how Vellum handles your data.\nYou can change these anytime in Settings.")
             .font(.system(size: 16))
             .foregroundColor(VColor.contentSecondary)
             .opacity(showTitle ? 1 : 0)

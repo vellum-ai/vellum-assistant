@@ -12,7 +12,10 @@
 
 import { v4 as uuid } from "uuid";
 
-import { findGuardianForChannel } from "../contacts/contact-store.js";
+import {
+  findGuardianForChannel,
+  updateContactPrincipalAndChannel,
+} from "../contacts/contact-store.js";
 import { createGuardianBinding } from "../contacts/contacts-write.js";
 import { getLogger } from "../util/logger.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "./assistant-scope.js";
@@ -69,4 +72,52 @@ export function ensureVellumGuardianBinding(
   );
 
   return guardianPrincipalId;
+}
+
+/**
+ * Heal guardian binding drift for the vellum channel.
+ *
+ * After a DB reset, the daemon creates a new guardian binding with a fresh
+ * `vellum-principal-<uuid>`, but the client may still hold a valid JWT
+ * signed with the surviving signing key containing the old principal.
+ * The JWT passes signature validation but trust resolution returns
+ * `unknown` because the principals don't match.
+ *
+ * This function detects that scenario and updates the binding to match
+ * the JWT's principal. Only heals when both the stored and incoming
+ * principals have the `vellum-principal-` prefix (both auto-generated,
+ * no external identity meaning). The JWT's signature proves it was
+ * minted by this daemon's signing key.
+ *
+ * Returns true if healing occurred, false otherwise.
+ */
+export function healGuardianBindingDrift(
+  incomingPrincipalId: string,
+): boolean {
+  if (!incomingPrincipalId.startsWith("vellum-principal-")) {
+    return false;
+  }
+
+  const guardianResult = findGuardianForChannel("vellum");
+  if (!guardianResult) return false;
+
+  const currentPrincipalId = guardianResult.contact.principalId;
+  if (!currentPrincipalId?.startsWith("vellum-principal-")) return false;
+  if (currentPrincipalId === incomingPrincipalId) return false;
+
+  updateContactPrincipalAndChannel(
+    guardianResult.contact.id,
+    guardianResult.channel.id,
+    incomingPrincipalId,
+  );
+
+  log.info(
+    {
+      oldPrincipalId: currentPrincipalId,
+      newPrincipalId: incomingPrincipalId,
+    },
+    "Healed vellum guardian binding drift — updated principalId to match JWT actor",
+  );
+
+  return true;
 }

@@ -384,15 +384,8 @@ public final class HTTPTransport {
         case heartbeatChecklist
         case heartbeatChecklistWrite
 
-        // Pairing
-        case pairingRegister
-
         // Publishing
-        case publishPage
         case unpublishPage
-
-        // Link Open
-        case linkOpen
 
         // Workspace Files (legacy HTTP)
         case workspaceFiles
@@ -717,17 +710,9 @@ public final class HTTPTransport {
             return ("/v1/heartbeat/checklist", nil)
         case .heartbeatChecklistWrite:
             return ("/v1/heartbeat/checklist", nil)
-        // Pairing
-        case .pairingRegister:
-            return ("/v1/pairing/register", nil)
         // Publishing
-        case .publishPage:
-            return ("/v1/publish", nil)
         case .unpublishPage:
             return ("/v1/unpublish", nil)
-        // Link Open
-        case .linkOpen:
-            return ("/v1/link/open", nil)
         // Workspace Files (legacy HTTP)
         case .workspaceFiles:
             return ("/v1/workspace-files", nil)
@@ -1036,17 +1021,9 @@ public final class HTTPTransport {
             return ("\(prefix)/heartbeat/checklist/", nil)
         case .heartbeatChecklistWrite:
             return ("\(prefix)/heartbeat/checklist/", nil)
-        // Pairing
-        case .pairingRegister:
-            return ("\(prefix)/pairing/register/", nil)
         // Publishing
-        case .publishPage:
-            return ("\(prefix)/publish/", nil)
         case .unpublishPage:
             return ("\(prefix)/unpublish/", nil)
-        // Link Open
-        case .linkOpen:
-            return ("\(prefix)/link/open/", nil)
         // Workspace Files (legacy HTTP)
         case .workspaceFiles:
             return ("\(prefix)/workspace-files/", nil)

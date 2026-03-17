@@ -709,6 +709,12 @@ while IFS= read -r -d '' FILE; do
         continue
     fi
 
+    # Skip release scripts — they reference password variables for SSH auth
+    # via shell parameter expansions, not hardcoded secrets.
+    if [[ "$FILE" =~ ^scripts/.*-release\.sh$ ]]; then
+        continue
+    fi
+
     # Skip if file doesn't exist (deleted files)
     if [ ! -f "$FILE" ]; then
         continue

@@ -398,6 +398,15 @@ export function wipeConversation(id: string): WipeConversationResult {
          JOIN messages m2 ON m2.id = mis2.message_id
          WHERE mis2.memory_item_id = mi_new.id
            AND m2.conversation_id != ?
+       )
+       AND NOT EXISTS (
+         SELECT 1 FROM memory_items mi_active
+         WHERE mi_active.kind = mi_old.kind
+           AND mi_active.subject = mi_old.subject
+           AND mi_active.scope_id = mi_old.scope_id
+           AND mi_active.status = 'active'
+           AND mi_active.id != mi_old.id
+           AND mi_active.id != mi_new.id
        )`,
     id,
     id,
@@ -476,27 +485,31 @@ export function wipeConversation(id: string): WipeConversationResult {
   // don't accidentally restore items superseded by unrelated conversations.
   let orphanedSuperseded: Array<{ id: string }> = [];
   if (orphanedKindSubjects.length > 0) {
-    const placeholders = orphanedKindSubjects
-      .map(() => "(?, ?)")
-      .join(", ");
+    const placeholders = orphanedKindSubjects.map(() => "(?, ?)").join(", ");
     const params: Array<string> = [scopeId];
     for (const { kind, subject } of orphanedKindSubjects) {
       params.push(kind, subject);
     }
     orphanedSuperseded = rawAll<{ id: string }>(
-      `SELECT id FROM memory_items
-       WHERE status = 'superseded'
-         AND superseded_by IS NULL
-         AND scope_id = ?
-         AND (kind, subject) IN (VALUES ${placeholders})
-         AND NOT EXISTS (
-           SELECT 1 FROM memory_items mi2
-           WHERE mi2.kind = memory_items.kind
-             AND mi2.subject = memory_items.subject
-             AND mi2.scope_id = memory_items.scope_id
-             AND mi2.status = 'active'
-             AND mi2.id != memory_items.id
-         )`,
+      `SELECT id FROM (
+         SELECT id, ROW_NUMBER() OVER (
+           PARTITION BY kind, subject, scope_id
+           ORDER BY last_seen_at DESC
+         ) AS rn
+         FROM memory_items
+         WHERE status = 'superseded'
+           AND superseded_by IS NULL
+           AND scope_id = ?
+           AND (kind, subject) IN (VALUES ${placeholders})
+           AND NOT EXISTS (
+             SELECT 1 FROM memory_items mi2
+             WHERE mi2.kind = memory_items.kind
+               AND mi2.subject = memory_items.subject
+               AND mi2.scope_id = memory_items.scope_id
+               AND mi2.status = 'active'
+               AND mi2.id != memory_items.id
+           )
+       ) WHERE rn = 1`,
       ...params,
     );
   }

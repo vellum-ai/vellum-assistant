@@ -1,8 +1,9 @@
 import type { Command } from "commander";
 
-import { getQdrantUrlEnv } from "../../config/env.js";
+import { getQdrantUrlEnv, getRuntimeHttpPort } from "../../config/env.js";
 import { getConfig } from "../../config/loader.js";
 import { shouldAutoStartDaemon } from "../../daemon/connection-policy.js";
+import { isHttpHealthy } from "../../daemon/daemon-control.js";
 import { ensureDaemonRunning } from "../../daemon/lifecycle.js";
 import { formatJson, formatMarkdown } from "../../export/formatter.js";
 import {
@@ -309,6 +310,35 @@ Examples:
         }
       }
 
+      // When the assistant is running, delegate to its HTTP wipe endpoint
+      // so it tears down in-memory conversation state before deleting DB
+      // rows — preventing FK constraint failures from follow-up writes.
+      if (await isHttpHealthy()) {
+        const port = getRuntimeHttpPort();
+        const res = await fetch(
+          `http://127.0.0.1:${port}/v1/conversations/${conversation.id}/wipe`,
+          { method: "POST" },
+        );
+        if (!res.ok) {
+          const body = await res.text();
+          log.error(`Assistant wipe failed (${res.status}): ${body}`);
+          process.exit(1);
+        }
+        const json = (await res.json()) as {
+          unsupersededItems: number;
+          deletedSummaries: number;
+          cancelledJobs: number;
+        };
+        log.info(
+          `Wiped conversation "${conversation.title ?? "Untitled"}". ` +
+            `Restored ${json.unsupersededItems} memory items, ` +
+            `deleted ${json.deletedSummaries} summaries, ` +
+            `cancelled ${json.cancelledJobs} jobs.`,
+        );
+        return;
+      }
+
+      // Daemon not running — safe to wipe directly (no in-memory state).
       const result = wipeConversation(conversation.id);
 
       // Enqueue Qdrant cleanup

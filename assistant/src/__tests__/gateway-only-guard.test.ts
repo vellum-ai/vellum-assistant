@@ -22,6 +22,7 @@ const ALLOWLIST = new Set([
   // Matched by prefix check below: gateway/
 
   // --- Intentional local daemon-control paths ---
+  "assistant/src/cli/commands/conversations.ts", // CLI wipe talks to runtime directly
   "clients/shared/Network/DaemonClient.swift",
   "clients/macos/vellum-assistant/App/AppDelegate.swift",
   "clients/macos/vellum-assistant/Features/Settings/SettingsConnectTab.swift",

@@ -60,7 +60,7 @@ public enum VFont {
     }
     // MARK: - Onboarding
 
-    public static let onboardingTitle = Font.custom("Fraunces", size: 28).weight(.semibold)
+    public static let onboardingTitle = Font.custom("Inter-SemiBold", size: adaptiveSize(28))
     public static let onboardingSubtitle = Font.system(size: 15)
 
     // MARK: - Headings (Inter)

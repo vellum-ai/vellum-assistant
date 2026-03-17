@@ -53,17 +53,17 @@ public final class ChatAttachmentManager: ObservableObject {
         didSet { isLoadingAttachment = loadingCount > 0 }
     }
 
-    /// Limits concurrent attachment I/O to avoid unbounded memory spikes when
-    /// many files are selected at once (each can read up to 100 MB).
-    private static let maxConcurrentLoads = 4
+    /// Limits concurrent attachment I/O to keep memory usage reasonable.
+    private static let maxConcurrentLoads = 2
     private let loadSemaphore = AsyncSemaphore(value: maxConcurrentLoads)
 
-    // MARK: - Limits
+    /// Memory safety limit to avoid OOM from loading extremely large files.
+    /// This is NOT a business rule — the server enforces its own size limits.
+    private static let memorySafetyLimit = 100 * 1024 * 1024
 
-    /// Maximum file size per attachment (100 MB).
-    nonisolated static let maxFileSize = 100 * 1024 * 1024
-    /// Maximum image size before compression (4 MB - leaves headroom for base64 encoding).
-    /// Anthropic has a 5 MB limit per image; base64 encoding adds ~33% overhead.
+    /// Maximum image size before compression (4 MB). Images above this threshold
+    /// are JPEG-compressed, not rejected. Anthropic has a 5 MB limit per image;
+    /// base64 encoding adds ~33% overhead, so 4 MB raw keeps us well within bounds.
     nonisolated static let maxImageSize = 4 * 1024 * 1024
 
     // MARK: - Error callback
@@ -85,8 +85,7 @@ public final class ChatAttachmentManager: ObservableObject {
 
     public func addAttachment(url: URL) {
         // Move file reading, compression, and thumbnail generation off the main
-        // thread — Data(contentsOf:) is a blocking syscall that can stall the UI
-        // for up to 100 MB worth of I/O before we even begin image processing.
+        // thread — Data(contentsOf:) is a blocking syscall that can stall the UI.
         loadingCount += 1
         Task {
             defer { self.loadingCount -= 1 }
@@ -155,7 +154,7 @@ public final class ChatAttachmentManager: ObservableObject {
 
     // MARK: - Private background helpers
 
-    /// Reads, validates, compresses, and thumbnails an attachment from a file URL.
+    /// Reads, compresses, and thumbnails an attachment from a file URL.
     /// All blocking work runs off the main actor; callers receive a ready-to-use
     /// ChatAttachment (or an error message) and can update UI state directly.
     private func loadAttachment(url: URL) async -> Result<ChatAttachment, AttachmentError> {
@@ -163,6 +162,14 @@ public final class ChatAttachmentManager: ObservableObject {
         await loadSemaphore.wait()
         // Hop off the main actor for all blocking I/O and CPU work.
         let result = await Task.detached(priority: .userInitiated) {
+            // Pre-read size check to avoid loading huge files into memory.
+            if let attrs = try? FileManager.default.attributesOfItem(atPath: url.path),
+               let fileSize = attrs[.size] as? Int,
+               fileSize > Self.memorySafetyLimit {
+                let sizeMB = fileSize / (1024 * 1024)
+                return Result<ChatAttachment, AttachmentError>.failure(.message("This file is \(sizeMB) MB which is too large to process safely. Please choose a smaller file."))
+            }
+
             let data: Data
             do {
                 data = try Data(contentsOf: url)
@@ -171,9 +178,11 @@ public final class ChatAttachmentManager: ObservableObject {
                 return Result<ChatAttachment, AttachmentError>.failure(.message("Could not read file."))
             }
 
-            // Belt-and-suspenders: validate the actual byte count after reading.
-            guard data.count <= Self.maxFileSize else {
-                return .failure(.message("File exceeds 100 MB limit."))
+            // Belt-and-suspenders: validate the actual byte count after reading,
+            // in case the pre-read attributesOfItem check was bypassed.
+            if data.count > Self.memorySafetyLimit {
+                let sizeMB = data.count / (1024 * 1024)
+                return .failure(.message("This file is \(sizeMB) MB which is too large to process safely. Please choose a smaller file."))
             }
 
             let filename = url.lastPathComponent
@@ -282,8 +291,10 @@ public final class ChatAttachmentManager: ObservableObject {
             #error("Unsupported platform")
             #endif
 
-            guard pngData.count <= Self.maxFileSize else {
-                return .failure(.message("Image exceeds 100 MB limit."))
+            // Memory safety guard for pasted/dropped images
+            if pngData.count > Self.memorySafetyLimit {
+                let sizeMB = pngData.count / (1024 * 1024)
+                return .failure(.message("This image is \(sizeMB) MB which is too large to process safely. Please choose a smaller image."))
             }
 
             // Compress image if needed

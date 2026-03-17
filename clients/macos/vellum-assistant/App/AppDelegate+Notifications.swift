@@ -433,7 +433,7 @@ extension AppDelegate {
     }
 
     func registerBundledFonts() {
-        for name in ["Silkscreen-Regular", "Silkscreen-Bold", "DMMono-Regular", "DMMono-Medium", "Inter-Regular", "Inter-Medium", "Inter-SemiBold", "CrimsonPro-Variable", "Fraunces-Variable"] {
+        for name in ["Silkscreen-Regular", "Silkscreen-Bold", "DMMono-Regular", "DMMono-Medium", "Inter-Regular", "Inter-Medium", "Inter-SemiBold"] {
             guard let url = ResourceBundle.bundle.url(forResource: name, withExtension: "ttf") else {
                 log.warning("Font file \(name).ttf not found in bundle")
                 continue

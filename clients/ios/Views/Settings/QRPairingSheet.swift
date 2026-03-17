@@ -407,7 +407,6 @@ struct QRPairingSheet: View {
                 return
             }
             let localLanUrl = response["localLanUrl"] as? String
-            let featureFlagToken = response["featureFlagToken"] as? String
             let refreshToken = response["refreshToken"] as? String
             // Accept "accessTokenExpiresAt" (new) or legacy "actorTokenExpiresAt"
             let accessTokenExpiresAt = (response["accessTokenExpiresAt"] as? Int) ?? (response["actorTokenExpiresAt"] as? Int)
@@ -418,7 +417,6 @@ struct QRPairingSheet: View {
                 gatewayUrl: gatewayUrl,
                 hostId: payload.hostId,
                 localLanUrl: localLanUrl,
-                featureFlagToken: featureFlagToken,
                 actorToken: accessToken,
                 refreshToken: refreshToken,
                 actorTokenExpiresAt: accessTokenExpiresAt,
@@ -505,7 +503,6 @@ struct QRPairingSheet: View {
                         return
                     }
                     let localLanUrl = json["localLanUrl"] as? String
-                    let featureFlagToken = json["featureFlagToken"] as? String
                     let refreshToken = json["refreshToken"] as? String
                     // Accept "accessTokenExpiresAt" (new) or legacy "actorTokenExpiresAt"
                     let pollAccessTokenExpiresAt = (json["accessTokenExpiresAt"] as? Int) ?? (json["actorTokenExpiresAt"] as? Int)
@@ -516,7 +513,6 @@ struct QRPairingSheet: View {
                         gatewayUrl: gatewayUrl,
                         hostId: payload.hostId,
                         localLanUrl: localLanUrl,
-                        featureFlagToken: featureFlagToken,
                         actorToken: pollAccessToken,
                         refreshToken: refreshToken,
                         actorTokenExpiresAt: pollAccessTokenExpiresAt,
@@ -546,17 +542,12 @@ struct QRPairingSheet: View {
 
     // MARK: - Config Persistence
 
-    private func savePairingConfig(bearerToken: String, gatewayUrl: String, hostId: String, localLanUrl: String?, featureFlagToken: String? = nil, actorToken: String? = nil, refreshToken: String? = nil, actorTokenExpiresAt: Int? = nil, refreshTokenExpiresAt: Int? = nil, refreshAfter: Int? = nil) {
+    private func savePairingConfig(bearerToken: String, gatewayUrl: String, hostId: String, localLanUrl: String?, actorToken: String? = nil, refreshToken: String? = nil, actorTokenExpiresAt: Int? = nil, refreshTokenExpiresAt: Int? = nil, refreshAfter: Int? = nil) {
         UserDefaults.standard.set(gatewayUrl, forKey: UserDefaultsKeys.gatewayBaseURL)
         _ = APIKeyManager.shared.setAPIKey(bearerToken, provider: "runtime-bearer-token")
         if !hostId.isEmpty {
             UserDefaults.standard.set(hostId, forKey: "gateway_host_id")
         }
-        if let ffToken = featureFlagToken, !ffToken.isEmpty {
-            _ = APIKeyManager.shared.setAPIKey(ffToken, provider: "feature-flag-token")
-        }
-        // Don't delete on absence — the server may not send featureFlagToken yet,
-        // so a missing field shouldn't wipe a previously stored token.
 
         // Persist the JWT access token and refresh credentials received during pairing
         // so subsequent HTTP requests include the Authorization: Bearer header immediately.

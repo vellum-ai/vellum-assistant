@@ -12,7 +12,10 @@ import pino from "pino";
 import type { PrettyOptions } from "pino-pretty";
 import pinoPretty from "pino-pretty";
 
-import { getDebugStdoutLogs } from "../config/env-registry.js";
+import {
+  getDebugStdoutLogs,
+  getIsContainerized,
+} from "../config/env-registry.js";
 import { logSerializers } from "./log-redact.js";
 import { getLogPath } from "./platform.js";
 
@@ -109,7 +112,9 @@ function buildRotatingLogger(config: LogFileConfig): pino.Logger {
   // When stdout is not a TTY (e.g. desktop app redirects to a hatch log file),
   // write to the rotating file only — the hatch log already captured early
   // startup output and echoing pino output there is unnecessary duplication.
-  if (!process.stdout.isTTY) {
+  // Exception: in containers, always write to stdout so `docker logs` can
+  // capture daemon output for debugging.
+  if (!process.stdout.isTTY && !getIsContainerized()) {
     return pino(
       { name: "assistant", level: "info", serializers: logSerializers },
       fileStream,

@@ -901,6 +901,39 @@ export function updateChannelLastSeenById(channelId: string): void {
 }
 
 /**
+ * Update a guardian contact's principalId and its channel's identity fields.
+ * Used for healing guardian binding drift when the JWT principal no longer
+ * matches the stored guardian binding after a DB reset.
+ */
+export function updateContactPrincipalAndChannel(
+  contactId: string,
+  channelId: string,
+  newPrincipalId: string,
+): void {
+  const db = getDb();
+  const now = Date.now();
+  const normalizedAddress = newPrincipalId.toLowerCase();
+
+  db.transaction(() => {
+    db.update(contacts)
+      .set({ principalId: newPrincipalId, updatedAt: now })
+      .where(eq(contacts.id, contactId))
+      .run();
+
+    db.update(contactChannels)
+      .set({
+        externalUserId: newPrincipalId,
+        address: normalizedAddress,
+        updatedAt: now,
+      })
+      .where(eq(contactChannels.id, channelId))
+      .run();
+  });
+
+  emitContactChange();
+}
+
+/**
  * Atomically increment interactionCount and set lastInteraction on a contact channel.
  * Optimized for the hot path — single UPDATE with no prior SELECT.
  */
