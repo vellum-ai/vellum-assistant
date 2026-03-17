@@ -32,8 +32,8 @@ import {
   getMcpToolDefinitions,
 } from "../tools/registry.js";
 import {
-  injectReasonField,
-  REASON_SKIP_SET,
+  injectActivityField,
+  ACTIVITY_SKIP_SET,
 } from "../tools/schema-transforms.js";
 import type {
   ProxyApprovalCallback,
@@ -354,13 +354,14 @@ export function createToolExecutor(
       // Clone to avoid mutating shared input objects
       const toolInput = { ...rawToolInput };
 
-      // Propagate outer reason when inner input lacks a valid one
+      // Propagate outer activity when inner input lacks a valid one
       if (
-        typeof input.reason === "string" &&
-        input.reason &&
-        (typeof toolInput.reason !== "string" || toolInput.reason.length === 0)
+        typeof input.activity === "string" &&
+        input.activity &&
+        (typeof toolInput.activity !== "string" ||
+          toolInput.activity.length === 0)
       ) {
-        toolInput.reason = input.reason;
+        toolInput.activity = input.activity;
       }
 
       if (!toolName) {
@@ -683,6 +684,6 @@ export function createResolveToolsCallback(
       turnAllowed.add(name);
     }
     ctx.allowedToolNames = turnAllowed;
-    return injectReasonField(allBaseDefs, REASON_SKIP_SET);
+    return injectActivityField(allBaseDefs, ACTIVITY_SKIP_SET);
   };
 }

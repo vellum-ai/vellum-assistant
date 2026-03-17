@@ -2574,7 +2574,8 @@ public final class ChatViewModel: ObservableObject {
                         imageData: nil
                     )
                     toolCall.cachedImage = decodedImage
-                    toolCall.reasonDescription = (tc.input["reason"]?.value as? String)
+                    toolCall.reasonDescription = (tc.input["activity"]?.value as? String)
+                        ?? (tc.input["reason"]?.value as? String)
                         ?? (tc.input["reasoning"]?.value as? String)
                     // Restore persisted timing and confirmation data
                     if let startMs = tc.startedAt {

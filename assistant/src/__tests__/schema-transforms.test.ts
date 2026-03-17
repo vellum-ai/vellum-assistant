@@ -2,8 +2,8 @@ import { describe, expect, test } from "bun:test";
 
 import type { ToolDefinition } from "../providers/types.js";
 import {
-  injectReasonField,
-  REASON_SKIP_SET,
+  injectActivityField,
+  ACTIVITY_SKIP_SET,
   schemaDefinesProperty,
 } from "../tools/schema-transforms.js";
 
@@ -14,26 +14,30 @@ function makeDef(
   return { name, description: `Tool ${name}`, input_schema: schema };
 }
 
-describe("REASON_SKIP_SET", () => {
+describe("ACTIVITY_SKIP_SET", () => {
   test("contains expected tool names", () => {
-    expect(REASON_SKIP_SET.has("skill_execute")).toBe(true);
-    expect(REASON_SKIP_SET.has("bash")).toBe(true);
-    expect(REASON_SKIP_SET.has("host_bash")).toBe(true);
-    expect(REASON_SKIP_SET.has("request_system_permission")).toBe(true);
-    expect(REASON_SKIP_SET.size).toBe(4);
+    expect(ACTIVITY_SKIP_SET.has("skill_execute")).toBe(true);
+    expect(ACTIVITY_SKIP_SET.has("bash")).toBe(true);
+    expect(ACTIVITY_SKIP_SET.has("host_bash")).toBe(true);
+    expect(ACTIVITY_SKIP_SET.has("request_system_permission")).toBe(true);
+    expect(ACTIVITY_SKIP_SET.size).toBe(4);
   });
 });
 
-describe("injectReasonField", () => {
-  test("injects reason on a tool without it", () => {
+describe("injectActivityField", () => {
+  test("injects activity on a tool without it", () => {
     const defs = [makeDef("my_tool")];
-    const result = injectReasonField(defs);
+    const result = injectActivityField(defs);
     const schema = result[0].input_schema as Record<string, unknown>;
     const props = schema.properties as Record<string, unknown>;
-    expect(props.reason).toEqual({ type: "string" });
+    expect(props.activity).toEqual({
+      type: "string",
+      description:
+        "Brief, natural description of what you're doing, shown as a live status update (e.g. 'Checking your project settings')",
+    });
   });
 
-  test("adds reason to required array", () => {
+  test("adds activity to required array", () => {
     const defs = [
       makeDef("my_tool", {
         type: "object",
@@ -41,9 +45,9 @@ describe("injectReasonField", () => {
         required: ["foo"],
       }),
     ];
-    const result = injectReasonField(defs);
+    const result = injectActivityField(defs);
     const schema = result[0].input_schema as Record<string, unknown>;
-    expect(schema.required).toEqual(["foo", "reason"]);
+    expect(schema.required).toEqual(["foo", "activity"]);
   });
 
   test("creates required array if missing", () => {
@@ -53,38 +57,38 @@ describe("injectReasonField", () => {
         properties: { foo: { type: "string" } },
       }),
     ];
-    const result = injectReasonField(defs);
+    const result = injectActivityField(defs);
     const schema = result[0].input_schema as Record<string, unknown>;
-    expect(schema.required).toEqual(["reason"]);
+    expect(schema.required).toEqual(["activity"]);
   });
 
   test("skips tools in skip set (returns unchanged)", () => {
     const defs = [makeDef("bash"), makeDef("host_bash")];
-    const result = injectReasonField(defs);
+    const result = injectActivityField(defs);
     // Should be the exact same object references
     expect(Object.is(result[0], defs[0])).toBe(true);
     expect(Object.is(result[1], defs[1])).toBe(true);
-    // No reason injected
+    // No activity injected
     const schema0 = result[0].input_schema as Record<string, unknown>;
     const props0 = schema0.properties as Record<string, unknown>;
-    expect("reason" in props0).toBe(false);
+    expect("activity" in props0).toBe(false);
   });
 
-  test("skips tools that already have reason in properties", () => {
+  test("skips tools that already have activity in properties", () => {
     const defs = [
       makeDef("my_tool", {
         type: "object",
-        properties: { reason: { type: "number" } },
+        properties: { activity: { type: "number" } },
         required: [],
       }),
     ];
-    const result = injectReasonField(defs);
+    const result = injectActivityField(defs);
     // Should be the exact same object reference (no clone needed)
     expect(Object.is(result[0], defs[0])).toBe(true);
     const schema = result[0].input_schema as Record<string, unknown>;
     const props = schema.properties as Record<string, unknown>;
-    // Original reason type preserved
-    expect(props.reason).toEqual({ type: "number" });
+    // Original activity type preserved
+    expect(props.activity).toEqual({ type: "number" });
   });
 
   test("does NOT mutate original definition objects", () => {
@@ -97,10 +101,10 @@ describe("injectReasonField", () => {
     };
     const defs = [makeDef("my_tool", originalSchema)];
 
-    const result = injectReasonField(defs);
+    const result = injectActivityField(defs);
 
     // Original properties object is untouched
-    expect("reason" in originalProps).toBe(false);
+    expect("activity" in originalProps).toBe(false);
     // Original required array is untouched
     expect(originalRequired).toEqual(["foo"]);
     // Original schema properties ref is the same object
@@ -115,40 +119,40 @@ describe("injectReasonField", () => {
 
   test("passes through non-object schemas unchanged", () => {
     const defs = [makeDef("my_tool", { type: "string" })];
-    const result = injectReasonField(defs);
+    const result = injectActivityField(defs);
     expect(Object.is(result[0], defs[0])).toBe(true);
   });
 
   test("passes through schemas without properties unchanged", () => {
     const defs = [makeDef("my_tool", { type: "object" })];
-    const result = injectReasonField(defs);
+    const result = injectActivityField(defs);
     expect(Object.is(result[0], defs[0])).toBe(true);
   });
 
-  test("skips tools with reason defined inside allOf member (composite schema)", () => {
+  test("skips tools with activity defined inside allOf member (composite schema)", () => {
     const defs = [
       makeDef("my_tool", {
         type: "object",
         properties: { foo: { type: "string" } },
         allOf: [
           {
-            properties: { reason: { type: "string" } },
+            properties: { activity: { type: "string" } },
           },
         ],
         required: [],
       }),
     ];
-    const result = injectReasonField(defs);
+    const result = injectActivityField(defs);
     // Should be the exact same object reference (no injection)
     expect(Object.is(result[0], defs[0])).toBe(true);
     const schema = result[0].input_schema as Record<string, unknown>;
     const props = schema.properties as Record<string, unknown>;
-    // Top-level properties should NOT have reason injected
-    expect("reason" in props).toBe(false);
+    // Top-level properties should NOT have activity injected
+    expect("activity" in props).toBe(false);
   });
 
   test("handles empty definitions array", () => {
-    const result = injectReasonField([]);
+    const result = injectActivityField([]);
     expect(result).toEqual([]);
   });
 });
@@ -157,44 +161,44 @@ describe("schemaDefinesProperty", () => {
   test("returns true for direct properties match", () => {
     const schema = {
       type: "object",
-      properties: { reason: { type: "string" } },
+      properties: { activity: { type: "string" } },
     };
-    expect(schemaDefinesProperty(schema, "reason")).toBe(true);
+    expect(schemaDefinesProperty(schema, "activity")).toBe(true);
   });
 
   test("returns true for property in allOf member", () => {
     const schema = {
-      allOf: [{ properties: { reason: { type: "string" } } }],
+      allOf: [{ properties: { activity: { type: "string" } } }],
     };
-    expect(schemaDefinesProperty(schema, "reason")).toBe(true);
+    expect(schemaDefinesProperty(schema, "activity")).toBe(true);
   });
 
   test("returns true for property in oneOf member", () => {
     const schema = {
       oneOf: [
         { properties: { foo: { type: "string" } } },
-        { properties: { reason: { type: "string" } } },
+        { properties: { activity: { type: "string" } } },
       ],
     };
-    expect(schemaDefinesProperty(schema, "reason")).toBe(true);
+    expect(schemaDefinesProperty(schema, "activity")).toBe(true);
   });
 
   test("returns true for property in anyOf member", () => {
     const schema = {
-      anyOf: [{ properties: { reason: { type: "string" } } }],
+      anyOf: [{ properties: { activity: { type: "string" } } }],
     };
-    expect(schemaDefinesProperty(schema, "reason")).toBe(true);
+    expect(schemaDefinesProperty(schema, "activity")).toBe(true);
   });
 
   test("returns true for nested allOf within oneOf", () => {
     const schema = {
       oneOf: [
         {
-          allOf: [{ properties: { reason: { type: "string" } } }],
+          allOf: [{ properties: { activity: { type: "string" } } }],
         },
       ],
     };
-    expect(schemaDefinesProperty(schema, "reason")).toBe(true);
+    expect(schemaDefinesProperty(schema, "activity")).toBe(true);
   });
 
   test("returns false when property not defined", () => {
@@ -202,25 +206,25 @@ describe("schemaDefinesProperty", () => {
       type: "object",
       properties: { foo: { type: "string" } },
     };
-    expect(schemaDefinesProperty(schema, "reason")).toBe(false);
+    expect(schemaDefinesProperty(schema, "activity")).toBe(false);
   });
 
   test("returns false for $ref (fail-closed)", () => {
     const schema = { $ref: "#/definitions/Foo" };
-    expect(schemaDefinesProperty(schema, "reason")).toBe(false);
+    expect(schemaDefinesProperty(schema, "activity")).toBe(false);
   });
 
   test("returns false for null schema", () => {
-    expect(schemaDefinesProperty(null, "reason")).toBe(false);
+    expect(schemaDefinesProperty(null, "activity")).toBe(false);
   });
 
   test("returns false for undefined schema", () => {
-    expect(schemaDefinesProperty(undefined, "reason")).toBe(false);
+    expect(schemaDefinesProperty(undefined, "activity")).toBe(false);
   });
 
   test("returns false for non-object schema", () => {
-    expect(schemaDefinesProperty("not-an-object", "reason")).toBe(false);
-    expect(schemaDefinesProperty(42, "reason")).toBe(false);
-    expect(schemaDefinesProperty(true, "reason")).toBe(false);
+    expect(schemaDefinesProperty("not-an-object", "activity")).toBe(false);
+    expect(schemaDefinesProperty(42, "activity")).toBe(false);
+    expect(schemaDefinesProperty(true, "activity")).toBe(false);
   });
 });

@@ -587,9 +587,11 @@ public func confirmationHumanDescription(
     toolCategory: String? = nil,
     permissionFriendlyName: String? = nil
 ) -> String {
-    // Use reason, falling back to description/message for tools that provide
-    // context via other fields (e.g. context_overflow_compression uses description)
-    let rawReason = (input["reason"]?.value as? String) ?? ""
+    // Use activity (or legacy reason), falling back to description/message for
+    // tools that provide context via other fields (e.g. context_overflow_compression uses description)
+    let rawReason = (input["activity"]?.value as? String)
+        ?? (input["reason"]?.value as? String)
+        ?? ""
     let reason: String = rawReason.isEmpty
         ? (input["description"]?.value as? String)
             ?? (input["message"]?.value as? String)

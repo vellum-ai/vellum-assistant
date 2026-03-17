@@ -43,8 +43,8 @@ import {
 } from "../../tools/execution-target.js";
 import { getAllTools, getTool } from "../../tools/registry.js";
 import {
-  injectReasonField,
-  REASON_SKIP_SET,
+  injectActivityField,
+  ACTIVITY_SKIP_SET,
 } from "../../tools/schema-transforms.js";
 import { isSideEffectTool } from "../../tools/side-effects.js";
 import { generateAndSaveAvatar } from "../../tools/system/avatar-generator.js";
@@ -400,17 +400,17 @@ function handleToolNamesList(): Response {
     }
   }
 
-  // Apply reason injection so settings/debug schemas match runtime behavior.
-  const transformedDefs = injectReasonField(rawDefs, REASON_SKIP_SET);
+  // Apply activity injection so settings/debug schemas match runtime behavior.
+  const transformedDefs = injectActivityField(rawDefs, ACTIVITY_SKIP_SET);
   for (const def of transformedDefs) {
     schemas[def.name] = def.input_schema as SchemaShape;
   }
 
   // Skill manifest schemas are served raw (untransformed). Unlike runtime tool
-  // schemas which have `reason` injected via injectReasonField(), skill manifests
-  // reflect the original TOOLS.json content. This is intentional: skill tools are
-  // invoked through skill_execute (which has its own reason field), so their
-  // individual schemas are never sent to the LLM directly.
+  // schemas which have `activity` injected via injectActivityField(), skill
+  // manifests reflect the original TOOLS.json content. This is intentional:
+  // skill tools are invoked through skill_execute (which has its own activity
+  // field), so their individual schemas are never sent to the LLM directly.
   try {
     const catalog = loadSkillCatalog();
     for (const skill of catalog) {

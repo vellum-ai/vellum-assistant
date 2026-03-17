@@ -1,26 +1,29 @@
 import type { ToolDefinition } from "../providers/types.js";
 
 /**
- * Tools that should never have a `reason` field injected into their schema.
+ * Tools that should never have an `activity` field injected into their schema.
  */
-export const REASON_SKIP_SET = new Set<string>([
+export const ACTIVITY_SKIP_SET = new Set<string>([
   "skill_execute",
   "bash",
   "host_bash",
   "request_system_permission",
 ]);
 
+/** @deprecated Use ACTIVITY_SKIP_SET */
+export const REASON_SKIP_SET = ACTIVITY_SKIP_SET;
+
 /**
- * Injects a `reason` string property into each tool definition's input schema,
- * unless the tool is in the skip set, already has a reason field, or has a
- * non-object schema.
+ * Injects an `activity` string property into each tool definition's input
+ * schema, unless the tool is in the skip set, already has an activity field,
+ * or has a non-object schema.
  *
  * CRITICAL: Never mutates the input definitions - always returns deep clones
  * for any modified definition, since `getDefinition()` returns shared refs.
  */
-export function injectReasonField(
+export function injectActivityField(
   definitions: ToolDefinition[],
-  skip: Set<string> = REASON_SKIP_SET,
+  skip: Set<string> = ACTIVITY_SKIP_SET,
 ): ToolDefinition[] {
   return definitions.map((def) => {
     if (skip.has(def.name)) {
@@ -33,15 +36,22 @@ export function injectReasonField(
     }
 
     const properties = schema.properties as Record<string, unknown>;
-    if (schemaDefinesProperty(schema, "reason")) {
+    if (schemaDefinesProperty(schema, "activity")) {
       return def;
     }
 
     // Deep clone to avoid mutating shared refs
-    const newProperties = { ...properties, reason: { type: "string" } };
+    const newProperties = {
+      ...properties,
+      activity: {
+        type: "string",
+        description:
+          "Brief, natural description of what you're doing, shown as a live status update (e.g. 'Checking your project settings')",
+      },
+    };
     const existingRequired = Array.isArray(schema.required)
-      ? [...schema.required, "reason"]
-      : ["reason"];
+      ? [...schema.required, "activity"]
+      : ["activity"];
 
     return {
       ...def,
@@ -53,6 +63,9 @@ export function injectReasonField(
     };
   });
 }
+
+/** @deprecated Use injectActivityField */
+export const injectReasonField = injectActivityField;
 
 /**
  * Checks whether a JSON Schema defines a given property name.
