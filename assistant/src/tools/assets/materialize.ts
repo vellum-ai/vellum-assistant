@@ -110,7 +110,7 @@ class AssetMaterializeTool implements Tool {
   name = "asset_materialize";
   description = definition.description;
   category = "assets";
-  defaultRiskLevel = RiskLevel.Medium;
+  defaultRiskLevel = RiskLevel.Low;
 
   getDefinition(): ToolDefinition {
     return definition;

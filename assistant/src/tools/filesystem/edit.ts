@@ -11,7 +11,7 @@ class FileEditTool implements Tool {
   description =
     "Replace an exact string in a file with a new string. Use this for surgical edits instead of rewriting entire files. To delete a file, use bash with rm instead.";
   category = "filesystem";
-  defaultRiskLevel = RiskLevel.Medium;
+  defaultRiskLevel = RiskLevel.Low;
 
   getDefinition(): ToolDefinition {
     return {

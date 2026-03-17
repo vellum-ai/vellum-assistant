@@ -10,7 +10,7 @@ class FileWriteTool implements Tool {
   name = "file_write";
   description = "Write content to a file, creating it if it does not exist";
   category = "filesystem";
-  defaultRiskLevel = RiskLevel.Medium;
+  defaultRiskLevel = RiskLevel.Low;
 
   getDefinition(): ToolDefinition {
     return {

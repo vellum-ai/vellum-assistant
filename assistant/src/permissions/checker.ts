@@ -544,7 +544,7 @@ async function classifyRiskUncached(
     ) {
       return RiskLevel.High;
     }
-    return RiskLevel.Medium;
+    return RiskLevel.Low;
   }
   if (toolName === "web_search") return RiskLevel.Low;
   if (toolName === "web_fetch") {
