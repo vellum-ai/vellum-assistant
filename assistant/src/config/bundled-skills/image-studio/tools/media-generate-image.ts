@@ -55,13 +55,12 @@ export async function run(
   context: ToolContext,
 ): Promise<ToolExecutionResult> {
   const config = getConfig();
-  const apiKey = await getProviderKeyAsync("gemini");
+  const imageGenMode = config.services["image-generation"].mode;
 
-  // Resolve credentials: prefer direct API key, fall back to managed proxy
+  // Resolve credentials strictly based on mode — no cross-mode fallbacks
   let credentials: ImageGenCredentials | undefined;
-  if (apiKey) {
-    credentials = { type: "direct", apiKey };
-  } else {
+
+  if (imageGenMode === "managed") {
     const managedBaseUrl = await buildManagedBaseUrl("vertex");
     if (managedBaseUrl) {
       const ctx = await resolveManagedProxyContext();
@@ -71,14 +70,19 @@ export async function run(
         baseUrl: managedBaseUrl,
       };
     }
+  } else {
+    const apiKey = await getProviderKeyAsync("gemini");
+    if (apiKey) {
+      credentials = { type: "direct", apiKey };
+    }
   }
 
   if (!credentials) {
-    return {
-      content:
-        "No Gemini API key configured. Please set your Gemini API key to use image generation.",
-      isError: true,
-    };
+    const hint =
+      imageGenMode === "managed"
+        ? "Managed proxy is not available. Please log in to Vellum or switch to Your Own mode."
+        : "No Gemini API key configured. Please set your Gemini API key in Settings > Models & Services.";
+    return { content: hint, isError: true };
   }
 
   const prompt = input.prompt as string;

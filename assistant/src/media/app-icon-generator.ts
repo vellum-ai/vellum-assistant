@@ -37,12 +37,12 @@ export async function generateAppIcon(
   appDescription?: string,
 ): Promise<void> {
   const config = getConfig();
-  const apiKey = await getProviderKeyAsync("gemini");
+  const imageGenMode = config.services["image-generation"].mode;
 
+  // Resolve credentials strictly based on mode — no cross-mode fallbacks
   let credentials: ImageGenCredentials | undefined;
-  if (apiKey) {
-    credentials = { type: "direct", apiKey };
-  } else {
+
+  if (imageGenMode === "managed") {
     const managedBaseUrl = await buildManagedBaseUrl("vertex");
     if (managedBaseUrl) {
       const ctx = await resolveManagedProxyContext();
@@ -52,12 +52,19 @@ export async function generateAppIcon(
         baseUrl: managedBaseUrl,
       };
     }
+  } else {
+    const apiKey = await getProviderKeyAsync("gemini");
+    if (apiKey) {
+      credentials = { type: "direct", apiKey };
+    }
   }
 
   if (!credentials) {
-    log.debug(
-      "No Gemini API key or managed proxy — skipping app icon generation",
-    );
+    const reason =
+      imageGenMode === "managed"
+        ? "Managed proxy is not available"
+        : "No Gemini API key configured";
+    log.debug(`${reason} — skipping app icon generation`);
     return;
   }
 

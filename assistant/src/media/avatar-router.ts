@@ -14,12 +14,12 @@ export async function generateAvatar(
   prompt: string,
 ): Promise<{ imageBase64: string; mimeType: string }> {
   const config = getConfig();
-  const geminiKey = await getProviderKeyAsync("gemini");
+  const imageGenMode = config.services["image-generation"].mode;
 
+  // Resolve credentials strictly based on mode — no cross-mode fallbacks
   let credentials: ImageGenCredentials | undefined;
-  if (geminiKey) {
-    credentials = { type: "direct", apiKey: geminiKey };
-  } else {
+
+  if (imageGenMode === "managed") {
     const managedBaseUrl = await buildManagedBaseUrl("vertex");
     if (managedBaseUrl) {
       const ctx = await resolveManagedProxyContext();
@@ -29,12 +29,19 @@ export async function generateAvatar(
         baseUrl: managedBaseUrl,
       };
     }
+  } else {
+    const geminiKey = await getProviderKeyAsync("gemini");
+    if (geminiKey) {
+      credentials = { type: "direct", apiKey: geminiKey };
+    }
   }
 
   if (!credentials) {
-    throw new ConfigError(
-      "Gemini API key is not configured. Set it via `keys set gemini <key>`.",
-    );
+    const hint =
+      imageGenMode === "managed"
+        ? "Managed proxy is not available. Please log in to Vellum or switch to Your Own mode."
+        : "Gemini API key is not configured. Please set your Gemini API key in Settings > Models & Services.";
+    throw new ConfigError(hint);
   }
 
   const result = await generateImage(credentials, {
