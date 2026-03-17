@@ -1,6 +1,6 @@
 {
   "name": "@vellumai/assistant",
-  "version": "0.4.55",
+  "version": "0.4.56",
   "type": "module",
   "exports": {
     ".": "./src/index.ts"
