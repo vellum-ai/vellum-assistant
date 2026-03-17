@@ -36,7 +36,7 @@ struct OnboardingButton: View {
                             RoundedRectangle(cornerRadius: VRadius.sm)
                                 .fill(VColor.borderBase.opacity(0.5))
                         } else {
-                            background
+                            Rectangle().fill(background)
                         }
                     }
                 )
