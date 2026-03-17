@@ -168,9 +168,9 @@ struct AssistantChannelsDetailView: View {
                 channelKey: name.lowercased(),
                 value: value,
                 isConnected: true,
+                isExpanded: expandedBinding,
                 isDisconnectDisabled: false,
-                onDisconnect: { _ in },
-                isExpanded: expandedBinding
+                onDisconnect: { _ in }
             )
             .padding(.vertical, VSpacing.sm)
 
