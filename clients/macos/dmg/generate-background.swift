@@ -142,7 +142,7 @@ let textY = CGFloat(iconCenterY + 150)  // Below the icons
 let dragFont = CTFontCreateWithName("Helvetica Neue" as CFString, 28.0, nil)
 let dragColor = CGColor(colorSpace: colorSpace, components: rgb(60, 30, 90, 0.6))!
 
-drawCenteredText("Drag to Applications to install", centerX: CGFloat(width) / 2.0, y: textY, font: dragFont, color: dragColor)
+drawCenteredText("Drag to install. Open from Applications.", centerX: CGFloat(width) / 2.0, y: textY, font: dragFont, color: dragColor)
 
 // --- Generate output ---
 guard let image = ctx.makeImage() else {
