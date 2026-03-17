@@ -924,7 +924,7 @@ struct SettingsDeveloperTab: View {
                 HStack(spacing: VSpacing.xs) {
                     VIconView(.triangleAlert, size: 12)
                         .foregroundColor(VColor.systemNegativeHover)
-                    Text("Send diagnostics is disabled. Non-fatal events will be silently dropped unless you enable \"Send diagnostics\" in the Privacy tab.")
+                    Text("Share Diagnostics is disabled. Non-fatal events will be silently dropped unless you enable \"Share Diagnostics\" in the Privacy tab.")
                         .font(VFont.caption)
                         .foregroundColor(VColor.systemNegativeHover)
                 }
