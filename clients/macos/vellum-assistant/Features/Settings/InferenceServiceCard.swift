@@ -28,6 +28,10 @@ struct InferenceServiceCard: View {
 
     /// True when the user has made changes worth saving.
     private var hasChanges: Bool {
+        // In managed mode when not logged in, there is nothing actionable to save.
+        if draftMode == "managed" && !isLoggedIn {
+            return false
+        }
         let modeChanged = draftMode != store.inferenceMode
         let hasNewKey = !apiKeyText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         let modelChanged = store.selectedModel != initialModel
@@ -35,26 +39,55 @@ struct InferenceServiceCard: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: VSpacing.md) {
-            // Header: title + subtitle + mode toggle
-            header
+        ServiceModeCard(
+            title: "Inference",
+            subtitle: "Configure which LLM provider and model to use to power your assistant",
+            draftMode: $draftMode,
+            hasChanges: hasChanges,
+            isSaving: store.apiKeySaving,
+            onSave: { save() },
+            onReset: {
+                store.clearAPIKey()
+                apiKeyText = ""
+            },
+            showReset: isConnected,
+            managedContent: {
+                if isLoggedIn {
+                    modelPicker
+                } else {
+                    managedLoginPrompt
+                }
+            },
+            yourOwnContent: {
+                VStack(alignment: .leading, spacing: VSpacing.md) {
+                    // API Key field
+                    VStack(alignment: .leading, spacing: VSpacing.sm) {
+                        Text("API Key")
+                            .font(VFont.inputLabel)
+                            .foregroundColor(VColor.contentSecondary)
+                        SecureField(
+                            isConnected && apiKeyText.isEmpty
+                                ? "••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••"
+                                : "Enter your API key",
+                            text: $apiKeyText
+                        )
+                        .vInputStyle()
+                        .font(VFont.body)
+                        .foregroundColor(VColor.contentDefault)
+                        .disabled(store.apiKeySaving)
 
-            Divider()
-                .background(VColor.borderBase)
+                        if let error = store.apiKeySaveError {
+                            Text(error)
+                                .font(VFont.caption)
+                                .foregroundColor(VColor.systemNegativeStrong)
+                        }
+                    }
 
-            // Mode-specific content
-            if draftMode == "managed" {
-                managedContent
-            } else {
-                yourOwnContent
+                    // Model picker
+                    modelPicker
+                }
             }
-
-            // Action buttons
-            actionButtons
-        }
-        .padding(VSpacing.lg)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .vCard(background: VColor.surfaceOverlay)
+        )
         .onAppear {
             draftMode = store.inferenceMode
             initialModel = store.selectedModel
@@ -62,43 +95,6 @@ struct InferenceServiceCard: View {
         .onChange(of: store.inferenceMode) { _, newValue in
             // Sync draft when external changes arrive (e.g. daemon reload)
             draftMode = newValue
-        }
-    }
-
-    // MARK: - Header
-
-    private var header: some View {
-        VStack(alignment: .leading, spacing: VSpacing.xs) {
-            HStack {
-                Text("Inference")
-                    .font(VFont.sectionTitle)
-                    .foregroundColor(VColor.contentDefault)
-                Spacer()
-                VSegmentedControl(
-                    items: [
-                        (label: "Managed", tag: "managed"),
-                        (label: "Your Own", tag: "your-own"),
-                    ],
-                    selection: $draftMode,
-                    style: .pill
-                )
-                .frame(width: 220)
-            }
-            Text("Configure which LLM provider and model to use to power your assistant")
-                .font(VFont.sectionDescription)
-                .foregroundColor(VColor.contentTertiary)
-        }
-    }
-
-    // MARK: - Managed Content
-
-    private var managedContent: some View {
-        Group {
-            if isLoggedIn {
-                modelPicker
-            } else {
-                managedLoginPrompt
-            }
         }
     }
 
@@ -124,38 +120,6 @@ struct InferenceServiceCard: View {
         .padding(.vertical, VSpacing.lg)
     }
 
-    // MARK: - Your Own Content
-
-    private var yourOwnContent: some View {
-        VStack(alignment: .leading, spacing: VSpacing.md) {
-            // API Key field
-            VStack(alignment: .leading, spacing: VSpacing.sm) {
-                Text("API Key")
-                    .font(VFont.inputLabel)
-                    .foregroundColor(VColor.contentSecondary)
-                SecureField(
-                    isConnected && apiKeyText.isEmpty
-                        ? "••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••"
-                        : "Enter your API key",
-                    text: $apiKeyText
-                )
-                .vInputStyle()
-                .font(VFont.body)
-                .foregroundColor(VColor.contentDefault)
-                .disabled(store.apiKeySaving)
-
-                if let error = store.apiKeySaveError {
-                    Text(error)
-                        .font(VFont.caption)
-                        .foregroundColor(VColor.systemNegativeStrong)
-                }
-            }
-
-            // Model picker
-            modelPicker
-        }
-    }
-
     // MARK: - Model Picker
 
     private var modelPicker: some View {
@@ -173,30 +137,6 @@ struct InferenceServiceCard: View {
                     (label: SettingsStore.modelDisplayNames[model] ?? model, value: model)
                 }
             )
-        }
-    }
-
-    // MARK: - Action Buttons
-
-    private var actionButtons: some View {
-        HStack(spacing: VSpacing.sm) {
-            if draftMode == "managed" && !isLoggedIn {
-                EmptyView()
-            } else {
-                VButton(
-                    label: store.apiKeySaving ? "Validating..." : "Save",
-                    style: .primary,
-                    isDisabled: !hasChanges || store.apiKeySaving
-                ) {
-                    save()
-                }
-                if draftMode == "your-own" && isConnected {
-                    VButton(label: "Reset", style: .danger, isDisabled: store.apiKeySaving) {
-                        store.clearAPIKey()
-                        apiKeyText = ""
-                    }
-                }
-            }
         }
     }
 
