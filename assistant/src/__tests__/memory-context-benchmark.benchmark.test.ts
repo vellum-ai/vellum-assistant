@@ -248,7 +248,7 @@ describe("Memory context benchmark", () => {
         ...DEFAULT_CONFIG.memory,
         embeddings: {
           ...DEFAULT_CONFIG.memory.embeddings,
-          provider: "openai" as const,
+          provider: "local" as const,
           required: false,
         },
         retrieval: {
