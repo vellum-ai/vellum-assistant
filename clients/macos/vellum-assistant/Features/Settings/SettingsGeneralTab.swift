@@ -1,7 +1,7 @@
 import SwiftUI
 import VellumAssistantShared
 
-/// General settings tab — account/platform sign-in card followed by appearance settings.
+/// General settings tab — account/platform sign-in card.
 @MainActor
 struct SettingsGeneralTab: View {
     @ObservedObject var store: SettingsStore
@@ -18,7 +18,6 @@ struct SettingsGeneralTab: View {
             if MacOSClientFeatureFlagManager.shared.isEnabled("mobile_pairing_enabled") {
                 mobilePairingCard
             }
-            SettingsAppearanceTab(store: store)
         }
         .onAppear {
             Task { await authManager.checkSession() }
