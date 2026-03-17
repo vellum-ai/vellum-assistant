@@ -28,43 +28,15 @@ function proxyExecute(): Promise<ToolExecutionResult> {
 export const uiShowTool: Tool = {
   name: "ui_show",
   description:
-    'Show structured data or UI to the user. Use for displaying weather, flights, stock prices, quick tables, cards, lists, forms, or any temporary data visualization. Use display: "inline" (default) to embed in chat, or "panel" for a floating window. For long-form writing use the document skill instead; for interactive apps use the app-builder skill instead.\n\n' +
-    "Supported surface types:\n" +
-    "- card: Informational card with title, subtitle, body text, and optional metadata key-value pairs. " +
-    "Cards support an optional template field for specialized native rendering. " +
-    "data shape: { title: string, subtitle?: string, body: string, metadata?: Array<{ label: string, value: string }>, template?: string, templateData?: object }\n" +
-    '  Template "weather_forecast": renders an Apple Weather-style forecast widget. ' +
-    'templateData shape: { location: string, currentTemp: number, feelsLike: number, unit: "F"|"C", condition: string, humidity: number, windSpeed: number, windDirection: string, ' +
-    "hourly: Array<{ time: string, icon: string (SF Symbol name), temp: number }>, " +
-    "forecast: Array<{ day: string, icon: string (SF Symbol name), low: number, high: number, precip: number|null, condition: string }> }\n" +
-    '  Template "task_progress": renders a live-updating task progress widget showing structured step-by-step progress. ' +
-    'templateData shape: { title: string, status: "in_progress"|"completed"|"failed", ' +
-    'steps: Array<{ label: string, status: "pending"|"in_progress"|"completed"|"failed", detail?: string }> }\n' +
-    "- table: Data table with columns, selectable rows, and action buttons. " +
-    'data shape: { columns: Array<{ id: string, label: string, width?: number }>, rows: Array<{ id: string, cells: Record<string, string | { text: string, icon?: string, iconColor?: "success"|"warning"|"error"|"muted" }>, selectable?: boolean, selected?: boolean }>, selectionMode?: "none"|"single"|"multiple", caption?: string }. ' +
-    "Cell values can be plain strings or rich objects with icon (SF Symbol name) and iconColor. " +
-    "Column width is in points - use it for narrow columns (e.g. counts, short labels) so flexible columns get more space. Omit width for columns that should expand.\n" +
-    "- form: Input form with typed fields. " +
-    'data shape: { description?: string, fields: Array<{ id: string, type: "text"|"textarea"|"select"|"toggle"|"number"|"password", label: string, placeholder?: string, required?: boolean, defaultValue?: string|number|boolean, options?: Array<{ label: string, value: string }> }>, submitLabel?: string }. ' +
-    "For multi-page forms, use pages array instead of top-level fields: { pages: [{ id: string, title: string, description?: string, fields: [...] }], pageLabels?: { next?: string, back?: string, submit?: string }, submitLabel?: string }\n" +
-    "- list: Selectable list of items. " +
-    'data shape: { items: Array<{ id: string, title: string, subtitle?: string, icon?: string, selected?: boolean }>, selectionMode: "single"|"multiple"|"none" }\n' +
-    "- confirmation: Yes/no confirmation dialog. " +
-    "data shape: { message: string, detail?: string, confirmLabel?: string, confirmedLabel?: string, cancelLabel?: string, destructive?: boolean }\n" +
-    "- dynamic_page: Custom HTML page rendered in a sandboxed container. " +
-    "data shape: { html: string, width?: number, height?: number, preview?: { title: string, subtitle?: string, description?: string, icon?: string (emoji), metrics?: Array<{ label: string, value: string }> } }. " +
-    'When preview is provided, a compact preview card is shown inline in chat with the title, subtitle, description, metric pills, and a "View Output" button that opens the full page.\n' +
-    "- file_upload: File upload dialog where the user can drag-and-drop or browse for files. " +
-    "data shape: { prompt: string, acceptedTypes?: string[], maxFiles?: number }\n\n" +
-    "Action payload conventions:\n" +
-    "- Multi-select tables: use `window.vellum.sendAction(actionId, { selectedIds: [...] })` to send selected row IDs\n" +
-    "- Bulk actions: include `selectedRows` array with full row data for context\n\n" +
-    "Presenting choices: When the user needs to make a choice or provide structured input, prefer interactive surfaces over plain text. " +
-    "Use list (2-8 options, single select), form (structured input with typed fields), confirmation (destructive/important actions), or table (data review with selectable rows).\n\n" +
-    "Tool chaining: After gathering data via tools (web search, browser, APIs), synthesize results into a visual output.\n\n" +
-    'Task progress for multi-step workflows: Create a card with template "task_progress" and templateData containing steps. ' +
-    "As each step completes, call ui_update to patch data.templateData (not top-level fields). " +
-    'Set templateData.status to "completed" or "failed" when done.',
+    "Show structured data or UI to the user. For long-form writing use the document skill; for interactive apps use the app-builder skill.\n\n" +
+    "Surface types (data shapes):\n" +
+    "- card: { title, subtitle?, body, metadata?: [{ label, value }], template?, templateData? }. Templates: \"weather_forecast\" (native weather widget), \"task_progress\" (live step tracker - update via ui_update on data.templateData)\n" +
+    '- table: { columns: [{ id, label, width? }], rows: [{ id, cells: Record<id, string | { text, icon?, iconColor?: "success"|"warning"|"error"|"muted" }>, selectable?, selected? }], selectionMode?: "none"|"single"|"multiple", caption? }\n' +
+    '- form: { fields: [{ id, type: "text"|"textarea"|"select"|"toggle"|"number"|"password", label, placeholder?, required?, defaultValue?, options?: [{ label, value }] }], submitLabel? }. Multi-page: { pages: [{ id, title, fields }], submitLabel? }\n' +
+    '- list: { items: [{ id, title, subtitle?, icon?, selected? }], selectionMode: "single"|"multiple"|"none" }\n' +
+    "- confirmation: { message, detail?, confirmLabel?, cancelLabel?, destructive? }\n" +
+    "- dynamic_page: { html, width?, height?, preview?: { title, subtitle?, description?, icon?, metrics?: [{ label, value }] } }\n" +
+    "- file_upload: { prompt, acceptedTypes?, maxFiles? }",
   category: "ui-surface",
   defaultRiskLevel: RiskLevel.Low,
   executionMode: "proxy",

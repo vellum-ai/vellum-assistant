@@ -41,14 +41,22 @@ The command returns JSON with:
 
 ## Presenting Results
 
-Present weather data visually if your environment supports rich output. Otherwise, use the `text` field for a readable summary.
+Use `ui_show` with the `weather_forecast` card template for a native weather widget:
 
-**Suggested presentation:**
+```
+ui_show surface_type="card" data={
+  title: "Weather",
+  template: "weather_forecast",
+  templateData: {
+    location, currentTemp, feelsLike, unit: "F"|"C",
+    condition, humidity, windSpeed, windDirection,
+    hourly: [{ time, icon (SF Symbol name), temp }],
+    forecast: [{ day, icon (SF Symbol name), low, high, precip, condition }]
+  }
+}
+```
 
-- Show current temperature prominently with the condition
-- Include "feels like" temperature and key metrics (humidity, wind)
-- Display the forecast as a list or table with highs, lows, and conditions
-- Use weather condition codes or descriptions to add appropriate icons/emoji
+Map weather condition codes to SF Symbol names (e.g. "sun.max.fill", "cloud.rain.fill", "cloud.fill", "snowflake").
 
 ## Temperature Units
 
