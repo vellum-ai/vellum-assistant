@@ -44,6 +44,11 @@ export const WebSearchServiceSchema = z.object({
 });
 export type WebSearchService = z.infer<typeof WebSearchServiceSchema>;
 
+export const GoogleOAuthServiceSchema = z.object({
+  mode: ServiceModeSchema.default("managed"),
+});
+export type GoogleOAuthService = z.infer<typeof GoogleOAuthServiceSchema>;
+
 export const ServicesSchema = z.object({
   inference: InferenceServiceSchema.default(InferenceServiceSchema.parse({})),
   "image-generation": ImageGenerationServiceSchema.default(
@@ -51,6 +56,9 @@ export const ServicesSchema = z.object({
   ),
   "web-search": WebSearchServiceSchema.default(
     WebSearchServiceSchema.parse({}),
+  ),
+  "google-oauth": GoogleOAuthServiceSchema.default(
+    GoogleOAuthServiceSchema.parse({}),
   ),
 });
 export type Services = z.infer<typeof ServicesSchema>;
