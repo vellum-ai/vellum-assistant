@@ -761,12 +761,18 @@ async function tailContainerUntilReady(opts: {
   console.log(`  Runtime: ${runtimeUrl}`);
   console.log("");
 
+  const logFd = openLogFile("hatch.log");
+
   await new Promise<void>((resolve, reject) => {
     const child = nodeSpawn("docker", ["logs", "-f", containerName], {
       stdio: ["ignore", "pipe", "pipe"],
     });
 
     const handleLine = (line: string): void => {
+      writeToLogFile(
+        logFd,
+        `${new Date().toISOString()} [docker] ${line}\n`,
+      );
       if (line.includes(sentinel)) {
         process.nextTick(async () => {
           try {
@@ -786,6 +792,7 @@ async function tailContainerUntilReady(opts: {
           console.log(`   Runtime: ${runtimeUrl}`);
           console.log("");
           child.kill();
+          closeLogFile(logFd);
           resolve();
         });
       }
@@ -808,6 +815,7 @@ async function tailContainerUntilReady(opts: {
     child.stderr?.on("end", () => stderrPrefixer.flush());
 
     child.on("close", (code) => {
+      closeLogFile(logFd);
       if (
         code === 0 ||
         code === null ||
@@ -820,10 +828,14 @@ async function tailContainerUntilReady(opts: {
         reject(new Error(`Docker container exited with code ${code}`));
       }
     });
-    child.on("error", reject);
+    child.on("error", (err) => {
+      closeLogFile(logFd);
+      reject(err);
+    });
 
     process.on("SIGINT", () => {
       child.kill();
+      closeLogFile(logFd);
       resolve();
     });
   });
