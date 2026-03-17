@@ -199,7 +199,8 @@ extension AppDelegate {
             showStatusMenu()
             return
         }
-        if event.type == .rightMouseUp || event.modifierFlags.contains(.control) {
+        if (event.type == .rightMouseUp || event.modifierFlags.contains(.control)),
+           MacOSClientFeatureFlagManager.shared.isEnabled("quick_input_enabled") {
             toggleQuickInput()
         } else {
             showStatusMenu()

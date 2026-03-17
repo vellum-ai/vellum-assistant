@@ -76,6 +76,7 @@ struct SurfaceContainerView: View {
                         viewModel.onAction(actionId, actionData as? [String: Any])
                     },
                     appId: viewModel.appId,
+                    userAppsDirectory: viewModel.userAppsDirectory,
                     onDataRequest: viewModel.onDataRequest,
                     onCoordinatorReady: viewModel.onCoordinatorReady,
                     onLinkOpen: viewModel.onLinkOpen,

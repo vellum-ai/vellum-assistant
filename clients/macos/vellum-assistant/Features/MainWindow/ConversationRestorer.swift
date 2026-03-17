@@ -66,9 +66,6 @@ final class ConversationRestorer {
         daemonClient.onConversationTitleUpdated = { [weak self] response in
             self?.handleConversationTitleUpdated(response)
         }
-        daemonClient.onSubagentDetailResponse = { [weak self] response in
-            self?.handleSubagentDetailResponse(response)
-        }
         daemonClient.onMessageContentResponse = { [weak self] response in
             self?.handleMessageContentResponse(response)
         }
@@ -314,20 +311,6 @@ final class ConversationRestorer {
             guard let viewModel = delegate.existingChatViewModel(for: conversation.id) else { continue }
             if viewModel.messages.contains(where: { $0.daemonMessageId == response.messageId }) {
                 viewModel.handleMessageContentResponse(response)
-                return
-            }
-        }
-    }
-
-    func handleSubagentDetailResponse(_ response: SubagentDetailResponse) {
-        guard let delegate else { return }
-        // Only check conversations that already have a VM — subagent events are only
-        // relevant to active conversations, so we must not trigger lazy VM
-        // creation for every conversation in the list.
-        for conversation in delegate.conversations {
-            guard let viewModel = delegate.existingChatViewModel(for: conversation.id) else { continue }
-            if viewModel.activeSubagents.contains(where: { $0.id == response.subagentId }) {
-                viewModel.subagentDetailStore.populateFromDetailResponse(response)
                 return
             }
         }

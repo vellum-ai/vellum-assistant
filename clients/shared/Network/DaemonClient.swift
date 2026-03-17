@@ -447,8 +447,6 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     /// Called when the daemon sends an `env_vars_response` message (debug builds only).
     public var onEnvVarsResponse: ((EnvVarsResponseMessage) -> Void)?
 
-    /// Called when the daemon sends a `work_items_list_response` message.
-    public var onWorkItemsListResponse: ((WorkItemsListResponse) -> Void)?
 
     /// Called when the daemon sends a `work_item_status_changed` broadcast.
     public var onWorkItemStatusChanged: ((WorkItemStatusChanged) -> Void)?
@@ -456,26 +454,10 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     /// Called when the daemon sends a `tasks_changed` broadcast.
     public var onTasksChanged: ((TasksChanged) -> Void)?
 
-    /// Called when the daemon sends a `work_item_delete_response` message.
-    public var onWorkItemDeleteResponse: ((WorkItemDeleteResponse) -> Void)?
 
-    /// Called when the daemon sends a `work_item_run_task_response` message.
-    public var onWorkItemRunTaskResponse: ((WorkItemRunTaskResponse) -> Void)?
 
-    /// Called when the daemon sends a `work_item_output_response` message.
-    public var onWorkItemOutputResponse: ((WorkItemOutputResponse) -> Void)?
 
-    /// Called when the daemon sends a `work_item_update_response` message.
-    public var onWorkItemUpdateResponse: ((WorkItemUpdateResponse) -> Void)?
 
-    /// Called when the daemon sends a `work_item_preflight_response` message.
-    public var onWorkItemPreflightResponse: ((WorkItemPreflightResponse) -> Void)?
-
-    /// Called when the daemon sends a `work_item_approve_permissions_response` message.
-    public var onWorkItemApprovePermissionsResponse: ((WorkItemApprovePermissionsResponse) -> Void)?
-
-    /// Called when the daemon sends a `work_item_cancel_response` message.
-    public var onWorkItemCancelResponse: ((WorkItemCancelResponse) -> Void)?
 
     /// Called when the daemon sends a generic `error` message (e.g. when a handler fails).
     public var onError: ((ErrorMessage) -> Void)?
@@ -495,8 +477,6 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     /// Called when a subagent's status changes (running, completed, failed, aborted).
     public var onSubagentStatusChanged: ((SubagentStatusChanged) -> Void)?
 
-    /// Called when the daemon sends a `subagent_detail_response` with lazy-loaded events.
-    public var onSubagentDetailResponse: ((SubagentDetailResponse) -> Void)?
 
     /// Called when the daemon sends a `recording_pause` message.
     public var onRecordingPause: ((RecordingPause) -> Void)?
@@ -842,64 +822,6 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     }
 
 
-    // MARK: - Work Items (Task Queue)
-
-    /// Request the list of work items from the daemon, optionally filtered by status.
-    public func sendWorkItemsList(status: String? = nil) throws {
-        try send(WorkItemsListRequest(type: "work_items_list", status: status))
-    }
-
-    /// Mark a work item as complete (reviewed).
-    public func sendWorkItemComplete(id: String) throws {
-        try send(WorkItemCompleteRequest(type: "work_item_complete", id: id))
-    }
-
-    /// Delete a work item.
-    public func sendWorkItemDelete(id: String) throws {
-        try send(WorkItemDeleteRequest(type: "work_item_delete", id: id))
-    }
-
-    /// Run the task associated with a work item via daemon-side execution.
-    public func sendWorkItemRunTask(id: String) throws {
-        try send(WorkItemRunTaskRequest(type: "work_item_run_task", id: id))
-    }
-
-    /// Request the latest output for a work item.
-    public func sendWorkItemOutput(id: String) throws {
-        try send(WorkItemOutputRequest(type: "work_item_output", id: id))
-    }
-
-    /// Update fields on an existing work item.
-    public func sendWorkItemUpdate(id: String, title: String? = nil, notes: String? = nil, status: String? = nil, priorityTier: Double? = nil, sortIndex: Int? = nil) throws {
-        try send(WorkItemUpdateRequest(type: "work_item_update", id: id, title: title, notes: notes, status: status, priorityTier: priorityTier, sortIndex: sortIndex))
-    }
-
-    /// Request a permission preflight check for a work item's required tools.
-    public func sendWorkItemPreflight(id: String) throws {
-        try send(WorkItemPreflightRequest(type: "work_item_preflight", id: id))
-    }
-
-    /// Approve specific permissions for a work item before running.
-    public func sendWorkItemApprovePermissions(id: String, approvedTools: [String]) throws {
-        try send(WorkItemApprovePermissionsRequest(type: "work_item_approve_permissions", id: id, approvedTools: approvedTools))
-    }
-
-    /// Cancel a running work item.
-    public func sendWorkItemCancel(id: String) throws {
-        try send(WorkItemCancelRequest(type: "work_item_cancel", id: id))
-    }
-
-    // MARK: - Subagent Management
-
-    /// Abort a running subagent.
-    public func sendSubagentAbort(subagentId: String, conversationId: String? = nil) throws {
-        try send(SubagentAbortMessage(subagentId: subagentId, conversationId: conversationId))
-    }
-
-    /// Request subagent detail events (lazy-loaded when the user opens the detail panel).
-    public func sendSubagentDetailRequest(subagentId: String, conversationId: String) throws {
-        try send(SubagentDetailRequestMessage(subagentId: subagentId, conversationId: conversationId))
-    }
 
     // MARK: - Skills Management
 
@@ -1135,10 +1057,6 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     }
 
 
-    /// Request identity info via HTTP.
-    public func sendIdentityGet() throws {
-        try send(IdentityGetRequestMessage())
-    }
 
     /// Request avatar generation via the daemon's avatar generation endpoint.
     public func sendGenerateAvatar(description: String) throws {

@@ -64,6 +64,7 @@ extension MainWindowView {
                     windowState.selection = .app(appId)
                 },
                 onOpenSharedApp: { surfaceMsg in
+                    windowState.activeDynamicUserAppsDirectory = nil
                     windowState.activeDynamicSurface = surfaceMsg
                     windowState.activeDynamicParsedSurface = Surface.from(surfaceMsg)
                     if let surface = windowState.activeDynamicParsedSurface,
@@ -135,6 +136,7 @@ extension MainWindowView {
                     }
                     surfaceManager.onAction?(surface.conversationId, surface.id, actionId, actionData as? [String: Any])
                 },
+                userAppsDirectory: surfaceManager.surfaceUserAppsDirectories[surface.id],
                 onLinkOpen: { url, metadata in
                     surfaceManager.onLinkOpen?(url, metadata)
                 }
@@ -262,6 +264,7 @@ extension MainWindowView {
                         windowState.selection = .app(appId)
                     },
                     onOpenSharedApp: { surfaceMsg in
+                        windowState.activeDynamicUserAppsDirectory = nil
                         windowState.activeDynamicSurface = surfaceMsg
                         windowState.activeDynamicParsedSurface = Surface.from(surfaceMsg)
                         if let surface = windowState.activeDynamicParsedSurface,
@@ -343,10 +346,14 @@ extension MainWindowView {
                         subagentId: subagentId,
                         viewModel: viewModel,
                         detailStore: viewModel.subagentDetailStore,
-                        onAbort: { try? daemonClient.sendSubagentAbort(subagentId: subagentId, conversationId: viewModel.conversationId) },
+                        onAbort: { Task { await SubagentClient().abort(subagentId: subagentId, conversationId: viewModel.conversationId) } },
                         onRequestDetail: {
                             if let conversationId = viewModel.activeSubagents.first(where: { $0.id == subagentId })?.conversationId {
-                                try? daemonClient.sendSubagentDetailRequest(subagentId: subagentId, conversationId: conversationId)
+                                Task {
+                                    if let response = await SubagentClient().fetchDetail(subagentId: subagentId, conversationId: conversationId) {
+                                        viewModel.subagentDetailStore.populateFromDetailResponse(response)
+                                    }
+                                }
                             }
                         },
                         onClose: { windowState.selectedSubagentId = nil }
@@ -437,6 +444,7 @@ extension MainWindowView {
                     windowState.selection = .app(appId)
                 },
                 onOpenSharedApp: { surfaceMsg in
+                    windowState.activeDynamicUserAppsDirectory = nil
                     windowState.activeDynamicSurface = surfaceMsg
                     windowState.activeDynamicParsedSurface = Surface.from(surfaceMsg)
                     if let surface = windowState.activeDynamicParsedSurface,
@@ -669,7 +677,7 @@ struct ActiveChatViewWrapper: View {
             isTemporaryChat: isTemporaryChat,
             activeSubagents: viewModel.activeSubagents,
             onAbortSubagent: { subagentId in
-                try? daemonClient.sendSubagentAbort(subagentId: subagentId, conversationId: viewModel.conversationId)
+                Task { await SubagentClient().abort(subagentId: subagentId, conversationId: viewModel.conversationId) }
             },
             onSubagentTap: { subagentId in
                 windowState.selectedSubagentId = subagentId
@@ -848,8 +856,7 @@ struct DynamicWorkspaceWrapper: View {
 
                     VButton(label: "Close workspace", iconOnly: VIcon.x.rawValue, style: .outlined, iconSize: 32, tooltip: "Close workspace") {
                         sharing.showSharePicker = false
-                        windowState.activeDynamicSurface = nil
-                        windowState.activeDynamicParsedSurface = nil
+                        windowState.clearDynamicWorkspaceState()
                         windowState.dismissOverlay()
                     }
                 }
@@ -912,6 +919,7 @@ struct DynamicWorkspaceWrapper: View {
                             surfaceManager.onAction?(surface.conversationId, surface.id, actionId, actionData as? [String: Any])
                         },
                         appId: data.appId,
+                        userAppsDirectory: windowState.activeDynamicUserAppsDirectory,
                         onDataRequest: data.appId != nil ? { callId, method, recordId, requestData in
                             guard let appId = surfaceManager.surfaceAppIds[surface.id] else { return }
                             surfaceManager.onDataRequest?(surface.id, callId, method, appId, recordId, requestData)

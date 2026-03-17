@@ -9,10 +9,7 @@ import { loadSkillCatalog, type SkillSummary } from "../config/skills.js";
 import { listConnections } from "../oauth/oauth-store.js";
 import { resolveBundledDir } from "../util/bundled-asset.js";
 import { getLogger } from "../util/logger.js";
-import {
-  getWorkspacePromptPath,
-  isMacOS,
-} from "../util/platform.js";
+import { getWorkspacePromptPath, isMacOS } from "../util/platform.js";
 import { SYSTEM_PROMPT_CACHE_BOUNDARY } from "./cache-boundary.js";
 
 export { SYSTEM_PROMPT_CACHE_BOUNDARY };
@@ -83,7 +80,6 @@ export function ensurePromptFiles(): void {
   }
 }
 
-
 /**
  * Build the system prompt from ~/.vellum prompt files,
  * then append a generated skills catalog (if any skills are available).
@@ -147,10 +143,24 @@ export function buildSystemPrompt(options?: BuildSystemPromptOptions): string {
   const bootstrap = readPromptFile(bootstrapPath);
   const updates = readPromptFile(updatesPath);
 
-  if (identity) dynamicParts.push(identity);
+  const includeBootstrap = !!bootstrap && !options?.excludeBootstrap;
+
+  // Template prompt files contain placeholder fields and meta-instructions
+  // meant for the assistant to fill in during onboarding.  When included
+  // verbatim in the system prompt, the model can leak internal details and
+  // narrate its own setup process instead of following the BOOTSTRAP.md
+  // ritual.  Detect unmodified templates by comparing against the bundled
+  // source and skip them — SOUL.md provides sufficient personality defaults
+  // until onboarding completes.
+  const identityIsTemplate = isTemplateContent(identity, "IDENTITY.md");
+  const userIsTemplate = isTemplateContent(user, "USER.md");
+
+  if (identity && !identityIsTemplate) {
+    dynamicParts.push(identity);
+  }
   if (soul) dynamicParts.push(soul);
-  if (user) dynamicParts.push(user);
-  if (bootstrap && !options?.excludeBootstrap) {
+  if (user && !userIsTemplate) dynamicParts.push(user);
+  if (includeBootstrap) {
     dynamicParts.push(
       "# First-Run Ritual\n\n" +
         "BOOTSTRAP.md is present — this is your first conversation. Follow its instructions.\n\n" +
@@ -188,12 +198,11 @@ export function buildSystemPrompt(options?: BuildSystemPromptOptions): string {
   );
 }
 
-
 function buildAttachmentSection(): string {
   return [
     "## Sending Files to the User",
     "",
-    "To deliver files to the user, include `<vellum-attachment source=\"sandbox\" path=\"scratch/output.png\" />` in your response text. This tag is the ONLY way files reach the user - omitting it means the user won't see the file.",
+    'To deliver files to the user, include `<vellum-attachment source="sandbox" path="scratch/output.png" />` in your response text. This tag is the ONLY way files reach the user - omitting it means the user won\'t see the file.',
     "",
     'Use `source="host"` with an absolute path for host filesystem files. Optional attributes: `filename` (display name override), `mime_type` (override auto-detection).',
     "",
@@ -208,8 +217,6 @@ function buildInChatConfigurationSection(): string {
     "When the user needs to configure a value, collect it conversationally in the chat. Never direct the user to the Settings page for initial setup - Settings is for reviewing and updating existing configuration.",
   ].join("\n");
 }
-
-
 
 function buildAccessPreferenceSection(hasNoClient: boolean): string {
   if (hasNoClient) {
@@ -319,6 +326,34 @@ export function stripCommentLines(content: string): string {
     .trim();
 }
 
+/**
+ * Returns true when the prompt file content is still the unmodified template
+ * shipped with the daemon.  Compares the stripped workspace content against
+ * the stripped bundled template source so the check stays accurate even if
+ * templates are edited in future releases.
+ */
+export function isTemplateContent(
+  content: string | null,
+  templateFileName: string,
+): boolean {
+  if (content == null) return false;
+  const templatesDir = resolveBundledDir(
+    import.meta.dirname ?? __dirname,
+    "templates",
+    "templates",
+  );
+  const templatePath = join(templatesDir, templateFileName);
+  if (!existsSync(templatePath)) return false;
+  try {
+    const templateContent = stripCommentLines(
+      readFileSync(templatePath, "utf-8"),
+    );
+    return content === templateContent;
+  } catch {
+    return false;
+  }
+}
+
 function readPromptFile(path: string): string | null {
   if (!existsSync(path)) return null;
 
@@ -344,7 +379,12 @@ export function buildCoreIdentityContext(): string | null {
   const parts: string[] = [];
   for (const file of PROMPT_FILES) {
     const content = readPromptFile(getWorkspacePromptPath(file));
-    if (content) parts.push(content);
+    if (!content) continue;
+    // SOUL.md is always included — it provides personality defaults even
+    // before onboarding completes.  Only skip IDENTITY.md and USER.md when
+    // they are still unmodified templates (matching buildSystemPrompt).
+    if (file !== "SOUL.md" && isTemplateContent(content, file)) continue;
+    parts.push(content);
   }
   return parts.length > 0 ? parts.join("\n\n") : null;
 }
@@ -388,9 +428,7 @@ function formatSkillsCatalog(skills: SkillSummary[]): string {
   const lines = ["## Available Skills", ""];
   for (const skill of skills) {
     const desc =
-      skill.id === "mcp-setup"
-        ? getMcpSetupDescription()
-        : skill.description;
+      skill.id === "mcp-setup" ? getMcpSetupDescription() : skill.description;
 
     // Build a single line: - **id**: description. Hints. Avoid: ...
     const parts = [desc.replace(/\.\s*$/, "")];

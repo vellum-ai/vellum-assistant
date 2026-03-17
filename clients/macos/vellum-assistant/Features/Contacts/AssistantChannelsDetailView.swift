@@ -98,7 +98,10 @@ struct AssistantChannelsDetailView: View {
         .onChange(of: store.channelSetupStatus["phone"]) { _, status in
             if status == nil || status == "not_configured" {
                 voiceSetupExpanded = false
-            } else if status == "ready" || status == "incomplete" {
+            } else if status == "ready" {
+                voiceSetupExpanded = false
+                store.refreshTwilioNumbers()
+            } else if status == "incomplete" {
                 store.refreshTwilioNumbers()
             }
         }
@@ -740,7 +743,7 @@ struct AssistantChannelsDetailView: View {
                 VButton(label: "Connected", leftIcon: VIcon.circleCheck.rawValue, style: .primary) {}
             }
         } content: {
-            if store.twilioHasCredentials {
+            if status == "ready" {
                 VStack(alignment: .leading, spacing: VSpacing.sm) {
                     Text("Phone Number")
                         .font(VFont.inputLabel)
@@ -763,7 +766,7 @@ struct AssistantChannelsDetailView: View {
                     store.clearTwilioCredentials()
                     store.channelSetupStatus["phone"] = "not_configured"
                 }
-            } else if voiceSetupExpanded {
+            } else if (status == "incomplete" && store.twilioHasCredentials) || voiceSetupExpanded {
                 voiceCredentialEntry
             } else {
                 VButton(label: "Set Up", style: .outlined) {

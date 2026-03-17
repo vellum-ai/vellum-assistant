@@ -1,8 +1,11 @@
 import SwiftUI
 
 /// A generic dropdown that looks pixel-identical to VTextField with a trailing chevron.
-/// Uses a ZStack: the visual layer is a plain styled HStack (no Menu chrome),
-/// and the interactive layer is a transparent Menu overlay on top.
+///
+/// Uses a `Menu` containing an inline `Picker` for proper selection semantics
+/// (automatic checkmarks, accessibility). The visual label is fully custom.
+/// Expands to fill available width by default; callers can constrain with
+/// `.frame(width:)` as needed.
 public struct VDropdown<T: Hashable>: View {
     public let placeholder: String
     @Binding public var selection: T
@@ -31,18 +34,13 @@ public struct VDropdown<T: Hashable>: View {
 
     public var body: some View {
         Menu {
-            ForEach(options, id: \.value) { option in
-                Button {
-                    selection = option.value
-                } label: {
-                    HStack {
-                        Text(option.label)
-                        if option.value == selection {
-                            VIconView(.check, size: 12)
-                        }
-                    }
+            Picker("", selection: $selection) {
+                ForEach(options, id: \.value) { option in
+                    Text(option.label).tag(option.value)
                 }
             }
+            .pickerStyle(.inline)
+            .labelsHidden()
         } label: {
             HStack(spacing: VSpacing.md) {
                 Group {
@@ -63,15 +61,12 @@ public struct VDropdown<T: Hashable>: View {
             }
             .padding(.horizontal, VSpacing.md)
             .padding(.vertical, VSpacing.xs)
+            .frame(maxWidth: .infinity)
             .frame(height: 32)
-            .background(VColor.surfaceActive)
-            .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
-            .overlay(
-                RoundedRectangle(cornerRadius: VRadius.md)
-                    .stroke(VColor.borderBase.opacity(0.5), lineWidth: 1)
-            )
+            .vInputChrome()
         }
-        .menuStyle(.borderlessButton)
+        .menuStyle(.button)
+        .buttonStyle(.plain)
         .menuIndicator(.hidden)
         .accessibilityLabel(selectedLabel ?? placeholder)
         .frame(maxWidth: .infinity)

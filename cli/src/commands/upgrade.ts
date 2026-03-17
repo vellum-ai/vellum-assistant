@@ -1,0 +1,366 @@
+import cliPkg from "../../package.json";
+
+import {
+  findAssistantByName,
+  getActiveAssistant,
+  loadAllAssistants,
+} from "../lib/assistant-config";
+import type { AssistantEntry } from "../lib/assistant-config";
+import {
+  DOCKERHUB_IMAGES,
+  DOCKER_READY_TIMEOUT_MS,
+  GATEWAY_INTERNAL_PORT,
+  dockerResourceNames,
+  startContainers,
+  stopContainers,
+} from "../lib/docker";
+import type { ServiceName } from "../lib/docker";
+import {
+  fetchOrganizationId,
+  getPlatformUrl,
+  readPlatformToken,
+} from "../lib/platform-client";
+import { exec, execOutput } from "../lib/step-runner";
+
+interface UpgradeArgs {
+  name: string | null;
+  version: string | null;
+}
+
+function parseArgs(): UpgradeArgs {
+  const args = process.argv.slice(3);
+  let name: string | null = null;
+  let version: string | null = null;
+
+  for (let i = 0; i < args.length; i++) {
+    const arg = args[i];
+    if (arg === "--help" || arg === "-h") {
+      console.log("Usage: vellum upgrade [<name>] [options]");
+      console.log("");
+      console.log("Upgrade an assistant to the latest version.");
+      console.log("");
+      console.log("Arguments:");
+      console.log(
+        "  <name>               Name of the assistant to upgrade (default: active or only assistant)",
+      );
+      console.log("");
+      console.log("Options:");
+      console.log(
+        "  --version <version>  Target version to upgrade to (default: latest)",
+      );
+      console.log("");
+      console.log("Examples:");
+      console.log(
+        "  vellum upgrade                              # Upgrade the active assistant to the latest version",
+      );
+      console.log(
+        "  vellum upgrade my-assistant                  # Upgrade a specific assistant by name",
+      );
+      console.log(
+        "  vellum upgrade my-assistant --version v1.2.3 # Upgrade to a specific version",
+      );
+      process.exit(0);
+    } else if (arg === "--version") {
+      const next = args[i + 1];
+      if (!next || next.startsWith("-")) {
+        console.error("Error: --version requires a value");
+        process.exit(1);
+      }
+      version = next;
+      i++;
+    } else if (!arg.startsWith("-")) {
+      name = arg;
+    } else {
+      console.error(`Error: Unknown option '${arg}'.`);
+      process.exit(1);
+    }
+  }
+
+  return { name, version };
+}
+
+function resolveCloud(entry: AssistantEntry): string {
+  if (entry.cloud) {
+    return entry.cloud;
+  }
+  if (entry.project) {
+    return "gcp";
+  }
+  if (entry.sshUser) {
+    return "custom";
+  }
+  return "local";
+}
+
+/**
+ * Resolve which assistant to target for the upgrade command. Priority:
+ * 1. Explicit name argument
+ * 2. Active assistant set via `vellum use`
+ * 3. Sole assistant (when exactly one exists)
+ */
+function resolveTargetAssistant(nameArg: string | null): AssistantEntry {
+  if (nameArg) {
+    const entry = findAssistantByName(nameArg);
+    if (!entry) {
+      console.error(`No assistant found with name '${nameArg}'.`);
+      process.exit(1);
+    }
+    return entry;
+  }
+
+  const active = getActiveAssistant();
+  if (active) {
+    const entry = findAssistantByName(active);
+    if (entry) return entry;
+  }
+
+  const all = loadAllAssistants();
+  if (all.length === 1) return all[0];
+
+  if (all.length === 0) {
+    console.error("No assistants found. Run 'vellum hatch' first.");
+  } else {
+    console.error(
+      "Multiple assistants found. Specify a name or set an active assistant with 'vellum use <name>'.",
+    );
+  }
+  process.exit(1);
+}
+
+/**
+ * Capture environment variables from a running Docker container so they
+ * can be replayed onto the replacement container after upgrade.
+ */
+async function captureContainerEnv(
+  containerName: string,
+): Promise<Record<string, string>> {
+  const captured: Record<string, string> = {};
+  try {
+    const raw = await execOutput("docker", [
+      "inspect",
+      "--format",
+      "{{json .Config.Env}}",
+      containerName,
+    ]);
+    const entries = JSON.parse(raw) as string[];
+    for (const entry of entries) {
+      const eqIdx = entry.indexOf("=");
+      if (eqIdx > 0) {
+        captured[entry.slice(0, eqIdx)] = entry.slice(eqIdx + 1);
+      }
+    }
+  } catch {
+    // Container may not exist or not be inspectable
+  }
+  return captured;
+}
+
+/**
+ * Poll the gateway `/readyz` endpoint until it returns 200 or the timeout
+ * elapses. Returns whether the assistant became ready.
+ */
+async function waitForReady(runtimeUrl: string): Promise<boolean> {
+  const readyUrl = `${runtimeUrl}/readyz`;
+  const start = Date.now();
+
+  while (Date.now() - start < DOCKER_READY_TIMEOUT_MS) {
+    try {
+      const resp = await fetch(readyUrl, {
+        signal: AbortSignal.timeout(5000),
+      });
+      if (resp.ok) {
+        const elapsedSec = ((Date.now() - start) / 1000).toFixed(1);
+        console.log(`Assistant ready after ${elapsedSec}s`);
+        return true;
+      }
+      let detail = "";
+      try {
+        const body = await resp.text();
+        const json = JSON.parse(body);
+        const parts = [json.status];
+        if (json.upstream != null) parts.push(`upstream=${json.upstream}`);
+        detail = ` — ${parts.join(", ")}`;
+      } catch {
+        // ignore parse errors
+      }
+      console.log(`Readiness check: ${resp.status}${detail} (retrying...)`);
+    } catch {
+      // Connection refused / timeout — not up yet
+    }
+    await new Promise((r) => setTimeout(r, 1000));
+  }
+
+  return false;
+}
+
+async function upgradeDocker(
+  entry: AssistantEntry,
+  version: string | null,
+): Promise<void> {
+  const instanceName = entry.assistantId;
+  const res = dockerResourceNames(instanceName);
+
+  const versionTag =
+    version ?? (cliPkg.version ? `v${cliPkg.version}` : "latest");
+  const imageTags: Record<ServiceName, string> = {
+    assistant: `${DOCKERHUB_IMAGES.assistant}:${versionTag}`,
+    "credential-executor": `${DOCKERHUB_IMAGES["credential-executor"]}:${versionTag}`,
+    gateway: `${DOCKERHUB_IMAGES.gateway}:${versionTag}`,
+  };
+
+  console.log(
+    `🔄 Upgrading Docker assistant '${instanceName}' to ${versionTag}...\n`,
+  );
+
+  console.log("📦 Pulling new Docker images...");
+  await exec("docker", ["pull", imageTags.assistant]);
+  await exec("docker", ["pull", imageTags.gateway]);
+  await exec("docker", ["pull", imageTags["credential-executor"]]);
+  console.log("✅ Docker images pulled\n");
+
+  console.log("💾 Capturing existing container environment...");
+  const capturedEnv = await captureContainerEnv(res.assistantContainer);
+  console.log(
+    `   Captured ${Object.keys(capturedEnv).length} env var(s) from ${res.assistantContainer}\n`,
+  );
+
+  console.log("🛑 Stopping existing containers...");
+  await stopContainers(res);
+  console.log("✅ Containers stopped\n");
+
+  // Parse gateway port from entry's runtimeUrl, fall back to default
+  let gatewayPort = GATEWAY_INTERNAL_PORT;
+  try {
+    const parsed = new URL(entry.runtimeUrl);
+    const port = parseInt(parsed.port, 10);
+    if (!isNaN(port)) {
+      gatewayPort = port;
+    }
+  } catch {
+    // use default
+  }
+
+  // Build the set of extra env vars to replay on the new assistant container.
+  // Captured env vars serve as the base; keys already managed by
+  // serviceDockerRunArgs are excluded to avoid duplicates.
+  const envKeysSetByRunArgs = new Set([
+    "VELLUM_ASSISTANT_NAME",
+    "RUNTIME_HTTP_HOST",
+    "PATH",
+  ]);
+  // Only exclude keys that serviceDockerRunArgs will actually set
+  for (const envVar of ["ANTHROPIC_API_KEY", "VELLUM_PLATFORM_URL"]) {
+    if (process.env[envVar]) {
+      envKeysSetByRunArgs.add(envVar);
+    }
+  }
+  const extraAssistantEnv: Record<string, string> = {};
+  for (const [key, value] of Object.entries(capturedEnv)) {
+    if (!envKeysSetByRunArgs.has(key)) {
+      extraAssistantEnv[key] = value;
+    }
+  }
+
+  console.log("🚀 Starting upgraded containers...");
+  await startContainers(
+    {
+      extraAssistantEnv,
+      gatewayPort,
+      imageTags,
+      instanceName,
+      res,
+    },
+    (msg) => console.log(msg),
+  );
+  console.log("✅ Containers started\n");
+
+  console.log("Waiting for assistant to become ready...");
+  const ready = await waitForReady(entry.runtimeUrl);
+  if (ready) {
+    console.log(
+      `\n✅ Docker assistant '${instanceName}' upgraded to ${versionTag}.`,
+    );
+  } else {
+    console.log(
+      `\n⚠️  Containers are running but the assistant did not become ready within the timeout.`,
+    );
+    console.log(`   Check logs with: docker logs -f ${res.assistantContainer}`);
+  }
+}
+
+interface UpgradeApiResponse {
+  detail: string;
+  version: string | null;
+}
+
+async function upgradePlatform(
+  entry: AssistantEntry,
+  version: string | null,
+): Promise<void> {
+  console.log(
+    `🔄 Upgrading platform-hosted assistant '${entry.assistantId}'...\n`,
+  );
+
+  const token = readPlatformToken();
+  if (!token) {
+    console.error(
+      "Error: Not logged in. Run `vellum login --token <token>` first.",
+    );
+    process.exit(1);
+  }
+
+  const orgId = await fetchOrganizationId(token);
+
+  const url = `${getPlatformUrl()}/v1/assistants/upgrade/`;
+  const body: { assistant_id?: string; version?: string } = {
+    assistant_id: entry.assistantId,
+  };
+  if (version) {
+    body.version = version;
+  }
+
+  const response = await fetch(url, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "X-Session-Token": token,
+      "Vellum-Organization-Id": orgId,
+    },
+    body: JSON.stringify(body),
+  });
+
+  if (!response.ok) {
+    const text = await response.text();
+    console.error(
+      `Error: Platform upgrade failed (${response.status}): ${text}`,
+    );
+    process.exit(1);
+  }
+
+  const result = (await response.json()) as UpgradeApiResponse;
+  console.log(`✅ ${result.detail}`);
+  if (result.version) {
+    console.log(`   Version: ${result.version}`);
+  }
+}
+
+export async function upgrade(): Promise<void> {
+  const { name, version } = parseArgs();
+  const entry = resolveTargetAssistant(name);
+  const cloud = resolveCloud(entry);
+
+  if (cloud === "docker") {
+    await upgradeDocker(entry, version);
+    return;
+  }
+
+  if (cloud === "vellum") {
+    await upgradePlatform(entry, version);
+    return;
+  }
+
+  console.error(
+    `Error: Upgrade is not supported for '${cloud}' assistants. Only 'docker' and 'vellum' assistants can be upgraded via the CLI.`,
+  );
+  process.exit(1);
+}

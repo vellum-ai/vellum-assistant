@@ -63,6 +63,7 @@ public final class MainWindowState: ObservableObject {
     @Published var pendingMemoryId: String?
     @Published var activeDynamicSurface: UiSurfaceShowMessage?
     @Published var activeDynamicParsedSurface: Surface?
+    @Published var activeDynamicUserAppsDirectory: URL?
     @Published var hasAPIKey: Bool
     @Published var workspaceComposerExpanded = false
     @Published var layoutConfig: LayoutConfig
@@ -239,12 +240,17 @@ public final class MainWindowState: ObservableObject {
         LayoutConfigStore.save(layoutConfig)
     }
 
+    func clearDynamicWorkspaceState() {
+        activeDynamicSurface = nil
+        activeDynamicParsedSurface = nil
+        activeDynamicUserAppsDirectory = nil
+    }
+
     /// Reset all dynamic workspace state. Callers should also reset
     /// view-local state like `showSharePicker` separately.
     func closeDynamicPanel() {
         selection = nil
-        activeDynamicSurface = nil
-        activeDynamicParsedSurface = nil
+        clearDynamicWorkspaceState()
     }
 
     /// Transition to appEditing with a specific conversation

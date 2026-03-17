@@ -240,6 +240,14 @@
       "label": "Managed Google OAuth",
       "description": "Show the Google OAuth service card in Models & Services settings",
       "defaultEnabled": false
+    },
+    {
+      "id": "quick-input",
+      "scope": "macos",
+      "key": "quick_input_enabled",
+      "label": "Quick Input",
+      "description": "Enable the Quick Input popover on right-click of the menu bar icon",
+      "defaultEnabled": false
     }
   ]
 }

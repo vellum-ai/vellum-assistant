@@ -212,6 +212,63 @@ struct ButtonsGallerySection: View {
                     }
                 }
             }
+
+            Divider().background(VColor.borderBase).padding(.vertical, VSpacing.md)
+
+            // MARK: - VSplitButton
+            GallerySectionHeader(
+                title: "VSplitButton",
+                description: "A split button with a primary action and a dropdown menu for secondary actions."
+            )
+
+            VCard {
+                VStack(alignment: .leading, spacing: VSpacing.xl) {
+                    Text("Styles")
+                        .font(VFont.headline)
+                        .foregroundColor(VColor.contentSecondary)
+
+                    HStack(spacing: VSpacing.lg) {
+                        VStack(alignment: .leading, spacing: VSpacing.md) {
+                            Text("Primary").font(VFont.caption).foregroundColor(VColor.contentTertiary)
+                            VSplitButton(label: "Allow", icon: VIcon.check.rawValue, style: .primary, action: {}) {
+                                Section("Duration") {
+                                    Button("Allow once") {}
+                                    Button("Allow for this session") {}
+                                }
+                                Section("Scope") {
+                                    Button("Allow for this project") {}
+                                    Button("Allow always") {}
+                                }
+                            }
+                        }
+
+                        VStack(alignment: .leading, spacing: VSpacing.md) {
+                            Text("Outlined").font(VFont.caption).foregroundColor(VColor.contentTertiary)
+                            VSplitButton(label: "Save", style: .outlined, action: {}) {
+                                Button("Save as draft") {}
+                                Button("Save and publish") {}
+                                Button("Save as template") {}
+                            }
+                        }
+
+                        VStack(alignment: .leading, spacing: VSpacing.md) {
+                            Text("Danger").font(VFont.caption).foregroundColor(VColor.contentTertiary)
+                            VSplitButton(label: "Delete", icon: VIcon.trash.rawValue, style: .danger, action: {}) {
+                                Button("Delete selected") {}
+                                Button("Delete all") {}
+                            }
+                        }
+
+                        VStack(alignment: .leading, spacing: VSpacing.md) {
+                            Text("Long Label").font(VFont.caption).foregroundColor(VColor.contentTertiary)
+                            VSplitButton(label: "Allow for this conversation", icon: VIcon.check.rawValue, style: .primary, action: {}) {
+                                Button("Allow once") {}
+                                Button("Allow always") {}
+                            }
+                        }
+                    }
+                }
+            }
         }
     }
 

@@ -305,9 +305,6 @@ class IOSConversationStore: ObservableObject {
         daemon.onHistoryResponse = { [weak self] response in
             self?.handleHistoryResponse(response)
         }
-        daemon.onSubagentDetailResponse = { [weak self] response in
-            self?.handleSubagentDetailResponse(response)
-        }
         daemon.onMessageContentResponse = { [weak self] response in
             self?.handleMessageContentResponse(response)
         }
@@ -410,7 +407,6 @@ class IOSConversationStore: ObservableObject {
         if let oldDaemon = daemonClient as? DaemonClient {
             oldDaemon.onConversationListResponse = nil
             oldDaemon.onHistoryResponse = nil
-            oldDaemon.onSubagentDetailResponse = nil
             oldDaemon.onMessageContentResponse = nil
             oldDaemon.onScheduleConversationCreated = nil
         }
@@ -672,15 +668,6 @@ class IOSConversationStore: ObservableObject {
         if vm.onLoadMoreHistory == nil {
             vm.onLoadMoreHistory = { [weak self] conversationId, beforeTimestamp in
                 self?.requestPaginatedHistory(conversationId: conversationId, beforeTimestamp: beforeTimestamp)
-            }
-        }
-    }
-
-    private func handleSubagentDetailResponse(_ response: SubagentDetailResponse) {
-        for (_, vm) in viewModels {
-            if vm.activeSubagents.contains(where: { $0.id == response.subagentId }) {
-                vm.subagentDetailStore.populateFromDetailResponse(response)
-                return
             }
         }
     }

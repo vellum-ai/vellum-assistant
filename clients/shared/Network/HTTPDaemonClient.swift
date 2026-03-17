@@ -300,20 +300,7 @@ public final class HTTPTransport {
         case documentsList
         case documentLoad(id: String)
         case documentSave
-        // Work Items
-        case workItemsList
-        case workItemGet(id: String)
-        case workItemUpdate(id: String)
-        case workItemComplete(id: String)
-        case workItemDelete(id: String)
-        case workItemCancel(id: String)
-        case workItemApprovePermissions(id: String)
-        case workItemPreflight(id: String)
-        case workItemRun(id: String)
-        case workItemOutput(id: String)
         // Subagents
-        case subagentDetail(id: String)
-        case subagentAbort(id: String)
         case subagentMessage(id: String)
         // Conversation management
         case conversationsSwitch
@@ -531,43 +518,7 @@ public final class HTTPTransport {
             return ("/v1/documents/\(encoded)", nil)
         case .documentSave:
             return ("/v1/documents", nil)
-        // Work Items
-        case .workItemsList:
-            return ("/v1/work-items", nil)
-        case .workItemGet(let id):
-            let encoded = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
-            return ("/v1/work-items/\(encoded)", nil)
-        case .workItemUpdate(let id):
-            let encoded = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
-            return ("/v1/work-items/\(encoded)", nil)
-        case .workItemComplete(let id):
-            let encoded = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
-            return ("/v1/work-items/\(encoded)/complete", nil)
-        case .workItemDelete(let id):
-            let encoded = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
-            return ("/v1/work-items/\(encoded)", nil)
-        case .workItemCancel(let id):
-            let encoded = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
-            return ("/v1/work-items/\(encoded)/cancel", nil)
-        case .workItemApprovePermissions(let id):
-            let encoded = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
-            return ("/v1/work-items/\(encoded)/approve-permissions", nil)
-        case .workItemPreflight(let id):
-            let encoded = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
-            return ("/v1/work-items/\(encoded)/preflight", nil)
-        case .workItemRun(let id):
-            let encoded = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
-            return ("/v1/work-items/\(encoded)/run", nil)
-        case .workItemOutput(let id):
-            let encoded = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
-            return ("/v1/work-items/\(encoded)/output", nil)
         // Subagents
-        case .subagentDetail(let id):
-            let encoded = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
-            return ("/v1/subagents/\(encoded)", nil)
-        case .subagentAbort(let id):
-            let encoded = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
-            return ("/v1/subagents/\(encoded)/abort", nil)
         case .subagentMessage(let id):
             let encoded = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
             return ("/v1/subagents/\(encoded)/message", nil)
@@ -831,43 +782,7 @@ public final class HTTPTransport {
             return ("\(prefix)/documents/\(encoded)/", nil)
         case .documentSave:
             return ("\(prefix)/documents/", nil)
-        // Work Items
-        case .workItemsList:
-            return ("\(prefix)/work-items/", nil)
-        case .workItemGet(let id):
-            let encoded = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
-            return ("\(prefix)/work-items/\(encoded)/", nil)
-        case .workItemUpdate(let id):
-            let encoded = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
-            return ("\(prefix)/work-items/\(encoded)/", nil)
-        case .workItemComplete(let id):
-            let encoded = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
-            return ("\(prefix)/work-items/\(encoded)/complete/", nil)
-        case .workItemDelete(let id):
-            let encoded = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
-            return ("\(prefix)/work-items/\(encoded)/", nil)
-        case .workItemCancel(let id):
-            let encoded = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
-            return ("\(prefix)/work-items/\(encoded)/cancel/", nil)
-        case .workItemApprovePermissions(let id):
-            let encoded = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
-            return ("\(prefix)/work-items/\(encoded)/approve-permissions/", nil)
-        case .workItemPreflight(let id):
-            let encoded = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
-            return ("\(prefix)/work-items/\(encoded)/preflight/", nil)
-        case .workItemRun(let id):
-            let encoded = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
-            return ("\(prefix)/work-items/\(encoded)/run/", nil)
-        case .workItemOutput(let id):
-            let encoded = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
-            return ("\(prefix)/work-items/\(encoded)/output/", nil)
         // Subagents
-        case .subagentDetail(let id):
-            let encoded = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
-            return ("\(prefix)/subagents/\(encoded)/", nil)
-        case .subagentAbort(let id):
-            let encoded = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
-            return ("\(prefix)/subagents/\(encoded)/abort/", nil)
         case .subagentMessage(let id):
             let encoded = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
             return ("\(prefix)/subagents/\(encoded)/message/", nil)
