@@ -25,7 +25,7 @@ struct ContactCreateView: View {
             formFields
             Spacer()
             if let errorMessage {
-                errorBanner(errorMessage)
+                VInlineMessage(errorMessage)
             }
             actionButtons
         }
@@ -87,23 +87,6 @@ struct ContactCreateView: View {
                 )
             }
         }
-    }
-
-    // MARK: - Error Banner
-
-    private func errorBanner(_ message: String) -> some View {
-        HStack(spacing: VSpacing.sm) {
-            VIconView(.triangleAlert, size: 12)
-                .foregroundColor(VColor.systemNegativeStrong)
-            Text(message)
-                .font(VFont.caption)
-                .foregroundColor(VColor.systemNegativeStrong)
-                .lineLimit(2)
-        }
-        .padding(VSpacing.sm)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(VColor.systemNegativeStrong.opacity(0.1))
-        .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
     }
 
     // MARK: - Action Buttons
