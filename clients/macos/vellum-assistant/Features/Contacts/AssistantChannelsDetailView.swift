@@ -384,7 +384,7 @@ struct AssistantChannelsDetailView: View {
 
                 // Right: status or action
                 if isConnected {
-                    VButton(label: "Connected", leftIcon: VIcon.check.rawValue, style: .primary) {}
+                    VBadge(label: "Connected", tone: .positive)
 
                     // Inline disconnect X button
                     if let channelKey {
