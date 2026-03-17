@@ -506,13 +506,12 @@ public final class SettingsStore: ObservableObject {
 
         // Subscribe to daemon-pushed model changes so the UI stays in sync
         // when the model is changed externally (e.g. via CLI or another client).
-        daemonClient?.$currentModel
+        daemonClient?.$latestModelInfo
             .compactMap { $0 }
             .receive(on: RunLoop.main)
-            .sink { [weak self] model in
+            .sink { [weak self] info in
                 guard let self else { return }
-                self.lastDaemonModel = model
-                self.selectedModel = model
+                self.applyModelInfoResponse(info)
             }
             .store(in: &cancellables)
 

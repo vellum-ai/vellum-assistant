@@ -468,6 +468,9 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     /// The currently active model ID, populated via `model_info` responses.
     @Published public var currentModel: String?
 
+    /// The latest full model info response from the daemon stream.
+    @Published public var latestModelInfo: ModelInfoMessage?
+
     /// Called when the daemon sends a `publish_page_response` message.
     public var onPublishPageResponse: ((PublishPageResponseMessage) -> Void)?
 

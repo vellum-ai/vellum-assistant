@@ -158,6 +158,7 @@ extension DaemonClient {
             onTelegramConfigResponse?(msg)
         case .modelInfo(let msg):
             currentModel = msg.model
+            latestModelInfo = msg
         case .publishPageResponse(let msg):
             onPublishPageResponse?(msg)
         case .openUrl(let msg):
