@@ -51,6 +51,7 @@ export class SlackSocketModeClient {
   private config: SlackSocketModeConfig;
   private onEvent: (event: NormalizedSlackEvent) => void;
   private ws: WebSocket | null = null;
+  private connecting = false;
   private running = false;
   private reconnectAttempt = 0;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
@@ -133,6 +134,7 @@ export class SlackSocketModeClient {
 
   stop(): void {
     this.running = false;
+    this.connecting = false;
     this.stopDedupCleanup();
     if (this.reconnectTimer) {
       clearTimeout(this.reconnectTimer);
@@ -157,6 +159,8 @@ export class SlackSocketModeClient {
     if (!this.running) return;
 
     log.info("Force-reconnecting Slack Socket Mode (sleep/wake recovery)");
+
+    this.connecting = false;
 
     if (this.reconnectTimer) {
       clearTimeout(this.reconnectTimer);
@@ -187,12 +191,15 @@ export class SlackSocketModeClient {
 
   private async connect(): Promise<void> {
     if (!this.running) return;
+    if (this.connecting) return;
+    this.connecting = true;
 
     let wsUrl: string;
     try {
       wsUrl = await this.getWebSocketUrl();
     } catch (err) {
       log.error({ err }, "Failed to obtain Socket Mode WebSocket URL");
+      this.connecting = false;
       this.scheduleReconnect();
       return;
     }
@@ -202,6 +209,7 @@ export class SlackSocketModeClient {
     try {
       const ws = new WebSocket(wsUrl);
       this.ws = ws;
+      this.connecting = false;
 
       ws.addEventListener("open", () => {
         log.info("Slack Socket Mode connected");
@@ -235,6 +243,7 @@ export class SlackSocketModeClient {
     } catch (err) {
       log.error({ err }, "Failed to create WebSocket connection");
       this.ws = null;
+      this.connecting = false;
       this.scheduleReconnect();
     }
   }
