@@ -120,7 +120,12 @@ struct SyntaxTextView: NSViewRepresentable {
         textView.delegate = context.coordinator
         textView.string = text
 
-        // Configure text container for horizontal scrolling (no line wrap)
+        // Configure text view and container for horizontal scrolling (no line wrap)
+        textView.isHorizontallyResizable = true
+        textView.maxSize = NSSize(
+            width: CGFloat.greatestFiniteMagnitude,
+            height: CGFloat.greatestFiniteMagnitude
+        )
         if let textContainer = textView.textContainer {
             textContainer.widthTracksTextView = false
             textContainer.containerSize = NSSize(
@@ -164,6 +169,9 @@ struct SyntaxTextView: NSViewRepresentable {
         guard let textView = scrollView.documentView as? NSTextView else { return }
         let coordinator = context.coordinator
 
+        // Keep coordinator's parent in sync to avoid stale onTextChange closures
+        coordinator.parent = self
+
         // Sync language change
         if coordinator.language != language {
             coordinator.language = language
@@ -177,7 +185,19 @@ struct SyntaxTextView: NSViewRepresentable {
             textView.string = text
             coordinator.lastKnownText = text
             coordinator.rehighlight(textView)
-            textView.selectedRanges = selectedRanges
+
+            // Clamp restored selectedRanges to new text length to avoid
+            // NSRangeException when text is externally updated to a shorter value
+            let maxLen = (textView.string as NSString).length
+            let clampedRanges = selectedRanges.map { rangeValue -> NSValue in
+                let range = rangeValue.rangeValue
+                let clampedLocation = min(range.location, maxLen)
+                let clampedEnd = min(range.location + range.length, maxLen)
+                let clampedLength = clampedEnd > clampedLocation ? clampedEnd - clampedLocation : 0
+                return NSValue(range: NSRange(location: clampedLocation, length: clampedLength))
+            }
+            textView.selectedRanges = clampedRanges
+
             coordinator.isUpdatingFromSwiftUI = false
         }
     }
@@ -190,7 +210,7 @@ struct SyntaxTextView: NSViewRepresentable {
         var language: SyntaxLanguage
         var isUpdatingFromSwiftUI = false
         weak var textView: NSTextView?
-        private var rehighlightWorkItem: DispatchWorkItem?
+        private var rehighlightTask: Task<Void, Never>?
 
         init(_ parent: SyntaxTextView) {
             self.parent = parent
@@ -212,12 +232,12 @@ struct SyntaxTextView: NSViewRepresentable {
             }
 
             // Debounce rehighlighting to avoid per-keystroke lag on large files
-            rehighlightWorkItem?.cancel()
-            let workItem = DispatchWorkItem { [weak self] in
+            rehighlightTask?.cancel()
+            rehighlightTask = Task { @MainActor [weak self] in
+                try? await Task.sleep(nanoseconds: 150_000_000)
+                guard !Task.isCancelled else { return }
                 self?.rehighlight(textView)
             }
-            rehighlightWorkItem = workItem
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.15, execute: workItem)
         }
 
         @objc func scrollViewDidScroll(_ notification: Notification) {
