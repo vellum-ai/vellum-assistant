@@ -211,13 +211,10 @@ struct WebSearchServiceCard: View {
             .font(VFont.body)
             .foregroundColor(VColor.contentDefault)
 
-            if hasKey && keyText.isEmpty {
-                HStack(spacing: VSpacing.xs) {
-                    VIconView(.circleCheck, size: 12)
-                    Text("Key saved")
-                }
-                .font(VFont.caption)
-                .foregroundColor(VColor.systemPositiveStrong)
+            if let error = isPerplexity ? store.perplexityKeySaveError : store.braveKeySaveError {
+                Text(error)
+                    .font(VFont.caption)
+                    .foregroundColor(VColor.systemNegativeStrong)
             }
         }
     }

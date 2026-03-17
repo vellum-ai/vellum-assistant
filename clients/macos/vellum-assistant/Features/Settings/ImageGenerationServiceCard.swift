@@ -71,13 +71,10 @@ struct ImageGenerationServiceCard: View {
                             .font(VFont.body)
                             .foregroundColor(VColor.contentDefault)
 
-                        if isConnected && apiKeyText.isEmpty {
-                            HStack(spacing: VSpacing.xs) {
-                                VIconView(.circleCheck, size: 12)
-                                Text("Key saved")
-                            }
-                            .font(VFont.caption)
-                            .foregroundColor(VColor.systemPositiveStrong)
+                        if let error = store.imageGenKeySaveError {
+                            Text(error)
+                                .font(VFont.caption)
+                                .foregroundColor(VColor.systemNegativeStrong)
                         }
                     }
 
