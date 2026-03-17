@@ -223,7 +223,7 @@ final class AssistantCli {
                 guard !data.isEmpty, let line = String(data: data, encoding: .utf8) else { return }
                 let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
                 if !trimmed.isEmpty {
-                    log.warning("[retire stderr] \(trimmed, privacy: .public)")
+                    log.warning("[retire stderr] \(trimmed, privacy: .private)")
                 }
             }
 

@@ -398,7 +398,7 @@ extension AppDelegate {
                     } catch let error as AssistantCli.CLIError {
                         switch error {
                         case .daemonStartupFailed(let startupError):
-                            log.error("Daemon startup failed [\(startupError.category, privacy: .public)]: \(startupError.message, privacy: .public)")
+                            log.error("Daemon startup failed [\(startupError.category, privacy: .public)]: \(startupError.message, privacy: .private)")
                             self.daemonStartupError = startupError
                             MetricKitManager.reportDaemonStartupFailure(startupError)
                         default:
