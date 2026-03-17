@@ -108,6 +108,10 @@ public enum WorkspaceConfigIO {
         imageGen["mode"] = mode
         services["image-generation"] = imageGen
 
+        var webSearch = services["web-search"] as? [String: Any] ?? [:]
+        webSearch["mode"] = mode
+        services["web-search"] = webSearch
+
         try? merge(["services": services], into: path)
     }
 }
