@@ -450,20 +450,6 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     /// Called when the daemon sends a `telegram_config_response` message.
     public var onTelegramConfigResponse: ((TelegramConfigResponseMessage) -> Void)?
 
-    /// Called when the daemon sends a `heartbeat_config_response` message.
-    public var onHeartbeatConfigResponse: ((HeartbeatConfigResponse) -> Void)?
-
-    /// Called when the daemon sends a `heartbeat_runs_list_response` message.
-    public var onHeartbeatRunsListResponse: ((HeartbeatRunsListResponse) -> Void)?
-
-    /// Called when the daemon sends a `heartbeat_run_now_response` message.
-    public var onHeartbeatRunNowResponse: ((HeartbeatRunNowResponse) -> Void)?
-
-    /// Called when the daemon sends a `heartbeat_checklist_response` message.
-    public var onHeartbeatChecklistResponse: ((HeartbeatChecklistResponse) -> Void)?
-
-    /// Called when the daemon sends a `heartbeat_checklist_write_response` message.
-    public var onHeartbeatChecklistWriteResponse: ((HeartbeatChecklistWriteResponse) -> Void)?
 
     /// The currently active model ID, populated via `model_info` responses.
     @Published public var currentModel: String?
@@ -1361,38 +1347,6 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
             type: "document_list",
             conversationId: conversationId
         ))
-    }
-
-    // MARK: - Heartbeat
-
-    /// Get the current heartbeat configuration.
-    public func sendHeartbeatConfigGet() throws {
-        try send(HeartbeatConfig(type: "heartbeat_config", action: "get"))
-    }
-
-    /// Set heartbeat configuration fields.
-    public func sendHeartbeatConfigSet(enabled: Bool? = nil, intervalMs: Double? = nil, activeHoursStart: Double? = nil, activeHoursEnd: Double? = nil) throws {
-        try send(HeartbeatConfig(type: "heartbeat_config", action: "set", enabled: enabled, intervalMs: intervalMs, activeHoursStart: activeHoursStart, activeHoursEnd: activeHoursEnd))
-    }
-
-    /// Request the list of recent heartbeat runs.
-    public func sendHeartbeatRunsList(limit: Int? = nil) throws {
-        try send(HeartbeatRunsList(type: "heartbeat_runs_list", limit: limit.map { Double($0) }))
-    }
-
-    /// Trigger an immediate heartbeat run.
-    public func sendHeartbeatRunNow() throws {
-        try send(HeartbeatRunNow(type: "heartbeat_run_now"))
-    }
-
-    /// Read the heartbeat checklist (HEARTBEAT.md).
-    public func sendHeartbeatChecklistRead() throws {
-        try send(HeartbeatChecklistRead(type: "heartbeat_checklist_read"))
-    }
-
-    /// Write the heartbeat checklist (HEARTBEAT.md).
-    public func sendHeartbeatChecklistWrite(content: String) throws {
-        try send(HeartbeatChecklistWrite(type: "heartbeat_checklist_write", content: content))
     }
 
 

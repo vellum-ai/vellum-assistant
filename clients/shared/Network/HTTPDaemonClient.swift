@@ -377,13 +377,6 @@ public final class HTTPTransport {
         // Suggestion
         case suggestion
 
-        // Heartbeat
-        case heartbeatConfig
-        case heartbeatRuns
-        case heartbeatRunNow
-        case heartbeatChecklist
-        case heartbeatChecklistWrite
-
         // Publishing
         case unpublishPage
 
@@ -699,17 +692,6 @@ public final class HTTPTransport {
         // Suggestion
         case .suggestion:
             return ("/v1/suggestion", nil)
-        // Heartbeat
-        case .heartbeatConfig:
-            return ("/v1/heartbeat/config", nil)
-        case .heartbeatRuns:
-            return ("/v1/heartbeat/runs", nil)
-        case .heartbeatRunNow:
-            return ("/v1/heartbeat/run-now", nil)
-        case .heartbeatChecklist:
-            return ("/v1/heartbeat/checklist", nil)
-        case .heartbeatChecklistWrite:
-            return ("/v1/heartbeat/checklist", nil)
         // Publishing
         case .unpublishPage:
             return ("/v1/unpublish", nil)
@@ -1010,17 +992,6 @@ public final class HTTPTransport {
         // Suggestion
         case .suggestion:
             return ("\(prefix)/suggestion/", nil)
-        // Heartbeat
-        case .heartbeatConfig:
-            return ("\(prefix)/heartbeat/config/", nil)
-        case .heartbeatRuns:
-            return ("\(prefix)/heartbeat/runs/", nil)
-        case .heartbeatRunNow:
-            return ("\(prefix)/heartbeat/run-now/", nil)
-        case .heartbeatChecklist:
-            return ("\(prefix)/heartbeat/checklist/", nil)
-        case .heartbeatChecklistWrite:
-            return ("\(prefix)/heartbeat/checklist/", nil)
         // Publishing
         case .unpublishPage:
             return ("\(prefix)/unpublish/", nil)

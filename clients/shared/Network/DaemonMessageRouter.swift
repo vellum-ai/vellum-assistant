@@ -242,16 +242,9 @@ extension DaemonClient {
             onSubagentStatusChanged?(msg)
         case .subagentDetailResponse(let msg):
             onSubagentDetailResponse?(msg)
-        case .heartbeatConfigResponse(let msg):
-            onHeartbeatConfigResponse?(msg)
-        case .heartbeatRunsListResponse(let msg):
-            onHeartbeatRunsListResponse?(msg)
-        case .heartbeatRunNowResponse(let msg):
-            onHeartbeatRunNowResponse?(msg)
-        case .heartbeatChecklistResponse(let msg):
-            onHeartbeatChecklistResponse?(msg)
-        case .heartbeatChecklistWriteResponse(let msg):
-            onHeartbeatChecklistWriteResponse?(msg)
+        case .heartbeatConfigResponse, .heartbeatRunsListResponse, .heartbeatRunNowResponse,
+             .heartbeatChecklistResponse, .heartbeatChecklistWriteResponse:
+            break
         case .pairingApprovalRequest(let msg):
             onPairingApprovalRequest?(msg)
         case .approvedDevicesListResponse, .approvedDeviceRemoveResponse:

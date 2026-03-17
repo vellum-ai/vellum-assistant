@@ -80,32 +80,6 @@ extension HTTPTransport {
                 return true
             }
 
-            // --- Heartbeat ---
-            if let msg = message as? HeartbeatConfig {
-                if msg.action == "get" {
-                    Task { await self.sendGenericPost(.heartbeatConfig, method: "GET", label: "heartbeat_config_get") }
-                } else {
-                    Task { await self.sendEncodablePost(.heartbeatConfig, body: msg, method: "PUT", label: "heartbeat_config_set") }
-                }
-                return true
-            }
-            if let msg = message as? HeartbeatRunsList {
-                Task { await self.sendEncodablePost(.heartbeatRuns, body: msg, method: "GET", label: "heartbeat_runs_list") }
-                return true
-            }
-            if message is HeartbeatRunNow {
-                Task { await self.sendGenericPost(.heartbeatRunNow, label: "heartbeat_run_now") }
-                return true
-            }
-            if message is HeartbeatChecklistRead {
-                Task { await self.sendGenericPost(.heartbeatChecklist, method: "GET", label: "heartbeat_checklist_read") }
-                return true
-            }
-            if let msg = message as? HeartbeatChecklistWrite {
-                Task { await self.sendEncodablePost(.heartbeatChecklistWrite, body: msg, method: "PUT", label: "heartbeat_checklist_write") }
-                return true
-            }
-
             // --- Integration Config ---
             if let msg = message as? SlackWebhookConfigRequestMessage {
                 Task { await self.sendEncodablePost(.integrationsSlackConfig, body: msg, label: "slack_webhook_config") }
