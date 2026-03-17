@@ -86,12 +86,16 @@ struct ChatBubble: View {
         }
     }
 
-    @ViewBuilder
     private var bubbleBorderOverlay: some View {
-        if message.isError || (isUser && message.status == .sendFailed) {
-            RoundedRectangle(cornerRadius: VRadius.lg)
-                .strokeBorder(VColor.systemNegativeStrong.opacity(0.3), lineWidth: 1)
-        }
+        // Always produce a non-Optional view type. Using @ViewBuilder with
+        // a bare `if` (no else) wraps the result in Optional<StrokeBorderShapeView>.
+        // Combined with the simplified textBubble return type (no _ConditionalContent),
+        // the Optional variant triggers a SwiftUI attribute graph bug during lazy
+        // list layout: the .none payload's undefined bytes get misinterpreted as
+        // ARC references, causing swift_retain on read-only metadata (SIGBUS).
+        RoundedRectangle(cornerRadius: VRadius.lg)
+            .strokeBorder(VColor.systemNegativeStrong.opacity(0.3), lineWidth: 1)
+            .opacity((message.isError || (isUser && message.status == .sendFailed)) ? 1 : 0)
     }
 
     func bubbleChrome<Content: View>(@ViewBuilder _ content: () -> Content) -> some View {
