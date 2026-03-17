@@ -65,15 +65,16 @@ struct APIKeyStepView: View {
     // MARK: - Hosting Cards
 
     private var availableHostingModes: [OnboardingState.HostingMode] {
-        var modes: [OnboardingState.HostingMode] = []
-        if !state.skippedAuth {
-            modes.append(.vellumCloud)
-        }
-        modes.append(.local)
+        var modes: [OnboardingState.HostingMode] = [.local, .vellumCloud]
         if userHostedEnabled {
             modes.append(contentsOf: [.docker, .aws, .gcp, .customHardware])
         }
         return modes
+    }
+
+    private func chipLabel(for mode: OnboardingState.HostingMode) -> String? {
+        guard mode == .vellumCloud else { return nil }
+        return state.skippedAuth ? "Requires Account" : "Coming Soon"
     }
 
     private var hostingCards: some View {
@@ -84,7 +85,7 @@ struct APIKeyStepView: View {
                     title: mode.displayName,
                     subtitle: mode.subtitle,
                     mode: mode,
-                    comingSoon: mode == .vellumCloud
+                    chipLabel: chipLabel(for: mode)
                 )
             }
         }
@@ -105,31 +106,32 @@ struct APIKeyStepView: View {
         title: String,
         subtitle: String,
         mode: OnboardingState.HostingMode,
-        comingSoon: Bool
+        chipLabel: String?
     ) -> some View {
-        let isSelected = state.selectedHostingMode == mode && !comingSoon
+        let isDisabled = chipLabel != nil
+        let isSelected = state.selectedHostingMode == mode && !isDisabled
 
         return Button(action: {
-            guard !comingSoon else { return }
+            guard !isDisabled else { return }
             state.selectedHostingMode = mode
         }) {
             HStack(spacing: VSpacing.md) {
                 VIconView(icon, size: 18)
-                    .foregroundColor(comingSoon ? VColor.contentDisabled : (isSelected ? VColor.primaryBase : VColor.contentSecondary))
+                    .foregroundColor(isDisabled ? VColor.contentDisabled : (isSelected ? VColor.primaryBase : VColor.contentSecondary))
 
                 VStack(alignment: .leading, spacing: 2) {
                     Text(title)
                         .font(.system(size: 15, weight: .medium))
-                        .foregroundColor(comingSoon ? VColor.contentDisabled : VColor.contentDefault)
+                        .foregroundColor(isDisabled ? VColor.contentDisabled : VColor.contentDefault)
                     Text(subtitle)
                         .font(.system(size: 12))
-                        .foregroundColor(comingSoon ? VColor.contentDisabled : VColor.contentSecondary)
+                        .foregroundColor(isDisabled ? VColor.contentDisabled : VColor.contentSecondary)
                 }
 
                 Spacer()
 
-                if comingSoon {
-                    Text("Coming Soon")
+                if let chipLabel {
+                    Text(chipLabel)
                         .font(VFont.captionMedium)
                         .foregroundColor(VColor.contentTertiary)
                         .padding(.horizontal, VSpacing.sm)
@@ -160,15 +162,15 @@ struct APIKeyStepView: View {
                         RoundedRectangle(cornerRadius: VRadius.lg)
                             .stroke(
                                 isSelected ? VColor.primaryBase.opacity(0.5)
-                                    : (comingSoon ? VColor.borderDisabled : VColor.borderBase),
+                                    : (isDisabled ? VColor.borderDisabled : VColor.borderBase),
                                 lineWidth: 1
                             )
                     )
             )
-            .opacity(comingSoon ? 0.7 : 1.0)
+            .opacity(isDisabled ? 0.7 : 1.0)
         }
         .buttonStyle(.plain)
-        .disabled(comingSoon)
+        .disabled(isDisabled)
         .pointerCursor()
     }
 
