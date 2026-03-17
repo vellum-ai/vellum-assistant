@@ -105,8 +105,7 @@ mock.module("../memory/attachments-store.js", () => ({
 
 mock.module("../memory/retriever.js", () => ({
   buildMemoryRecall: async () => null,
-  injectMemoryRecallAsSeparateMessage: (msgs: Message[]) => msgs,
-  stripMemoryRecallMessages: (msgs: Message[]) => msgs,
+  injectMemoryRecallAsUserBlock: (msgs: Message[]) => msgs,
 }));
 
 mock.module("../memory/query-builder.js", () => ({

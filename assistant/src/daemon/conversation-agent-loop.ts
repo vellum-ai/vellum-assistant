@@ -49,7 +49,6 @@ import {
   queueRegenerateConversationTitle,
   UNTITLED_FALLBACK,
 } from "../memory/conversation-title-service.js";
-import { stripMemoryRecallMessages } from "../memory/retriever.js";
 import type { PermissionPrompter } from "../permissions/prompter.js";
 import type { ContentBlock, Message } from "../providers/types.js";
 import type { Provider } from "../providers/types.js";
@@ -915,14 +914,7 @@ export async function runAgentLoopImpl(
 
       // Strip injected context from updated history before compacting,
       // so we compact the "raw" persistent messages.
-      const rawHistory = stripInjectedContext(updatedHistory, {
-        stripRecall: (msgs) =>
-          stripMemoryRecallMessages(
-            msgs,
-            recall.injectedText,
-            "separate_context_message",
-          ),
-      });
+      const rawHistory = stripInjectedContext(updatedHistory);
       ctx.messages = rawHistory;
 
       ctx.emitActivityState(
@@ -1055,14 +1047,7 @@ export async function runAgentLoopImpl(
     // convergence loop operates on the full (larger) history.
     if (state.contextTooLargeDetected) {
       if (updatedHistory.length > preRunHistoryLength) {
-        ctx.messages = stripInjectedContext(updatedHistory, {
-          stripRecall: (msgs) =>
-            stripMemoryRecallMessages(
-              msgs,
-              recall.injectedText,
-              "separate_context_message",
-            ),
-        });
+        ctx.messages = stripInjectedContext(updatedHistory);
         preRepairMessages = updatedHistory;
         preRunHistoryLength = updatedHistory.length;
       }
@@ -1517,14 +1502,7 @@ export async function runAgentLoopImpl(
     }
 
     const restoredHistory = [...preRepairMessages, ...newMessages];
-    ctx.messages = stripInjectedContext(restoredHistory, {
-      stripRecall: (msgs) =>
-        stripMemoryRecallMessages(
-          msgs,
-          recall.injectedText,
-          "separate_context_message",
-        ),
-    });
+    ctx.messages = stripInjectedContext(restoredHistory);
 
     emitUsage(
       ctx,
