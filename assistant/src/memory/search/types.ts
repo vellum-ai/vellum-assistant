@@ -11,6 +11,8 @@ export interface Candidate {
   text: string;
   kind: string;
   modality?: "text" | "image" | "audio" | "video";
+  /** The conversation this candidate originated from (segments only). */
+  conversationId?: string;
   confidence: number;
   importance: number;
   createdAt: number;

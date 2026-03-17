@@ -318,9 +318,48 @@ describe("Memory Retriever Pipeline", () => {
     expect(result.tier1Count).toBeDefined();
     expect(result.tier2Count).toBeDefined();
     expect(result.hybridSearchMs).toBeDefined();
-    // Recency search finds candidates even though they don't pass tier classification
+    // Recency search finds raw candidates from this conversation…
     expect(result.recencyHits).toBeGreaterThan(0);
-    expect(result.mergedCount).toBeGreaterThan(0);
+    // …but they are filtered out because they belong to the active
+    // conversation and are already present in the conversation history.
+    expect(result.mergedCount).toBe(0);
+  });
+
+  // -----------------------------------------------------------------------
+  // Current-conversation segment filtering
+  // -----------------------------------------------------------------------
+
+  test("current-conversation segments are filtered from recency results", async () => {
+    const db = getDb();
+    const now = Date.now();
+    const activeConv = "conv-active";
+    const otherConv = "conv-other";
+
+    insertConversation(db, activeConv, now - 60_000);
+    insertConversation(db, otherConv, now - 120_000);
+
+    // Messages and segments in the active conversation (should be filtered)
+    insertMessage(db, "msg-a1", activeConv, "user", "hello world", now - 50_000);
+    insertSegment(db, "seg-a1", "msg-a1", activeConv, "user", "hello world", now - 50_000);
+
+    // Messages and segments in a different conversation (should be kept)
+    insertMessage(db, "msg-o1", otherConv, "user", "hello world from other", now - 100_000);
+    insertSegment(db, "seg-o1", "msg-o1", otherConv, "user", "hello world from other", now - 100_000);
+
+    // Query from the active conversation
+    const result = await buildMemoryRecall(
+      "hello world",
+      activeConv,
+      TEST_CONFIG,
+    );
+
+    expect(result.enabled).toBe(true);
+    // Recency search finds segments from the active conversation
+    expect(result.recencyHits).toBeGreaterThan(0);
+    // But they are filtered out of merged results; only other-conversation
+    // segments would survive (none in this case since recency is scoped to
+    // the active conversation).
+    expect(result.mergedCount).toBe(0);
   });
 
   // -----------------------------------------------------------------------
@@ -527,10 +566,10 @@ describe("Memory Retriever Pipeline", () => {
     expect(result.enabled).toBe(true);
     // Semantic/hybrid search should be skipped
     expect(result.semanticHits).toBe(0);
-    // Recency search finds candidates (but they may not pass tier thresholds
-    // since recency-only candidates have no semantic score component)
+    // Recency search finds raw candidates…
     expect(result.recencyHits).toBeGreaterThan(0);
-    expect(result.mergedCount).toBeGreaterThan(0);
+    // …but current-conversation segments are filtered out
+    expect(result.mergedCount).toBe(0);
   });
 
   // -----------------------------------------------------------------------
@@ -728,7 +767,9 @@ describe("Memory Retriever Pipeline", () => {
     // pipeline proceeds non-degraded end-to-end.
     expect(result.enabled).toBe(true);
     expect(result.degraded).toBe(false);
-    // Recency search finds candidates; hybrid search returns empty from mock
+    // Recency search finds raw candidates; hybrid search returns empty from mock
     expect(result.recencyHits).toBeGreaterThan(0);
+    // Current-conversation segments are filtered out of merged results
+    expect(result.mergedCount).toBe(0);
   });
 });

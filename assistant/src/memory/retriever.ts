@@ -356,6 +356,19 @@ export async function buildMemoryRecall(
     }
   }
 
+  // ── Step 5b: Filter out current-conversation segments ───────────
+  // Segments from the active conversation are already present in the
+  // conversation history, so including them in memory_context wastes
+  // tokens and causes the block to change between turns (hurting prompt
+  // caching). Items are cross-conversation and are kept.
+  if (conversationId) {
+    for (const [key, c] of candidateMap) {
+      if (c.type === "segment" && c.conversationId === conversationId) {
+        candidateMap.delete(key);
+      }
+    }
+  }
+
   // Compute RRF-style final scores for the merged candidates
   const allCandidates = [...candidateMap.values()];
   for (const c of allCandidates) {
