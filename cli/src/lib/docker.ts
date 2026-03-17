@@ -806,24 +806,38 @@ async function tailContainerUntilReady(opts: {
     const handleLine = (line: string): void => {
       writeToLogFile(logFd, `${new Date().toISOString()} [docker] ${line}\n`);
       if (line.includes(sentinel)) {
-        process.nextTick(async () => {
+        // Mark settled synchronously so the `close` event handler cannot
+        // race and resolve the promise before the token lease completes.
+        if (settled) return;
+        settled = true;
+        clearTimeout(timeout);
+
+        (async () => {
+          log(
+            `Guardian token lease: starting for ${instanceName} at ${runtimeUrl}`,
+          );
           try {
-            await leaseGuardianToken(runtimeUrl, instanceName);
+            const tokenData = await leaseGuardianToken(
+              runtimeUrl,
+              instanceName,
+            );
+            log(
+              `Guardian token lease: success (principalId=${tokenData.guardianPrincipalId}, expiresAt=${tokenData.accessTokenExpiresAt})`,
+            );
           } catch (err) {
-            const msg = `\u26a0\ufe0f  Could not lease guardian token: ${err instanceof Error ? err.message : err}`;
-            log(msg);
+            const detail =
+              err instanceof Error ? (err.stack ?? err.message) : String(err);
+            log(`\u26a0\ufe0f  Guardian token lease: FAILED — ${detail}`);
           }
 
-          settle(() => {
-            log("");
-            log(`\u2705 Docker containers are up and running!`);
-            log(`   Name: ${instanceName}`);
-            log(`   Runtime: ${runtimeUrl}`);
-            log("");
-            child.kill();
-            resolve({ ready: true });
-          });
-        });
+          log("");
+          log(`\u2705 Docker containers are up and running!`);
+          log(`   Name: ${instanceName}`);
+          log(`   Runtime: ${runtimeUrl}`);
+          log("");
+          child.kill();
+          resolve({ ready: true });
+        })();
       }
     };
 
