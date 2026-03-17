@@ -11,6 +11,7 @@ struct SettingsDeveloperTab: View {
     @ObservedObject var store: SettingsStore
     var daemonClient: DaemonClient?
     var identityClient: IdentityClientProtocol = IdentityClient()
+    var featureFlagClient: FeatureFlagClientProtocol = FeatureFlagClient()
     var authManager: AuthManager
     var onClose: () -> Void
 
@@ -31,7 +32,7 @@ struct SettingsDeveloperTab: View {
 
     // -- Advanced dev state --
     @State private var macOSFlagStates: [MacOSFeatureFlagState] = []
-    @State private var assistantFlags: [DaemonClient.AssistantFeatureFlag] = []
+    @State private var assistantFlags: [AssistantFeatureFlag] = []
     @State private var assistantFlagsError: String?
     @State private var isLoadingAssistantFlags = false
     @State private var showingEnvVars = false
@@ -751,7 +752,7 @@ struct SettingsDeveloperTab: View {
         isLoadingAssistantFlags = true
         assistantFlagsError = nil
         do {
-            assistantFlags = try await daemonClient.getFeatureFlags()
+            assistantFlags = try await featureFlagClient.getFeatureFlags()
         } catch {
             assistantFlagsError = error.localizedDescription
         }
@@ -789,14 +790,14 @@ struct SettingsDeveloperTab: View {
         }
     }
 
-    private func assistantFlagRow(flag: DaemonClient.AssistantFeatureFlag) -> some View {
+    private func assistantFlagRow(flag: AssistantFeatureFlag) -> some View {
         let flagBinding = Binding<Bool>(
             get: {
                 assistantFlags.first(where: { $0.key == flag.key })?.enabled ?? flag.enabled
             },
             set: { newValue in
                 if let index = assistantFlags.firstIndex(where: { $0.key == flag.key }) {
-                    assistantFlags[index] = DaemonClient.AssistantFeatureFlag(
+                    assistantFlags[index] = AssistantFeatureFlag(
                         key: flag.key,
                         enabled: newValue,
                         defaultEnabled: flag.defaultEnabled,
@@ -811,10 +812,10 @@ struct SettingsDeveloperTab: View {
                 )
                 Task {
                     do {
-                        try await daemonClient?.setFeatureFlag(key: flag.key, enabled: newValue)
+                        try await featureFlagClient.setFeatureFlag(key: flag.key, enabled: newValue)
                     } catch {
                         if let index = assistantFlags.firstIndex(where: { $0.key == flag.key }) {
-                            assistantFlags[index] = DaemonClient.AssistantFeatureFlag(
+                            assistantFlags[index] = AssistantFeatureFlag(
                                 key: flag.key,
                                 enabled: !newValue,
                                 defaultEnabled: flag.defaultEnabled,

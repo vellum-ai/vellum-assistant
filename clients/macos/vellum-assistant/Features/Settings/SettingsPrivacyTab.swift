@@ -5,8 +5,8 @@ import VellumAssistantShared
 /// crash/error diagnostics independently.
 @MainActor
 struct SettingsPrivacyTab: View {
-    var daemonClient: DaemonClient?
     @ObservedObject var store: SettingsStore
+    var featureFlagClient: FeatureFlagClientProtocol = FeatureFlagClient()
 
     /// Tracks the in-flight privacy sync task so rapid toggles cancel the
     /// previous write and only the latest value reaches the daemon.
@@ -73,10 +73,9 @@ struct SettingsPrivacyTab: View {
     /// sync so that only the latest toggle value wins when the user toggles
     /// rapidly.
     private func syncPrivacyConfig(collectUsageData: Bool? = nil, sendDiagnostics: Bool? = nil) {
-        guard let daemonClient else { return }
         privacySyncTask?.cancel()
         privacySyncTask = Task {
-            try? await daemonClient.setPrivacyConfig(collectUsageData: collectUsageData, sendDiagnostics: sendDiagnostics)
+            try? await featureFlagClient.setPrivacyConfig(collectUsageData: collectUsageData, sendDiagnostics: sendDiagnostics)
         }
     }
 }

@@ -1784,6 +1784,130 @@ export function buildSchema(): Record<string, unknown> {
           },
         },
       },
+      "/v1/assistants/{assistantId}/feature-flags/": {
+        get: {
+          summary: "List feature flags (assistant-scoped)",
+          description:
+            "Assistant-scoped variant of the feature flags endpoint. Requires a bearer token with `feature_flags.read` scope.",
+          operationId: "assistantFeatureFlagsGet",
+          security: [{ BearerAuth: [] }],
+          parameters: [
+            {
+              name: "assistantId",
+              in: "path",
+              required: true,
+              schema: { type: "string" },
+              description: "The assistant identifier.",
+            },
+          ],
+          responses: {
+            "200": { description: "Feature flags returned" },
+            "401": {
+              description: "Unauthorized — missing or invalid bearer token",
+            },
+            "403": { description: "Insufficient scope" },
+          },
+        },
+      },
+      "/v1/assistants/{assistantId}/feature-flags/{flagKey}": {
+        patch: {
+          summary: "Update a feature flag (assistant-scoped)",
+          description:
+            "Assistant-scoped variant of the feature flag update endpoint. Requires a bearer token with `feature_flags.write` scope.",
+          operationId: "assistantFeatureFlagsPatch",
+          security: [{ BearerAuth: [] }],
+          parameters: [
+            {
+              name: "assistantId",
+              in: "path",
+              required: true,
+              schema: { type: "string" },
+              description: "The assistant identifier.",
+            },
+            {
+              name: "flagKey",
+              in: "path",
+              required: true,
+              schema: { type: "string" },
+              description: "The feature flag key to update.",
+            },
+          ],
+          requestBody: {
+            required: true,
+            content: {
+              "application/json": {
+                schema: { type: "object", additionalProperties: true },
+              },
+            },
+          },
+          responses: {
+            "200": { description: "Feature flag updated" },
+            "400": { description: "Invalid flag key encoding" },
+            "401": {
+              description: "Unauthorized — missing or invalid bearer token",
+            },
+            "403": { description: "Insufficient scope" },
+          },
+        },
+      },
+      "/v1/assistants/{assistantId}/config/privacy/": {
+        patch: {
+          summary: "Update privacy config (assistant-scoped)",
+          description:
+            "Assistant-scoped variant of the privacy config endpoint. Requires a bearer token with `settings.write` scope.",
+          operationId: "assistantPrivacyConfigPatch",
+          security: [{ BearerAuth: [] }],
+          parameters: [
+            {
+              name: "assistantId",
+              in: "path",
+              required: true,
+              schema: { type: "string" },
+              description: "The assistant identifier.",
+            },
+          ],
+          requestBody: {
+            required: true,
+            content: {
+              "application/json": {
+                schema: {
+                  type: "object",
+                  properties: {
+                    collectUsageData: { type: "boolean" },
+                    sendDiagnostics: { type: "boolean" },
+                  },
+                  anyOf: [
+                    { required: ["collectUsageData"] },
+                    { required: ["sendDiagnostics"] },
+                  ],
+                },
+              },
+            },
+          },
+          responses: {
+            "200": {
+              description: "Privacy config updated",
+              content: {
+                "application/json": {
+                  schema: {
+                    type: "object",
+                    properties: {
+                      collectUsageData: { type: "boolean" },
+                      sendDiagnostics: { type: "boolean" },
+                    },
+                  },
+                },
+              },
+            },
+            "400": { description: "Invalid request body" },
+            "401": {
+              description: "Unauthorized — missing or invalid bearer token",
+            },
+            "403": { description: "Insufficient scope" },
+            "500": { description: "Internal server error" },
+          },
+        },
+      },
       "/integrations/status": {
         get: {
           summary: "Integration status",

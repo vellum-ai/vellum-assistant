@@ -807,13 +807,22 @@ struct ScrollWheelPassthrough: NSViewRepresentable {
 
     class Coordinator {
         weak var view: NSView?
+        /// Cached scroll view reference to avoid O(n) view hierarchy traversal
+        /// on every scroll event. Weak so it self-clears if the scroll view is
+        /// deallocated (e.g. window close).
+        weak var cachedScrollView: NSScrollView?
         var monitor: Any?
 
         /// Finds the deepest NSScrollView whose frame contains the event point.
         /// This ensures we forward to the chat scroll view, not the sidebar.
+        /// Caches the result after first lookup since the scroll view doesn't
+        /// change during the lifetime of this coordinator.
         func findScrollView(for event: NSEvent) -> NSScrollView? {
+            if let cached = cachedScrollView, cached.window != nil { return cached }
             guard let contentView = view?.window?.contentView else { return nil }
-            return Self.deepestScrollView(in: contentView, containing: event.locationInWindow)
+            let found = Self.deepestScrollView(in: contentView, containing: event.locationInWindow)
+            cachedScrollView = found
+            return found
         }
 
         private static func deepestScrollView(in view: NSView, containing windowPoint: NSPoint) -> NSScrollView? {

@@ -236,11 +236,14 @@ struct ChatBubble: View {
                 // Uses layoutPriority instead of fixedSize to avoid forcing
                 // full height measurement during lazy placement.
                 .layoutPriority(1)
-                // For non-streaming messages, flatten the render tree into a single
-                // compositing layer, reducing recursive SwiftUI layout passes.
-                // Uses compositingGroup instead of drawingGroup to preserve text selection.
+                // For non-streaming, non-interleaved messages, flatten the render
+                // tree into a single compositing layer to reduce layout passes.
                 // Skipped during streaming to avoid re-compositing on every token delta.
-                .modifier(ConditionalCompositingGroup(isActive: !message.isStreaming))
+                // Also skipped for interleaved messages (text + tool calls + images)
+                // where the complex view hierarchy makes re-compositing expensive —
+                // async task completions (markdown parsing, image decoding) would
+                // trigger full re-compositing of the entire message on every change.
+                .modifier(ConditionalCompositingGroup(isActive: !message.isStreaming && !hasInterleavedContent))
 
             if !isUser { Spacer(minLength: 0) }
         }

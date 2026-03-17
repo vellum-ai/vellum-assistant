@@ -76,6 +76,41 @@ final class AssistantCli {
         }
     }
 
+    // MARK: - Shared Environment
+
+    /// Environment variable keys forwarded from the host process to CLI
+    /// child processes. Centralised so every call site stays in sync.
+    private static let forwardedEnvKeys: [String] = [
+        "ANTHROPIC_API_KEY", "BASE_DATA_DIR",
+        "VELLUM_PLATFORM_URL", "RUNTIME_HTTP_PORT",
+        "SENTRY_DSN", "TMPDIR", "USER", "LANG",
+        // Cloud provider auth — needed by hatch and retire flows.
+        "CLOUDSDK_CONFIG", "CLOUDSDK_AUTH_CREDENTIAL_FILE_OVERRIDE",
+        "GOOGLE_APPLICATION_CREDENTIALS", "GCP_ACCOUNT_EMAIL",
+        "AWS_PROFILE", "AWS_DEFAULT_REGION",
+        "AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY", "AWS_SESSION_TOKEN",
+    ]
+
+    /// Builds a minimal environment for a CLI child process, forwarding
+    /// only the variables the CLI actually needs. Using the full macOS
+    /// process environment causes the child to inherit paths into other
+    /// apps' containers, triggering the "access data from other apps"
+    /// consent dialog.
+    nonisolated private static func makeBaseEnvironment() -> [String: String] {
+        let fullEnv = ProcessInfo.processInfo.environment
+        var env: [String: String] = [
+            "HOME": FileManager.default.homeDirectoryForCurrentUser.path,
+            "PATH": fullEnv["PATH"] ?? "/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin",
+            "VELLUM_DESKTOP_APP": "1",
+        ]
+        for key in forwardedEnvKeys {
+            if let val = fullEnv[key] {
+                env[key] = val
+            }
+        }
+        return env
+    }
+
     // MARK: - Binary Discovery
 
     private var cliBinaryURL: URL? {
@@ -113,7 +148,7 @@ final class AssistantCli {
             return
         }
 
-        log.info("Running hatch via CLI at \(binaryURL.path, privacy: .private)")
+        log.info("Running hatch via CLI at \(binaryURL.path, privacy: .public)")
 
         var arguments = ["hatch", "-d"]
         if daemonOnly {
@@ -161,7 +196,7 @@ final class AssistantCli {
             throw CLIError.binaryNotFound
         }
 
-        log.info("Running retire via CLI at \(binaryURL.path, privacy: .private) for '\(name, privacy: .private)'")
+        log.info("Running retire via CLI at \(binaryURL.path, privacy: .public) for '\(name, privacy: .public)'")
 
         let (stderr, status) = try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<(String, Int32), Error>) in
             let proc = Process()
@@ -180,7 +215,7 @@ final class AssistantCli {
                 guard !data.isEmpty, let line = String(data: data, encoding: .utf8) else { return }
                 let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
                 if !trimmed.isEmpty {
-                    log.info("[retire stdout] \(trimmed, privacy: .private)")
+                    log.info("[retire stdout] \(trimmed, privacy: .public)")
                 }
             }
             stderrPipe.fileHandleForReading.readabilityHandler = { handle in
@@ -192,20 +227,7 @@ final class AssistantCli {
                 }
             }
 
-            let fullEnv = ProcessInfo.processInfo.environment
-            var env: [String: String] = [
-                "HOME": NSHomeDirectory(),
-                "PATH": fullEnv["PATH"] ?? "/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin",
-                "VELLUM_DESKTOP_APP": "1",
-            ]
-            for key in ["ANTHROPIC_API_KEY", "BASE_DATA_DIR",
-                        "SENTRY_DSN", "TMPDIR", "USER", "LANG",
-                        "CLOUDSDK_CONFIG", "CLOUDSDK_AUTH_CREDENTIAL_FILE_OVERRIDE",
-                        "GOOGLE_APPLICATION_CREDENTIALS", "GCP_ACCOUNT_EMAIL",
-                        "AWS_PROFILE", "AWS_DEFAULT_REGION",
-                        "AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY", "AWS_SESSION_TOKEN"] {
-                if let val = fullEnv[key] { env[key] = val }
-            }
+            let env = AssistantCli.makeBaseEnvironment()
             proc.environment = env
 
             let once = OnceFlag()
@@ -267,7 +289,7 @@ final class AssistantCli {
             return
         }
 
-        log.info("Running stop via CLI at \(binaryURL.path, privacy: .private)")
+        log.info("Running stop via CLI at \(binaryURL.path, privacy: .public)")
 
         // stop must be synchronous (called from applicationWillTerminate)
         let proc = Process()
@@ -312,14 +334,14 @@ final class AssistantCli {
             return
         }
 
-        log.info("Running wake via CLI for '\(name, privacy: .private)'")
+        log.info("Running wake via CLI for '\(name, privacy: .public)'")
         let (_, stderr, status) = try await runCLI(binaryURL: binaryURL, arguments: ["wake", name])
 
         if status != 0 {
             log.error("CLI wake failed with exit code \(status, privacy: .public): \(stderr, privacy: .private)")
             throw CLIError.executionFailed(stderr)
         }
-        log.info("CLI wake completed successfully for '\(name, privacy: .private)'")
+        log.info("CLI wake completed successfully for '\(name, privacy: .public)'")
     }
 
     /// Sleep a specific assistant's daemon via the CLI.
@@ -329,14 +351,14 @@ final class AssistantCli {
             return
         }
 
-        log.info("Running sleep via CLI for '\(name, privacy: .private)'")
+        log.info("Running sleep via CLI for '\(name, privacy: .public)'")
         let (_, stderr, status) = try await runCLI(binaryURL: binaryURL, arguments: ["sleep", name])
 
         if status != 0 {
             log.error("CLI sleep failed with exit code \(status, privacy: .public): \(stderr, privacy: .private)")
             throw CLIError.executionFailed(stderr)
         }
-        log.info("CLI sleep completed successfully for '\(name, privacy: .private)'")
+        log.info("CLI sleep completed successfully for '\(name, privacy: .public)'")
     }
 
     // MARK: - Remote Hatch (pass-through to CLI)
@@ -362,7 +384,7 @@ final class AssistantCli {
             throw CLIError.binaryNotFound
         }
 
-        log.info("Running remote hatch via CLI at \(binaryURL.path, privacy: .private) --remote \(config.remote, privacy: .private)")
+        log.info("Running remote hatch via CLI at \(binaryURL.path, privacy: .public) --remote \(config.remote, privacy: .public)")
 
         let proc = Process()
         proc.executableURL = binaryURL
@@ -387,9 +409,7 @@ final class AssistantCli {
             }
         }
 
-        var env = ProcessInfo.processInfo.environment
-        env["HOME"] = FileManager.default.homeDirectoryForCurrentUser.path
-        env["VELLUM_DESKTOP_APP"] = "1"
+        var env = Self.makeBaseEnvironment()
 
         if env["VELLUM_PLATFORM_URL"] == nil {
             #if DEBUG
@@ -515,7 +535,7 @@ final class AssistantCli {
         try qrCodeImageData.write(to: tmpQRPath)
         defer { try? FileManager.default.removeItem(at: tmpQRPath) }
 
-        log.info("Running pair via CLI at \(binaryURL.path, privacy: .private)")
+        log.info("Running pair via CLI at \(binaryURL.path, privacy: .public)")
 
         let proc = Process()
         proc.executableURL = binaryURL
@@ -526,9 +546,7 @@ final class AssistantCli {
         proc.standardOutput = stdoutPipe
         proc.standardError = stderrPipe
 
-        var env = ProcessInfo.processInfo.environment
-        env["HOME"] = FileManager.default.homeDirectoryForCurrentUser.path
-        env["VELLUM_DESKTOP_APP"] = "1"
+        var env = Self.makeBaseEnvironment()
         proc.environment = env
 
         let stdoutHandle = stdoutPipe.fileHandleForReading
@@ -651,7 +669,7 @@ final class AssistantCli {
         do {
             pidData = try Data(contentsOf: pidFileURL)
         } catch {
-            log.error("Failed to read PID file at \(self.pidFileURL.path, privacy: .private): \(error)")
+            log.error("Failed to read PID file at \(self.pidFileURL.path, privacy: .public): \(error)")
             return
         }
         guard let pidString = String(data: pidData, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines),
@@ -698,26 +716,12 @@ final class AssistantCli {
             proc.standardOutput = stdoutPipe
             proc.standardError = stderrPipe
 
-            // Build a minimal environment for the CLI. The app's full
-            // environment contains many macOS-specific variables that slow
-            // down the daemon subprocess spawned by the CLI.
+            var env = AssistantCli.makeBaseEnvironment()
+            // Always forward RUNTIME_HTTP_PORT from getenv as a fallback
+            // (setenv may have been called after ProcessInfo was captured).
             let fullEnv = ProcessInfo.processInfo.environment
-            var env: [String: String] = [
-                "HOME": NSHomeDirectory(),
-                "PATH": fullEnv["PATH"] ?? "/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin",
-                "VELLUM_DESKTOP_APP": "1",
-            ]
-            // Forward optional config vars the CLI or daemon may need
-            for key in ["ANTHROPIC_API_KEY", "BASE_DATA_DIR",
-                        "VELLUM_PLATFORM_URL",
-                        "SENTRY_DSN", "TMPDIR", "USER", "LANG"] {
-                if let val = fullEnv[key] {
-                    env[key] = val
-                }
-            }
-            // Always forward RUNTIME_HTTP_PORT so the daemon starts its
-            // HTTP server — required for iOS pairing via the gateway.
-            if let port = fullEnv["RUNTIME_HTTP_PORT"] ?? getenv("RUNTIME_HTTP_PORT").flatMap({ String(cString: $0) }) {
+            if env["RUNTIME_HTTP_PORT"] == nil,
+               let port = fullEnv["RUNTIME_HTTP_PORT"] ?? getenv("RUNTIME_HTTP_PORT").flatMap({ String(cString: $0) }) {
                 env["RUNTIME_HTTP_PORT"] = port
             }
             // Fall back to UserDefaults for the Anthropic API key when

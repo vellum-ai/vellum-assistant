@@ -383,7 +383,7 @@ export async function watchHatching(
         );
         console.log(`   Monitor with: vel logs ${instanceName}`);
         console.log("");
-        resolve({ success: true, errorContent: lastErrorContent });
+        resolve({ success: false, errorContent: lastErrorContent });
         return;
       }
 
@@ -428,7 +428,7 @@ function watchHatchingDesktop(
           `Timed out after ${formatElapsed(elapsed)}. Instance is still running.`,
         );
         desktopLog(`Monitor with: vel logs ${instanceName}`);
-        resolve({ success: true, errorContent: lastErrorContent });
+        resolve({ success: false, errorContent: lastErrorContent });
         return;
       }
 

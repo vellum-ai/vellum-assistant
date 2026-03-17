@@ -341,17 +341,22 @@ struct MessageListView: View {
 
     private func applyAvatarDisplayY(forAnchorY anchorY: CGFloat) {
         let y = anchorY + ConversationAvatarFollower.verticalOffset
+        // Dead-zone: skip @State update when position hasn't moved meaningfully.
+        // Each avatarDisplayY change triggers a MessageListView body re-evaluation;
+        // sub-pixel jitter during scroll would otherwise cause continuous re-renders.
+        guard abs(avatarDisplayY - y) > 2 else { return }
         withAnimation(ConversationAvatarFollower.spring) {
             avatarDisplayY = y
         }
     }
 
     private func updateAvatarFollower(anchorY: CGFloat) {
-        // Only update @State when the visibility boundary is crossed or the value
-        // changes by more than 1pt. Preference changes fire on every scroll frame;
-        // unconditionally setting avatarTargetY would trigger a full view re-render
-        // per frame, creating layout passes that race with the scroll and cause
-        // the "tweaking" jitter.
+        // Only update @State when the visibility boundary is crossed or finitude
+        // changes. avatarTargetY is only consumed by shouldShowConversationTailAvatar
+        // (a binary visible/hidden check), so continuous position tracking is
+        // unnecessary. The previous `abs(delta) > 1` threshold caused ~60 @State
+        // updates/sec during scroll, each triggering a full MessageListView body
+        // re-evaluation and expensive LazyVStack re-measurement of complex messages.
         let visibilityChanged: Bool = {
             let wasVisible = avatarTargetY.isFinite
                 && ConversationAvatarFollower.shouldShow(anchorY: avatarTargetY, viewportHeight: scrollViewportHeight)
@@ -359,7 +364,7 @@ struct MessageListView: View {
                 && ConversationAvatarFollower.shouldShow(anchorY: anchorY, viewportHeight: scrollViewportHeight)
             return wasVisible != nowVisible
         }()
-        if visibilityChanged || abs(avatarTargetY - anchorY) > 1 || !avatarTargetY.isFinite != !anchorY.isFinite {
+        if visibilityChanged || !avatarTargetY.isFinite != !anchorY.isFinite {
             avatarTargetY = anchorY
         }
 
@@ -369,6 +374,19 @@ struct MessageListView: View {
             pendingAvatarY = nil
             avatarLastAppliedAt = nil
             if avatarDisplayY != .infinity { avatarDisplayY = .infinity }
+            return
+        }
+
+        // Skip position tracking when the avatar is off-screen. The avatar
+        // overlay is hidden via shouldShowConversationTailAvatar, so updating
+        // avatarDisplayY for an invisible element just wastes layout passes.
+        let nowVisible = ConversationAvatarFollower.shouldShow(
+            anchorY: anchorY, viewportHeight: scrollViewportHeight
+        )
+        guard nowVisible else {
+            avatarSmoothingTask?.cancel()
+            avatarSmoothingTask = nil
+            pendingAvatarY = nil
             return
         }
 

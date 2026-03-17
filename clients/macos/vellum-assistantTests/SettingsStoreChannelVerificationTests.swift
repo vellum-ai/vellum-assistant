@@ -7,6 +7,7 @@ final class SettingsStoreChannelVerificationTests: XCTestCase {
 
     private var daemonClient: DaemonClient!
     private var sentMessages: [Any] = []
+    private var mockSettingsClient: MockSettingsClient!
     private var store: SettingsStore!
     private let connectedAssistantIdDefaultsKey = "connectedAssistantId"
     private let testAssistantId = "ast-settings-tests"
@@ -22,12 +23,14 @@ final class SettingsStoreChannelVerificationTests: XCTestCase {
         daemonClient.sendOverride = { [weak self] message in
             self?.sentMessages.append(message)
         }
-        store = SettingsStore(daemonClient: daemonClient)
+        mockSettingsClient = MockSettingsClient()
+        store = SettingsStore(daemonClient: daemonClient, settingsClient: mockSettingsClient)
     }
 
     override func tearDown() {
         store = nil
         daemonClient = nil
+        mockSettingsClient = nil
         sentMessages = []
         if let previousConnectedAssistantId {
             UserDefaults.standard.set(previousConnectedAssistantId, forKey: connectedAssistantIdDefaultsKey)
@@ -56,19 +59,19 @@ final class SettingsStoreChannelVerificationTests: XCTestCase {
 
     // MARK: - refreshChannelVerificationStatus
 
-    func testRefreshChannelVerificationStatusSendsStatusRequest() {
-        // Init already sends status requests, count those first
-        let verificationMessagesBefore = sentMessages.compactMap { $0 as? ChannelVerificationSessionRequestMessage }
-        let statusCountBefore = verificationMessagesBefore.filter { $0.action == "status" }.count
+    func testRefreshChannelVerificationStatusCallsSettingsClient() {
+        let callCountBefore = mockSettingsClient.fetchChannelVerificationStatusCalls.count
 
         store.refreshChannelVerificationStatus(channel: "telegram")
 
-        let verificationMessages = sentMessages.compactMap { $0 as? ChannelVerificationSessionRequestMessage }
-        let statusMessages = verificationMessages.filter { $0.action == "status" && $0.channel == "telegram" }
-        XCTAssertGreaterThan(statusMessages.count, 0)
+        let predicate = NSPredicate { _, _ in
+            self.mockSettingsClient.fetchChannelVerificationStatusCalls.count > callCountBefore
+        }
+        let expectation = XCTNSPredicateExpectation(predicate: predicate, object: nil)
+        wait(for: [expectation], timeout: 2.0)
 
-        let statusCountAfter = verificationMessages.filter { $0.action == "status" }.count
-        XCTAssertEqual(statusCountAfter, statusCountBefore + 1)
+        let newCalls = Array(mockSettingsClient.fetchChannelVerificationStatusCalls.dropFirst(callCountBefore))
+        XCTAssertEqual(newCalls, ["telegram"])
     }
 
     // MARK: - startChannelVerification (Telegram)
@@ -270,17 +273,17 @@ final class SettingsStoreChannelVerificationTests: XCTestCase {
     }
 
     func testSessionResponseStartsVerificationStatusPolling() {
-        sentMessages.removeAll()
+        let pollingMock = MockSettingsClient()
         let pollingStore = SettingsStore(
             daemonClient: daemonClient,
+            settingsClient: pollingMock,
             verificationStatusPollInterval: 0.05,
             verificationStatusPollWindow: 2.0
         )
         pollingStore.startChannelVerification(channel: "telegram")
 
-        let statusCountBefore = sentMessages.compactMap { $0 as? ChannelVerificationSessionRequestMessage }
-            .filter { $0.action == "status" && $0.channel == "telegram" }
-            .count
+        let statusCountBefore = pollingMock.fetchChannelVerificationStatusCalls
+            .filter { $0 == "telegram" }.count
 
         daemonClient.onChannelVerificationSessionResponse?(ChannelVerificationSessionResponseMessage(
             type: "channel_verification_session_response",
@@ -296,9 +299,8 @@ final class SettingsStoreChannelVerificationTests: XCTestCase {
         ))
 
         let predicate = NSPredicate { _, _ in
-            let statusCountAfter = self.sentMessages.compactMap { $0 as? ChannelVerificationSessionRequestMessage }
-                .filter { $0.action == "status" && $0.channel == "telegram" }
-                .count
+            let statusCountAfter = pollingMock.fetchChannelVerificationStatusCalls
+                .filter { $0 == "telegram" }.count
             return statusCountAfter > statusCountBefore
         }
         let expectation = XCTNSPredicateExpectation(predicate: predicate, object: nil)
@@ -306,9 +308,10 @@ final class SettingsStoreChannelVerificationTests: XCTestCase {
     }
 
     func testVerifiedResponseStopsVerificationStatusPolling() {
-        sentMessages.removeAll()
+        let pollingMock = MockSettingsClient()
         let pollingStore = SettingsStore(
             daemonClient: daemonClient,
+            settingsClient: pollingMock,
             verificationStatusPollInterval: 0.05,
             verificationStatusPollWindow: 2.0
         )
@@ -328,9 +331,8 @@ final class SettingsStoreChannelVerificationTests: XCTestCase {
         ))
 
         let pollingStartedPredicate = NSPredicate { _, _ in
-            let statusCount = self.sentMessages.compactMap { $0 as? ChannelVerificationSessionRequestMessage }
-                .filter { $0.action == "status" && $0.channel == "telegram" }
-                .count
+            let statusCount = pollingMock.fetchChannelVerificationStatusCalls
+                .filter { $0 == "telegram" }.count
             return statusCount > 1
         }
         let pollingStartedExpectation = XCTNSPredicateExpectation(predicate: pollingStartedPredicate, object: nil)
@@ -353,17 +355,15 @@ final class SettingsStoreChannelVerificationTests: XCTestCase {
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { settleOne.fulfill() }
         wait(for: [settleOne], timeout: 1.0)
 
-        let statusCountAfterVerification = sentMessages.compactMap { $0 as? ChannelVerificationSessionRequestMessage }
-            .filter { $0.action == "status" && $0.channel == "telegram" }
-            .count
+        let statusCountAfterVerification = pollingMock.fetchChannelVerificationStatusCalls
+            .filter { $0 == "telegram" }.count
 
         let settleTwo = expectation(description: "settleTwo")
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { settleTwo.fulfill() }
         wait(for: [settleTwo], timeout: 1.0)
 
-        let statusCountFinal = sentMessages.compactMap { $0 as? ChannelVerificationSessionRequestMessage }
-            .filter { $0.action == "status" && $0.channel == "telegram" }
-            .count
+        let statusCountFinal = pollingMock.fetchChannelVerificationStatusCalls
+            .filter { $0 == "telegram" }.count
 
         XCTAssertEqual(statusCountFinal, statusCountAfterVerification)
     }
@@ -448,14 +448,16 @@ final class SettingsStoreChannelVerificationTests: XCTestCase {
     // MARK: - Init sends status requests for all channels
 
     func testInitSendsVerificationStatusRequestsForAllChannels() {
-        let verificationMessages = sentMessages.compactMap { $0 as? ChannelVerificationSessionRequestMessage }
-        let statusMessages = verificationMessages.filter { $0.action == "status" }
+        let predicate = NSPredicate { _, _ in
+            self.mockSettingsClient.fetchChannelVerificationStatusCalls.count >= 3
+        }
+        let expectation = XCTNSPredicateExpectation(predicate: predicate, object: nil)
+        wait(for: [expectation], timeout: 2.0)
 
-        let telegramStatus = statusMessages.filter { $0.channel == "telegram" }
-        let voiceStatus = statusMessages.filter { $0.channel == "phone" }
-
-        XCTAssertEqual(telegramStatus.count, 1)
-        XCTAssertEqual(voiceStatus.count, 1)
+        let calls = mockSettingsClient.fetchChannelVerificationStatusCalls
+        XCTAssertTrue(calls.contains("telegram"))
+        XCTAssertTrue(calls.contains("phone"))
+        XCTAssertTrue(calls.contains("slack"))
     }
 
     func testStatusPollResponseDoesNotClearVerificationSessionPending() {

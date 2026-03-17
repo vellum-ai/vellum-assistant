@@ -55,6 +55,7 @@ struct SettingsPanel: View {
     var daemonClient: DaemonClient?
     @ObservedObject var conversationManager: ConversationManager
     var authManager: AuthManager
+    var featureFlagClient: FeatureFlagClientProtocol = FeatureFlagClient()
 
     @State private var apiKeyText: String = ""
     @State private var braveKeyText: String = ""
@@ -251,7 +252,7 @@ struct SettingsPanel: View {
                             Task {
                                 do {
                                     if let daemonClient {
-                                        try await daemonClient.setFeatureFlag(key: Self.developerFeatureFlagKey, enabled: true)
+                                        try await featureFlagClient.setFeatureFlag(key: Self.developerFeatureFlagKey, enabled: true)
                                     } else {
                                         try WorkspaceConfigIO.merge([
                                             "assistantFeatureFlagValues": [Self.developerFeatureFlagKey: true]
@@ -339,7 +340,7 @@ struct SettingsPanel: View {
         case .accessibility:
             accessibilityContent
         case .privacy:
-            SettingsPrivacyTab(daemonClient: daemonClient, store: store)
+            SettingsPrivacyTab(store: store)
         case .voice:
             VoiceSettingsView(store: store)
         case .billing:
@@ -514,7 +515,7 @@ struct SettingsPanel: View {
     private func loadFeatureFlags() async {
         if let daemonClient {
             do {
-                let flags = try await daemonClient.getFeatureFlags()
+                let flags = try await featureFlagClient.getFeatureFlags()
                 if let contactsFlag = flags.first(where: { $0.key == Self.contactsFeatureFlagKey }) {
                     isContactsEnabled = contactsFlag.enabled
                 }

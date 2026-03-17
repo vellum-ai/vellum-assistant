@@ -749,6 +749,7 @@ struct DynamicWorkspaceWrapper: View {
     let isChatDockOpen: Bool
     let onToggleChatDock: () -> Void
     let onMicrophoneToggle: () -> Void
+    var featureFlagClient: FeatureFlagClientProtocol = FeatureFlagClient()
 
     @State private var showVersionHistory = false
     @State private var publishUrlCopied = false
@@ -973,7 +974,7 @@ struct DynamicWorkspaceWrapper: View {
         }
         .task {
             do {
-                let flags = try await daemonClient.getFeatureFlags()
+                let flags = try await featureFlagClient.getFeatureFlags()
                 if let flag = flags.first(where: { $0.key == Self.deployToVercelFlagKey }) {
                     isDeployToVercelEnabled = flag.enabled
                 }

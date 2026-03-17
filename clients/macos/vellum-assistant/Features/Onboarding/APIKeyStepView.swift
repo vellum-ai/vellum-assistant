@@ -71,7 +71,7 @@ struct APIKeyStepView: View {
         }
         modes.append(.local)
         if userHostedEnabled {
-            modes.append(contentsOf: [.gcp, .aws, .docker, .customHardware])
+            modes.append(contentsOf: [.docker, .aws, .gcp, .customHardware])
         }
         return modes
     }

@@ -17,7 +17,7 @@ extension AppDelegate {
             }
 
             guard url.pathExtension == "vellum" else { continue }
-            log.info("Opening .vellum file: \(url.path, privacy: .private)")
+            log.info("Opening .vellum file: \(url.path, privacy: .public)")
 
             guard daemonClient.isConnected else {
                 log.warning("Cannot open bundle: daemon not connected")
@@ -148,7 +148,7 @@ extension AppDelegate {
                         .replacingOccurrences(of: "\\", with: "")
                         .replacingOccurrences(of: "'", with: "")
                     let entryURL = "\(VellumAppSchemeHandler.scheme)://\(uuid)/\(sanitizedEntry)"
-                    log.info("Loading shared app at \(entryURL, privacy: .private)")
+                    log.info("Loading shared app at \(entryURL, privacy: .public)")
 
                     // HTML-escape manifest.name to prevent XSS injection.
                     let safeName = Self.htmlEscape(manifest.name)

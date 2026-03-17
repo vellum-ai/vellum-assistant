@@ -273,17 +273,10 @@ public final class HTTPTransport {
         case conversationsSeen
         case conversationsUnread
         case identity
-        case featureFlags
-        case featureFlagUpdate(key: String)
-        case privacyConfig
         case surfaceAction
         case trustRulesManage
         case trustRuleManageById(id: String)
         case pendingInteractions(conversationKey: String?)
-        case contactsList(limit: Int, role: String?)
-        case contactsGet(id: String)
-        case contactsDelete(id: String)
-        case contactChannelUpdate(contactChannelId: String)
         // Apps
         case appsList
         case appData(id: String)
@@ -429,7 +422,6 @@ public final class HTTPTransport {
 
         // Misc
         case channelVerificationSessions
-        case channelVerificationSessionsStatus
         case channelVerificationSessionsResend
         case channelVerificationSessionsRevoke
         case registerDeviceToken
@@ -492,13 +484,6 @@ public final class HTTPTransport {
             return ("/v1/conversations/unread", nil)
         case .identity:
             return ("/v1/identity", nil)
-        case .featureFlags:
-            return ("/v1/feature-flags", nil)
-        case .featureFlagUpdate(let key):
-            let encoded = key.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? key
-            return ("/v1/feature-flags/\(encoded)", nil)
-        case .privacyConfig:
-            return ("/v1/config/privacy", nil)
         case .surfaceAction:
             return ("/v1/surface-actions", nil)
         case .trustRulesManage:
@@ -512,22 +497,6 @@ public final class HTTPTransport {
                 return ("/v1/pending-interactions", "conversationKey=\(encoded)")
             }
             return ("/v1/pending-interactions", nil)
-        case .contactsList(let limit, let role):
-            var q = "limit=\(limit)"
-            if let role {
-                let encoded = role.addingPercentEncoding(withAllowedCharacters: Self.queryValueAllowed) ?? role
-                q += "&role=\(encoded)"
-            }
-            return ("/v1/contacts", q)
-        case .contactsGet(let id):
-            let encoded = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
-            return ("/v1/contacts/\(encoded)", nil)
-        case .contactsDelete(let id):
-            let encoded = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
-            return ("/v1/contacts/\(encoded)", nil)
-        case .contactChannelUpdate(let contactChannelId):
-            let encoded = contactChannelId.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? contactChannelId
-            return ("/v1/contact-channels/\(encoded)", nil)
         // Apps
         case .appsList:
             return ("/v1/apps", nil)
@@ -804,8 +773,6 @@ public final class HTTPTransport {
         // Misc
         case .channelVerificationSessions:
             return ("/v1/channel-verification-sessions", nil)
-        case .channelVerificationSessionsStatus:
-            return ("/v1/channel-verification-sessions/status", nil)
         case .channelVerificationSessionsResend:
             return ("/v1/channel-verification-sessions/resend", nil)
         case .channelVerificationSessionsRevoke:
@@ -851,13 +818,6 @@ public final class HTTPTransport {
             return ("\(prefix)/conversations/unread/", nil)
         case .identity:
             return ("\(prefix)/identity/", nil)
-        case .featureFlags:
-            return ("\(prefix)/feature-flags/", nil)
-        case .featureFlagUpdate(let key):
-            let encoded = key.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? key
-            return ("\(prefix)/feature-flags/\(encoded)/", nil)
-        case .privacyConfig:
-            return ("\(prefix)/config/privacy/", nil)
         case .surfaceAction:
             return ("\(prefix)/surface-actions/", nil)
         case .trustRulesManage:
@@ -871,22 +831,6 @@ public final class HTTPTransport {
                 return ("\(prefix)/pending-interactions/", "conversationKey=\(encoded)")
             }
             return ("\(prefix)/pending-interactions/", nil)
-        case .contactsList(let limit, let role):
-            var q = "limit=\(limit)"
-            if let role {
-                let encoded = role.addingPercentEncoding(withAllowedCharacters: Self.queryValueAllowed) ?? role
-                q += "&role=\(encoded)"
-            }
-            return ("\(prefix)/contacts/", q)
-        case .contactsGet(let id):
-            let encoded = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
-            return ("\(prefix)/contacts/\(encoded)/", nil)
-        case .contactsDelete(let id):
-            let encoded = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
-            return ("\(prefix)/contacts/\(encoded)/", nil)
-        case .contactChannelUpdate(let contactChannelId):
-            let encoded = contactChannelId.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? contactChannelId
-            return ("\(prefix)/contact-channels/\(encoded)/", nil)
         // Apps
         case .appsList:
             return ("\(prefix)/apps/", nil)
@@ -1163,8 +1107,6 @@ public final class HTTPTransport {
         // Misc
         case .channelVerificationSessions:
             return ("\(prefix)/channel-verification-sessions/", nil)
-        case .channelVerificationSessionsStatus:
-            return ("\(prefix)/channel-verification-sessions/status/", nil)
         case .channelVerificationSessionsResend:
             return ("\(prefix)/channel-verification-sessions/resend/", nil)
         case .channelVerificationSessionsRevoke:
@@ -2117,206 +2059,6 @@ public final class HTTPTransport {
         return body
     }
 
-    // MARK: - Contacts
-
-    /// Route a `ContactsRequestMessage` to the appropriate HTTP endpoint based on its action.
-    func handleContactsRequest(_ msg: ContactsRequestMessage) async {
-        switch msg.action {
-        case "list":
-            await fetchContactsList(limit: Int(msg.limit ?? 50), role: msg.role)
-        case "get":
-            guard let contactId = msg.contactId else {
-                onMessage?(.contactsResponse(ContactsResponseMessage(type: "contacts_response", success: false, error: "contactId is required for get")))
-                return
-            }
-            await fetchContact(contactId: contactId)
-        case "update_channel":
-            guard let channelId = msg.channelId else {
-                onMessage?(.contactsResponse(ContactsResponseMessage(type: "contacts_response", success: false, error: "channelId is required for update_channel")))
-                return
-            }
-            await updateContactChannel(channelId: channelId, status: msg.status, policy: msg.policy, reason: msg.reason)
-        case "delete":
-            guard let contactId = msg.contactId else {
-                onMessage?(.contactsResponse(ContactsResponseMessage(type: "contacts_response", success: false, error: "contactId is required for delete")))
-                return
-            }
-            await deleteContact(contactId: contactId)
-        default:
-            onMessage?(.contactsResponse(ContactsResponseMessage(type: "contacts_response", success: false, error: "Unknown action: \(msg.action)")))
-        }
-    }
-
-    private func fetchContactsList(limit: Int, role: String?, isRetry: Bool = false) async {
-        guard let url = buildURL(for: .contactsList(limit: limit, role: role)) else { return }
-
-        var request = URLRequest(url: url)
-        applyAuth(&request)
-
-        do {
-            let (data, response) = try await URLSession.shared.data(for: request)
-
-            if let http = response as? HTTPURLResponse {
-                if http.statusCode == 401 && !isRetry {
-                    let refreshResult = await handleAuthenticationFailureAsync(responseData: data)
-                    if case .success = refreshResult {
-                        await fetchContactsList(limit: limit, role: role, isRetry: true)
-                    }
-                    return
-                }
-                guard http.statusCode == 200 else {
-                    log.error("HTTPTransport: fetch contacts list failed (\(http.statusCode))")
-                    onMessage?(.contactsResponse(ContactsResponseMessage(type: "contacts_response", success: false, error: "HTTP \(http.statusCode)")))
-                    return
-                }
-            }
-
-            do {
-                let decoded = try decoder.decode(HTTPContactsListResponse.self, from: data)
-                onMessage?(.contactsResponse(ContactsResponseMessage(type: "contacts_response", success: true, contacts: decoded.contacts)))
-            } catch {
-                log.error("HTTPTransport: failed to decode contacts list response: \(error)")
-                onMessage?(.contactsResponse(ContactsResponseMessage(type: "contacts_response", success: false, error: error.localizedDescription)))
-            }
-        } catch {
-            log.error("HTTPTransport: fetch contacts list error: \(error.localizedDescription)")
-            onMessage?(.contactsResponse(ContactsResponseMessage(type: "contacts_response", success: false, error: error.localizedDescription)))
-        }
-    }
-
-    private func fetchContact(contactId: String, isRetry: Bool = false) async {
-        guard let url = buildURL(for: .contactsGet(id: contactId)) else { return }
-
-        var request = URLRequest(url: url)
-        applyAuth(&request)
-
-        do {
-            let (data, response) = try await URLSession.shared.data(for: request)
-
-            if let http = response as? HTTPURLResponse {
-                if http.statusCode == 401 && !isRetry {
-                    let refreshResult = await handleAuthenticationFailureAsync(responseData: data)
-                    if case .success = refreshResult {
-                        await fetchContact(contactId: contactId, isRetry: true)
-                    }
-                    return
-                }
-                guard http.statusCode == 200 else {
-                    log.error("HTTPTransport: fetch contact failed (\(http.statusCode))")
-                    onMessage?(.contactsResponse(ContactsResponseMessage(type: "contacts_response", success: false, error: "HTTP \(http.statusCode)")))
-                    return
-                }
-            }
-
-            do {
-                let decoded = try decoder.decode(HTTPContactResponse.self, from: data)
-                onMessage?(.contactsResponse(ContactsResponseMessage(type: "contacts_response", success: true, contact: decoded.contact)))
-            } catch {
-                log.error("HTTPTransport: failed to decode contact response: \(error)")
-                onMessage?(.contactsResponse(ContactsResponseMessage(type: "contacts_response", success: false, error: error.localizedDescription)))
-            }
-        } catch {
-            log.error("HTTPTransport: fetch contact error: \(error.localizedDescription)")
-            onMessage?(.contactsResponse(ContactsResponseMessage(type: "contacts_response", success: false, error: error.localizedDescription)))
-        }
-    }
-
-    private func deleteContact(contactId: String, isRetry: Bool = false) async {
-        guard let url = buildURL(for: .contactsDelete(id: contactId)) else { return }
-
-        var request = URLRequest(url: url)
-        request.httpMethod = "DELETE"
-        applyAuth(&request)
-
-        do {
-            let (data, response) = try await URLSession.shared.data(for: request)
-
-            if let http = response as? HTTPURLResponse {
-                if http.statusCode == 401 && !isRetry {
-                    let refreshResult = await handleAuthenticationFailureAsync(responseData: data)
-                    if case .success = refreshResult {
-                        await deleteContact(contactId: contactId, isRetry: true)
-                    }
-                    return
-                }
-                if http.statusCode == 204 {
-                    onMessage?(.contactsResponse(ContactsResponseMessage(type: "contacts_response", success: true)))
-                    return
-                }
-                if http.statusCode == 404 {
-                    onMessage?(.contactsResponse(ContactsResponseMessage(type: "contacts_response", success: false, error: "Contact not found")))
-                    return
-                }
-                if http.statusCode == 403 {
-                    onMessage?(.contactsResponse(ContactsResponseMessage(type: "contacts_response", success: false, error: "Permission denied")))
-                    return
-                }
-                log.error("HTTPTransport: delete contact failed (\(http.statusCode))")
-                onMessage?(.contactsResponse(ContactsResponseMessage(type: "contacts_response", success: false, error: "HTTP \(http.statusCode)")))
-            }
-        } catch {
-            log.error("HTTPTransport: delete contact error: \(error.localizedDescription)")
-            onMessage?(.contactsResponse(ContactsResponseMessage(type: "contacts_response", success: false, error: error.localizedDescription)))
-        }
-    }
-
-    private func updateContactChannel(channelId: String, status: String?, policy: String?, reason: String?, isRetry: Bool = false) async {
-        guard let url = buildURL(for: .contactChannelUpdate(contactChannelId: channelId)) else { return }
-
-        var request = URLRequest(url: url)
-        request.httpMethod = "PATCH"
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        applyAuth(&request)
-
-        var body: [String: Any] = [:]
-        if let status { body["status"] = status }
-        if let policy { body["policy"] = policy }
-        if let reason { body["reason"] = reason }
-
-        do {
-            request.httpBody = try JSONSerialization.data(withJSONObject: body)
-            let (data, response) = try await URLSession.shared.data(for: request)
-
-            if let http = response as? HTTPURLResponse {
-                if http.statusCode == 401 && !isRetry {
-                    let refreshResult = await handleAuthenticationFailureAsync(responseData: data)
-                    if case .success = refreshResult {
-                        await updateContactChannel(channelId: channelId, status: status, policy: policy, reason: reason, isRetry: true)
-                    }
-                    return
-                }
-                guard (200..<300).contains(http.statusCode) else {
-                    log.error("HTTPTransport: update contact channel failed (\(http.statusCode))")
-                    onMessage?(.contactsResponse(ContactsResponseMessage(type: "contacts_response", success: false, error: "HTTP \(http.statusCode)")))
-                    return
-                }
-            }
-
-            do {
-                let decoded = try decoder.decode(HTTPContactResponse.self, from: data)
-                onMessage?(.contactsResponse(ContactsResponseMessage(type: "contacts_response", success: true, contact: decoded.contact)))
-            } catch {
-                log.error("HTTPTransport: failed to decode update channel response: \(error)")
-                onMessage?(.contactsResponse(ContactsResponseMessage(type: "contacts_response", success: false, error: error.localizedDescription)))
-            }
-        } catch {
-            log.error("HTTPTransport: update contact channel error: \(error.localizedDescription)")
-            onMessage?(.contactsResponse(ContactsResponseMessage(type: "contacts_response", success: false, error: error.localizedDescription)))
-        }
-    }
-
-    /// Response wrapper for `GET /v1/contacts` (list).
-    private struct HTTPContactsListResponse: Decodable {
-        let ok: Bool
-        let contacts: [ContactPayload]
-    }
-
-    /// Response wrapper for `GET /v1/contacts/:id` and `PATCH /v1/contact-channels/:contactChannelId`.
-    private struct HTTPContactResponse: Decodable {
-        let ok: Bool
-        let contact: ContactPayload?
-    }
-
     // MARK: - Surface Actions
 
     func sendSurfaceAction(_ action: UiSurfaceActionMessage, isRetry: Bool = false) async {
@@ -2642,145 +2384,6 @@ public final class HTTPTransport {
         } catch {
             log.error("Fetch history error: \(error.localizedDescription)")
         }
-    }
-
-    // MARK: - Feature Flags
-
-    /// Fetch all feature flags from the gateway's GET /v1/feature-flags endpoint.
-    func getFeatureFlags(featureFlagToken: String) async throws -> [DaemonClient.AssistantFeatureFlag] {
-        guard let url = buildURL(for: .featureFlags) else {
-            throw HTTPTransportError.invalidURL
-        }
-
-        var request = URLRequest(url: url)
-        request.httpMethod = "GET"
-        request.setValue("Bearer \(featureFlagToken)", forHTTPHeaderField: "Authorization")
-        request.timeoutInterval = 10
-
-        let (data, response) = try await URLSession.shared.data(for: request)
-        guard let http = response as? HTTPURLResponse else {
-            throw HTTPTransportError.healthCheckFailed
-        }
-
-        if http.statusCode == 401 {
-            log.error("Feature flags GET failed: authentication error (401)")
-            throw HTTPTransportError.healthCheckFailed
-        }
-
-        guard (200..<300).contains(http.statusCode) else {
-            let errorBody = String(data: data, encoding: .utf8) ?? "unknown"
-            log.error("Feature flags GET failed (\(http.statusCode)): \(errorBody)")
-            throw HTTPTransportError.healthCheckFailed
-        }
-
-        struct FlagsResponse: Decodable {
-            let flags: [DaemonClient.AssistantFeatureFlag]
-        }
-
-        let decoded = try JSONDecoder().decode(FlagsResponse.self, from: data)
-        log.info("Fetched \(decoded.flags.count) feature flags")
-        return decoded.flags
-    }
-
-    /// Toggle a feature flag via the gateway's PATCH endpoint.
-    /// Uses the dedicated feature-flag token (not the runtime bearer token) for auth.
-    func setFeatureFlag(key: String, enabled: Bool, featureFlagToken: String) async throws {
-        guard let url = buildURL(for: .featureFlagUpdate(key: key)) else {
-            throw HTTPTransportError.invalidURL
-        }
-
-        var request = URLRequest(url: url)
-        request.httpMethod = "PATCH"
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.setValue("Bearer \(featureFlagToken)", forHTTPHeaderField: "Authorization")
-        request.timeoutInterval = 10
-
-        let body: [String: Any] = ["enabled": enabled]
-        request.httpBody = try JSONSerialization.data(withJSONObject: body)
-
-        let (data, response) = try await URLSession.shared.data(for: request)
-        guard let http = response as? HTTPURLResponse else {
-            throw HTTPTransportError.healthCheckFailed
-        }
-
-        if http.statusCode == 401 {
-            log.error("Feature flag PATCH failed: authentication error (401)")
-            throw HTTPTransportError.healthCheckFailed
-        }
-
-        guard (200..<300).contains(http.statusCode) else {
-            let errorBody = String(data: data, encoding: .utf8) ?? "unknown"
-            log.error("Feature flag PATCH failed (\(http.statusCode)): \(errorBody)")
-            throw HTTPTransportError.healthCheckFailed
-        }
-
-        log.info("Feature flag '\(key)' set to \(enabled)")
-    }
-
-    /// Update the privacy config via the gateway's PATCH /v1/config/privacy endpoint.
-    func setPrivacyConfig(collectUsageData: Bool?, sendDiagnostics: Bool?, featureFlagToken: String) async throws {
-        guard let url = buildURL(for: .privacyConfig) else {
-            throw HTTPTransportError.invalidURL
-        }
-
-        var request = URLRequest(url: url)
-        request.httpMethod = "PATCH"
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.setValue("Bearer \(featureFlagToken)", forHTTPHeaderField: "Authorization")
-        request.timeoutInterval = 10
-
-        var body: [String: Any] = [:]
-        if let collectUsageData { body["collectUsageData"] = collectUsageData }
-        if let sendDiagnostics { body["sendDiagnostics"] = sendDiagnostics }
-        request.httpBody = try JSONSerialization.data(withJSONObject: body)
-
-        let (_, response) = try await URLSession.shared.data(for: request)
-        guard let http = response as? HTTPURLResponse else {
-            throw HTTPTransportError.requestFailed(statusCode: 0, message: nil)
-        }
-
-        if http.statusCode == 401 {
-            throw HTTPTransportError.authenticationFailed(message: "Privacy config PATCH failed: authentication error (401)")
-        }
-
-        guard (200..<300).contains(http.statusCode) else {
-            throw HTTPTransportError.requestFailed(statusCode: http.statusCode, message: nil)
-        }
-    }
-
-    /// Fetch all assistant feature flags from the gateway's `GET /v1/feature-flags` endpoint.
-    func fetchAssistantFeatureFlags(featureFlagToken: String) async throws -> [DaemonClient.AssistantFeatureFlagEntry] {
-        guard let url = buildURL(for: .featureFlags) else {
-            throw HTTPTransportError.invalidURL
-        }
-
-        var request = URLRequest(url: url)
-        request.httpMethod = "GET"
-        request.setValue("Bearer \(featureFlagToken)", forHTTPHeaderField: "Authorization")
-        request.timeoutInterval = 10
-
-        let (data, response) = try await URLSession.shared.data(for: request)
-        guard let http = response as? HTTPURLResponse else {
-            throw HTTPTransportError.healthCheckFailed
-        }
-
-        if http.statusCode == 401 {
-            log.error("Feature flags GET failed: authentication error (401)")
-            throw HTTPTransportError.healthCheckFailed
-        }
-
-        guard (200..<300).contains(http.statusCode) else {
-            let errorBody = String(data: data, encoding: .utf8) ?? "unknown"
-            log.error("Feature flags GET failed (\(http.statusCode)): \(errorBody)")
-            throw HTTPTransportError.healthCheckFailed
-        }
-
-        struct FlagsResponse: Decodable {
-            let flags: [DaemonClient.AssistantFeatureFlagEntry]
-        }
-
-        let decoded = try JSONDecoder().decode(FlagsResponse.self, from: data)
-        return decoded.flags
     }
 
     // MARK: - Conversation Management HTTP Handlers

@@ -4,14 +4,16 @@ public struct VSidePanel<PinnedContent: View, Content: View>: View {
     public let title: String
     public let titleFont: Font
     public let uppercased: Bool
+    public let contentPadding: EdgeInsets
     public var onClose: (() -> Void)? = nil
     @ViewBuilder public let pinnedContent: () -> PinnedContent
     @ViewBuilder public let content: () -> Content
 
-    public init(title: String, titleFont: Font = VFont.panelTitle, uppercased: Bool = false, onClose: (() -> Void)? = nil, @ViewBuilder pinnedContent: @escaping () -> PinnedContent, @ViewBuilder content: @escaping () -> Content) {
+    public init(title: String, titleFont: Font = VFont.panelTitle, uppercased: Bool = false, contentPadding: EdgeInsets = EdgeInsets(top: VSpacing.lg, leading: VSpacing.lg, bottom: VSpacing.lg, trailing: VSpacing.lg), onClose: (() -> Void)? = nil, @ViewBuilder pinnedContent: @escaping () -> PinnedContent, @ViewBuilder content: @escaping () -> Content) {
         self.title = title
         self.titleFont = titleFont
         self.uppercased = uppercased
+        self.contentPadding = contentPadding
         self.onClose = onClose
         self.pinnedContent = pinnedContent
         self.content = content
@@ -42,7 +44,7 @@ public struct VSidePanel<PinnedContent: View, Content: View>: View {
             // own ScrollView (e.g. TraceTimelineView) isn't starved.
             ScrollView {
                 content()
-                    .padding(VSpacing.lg)
+                    .padding(contentPadding)
                     .frame(maxWidth: .infinity, alignment: .top)
             }
             .layoutPriority(-1)

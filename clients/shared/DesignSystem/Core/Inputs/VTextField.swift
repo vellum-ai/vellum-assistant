@@ -45,11 +45,11 @@ public struct VInputChromeModifier: ViewModifier {
                     lineWidth: isFocused ? 1.5 : 1
                 )
             )
+            .clipShape(shape)
             .shadow(
                 color: isFocused ? VColor.primaryBase.opacity(0.10) : .clear,
                 radius: 4
             )
-            .clipShape(shape)
     }
 }
 
