@@ -10,7 +10,7 @@ struct GoogleOAuthServiceCard: View {
     @ObservedObject var store: SettingsStore
 
     /// Local draft of the mode selection — only persisted on Save.
-    @State private var draftMode: String = "managed"
+    @State private var draftMode: String = "your-own"
 
     /// True when the user has made changes worth saving.
     private var hasChanges: Bool {

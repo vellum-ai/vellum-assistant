@@ -201,7 +201,7 @@ public final class SettingsStore: ObservableObject {
     @Published var webSearchMode: String = "your-own"
 
     /// Current Google OAuth mode. Values: "managed" or "your-own".
-    @Published var googleOAuthMode: String = "managed"
+    @Published var googleOAuthMode: String = "your-own"
 
     /// True when any service is configured to use managed mode.
     var hasManagedServices: Bool {
