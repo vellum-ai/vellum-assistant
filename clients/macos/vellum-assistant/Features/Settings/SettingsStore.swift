@@ -620,13 +620,16 @@ public final class SettingsStore: ObservableObject {
         hasKey = true
         maskedKey = Self.maskKey(trimmed)
 
+        // Remove any stale deletion tombstone eagerly — the user's intent is to
+        // save a new key, so any prior clear is superseded. Deferring this until
+        // after async validation creates a race: if the daemon reconnects before
+        // validation completes, replayDeletionTombstones would DELETE the new key.
+        removeDeletionTombstone(type: "api_key", name: "anthropic")
+
         Task {
             let result = await syncKeyToDaemonWithValidation(provider: "anthropic", value: trimmed)
             apiKeySaving = false
             if result.success {
-                // Only remove the tombstone after the daemon accepts the key,
-                // so a pending offline-clear is preserved on transient failure.
-                removeDeletionTombstone(type: "api_key", name: "anthropic")
                 scheduleRoutingSourceRefresh()
                 onSuccess?()
             } else if let error = result.error {
@@ -910,12 +913,15 @@ public final class SettingsStore: ObservableObject {
             if response.isSuccess {
                 return (true, nil, false)
             }
+            // 5xx errors are server-side / transient — don't treat them as
+            // definitive validation failures (which would wipe the local key).
+            let isServerError = response.statusCode >= 500
             // Try to parse error message from response body
             if let parsed = try? JSONSerialization.jsonObject(with: response.data) as? [String: Any],
                let errorMsg = parsed["error"] as? String {
-                return (false, errorMsg, false)
+                return (false, errorMsg, isServerError)
             }
-            return (false, "Failed to save API key (HTTP \(response.statusCode)).", false)
+            return (false, "Failed to save API key (HTTP \(response.statusCode)).", isServerError)
         } catch {
             return (false, "Could not reach assistant. Please check that it is running.", true)
         }
