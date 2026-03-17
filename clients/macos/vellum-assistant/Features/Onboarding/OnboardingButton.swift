@@ -6,8 +6,6 @@ enum OnboardingButtonStyle {
     case secondary
     case tertiary
     case ghost
-    /// Ghost layout (compact, borderless) with primary/green text color.
-    case ghostPrimary
 }
 
 struct OnboardingButton: View {
@@ -21,7 +19,7 @@ struct OnboardingButton: View {
     @State private var visible = false
     @State private var isHovered = false
 
-    private var isGhost: Bool { style == .ghost || style == .ghostPrimary }
+    private var isGhost: Bool { style == .ghost }
 
     var body: some View {
         Button(action: action) {
@@ -81,8 +79,6 @@ struct OnboardingButton: View {
             return disabled ? VColor.contentDefault.opacity(0.3) : VColor.contentDefault.opacity(0.85)
         case .ghost:
             return disabled ? VColor.contentSecondary.opacity(0.3) : VColor.contentSecondary
-        case .ghostPrimary:
-            return disabled ? VColor.primaryBase.opacity(0.3) : VColor.primaryBase
         }
     }
 
@@ -94,7 +90,7 @@ struct OnboardingButton: View {
             return AnyShapeStyle(Color.clear)
         case .tertiary:
             return AnyShapeStyle(Color.clear)
-        case .ghost, .ghostPrimary:
+        case .ghost:
             return AnyShapeStyle(Color.clear)
         }
     }
@@ -107,7 +103,7 @@ struct OnboardingButton: View {
             return VColor.primaryBase.opacity(disabled ? 0.2 : 0.5)
         case .tertiary:
             return VColor.contentDefault.opacity(disabled ? 0.1 : 0.25)
-        case .ghost, .ghostPrimary:
+        case .ghost:
             return .clear
         }
     }
