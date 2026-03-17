@@ -584,29 +584,22 @@ public final class SettingsStore: ObservableObject {
             self.applyChannelVerificationResponse(response)
         }
 
-        // Refresh Vercel key state on init
-        refreshVercelKeyState()
+        // Only fetch remote state when an assistant is already connected.
+        // During initial setup there is no assistant yet, so these calls
+        // would all fail with "No connected assistant" errors.
+        let hasConnectedAssistant = UserDefaults.standard.string(forKey: "connectedAssistantId") != nil
+        if hasConnectedAssistant {
+            refreshVercelKeyState()
+            refreshModelInfo()
+            refreshTelegramStatus()
+            refreshTwilioStatus()
+            refreshChannelVerificationStatus(channel: "telegram")
+            refreshChannelVerificationStatus(channel: "phone")
+            refreshChannelVerificationStatus(channel: "slack")
 
-        // Fetch current model
-        refreshModelInfo()
-
-        // Refresh Telegram integration status on init
-        refreshTelegramStatus()
-
-        // Refresh Twilio integration status on init
-        refreshTwilioStatus()
-
-        // Refresh channel verification status on init
-        refreshChannelVerificationStatus(channel: "telegram")
-        refreshChannelVerificationStatus(channel: "phone")
-        refreshChannelVerificationStatus(channel: "slack")
-
-        // Ingress config is refreshed by onAppear in SettingsPanel,
-        // not here, to avoid duplicate get requests whose
-        // stale responses could overwrite an optimistic toggle.
-
-        // Fetch provider routing sources (managed vs BYO) on init
-        loadProviderRoutingSources()
+            // Fetch provider routing sources (managed vs BYO) on init
+            loadProviderRoutingSources()
+        }
     }
 
     // MARK: - API Key Actions
