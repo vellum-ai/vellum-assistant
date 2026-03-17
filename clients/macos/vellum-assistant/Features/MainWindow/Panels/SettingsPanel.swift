@@ -370,38 +370,11 @@ struct SettingsPanel: View {
             )
 
             // IMAGE GENERATION
-            ServiceCredentialCard(
-                title: "Image Generation",
-                subtitle: "Enables AI image generation via Gemini",
-                isConnected: store.hasImageGenKey,
-                keyPlaceholder: "Enter your Gemini API key",
-                isManagedProxy: store.providerRoutingSources["gemini"] == "managed-proxy",
-                keyText: $imageGenKeyText,
-                onSave: {
-                    store.saveImageGenKey(imageGenKeyText)
-                    imageGenKeyText = ""
-                },
-                onReset: {
-                    store.clearImageGenKey()
-                    imageGenKeyText = ""
-                }
-            ) {
-                VStack(alignment: .leading, spacing: VSpacing.sm) {
-                    Text("Model")
-                        .font(VFont.inputLabel)
-                        .foregroundColor(VColor.contentSecondary)
-                    VDropdown(
-                        placeholder: "Select a model…",
-                        selection: Binding(
-                            get: { store.selectedImageGenModel },
-                            set: { store.setImageGenModel($0) }
-                        ),
-                        options: SettingsStore.availableImageGenModels.map { model in
-                            (label: SettingsStore.imageGenModelDisplayNames[model] ?? model, value: model)
-                        }
-                    )
-                }
-            }
+            ImageGenerationServiceCard(
+                store: store,
+                authManager: authManager,
+                apiKeyText: $imageGenKeyText
+            )
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
