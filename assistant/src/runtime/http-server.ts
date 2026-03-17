@@ -162,6 +162,7 @@ import { subagentRouteDefinitions } from "./routes/subagents-routes.js";
 import { surfaceActionRouteDefinitions } from "./routes/surface-action-routes.js";
 import { surfaceContentRouteDefinitions } from "./routes/surface-content-routes.js";
 import { telemetryRouteDefinitions } from "./routes/telemetry-routes.js";
+import { traceEventRouteDefinitions } from "./routes/trace-event-routes.js";
 import { trustRulesRouteDefinitions } from "./routes/trust-rules-routes.js";
 import { usageRouteDefinitions } from "./routes/usage-routes.js";
 import { watchRouteDefinitions } from "./routes/watch-routes.js";
@@ -1196,6 +1197,7 @@ export class RuntimeHttpServer {
 
       ...brainGraphRouteDefinitions({ mintUiPageToken }),
       ...eventsRouteDefinitions(),
+      ...traceEventRouteDefinitions(),
       ...migrationRouteDefinitions(),
 
       // Internal OAuth callback (gateway -> runtime)
