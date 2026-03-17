@@ -41,10 +41,10 @@ The command returns JSON with:
 
 ## Presenting Results
 
-Use `ui_show` with the `weather_forecast` card template for a native weather widget:
+**If a UI surface tool is available**, present weather data visually using the `weather_forecast` card template for a native weather widget:
 
 ```
-ui_show surface_type="card" data={
+surface_type="card" data={
   title: "Weather",
   template: "weather_forecast",
   templateData: {
@@ -57,6 +57,8 @@ ui_show surface_type="card" data={
 ```
 
 Map weather condition codes to SF Symbol names (e.g. "sun.max.fill", "cloud.rain.fill", "cloud.fill", "snowflake").
+
+**Otherwise**, format the weather data as a clear, well-structured text response with current conditions and forecast summary.
 
 ## Temperature Units
 
