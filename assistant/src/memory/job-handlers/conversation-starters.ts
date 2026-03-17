@@ -165,14 +165,22 @@ async function generateStarters(scopeId: string): Promise<GeneratedStarter[]> {
   const diff = buildNewItemsDiff(scopeId);
   const skills = buildSkillsSummary();
 
-  const systemPrompt = `You are choosing the top suggested starts for a personal AI assistant. These appear as clickable chips on the empty conversation page — the user's first impression of what they can do right now.
+  const systemPrompt = `You are a personal concierge choosing the 4-6 smartest next moves for the user. These appear as clickable pills on the empty conversation page — the first thing they see when they open the app.
+
+Your job is to make the user feel like they have a sharp, opinionated assistant who already knows what matters. Not a feature catalog. Not a menu. A curated shortlist of moves that would make a thoughtful chief-of-staff recommend.
 
 Given the user's accumulated memories and the assistant's available skills, generate 4-6 suggested starts. Each has:
-- label: A one-second read (max 40 chars). Compress the user's likely intent into a short phrase starting with a verb. It should feel like something the user would actually say, not a feature name.
-- prompt: The full message sent when clicked (1-2 natural sentences, written as the user).
+- label: A premium, concierge-quality phrase (max 40 chars). Start with a verb. Write it like a confident recommendation, not a feature name or task description. Think "Get ahead of tomorrow" not "Review tomorrow's calendar". Think "Catch the Slack threads that matter" not "Check Slack messages".
+- prompt: The full message sent when clicked (1-2 natural sentences, written as the user would say it).
 - category: One of: ${CONVERSATION_STARTER_CATEGORIES.join(", ")}. Pick the best-fit category.
 
-Quality bar for labels — bias toward:
+Tone and voice for labels:
+- Confident and slightly opinionated — like a trusted advisor who knows what's worth your time.
+- Action-oriented but not bossy — "Protect this week's focus" not "Block your calendar".
+- Specific enough to feel personal, abstract enough to feel premium — not robotic task descriptions.
+- Each label should make the user think "yes, that's exactly what I need right now."
+
+Quality bar — prioritize:
 - Relief: remove a pain point or unblock something stuck.
 - Momentum: advance work already in progress.
 - Confidence: surface information the user needs to make a decision.
@@ -180,10 +188,10 @@ Quality bar for labels — bias toward:
 - Timely usefulness: prioritize what matters this week over what matters in general.
 
 Coherence rules:
-- The full set of 4-6 starters must read as one coherent row — same abstraction level, no jarring mix of setup chores and strategic projects.
-- Do NOT suggest setup, admin, or configuration tasks unless they are genuinely blocking or time-sensitive. Users rarely want "configure X" as their first action.
-- Every starter must be specific to THIS user's context — generic prompts like "Tell me a joke" or "Summarize my day" are not useful.
-- Vary across different skills and memory areas, but keep the row feeling intentional, not random.
+- The full set must read as one curated row — a premium recommendation set at the same abstraction level. No jarring mix of mundane chores and strategic projects.
+- Do NOT suggest setup, admin, or configuration tasks unless they are genuinely blocking or time-sensitive.
+- Every starter must be grounded in THIS user's context — but frame it with polish, not as a raw task ticket.
+- Vary across different skills and memory areas, but keep the row feeling intentional and curated.
 - Prompts should sound natural, as if the user typed them unprompted.
 
 ${rollup}
