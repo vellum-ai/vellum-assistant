@@ -24,10 +24,6 @@ struct InferenceServiceCard: View {
         store.hasKey
     }
 
-    private var isManagedProxy: Bool {
-        store.providerRoutingSources["anthropic"] == "managed-proxy"
-    }
-
     private var isLoggedIn: Bool {
         authManager.isAuthenticated
     }
@@ -47,7 +43,7 @@ struct InferenceServiceCard: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: VSpacing.md) {
-            // Header: title + connected badge + subtitle
+            // Header: title + subtitle
             header
 
             // Integration Mode segmented control
@@ -94,25 +90,10 @@ struct InferenceServiceCard: View {
 
     private var header: some View {
         VStack(alignment: .leading, spacing: VSpacing.xs) {
-            HStack(spacing: VSpacing.sm) {
-                Text("Inference")
-                    .font(VFont.sectionTitle)
-                    .foregroundColor(VColor.contentDefault)
-
-                if isConnected || isManagedProxy {
-                    HStack(spacing: VSpacing.xs) {
-                        VIconView(.circleCheck, size: 12)
-                        Text("Connected")
-                            .font(VFont.captionMedium)
-                    }
-                    .foregroundColor(VColor.systemPositiveStrong)
-                    .padding(.horizontal, VSpacing.sm)
-                    .padding(.vertical, VSpacing.xxs)
-                    .background(VColor.systemPositiveStrong.opacity(0.12))
-                    .clipShape(Capsule())
-                }
-            }
-            Text("Used to power your assistant's intelligence")
+            Text("Inference")
+                .font(VFont.sectionTitle)
+                .foregroundColor(VColor.contentDefault)
+            Text("Configure which LLM provider and model to use to power your assistant")
                 .font(VFont.sectionDescription)
                 .foregroundColor(VColor.contentTertiary)
         }
@@ -139,7 +120,7 @@ struct InferenceServiceCard: View {
                 .frame(width: 220)
             } else {
                 // Not logged in — show segmented control with Managed disabled + tooltip
-                ZStack(alignment: .top) {
+                ZStack(alignment: .leading) {
                     VSegmentedControl(
                         items: [
                             (label: "Managed", tag: "managed"),
@@ -148,14 +129,12 @@ struct InferenceServiceCard: View {
                         selection: .constant("your-own"),
                         style: .pill
                     )
-                    .frame(width: 220)
 
                     // Invisible hover target over the "Managed" half
                     Color.clear
                         .frame(width: 110, height: 36)
                         .contentShape(Rectangle())
                         .onHover { isManagedHovered = $0 }
-                        .frame(maxWidth: .infinity, alignment: .leading)
                         .popover(isPresented: $isManagedHovered, arrowEdge: .top) {
                             Text("Log in to select")
                                 .font(VFont.captionMedium)
@@ -164,6 +143,7 @@ struct InferenceServiceCard: View {
                                 .padding(.vertical, VSpacing.xs)
                         }
                 }
+                .frame(width: 220)
             }
         }
     }
