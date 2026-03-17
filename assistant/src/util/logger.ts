@@ -109,7 +109,10 @@ function buildRotatingLogger(config: LogFileConfig): pino.Logger {
   // When stdout is not a TTY (e.g. desktop app redirects to a hatch log file),
   // write to the rotating file only — the hatch log already captured early
   // startup output and echoing pino output there is unnecessary duplication.
-  if (!process.stdout.isTTY) {
+  // Exception: in containers, always write to stdout so `docker logs` can
+  // capture sentinel messages (e.g. "DaemonServer started") that the CLI
+  // watches for during hatch.
+  if (!process.stdout.isTTY && !process.env.IS_CONTAINERIZED) {
     return pino(
       { name: "assistant", level: "info", serializers: logSerializers },
       fileStream,
