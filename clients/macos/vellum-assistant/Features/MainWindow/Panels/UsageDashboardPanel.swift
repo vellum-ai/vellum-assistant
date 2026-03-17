@@ -154,6 +154,7 @@ struct UsageDashboardPanel: View {
     private static let shortDateFormatter: DateFormatter = {
         let f = DateFormatter()
         f.dateFormat = "MMM d"
+        f.timeZone = .current
         return f
     }()
 
@@ -161,10 +162,12 @@ struct UsageDashboardPanel: View {
         let f = DateFormatter()
         f.dateFormat = "yyyy-MM-dd"
         f.locale = Locale(identifier: "en_US_POSIX")
+        f.timeZone = TimeZone(identifier: "UTC")!
         return f
     }()
 
-    /// Formats a date string (e.g. "2026-03-15") to a short label (e.g. "Mar 15").
+    /// Formats a date string (e.g. "2026-03-15") to a short label (e.g. "Mar 15")
+    /// using the computer's local timezone.
     private func formatShortDate(_ dateString: String) -> String {
         guard let date = Self.isoParser.date(from: dateString) else { return dateString }
         return Self.shortDateFormatter.string(from: date)
@@ -216,28 +219,38 @@ struct UsageDashboardPanel: View {
 
     @ViewBuilder
     private func breakdownTable(_ entries: [UsageGroupBreakdownEntry]) -> some View {
-        VStack(spacing: VSpacing.sm) {
+        VStack(spacing: 0) {
             // Header row
-            HStack(alignment: .top, spacing: VSpacing.sm) {
+            HStack(alignment: .center, spacing: VSpacing.sm) {
                 Text("Group")
-                    .font(VFont.small)
+                    .font(VFont.captionMedium)
                     .foregroundColor(VColor.contentTertiary)
                     .frame(width: 130, alignment: .leading)
                 Text("Tokens")
-                    .font(VFont.small)
+                    .font(VFont.captionMedium)
                     .foregroundColor(VColor.contentTertiary)
                     .frame(maxWidth: .infinity, alignment: .leading)
                 Text("Cost")
-                    .font(VFont.small)
+                    .font(VFont.captionMedium)
                     .foregroundColor(VColor.contentTertiary)
-                    .frame(width: 60, alignment: .trailing)
+                    .frame(width: 70, alignment: .trailing)
             }
-            .padding(.bottom, VSpacing.xxs)
+            .padding(.horizontal, VSpacing.md)
+            .padding(.vertical, VSpacing.sm)
+            .background(VColor.borderBase.opacity(0.15))
 
-            ForEach(entries, id: \.group) { entry in
+            ForEach(Array(entries.enumerated()), id: \.element.group) { index, entry in
+                if index > 0 {
+                    Divider().background(VColor.borderBase)
+                }
                 breakdownRow(entry)
             }
         }
+        .overlay(
+            RoundedRectangle(cornerRadius: VRadius.md)
+                .stroke(VColor.borderBase, lineWidth: 1)
+        )
+        .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
         .frame(maxWidth: breakdownTableWidth, alignment: .leading)
     }
 
@@ -245,21 +258,23 @@ struct UsageDashboardPanel: View {
     func breakdownRow(_ entry: UsageGroupBreakdownEntry) -> some View {
         HStack(alignment: .top, spacing: VSpacing.sm) {
             Text(entry.group)
-                .font(VFont.captionMedium)
+                .font(VFont.body)
                 .foregroundColor(VColor.contentDefault)
                 .frame(width: 130, alignment: .leading)
                 .lineLimit(1)
             Text(UsageFormatting.formatBreakdownSummary(entry))
-                .font(VFont.small)
+                .font(VFont.caption)
                 .foregroundColor(VColor.contentSecondary)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .lineLimit(2)
                 .multilineTextAlignment(.leading)
             Text(formatCost(entry.totalEstimatedCostUsd))
-                .font(VFont.small)
-                .foregroundColor(VColor.contentSecondary)
-                .frame(width: 60, alignment: .trailing)
+                .font(VFont.body)
+                .foregroundColor(VColor.contentDefault)
+                .frame(width: 70, alignment: .trailing)
         }
+        .padding(.horizontal, VSpacing.md)
+        .padding(.vertical, VSpacing.sm)
     }
 
     // MARK: - Shared Components
@@ -268,10 +283,10 @@ struct UsageDashboardPanel: View {
     private func statCard(label: String, value: String) -> some View {
         VStack(alignment: .leading, spacing: VSpacing.xxs) {
             Text(value)
-                .font(VFont.captionMedium)
+                .font(VFont.bodyBold)
                 .foregroundColor(VColor.contentDefault)
             Text(label)
-                .font(VFont.small)
+                .font(VFont.caption)
                 .foregroundColor(VColor.contentTertiary)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
