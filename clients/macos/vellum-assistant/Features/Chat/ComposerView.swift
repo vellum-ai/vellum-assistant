@@ -439,10 +439,10 @@ struct ComposerView: View {
     @ViewBuilder
     private var textEntryComposer: some View {
         standardComposerShell {
-            HStack(alignment: isSending ? .center : .bottom, spacing: composerTextToButtonsGap) {
+            VStack(spacing: 0) {
                 composerTextField
                     .frame(minHeight: composerActionButtonSize)
-                composerActionButtons
+                composerActionBar
             }
         }
     }
@@ -453,34 +453,13 @@ struct ComposerView: View {
     /// match the ghost-ghost gap, compensating for the filled button having no internal padding.
     private let composerFilledGap: CGFloat = 12
 
-    /// Explicit width for the action buttons area based on the current state.
-    private var composerButtonsWidth: CGFloat {
-        let s = composerActionButtonSize
-        if isSending && !hasPendingConfirmation {
-            return s
-        } else if canSend {
-            // paperclip(ghost) + filledGap + send(primary)
-            return s + composerFilledGap + s
-        } else if inputText.isEmpty && !hasPendingConfirmation {
-            // paperclip(ghost) + ghostGap + mic(ghost) + filledGap + waveform(contrast)
-            return s + composerGhostGap + s + composerFilledGap + s
-        } else {
-            // paperclip(ghost) + ghostGap + mic(ghost)
-            return s + composerGhostGap + s
-        }
-    }
-
+    /// Bottom action bar: paperclip on the left, send/mic/stop on the right.
     @ViewBuilder
-    private var composerActionButtons: some View {
+    private var composerActionBar: some View {
         HStack(spacing: 0) {
+            // Left side
             if isSending && !hasPendingConfirmation {
-                VButton(
-                    label: "Stop generation",
-                    iconOnly: VIcon.square.rawValue,
-                    style: .contrast,
-                    iconSize: composerActionButtonSize,
-                    action: onStop
-                )
+                Spacer()
             } else {
                 VButton(
                     label: "Attach file",
@@ -491,62 +470,69 @@ struct ComposerView: View {
                 )
                 .disabled(!hasAPIKey)
 
-                if canSend {
-                    Spacer().frame(width: composerFilledGap)
-                    VButton(
-                        label: "Send message",
-                        iconOnly: VIcon.arrowUp.rawValue,
-                        style: .primary,
-                        iconSize: composerActionButtonSize
-                    ) {
-                        composerFocus = true
-                        onSend()
-                    }
-                } else if inputText.isEmpty && !hasPendingConfirmation {
-                    Spacer().frame(width: composerGhostGap)
-                    VButton(
-                        label: "Dictate",
-                        iconOnly: VIcon.mic.rawValue,
-                        style: .ghost,
-                        iconSize: composerActionButtonSize,
-                        action: { (onDictateToggle ?? onMicrophoneToggle)() }
-                    )
-                    .disabled(!hasAPIKey)
+                Spacer()
+            }
 
-                    Spacer().frame(width: composerFilledGap)
-                    VButton(
-                        label: "Voice mode",
-                        iconOnly: VIcon.audioWaveform.rawValue,
-                        style: .contrast,
-                        iconSize: composerActionButtonSize,
-                        action: { onVoiceModeToggle?() }
-                    )
-                    .disabled(!hasAPIKey)
-                    .popover(isPresented: $showVoiceModeHover, arrowEdge: .top) {
-                        Text("Start a live voice conversation with your assistant. Unlike the mic button, this is a real-time back-and-forth voice call.")
-                            .font(VFont.caption)
-                            .multilineTextAlignment(.leading)
-                            .frame(width: 200)
-                            .fixedSize(horizontal: false, vertical: true)
-                            .padding(VSpacing.sm)
-                    }
-                    .onHover { hovering in
-                        showVoiceModeHover = hovering
-                    }
-                } else {
-                    Spacer().frame(width: composerGhostGap)
-                    VButton(
-                        label: isRecording ? "Stop recording" : "Start voice input",
-                        iconOnly: VIcon.mic.rawValue,
-                        style: .ghost,
-                        iconSize: composerActionButtonSize,
-                        action: { onMicrophoneToggle() }
-                    )
-                    .disabled(!hasAPIKey)
+            // Right side
+            if isSending && !hasPendingConfirmation {
+                VButton(
+                    label: "Stop generation",
+                    iconOnly: VIcon.square.rawValue,
+                    style: .contrast,
+                    iconSize: composerActionButtonSize,
+                    action: onStop
+                )
+            } else if canSend {
+                VButton(
+                    label: "Send message",
+                    iconOnly: VIcon.arrowUp.rawValue,
+                    style: .primary,
+                    iconSize: composerActionButtonSize
+                ) {
+                    composerFocus = true
+                    onSend()
                 }
+            } else if inputText.isEmpty && !hasPendingConfirmation {
+                VButton(
+                    label: "Dictate",
+                    iconOnly: VIcon.mic.rawValue,
+                    style: .ghost,
+                    iconSize: composerActionButtonSize,
+                    action: { (onDictateToggle ?? onMicrophoneToggle)() }
+                )
+                .disabled(!hasAPIKey)
+
+                Spacer().frame(width: composerFilledGap)
+                VButton(
+                    label: "Voice mode",
+                    iconOnly: VIcon.audioWaveform.rawValue,
+                    style: .contrast,
+                    iconSize: composerActionButtonSize,
+                    action: { onVoiceModeToggle?() }
+                )
+                .disabled(!hasAPIKey)
+                .popover(isPresented: $showVoiceModeHover, arrowEdge: .top) {
+                    Text("Start a live voice conversation with your assistant. Unlike the mic button, this is a real-time back-and-forth voice call.")
+                        .font(VFont.caption)
+                        .multilineTextAlignment(.leading)
+                        .frame(width: 200)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .padding(VSpacing.sm)
+                }
+                .onHover { hovering in
+                    showVoiceModeHover = hovering
+                }
+            } else {
+                VButton(
+                    label: isRecording ? "Stop recording" : "Start voice input",
+                    iconOnly: VIcon.mic.rawValue,
+                    style: .ghost,
+                    iconSize: composerActionButtonSize,
+                    action: { onMicrophoneToggle() }
+                )
+                .disabled(!hasAPIKey)
             }
         }
-        .frame(width: composerButtonsWidth, alignment: .trailing)
     }
 
     // MARK: - Dictation Inline Mode
