@@ -274,6 +274,7 @@ extension MainWindowView {
 
                     if regularConversations.count > 5 {
                         HStack {
+                            Spacer()
                             VButton(
                                 label: sidebar.showAllConversations ? "Show less" : "Show more",
                                 style: .ghost,
@@ -281,9 +282,7 @@ extension MainWindowView {
                             ) {
                                 withAnimation(VAnimation.fast) { sidebar.showAllConversations.toggle() }
                             }
-                            Spacer()
                         }
-                        .padding(.leading, VSpacing.xs + SidebarLayoutMetrics.iconSlotSize + VSpacing.xs)
                     }
 
                     if !scheduleConversations.isEmpty {
@@ -422,6 +421,7 @@ extension MainWindowView {
 
                         if scheduleConversationGroups.count > 3 {
                             HStack {
+                                Spacer()
                                 VButton(
                                     label: sidebar.showAllScheduleConversations ? "Show less" : "Show more",
                                     style: .ghost,
@@ -429,9 +429,7 @@ extension MainWindowView {
                                 ) {
                                     withAnimation(VAnimation.fast) { sidebar.showAllScheduleConversations.toggle() }
                                 }
-                                Spacer()
                             }
-                            .padding(.leading, VSpacing.xs + SidebarLayoutMetrics.iconSlotSize + VSpacing.xs)
                         }
                     }
                 }
