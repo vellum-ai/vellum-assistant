@@ -33,13 +33,9 @@ enum ExecutorError: LocalizedError {
     }
 }
 
-protocol ActionExecuting {
-    func execute(_ action: AgentAction) async throws -> String?
-}
-
 private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "ActionExecutor")
 
-final class ActionExecutor: ActionExecuting {
+final class ActionExecutor {
     private let eventSource: CGEventSource?
 
     init() {
