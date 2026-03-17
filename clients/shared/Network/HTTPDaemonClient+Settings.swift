@@ -167,8 +167,6 @@ extension HTTPTransport {
             }
             if let msg = message as? TelegramConfigRequestMessage {
                 switch msg.action {
-                case "get":
-                    Task { await self.sendEncodablePostAndDispatch(.integrationsTelegramConfig, body: msg, method: "GET", messageType: "telegram_config_response", label: "telegram_config_get") }
                 case "clear":
                     Task { await self.sendEncodablePostAndDispatch(.integrationsTelegramConfig, body: msg, method: "DELETE", messageType: "telegram_config_response", label: "telegram_config_clear") }
                 default:
@@ -179,9 +177,6 @@ extension HTTPTransport {
             }
             if let msg = message as? ChannelVerificationSessionRequestMessage {
                 switch msg.action {
-                case "status":
-                    let channel = msg.channel ?? "telegram"
-                    Task { await self.sendVerificationStatusGetAndDispatch(channel: channel) }
                 case "cancel_session":
                     Task { await self.sendEncodablePostAndDispatch(.channelVerificationSessions, body: msg, method: "DELETE", messageType: "channel_verification_session_response", label: "channel_verification_cancel", channel: msg.channel) }
                 case "revoke":
@@ -451,61 +446,6 @@ extension HTTPTransport {
         if let syntheticData = try? JSONSerialization.data(withJSONObject: syntheticJSON),
            let serverMessage = try? decoder.decode(ServerMessage.self, from: syntheticData) {
             onMessage?(serverMessage)
-        }
-    }
-
-    /// Fetch channel verification status via GET with a channel query parameter,
-    /// then dispatch the response through the message handler chain.
-    private func sendVerificationStatusGetAndDispatch(channel: String) async {
-        guard var url = buildURL(for: .channelVerificationSessionsStatus) else {
-            log.error("Failed to build URL for channel_verification_status")
-            return
-        }
-        // Append the channel query parameter
-        if var components = URLComponents(url: url, resolvingAgainstBaseURL: false) {
-            var items = components.queryItems ?? []
-            items.append(URLQueryItem(name: "channel", value: channel))
-            components.queryItems = items
-            if let resolved = components.url {
-                url = resolved
-            }
-        }
-
-        var request = URLRequest(url: url)
-        request.httpMethod = "GET"
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        applyAuth(&request)
-
-        do {
-            let (data, response) = try await URLSession.shared.data(for: request)
-            guard let http = response as? HTTPURLResponse else { return }
-
-            if !(200...299).contains(http.statusCode) {
-                log.error("channel_verification_status failed: \(http.statusCode)")
-                var errorMessage = "HTTP \(http.statusCode)"
-                if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-                   let error = json["error"] as? [String: Any],
-                   let message = error["message"] as? String {
-                    errorMessage = message
-                } else if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-                          let message = json["error"] as? String {
-                    errorMessage = message
-                }
-                dispatchSyntheticError(messageType: "channel_verification_session_response", errorMessage: errorMessage, channel: channel)
-                return
-            }
-
-            guard var json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
-                log.error("channel_verification_status: failed to parse response JSON")
-                return
-            }
-            json["type"] = "channel_verification_session_response"
-            let enriched = try JSONSerialization.data(withJSONObject: json)
-            let serverMessage = try decoder.decode(ServerMessage.self, from: enriched)
-            onMessage?(serverMessage)
-        } catch {
-            log.error("channel_verification_status error: \(error.localizedDescription)")
-            dispatchSyntheticError(messageType: "channel_verification_session_response", errorMessage: error.localizedDescription, channel: channel)
         }
     }
 
