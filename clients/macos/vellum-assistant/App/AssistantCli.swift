@@ -169,7 +169,7 @@ final class AssistantCli {
         let (_, stderr, status) = try await runCLI(binaryURL: binaryURL, arguments: arguments)
 
         if status != 0 {
-            log.error("CLI hatch failed with exit code \(status, privacy: .public): \(stderr, privacy: .public)")
+            log.error("CLI hatch failed with exit code \(status, privacy: .public): \(stderr, privacy: .private)")
             throw CLIError.daemonStartupFailed(Self.parseDaemonStartupError(from: stderr))
         }
 
@@ -271,7 +271,7 @@ final class AssistantCli {
         }
 
         if status != 0 {
-            log.error("CLI retire failed with exit code \(status, privacy: .public): \(stderr, privacy: .public)")
+            log.error("CLI retire failed with exit code \(status, privacy: .public): \(stderr, privacy: .private)")
             throw CLIError.executionFailed(stderr)
         }
 
@@ -338,7 +338,7 @@ final class AssistantCli {
         let (_, stderr, status) = try await runCLI(binaryURL: binaryURL, arguments: ["wake", name])
 
         if status != 0 {
-            log.error("CLI wake failed with exit code \(status, privacy: .public): \(stderr, privacy: .public)")
+            log.error("CLI wake failed with exit code \(status, privacy: .public): \(stderr, privacy: .private)")
             throw CLIError.executionFailed(stderr)
         }
         log.info("CLI wake completed successfully for '\(name, privacy: .public)'")
@@ -355,7 +355,7 @@ final class AssistantCli {
         let (_, stderr, status) = try await runCLI(binaryURL: binaryURL, arguments: ["sleep", name])
 
         if status != 0 {
-            log.error("CLI sleep failed with exit code \(status, privacy: .public): \(stderr, privacy: .public)")
+            log.error("CLI sleep failed with exit code \(status, privacy: .public): \(stderr, privacy: .private)")
             throw CLIError.executionFailed(stderr)
         }
         log.info("CLI sleep completed successfully for '\(name, privacy: .public)'")
@@ -512,7 +512,7 @@ final class AssistantCli {
             let detail = stderr.isEmpty
                 ? "Hatch process exited with code \(status)"
                 : stderr
-            log.error("CLI remote hatch failed with exit code \(status): \(detail, privacy: .public)")
+            log.error("CLI remote hatch failed with exit code \(status): \(detail, privacy: .private)")
             throw CLIError.executionFailed(detail)
         }
 
@@ -594,7 +594,7 @@ final class AssistantCli {
             let detail = stderr.isEmpty
                 ? "Pair process exited with code \(status)"
                 : stderr
-            log.error("CLI pair failed with exit code \(status): \(detail, privacy: .public)")
+            log.error("CLI pair failed with exit code \(status): \(detail, privacy: .private)")
             throw CLIError.executionFailed(detail)
         }
 
