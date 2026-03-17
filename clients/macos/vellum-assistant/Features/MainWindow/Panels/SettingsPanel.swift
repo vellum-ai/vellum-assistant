@@ -137,14 +137,23 @@ struct SettingsPanel: View {
             await loadFeatureFlags()
         }
         .onAppear {
-            isBillingEnabled = MacOSClientFeatureFlagManager.shared.isEnabled(Self.billingFeatureFlagKey)
+            let billingEnabled = MacOSClientFeatureFlagManager.shared.isEnabled(Self.billingFeatureFlagKey)
+            isBillingEnabled = billingEnabled
             store.refreshAPIKeyState()
             store.loadProviderRoutingSources()
             store.refreshTelegramStatus()
             store.refreshTwilioStatus()
             store.refreshIngressConfig()
             if let pending = store.pendingSettingsTab {
-                if allVisibleTabs.contains(pending) {
+                // Compute visibility inline using the fresh local value — @State
+                // mutations within .onAppear may not propagate to computed
+                // properties (billingVisible → allVisibleTabs) until the next
+                // render cycle, which caused "Add funds" to land on the General
+                // tab instead of Billing.
+                let canShowBilling = billingEnabled && authManager.isAuthenticated && connectedOrgId != nil
+                let visibleTabs = SettingsTab.primaryTabs(contactsEnabled: isContactsEnabled, billingEnabled: canShowBilling)
+                    + (isDeveloperEnabled ? [.developer] : [])
+                if visibleTabs.contains(pending) {
                     selectedTab = pending
                 }
                 store.pendingSettingsTab = nil
