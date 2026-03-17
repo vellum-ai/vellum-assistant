@@ -400,10 +400,11 @@ extension AppDelegate {
                     log.info("Local assistant API key provisioned: \(id, privacy: .public)")
                 }
 
-                // Set service modes to "managed" for any services that don't already have a
-                // mode configured. On first bootstrap this sets all three; on subsequent app
-                // restarts the user's existing choices are preserved.
-                WorkspaceConfigIO.initializeServiceDefaults(defaultMode: "managed")
+                // Set service modes to "managed", forcing overwrite so that daemon-
+                // materialized schema defaults ("your-own") are replaced on first
+                // authenticated startup. On subsequent restarts the user's explicit
+                // choices are preserved because authentication is already established.
+                WorkspaceConfigIO.initializeServiceDefaults(defaultMode: "managed", force: true)
 
                 self.localBootstrapDidComplete = true
                 SentryDeviceInfo.updateOrganizationTag(UserDefaults.standard.string(forKey: "connectedOrganizationId"))
