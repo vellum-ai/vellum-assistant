@@ -7,6 +7,8 @@ struct DebugPanel: View {
     let activeSessionId: String?
     var onClose: () -> Void
 
+    @State private var isLoadingHistory = false
+
     private var hasEvents: Bool {
         guard let conversationId = activeSessionId else { return false }
         return !(traceStore.eventsByConversation[conversationId] ?? []).isEmpty
@@ -30,11 +32,19 @@ struct DebugPanel: View {
             if !hasEvents {
                 Spacer()
                 if activeSessionId != nil {
-                    VEmptyState(
-                        title: "No trace events yet",
-                        subtitle: "Events will appear as the session runs",
-                        icon: "waveform.path"
-                    )
+                    if isLoadingHistory {
+                        VEmptyState(
+                            title: "Loading trace history...",
+                            subtitle: "Fetching persisted events from the assistant",
+                            icon: "waveform.path"
+                        )
+                    } else {
+                        VEmptyState(
+                            title: "No trace events yet",
+                            subtitle: "Events will appear as the session runs",
+                            icon: "waveform.path"
+                        )
+                    }
                 } else {
                     VEmptyState(
                         title: "No session selected",
@@ -49,8 +59,31 @@ struct DebugPanel: View {
             // state is rendered in pinnedContent above to avoid scrolling.
             EmptyView()
         }
-        .onAppear { traceStore.isObserved = true }
+        .onAppear {
+            traceStore.isObserved = true
+            hydrateIfNeeded()
+        }
         .onDisappear { traceStore.isObserved = false }
+        .onChange(of: activeSessionId) { _, _ in
+            hydrateIfNeeded()
+        }
+    }
+
+    // MARK: - History Hydration
+
+    private func hydrateIfNeeded() {
+        guard let conversationId = activeSessionId else { return }
+        guard !hasEvents, !isLoadingHistory else { return }
+        isLoadingHistory = true
+        Task {
+            defer { isLoadingHistory = false }
+            do {
+                let events = try await daemonClient.fetchTraceEventHistory(conversationId: conversationId)
+                traceStore.loadHistory(events)
+            } catch {
+                // Fetch failed — fall back to the existing "No trace events yet" empty state.
+            }
+        }
     }
 
     // MARK: - Metrics Strip
