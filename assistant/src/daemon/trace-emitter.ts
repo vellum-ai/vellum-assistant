@@ -37,7 +37,7 @@ export class TraceEmitter {
     // have strictly higher sequence numbers, even across daemon restarts.
     try {
       const maxPersisted = getMaxSequence(conversationId);
-      this.sequence = maxPersisted > 0 ? maxPersisted + 1 : 0;
+      this.sequence = maxPersisted + 1;
     } catch {
       this.sequence = 0;
     }

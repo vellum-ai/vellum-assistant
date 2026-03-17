@@ -135,7 +135,7 @@ export function deleteOldTraceEvents(maxAgeDays: number): number {
 
 /**
  * Return the highest sequence number persisted for a conversation,
- * or 0 if no events exist yet.
+ * or -1 if no events exist yet.
  */
 export function getMaxSequence(conversationId: string): number {
   const db = getDb();
@@ -144,5 +144,5 @@ export function getMaxSequence(conversationId: string): number {
     .from(traceEvents)
     .where(eq(traceEvents.conversationId, conversationId))
     .get();
-  return row?.maxSeq ?? 0;
+  return row?.maxSeq ?? -1;
 }
