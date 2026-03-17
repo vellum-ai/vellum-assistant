@@ -177,6 +177,29 @@ struct FeedbackGallerySection: View {
 
             Divider().background(VColor.borderBase).padding(.vertical, VSpacing.md)
 
+            // MARK: - VToast with Copyable Detail
+            GallerySectionHeader(
+                title: "VToast with Copyable Detail",
+                description: "Error toast with a clipboard button that copies debug information."
+            )
+
+            VStack(spacing: VSpacing.md) {
+                VToast(
+                    message: "Request failed unexpectedly.",
+                    style: .error,
+                    copyableDetail: "RequestError: timeout after 30s at /v1/chat/completions (req_abc123)"
+                )
+                VToast(
+                    message: "Could not connect to provider.",
+                    style: .error,
+                    copyableDetail: "ConnectionRefused: 127.0.0.1:8080",
+                    primaryAction: VToastAction(label: "Retry") {},
+                    onDismiss: {}
+                )
+            }
+
+            Divider().background(VColor.borderBase).padding(.vertical, VSpacing.md)
+
             // MARK: - VToast with Actions
             GallerySectionHeader(
                 title: "VToast with Actions",
