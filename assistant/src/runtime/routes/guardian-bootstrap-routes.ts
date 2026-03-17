@@ -91,7 +91,8 @@ export async function handleGuardianBootstrap(
   // network (loopback, Docker bridge, RFC 1918) the request is still
   // considered local. Only reject when the forwarded IP is public.
   const forwarded = req.headers.get("x-forwarded-for");
-  if (forwarded && !isPrivateAddress(forwarded) && !isHttpAuthDisabled()) {
+  const forwardedIp = forwarded ? forwarded.split(",")[0].trim() : null;
+  if (forwardedIp && !isPrivateAddress(forwardedIp) && !isHttpAuthDisabled()) {
     return httpError("FORBIDDEN", "Bootstrap endpoint is local-only", 403);
   }
 
