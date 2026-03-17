@@ -609,8 +609,7 @@ extension AppDelegate {
 
             // Try local assistants — check if awake, otherwise wake them
             for candidate in remaining {
-                let env: [String: String]? = candidate.instanceDir.map { ["BASE_DATA_DIR": $0] }
-                if DaemonClient.isDaemonProcessAlive(environment: env) {
+                if await DaemonClient.isGatewayReachable(for: candidate) {
                     performSwitchAssistant(to: candidate)
                     return true
                 }
