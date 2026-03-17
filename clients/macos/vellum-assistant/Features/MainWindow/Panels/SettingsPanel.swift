@@ -215,9 +215,7 @@ struct SettingsPanel: View {
             bootstrapGeneration += 1
         }
         .sheet(isPresented: $showingTrustRules) {
-            if let daemonClient {
-                TrustRulesView(daemonClient: daemonClient)
-            }
+            TrustRulesView(trustRuleClient: TrustRuleClient())
         }
         .onAppear {
             devUnlockMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in

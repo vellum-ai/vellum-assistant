@@ -504,11 +504,8 @@ public final class SettingsStore: ObservableObject {
             self.applyVercelConfigResponse(response)
         }
 
-        // Wire up model info response
-        daemonClient?.onModelInfo = { [weak self] response in
-            guard let self else { return }
-            self.applyModelInfoResponse(response)
-        }
+        // Model info is fetched via SettingsClient on init (refreshModelInfo)
+        // and on demand (setModel). No daemon callback wiring needed.
 
         // Wire up ingress config response
         daemonClient?.onIngressConfigResponse = { [weak self] response in
@@ -2201,12 +2198,13 @@ public final class SettingsStore: ObservableObject {
 
     func setModel(_ model: String) {
         guard model != lastDaemonModel else { return }
-        guard let daemonClient else { return }
-        do {
-            try daemonClient.sendModelSet(model: model)
-            lastDaemonModel = model
-        } catch {
-            // Send failed — don't update lastDaemonModel so the next attempt isn't suppressed
+        lastDaemonModel = model
+        Task {
+            let info = await SettingsClient().setModel(model: model)
+            if info == nil {
+                // Request failed — revert so a subsequent attempt isn't suppressed
+                lastDaemonModel = ""
+            }
         }
     }
 

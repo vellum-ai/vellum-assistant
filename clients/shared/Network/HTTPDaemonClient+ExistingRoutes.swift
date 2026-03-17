@@ -66,17 +66,11 @@ extension HTTPTransport {
             } else if let msg = message as? UiSurfaceActionMessage {
                 Task { await self.sendSurfaceAction(msg) }
                 return true
-            } else if let msg = message as? AddTrustRuleMessage {
-                Task { await self.sendAddTrustRule(msg) }
-                return true
-            } else if message is TrustRulesListMessage {
-                Task { await self.fetchTrustRules() }
-                return true
-            } else if let msg = message as? RemoveTrustRuleMessage {
-                Task { await self.sendRemoveTrustRule(msg) }
-                return true
-            } else if let msg = message as? UpdateTrustRuleMessage {
-                Task { await self.sendUpdateTrustRule(msg) }
+            } else if message is AddTrustRuleMessage
+                        || message is TrustRulesListMessage
+                        || message is RemoveTrustRuleMessage
+                        || message is UpdateTrustRuleMessage {
+                // Handled by TrustRuleClient via GatewayHTTPClient.
                 return true
             } else if message is PingMessage {
                 // No-op for HTTP transport — SSE keepalive is handled by the connection

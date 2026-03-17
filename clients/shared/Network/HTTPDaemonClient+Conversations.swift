@@ -34,11 +34,8 @@ extension HTTPTransport {
             } else if let msg = message as? RegenerateMessage {
                 Task { await self.regenerateLastResponse(conversationId: msg.conversationId) }
                 return true
-            } else if message is ModelGetRequestMessage {
-                Task { await self.fetchModelInfo() }
-                return true
-            } else if let msg = message as? ModelSetRequestMessage {
-                Task { await self.setModel(modelId: msg.model) }
+            } else if message is ModelGetRequestMessage || message is ModelSetRequestMessage {
+                // Handled by SettingsClient via GatewayHTTPClient.
                 return true
             } else if let msg = message as? ImageGenModelSetRequestMessage {
                 Task { await self.setImageGenModel(modelId: msg.model) }

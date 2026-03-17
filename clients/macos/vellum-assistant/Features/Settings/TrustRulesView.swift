@@ -4,7 +4,7 @@ import VellumAssistantShared
 // MARK: - Trust Rules View
 
 struct TrustRulesView: View {
-    let daemonClient: DaemonClient
+    let trustRuleClient: TrustRuleClientProtocol
     @Environment(\.dismiss) var dismiss
 
     @State private var rules: [TrustRuleItem] = []
@@ -60,24 +60,15 @@ struct TrustRulesView: View {
         }
         .frame(width: 600, height: 500)
         .onAppear {
-            daemonClient.isTrustRulesSheetOpen = true
-            daemonClient.onTrustRulesListResponse = { items in
-                rules = items
-                isLoading = false
-            }
             loadRules()
         }
-        .onDisappear {
-            daemonClient.onTrustRulesListResponse = nil
-            daemonClient.isTrustRulesSheetOpen = false
-        }
         .sheet(isPresented: $showingAddSheet) {
-            TrustRuleFormView(daemonClient: daemonClient) {
+            TrustRuleFormView(trustRuleClient: trustRuleClient) {
                 loadRules()
             }
         }
         .sheet(item: $editingRule) { rule in
-            TrustRuleFormView(daemonClient: daemonClient, existingRule: rule) {
+            TrustRuleFormView(trustRuleClient: trustRuleClient, existingRule: rule) {
                 loadRules()
             }
         }
@@ -101,17 +92,26 @@ struct TrustRulesView: View {
 
     @MainActor private func loadRules() {
         isLoading = true
-        try? daemonClient.sendListTrustRules()
+        Task {
+            do {
+                rules = try await trustRuleClient.fetchTrustRules()
+            } catch {
+                // Fetch failed — keep previous rules visible
+            }
+            isLoading = false
+        }
     }
 
     @MainActor private func deleteRule(id: String) {
-        do {
-            try daemonClient.sendRemoveTrustRule(id: id)
-            withAnimation {
-                rules.removeAll { $0.id == id }
+        Task {
+            do {
+                try await trustRuleClient.removeTrustRule(id: id)
+                withAnimation {
+                    rules.removeAll { $0.id == id }
+                }
+            } catch {
+                // Delete failed — keep the rule visible
             }
-        } catch {
-            // Send failed — keep the rule visible
         }
     }
 
@@ -191,7 +191,7 @@ private struct TrustRuleRow: View {
 // MARK: - Trust Rule Form (Add / Edit)
 
 private struct TrustRuleFormView: View {
-    let daemonClient: DaemonClient
+    let trustRuleClient: TrustRuleClientProtocol
     let existingRule: TrustRuleItem?
     let onSave: () -> Void
     @Environment(\.dismiss) var dismiss
@@ -204,8 +204,8 @@ private struct TrustRuleFormView: View {
 
     private let toolOptions = ["bash", "file_read", "file_write", "file_edit", "web_fetch", "skill_load"]
 
-    init(daemonClient: DaemonClient, existingRule: TrustRuleItem? = nil, onSave: @escaping () -> Void) {
-        self.daemonClient = daemonClient
+    init(trustRuleClient: TrustRuleClientProtocol, existingRule: TrustRuleItem? = nil, onSave: @escaping () -> Void) {
+        self.trustRuleClient = trustRuleClient
         self.existingRule = existingRule
         self.onSave = onSave
 
@@ -279,24 +279,28 @@ private struct TrustRuleFormView: View {
 
         let resolvedScope = isEverywhere ? "*" : scope.trimmingCharacters(in: .whitespacesAndNewlines)
 
-        if let existing = existingRule {
-            try? daemonClient.sendUpdateTrustRule(
-                id: existing.id,
-                tool: tool,
-                pattern: trimmedPattern,
-                scope: resolvedScope,
-                decision: decision
-            )
-        } else {
-            try? daemonClient.sendAddTrustRule(
-                toolName: tool,
-                pattern: trimmedPattern,
-                scope: resolvedScope,
-                decision: decision
-            )
-        }
+        Task {
+            if let existing = existingRule {
+                try? await trustRuleClient.updateTrustRule(
+                    id: existing.id,
+                    tool: tool,
+                    pattern: trimmedPattern,
+                    scope: resolvedScope,
+                    decision: decision
+                )
+            } else {
+                try? await trustRuleClient.addTrustRule(
+                    toolName: tool,
+                    pattern: trimmedPattern,
+                    scope: resolvedScope,
+                    decision: decision,
+                    allowHighRisk: nil,
+                    executionTarget: nil
+                )
+            }
 
-        onSave()
-        dismiss()
+            onSave()
+            dismiss()
+        }
     }
 }

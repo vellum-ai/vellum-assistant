@@ -1119,10 +1119,11 @@ public final class ChatViewModel: ObservableObject {
 
         // When "/model" or "/models" is sent, refresh model state so the picker/table has fresh data
         if (text == "/model" || text == "/models") && !hasSkillInvocation {
-            do {
-                try daemonClient.send(ModelGetRequestMessage())
-            } catch {
-                log.error("Failed to send ModelGetRequest: \(error)")
+            Task {
+                let info = await SettingsClient().fetchModelInfo()
+                if let model = info?.model {
+                    self.selectedModel = model
+                }
             }
         }
 
@@ -1676,17 +1677,18 @@ public final class ChatViewModel: ObservableObject {
 
     // MARK: - Model
 
-    /// Switch the active model via the daemon's `model_set` command.
+    /// Switch the active model via the gateway.
     public func setModel(_ modelId: String) {
-        // Ensure the message loop is running so we receive the model_info response.
+        // Ensure the message loop is running so we receive downstream events.
         // VMs restored with an existing conversationId may not have started it yet.
         if messageLoopTask == nil {
             startMessageLoop()
         }
-        do {
-            try daemonClient.send(ModelSetRequestMessage(model: modelId))
-        } catch {
-            log.error("Failed to send ModelSetRequest: \(error)")
+        Task {
+            let info = await SettingsClient().setModel(model: modelId)
+            if let model = info?.model {
+                self.selectedModel = model
+            }
         }
     }
 
@@ -2785,10 +2787,11 @@ public final class ChatViewModel: ObservableObject {
         }
         // Refresh model/provider state so the picker/table has correct data on restart
         if hasModelCommand {
-            do {
-                try daemonClient.send(ModelGetRequestMessage())
-            } catch {
-                log.error("Failed to send ModelGetRequest: \(error)")
+            Task {
+                let info = await SettingsClient().fetchModelInfo()
+                if let model = info?.model {
+                    self.selectedModel = model
+                }
             }
         }
 
