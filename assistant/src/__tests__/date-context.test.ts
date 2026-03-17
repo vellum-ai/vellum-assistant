@@ -551,7 +551,7 @@ describe("extractUserTimeZoneFromRecall", () => {
   });
 
   test("extracts IANA timezone from user_identity section", () => {
-    const text = `<memory_context>
+    const text = `<memory_context __injected>
 
 <user_identity>
 User's timezone is America/New_York
@@ -563,7 +563,7 @@ User works as a software engineer
   });
 
   test("extracts timezone from 'timezone: ...' line in identity", () => {
-    const text = `<memory_context>
+    const text = `<memory_context __injected>
 
 <user_identity>
 - name: Alice
@@ -576,7 +576,7 @@ User works as a software engineer
   });
 
   test("extracts UTC offset timezone", () => {
-    const text = `<memory_context>
+    const text = `<memory_context __injected>
 
 <user_identity>
 User's time zone is UTC+5:30
@@ -590,7 +590,7 @@ User's time zone is UTC+5:30
   });
 
   test("falls back to scanning full text when no identity section", () => {
-    const text = `<memory_context>
+    const text = `<memory_context __injected>
 
 <relevant_context>
 <episode source="Mar 5">
@@ -603,7 +603,7 @@ User mentioned their timezone is Asia/Tokyo
   });
 
   test("returns null when no timezone info present", () => {
-    const text = `<memory_context>
+    const text = `<memory_context __injected>
 
 <user_identity>
 User's name is Bob
@@ -615,7 +615,7 @@ User works at Acme Corp
   });
 
   test("prefers identity section over other sections", () => {
-    const text = `<memory_context>
+    const text = `<memory_context __injected>
 
 <user_identity>
 User's timezone is America/Chicago

@@ -126,7 +126,7 @@ export function buildTwoLayerInjection(params: {
   // Reserve tokens for XML wrapper overhead (<memory_context>, section tags,
   // newlines between sections) so the final assembled text stays within budget.
   const WRAPPER_OVERHEAD_TOKENS = estimateTextTokens(
-    "<memory_context>\n\n\n\n</memory_context>",
+    "<memory_context __injected>\n\n\n\n</memory_context>",
   );
   const SECTION_TAG_TOKENS = estimateTextTokens(
     "<possibly_relevant>\n\n</possibly_relevant>",
@@ -201,7 +201,7 @@ export function buildTwoLayerInjection(params: {
 
   if (sections.length === 0) return "";
 
-  return `<memory_context>\n\n${sections.join("\n\n")}\n\n</memory_context>`;
+  return `<memory_context __injected>\n\n${sections.join("\n\n")}\n\n</memory_context>`;
 }
 
 /**

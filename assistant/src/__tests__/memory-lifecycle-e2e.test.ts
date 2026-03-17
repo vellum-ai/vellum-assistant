@@ -366,13 +366,13 @@ describe("Memory lifecycle E2E regression", () => {
     expect(recall.enabled).toBe(true);
     expect(recall.injectedText.length).toBeGreaterThan(0);
     expect(recall.injectedTokens).toBeGreaterThan(0);
-    expect(recall.injectedText).toContain("<memory_context>");
+    expect(recall.injectedText).toContain("<memory_context __injected>");
     expect(recall.injectedText).toContain("</memory_context>");
   });
 
   test("stripping removes <memory_context> block from injected recall", () => {
     const memoryRecallText =
-      "<memory_context>\n\n<relevant_context>\nuser prefers concise answers\n</relevant_context>\n\n</memory_context>";
+      "<memory_context __injected>\n\n<relevant_context>\nuser prefers concise answers\n</relevant_context>\n\n</memory_context>";
     const originalMessages: Message[] = [
       {
         role: "user",
@@ -394,7 +394,7 @@ describe("Memory lifecycle E2E regression", () => {
     expect(b1.type === "text" && b1.text).toBe("Actual user request");
 
     // Stripped by prefix-based stripping (same mechanism as workspace/temporal)
-    const cleaned = stripUserTextBlocksByPrefix(injected, ["<memory_context>"]);
+    const cleaned = stripUserTextBlocksByPrefix(injected, ["<memory_context __injected>"]);
     expect(cleaned).toHaveLength(1);
     expect(cleaned[0].content).toHaveLength(1);
     const cb0 = cleaned[0].content[0];

@@ -71,7 +71,7 @@ export function needsMemory(messages: Message[], content: string): boolean {
  * Memory context is injected as a text content block prepended to the
  * last user message (same pattern as workspace/temporal injections).
  * Stripping is handled by `stripUserTextBlocksByPrefix` matching the
- * `<memory_context>` prefix in `RUNTIME_INJECTION_PREFIXES`.
+ * `<memory_context __injected>` prefix in `RUNTIME_INJECTION_PREFIXES`.
  */
 export async function prepareMemoryContext(
   ctx: MemoryPrepareContext,

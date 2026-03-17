@@ -744,7 +744,7 @@ function enrichSourceLabels(candidates: TieredCandidate[]): void {
  * message rather than a separate synthetic message pair.
  *
  * Stripping is handled by `stripUserTextBlocksByPrefix` matching the
- * `<memory_context>` prefix in `RUNTIME_INJECTION_PREFIXES`, so no
+ * `<memory_context __injected>` prefix in `RUNTIME_INJECTION_PREFIXES`, so no
  * dedicated strip function is needed.
  */
 export function injectMemoryRecallAsUserBlock(

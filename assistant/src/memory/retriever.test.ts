@@ -778,7 +778,7 @@ describe("Memory Retriever Pipeline", () => {
     ];
 
     const recallText =
-      "<memory_context>\n\n<relevant_context>\ntest\n</relevant_context>\n\n</memory_context>";
+      "<memory_context __injected>\n\n<relevant_context>\ntest\n</relevant_context>\n\n</memory_context>";
     const result = injectMemoryRecallAsUserBlock(msgs, recallText);
 
     // Same number of messages — no synthetic pair added
@@ -812,7 +812,7 @@ describe("Memory Retriever Pipeline", () => {
     ];
 
     const recallText =
-      "<memory_context>\n\n<relevant_context>\nfact\n</relevant_context>\n\n</memory_context>";
+      "<memory_context __injected>\n\n<relevant_context>\nfact\n</relevant_context>\n\n</memory_context>";
     const result = injectMemoryRecallAsUserBlock(msgs, recallText);
 
     expect(result).toHaveLength(3);
