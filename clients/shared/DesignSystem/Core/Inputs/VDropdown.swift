@@ -5,7 +5,7 @@ import SwiftUI
 /// Uses a `Menu` containing an inline `Picker` for proper selection semantics
 /// (automatic checkmarks, accessibility). The visual label is fully custom and
 /// the `.frame(maxWidth: .infinity)` is applied inside the label closure so the
-/// borderless button style expands to fill the parent width.
+/// button style expands to fill the parent width.
 public struct VDropdown<T: Hashable>: View {
     public let placeholder: String
     @Binding public var selection: T
@@ -70,7 +70,8 @@ public struct VDropdown<T: Hashable>: View {
                     .stroke(VColor.borderBase.opacity(0.5), lineWidth: 1)
             )
         }
-        .menuStyle(.borderlessButton)
+        .menuStyle(.button)
+        .buttonStyle(.plain)
         .menuIndicator(.hidden)
         .accessibilityLabel(selectedLabel ?? placeholder)
     }
