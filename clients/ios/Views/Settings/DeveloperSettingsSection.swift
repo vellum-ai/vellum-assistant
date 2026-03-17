@@ -88,7 +88,6 @@ private struct DeveloperSettingsSectionContent: View {
         .sheet(isPresented: $showDebugPanel) {
             DebugPanelView(
                 traceStore: traceStore,
-                daemonClient: clientProvider.client as? DaemonClient ?? DaemonClient(),
                 conversationId: selectedConversationId,
                 onClose: { showDebugPanel = false }
             )

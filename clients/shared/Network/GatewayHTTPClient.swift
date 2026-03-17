@@ -322,7 +322,12 @@ public enum GatewayHTTPClient {
         params: [String: String]?,
         connection: ConnectionInfo
     ) throws -> URL {
-        let resolvedPath = path.replacingOccurrences(of: "{assistantId}", with: connection.assistantId)
+        var resolvedPath = path.replacingOccurrences(of: "{assistantId}", with: connection.assistantId)
+        // QR-mode connections have an empty assistantId — collapse the empty scope
+        // prefix so e.g. "assistants//trace-events" falls back to "trace-events".
+        if connection.assistantId.isEmpty {
+            resolvedPath = resolvedPath.replacingOccurrences(of: "assistants//", with: "")
+        }
 
         let pathComponent: String
         let queryComponent: String
