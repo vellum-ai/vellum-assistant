@@ -16,16 +16,40 @@ public enum GuardianTokenFileReader {
     // MARK: - On-Disk Schema
 
     /// Matches the JSON shape written by the CLI's `saveGuardianToken()`.
+    /// Timestamp fields may be either epoch-millisecond numbers or ISO-8601
+    /// strings depending on the CLI version.
     private struct GuardianTokenFile: Decodable {
         let guardianPrincipalId: String
         let accessToken: String
-        let accessTokenExpiresAt: String
+        let accessTokenExpiresAt: StringOrNumber
         let refreshToken: String
-        let refreshTokenExpiresAt: String
-        let refreshAfter: String
+        let refreshTokenExpiresAt: StringOrNumber
+        let refreshAfter: StringOrNumber
         let isNew: Bool
         let deviceId: String
         let leasedAt: String
+    }
+
+    /// Decodes a JSON value that may be either a string or a number.
+    private enum StringOrNumber: Decodable {
+        case string(String)
+        case number(Int)
+
+        init(from decoder: Decoder) throws {
+            let container = try decoder.singleValueContainer()
+            if let intValue = try? container.decode(Int.self) {
+                self = .number(intValue)
+            } else {
+                self = .string(try container.decode(String.self))
+            }
+        }
+
+        var stringValue: String {
+            switch self {
+            case .string(let s): return s
+            case .number(let n): return String(n)
+            }
+        }
     }
 
     // MARK: - Public API
@@ -59,16 +83,16 @@ public enum GuardianTokenFileReader {
             return false
         }
 
-        // The CLI stores expiry timestamps as ISO-8601 strings.
-        // Convert to epoch milliseconds for ActorTokenManager.
+        // Convert timestamps to epoch milliseconds for ActorTokenManager.
+        // The CLI may write these as epoch-millisecond numbers or ISO-8601 strings.
         guard let accessExpiresEpoch = epochMillis(from: token.accessTokenExpiresAt),
               let refreshExpiresEpoch = epochMillis(from: token.refreshTokenExpiresAt),
               let refreshAfterEpoch = epochMillis(from: token.refreshAfter) else {
             log.warning("""
                 Guardian token file at \(path, privacy: .public) has unparseable timestamps — skipping import. \
-                accessTokenExpiresAt=\(token.accessTokenExpiresAt, privacy: .public), \
-                refreshTokenExpiresAt=\(token.refreshTokenExpiresAt, privacy: .public), \
-                refreshAfter=\(token.refreshAfter, privacy: .public)
+                accessTokenExpiresAt=\(token.accessTokenExpiresAt.stringValue, privacy: .public), \
+                refreshTokenExpiresAt=\(token.refreshTokenExpiresAt.stringValue, privacy: .public), \
+                refreshAfter=\(token.refreshAfter.stringValue, privacy: .public)
                 """)
             return false
         }
@@ -137,22 +161,26 @@ public enum GuardianTokenFileReader {
 
     // MARK: - Timestamp Parsing
 
-    /// Parses an ISO-8601 date string into epoch milliseconds.
-    private static func epochMillis(from iso8601String: String) -> Int? {
-        // Try fractional seconds first, then plain.
-        let fractional = ISO8601DateFormatter()
-        fractional.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+    /// Converts a `StringOrNumber` timestamp to epoch milliseconds.
+    /// Handles numeric values directly and parses ISO-8601 strings.
+    private static func epochMillis(from value: StringOrNumber) -> Int? {
+        switch value {
+        case .number(let ms):
+            return ms
+        case .string(let str):
+            let fractional = ISO8601DateFormatter()
+            fractional.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
 
-        let plain = ISO8601DateFormatter()
-        plain.formatOptions = [.withInternetDateTime]
+            let plain = ISO8601DateFormatter()
+            plain.formatOptions = [.withInternetDateTime]
 
-        guard let date = fractional.date(from: iso8601String) ?? plain.date(from: iso8601String) else {
-            // The CLI may also store epoch-millisecond strings directly.
-            if let epochMs = Int(iso8601String) {
+            if let date = fractional.date(from: str) ?? plain.date(from: str) {
+                return Int(date.timeIntervalSince1970 * 1000)
+            }
+            if let epochMs = Int(str) {
                 return epochMs
             }
             return nil
         }
-        return Int(date.timeIntervalSince1970 * 1000)
     }
 }
