@@ -165,7 +165,7 @@ struct AssistantChannelsDetailView: View {
                     }
                 })
                 SettingsDivider()
-                mockConnectedRow(name: "Email", value: "cartman@vellum.ai", icon: .mail, expandedBinding: $emailRowExpanded, expandContent: { EmptyView() })
+                mockConnectedRow(name: "Email", value: "cartman@vellum.ai", icon: .mail, expandedBinding: $emailRowExpanded, isExpandable: false, expandContent: { EmptyView() })
             }
         }
     }
@@ -173,7 +173,7 @@ struct AssistantChannelsDetailView: View {
     // MARK: - Mock Connected Row (temporary preview)
 
     @ViewBuilder
-    private func mockConnectedRow<Content: View>(name: String, value: String, icon: VIcon, expandedBinding: Binding<Bool>, @ViewBuilder expandContent: @escaping () -> Content) -> some View {
+    private func mockConnectedRow<Content: View>(name: String, value: String, icon: VIcon, expandedBinding: Binding<Bool>, isExpandable: Bool = true, @ViewBuilder expandContent: @escaping () -> Content) -> some View {
         VStack(alignment: .leading, spacing: VSpacing.sm) {
             ChannelRowHeader(
                 name: name,
@@ -182,6 +182,7 @@ struct AssistantChannelsDetailView: View {
                 value: value,
                 isConnected: true,
                 isExpanded: expandedBinding,
+                isExpandable: isExpandable,
                 isDisconnectDisabled: false,
                 onDisconnect: { _ in }
             )
@@ -190,6 +191,7 @@ struct AssistantChannelsDetailView: View {
             if expandedBinding.wrappedValue {
                 expandContent()
                     .padding(.top, VSpacing.sm)
+                    .padding(.bottom, VSpacing.md)
             }
         }
     }
@@ -390,14 +392,15 @@ struct AssistantChannelsDetailView: View {
         let value: String?
         let isConnected: Bool
         @Binding var isExpanded: Bool
+        var isExpandable: Bool = true
         var setupAction: (() -> Void)?
         var isDisconnectDisabled: Bool = false
         var onDisconnect: ((String) -> Void)?
 
         var body: some View {
             HStack(spacing: VSpacing.sm) {
-                // Left: chevron (when connected) + channel icon + name
-                if isConnected {
+                // Left: chevron (when connected and expandable) + channel icon + name
+                if isConnected && isExpandable {
                     VIconView(isExpanded ? .chevronUp : .chevronDown, size: 12)
                         .foregroundColor(VColor.contentTertiary)
                 }
@@ -437,7 +440,7 @@ struct AssistantChannelsDetailView: View {
             .frame(minHeight: 36)
             .contentShape(Rectangle())
             .onTapGesture {
-                if isConnected {
+                if isConnected && isExpandable {
                     withAnimation(VAnimation.fast) {
                         isExpanded.toggle()
                     }

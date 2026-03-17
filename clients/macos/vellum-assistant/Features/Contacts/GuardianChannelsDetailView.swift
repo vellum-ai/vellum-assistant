@@ -30,6 +30,7 @@ struct GuardianChannelsDetailView: View {
     @State private var actionInProgress: String? = nil
     @State private var errorMessage: String? = nil
     @State private var errorChannelType: String? = nil
+    @State private var channelToRevoke: (id: String, type: String)? = nil
 
     var displayContact: ContactPayload {
         currentContact ?? contact
@@ -44,6 +45,26 @@ struct GuardianChannelsDetailView: View {
             } else {
                 content
             }
+        }
+        .confirmationDialog(
+            "Revoke \(channelLabel(for: channelToRevoke?.type ?? "")) access?",
+            isPresented: Binding(
+                get: { channelToRevoke != nil },
+                set: { if !$0 { channelToRevoke = nil } }
+            ),
+            titleVisibility: .visible
+        ) {
+            Button("Revoke", role: .destructive) {
+                if let revoke = channelToRevoke {
+                    disconnectChannel(channelId: revoke.id, type: revoke.type)
+                }
+                channelToRevoke = nil
+            }
+            Button("Cancel", role: .cancel) {
+                channelToRevoke = nil
+            }
+        } message: {
+            Text("This will revoke the verified connection for this channel. The contact will need to re-verify to use this channel again.")
         }
         .onAppear {
             startVerificationCountdownTimer()
