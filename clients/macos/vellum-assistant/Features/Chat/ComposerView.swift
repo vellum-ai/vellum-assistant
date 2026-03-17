@@ -451,6 +451,7 @@ struct ComposerView: View {
         standardComposerShell {
             VStack(spacing: 0) {
                 composerTextField
+                    .padding(.leading, VSpacing.xs)
                     .frame(minHeight: composerActionButtonSize)
                 composerActionBar
             }
