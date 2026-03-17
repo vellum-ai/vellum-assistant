@@ -12,7 +12,10 @@ import pino from "pino";
 import type { PrettyOptions } from "pino-pretty";
 import pinoPretty from "pino-pretty";
 
-import { getDebugStdoutLogs } from "../config/env-registry.js";
+import {
+  getDebugStdoutLogs,
+  getIsContainerized,
+} from "../config/env-registry.js";
 import { logSerializers } from "./log-redact.js";
 import { getLogPath } from "./platform.js";
 
@@ -111,7 +114,7 @@ function buildRotatingLogger(config: LogFileConfig): pino.Logger {
   // startup output and echoing pino output there is unnecessary duplication.
   // Exception: in containers, always write to stdout so `docker logs` can
   // capture daemon output for debugging.
-  if (!process.stdout.isTTY && !process.env.IS_CONTAINERIZED) {
+  if (!process.stdout.isTTY && !getIsContainerized()) {
     return pino(
       { name: "assistant", level: "info", serializers: logSerializers },
       fileStream,

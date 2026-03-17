@@ -749,31 +749,31 @@ async function waitForGatewayAndLease(opts: {
   log(`  Container: ${containerName}`);
   log(`  Runtime: ${runtimeUrl}`);
   log("");
-  log("Waiting for gateway to become healthy...");
+  log("Waiting for assistant to become ready...");
 
-  const healthUrl = `${runtimeUrl}/healthz`;
+  const readyUrl = `${runtimeUrl}/readyz`;
   const start = Date.now();
-  let healthy = false;
+  let ready = false;
 
   while (Date.now() - start < DOCKER_READY_TIMEOUT_MS) {
     try {
-      const resp = await fetch(healthUrl, {
-        signal: AbortSignal.timeout(2000),
+      const resp = await fetch(readyUrl, {
+        signal: AbortSignal.timeout(5000),
       });
       if (resp.ok) {
-        healthy = true;
+        ready = true;
         break;
       }
-      log(`Gateway health check: ${resp.status} (retrying...)`);
+      log(`Readiness check: ${resp.status} (retrying...)`);
     } catch {
-      // Connection refused / timeout — gateway not up yet
+      // Connection refused / timeout — not up yet
     }
     await new Promise((r) => setTimeout(r, 1000));
   }
 
-  if (!healthy) {
+  if (!ready) {
     log("");
-    log(`   \u26a0\ufe0f  Timed out waiting for gateway to become healthy.`);
+    log(`   \u26a0\ufe0f  Timed out waiting for assistant to become ready.`);
     log(`   The container is still running.`);
     log(`   Check logs with: docker logs -f ${containerName}`);
     log("");
@@ -781,12 +781,11 @@ async function waitForGatewayAndLease(opts: {
   }
 
   const elapsedSec = ((Date.now() - start) / 1000).toFixed(1);
-  log(`Gateway healthy after ${elapsedSec}s`);
+  log(`Assistant ready after ${elapsedSec}s`);
 
-  // Lease guardian token. The gateway /healthz only confirms the gateway
-  // process itself is running — the upstream assistant container may not be
-  // ready to handle proxied requests yet (→ 502). Retry with backoff until
-  // the assistant is reachable or we hit the overall timeout.
+  // Lease guardian token. The /readyz check confirms both gateway and
+  // assistant are reachable. Retry with backoff in case there is a brief
+  // window where readiness passes but the guardian endpoint is not yet ready.
   log(`Guardian token lease: starting for ${instanceName} at ${runtimeUrl}`);
   const leaseStart = Date.now();
   const leaseDeadline = start + DOCKER_READY_TIMEOUT_MS;

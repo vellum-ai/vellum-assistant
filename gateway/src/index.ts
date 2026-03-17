@@ -825,6 +825,17 @@ async function main() {
       // ── Pre-router: health/readiness probes ──
       // These bypass rate limiting and tracing for minimal overhead.
       if (url.pathname === "/healthz") {
+        return Response.json({ status: "ok" });
+      }
+
+      if (url.pathname === "/schema") {
+        return Response.json(buildSchema());
+      }
+
+      if (url.pathname === "/readyz") {
+        if (draining) {
+          return Response.json({ status: "draining" }, { status: 503 });
+        }
         // Check that the upstream assistant is also reachable so callers
         // know the full stack is ready, not just the gateway process.
         try {
@@ -843,17 +854,6 @@ async function main() {
             { status: "upstream_unreachable" },
             { status: 503 },
           );
-        }
-        return Response.json({ status: "ok" });
-      }
-
-      if (url.pathname === "/schema") {
-        return Response.json(buildSchema());
-      }
-
-      if (url.pathname === "/readyz") {
-        if (draining) {
-          return Response.json({ status: "draining" }, { status: 503 });
         }
         return Response.json({ status: "ok" });
       }

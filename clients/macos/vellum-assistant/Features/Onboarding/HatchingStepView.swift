@@ -200,7 +200,7 @@ struct HatchingStepView: View {
     /// non-pairing flows) then signals completion after a brief delay.
     /// Idempotent — safe to call multiple times.
     private func handleHatchSuccess() {
-        guard !state.hatchCompleted && completionTask == nil else { return }
+        guard !state.hatchCompleted && !state.hatchFailed && completionTask == nil else { return }
 
         log.info("Hatch success detected — starting completion transition")
 
