@@ -93,6 +93,7 @@ import {
   migrateRenameSequenceEnrollmentsThreadIdColumn,
   migrateRenameSequenceStepsReplyKey,
   migrateRenameSourceSessionIdColumn,
+  migrateRenameThreadStartersTable,
   migrateRenameVerificationSessionIdColumn,
   migrateRenameVerificationTable,
   migrateRenameVoiceToPhone,
@@ -439,6 +440,9 @@ export function initializeDb(): void {
 
   // 76. Rename source_session_id → source_context_id in notification_events
   migrateRenameSourceSessionIdColumn(database);
+
+  // 77. Rename thread_starters → conversation_starters table and indexes
+  migrateRenameThreadStartersTable(database);
 
   validateMigrationState(database);
 

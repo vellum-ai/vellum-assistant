@@ -215,6 +215,12 @@ export const MIGRATION_REGISTRY: MigrationRegistryEntry[] = [
     description:
       "Rename integration:gmail provider key to integration:google across oauth_providers, oauth_apps, and oauth_connections",
   },
+  {
+    key: "migration_rename_thread_starters_table_v1",
+    version: 32,
+    description:
+      "Rename thread_starters table to conversation_starters and recreate indexes with new names",
+  },
 ];
 
 export interface MigrationValidationResult {
