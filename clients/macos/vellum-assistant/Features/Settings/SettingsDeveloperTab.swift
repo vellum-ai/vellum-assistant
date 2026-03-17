@@ -751,7 +751,7 @@ struct SettingsDeveloperTab: View {
     // MARK: - Assistant Feature Flags
 
     private func loadAssistantFlags() async {
-        guard let daemonClient else { return }
+        guard daemonClient != nil else { return }
         isLoadingAssistantFlags = true
         assistantFlagsError = nil
         do {
