@@ -9,14 +9,14 @@ set -uo pipefail
 # that mock a module break other test files that need the real implementation.
 # To avoid order-dependent CI flakes, run each test file in its own Bun process.
 #
-# Files run in parallel (configurable via TEST_WORKERS, default: 4).
+# Files run in parallel (configurable via TEST_WORKERS, default: CPU count).
 #
 # Coverage: set COVERAGE=true to generate per-file lcov reports, merged into
 # coverage/lcov.info at the end.
 # ---------------------------------------------------------------------------
 
 EXCLUDE_EXPERIMENTAL="${EXCLUDE_EXPERIMENTAL:-false}"
-WORKERS="${TEST_WORKERS:-4}"
+WORKERS="${TEST_WORKERS:-$(sysctl -n hw.logicalcpu 2>/dev/null || nproc 2>/dev/null || echo 8)}"
 COVERAGE="${COVERAGE:-false}"
 # Per-test timeout (seconds). Kills bun processes that pass but don't exit due to open handles.
 PER_TEST_TIMEOUT="${PER_TEST_TIMEOUT:-120}"
