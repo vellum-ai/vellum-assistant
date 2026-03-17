@@ -7,6 +7,12 @@ import VellumAssistantShared
 extension MainWindowView {
 
     func selectConversation(_ conversation: ConversationModel) {
+        if case .appEditing(_, let currentId) = windowState.selection,
+           currentId == conversation.id {
+            // Tapping the already-active conversation while editing an app
+            // should not dismiss the app panel.
+            return
+        }
         windowState.selection = .conversation(conversation.id)
         conversationManager.selectConversation(id: conversation.id)
     }
