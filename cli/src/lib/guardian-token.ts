@@ -120,6 +120,23 @@ export function computeDeviceId(): string {
   return getOrCreatePersistedDeviceId();
 }
 
+/**
+ * Read a previously persisted guardian token for the given assistant.
+ * Returns the parsed token data, or null if the file does not exist or is
+ * unreadable.
+ */
+export function loadGuardianToken(
+  assistantId: string,
+): GuardianTokenData | null {
+  const tokenPath = getGuardianTokenPath(assistantId);
+  try {
+    const raw = readFileSync(tokenPath, "utf-8");
+    return JSON.parse(raw) as GuardianTokenData;
+  } catch {
+    return null;
+  }
+}
+
 export function saveGuardianToken(
   assistantId: string,
   data: GuardianTokenData,

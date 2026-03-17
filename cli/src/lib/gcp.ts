@@ -646,9 +646,7 @@ export async function hatchGcp(
       }
 
       try {
-        const tokenData = await leaseGuardianToken(runtimeUrl, instanceName);
-        gcpEntry.bearerToken = tokenData.accessToken;
-        saveAssistantEntry(gcpEntry);
+        await leaseGuardianToken(runtimeUrl, instanceName);
       } catch (err) {
         console.warn(
           `\u26a0\ufe0f  Could not lease guardian token: ${err instanceof Error ? err.message : err}`,

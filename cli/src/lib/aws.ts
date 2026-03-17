@@ -529,9 +529,7 @@ export async function hatchAws(
         }
 
         try {
-          const tokenData = await leaseGuardianToken(runtimeUrl, instanceName);
-          awsEntry.bearerToken = tokenData.accessToken;
-          saveAssistantEntry(awsEntry);
+          await leaseGuardianToken(runtimeUrl, instanceName);
         } catch (err) {
           console.warn(
             `\u26a0\ufe0f  Could not lease guardian token: ${err instanceof Error ? err.message : err}`,

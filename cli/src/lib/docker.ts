@@ -697,7 +697,6 @@ export async function hatchDocker(
   await tailContainerUntilReady({
     containerName: res.assistantContainer,
     detached: watch ? false : detached,
-    dockerEntry,
     instanceName,
     runtimeUrl,
     sentinel: "DaemonServer started",
@@ -735,7 +734,6 @@ export async function hatchDocker(
 async function tailContainerUntilReady(opts: {
   containerName: string;
   detached: boolean;
-  dockerEntry: AssistantEntry;
   instanceName: string;
   runtimeUrl: string;
   sentinel: string;
@@ -743,7 +741,6 @@ async function tailContainerUntilReady(opts: {
   const {
     containerName,
     detached,
-    dockerEntry,
     instanceName,
     runtimeUrl,
     sentinel,
@@ -773,12 +770,10 @@ async function tailContainerUntilReady(opts: {
       if (line.includes(sentinel)) {
         process.nextTick(async () => {
           try {
-            const tokenData = await leaseGuardianToken(
+            await leaseGuardianToken(
               runtimeUrl,
               instanceName,
             );
-            dockerEntry.bearerToken = tokenData.accessToken;
-            saveAssistantEntry(dockerEntry);
           } catch (err) {
             console.warn(
               `\u26a0\ufe0f  Could not lease guardian token: ${err instanceof Error ? err.message : err}`,

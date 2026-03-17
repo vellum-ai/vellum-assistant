@@ -21,6 +21,7 @@ import {
   loadLatestAssistant,
   setActiveAssistant,
 } from "./lib/assistant-config";
+import { loadGuardianToken } from "./lib/guardian-token";
 import { checkHealth } from "./lib/health-check";
 
 const commands = {
@@ -103,7 +104,8 @@ async function tryLaunchClient(): Promise<boolean> {
   const url = entry.localUrl || entry.runtimeUrl;
   if (!url) return false;
 
-  const result = await checkHealth(url, entry.bearerToken);
+  const token = loadGuardianToken(entry.assistantId)?.accessToken;
+  const result = await checkHealth(url, token);
   if (result.status !== "healthy") return false;
 
   // Ensure the resolved assistant is active so client() can find it
