@@ -212,7 +212,7 @@ public struct ToolConfirmationBubble: View {
                     allowSplitButton
                         .overlay(
                             RoundedRectangle(cornerRadius: VRadius.md)
-                                .stroke(VColor.primaryBase, lineWidth: isPrimaryAllowKeyboardSelected ? 2 : 0)
+                                .strokeBorder(VColor.primaryBase, lineWidth: isPrimaryAllowKeyboardSelected ? 2 : 0)
                         )
 
                     VButton(label: "Deny", style: .danger, size: .compact) {
@@ -221,7 +221,7 @@ public struct ToolConfirmationBubble: View {
                     }
                     .overlay(
                         RoundedRectangle(cornerRadius: VRadius.md)
-                            .stroke(VColor.systemNegativeStrong, lineWidth: keyboardModel?.selectedAction == .dontAllow ? 2 : 0)
+                            .strokeBorder(VColor.systemNegativeStrong, lineWidth: keyboardModel?.selectedAction == .dontAllow ? 2 : 0)
                     )
                 }
             }
