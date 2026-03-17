@@ -54,6 +54,7 @@ import {
   migrateCreateThreadStartersTable,
   migrateDropAccountsTable,
   migrateDropAssistantIdColumns,
+  migrateDropCapabilityCardState,
   migrateDropConflicts,
   migrateDropContactInteractionColumns,
   migrateDropEntityTables,
@@ -447,6 +448,9 @@ export function initializeDb(): void {
 
   // 78. Lifecycle events table for app_open / hatch telemetry
   createLifecycleEventsTable(database);
+
+  // 79. Remove deleted capability-card state while keeping conversation starter chips
+  migrateDropCapabilityCardState(database);
 
   validateMigrationState(database);
 

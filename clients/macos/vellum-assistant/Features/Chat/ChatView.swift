@@ -70,12 +70,6 @@ struct ChatView: View {
     var conversationStartersLoading: Bool = false
     var onSelectStarter: ((ConversationStarter) -> Void)? = nil
     var onFetchConversationStarters: (() -> Void)? = nil
-    var capabilityCards: [CapabilityCard] = []
-    var capabilityCardsLoading: Bool = false
-    var cardCategoryStatuses: [String: CategoryStatus] = [:]
-    var onSelectCard: ((CapabilityCard) -> Void)? = nil
-    var onFetchCapabilityCards: (() -> Void)? = nil
-    var showCapabilityFeed: Bool = false
     /// When set, scroll to this message ID and clear the binding.
     @Binding var anchorMessageId: UUID?
     /// Message ID to visually highlight after an anchor scroll completes.
@@ -210,13 +204,7 @@ struct ChatView: View {
                             conversationStarters: conversationStarters,
                             conversationStartersLoading: conversationStartersLoading,
                             onSelectStarter: onSelectStarter,
-                            onFetchConversationStarters: onFetchConversationStarters,
-                            capabilityCards: capabilityCards,
-                            capabilityCardsLoading: capabilityCardsLoading,
-                            cardCategoryStatuses: cardCategoryStatuses,
-                            onSelectCard: onSelectCard,
-                            onFetchCapabilityCards: onFetchCapabilityCards,
-                            showCapabilityFeed: showCapabilityFeed
+                            onFetchConversationStarters: onFetchConversationStarters
                         )
                     }
                 } else {

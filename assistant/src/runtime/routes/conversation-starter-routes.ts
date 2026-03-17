@@ -1,24 +1,15 @@
 /**
  * Route handlers for conversation starter endpoints.
  *
- * GET /v1/conversation-starters — list conversation starters (chips) or capability cards
+ * GET /v1/conversation-starters — list conversation starters (chips)
  */
 
 import { and, desc, eq, inArray, like } from "drizzle-orm";
 
 import { getDb } from "../../memory/db.js";
-import {
-  CAPABILITY_CARD_CATEGORIES,
-  type CardCluster,
-  CLUSTER_PRECEDENCE,
-} from "../../memory/job-handlers/capability-cards.js";
 import { enqueueMemoryJob } from "../../memory/jobs-store.js";
-import { rawAll, rawGet } from "../../memory/raw-query.js";
-import {
-  capabilityCardCategories,
-  conversationStarters,
-  memoryJobs,
-} from "../../memory/schema.js";
+import { rawGet } from "../../memory/raw-query.js";
+import { conversationStarters, memoryJobs } from "../../memory/schema.js";
 import type { RouteDefinition } from "../http-router.js";
 
 // ---------------------------------------------------------------------------
@@ -120,98 +111,10 @@ export function orderStrongestFirst<T extends StarterItem>(items: T[]): T[] {
 }
 
 // ---------------------------------------------------------------------------
-// Hero-candidate ordering for capability cards
-// ---------------------------------------------------------------------------
-
-/** Sentinel tag stored by the card generator to signal priority. */
-const HIGH_PRIORITY_TAG = "__high_priority__";
-
-/** Map categories to their cluster for precedence lookup. */
-const CATEGORY_TO_CLUSTER: Record<string, CardCluster> = {
-  communication: "contextual",
-  productivity: "active_work",
-  development: "active_work",
-  media: "discovery",
-  automation: "discovery",
-  web_social: "discovery",
-  integration: "discovery",
-};
-
-interface CardItem {
-  id: string;
-  icon: string | null;
-  label: string;
-  description: string | null;
-  prompt: string;
-  category: string | null;
-  tags: string | null;
-  batch: number;
-}
-
-/**
- * Order capability cards so the first card is a stable hero candidate.
- *
- * Ordering signals (applied in priority order):
- * 1. high_priority cards come first (concrete why-now moments)
- * 2. Cluster precedence: contextual > active_work > discovery
- * 3. Category relevance from capability_card_categories table
- * 4. Model order preserved within each group (strongest-first from generation)
- */
-export function orderCardsForHero(
-  cards: CardItem[],
-  categoryRelevance: Map<string, number>,
-): CardItem[] {
-  if (cards.length <= 1) return cards;
-
-  const clusterIndex = new Map(CLUSTER_PRECEDENCE.map((c, i) => [c, i]));
-
-  return [...cards].sort((a, b) => {
-    // 1. high_priority first
-    const aHigh = a.tags?.includes(HIGH_PRIORITY_TAG) ? 1 : 0;
-    const bHigh = b.tags?.includes(HIGH_PRIORITY_TAG) ? 1 : 0;
-    if (aHigh !== bHigh) return bHigh - aHigh;
-
-    // 2. Cluster precedence
-    const aCluster =
-      clusterIndex.get(CATEGORY_TO_CLUSTER[a.category ?? ""] ?? "discovery") ??
-      2;
-    const bCluster =
-      clusterIndex.get(CATEGORY_TO_CLUSTER[b.category ?? ""] ?? "discovery") ??
-      2;
-    if (aCluster !== bCluster) return aCluster - bCluster;
-
-    // 3. Category relevance (higher is better)
-    const aRel = categoryRelevance.get(a.category ?? "") ?? 0;
-    const bRel = categoryRelevance.get(b.category ?? "") ?? 0;
-    if (aRel !== bRel) return bRel - aRel;
-
-    // 4. Preserve model order (already sorted by batch desc, createdAt desc)
-    return 0;
-  });
-}
-
-/**
- * Strip the internal high_priority sentinel from the tags string before
- * returning cards to clients.
- */
-function stripInternalTags(tagsStr: string | null): string[] {
-  if (!tagsStr) return [];
-  return tagsStr
-    .split(",")
-    .filter((t) => t !== HIGH_PRIORITY_TAG && t.length > 0);
-}
-
-// ---------------------------------------------------------------------------
-// GET /v1/conversation-starters?card_type=chip (default, backwards-compat)
+// GET /v1/conversation-starters
 // ---------------------------------------------------------------------------
 
 function handleListConversationStarters(url: URL): Response {
-  const cardType = url.searchParams.get("card_type") ?? "chip";
-
-  if (cardType === "card") {
-    return handleListCapabilityCards(url);
-  }
-
   const limitParam = Math.min(
     Math.max(1, Number(url.searchParams.get("limit") ?? 4)),
     20,
@@ -287,204 +190,6 @@ function handleListConversationStarters(url: URL): Response {
   }
 
   return Response.json({ starters: [], total: 0, status: "generating" });
-}
-
-// ---------------------------------------------------------------------------
-// GET /v1/conversation-starters?card_type=card — capability cards feed
-// ---------------------------------------------------------------------------
-
-function handleListCapabilityCards(url: URL): Response {
-  const limitParam = Math.min(
-    Math.max(1, Number(url.searchParams.get("limit") ?? 24)),
-    50,
-  );
-  const scopeId = url.searchParams.get("scope_id") ?? "default";
-  const categoryFilter = url.searchParams.get("category");
-
-  const db = getDb();
-
-  // Build WHERE conditions for cards
-  const conditions = [
-    eq(conversationStarters.scopeId, scopeId),
-    eq(conversationStarters.cardType, "card"),
-  ];
-  if (categoryFilter) {
-    conditions.push(eq(conversationStarters.category, categoryFilter));
-  }
-
-  // Fetch more than limit so ordering can surface the best hero candidates
-  const rawCards = db
-    .select({
-      id: conversationStarters.id,
-      icon: conversationStarters.icon,
-      label: conversationStarters.label,
-      description: conversationStarters.description,
-      prompt: conversationStarters.prompt,
-      category: conversationStarters.category,
-      tags: conversationStarters.tags,
-      batch: conversationStarters.generationBatch,
-    })
-    .from(conversationStarters)
-    .where(and(...conditions))
-    .orderBy(
-      desc(conversationStarters.generationBatch),
-      desc(conversationStarters.createdAt),
-    )
-    .limit(Math.max(limitParam, 50))
-    .all();
-
-  // Build category relevance map for ordering
-  const relevanceRows = db
-    .select({
-      category: capabilityCardCategories.category,
-      relevance: capabilityCardCategories.relevance,
-    })
-    .from(capabilityCardCategories)
-    .where(eq(capabilityCardCategories.scopeId, scopeId))
-    .all();
-  const categoryRelevance = new Map(
-    relevanceRows.map((r) => [r.category, r.relevance]),
-  );
-
-  // Apply hero-candidate ordering, then limit
-  const orderedCards = orderCardsForHero(rawCards, categoryRelevance).slice(
-    0,
-    limitParam,
-  );
-
-  // Transform tags: strip internal sentinels, split to array
-  const transformedCards = orderedCards.map((c) => ({
-    ...c,
-    tags: stripInternalTags(c.tags),
-  }));
-
-  // Build per-category status map
-  const categoryStatuses = buildCategoryStatuses(scopeId);
-
-  // Proper COUNT query — transformedCards.length would be LIMIT-capped
-  const countCondition = categoryFilter ? `AND category = ?` : ``;
-  const countParams = categoryFilter ? [scopeId, categoryFilter] : [scopeId];
-  const countRow = rawGet<{ c: number }>(
-    `SELECT COUNT(*) AS c FROM conversation_starters WHERE scope_id = ? AND card_type = 'card' ${countCondition}`,
-    ...countParams,
-  );
-  const total = countRow?.c ?? 0;
-
-  // If we have cards, return them
-  if (total > 0) {
-    const overallStatus = Object.values(categoryStatuses).some(
-      (s) => s.status === "generating",
-    )
-      ? "generating"
-      : "ready";
-
-    return Response.json({
-      cards: transformedCards,
-      total,
-      status: overallStatus,
-      categories: categoryStatuses,
-    });
-  }
-
-  // No cards — check whether we have memory items to generate from
-  const memoryCount = rawGet<{ c: number }>(
-    `SELECT COUNT(*) AS c FROM memory_items WHERE status = 'active' AND scope_id = ?`,
-    scopeId,
-  );
-
-  if (!memoryCount || memoryCount.c === 0) {
-    return Response.json({
-      cards: [],
-      total: 0,
-      status: "empty",
-      categories: {},
-    });
-  }
-
-  // Memory items exist but no cards — enqueue generation for all categories
-  enqueueCapabilityCardJobs(scopeId);
-
-  return Response.json({
-    cards: [],
-    total: 0,
-    status: "generating",
-    categories: Object.fromEntries(
-      CAPABILITY_CARD_CATEGORIES.map((cat) => [
-        cat,
-        { status: "generating" as const },
-      ]),
-    ),
-  });
-}
-
-/** Build a status map for each category: ready (with relevance) or generating. */
-function buildCategoryStatuses(
-  scopeId: string,
-): Record<string, { status: string; relevance?: number }> {
-  const db = getDb();
-  const statuses: Record<string, { status: string; relevance?: number }> = {};
-
-  // Get completed categories with relevance scores
-  const completed = db
-    .select({
-      category: capabilityCardCategories.category,
-      relevance: capabilityCardCategories.relevance,
-    })
-    .from(capabilityCardCategories)
-    .where(eq(capabilityCardCategories.scopeId, scopeId))
-    .all();
-
-  const completedSet = new Set(completed.map((c) => c.category));
-  for (const row of completed) {
-    statuses[row.category] = { status: "ready", relevance: row.relevance };
-  }
-
-  // Check for in-flight generation jobs
-  const pendingJobs = rawAll<{ payload: string }>(
-    `SELECT payload FROM memory_jobs
-     WHERE type = 'generate_capability_cards'
-       AND status IN ('pending', 'running')
-       AND payload LIKE ?`,
-    `%"scopeId":"${scopeId}"%`,
-  );
-
-  for (const job of pendingJobs) {
-    try {
-      const parsed = JSON.parse(job.payload) as { category?: string };
-      if (parsed.category && !completedSet.has(parsed.category)) {
-        statuses[parsed.category] = { status: "generating" };
-      }
-    } catch {
-      // Skip malformed payloads
-    }
-  }
-
-  return statuses;
-}
-
-/** Enqueue one generation job per category, skipping those already in-flight. */
-function enqueueCapabilityCardJobs(scopeId: string): void {
-  const db = getDb();
-
-  for (const category of CAPABILITY_CARD_CATEGORIES) {
-    // Check if already pending/running for this scope+category
-    const existing = db
-      .select({ id: memoryJobs.id })
-      .from(memoryJobs)
-      .where(
-        and(
-          eq(memoryJobs.type, "generate_capability_cards"),
-          inArray(memoryJobs.status, ["pending", "running"]),
-          like(memoryJobs.payload, `%"scopeId":"${scopeId}"%`),
-          like(memoryJobs.payload, `%"category":"${category}"%`),
-        ),
-      )
-      .get();
-
-    if (!existing) {
-      enqueueMemoryJob("generate_capability_cards", { scopeId, category });
-    }
-  }
 }
 
 // ---------------------------------------------------------------------------
