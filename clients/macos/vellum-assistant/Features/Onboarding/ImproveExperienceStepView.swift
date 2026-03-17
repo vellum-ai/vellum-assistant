@@ -69,12 +69,12 @@ struct ImproveExperienceStepView: View {
                         .stroke(VColor.borderBase, lineWidth: 1)
                 )
 
-                // ToS consent toggle
-                HStack {
+                // ToS consent checkbox
+                HStack(spacing: VSpacing.md) {
+                    VCheckbox(isOn: $tosAccepted)
                     tosConsentText
-                    Spacer()
-                    VToggle(isOn: $tosAccepted)
                 }
+                .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(VSpacing.lg)
                 .overlay(
                     RoundedRectangle(cornerRadius: VRadius.lg)
@@ -148,5 +148,46 @@ struct ImproveExperienceStepView: View {
             // Users who skipped step 2 (API key) go back to step 1
             state.currentStep -= skippedAPIKeyEntry ? 2 : 1
         }
+    }
+}
+
+// MARK: - Checkbox
+
+/// A styled checkbox matching the V* component aesthetic: primary-filled with
+/// white checkmark when checked, outlined rounded square when unchecked.
+private struct VCheckbox: View {
+    @Binding var isOn: Bool
+
+    private let size: CGFloat = 20
+    private let cornerRadius: CGFloat = VRadius.sm
+
+    var body: some View {
+        Button {
+            isOn.toggle()
+        } label: {
+            ZStack {
+                if isOn {
+                    RoundedRectangle(cornerRadius: cornerRadius)
+                        .fill(VColor.primaryBase)
+
+                    VIconView(.check, size: 12)
+                        .foregroundColor(.white)
+                } else {
+                    RoundedRectangle(cornerRadius: cornerRadius)
+                        .fill(Color.clear)
+                        .overlay(
+                            RoundedRectangle(cornerRadius: cornerRadius)
+                                .stroke(VColor.borderBase, lineWidth: 1.5)
+                        )
+                }
+            }
+            .frame(width: size, height: size)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .animation(VAnimation.fast, value: isOn)
+        .accessibilityLabel("Agree to Terms of Service and Privacy Policy")
+        .accessibilityValue(isOn ? "Checked" : "Unchecked")
+        .accessibilityAddTraits(.isToggle)
     }
 }
