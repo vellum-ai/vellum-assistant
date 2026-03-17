@@ -105,11 +105,25 @@ const scheduleCreateDef = scheduleToolsJson.tools.find(
   (t: { name: string }) => t.name === "schedule_create",
 );
 
+// Load send_notification description from the bundled skill TOOLS.json
+const notifToolsJson = JSON.parse(
+  readFileSync(
+    join(
+      import.meta.dirname,
+      "../config/bundled-skills/notifications/TOOLS.json",
+    ),
+    "utf-8",
+  ),
+);
+const sendNotificationDef = notifToolsJson.tools.find(
+  (t: { name: string }) => t.name === "send_notification",
+);
+
 // =====================================================================
-// 1. System prompt: buildTaskScheduleReminderRoutingSection
+// 1. Routing section removed from system prompt — guidance in tool descriptions
 // =====================================================================
 
-describe("Task/Schedule routing section in system prompt", () => {
+describe("Task/Schedule routing NOT in system prompt (moved to tool descriptions)", () => {
   beforeEach(() => {
     mkdirSync(TEST_DIR, { recursive: true });
   });
@@ -120,54 +134,11 @@ describe("Task/Schedule routing section in system prompt", () => {
     }
   });
 
-  test("system prompt includes the routing section heading", () => {
+  test("system prompt does not contain the old routing section", () => {
     const prompt = buildSystemPrompt();
-    expect(prompt).toContain(
+    expect(prompt).not.toContain(
       "## Tool Routing: Tasks vs Schedules vs Notifications",
     );
-  });
-
-  test("routing section lists all three tools in the summary table", () => {
-    const prompt = buildSystemPrompt();
-    expect(prompt).toContain("`task_list_add`");
-    expect(prompt).toContain("`schedule_create`");
-    expect(prompt).toContain("`send_notification`");
-  });
-
-  test("routing section warns that send_notification is immediate-only", () => {
-    const prompt = buildSystemPrompt();
-    expect(prompt).toContain("send_notification` is immediate-only");
-    expect(prompt).toContain("fires NOW");
-  });
-
-  test("routing section includes quick routing rules", () => {
-    const prompt = buildSystemPrompt();
-    expect(prompt).toContain("Quick routing rules");
-    expect(prompt).toContain("Future time, one-shot");
-    expect(prompt).toContain("Recurring pattern");
-    expect(prompt).toContain("No time, track as work");
-  });
-
-  test("routing section documents entity type routing", () => {
-    const prompt = buildSystemPrompt();
-    expect(prompt).toContain(
-      "Entity type routing: work items vs task templates",
-    );
-    expect(prompt).toContain("**Work items**");
-    expect(prompt).toContain("**Task templates**");
-  });
-
-  test("routing section references the Time-Based Actions skill", () => {
-    const prompt = buildSystemPrompt();
-    expect(prompt).toContain("Time-Based Actions");
-  });
-
-  test("routing section is present in the system prompt", () => {
-    const prompt = buildSystemPrompt();
-    const taskRoutingIdx = prompt.indexOf(
-      "## Tool Routing: Tasks vs Schedules vs Notifications",
-    );
-    expect(taskRoutingIdx).toBeGreaterThanOrEqual(0);
   });
 });
 
@@ -225,6 +196,18 @@ describe("schedule_create tool description", () => {
   test("does NOT suggest it handles task queue items", () => {
     expect(scheduleCreateDef.description).not.toContain("task queue");
     expect(scheduleCreateDef.description).not.toContain("one-off");
+  });
+});
+
+describe("send_notification tool description", () => {
+  test("states it fires immediately with no delay", () => {
+    expect(sendNotificationDef).toBeDefined();
+    expect(sendNotificationDef.description).toContain("immediate");
+    expect(sendNotificationDef.description).toContain("no delay");
+  });
+
+  test("redirects to schedule_create for future alerts", () => {
+    expect(sendNotificationDef.description).toContain("schedule_create");
   });
 });
 

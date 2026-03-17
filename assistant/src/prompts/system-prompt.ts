@@ -129,7 +129,7 @@ export function buildSystemPrompt(options?: BuildSystemPromptOptions): string {
   if (getIsContainerized()) staticParts.push(buildContainerizedSection());
   staticParts.push(buildCliReferenceSection());
   // Tool Permissions section removed — guidance lives in tool descriptions.
-  staticParts.push(buildTaskScheduleReminderRoutingSection());
+  // Tool Routing section removed — guidance lives in tool descriptions.
   staticParts.push(buildAttachmentSection());
   staticParts.push(buildInChatConfigurationSection());
   if (!hasNoClient) staticParts.push(buildSystemPermissionSection());
@@ -199,39 +199,6 @@ export function buildSystemPrompt(options?: BuildSystemPromptOptions): string {
   );
 }
 
-function buildTaskScheduleReminderRoutingSection(): string {
-  return [
-    "## Tool Routing: Tasks vs Schedules vs Notifications",
-    "",
-    'Three tools, each for a different purpose. Load the "Time-Based Actions" skill for the full decision framework.',
-    "",
-    "| Tool | Purpose |",
-    "|------|---------|",
-    '| `task_list_add` | Track work — no time trigger ("add to my tasks", "remind me to X" without a time) |',
-    '| `schedule_create` | Any time-based automation — recurring cron/RRULE ("every day at 9am") OR one-shot future alert with `fire_at` ("remind me at 3pm") |',
-    "| `send_notification` | **Immediate-only** — fires instantly, NO delay capability |",
-    "",
-    "### Critical: `send_notification` is immediate-only",
-    "NEVER use `send_notification` for future-time requests — it fires NOW. Use `schedule_create` with `fire_at` for any delayed alert.",
-    "",
-    "### Quick routing rules",
-    "- Future time, one-shot → `schedule_create` with `fire_at`",
-    "- Recurring pattern → `schedule_create`",
-    "- No time, track as work → `task_list_add`",
-    "- Instant alert → `send_notification`",
-    "- Modify existing task → `task_list_update` (NOT `task_list_add`)",
-    "- Remove task → `task_list_remove` (NOT `task_list_update`)",
-    "",
-    "### Entity type routing: work items vs task templates",
-    "",
-    "Two entity types with separate ID spaces — do NOT mix:",
-    "- **Work items** (task queue) — task_list_add, task_list_show, task_list_update, task_list_remove",
-    "- **Task templates** (reusable definitions) — task_save, task_list, task_run, task_delete",
-    "",
-    'If an error says "entity mismatch", read the corrective action and selector fields it provides to pick the right tool.',
-    "",
-  ].join("\n");
-}
 
 function buildAttachmentSection(): string {
   return [

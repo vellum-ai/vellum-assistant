@@ -3,7 +3,7 @@
   "tools": [
     {
       "name": "send_notification",
-      "description": "Send a notification through the unified notification router. The router decides channels/copy from preferences and urgency hints. Include a confidence score (0-1).",
+      "description": "Send an immediate notification. Fires instantly with no delay capability. For future or scheduled alerts, use schedule_create with fire_at instead. The router decides channels/copy from preferences and urgency hints. Include a confidence score (0-1).",
       "category": "notifications",
       "risk": "medium",
       "input_schema": {
