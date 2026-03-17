@@ -795,7 +795,7 @@ async function tailContainerUntilReady(opts: {
         log(`   The container is still running.`);
         log(`   Check logs with: docker logs -f ${containerName}`);
         log("");
-        resolve();
+        reject(new Error("Timed out waiting for assistant to become ready"));
       });
     }, DOCKER_READY_TIMEOUT_MS);
 
