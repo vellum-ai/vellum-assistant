@@ -97,6 +97,12 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
     #if !DEBUG
     var keychainBroker: KeychainBrokerServer?
     #endif
+
+    /// When true, `applicationShouldTerminate` allows the app to quit.
+    /// Set before calling `NSApp.terminate` in explicit flows (restart,
+    /// logout, uninstall, update). When false, Cmd+Q hides the window
+    /// instead of quitting so the dock icon keeps showing the avatar.
+    var isExplicitTermination = false
     var windowObserver: Any?
     /// Timestamp of the last `showMainWindow` call that performed work.
     /// Used by the debounce guard in `showMainWindow()`.
@@ -190,7 +196,8 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
             if let existing = others.first {
                 log.info("[singleInstance] Another instance (pid \(existing.processIdentifier)) detected — activating it and terminating self")
                 existing.activate()
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in
+                    self?.isExplicitTermination = true
                     NSApp.terminate(nil)
                 }
                 return
@@ -433,6 +440,23 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
     }
 
     // MARK: - Application Lifecycle
+
+    public func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        // Always allow termination for explicit flows (restart, logout,
+        // uninstall, update) — they set isExplicitTermination = true.
+        if isExplicitTermination {
+            return .terminateNow
+        }
+
+        // When a connected assistant exists, Cmd+Q hides the window
+        // instead of quitting so the dock icon keeps the avatar.
+        if UserDefaults.standard.string(forKey: "connectedAssistantId") != nil {
+            mainWindow?.hide()
+            return .terminateCancel
+        }
+
+        return .terminateNow
+    }
 
     public func applicationWillTerminate(_ notification: Notification) {
         // If Sparkle has a deferred update ready, install it now during

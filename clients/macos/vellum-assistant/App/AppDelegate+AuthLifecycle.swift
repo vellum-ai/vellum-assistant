@@ -156,6 +156,7 @@ extension AppDelegate {
             }
             DispatchQueue.main.async {
                 self?.assistantCli.stop()
+                self?.isExplicitTermination = true
                 NSApp.terminate(nil)
             }
         }
@@ -724,6 +725,7 @@ extension AppDelegate {
                 failAlert.runModal()
             }
 
+            self.isExplicitTermination = true
             NSApp.terminate(nil)
         }
     }

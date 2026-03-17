@@ -452,6 +452,7 @@ struct MainWindowView: View {
                     tooltip: updateManager.isDeferredUpdateReady ? "Restart to install the latest version" : "A new version is available"
                 ) {
                     if updateManager.isDeferredUpdateReady {
+                        AppDelegate.shared?.isExplicitTermination = true
                         NSApp.terminate(nil)
                     } else {
                         updateManager.checkForUpdates()
