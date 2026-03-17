@@ -7,7 +7,7 @@ import VellumAssistantShared
 /// Mirrors the card-per-channel layout of AssistantChannelsDetailView.
 @MainActor
 struct GuardianChannelsDetailView: View {
-    private static let allChannelTypes = ["telegram", "phone", "slack"]
+    private static let allChannelTypes = ["slack", "telegram", "phone"]
     private static let verificationSupportedChannels: Set<String> = ["telegram", "phone", "slack"]
 
     let contact: ContactPayload
