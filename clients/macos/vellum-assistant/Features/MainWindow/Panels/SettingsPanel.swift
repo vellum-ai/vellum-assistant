@@ -161,7 +161,15 @@ struct SettingsPanel: View {
         }
         .onChange(of: store.pendingSettingsTab) { _, newTab in
             if let tab = newTab {
-                if allVisibleTabs.contains(tab) {
+                // Compute visibility inline — same as onAppear. @State
+                // mutations (e.g. isBillingEnabled set in onAppear) may not
+                // have propagated to computed properties yet, so querying
+                // the flag manager directly avoids a stale billingVisible.
+                let billingEnabled = MacOSClientFeatureFlagManager.shared.isEnabled(Self.billingFeatureFlagKey)
+                let canShowBilling = billingEnabled && authManager.isAuthenticated && connectedOrgId != nil
+                let visibleTabs = SettingsTab.primaryTabs(contactsEnabled: isContactsEnabled, billingEnabled: canShowBilling)
+                    + (isDeveloperEnabled ? [.developer] : [])
+                if visibleTabs.contains(tab) {
                     selectedTab = tab
                 }
                 store.pendingSettingsTab = nil
