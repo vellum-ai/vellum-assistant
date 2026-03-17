@@ -33,6 +33,11 @@ struct AssistantChannelsDetailView: View {
     // Disconnect confirmation
     @State private var channelToDisconnect: String? = nil
 
+    // Collapsible row expanded states
+    @State private var telegramRowExpanded: Bool = false
+    @State private var slackRowExpanded: Bool = false
+    @State private var voiceRowExpanded: Bool = false
+    @State private var emailRowExpanded: Bool = false
 
     var body: some View {
         Group {
@@ -157,31 +162,34 @@ struct AssistantChannelsDetailView: View {
 
     private var telegramRow: some View {
         let status = store.channelSetupStatus["telegram"]
+        let isConnected = status == "ready"
+        let value: String? = {
+            if isConnected, let username = store.telegramBotUsername, !username.isEmpty {
+                return "@\(username)"
+            }
+            return nil
+        }()
         return Group {
-            if telegramSetupExpanded || (status == "incomplete" && store.telegramHasBotToken) {
-                VStack(alignment: .leading, spacing: VSpacing.sm) {
-                    channelRowHeader(name: "Telegram", value: nil, status: nil)
-                    telegramCredentialEntry
-                }
-                .padding(.vertical, VSpacing.sm)
-            } else {
-                let value: String? = {
-                    if status == "ready", let username = store.telegramBotUsername, !username.isEmpty {
-                        return "@\(username)"
-                    }
-                    return nil
-                }()
+            VStack(alignment: .leading, spacing: VSpacing.sm) {
                 channelRowHeader(
                     name: "Telegram",
                     channelKey: "telegram",
                     value: value,
-                    status: status == "ready" ? .connected : nil,
-                    setupAction: status != "ready" ? { telegramSetupExpanded = true } : nil,
-                    hasDisconnect: status == "ready",
+                    isConnected: isConnected,
+                    isExpanded: $telegramRowExpanded,
+                    setupAction: !isConnected ? {
+                        telegramRowExpanded = true
+                        telegramSetupExpanded = true
+                    } : nil,
                     isDisconnectDisabled: store.telegramSaveInProgress
                 )
-                .padding(.vertical, VSpacing.sm)
+                if isConnected && telegramRowExpanded {
+                    telegramCredentialEntry
+                } else if !isConnected && (telegramSetupExpanded || (status == "incomplete" && store.telegramHasBotToken)) {
+                    telegramCredentialEntry
+                }
             }
+            .padding(.vertical, VSpacing.sm)
 
             if let error = store.telegramError {
                 VInlineMessage(error)
@@ -192,31 +200,34 @@ struct AssistantChannelsDetailView: View {
 
     private var slackRow: some View {
         let status = store.channelSetupStatus["slack"]
+        let isConnected = status == "ready"
+        let value: String? = {
+            if isConnected, let username = store.slackChannelBotUsername, !username.isEmpty {
+                return "@\(username)"
+            }
+            return nil
+        }()
         return Group {
-            if slackChannelSetupExpanded || (status == "incomplete" && (store.slackChannelHasBotToken || store.slackChannelHasAppToken)) {
-                VStack(alignment: .leading, spacing: VSpacing.sm) {
-                    channelRowHeader(name: "Slack", value: nil, status: nil)
-                    slackChannelCredentialEntry
-                }
-                .padding(.vertical, VSpacing.sm)
-            } else {
-                let value: String? = {
-                    if status == "ready", let username = store.slackChannelBotUsername, !username.isEmpty {
-                        return "@\(username)"
-                    }
-                    return nil
-                }()
+            VStack(alignment: .leading, spacing: VSpacing.sm) {
                 channelRowHeader(
                     name: "Slack",
                     channelKey: "slack",
                     value: value,
-                    status: status == "ready" ? .connected : nil,
-                    setupAction: status != "ready" ? { slackChannelSetupExpanded = true } : nil,
-                    hasDisconnect: status == "ready",
+                    isConnected: isConnected,
+                    isExpanded: $slackRowExpanded,
+                    setupAction: !isConnected ? {
+                        slackRowExpanded = true
+                        slackChannelSetupExpanded = true
+                    } : nil,
                     isDisconnectDisabled: store.slackChannelSaveInProgress
                 )
-                .padding(.vertical, VSpacing.sm)
+                if isConnected && slackRowExpanded {
+                    slackChannelCredentialEntry
+                } else if !isConnected && (slackChannelSetupExpanded || (status == "incomplete" && (store.slackChannelHasBotToken || store.slackChannelHasAppToken))) {
+                    slackChannelCredentialEntry
+                }
             }
+            .padding(.vertical, VSpacing.sm)
 
             if let error = store.slackChannelError {
                 VInlineMessage(error)
@@ -227,17 +238,32 @@ struct AssistantChannelsDetailView: View {
 
     private var voiceRow: some View {
         let status = store.channelSetupStatus["phone"]
+        let isConnected = store.twilioHasCredentials
+        let value: String? = {
+            if isConnected, let phone = store.twilioPhoneNumber {
+                // Display friendlyName when available for proper formatting
+                if let match = store.twilioNumbers.first(where: { $0.phoneNumber == phone }) {
+                    return match.friendlyName
+                }
+                return phone
+            }
+            return nil
+        }()
         return Group {
-            if store.twilioHasCredentials {
-                VStack(alignment: .leading, spacing: VSpacing.sm) {
-                    channelRowHeader(
-                        name: "Phone Calling",
-                        channelKey: "phone",
-                        value: store.twilioPhoneNumber,
-                        status: .connected,
-                        hasDisconnect: true,
-                        isDisconnectDisabled: store.twilioSaveInProgress
-                    )
+            VStack(alignment: .leading, spacing: VSpacing.sm) {
+                channelRowHeader(
+                    name: "Phone Calling",
+                    channelKey: "phone",
+                    value: value,
+                    isConnected: isConnected,
+                    isExpanded: $voiceRowExpanded,
+                    setupAction: !isConnected ? {
+                        voiceRowExpanded = true
+                        voiceSetupExpanded = true
+                    } : nil,
+                    isDisconnectDisabled: store.twilioSaveInProgress
+                )
+                if isConnected && voiceRowExpanded {
                     HStack(spacing: VSpacing.sm) {
                         Text("Phone Number")
                             .font(VFont.caption)
@@ -255,23 +281,11 @@ struct AssistantChannelsDetailView: View {
                         )
                         .frame(maxWidth: 280)
                     }
-                }
-                .padding(.vertical, VSpacing.sm)
-            } else if voiceSetupExpanded {
-                VStack(alignment: .leading, spacing: VSpacing.sm) {
-                    channelRowHeader(name: "Phone Calling", value: nil, status: nil)
+                } else if !isConnected && voiceSetupExpanded {
                     voiceCredentialEntry
                 }
-                .padding(.vertical, VSpacing.sm)
-            } else {
-                channelRowHeader(
-                    name: "Phone Calling",
-                    value: nil,
-                    status: nil,
-                    setupAction: { voiceSetupExpanded = true }
-                )
-                .padding(.vertical, VSpacing.sm)
             }
+            .padding(.vertical, VSpacing.sm)
 
             if let warning = store.twilioWarning {
                 VInlineMessage(warning, tone: .warning)
@@ -285,30 +299,20 @@ struct AssistantChannelsDetailView: View {
     }
 
     private var emailRow: some View {
-        Group {
-            if let email = store.assistantEmail {
-                channelRowHeader(
-                    name: "Email",
-                    value: email,
-                    status: .connected
-                )
-                .padding(.vertical, VSpacing.sm)
-            } else {
-                channelRowHeader(
-                    name: "Email",
-                    value: "Not configured",
-                    status: nil
-                )
-                .padding(.vertical, VSpacing.sm)
-            }
+        let isConnected = store.assistantEmail != nil
+        let value: String? = store.assistantEmail ?? "Not configured"
+        return Group {
+            channelRowHeader(
+                name: "Email",
+                value: value,
+                isConnected: isConnected,
+                isExpanded: $emailRowExpanded
+            )
+            .padding(.vertical, VSpacing.sm)
         }
     }
 
     // MARK: - Channel Row Header (3-column layout)
-
-    private enum ChannelStatus {
-        case connected
-    }
 
     private func channelIcon(for name: String) -> VIcon {
         switch name {
@@ -324,9 +328,9 @@ struct AssistantChannelsDetailView: View {
         name: String,
         channelKey: String? = nil,
         value: String?,
-        status: ChannelStatus?,
+        isConnected: Bool,
+        isExpanded: Binding<Bool>,
         setupAction: (() -> Void)? = nil,
-        hasDisconnect: Bool = false,
         isDisconnectDisabled: Bool = false
     ) -> some View {
         ChannelRowHeader(
@@ -334,31 +338,33 @@ struct AssistantChannelsDetailView: View {
             icon: channelIcon(for: name),
             channelKey: channelKey,
             value: value,
-            status: status,
+            isConnected: isConnected,
+            isExpanded: isExpanded,
             setupAction: setupAction,
-            hasDisconnect: hasDisconnect,
             isDisconnectDisabled: isDisconnectDisabled,
             onDisconnect: { key in channelToDisconnect = key }
         )
     }
 
-    /// A single channel row with hover-reveal kebab menu for disconnect.
+    /// A single channel row header with collapsible chevron and inline disconnect button.
     private struct ChannelRowHeader: View {
         let name: String
         var icon: VIcon = .messageCircle
         var channelKey: String?
         let value: String?
-        let status: ChannelStatus?
+        let isConnected: Bool
+        @Binding var isExpanded: Bool
         var setupAction: (() -> Void)?
-        var hasDisconnect: Bool = false
         var isDisconnectDisabled: Bool = false
         var onDisconnect: ((String) -> Void)?
 
-        @State private var isHovered = false
-
         var body: some View {
             HStack(spacing: VSpacing.sm) {
-                // Left: channel icon + name
+                // Left: chevron (when connected) + channel icon + name
+                if isConnected {
+                    VIconView(isExpanded ? .chevronUp : .chevronDown, size: 12)
+                        .foregroundColor(VColor.contentTertiary)
+                }
                 VIconView(icon, size: 16)
                     .foregroundColor(VColor.contentSecondary)
                 Text(name)
@@ -377,40 +383,29 @@ struct AssistantChannelsDetailView: View {
                 Spacer()
 
                 // Right: status or action
-                if let status, status == .connected {
+                if isConnected {
                     VButton(label: "Connected", leftIcon: VIcon.check.rawValue, style: .primary) {}
+
+                    // Inline disconnect X button
+                    if let channelKey {
+                        VButton(label: "Disconnect", iconOnly: VIcon.x.rawValue, style: .dangerGhost, isDisabled: isDisconnectDisabled, tooltip: "Disconnect") {
+                            onDisconnect?(channelKey)
+                        }
+                    }
                 } else if let setupAction {
                     VButton(label: "Set up", style: .outlined) {
                         setupAction()
                     }
                 }
-
-                // Trailing kebab menu — only takes space when disconnect is available
-                if hasDisconnect, let channelKey {
-                    Menu {
-                        Button(role: .destructive) {
-                            onDisconnect?(channelKey)
-                        } label: {
-                            Label("Disconnect", systemImage: "trash")
-                        }
-                        .disabled(isDisconnectDisabled)
-                    } label: {
-                        VIconView(.ellipsis, size: 14)
-                            .foregroundColor(VColor.contentTertiary)
-                            .frame(width: 24, height: 24)
-                            .contentShape(Rectangle())
-                    }
-                    .menuStyle(.borderlessButton)
-                    .menuIndicator(.hidden)
-                    .fixedSize()
-                    .opacity(isHovered ? 1 : 0)
-                    .animation(VAnimation.fast, value: isHovered)
-                }
             }
             .frame(minHeight: 36)
             .contentShape(Rectangle())
-            .onHover { hovering in
-                isHovered = hovering
+            .onTapGesture {
+                if isConnected {
+                    withAnimation(VAnimation.fast) {
+                        isExpanded.toggle()
+                    }
+                }
             }
         }
     }
