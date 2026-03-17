@@ -30,7 +30,7 @@ struct AssistantChannelsDetailView: View {
 
 
     var body: some View {
-        VStack(alignment: .leading, spacing: VSpacing.lg) {
+        VStack(alignment: .leading, spacing: VSpacing.xl) {
             VStack(alignment: .leading, spacing: VSpacing.xs) {
                 Text("Channels")
                     .font(VFont.sectionTitle)
