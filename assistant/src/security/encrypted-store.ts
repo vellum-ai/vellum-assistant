@@ -490,8 +490,8 @@ export type DeleteKeyResult = "deleted" | "not-found" | "error";
  */
 export function deleteKey(account: string): DeleteKeyResult {
   try {
-    const store = readStore();
-    if (!store || !Object.prototype.hasOwnProperty.call(store.entries, account))
+    const store = getOrCreateStore();
+    if (!Object.prototype.hasOwnProperty.call(store.entries, account))
       return "not-found";
 
     delete store.entries[account];
