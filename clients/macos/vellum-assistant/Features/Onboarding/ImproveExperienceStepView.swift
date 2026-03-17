@@ -170,8 +170,7 @@ private struct VCheckbox: View {
                     RoundedRectangle(cornerRadius: cornerRadius)
                         .fill(VColor.primaryBase)
 
-                    Image(systemName: "checkmark")
-                        .font(.system(size: 12, weight: .bold))
+                    VIconView(.check, size: 12)
                         .foregroundColor(.white)
                 } else {
                     RoundedRectangle(cornerRadius: cornerRadius)
@@ -188,6 +187,6 @@ private struct VCheckbox: View {
         .buttonStyle(.plain)
         .animation(VAnimation.fast, value: isOn)
         .accessibilityLabel("Agree to Terms of Service and Privacy Policy")
-        .accessibilityAddTraits(isOn ? .isSelected : [])
+        .accessibilityAddTraits(.isToggle)
     }
 }
