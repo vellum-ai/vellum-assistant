@@ -635,10 +635,12 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
         }
 
         // If all non-private conversations are now archived, sleep the assistant
-        // so it stops running and sending notifications.
+        // so it stops running and sending notifications, and enter draft mode so
+        // the UI shows the new-conversation state instead of a stale loading view.
         if visibleConversations.isEmpty {
             log.info("All conversations archived — sleeping assistant")
             sleepAssistantAfterArchive()
+            enterDraftMode()
         } else if activeConversationId == id {
             // The archived conversation was active — select an adjacent visible one.
             let visibleAfter = conversations[index...].dropFirst().first(where: { !$0.isArchived })
