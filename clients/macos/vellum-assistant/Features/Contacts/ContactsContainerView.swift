@@ -56,7 +56,7 @@ struct ContactsContainerView: View {
                     assistantDetailView
                         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
                 case .contact(let contactId):
-                    if let contact = viewModel.contacts.first(where: { $0.id == contactId }) {
+                    if let contact = viewModel.deduplicatedContacts.first(where: { $0.id == contactId }) {
                         if contact.role == "guardian" {
                             guardianDetailView(contact: contact)
                                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)

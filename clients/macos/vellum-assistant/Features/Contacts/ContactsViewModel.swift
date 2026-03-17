@@ -57,7 +57,7 @@ final class ContactsViewModel: ObservableObject {
                     notes: existing.notes ?? contact.notes,
                     contactType: existing.contactType ?? contact.contactType,
                     lastInteraction: existing.lastInteraction ?? contact.lastInteraction,
-                    interactionCount: existing.interactionCount + contact.interactionCount,
+                    interactionCount: max(existing.interactionCount, contact.interactionCount),
                     channels: mergedChannels
                 )
             } else {
