@@ -66,15 +66,9 @@ struct GuardianChannelsDetailView: View {
         }
     }
 
+    // MOCK: show all channel types for visual preview
     private var visibleTypes: [String] {
-        Self.allChannelTypes.filter { type in
-            let hasExisting = displayContact.channels.contains { $0.type == type && $0.status != "revoked" }
-            let readiness = channelReadiness[type]
-            let isAvailable = readiness?.ready == true
-                || readiness?.setupStatus == "ready"
-                || readiness?.setupStatus == "incomplete"
-            return hasExisting || isAvailable
-        }
+        Self.allChannelTypes
     }
 
     private var content: some View {
@@ -160,35 +154,33 @@ struct GuardianChannelsDetailView: View {
                 channelCardContent(type: type, existingChannels: existingChannels, activeChannel: activeChannel, isVerified: isVerified)
             }
         } else {
-            let needsSetup = !isVerified
-                && store?.channelVerificationState(for: type).verified != true
-                && (existingChannels.isEmpty || dismissedChannels.contains(type))
-                && !setupExpanded.contains(type)
+            // MOCK: show all channels as verified with mock data
+            let mockValue: String = {
+                switch type {
+                case "telegram": return "@timur_k"
+                case "phone": return "+1 (914) 555-0123"
+                case "slack": return "@timur.k"
+                default: return type
+                }
+            }()
 
             VStack(alignment: .leading, spacing: VSpacing.sm) {
-                // Row header: icon + name + inline status/action
                 HStack(spacing: VSpacing.sm) {
                     VIconView(channelIcon(for: type), size: 16)
-                        .foregroundColor(isVerified ? VColor.systemPositiveStrong : VColor.contentSecondary)
+                        .foregroundColor(VColor.systemPositiveStrong)
                     Text(channelLabel(for: type))
                         .font(VFont.bodyMedium)
                         .foregroundColor(VColor.contentDefault)
+
+                    Text(mockValue)
+                        .font(VFont.body)
+                        .foregroundColor(VColor.contentSecondary)
+                        .lineLimit(1)
+
                     Spacer()
-                    if isVerified {
-                        VBadge(label: "Verified", tone: .positive)
-                    } else if needsSetup {
-                        VButton(label: "Set up", style: .outlined) {
-                            dismissedChannels.remove(type)
-                            setupExpanded.insert(type)
-                        }
-                    }
+                    VBadge(label: "Verified", tone: .positive)
                 }
                 .frame(minHeight: 36)
-
-                // Expanded content below the row (verification flow or verified identity)
-                if !needsSetup {
-                    channelCardContent(type: type, existingChannels: existingChannels, activeChannel: activeChannel, isVerified: isVerified)
-                }
             }
         }
     }
