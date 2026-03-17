@@ -76,7 +76,10 @@ struct SettingsGeneralTab: View {
     // MARK: - Account Section
 
     private var accountSection: some View {
-        SettingsCard(title: "Account", subtitle: "Log in to your account") {
+        SettingsCard(
+            title: "Account",
+            subtitle: authManager.currentUser?.email ?? authManager.currentUser?.display ?? "Log in to your account"
+        ) {
             if authManager.isLoading {
                 HStack(spacing: VSpacing.sm) {
                     ProgressView()
