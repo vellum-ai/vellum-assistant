@@ -99,7 +99,24 @@ struct SyntaxTextView: NSViewRepresentable {
     }
 
     func makeNSView(context: Context) -> NSScrollView {
-        let textView = NSTextView()
+        // Use Apple's standard factory which properly initializes the text system
+        // (text storage, layout manager, text container, and scroll view sizing).
+        let scrollView = NSTextView.scrollableTextView()
+        guard let textView = scrollView.documentView as? NSTextView else {
+            return scrollView
+        }
+
+        // Appearance
+        textView.font = SyntaxTheme.nsMonoFont
+        textView.textColor = SyntaxTheme.nsContentDefault
+        textView.backgroundColor = NSColor(VColor.surfaceOverlay)
+        textView.insertionPointColor = SyntaxTheme.nsContentDefault
+        textView.selectedTextAttributes = [
+            .backgroundColor: NSColor(VColor.primaryBase.opacity(0.3))
+        ]
+        textView.textContainerInset = NSSize(width: VSpacing.md, height: VSpacing.sm)
+
+        // Behavior
         textView.isEditable = true
         textView.isSelectable = true
         textView.isRichText = true
@@ -110,17 +127,8 @@ struct SyntaxTextView: NSViewRepresentable {
         textView.isAutomaticTextCompletionEnabled = false
         textView.usesFindBar = true
         textView.isIncrementalSearchingEnabled = true
-        textView.font = SyntaxTheme.nsMonoFont
-        textView.backgroundColor = NSColor(VColor.surfaceOverlay)
-        textView.insertionPointColor = SyntaxTheme.nsContentDefault
-        textView.selectedTextAttributes = [
-            .backgroundColor: NSColor(VColor.primaryBase.opacity(0.3))
-        ]
-        textView.textContainerInset = NSSize(width: VSpacing.md, height: VSpacing.sm)
-        textView.delegate = context.coordinator
-        textView.string = text
 
-        // Configure text view and container for horizontal scrolling (no line wrap)
+        // Horizontal scrolling (no line wrap)
         textView.isHorizontallyResizable = true
         textView.maxSize = NSSize(
             width: CGFloat.greatestFiniteMagnitude,
@@ -134,14 +142,16 @@ struct SyntaxTextView: NSViewRepresentable {
             )
         }
 
-        let scrollView = NSScrollView()
-        scrollView.hasVerticalScroller = true
+        // Content
+        textView.delegate = context.coordinator
+        textView.string = text
+
+        // Scroll view
         scrollView.hasHorizontalScroller = true
         scrollView.autohidesScrollers = true
         scrollView.drawsBackground = false
-        scrollView.documentView = textView
 
-        // Set up line number gutter
+        // Line number gutter
         scrollView.hasVerticalRuler = true
         scrollView.rulersVisible = true
         let rulerView = LineNumberRulerView(scrollView: scrollView, textView: textView)
