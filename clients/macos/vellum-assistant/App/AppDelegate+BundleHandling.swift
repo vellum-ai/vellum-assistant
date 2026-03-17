@@ -29,7 +29,7 @@ extension AppDelegate {
             Task {
                 let response = await AppClient().openBundle(filePath: filePath)
                 if let response {
-                    self.handleOpenBundleResponse(response)
+                    self.handleOpenBundleResponse(response, explicitFilePath: filePath)
                 } else {
                     if let idx = self.pendingBundleFilePaths.lastIndex(of: filePath) {
                         self.pendingBundleFilePaths.remove(at: idx)
@@ -59,8 +59,16 @@ extension AppDelegate {
 
     // MARK: - Bundle Open Handling
 
-    func handleOpenBundleResponse(_ response: OpenBundleResponseMessage) {
-        let filePath = pendingBundleFilePaths.isEmpty ? "" : pendingBundleFilePaths.removeFirst()
+    func handleOpenBundleResponse(_ response: OpenBundleResponseMessage, explicitFilePath: String? = nil) {
+        let filePath: String
+        if let explicitFilePath {
+            if let idx = pendingBundleFilePaths.firstIndex(of: explicitFilePath) {
+                pendingBundleFilePaths.remove(at: idx)
+            }
+            filePath = explicitFilePath
+        } else {
+            filePath = pendingBundleFilePaths.isEmpty ? "" : pendingBundleFilePaths.removeFirst()
+        }
 
         // Check format version compatibility (1 = legacy single-HTML, 2 = multi-file TSX)
         if response.manifest.format_version > 2 {
