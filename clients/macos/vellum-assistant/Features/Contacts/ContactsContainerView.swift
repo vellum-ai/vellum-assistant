@@ -120,7 +120,7 @@ struct ContactsContainerView: View {
                             Text("\(contact.displayName) (You)")
                                 .font(VFont.display)
                                 .foregroundColor(VColor.contentDefault)
-                            VBadge(label: "Guardian", tone: .neutral)
+                            ContactTypeBadge(role: "guardian")
                         }
                         Text("\(contact.interactionCount) interaction\(contact.interactionCount == 1 ? "" : "s")")
                             .font(VFont.caption)

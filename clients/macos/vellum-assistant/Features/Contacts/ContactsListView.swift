@@ -58,7 +58,7 @@ struct ContactsListView: View {
                     if matchesSearch(cachedAssistantDisplayName) {
                         contactListRow(
                             name: cachedAssistantDisplayName,
-                            tag: "Assistant",
+                            role: "assistant",
                             isSelected: selection == .assistant,
                             isHovered: isAssistantHovered,
                             onTap: { selection = .assistant },
@@ -71,7 +71,7 @@ struct ContactsListView: View {
                         let isGuardian = contact.role == "guardian"
                         contactListRow(
                             name: isGuardian ? "\(contact.displayName) (You)" : contact.displayName,
-                            tag: formatContactType(contact.role),
+                            role: contact.role,
                             isSelected: selection == .contact(contact.id),
                             isHovered: hoveredContactId == contact.id,
                             onTap: { selection = .contact(contact.id) },
@@ -123,7 +123,7 @@ struct ContactsListView: View {
 
     private func contactListRow(
         name: String,
-        tag: String,
+        role: String?,
         isSelected: Bool,
         isHovered: Bool,
         onTap: @escaping () -> Void,
@@ -138,9 +138,7 @@ struct ContactsListView: View {
 
                 Spacer()
 
-                Text(tag)
-                    .font(VFont.caption)
-                    .foregroundColor(VColor.contentTertiary)
+                ContactTypeBadge(role: role)
             }
             .padding(.horizontal, VSpacing.sm)
             .padding(.vertical, VSpacing.md)
@@ -192,14 +190,6 @@ struct ContactsListView: View {
     }
 
     // MARK: - Helpers
-
-    private func formatContactType(_ role: String?) -> String {
-        switch role {
-        case "guardian": return "Guardian"
-        case "assistant": return "Assistant"
-        default: return "Human"
-        }
-    }
 
     private func rowBackground(isSelected: Bool, isHovered: Bool) -> some View {
         RoundedRectangle(cornerRadius: VRadius.md)

@@ -216,7 +216,7 @@ struct ContactDetailView: View {
     }
 
     private var contactTypeBadge: some View {
-        VBadge(label: formatContactType(displayContact.role), tone: .neutral)
+        ContactTypeBadge(role: displayContact.role)
     }
 
     // MARK: - Channels Section
@@ -898,17 +898,6 @@ struct ContactDetailView: View {
     }
 
     // MARK: - Formatting Helpers
-
-    private func formatContactType(_ contactType: String?) -> String {
-        switch contactType {
-        case "assistant":
-            return "Assistant"
-        case "guardian":
-            return "Guardian"
-        default:
-            return "Human"
-        }
-    }
 
     // MARK: - Helpers
 
