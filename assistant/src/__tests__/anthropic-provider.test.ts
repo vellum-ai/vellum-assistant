@@ -62,12 +62,12 @@ mock.module("@anthropic-ai/sdk", () => ({
 }));
 
 // Import after mocking
+import { SYSTEM_PROMPT_CACHE_BOUNDARY } from "../prompts/system-prompt.js";
 import {
   AnthropicProvider,
   PLACEHOLDER_BLOCKS_OMITTED,
   PLACEHOLDER_EMPTY_TURN,
 } from "../providers/anthropic/client.js";
-import { SYSTEM_PROMPT_CACHE_BOUNDARY } from "../prompts/system-prompt.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
