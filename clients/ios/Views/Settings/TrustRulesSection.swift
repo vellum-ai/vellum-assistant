@@ -203,14 +203,17 @@ struct TrustRuleFormView: View {
                     tool: tool,
                     pattern: pattern,
                     scope: finalScope,
-                    decision: decision
+                    decision: decision,
+                    priority: nil
                 )
             } else {
                 _ = try? await trustRuleClient.addTrustRule(
                     toolName: tool,
                     pattern: pattern,
                     scope: finalScope,
-                    decision: decision
+                    decision: decision,
+                    allowHighRisk: nil,
+                    executionTarget: nil
                 )
             }
             onSave(true)
