@@ -1734,6 +1734,17 @@ describe("Regression: cancel semantics and error channel split", () => {
   });
 
   test("commitTurnChanges never resolving within budget -> turn still completes and drains queue", async () => {
+    // Replace setTimeout with a zero-delay version so the 4000ms
+    // raceWithTimeout fires instantly instead of waiting real time.
+    const origSetTimeout = globalThis.setTimeout;
+    globalThis.setTimeout = ((
+      fn: TimerHandler,
+      _ms?: number,
+      ...args: unknown[]
+    ) => {
+      return origSetTimeout(fn, 0, ...args);
+    }) as typeof setTimeout;
+
     const conversation = makeConversation();
     await conversation.loadFromDb();
 
@@ -1760,10 +1771,8 @@ describe("Regression: cancel semantics and error channel split", () => {
 
       // The turn should still complete (timeout fires) and drain the queue
       // even though commitTurnChanges never resolves.
-      // The default turnCommitMaxWaitMs is 4000ms in the config mock,
-      // but the mock config doesn't set it, so it defaults to 4000ms.
-      // We wait for the second run to be registered, which proves the
-      // turn completed and the queue drained despite the hanging commit.
+      // With the zero-delay setTimeout wrapper the 4000ms budget fires
+      // instantly, so we only need a short wait for the second run.
       await waitForPendingRun(2, 10_000);
 
       // First message should have completed
@@ -1780,9 +1789,10 @@ describe("Regression: cancel semantics and error channel split", () => {
       // Complete the second run so the test can clean up
       turnCommitHangForever = false;
       resolveRun(1);
-      await new Promise((r) => setTimeout(r, 10));
+      await new Promise((r) => origSetTimeout(r, 10));
     } finally {
       turnCommitHangForever = false;
+      globalThis.setTimeout = origSetTimeout;
     }
   }, 15_000);
 });
