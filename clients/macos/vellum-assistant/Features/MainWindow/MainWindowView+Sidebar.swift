@@ -273,19 +273,9 @@ extension MainWindowView {
                     }
 
                     if regularConversations.count > 5 {
-                        Button {
+                        SidebarShowMoreButton(isShowingAll: sidebar.showAllConversations) {
                             withAnimation(VAnimation.fast) { sidebar.showAllConversations.toggle() }
-                        } label: {
-                            Text(sidebar.showAllConversations ? "Show less" : "Show more")
-                                .font(VFont.caption)
-                                .foregroundColor(VColor.primaryBase)
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                                .padding(.leading, VSpacing.sm + VSpacing.xs + 20 + VSpacing.xs)
-                                .padding(.top, VSpacing.sm)
-                                .padding(.bottom, VSpacing.xs)
                         }
-                        .buttonStyle(.plain)
-                        .pointerCursor()
                     }
 
                     if !scheduleConversations.isEmpty {
@@ -423,19 +413,9 @@ extension MainWindowView {
                         }
 
                         if scheduleConversationGroups.count > 3 {
-                            Button {
+                            SidebarShowMoreButton(isShowingAll: sidebar.showAllScheduleConversations) {
                                 withAnimation(VAnimation.fast) { sidebar.showAllScheduleConversations.toggle() }
-                            } label: {
-                                Text(sidebar.showAllScheduleConversations ? "Show less" : "Show more")
-                                    .font(VFont.caption)
-                                    .foregroundColor(VColor.primaryBase)
-                                    .frame(maxWidth: .infinity, alignment: .leading)
-                                    .padding(.leading, VSpacing.sm + VSpacing.xs + 20 + VSpacing.xs)
-                                    .padding(.top, VSpacing.sm)
-                                    .padding(.bottom, VSpacing.xs)
                             }
-                            .buttonStyle(.plain)
-                            .pointerCursor()
                         }
                     }
                 }
@@ -553,8 +533,6 @@ extension MainWindowView {
 
     // MARK: - Section Divider
 
-    /// Uniform section divider using canonical metrics.
-    /// Horizontal inset adapts to expanded/collapsed; vertical rhythm is always compact.
     @ViewBuilder
     func sidebarSectionDivider(isExpanded: Bool) -> some View {
         VColor.surfaceBase
@@ -584,5 +562,36 @@ extension MainWindowView {
             appType: app.appType
         )
         try? daemonClient.sendAppOpen(appId: app.id)
+    }
+}
+
+// MARK: - Show More / Show Less Button
+
+/// Sidebar toggle button for expanding and collapsing truncated lists.
+/// Provides hover feedback consistent with other sidebar row types.
+private struct SidebarShowMoreButton: View {
+    let isShowingAll: Bool
+    let action: () -> Void
+
+    @State private var isHovered = false
+
+    var body: some View {
+        Button(action: action) {
+            Text(isShowingAll ? "Show less" : "Show more")
+                .font(VFont.caption)
+                .foregroundColor(VColor.primaryBase)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.leading, VSpacing.xs + SidebarLayoutMetrics.iconSlotSize + VSpacing.xs)
+                .padding(.top, VSpacing.sm)
+                .padding(.bottom, VSpacing.xs)
+        }
+        .buttonStyle(.plain)
+        .background(
+            RoundedRectangle(cornerRadius: VRadius.md)
+                .fill(isHovered ? VColor.surfaceBase : Color.clear)
+        )
+        .animation(VAnimation.fast, value: isHovered)
+        .onHover { isHovered = $0 }
+        .pointerCursor()
     }
 }
