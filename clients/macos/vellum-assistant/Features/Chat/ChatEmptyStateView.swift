@@ -33,12 +33,6 @@ struct ChatEmptyStateView: View {
     var conversationStartersLoading: Bool = false
     var onSelectStarter: ((ConversationStarter) -> Void)? = nil
     var onFetchConversationStarters: (() -> Void)? = nil
-    var capabilityCards: [CapabilityCard] = []
-    var capabilityCardsLoading: Bool = false
-    var cardCategoryStatuses: [String: CategoryStatus] = [:]
-    var onSelectCard: ((CapabilityCard) -> Void)? = nil
-    var onFetchCapabilityCards: (() -> Void)? = nil
-    var showCapabilityFeed: Bool = false
 
     @State private var visible = false
     @State private var placeholder: String = placeholderTexts.randomElement()!
@@ -65,17 +59,10 @@ struct ChatEmptyStateView: View {
         "Go ahead, I'm listening...",
         "Type or hold Fn to talk...",
     ]
-
-    @State private var scrolledPastHero = false
-
     // MARK: - Body
 
     var body: some View {
-        if showCapabilityFeed {
-            scrollableBody
-        } else {
-            staticBody
-        }
+        staticBody
     }
 
     // MARK: - Static Body (original layout, no feed)
@@ -94,89 +81,6 @@ struct ChatEmptyStateView: View {
             Spacer()
             Spacer()
             Spacer()
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .onAppear(perform: handleAppear)
-        .onDisappear { visible = false }
-    }
-
-    // MARK: - Scrollable Body (hero + capability feed)
-
-    private var scrollableBody: some View {
-        ScrollViewReader { proxy in
-            ScrollView(.vertical, showsIndicators: false) {
-                VStack(spacing: 0) {
-                    // Zone 1: Hero
-                    VStack(spacing: 0) {
-                        Spacer()
-                            .frame(height: 80)
-
-                        heroSection
-                            .id("hero-composer")
-
-                        composerSection
-
-                        conversationStartersSection
-
-                        // Scroll CTA
-                        if !capabilityCards.isEmpty || capabilityCardsLoading {
-                            ScrollCTAView {
-                                withAnimation(.easeInOut(duration: 0.4)) {
-                                    proxy.scrollTo("feed-top", anchor: .top)
-                                }
-                            }
-                        }
-
-                        // Scroll offset detector — when this goes off screen, show floating composer
-                        GeometryReader { geo in
-                            Color.clear
-                                .preference(
-                                    key: ScrollOffsetKey.self,
-                                    value: geo.frame(in: .named("emptyStateScroll")).minY
-                                )
-                        }
-                        .frame(height: 0)
-                    }
-                    .frame(minHeight: 400)
-
-                    // Zone 2: Capabilities Feed
-                    if !capabilityCards.isEmpty || capabilityCardsLoading {
-                        Divider()
-                            .padding(.horizontal, VSpacing.xl)
-                            .id("feed-top")
-
-                        CapabilitiesFeedView(
-                            cards: capabilityCards,
-                            categoryStatuses: cardCategoryStatuses,
-                            loading: capabilityCardsLoading,
-                            onCardTap: { card in
-                                onSelectCard?(card)
-                                withAnimation(.easeInOut(duration: 0.3)) {
-                                    proxy.scrollTo("hero-composer", anchor: .top)
-                                }
-                            }
-                        )
-                        .padding(.top, VSpacing.xxxl)
-                    }
-                }
-                .id("hero-top")
-            }
-            .coordinateSpace(name: "emptyStateScroll")
-            .onPreferenceChange(ScrollOffsetKey.self) { offset in
-                let isPastHero = offset < -200
-                if isPastHero != scrolledPastHero {
-                    withAnimation(VAnimation.fast) {
-                        scrolledPastHero = isPastHero
-                    }
-                }
-            }
-            .overlay(alignment: .top) {
-                FloatingMiniComposer(visible: scrolledPastHero) {
-                    withAnimation(.easeInOut(duration: 0.3)) {
-                        proxy.scrollTo("hero-composer", anchor: .top)
-                    }
-                }
-            }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .onAppear(perform: handleAppear)
@@ -284,9 +188,6 @@ struct ChatEmptyStateView: View {
             onRequestGreeting?()
         }
         onFetchConversationStarters?()
-        if showCapabilityFeed {
-            onFetchCapabilityCards?()
-        }
         withAnimation(.easeOut(duration: 0.5)) {
             visible = true
         }
@@ -525,14 +426,5 @@ struct ChatTemporaryChatEmptyStateView: View {
             .offset(y: -40)
             .allowsHitTesting(false)
         )
-    }
-}
-
-// MARK: - Scroll Offset Tracking
-
-private struct ScrollOffsetKey: PreferenceKey {
-    static var defaultValue: CGFloat = 0
-    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
-        value = nextValue()
     }
 }

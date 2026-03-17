@@ -3,7 +3,6 @@ import type { AssistantConfig } from "../config/types.js";
 import { getLogger } from "../util/logger.js";
 import { rawRun } from "./db.js";
 import { backfillJob } from "./job-handlers/backfill.js";
-import { generateCapabilityCardsJob } from "./job-handlers/capability-cards.js";
 import {
   cleanupStaleSupersededItemsJob,
   pruneOldConversationsJob,
@@ -312,7 +311,7 @@ async function processJob(
       await generateConversationStartersJob(job);
       return;
     case "generate_capability_cards":
-      await generateCapabilityCardsJob(job);
+      // Capability cards were removed — silently drop legacy jobs.
       return;
     case "generate_thread_starters":
       // Thread starters renamed to conversation starters — silently drop legacy jobs

@@ -2,7 +2,6 @@ import {
   blob,
   index,
   integer,
-  primaryKey,
   real,
   sqliteTable,
   text,
@@ -176,16 +175,4 @@ export const conversationStarters = sqliteTable(
       table.scopeId,
     ),
   ],
-);
-
-export const capabilityCardCategories = sqliteTable(
-  "capability_card_categories",
-  {
-    scopeId: text("scope_id").notNull(),
-    category: text("category").notNull(),
-    relevance: real("relevance").notNull(),
-    generationBatch: integer("generation_batch").notNull(),
-    createdAt: integer("created_at").notNull(),
-  },
-  (table) => [primaryKey({ columns: [table.scopeId, table.category] })],
 );

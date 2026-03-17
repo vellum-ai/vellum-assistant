@@ -221,6 +221,13 @@ export const MIGRATION_REGISTRY: MigrationRegistryEntry[] = [
     description:
       "Rename thread_starters table to conversation_starters and recreate indexes with new names",
   },
+  {
+    key: "migration_drop_capability_card_state_v1",
+    version: 33,
+    dependsOn: ["migration_rename_thread_starters_table_v1"],
+    description:
+      "Remove deleted capability-card rows, jobs, checkpoints, and category state",
+  },
 ];
 
 export interface MigrationValidationResult {
