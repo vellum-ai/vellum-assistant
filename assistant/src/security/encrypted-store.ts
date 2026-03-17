@@ -157,7 +157,7 @@ function getOrReadStoreKey(dir: string): Buffer {
  * @deprecated @internal Kept only for v1->v2 migration path.
  * Derives entropy from publicly-knowable machine properties.
  */
-export function getMachineEntropy(): string {
+function getMachineEntropy(): string {
   const parts: string[] = [];
   try {
     parts.push(hostname());

@@ -43,7 +43,6 @@ import {
   _setStorePath,
   deleteKey,
   getKey,
-  getMachineEntropy,
   listKeys,
   setKey,
 } from "../security/encrypted-store.js";
@@ -70,8 +69,20 @@ const AUTH_TAG_LENGTH = 16;
 const PBKDF2_ITERATIONS = process.env.BUN_TEST === "1" ? 1 : 100_000;
 const SALT_LENGTH = 32;
 
+/** Local copy of the legacy machine entropy derivation (the export was removed). */
+function legacyMachineEntropy(): string {
+  const { hostname, userInfo } = require("node:os");
+  const parts: string[] = [];
+  try { parts.push(hostname()); } catch { parts.push("unknown-host"); }
+  try { parts.push(userInfo().username); } catch { parts.push("unknown-user"); }
+  parts.push(process.platform);
+  parts.push(process.arch);
+  try { parts.push(userInfo().homedir); } catch { parts.push("/tmp"); }
+  return parts.join(":");
+}
+
 function legacyDeriveKey(salt: Buffer): Buffer {
-  const entropy = getMachineEntropy();
+  const entropy = legacyMachineEntropy();
   return pbkdf2Sync(entropy, salt, PBKDF2_ITERATIONS, KEY_LENGTH, "sha512");
 }
 
