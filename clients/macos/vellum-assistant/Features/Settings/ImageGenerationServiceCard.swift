@@ -28,6 +28,10 @@ struct ImageGenerationServiceCard: View {
 
     /// True when the user has made changes worth saving.
     private var hasChanges: Bool {
+        // In managed mode when not logged in, there is nothing actionable to save.
+        if draftMode == "managed" && !isLoggedIn {
+            return false
+        }
         let modeChanged = draftMode != store.imageGenMode
         let hasNewKey = !apiKeyText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         let modelChanged = store.selectedImageGenModel != initialModel
