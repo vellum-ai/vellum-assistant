@@ -717,6 +717,14 @@ public final class SettingsStore: ObservableObject {
         guard !trimmed.isEmpty else { return }
         apiKeySaveError = nil
         apiKeySaving = true
+
+        // Persist locally first so the key survives reconnect/retry flows
+        // even if the daemon is unreachable or validation is inconclusive.
+        APIKeyManager.setKey(trimmed, for: "anthropic")
+        removeDeletionTombstone(type: "api_key", name: "anthropic")
+        hasKey = true
+        maskedKey = Self.maskKey(trimmed)
+
         Task {
             let result = await syncKeyToDaemonWithValidation(provider: "anthropic", value: trimmed)
             apiKeySaving = false
@@ -724,10 +732,6 @@ public final class SettingsStore: ObservableObject {
                 apiKeySaveError = error
                 return
             }
-            APIKeyManager.setKey(trimmed, for: "anthropic")
-            removeDeletionTombstone(type: "api_key", name: "anthropic")
-            hasKey = true
-            maskedKey = Self.maskKey(trimmed)
             scheduleRoutingSourceRefresh()
             onSuccess?()
         }
