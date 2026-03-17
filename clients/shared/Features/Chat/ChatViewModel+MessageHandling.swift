@@ -1900,6 +1900,13 @@ extension ChatViewModel {
                         break
                     }
                 }
+
+                // Clean up the native notification path when the daemon resolves
+                // the confirmation independently (timeout, new-message auto-deny,
+                // inline from another path). Without this, the notification
+                // service continuation leaks until app quit.
+                let decisionString = msg.state == "approved" ? "allow" : "deny"
+                onInlineConfirmationResponse?(msg.requestId, decisionString)
             }
 
         case .assistantActivityState(let msg):
