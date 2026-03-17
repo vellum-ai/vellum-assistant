@@ -69,7 +69,6 @@ struct ModelsServicesSection: View {
         .navigationTitle("Models & Services")
         .navigationBarTitleDisplayMode(.inline)
         .onAppear { fetchModel() }
-            .onDisappear {}
         .onChange(of: clientProvider.isConnected) { _, connected in
             if connected { fetchModel() }
         }

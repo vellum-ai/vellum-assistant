@@ -2200,10 +2200,12 @@ public final class SettingsStore: ObservableObject {
         guard model != lastDaemonModel else { return }
         lastDaemonModel = model
         Task {
-            let info = await SettingsClient().setModel(model: model)
-            if info == nil {
-                // Request failed — revert so a subsequent attempt isn't suppressed
-                lastDaemonModel = ""
+            let info = await settingsClient.setModel(model: model)
+            if let info {
+                applyModelInfoResponse(info)
+            } else if lastDaemonModel == model {
+                // Request failed — revert only if no newer call overwrote lastDaemonModel
+                lastDaemonModel = nil
             }
         }
     }

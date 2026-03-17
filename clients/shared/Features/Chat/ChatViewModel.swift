@@ -1692,6 +1692,9 @@ public final class ChatViewModel: ObservableObject {
             if let model = info?.model {
                 self.selectedModel = model
             }
+            if let providers = info?.configuredProviders {
+                self.configuredProviders = Set(providers)
+            }
         }
     }
 

@@ -2410,67 +2410,6 @@ public final class HTTPTransport {
         }
     }
 
-    func fetchModelInfo(isRetry: Bool = false) async {
-        guard let url = buildURL(for: .model) else { return }
-
-        var request = URLRequest(url: url)
-        applyAuth(&request)
-
-        do {
-            let (data, response) = try await URLSession.shared.data(for: request)
-
-            guard let http = response as? HTTPURLResponse else { return }
-
-            if http.statusCode == 200 {
-                let patched = injectType("model_info", into: data)
-                let decoded = try decoder.decode(ModelInfoMessage.self, from: patched)
-                onMessage?(.modelInfo(decoded))
-            } else if http.statusCode == 401 && !isRetry {
-                let refreshResult = await handleAuthenticationFailureAsync(responseData: data)
-                if case .success = refreshResult {
-                    await fetchModelInfo(isRetry: true)
-                }
-            } else {
-                log.error("Model get failed (HTTP \(http.statusCode))")
-            }
-        } catch {
-            log.error("Model get error: \(error.localizedDescription)")
-        }
-    }
-
-    func setModel(modelId: String, isRetry: Bool = false) async {
-        guard let url = buildURL(for: .model) else { return }
-
-        var request = URLRequest(url: url)
-        request.httpMethod = "PUT"
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        applyAuth(&request)
-
-        let body: [String: Any] = ["modelId": modelId]
-
-        do {
-            request.httpBody = try JSONSerialization.data(withJSONObject: body)
-            let (data, response) = try await URLSession.shared.data(for: request)
-
-            guard let http = response as? HTTPURLResponse else { return }
-
-            if http.statusCode == 200 {
-                let patched = injectType("model_info", into: data)
-                let decoded = try decoder.decode(ModelInfoMessage.self, from: patched)
-                onMessage?(.modelInfo(decoded))
-            } else if http.statusCode == 401 && !isRetry {
-                let refreshResult = await handleAuthenticationFailureAsync(responseData: data)
-                if case .success = refreshResult {
-                    await setModel(modelId: modelId, isRetry: true)
-                }
-            } else {
-                log.error("Model set failed (HTTP \(http.statusCode))")
-            }
-        } catch {
-            log.error("Model set error: \(error.localizedDescription)")
-        }
-    }
-
     func setImageGenModel(modelId: String, isRetry: Bool = false) async {
         guard let url = buildURL(for: .modelImageGen) else { return }
 
