@@ -1580,6 +1580,38 @@ jobs:
 
           rm -f "$NOTES_FILE"
 
+  merge-release-branch:
+    needs: [extract-version, release]
+    if: ${{ !cancelled() && needs.release.result == 'success' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Generate GitHub App token
+        id: app-token
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ secrets.VELLUM_AUTOMATION_GITHUB_APP_ID }}
+          private-key: ${{ secrets.VELLUM_AUTOMATION_GITHUB_PRIVATE_KEY }}
+
+      - uses: actions/checkout@v6
+        with:
+          token: ${{ steps.app-token.outputs.token }}
+          fetch-depth: 0
+
+      - name: Merge release branch and delete
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+        run: |
+          VERSION="${{ needs.extract-version.outputs.version }}"
+          BRANCH="release/v$VERSION"
+
+          PR_URL=$(gh pr create \
+            --title "Release v$VERSION" \
+            --body "Automated version bump to $VERSION." \
+            --base main \
+            --head "$BRANCH")
+          gh pr merge "$PR_URL" --squash --admin --delete-branch
+
   update-platform:
     needs: [extract-version, publish-npm]
     runs-on: ubuntu-latest
@@ -2005,7 +2037,7 @@ jobs:
   notify-release:
     name: Slack Notification (Release)
     if: always() && !cancelled()
-    needs: [extract-version, publish-npm, publish-meta, build-macos-arm64, build-macos-x64, build-ios, release-ios, push-assistant-manifest, push-gateway-manifest, push-credential-executor-manifest, register-release, release, update-platform, ci-assistant, ci-cli, ci-credential-executor, ci-gateway, ci-playwright]
+    needs: [extract-version, publish-npm, publish-meta, build-macos-arm64, build-macos-x64, build-ios, release-ios, push-assistant-manifest, push-gateway-manifest, push-credential-executor-manifest, register-release, release, merge-release-branch, update-platform, ci-assistant, ci-cli, ci-credential-executor, ci-gateway, ci-playwright]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     continue-on-error: true
