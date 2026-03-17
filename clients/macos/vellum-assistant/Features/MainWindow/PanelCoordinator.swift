@@ -343,10 +343,14 @@ extension MainWindowView {
                         subagentId: subagentId,
                         viewModel: viewModel,
                         detailStore: viewModel.subagentDetailStore,
-                        onAbort: { try? daemonClient.sendSubagentAbort(subagentId: subagentId, conversationId: viewModel.conversationId) },
+                        onAbort: { Task { await SubagentClient().abort(subagentId: subagentId, conversationId: viewModel.conversationId) } },
                         onRequestDetail: {
                             if let conversationId = viewModel.activeSubagents.first(where: { $0.id == subagentId })?.conversationId {
-                                try? daemonClient.sendSubagentDetailRequest(subagentId: subagentId, conversationId: conversationId)
+                                Task {
+                                    if let response = await SubagentClient().fetchDetail(subagentId: subagentId, conversationId: conversationId) {
+                                        viewModel.subagentDetailStore.populateFromDetailResponse(response)
+                                    }
+                                }
                             }
                         },
                         onClose: { windowState.selectedSubagentId = nil }
@@ -669,7 +673,7 @@ struct ActiveChatViewWrapper: View {
             isTemporaryChat: isTemporaryChat,
             activeSubagents: viewModel.activeSubagents,
             onAbortSubagent: { subagentId in
-                try? daemonClient.sendSubagentAbort(subagentId: subagentId, conversationId: viewModel.conversationId)
+                Task { await SubagentClient().abort(subagentId: subagentId, conversationId: viewModel.conversationId) }
             },
             onSubagentTap: { subagentId in
                 windowState.selectedSubagentId = subagentId

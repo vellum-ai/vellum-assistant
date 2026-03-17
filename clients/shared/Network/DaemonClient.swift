@@ -458,14 +458,6 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
 
 
 
-    /// Called when the daemon sends a `work_item_preflight_response` message.
-    public var onWorkItemPreflightResponse: ((WorkItemPreflightResponse) -> Void)?
-
-    /// Called when the daemon sends a `work_item_approve_permissions_response` message.
-    public var onWorkItemApprovePermissionsResponse: ((WorkItemApprovePermissionsResponse) -> Void)?
-
-    /// Called when the daemon sends a `work_item_cancel_response` message.
-    public var onWorkItemCancelResponse: ((WorkItemCancelResponse) -> Void)?
 
     /// Called when the daemon sends a generic `error` message (e.g. when a handler fails).
     public var onError: ((ErrorMessage) -> Void)?
@@ -485,8 +477,6 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     /// Called when a subagent's status changes (running, completed, failed, aborted).
     public var onSubagentStatusChanged: ((SubagentStatusChanged) -> Void)?
 
-    /// Called when the daemon sends a `subagent_detail_response` with lazy-loaded events.
-    public var onSubagentDetailResponse: ((SubagentDetailResponse) -> Void)?
 
     /// Called when the daemon sends a `recording_pause` message.
     public var onRecordingPause: ((RecordingPause) -> Void)?
@@ -832,34 +822,6 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     }
 
 
-    // MARK: - Work Items (Task Queue)
-
-    /// Request a permission preflight check for a work item's required tools.
-    public func sendWorkItemPreflight(id: String) throws {
-        try send(WorkItemPreflightRequest(type: "work_item_preflight", id: id))
-    }
-
-    /// Approve specific permissions for a work item before running.
-    public func sendWorkItemApprovePermissions(id: String, approvedTools: [String]) throws {
-        try send(WorkItemApprovePermissionsRequest(type: "work_item_approve_permissions", id: id, approvedTools: approvedTools))
-    }
-
-    /// Cancel a running work item.
-    public func sendWorkItemCancel(id: String) throws {
-        try send(WorkItemCancelRequest(type: "work_item_cancel", id: id))
-    }
-
-    // MARK: - Subagent Management
-
-    /// Abort a running subagent.
-    public func sendSubagentAbort(subagentId: String, conversationId: String? = nil) throws {
-        try send(SubagentAbortMessage(subagentId: subagentId, conversationId: conversationId))
-    }
-
-    /// Request subagent detail events (lazy-loaded when the user opens the detail panel).
-    public func sendSubagentDetailRequest(subagentId: String, conversationId: String) throws {
-        try send(SubagentDetailRequestMessage(subagentId: subagentId, conversationId: conversationId))
-    }
 
     // MARK: - Skills Management
 
@@ -1095,10 +1057,6 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     }
 
 
-    /// Request identity info via HTTP.
-    public func sendIdentityGet() throws {
-        try send(IdentityGetRequestMessage())
-    }
 
     /// Request avatar generation via the daemon's avatar generation endpoint.
     public func sendGenerateAvatar(description: String) throws {

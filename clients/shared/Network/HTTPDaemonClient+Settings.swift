@@ -18,12 +18,6 @@ extension HTTPTransport {
         registerDomainDispatcher { [weak self] message in
             guard let self else { return false }
 
-            // --- Identity ---
-            if message is IdentityGetRequestMessage {
-                Task { await self.sendGenericPost(.identity, method: "GET", label: "identity_get") }
-                return true
-            }
-
             // --- Voice Config ---
             if let msg = message as? VoiceConfigUpdateRequest {
                 Task { await self.sendEncodablePost(.settingsVoice, body: msg, method: "PUT", label: "voice_config_update") }

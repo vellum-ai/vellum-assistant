@@ -15,6 +15,9 @@ public protocol WorkItemClientProtocol {
     func runTask(id: String) async -> WorkItemRunTaskResponse?
     func fetchOutput(id: String) async -> WorkItemOutputResponse?
     func update(id: String, title: String?, notes: String?, status: String?, priorityTier: Double?, sortIndex: Int?) async -> WorkItemUpdateResponse?
+    func preflight(id: String) async -> WorkItemPreflightResponse?
+    func approvePermissions(id: String, approvedTools: [String]) async -> WorkItemApprovePermissionsResponse?
+    func cancel(id: String) async -> WorkItemCancelResponse?
 }
 
 /// Gateway-backed implementation of ``WorkItemClientProtocol``.
@@ -131,6 +134,58 @@ public struct WorkItemClient: WorkItemClientProtocol {
             return try JSONDecoder().decode(WorkItemUpdateResponse.self, from: patched)
         } catch {
             log.error("update error: \(error.localizedDescription)")
+            return nil
+        }
+    }
+
+    public func preflight(id: String) async -> WorkItemPreflightResponse? {
+        do {
+            let response = try await GatewayHTTPClient.post(
+                path: "assistants/{assistantId}/work-items/\(id)/preflight", timeout: 10
+            )
+            guard response.isSuccess else {
+                log.error("preflight failed (HTTP \(response.statusCode))")
+                return nil
+            }
+            let patched = injectType("work_item_preflight_response", into: response.data)
+            return try JSONDecoder().decode(WorkItemPreflightResponse.self, from: patched)
+        } catch {
+            log.error("preflight error: \(error.localizedDescription)")
+            return nil
+        }
+    }
+
+    public func approvePermissions(id: String, approvedTools: [String]) async -> WorkItemApprovePermissionsResponse? {
+        do {
+            let body: [String: Any] = ["approvedTools": approvedTools]
+            let response = try await GatewayHTTPClient.post(
+                path: "assistants/{assistantId}/work-items/\(id)/approve-permissions", json: body, timeout: 10
+            )
+            guard response.isSuccess else {
+                log.error("approvePermissions failed (HTTP \(response.statusCode))")
+                return nil
+            }
+            let patched = injectType("work_item_approve_permissions_response", into: response.data)
+            return try JSONDecoder().decode(WorkItemApprovePermissionsResponse.self, from: patched)
+        } catch {
+            log.error("approvePermissions error: \(error.localizedDescription)")
+            return nil
+        }
+    }
+
+    public func cancel(id: String) async -> WorkItemCancelResponse? {
+        do {
+            let response = try await GatewayHTTPClient.post(
+                path: "assistants/{assistantId}/work-items/\(id)/cancel", timeout: 10
+            )
+            guard response.isSuccess else {
+                log.error("cancel failed (HTTP \(response.statusCode))")
+                return nil
+            }
+            let patched = injectType("work_item_cancel_response", into: response.data)
+            return try JSONDecoder().decode(WorkItemCancelResponse.self, from: patched)
+        } catch {
+            log.error("cancel error: \(error.localizedDescription)")
             return nil
         }
     }

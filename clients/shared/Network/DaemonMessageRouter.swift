@@ -226,12 +226,12 @@ extension DaemonClient {
             break // Handled by WorkItemClient via GatewayHTTPClient.
         case .workItemUpdateResponse:
             break // Handled by WorkItemClient via GatewayHTTPClient.
-        case .workItemPreflightResponse(let msg):
-            onWorkItemPreflightResponse?(msg)
-        case .workItemApprovePermissionsResponse(let msg):
-            onWorkItemApprovePermissionsResponse?(msg)
-        case .workItemCancelResponse(let msg):
-            onWorkItemCancelResponse?(msg)
+        case .workItemPreflightResponse:
+            break // Handled by WorkItemClient via GatewayHTTPClient.
+        case .workItemApprovePermissionsResponse:
+            break // Handled by WorkItemClient via GatewayHTTPClient.
+        case .workItemCancelResponse:
+            break // Handled by WorkItemClient via GatewayHTTPClient.
         case .taskRunConversationCreated(let msg):
             onTaskRunConversationCreated?(msg)
         case .scheduleConversationCreated(let msg):
@@ -240,8 +240,8 @@ extension DaemonClient {
             onSubagentSpawned?(msg)
         case .subagentStatusChanged(let msg):
             onSubagentStatusChanged?(msg)
-        case .subagentDetailResponse(let msg):
-            onSubagentDetailResponse?(msg)
+        case .subagentDetailResponse:
+            break // Handled by SubagentClient via GatewayHTTPClient.
         case .heartbeatConfigResponse, .heartbeatRunsListResponse, .heartbeatRunNowResponse,
              .heartbeatChecklistResponse, .heartbeatChecklistWriteResponse:
             break
