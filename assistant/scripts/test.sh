@@ -9,7 +9,7 @@ set -uo pipefail
 # that mock a module break other test files that need the real implementation.
 # To avoid order-dependent CI flakes, run each test file in its own Bun process.
 #
-# Files run in parallel (configurable via TEST_WORKERS, default: CPU count).
+# Files run in parallel (configurable via TEST_WORKERS, default: 4).
 #
 # Coverage: set COVERAGE=true to generate per-file lcov reports, merged into
 # coverage/lcov.info at the end.
