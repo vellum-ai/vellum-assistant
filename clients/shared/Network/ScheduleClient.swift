@@ -17,6 +17,17 @@ public protocol ScheduleClientProtocol {
 public struct ScheduleClient: ScheduleClientProtocol {
     nonisolated public init() {}
 
+    enum ScheduleClientError: LocalizedError {
+        case httpError(statusCode: Int)
+
+        var errorDescription: String? {
+            switch self {
+            case .httpError(let statusCode):
+                return "Schedule request failed (HTTP \(statusCode))"
+            }
+        }
+    }
+
     private struct SchedulesResponse: Decodable {
         let schedules: [ScheduleItem]
     }
@@ -27,7 +38,7 @@ public struct ScheduleClient: ScheduleClientProtocol {
         )
         guard response.isSuccess else {
             log.error("fetchSchedulesList failed (HTTP \(response.statusCode))")
-            return []
+            throw ScheduleClientError.httpError(statusCode: response.statusCode)
         }
         return try JSONDecoder().decode(SchedulesResponse.self, from: response.data).schedules
     }
@@ -40,7 +51,7 @@ public struct ScheduleClient: ScheduleClientProtocol {
         )
         guard response.isSuccess else {
             log.error("toggleSchedule failed (HTTP \(response.statusCode))")
-            return []
+            throw ScheduleClientError.httpError(statusCode: response.statusCode)
         }
         return try JSONDecoder().decode(SchedulesResponse.self, from: response.data).schedules
     }
@@ -51,7 +62,7 @@ public struct ScheduleClient: ScheduleClientProtocol {
         )
         guard response.isSuccess else {
             log.error("deleteSchedule failed (HTTP \(response.statusCode))")
-            return []
+            throw ScheduleClientError.httpError(statusCode: response.statusCode)
         }
         return try JSONDecoder().decode(SchedulesResponse.self, from: response.data).schedules
     }
@@ -64,7 +75,7 @@ public struct ScheduleClient: ScheduleClientProtocol {
         )
         guard response.isSuccess else {
             log.error("cancelSchedule failed (HTTP \(response.statusCode))")
-            return []
+            throw ScheduleClientError.httpError(statusCode: response.statusCode)
         }
         return try JSONDecoder().decode(SchedulesResponse.self, from: response.data).schedules
     }
