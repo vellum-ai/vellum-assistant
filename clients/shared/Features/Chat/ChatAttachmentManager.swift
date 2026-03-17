@@ -64,7 +64,7 @@ public final class ChatAttachmentManager: ObservableObject {
     /// Maximum image size before compression (4 MB). Images above this threshold
     /// are JPEG-compressed, not rejected. Anthropic has a 5 MB limit per image;
     /// base64 encoding adds ~33% overhead, so 4 MB raw keeps us well within bounds.
-    nonisolated static let maxImageSize = 4 * 1024 * 1024
+    nonisolated static var maxImageSize: Int { 4 * 1024 * 1024 }
 
     // MARK: - Error callback
 
