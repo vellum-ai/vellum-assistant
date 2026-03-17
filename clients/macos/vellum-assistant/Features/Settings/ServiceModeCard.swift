@@ -50,7 +50,7 @@ struct ServiceModeCard<ManagedContent: View, YourOwnContent: View>: View {
         VStack(alignment: .leading, spacing: VSpacing.xs) {
             HStack {
                 Text(title)
-                    .font(VFont.sectionTitle)
+                    .font(.custom("Inter-SemiBold", size: 18))
                     .foregroundColor(VColor.contentEmphasized)
                 Spacer()
                 VSegmentedControl(
@@ -64,7 +64,7 @@ struct ServiceModeCard<ManagedContent: View, YourOwnContent: View>: View {
                 .frame(width: 220)
             }
             Text(subtitle)
-                .font(VFont.sectionDescription)
+                .font(.custom("Inter-Medium", size: 14))
                 .foregroundColor(VColor.contentTertiary)
         }
     }
