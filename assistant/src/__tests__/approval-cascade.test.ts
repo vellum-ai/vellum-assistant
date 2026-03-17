@@ -166,7 +166,7 @@ mock.module("../memory/retriever.js", () => ({
     injectedTokens: 0,
     latencyMs: 0,
   }),
-  stripMemoryRecallMessages: (msgs: Message[]) => msgs,
+  injectMemoryRecallAsUserBlock: (msgs: Message[]) => msgs,
 }));
 
 mock.module("../context/window-manager.js", () => ({

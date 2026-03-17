@@ -95,8 +95,7 @@ import {
 } from "../memory/qdrant-circuit-breaker.js";
 import {
   buildMemoryRecall,
-  injectMemoryRecallAsSeparateMessage,
-  stripMemoryRecallMessages,
+  injectMemoryRecallAsUserBlock,
 } from "../memory/retriever.js";
 import {
   conversations,
@@ -104,10 +103,17 @@ import {
   memoryItemSources,
   messages,
 } from "../memory/schema.js";
+import type { ContentBlock, Message } from "../providers/types.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
+
+/** Extract text from a content block, asserting it is a text block. */
+function textOf(block: ContentBlock): string {
+  if (block.type !== "text") throw new Error(`Expected text block, got ${block.type}`);
+  return block.text;
+}
 
 function insertConversation(
   db: ReturnType<typeof getDb>,
@@ -627,81 +633,11 @@ describe("Memory Retriever Pipeline", () => {
   });
 
   // -----------------------------------------------------------------------
-  // stripMemoryRecallMessages with <memory_context> format
+  // injectMemoryRecallAsUserBlock
   // -----------------------------------------------------------------------
 
-  test("stripMemoryRecallMessages: strips <memory_context> XML format", () => {
-    type Msg = {
-      role: "user" | "assistant";
-      content: Array<{ type: string; text?: string }>;
-    };
-    const recallText =
-      "<memory_context>\n\n<relevant_context>\nsome context\n</relevant_context>\n\n</memory_context>";
-
-    const msgs: Msg[] = [
-      {
-        role: "user",
-        content: [{ type: "text", text: recallText }],
-      },
-      {
-        role: "assistant",
-        content: [{ type: "text", text: "[Memory context loaded.]" }],
-      },
-      {
-        role: "user",
-        content: [{ type: "text", text: "Hello, what do you know about me?" }],
-      },
-    ];
-
-    const cleaned = stripMemoryRecallMessages(msgs, recallText);
-    expect(cleaned).toHaveLength(1);
-    expect(cleaned[0].role).toBe("user");
-    expect(cleaned[0].content[0].text).toBe(
-      "Hello, what do you know about me?",
-    );
-  });
-
-  test("stripMemoryRecallMessages: handles <memory_context> with slightly different content", () => {
-    type Msg = {
-      role: "user" | "assistant";
-      content: Array<{ type: string; text?: string }>;
-    };
-    const originalRecall =
-      "<memory_context>\n\n<relevant_context>\noriginal\n</relevant_context>\n\n</memory_context>";
-    const actualRecall =
-      "<memory_context>\n\n<relevant_context>\nslightly different\n</relevant_context>\n\n</memory_context>";
-
-    const msgs: Msg[] = [
-      {
-        role: "user",
-        content: [{ type: "text", text: actualRecall }],
-      },
-      {
-        role: "assistant",
-        content: [{ type: "text", text: "[Memory context loaded.]" }],
-      },
-      {
-        role: "user",
-        content: [{ type: "text", text: "follow-up question" }],
-      },
-    ];
-
-    // The <memory_context> tag-based matching should work even when exact text differs
-    const cleaned = stripMemoryRecallMessages(msgs, originalRecall);
-    expect(cleaned).toHaveLength(1);
-    expect(cleaned[0].content[0].text).toBe("follow-up question");
-  });
-
-  // -----------------------------------------------------------------------
-  // injectMemoryRecallAsSeparateMessage
-  // -----------------------------------------------------------------------
-
-  test("injectMemoryRecallAsSeparateMessage: injects context + ack before last user message", () => {
-    type Msg = {
-      role: "user" | "assistant";
-      content: Array<{ type: string; text?: string }>;
-    };
-    const msgs: Msg[] = [
+  test("injectMemoryRecallAsUserBlock: prepends memory context to last user message", () => {
+    const msgs: Message[] = [
       {
         role: "user",
         content: [{ type: "text", text: "Hello" }],
@@ -710,32 +646,49 @@ describe("Memory Retriever Pipeline", () => {
 
     const recallText =
       "<memory_context>\n\n<relevant_context>\ntest\n</relevant_context>\n\n</memory_context>";
-    const result = injectMemoryRecallAsSeparateMessage(msgs, recallText);
+    const result = injectMemoryRecallAsUserBlock(msgs, recallText);
 
-    expect(result).toHaveLength(3);
+    // Same number of messages — no synthetic pair added
+    expect(result).toHaveLength(1);
     expect(result[0].role).toBe("user");
-    expect(result[0].content[0].text).toBe(recallText);
-    expect(result[1].role).toBe("assistant");
-    expect(result[1].content[0].text).toBe("[Memory context loaded.]");
-    expect(result[2].role).toBe("user");
-    expect(result[2].content[0].text).toBe("Hello");
+    // Memory context prepended as first content block
+    expect(result[0].content).toHaveLength(2);
+    expect(textOf(result[0].content[0])).toBe(recallText);
+    // Original user text preserved as second block
+    expect(textOf(result[0].content[1])).toBe("Hello");
   });
 
-  test("injectMemoryRecallAsSeparateMessage: no-op for empty text", () => {
-    type Msg = {
-      role: "user" | "assistant";
-      content: Array<{ type: string; text?: string }>;
-    };
-    const msgs: Msg[] = [
+  test("injectMemoryRecallAsUserBlock: no-op for empty text", () => {
+    const msgs: Message[] = [
       {
         role: "user",
         content: [{ type: "text", text: "Hello" }],
       },
     ];
 
-    const result = injectMemoryRecallAsSeparateMessage(msgs, "");
+    const result = injectMemoryRecallAsUserBlock(msgs, "");
     expect(result).toHaveLength(1);
-    expect(result[0].content[0].text).toBe("Hello");
+    expect(textOf(result[0].content[0])).toBe("Hello");
+  });
+
+  test("injectMemoryRecallAsUserBlock: preserves history before last user message", () => {
+    const msgs: Message[] = [
+      { role: "user", content: [{ type: "text", text: "First" }] },
+      { role: "assistant", content: [{ type: "text", text: "Response" }] },
+      { role: "user", content: [{ type: "text", text: "Second" }] },
+    ];
+
+    const recallText =
+      "<memory_context>\n\n<relevant_context>\nfact\n</relevant_context>\n\n</memory_context>";
+    const result = injectMemoryRecallAsUserBlock(msgs, recallText);
+
+    expect(result).toHaveLength(3);
+    // Earlier messages unchanged
+    expect(result[0]).toBe(msgs[0]);
+    expect(result[1]).toBe(msgs[1]);
+    // Last user message has memory prepended
+    expect(textOf(result[2].content[0])).toBe(recallText);
+    expect(textOf(result[2].content[1])).toBe("Second");
   });
 
   // -----------------------------------------------------------------------
