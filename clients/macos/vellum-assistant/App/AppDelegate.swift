@@ -52,6 +52,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
     let assistantCli = AssistantCli()
     public let updateManager = UpdateManager()
     let debugStateWriter = DebugStateWriter()
+    private let telemetryClient: any TelemetryClientProtocol = TelemetryClient()
     private var metricKitManager: MetricKitManager?
 
     // Forwarding accessors — ownership lives in `services`, these keep
@@ -388,8 +389,8 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
 
                 if ready {
                     // Record lifecycle telemetry events (fire-and-forget).
-                    Task { await TelemetryClient().recordLifecycleEvent("hatch") }
-                    Task { await TelemetryClient().recordLifecycleEvent("app_open") }
+                    Task { await self.telemetryClient.recordLifecycleEvent("hatch") }
+                    Task { await self.telemetryClient.recordLifecycleEvent("app_open") }
 
                     // If the user is signed in with a local assistant, wait for
                     // credential provisioning to complete before sending the wake-up
@@ -423,7 +424,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
             Task {
                 let ready = await awaitDaemonReady(timeout: 10)
                 if ready {
-                    await TelemetryClient().recordLifecycleEvent("app_open")
+                    await self.telemetryClient.recordLifecycleEvent("app_open")
                 }
             }
             showMainWindow()
