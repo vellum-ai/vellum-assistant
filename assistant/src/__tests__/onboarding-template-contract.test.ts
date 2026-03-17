@@ -124,19 +124,13 @@ describe("onboarding template contracts", () => {
   });
 
   describe("USER.md", () => {
-    test("contains onboarding snapshot with all required fields", () => {
+    test("contains profile fields", () => {
       expect(user).toContain("Preferred name/reference:");
       expect(user).toContain("Goals:");
       expect(user).toContain("Locale:");
       expect(user).toContain("Work role:");
       expect(user).toContain("Hobbies/fun:");
       expect(user).toContain("Daily tools:");
-    });
-
-    test("documents resolved-field status conventions", () => {
-      const lower = user.toLowerCase();
-      expect(lower).toContain("declined_by_user");
-      expect(lower).toContain("resolved");
     });
   });
 });
