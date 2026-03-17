@@ -1039,7 +1039,7 @@ extension ChatViewModel {
             }
 
         case .error(let err):
-            log.error("Server error: \(err.message, privacy: .private)")
+            log.error("Server error: \(err.message, privacy: .public)")
             // Only process errors relevant to this chat conversation. Generic daemon
             // errors (e.g., validation failures from unrelated message types
             // like work_item_delete) should not pollute the chat UI.
@@ -1722,7 +1722,7 @@ extension ChatViewModel {
         case .conversationError(let msg):
             // Empty conversationId is treated as a broadcast (e.g. transport-level 401)
             guard conversationId != nil, msg.conversationId.isEmpty || belongsToConversation(msg.conversationId) else { return }
-            log.error("Session error [\(msg.code.rawValue, privacy: .public)]: \(msg.userMessage, privacy: .private)")
+            log.error("Session error [\(msg.code.rawValue, privacy: .public)]: \(msg.userMessage, privacy: .public)")
 
             // Per-message send failure: mark the specific user message instead
             // of showing a conversation-level error banner.

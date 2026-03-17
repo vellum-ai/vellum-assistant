@@ -680,10 +680,10 @@ extension AppDelegate {
             // Retire each local assistant so cloud/daemon resources are cleaned up.
             for assistant in localAssistants {
                 do {
-                    log.info("Retiring local assistant '\(assistant.assistantId, privacy: .private)' as part of uninstall")
+                    log.info("Retiring local assistant '\(assistant.assistantId, privacy: .public)' as part of uninstall")
                     try await assistantCli.retire(name: assistant.assistantId)
                 } catch {
-                    log.error("Failed to retire '\(assistant.assistantId, privacy: .private)' during uninstall: \(error.localizedDescription)")
+                    log.error("Failed to retire '\(assistant.assistantId, privacy: .public)' during uninstall: \(error.localizedDescription)")
                 }
             }
 

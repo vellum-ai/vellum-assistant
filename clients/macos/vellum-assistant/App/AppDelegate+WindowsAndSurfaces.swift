@@ -454,9 +454,9 @@ extension AppDelegate {
         do {
             let data = try JSONSerialization.data(withJSONObject: updated, options: [.prettyPrinted, .sortedKeys])
             try data.write(to: LockfilePaths.primary)
-            log.info("Removed stale entry '\(assistantId, privacy: .private)' from lockfile")
+            log.info("Removed stale entry '\(assistantId, privacy: .public)' from lockfile")
         } catch {
-            log.error("Failed to update lockfile after removing '\(assistantId, privacy: .private)': \(error)")
+            log.error("Failed to update lockfile after removing '\(assistantId, privacy: .public)': \(error)")
         }
     }
 

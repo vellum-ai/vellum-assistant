@@ -64,7 +64,7 @@ public func readFeatureFlagToken(environment: [String: String]? = nil) -> String
     do {
         data = try Data(contentsOf: URL(fileURLWithPath: tokenPath))
     } catch {
-        log.error("Failed to read feature-flag token from \(tokenPath, privacy: .private): \(error)")
+        log.error("Failed to read feature-flag token from \(tokenPath, privacy: .public): \(error)")
         return nil
     }
     guard let token = String(data: data, encoding: .utf8)?
