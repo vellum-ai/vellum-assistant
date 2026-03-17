@@ -186,7 +186,7 @@ struct ContactDetailView: View {
 
     private var headerActions: some View {
         HStack(spacing: VSpacing.sm) {
-            VButton(label: "Save", style: .primary, size: .compact, isDisabled: isSaving) {
+            VButton(label: "Save", style: .outlined, size: .compact, isDisabled: isSaving) {
                 Task { await saveCardEdits() }
             }
             VButton(label: "Delete Contact", style: .dangerOutline, size: .compact, isDisabled: isDeleting || actionInProgress != nil || verificationInProgress != nil) {
