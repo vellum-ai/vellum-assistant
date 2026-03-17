@@ -1,9 +1,9 @@
 import { v4 as uuid } from "uuid";
 
-import type { TraceEvent } from "./message-types/messages.js";
-import type { ServerMessage, TraceEventKind } from "./message-protocol.js";
 import { persistTraceEvent } from "../memory/trace-event-store.js";
 import { getLogger } from "../util/logger.js";
+import type { ServerMessage, TraceEventKind } from "./message-protocol.js";
+import type { TraceEvent } from "./message-types/messages.js";
 
 export type TraceEventStatus = "info" | "success" | "warning" | "error";
 
