@@ -653,6 +653,17 @@ export async function handleSendMessage(
       conversationExternalId: "local",
       actorExternalId: authContext.actorPrincipalId,
     });
+    if (trustCtx.trustClass === "unknown") {
+      log.warn(
+        {
+          actorPrincipalId: authContext.actorPrincipalId,
+          sourceChannel,
+          trustClass: trustCtx.trustClass,
+          principalType: authContext.principalType,
+        },
+        "JWT-verified actor resolved to unknown trust class — possible guardian binding drift (e.g. DB reset without re-bootstrap)",
+      );
+    }
     conversation.setTrustContext(withSourceChannel(sourceChannel, trustCtx));
   } else {
     // Service principals (svc_gateway) or tokens without an actor ID
