@@ -148,19 +148,12 @@ export async function handleMigrationExport(req: Request): Promise<Response> {
       source: "runtime-export",
       description,
       checkpoint: () => {
+        const dbPath = getDbPath();
+        const db = new Database(dbPath);
         try {
-          const dbPath = getDbPath();
-          const db = new Database(dbPath);
-          try {
-            db.exec("PRAGMA wal_checkpoint(TRUNCATE)");
-          } finally {
-            db.close();
-          }
-        } catch (err) {
-          log.warn(
-            { err },
-            "WAL checkpoint failed — exporting without checkpoint",
-          );
+          db.exec("PRAGMA wal_checkpoint(TRUNCATE)");
+        } finally {
+          db.close();
         }
       },
     });

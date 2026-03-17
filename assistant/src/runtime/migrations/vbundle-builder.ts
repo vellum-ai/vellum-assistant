@@ -348,9 +348,9 @@ function walkDirectory(
         // with the live DB connection. The WAL is checkpointed before the
         // walk, so the main .db file has all committed rows.
         if (
-          entry.name.endsWith("-wal") ||
-          entry.name.endsWith("-shm") ||
-          entry.name.endsWith("-journal")
+          entry.name.endsWith(".db-wal") ||
+          entry.name.endsWith(".db-shm") ||
+          entry.name.endsWith(".db-journal")
         ) {
           continue;
         }
