@@ -479,8 +479,8 @@ struct ChatBubble: View {
     //
     // Prevents a single huge message from consuming disproportionate cache
     // space.  Text over `maxCacheableTextLength` is parsed but never stored.
-    // `estimatedCacheBytes` tracks a rough byte budget across all three
-    // caches; when it exceeds `maxCacheBytes` the oldest entries are evicted.
+    // `estimatedCacheBytes` tracks a rough byte budget across the segment
+    // cache; when it exceeds `maxCacheBytes` the oldest entries are evicted.
 
     static let maxCacheableTextLength = 10_000
     static let maxCacheBytes = 5_000_000
@@ -488,9 +488,9 @@ struct ChatBubble: View {
     @MainActor static var estimatedCacheBytes: Int = 0
 
     /// Estimate the in-memory cost of caching the given text's parsed result.
-    /// Uses `utf8.count * 10` as a conservative estimate: AttributedString carries
-    /// significant overhead beyond raw bytes (attribute containers, font metrics,
-    /// paragraph style objects), so 3x was too low and allowed the budget to be exceeded.
+    /// Uses `utf8.count * 10` as a conservative multiplier: parsed MarkdownSegment
+    /// arrays carry overhead beyond raw bytes (segment structs, string copies,
+    /// enum metadata), so 3x was too low and allowed the budget to be exceeded.
     static func estimatedBytes(for text: String) -> Int {
         text.utf8.count * 10
     }
