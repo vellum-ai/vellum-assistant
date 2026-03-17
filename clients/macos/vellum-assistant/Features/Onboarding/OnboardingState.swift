@@ -57,9 +57,9 @@ final class OnboardingState {
 
         var displayName: String {
             switch self {
-            case .vellumCloud: return "Vellum\u{2019}s Cloud"
+            case .vellumCloud: return "Vellum Cloud"
             case .local: return "Local"
-            case .docker: return "Docker"
+            case .docker: return "Local (Docker)"
             case .gcp: return "GCP"
             case .aws: return "AWS"
             case .customHardware: return "Custom"
@@ -68,9 +68,9 @@ final class OnboardingState {
 
         var subtitle: String {
             switch self {
-            case .vellumCloud: return "Ready out of the box. Runs entirely on Vellum\u{2019}s secure infrastructure."
-            case .local: return "Run on your machine"
-            case .docker: return "Run in a Docker container"
+            case .vellumCloud: return "Ready out of the box. Runs entirely on Vellum's secure infrastructure."
+            case .local: return "Your machine, your data. Nothing leaves your Mac."
+            case .docker: return "Same privacy as local, but sandboxed in a container."
             case .gcp: return "Host on your GCP account"
             case .aws: return "Host on your AWS account"
             case .customHardware: return "Run on your own hardware"

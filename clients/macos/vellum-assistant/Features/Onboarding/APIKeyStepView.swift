@@ -69,16 +69,22 @@ struct APIKeyStepView: View {
     // MARK: - Hosting Cards
 
     private var availableHostingModes: [OnboardingState.HostingMode] {
-        var modes: [OnboardingState.HostingMode] = [.local, .vellumCloud]
+        var modes: [OnboardingState.HostingMode] = [.local, .docker, .vellumCloud]
         if userHostedEnabled {
-            modes.append(contentsOf: [.docker, .aws, .gcp, .customHardware])
+            modes.append(contentsOf: [.aws, .gcp, .customHardware])
         }
         return modes
     }
 
     private func chipLabel(for mode: OnboardingState.HostingMode) -> String? {
-        guard mode == .vellumCloud else { return nil }
-        return state.skippedAuth ? "Requires Account" : "Coming Soon"
+        switch mode {
+        case .vellumCloud:
+            return state.skippedAuth ? "Requires Account" : "Coming Soon"
+        case .docker:
+            return "Coming Soon"
+        default:
+            return nil
+        }
     }
 
     private var hostingCards: some View {
@@ -164,6 +170,7 @@ struct APIKeyStepView: View {
             }
             .padding(.horizontal, VSpacing.lg)
             .padding(.vertical, VSpacing.md)
+            .frame(minHeight: 64)
             .contentShape(Rectangle())
             .background(
                 RoundedRectangle(cornerRadius: VRadius.lg)
