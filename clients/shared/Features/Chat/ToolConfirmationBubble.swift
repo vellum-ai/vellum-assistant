@@ -542,7 +542,6 @@ public struct ToolConfirmationBubble: View {
             if scopes.isEmpty {
                 Button("Always allow") {
                     markCommandExplanationSeen()
-                    preferredAllowAction = "always_allow"
                     if option.pattern.isEmpty {
                         onAllow()
                     } else {
