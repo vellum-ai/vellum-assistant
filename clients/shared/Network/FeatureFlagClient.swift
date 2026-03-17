@@ -6,32 +6,12 @@ private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.
 /// Focused client for feature-flag and privacy-config operations routed through the gateway.
 @MainActor
 public protocol FeatureFlagClientProtocol {
-    func fetchAssistantFeatureFlags() async throws -> [AssistantFeatureFlagEntry]
     func getFeatureFlags() async throws -> [AssistantFeatureFlag]
     func setFeatureFlag(key: String, enabled: Bool) async throws
     func setPrivacyConfig(collectUsageData: Bool?, sendDiagnostics: Bool?) async throws
 }
 
 // MARK: - Response Types
-
-/// A single assistant feature flag entry returned by `GET /v1/feature-flags`.
-public struct AssistantFeatureFlagEntry: Decodable, Identifiable, Sendable {
-    public let key: String
-    public let enabled: Bool
-    public let defaultEnabled: Bool
-    public let description: String
-    public let label: String?
-
-    public var id: String { key }
-
-    public init(key: String, enabled: Bool, defaultEnabled: Bool, description: String, label: String? = nil) {
-        self.key = key
-        self.enabled = enabled
-        self.defaultEnabled = defaultEnabled
-        self.description = description
-        self.label = label
-    }
-}
 
 /// A feature flag sourced from the gateway API, used by the settings UI.
 public struct AssistantFeatureFlag: Decodable, Identifiable, Sendable {
@@ -94,18 +74,6 @@ public enum FeatureFlagError: Error, LocalizedError {
 @MainActor
 public struct FeatureFlagClient: FeatureFlagClientProtocol {
     nonisolated public init() {}
-
-    public func fetchAssistantFeatureFlags() async throws -> [AssistantFeatureFlagEntry] {
-        let response = try await GatewayHTTPClient.get(
-            path: "assistants/{assistantId}/feature-flags", timeout: 10
-        )
-        guard response.isSuccess else {
-            log.error("fetchAssistantFeatureFlags failed (HTTP \(response.statusCode))")
-            throw FeatureFlagError.requestFailed(response.statusCode)
-        }
-        let decoded = try JSONDecoder().decode(FeatureFlagsResponse<AssistantFeatureFlagEntry>.self, from: response.data)
-        return decoded.flags
-    }
 
     public func getFeatureFlags() async throws -> [AssistantFeatureFlag] {
         let response = try await GatewayHTTPClient.get(
