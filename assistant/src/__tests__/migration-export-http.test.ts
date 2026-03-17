@@ -27,13 +27,14 @@ import { afterAll, beforeAll, describe, expect, mock, test } from "bun:test";
 const testDir = realpathSync(
   mkdtempSync(join(tmpdir(), "migration-export-http-test-")),
 );
-const testDbDir = join(testDir, "db");
+const testDbDir = join(testDir, "data", "db");
 const testDbPath = join(testDbDir, "assistant.db");
 const testConfigPath = join(testDir, "config.json");
 
 mock.module("../util/platform.js", () => ({
   getRootDir: () => testDir,
-  getDataDir: () => testDir,
+  getDataDir: () => join(testDir, "data"),
+  getWorkspaceDir: () => testDir,
   getWorkspaceConfigPath: () => testConfigPath,
   isMacOS: () => process.platform === "darwin",
   isLinux: () => process.platform === "linux",
@@ -205,10 +206,10 @@ describe("handleMigrationExport", () => {
     expect(manifest.created_at).toBeDefined();
     expect(manifest.manifest_sha256).toBeDefined();
 
-    // Verify file entries
+    // Verify file entries — workspace walk uses workspace/ prefix
     const filePaths = manifest.files.map((f) => f.path);
-    expect(filePaths).toContain("data/db/assistant.db");
-    expect(filePaths).toContain("config/settings.json");
+    expect(filePaths).toContain("workspace/data/db/assistant.db");
+    expect(filePaths).toContain("workspace/config.json");
 
     // Verify each file entry has proper sha256 and size
     for (const file of manifest.files) {
@@ -298,7 +299,7 @@ describe("export data population", () => {
     const archiveData = new Uint8Array(await res.arrayBuffer());
     const entries = parseTarEntries(archiveData);
 
-    const dbEntry = entries.find((e) => e.name === "data/db/assistant.db");
+    const dbEntry = entries.find((e) => e.name === "workspace/data/db/assistant.db");
     expect(dbEntry).toBeDefined();
     expect(dbEntry!.data.length).toBe(SQLITE_HEADER.length);
     // Verify the exported data matches the test fixture exactly
@@ -314,7 +315,7 @@ describe("export data population", () => {
     const archiveData = new Uint8Array(await res.arrayBuffer());
     const entries = parseTarEntries(archiveData);
 
-    const configEntry = entries.find((e) => e.name === "config/settings.json");
+    const configEntry = entries.find((e) => e.name === "workspace/config.json");
     expect(configEntry).toBeDefined();
 
     const configContent = new TextDecoder().decode(configEntry!.data);
@@ -335,13 +336,13 @@ describe("export data population", () => {
     const manifest = validationResult.manifest!;
 
     const dbFile = manifest.files.find(
-      (f) => f.path === "data/db/assistant.db",
+      (f) => f.path === "workspace/data/db/assistant.db",
     );
     expect(dbFile).toBeDefined();
     expect(dbFile!.size).toBe(SQLITE_HEADER.length);
 
     const configFile = manifest.files.find(
-      (f) => f.path === "config/settings.json",
+      (f) => f.path === "workspace/config.json",
     );
     expect(configFile).toBeDefined();
     const expectedConfigSize = Buffer.byteLength(
@@ -381,7 +382,7 @@ describe("export data population", () => {
     const manifest = validationResult.manifest!;
 
     const dbFile = manifest.files.find(
-      (f) => f.path === "data/db/assistant.db",
+      (f) => f.path === "workspace/data/db/assistant.db",
     );
     expect(dbFile).toBeDefined();
     // The skeleton used size 0 — real export should have actual content
@@ -397,7 +398,7 @@ describe("export data population", () => {
     const archiveData = new Uint8Array(await res.arrayBuffer());
     const entries = parseTarEntries(archiveData);
 
-    const configEntry = entries.find((e) => e.name === "config/settings.json");
+    const configEntry = entries.find((e) => e.name === "workspace/config.json");
     expect(configEntry).toBeDefined();
 
     const configContent = new TextDecoder().decode(configEntry!.data);
@@ -412,42 +413,41 @@ describe("export data population", () => {
 // ---------------------------------------------------------------------------
 
 describe("export graceful fallback", () => {
-  test("missing database produces valid archive with empty db entry", async () => {
+  test("nonexistent workspace produces valid archive with no files", async () => {
     const { buildExportVBundle } =
       await import("../runtime/migrations/vbundle-builder.js");
 
     const result = buildExportVBundle({
-      dbPath: join(testDir, "nonexistent.db"),
-      configPath: testConfigPath,
+      workspaceDir: join(testDir, "nonexistent-workspace"),
+    });
+
+    const validationResult = validateVBundle(result.archive);
+    expect(validationResult.is_valid).toBe(true);
+    expect(result.manifest.files).toHaveLength(0);
+  });
+
+  test("workspace walk includes db and config under workspace/ prefix", async () => {
+    const { buildExportVBundle } =
+      await import("../runtime/migrations/vbundle-builder.js");
+
+    const result = buildExportVBundle({
+      workspaceDir: testDir,
     });
 
     const validationResult = validateVBundle(result.archive);
     expect(validationResult.is_valid).toBe(true);
 
     const dbFile = result.manifest.files.find(
-      (f) => f.path === "data/db/assistant.db",
+      (f) => f.path === "workspace/data/db/assistant.db",
     );
     expect(dbFile).toBeDefined();
-    expect(dbFile!.size).toBe(0);
-  });
-
-  test("missing config produces valid archive with empty JSON config", async () => {
-    const { buildExportVBundle } =
-      await import("../runtime/migrations/vbundle-builder.js");
-
-    const result = buildExportVBundle({
-      dbPath: testDbPath,
-      configPath: join(testDir, "nonexistent-config.json"),
-    });
-
-    const validationResult = validateVBundle(result.archive);
-    expect(validationResult.is_valid).toBe(true);
+    expect(dbFile!.size).toBeGreaterThan(0);
 
     const configFile = result.manifest.files.find(
-      (f) => f.path === "config/settings.json",
+      (f) => f.path === "workspace/config.json",
     );
     expect(configFile).toBeDefined();
-    expect(configFile!.size).toBe(2); // "{}" is 2 bytes
+    expect(configFile!.size).toBeGreaterThan(0);
   });
 });
 

@@ -66,16 +66,17 @@ struct InferenceServiceCard: View {
                         Text("API Key")
                             .font(VFont.inputLabel)
                             .foregroundColor(VColor.contentSecondary)
-                        SecureField(
-                            isConnected && apiKeyText.isEmpty
-                                ? "••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••"
-                                : "Enter your API key",
-                            text: $apiKeyText
-                        )
-                        .vInputStyle()
-                        .font(VFont.body)
-                        .foregroundColor(VColor.contentDefault)
-                        .disabled(store.apiKeySaving)
+                        SecureField("Enter your API key", text: $apiKeyText)
+                            .vInputStyle()
+                            .font(VFont.body)
+                            .foregroundColor(VColor.contentDefault)
+                            .disabled(store.apiKeySaving)
+
+                        if isConnected && apiKeyText.isEmpty {
+                            Label("Key saved", systemImage: "checkmark.circle.fill")
+                                .font(VFont.caption)
+                                .foregroundColor(VColor.systemPositiveStrong)
+                        }
 
                         if let error = store.apiKeySaveError {
                             Text(error)

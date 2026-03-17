@@ -83,9 +83,7 @@ async function createTestApp(providerKey = "github", clientId = "client-1") {
 }
 
 beforeEach(() => {
-  resetDb();
-  initializeDb();
-  // Explicitly clear all OAuth tables to prevent cross-test state pollution.
+  // Clear OAuth tables between tests instead of full DB reset + migration.
   // Delete in FK-dependency order: connections → apps → providers.
   resetTestTables("oauth_connections", "oauth_apps", "oauth_providers");
   mockDeleteSecureKeyAsync.mockClear();

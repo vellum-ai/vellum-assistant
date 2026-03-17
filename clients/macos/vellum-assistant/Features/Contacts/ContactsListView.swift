@@ -133,7 +133,7 @@ struct ContactsListView: View {
             HStack(spacing: VSpacing.xs) {
                 Text(name)
                     .font(VFont.bodyMedium)
-                    .foregroundColor(isSelected ? VColor.contentEmphasized : VColor.contentDefault)
+                    .foregroundColor(isSelected ? VColor.contentEmphasized : VColor.contentSecondary)
                     .lineLimit(1)
 
                 Spacer()
@@ -145,7 +145,7 @@ struct ContactsListView: View {
             .padding(.horizontal, VSpacing.sm)
             .padding(.vertical, VSpacing.md)
             .background(rowBackground(isSelected: isSelected, isHovered: isHovered))
-            .overlay(rowBorder(isSelected: isSelected, isHovered: isHovered))
+            .animation(VAnimation.fast, value: isHovered)
             .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
             .contentShape(RoundedRectangle(cornerRadius: VRadius.md))
         }
@@ -205,18 +205,8 @@ struct ContactsListView: View {
         RoundedRectangle(cornerRadius: VRadius.md)
             .fill(
                 isSelected
-                    ? VColor.primaryBase.opacity(0.10)
-                    : (isHovered ? VColor.surfaceBase : Color.clear)
-            )
-    }
-
-    private func rowBorder(isSelected: Bool, isHovered: Bool) -> some View {
-        RoundedRectangle(cornerRadius: VRadius.md)
-            .strokeBorder(
-                isSelected
-                    ? VColor.borderActive
-                    : (isHovered ? VColor.borderBase.opacity(0.45) : Color.clear),
-                lineWidth: 1
+                    ? VColor.surfaceActive
+                    : VColor.surfaceBase.opacity(isHovered ? 1 : 0)
             )
     }
 }

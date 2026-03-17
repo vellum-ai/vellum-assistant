@@ -38,6 +38,11 @@ mock.module("../telegram/bot-username.js", () => ({
   getTelegramBotUsername: () => mockTelegramBotUsername,
 }));
 
+// Mock invite instruction generator — skip LLM calls in tests.
+mock.module("../runtime/invite-instruction-generator.js", () => ({
+  generateInviteInstruction: async () => "Mock invite instruction for testing.",
+}));
+
 // Mock startInviteCall from call-domain — test env lacks Twilio credentials.
 let mockStartInviteCallResult:
   | { ok: true; callSid: string }

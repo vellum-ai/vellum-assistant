@@ -34,13 +34,14 @@ function toArrayBuffer(data: Uint8Array): ArrayBuffer {
 const testDir = realpathSync(
   mkdtempSync(join(tmpdir(), "migration-import-preflight-http-test-")),
 );
-const testDbDir = join(testDir, "db");
+const testDbDir = join(testDir, "data", "db");
 const testDbPath = join(testDbDir, "assistant.db");
 const testConfigPath = join(testDir, "config.json");
 
 mock.module("../util/platform.js", () => ({
   getRootDir: () => testDir,
-  getDataDir: () => testDir,
+  getDataDir: () => join(testDir, "data"),
+  getWorkspaceDir: () => testDir,
   getWorkspaceConfigPath: () => testConfigPath,
   isMacOS: () => process.platform === "darwin",
   isLinux: () => process.platform === "linux",
@@ -524,8 +525,8 @@ describe("handleMigrationImportPreflight — validation failures", () => {
 describe("analyzeImport", () => {
   test("detects create when file does not exist on disk", () => {
     const resolver = new DefaultPathResolver(
-      join(testDir, "nonexistent.db"),
-      join(testDir, "nonexistent-config.json"),
+      undefined,
+      join(testDir, "nonexistent-workspace"),
     );
 
     const report = analyzeImport({
@@ -552,7 +553,7 @@ describe("analyzeImport", () => {
   });
 
   test("detects unchanged when file on disk matches bundle", () => {
-    const resolver = new DefaultPathResolver(testDbPath, testConfigPath);
+    const resolver = new DefaultPathResolver(undefined, testDir);
 
     const report = analyzeImport({
       manifest: {
@@ -576,7 +577,7 @@ describe("analyzeImport", () => {
   });
 
   test("detects overwrite when file on disk differs from bundle", () => {
-    const resolver = new DefaultPathResolver(testDbPath, testConfigPath);
+    const resolver = new DefaultPathResolver(undefined, testDir);
 
     const report = analyzeImport({
       manifest: {
@@ -601,7 +602,7 @@ describe("analyzeImport", () => {
   });
 
   test("flags unknown archive paths as conflicts with skip action", () => {
-    const resolver = new DefaultPathResolver(testDbPath, testConfigPath);
+    const resolver = new DefaultPathResolver(undefined, testDir);
 
     const report = analyzeImport({
       manifest: {
@@ -639,7 +640,7 @@ describe("analyzeImport", () => {
   });
 
   test("includes manifest in report", () => {
-    const resolver = new DefaultPathResolver(testDbPath, testConfigPath);
+    const resolver = new DefaultPathResolver(undefined, testDir);
     const manifest = {
       schema_version: "1.0",
       created_at: "2024-01-01T00:00:00.000Z",
@@ -667,69 +668,88 @@ describe("analyzeImport", () => {
 // ---------------------------------------------------------------------------
 
 describe("DefaultPathResolver", () => {
-  test("resolves data/db/assistant.db to configured db path", () => {
+  test("resolves data/db/assistant.db to workspace db path (backward compat)", () => {
     const resolver = new DefaultPathResolver(
-      "/some/db.db",
-      "/some/config.json",
+      undefined,
+      "/home/user/.vellum/workspace",
     );
-    expect(resolver.resolve("data/db/assistant.db")).toBe("/some/db.db");
+    expect(resolver.resolve("data/db/assistant.db")).toBe(
+      "/home/user/.vellum/workspace/data/db/assistant.db",
+    );
   });
 
-  test("resolves config/settings.json to configured config path", () => {
+  test("resolves config/settings.json to workspace config path (backward compat)", () => {
     const resolver = new DefaultPathResolver(
-      "/some/db.db",
-      "/some/config.json",
+      undefined,
+      "/home/user/.vellum/workspace",
     );
-    expect(resolver.resolve("config/settings.json")).toBe("/some/config.json");
+    expect(resolver.resolve("config/settings.json")).toBe(
+      "/home/user/.vellum/workspace/config.json",
+    );
   });
 
   test("returns null for unknown paths", () => {
     const resolver = new DefaultPathResolver(
-      "/some/db.db",
-      "/some/config.json",
+      undefined,
+      "/home/user/.vellum/workspace",
     );
     expect(resolver.resolve("unknown/path.txt")).toBeNull();
   });
 
-  test("resolves valid skills path when skillsDir is provided", () => {
+  test("resolves valid skills path via backward compat", () => {
     const resolver = new DefaultPathResolver(
-      "/some/db.db",
-      "/some/config.json",
       undefined,
-      "/home/user/.vellum/workspace/skills",
+      "/home/user/.vellum/workspace",
     );
     expect(resolver.resolve("skills/my-skill/SKILL.md")).toBe(
       "/home/user/.vellum/workspace/skills/my-skill/SKILL.md",
     );
   });
 
+  test("resolves workspace/ prefix paths", () => {
+    const resolver = new DefaultPathResolver(
+      undefined,
+      "/home/user/.vellum/workspace",
+    );
+    expect(resolver.resolve("workspace/data/db/assistant.db")).toBe(
+      "/home/user/.vellum/workspace/data/db/assistant.db",
+    );
+    expect(resolver.resolve("workspace/config.json")).toBe(
+      "/home/user/.vellum/workspace/config.json",
+    );
+    expect(resolver.resolve("workspace/skills/my-skill/SKILL.md")).toBe(
+      "/home/user/.vellum/workspace/skills/my-skill/SKILL.md",
+    );
+  });
+
+  test("returns null for workspace/ path traversal attempt", () => {
+    const resolver = new DefaultPathResolver(
+      undefined,
+      "/home/user/.vellum/workspace",
+    );
+    expect(resolver.resolve("workspace/../../etc/passwd")).toBeNull();
+  });
+
   test("returns null for skills path traversal attempt (../../etc/passwd)", () => {
     const resolver = new DefaultPathResolver(
-      "/some/db.db",
-      "/some/config.json",
       undefined,
-      "/home/user/.vellum/workspace/skills",
+      "/home/user/.vellum/workspace",
     );
     expect(resolver.resolve("skills/../../etc/passwd")).toBeNull();
   });
 
   test("returns null for skills path traversal attempt (../../../.ssh/authorized_keys)", () => {
     const resolver = new DefaultPathResolver(
-      "/some/db.db",
-      "/some/config.json",
       undefined,
-      "/home/user/.vellum/workspace/skills",
+      "/home/user/.vellum/workspace",
     );
     expect(
       resolver.resolve("skills/../../../.ssh/authorized_keys"),
     ).toBeNull();
   });
 
-  test("returns null for skills paths when skillsDir is not provided", () => {
-    const resolver = new DefaultPathResolver(
-      "/some/db.db",
-      "/some/config.json",
-    );
+  test("returns null for skills paths when workspaceDir is not provided", () => {
+    const resolver = new DefaultPathResolver();
     expect(resolver.resolve("skills/my-skill/SKILL.md")).toBeNull();
   });
 });

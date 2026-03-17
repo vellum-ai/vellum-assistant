@@ -21,8 +21,8 @@ export function registerToolPermissionTelemetryListener(
           const { requestId, toolName } = event.payload;
           if (requestId) {
             promptedToolCalls.add(`${requestId}:${toolName}`);
-            recordLifecycleEvent(`permission_prompt:${toolName}`);
           }
+          recordLifecycleEvent(`permission_prompt:${toolName}`);
           return;
         }
         case "tool.permission.decided": {

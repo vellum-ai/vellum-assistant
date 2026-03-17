@@ -26,6 +26,7 @@ public struct VToast: View {
     public var onDismiss: (() -> Void)?
 
     @State private var showCopied = false
+    @State private var copiedResetTask: Task<Void, Never>?
 
     public init(
         message: String,
@@ -65,12 +66,14 @@ public struct VToast: View {
                             UIPasteboard.general.string = detail
                             #endif
                             showCopied = true
-                            Task {
+                            copiedResetTask?.cancel()
+                            copiedResetTask = Task {
                                 try? await Task.sleep(nanoseconds: 1_500_000_000)
+                                guard !Task.isCancelled else { return }
                                 showCopied = false
                             }
                         } label: {
-                            VIconView(showCopied ? .check : .clipboard, size: 12)
+                            VIconView(showCopied ? .check : .copy, size: 12)
                                 .foregroundColor(showCopied ? VColor.systemPositiveStrong : VColor.contentSecondary)
                                 .frame(width: 24, height: 24)
                         }

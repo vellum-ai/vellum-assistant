@@ -677,7 +677,6 @@ struct MainWindowView: View {
                         actionLabel: "Open Settings",
                         onAction: { windowState.selection = .panel(.settings) }
                     )
-                    .fixedSize(horizontal: true, vertical: false)
                     .containerRelativeFrame(.horizontal) { width, _ in width * 0.7 }
                     .padding(.top, VSpacing.sm)
                     .animation(VAnimation.fast, value: windowState.hasAPIKey)
@@ -989,7 +988,6 @@ private struct ErrorToastOverlay: View {
                     actionLabel: "Open Settings",
                     onAction: onOpenSettings
                 )
-                .fixedSize(horizontal: true, vertical: false)
                 .containerRelativeFrame(.horizontal) { width, _ in width * 0.7 }
             }
 
@@ -1000,7 +998,6 @@ private struct ErrorToastOverlay: View {
                     onCopyDebugInfo: onCopyDebugInfo,
                     onDismiss: onDismissConversationError
                 )
-                .fixedSize(horizontal: true, vertical: false)
                 .containerRelativeFrame(.horizontal) { width, _ in width * 0.7 }
             }
 
@@ -1012,7 +1009,6 @@ private struct ErrorToastOverlay: View {
                     onAction: errorManager.isSecretBlockError ? onSendAnyway : (errorManager.isRetryableError || (errorManager.isConnectionError && errorManager.hasRetryPayload)) ? onRetryLastMessage : nil,
                     onDismiss: onDismissError
                 )
-                .fixedSize(horizontal: true, vertical: false)
                 .containerRelativeFrame(.horizontal) { width, _ in width * 0.7 }
             }
         }

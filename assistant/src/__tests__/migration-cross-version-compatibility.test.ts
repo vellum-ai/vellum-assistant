@@ -53,13 +53,14 @@ function toArrayBuffer(data: Uint8Array): ArrayBuffer {
 const testDir = realpathSync(
   mkdtempSync(join(tmpdir(), "migration-cross-version-test-")),
 );
-const testDbDir = join(testDir, "db");
+const testDbDir = join(testDir, "data", "db");
 const testDbPath = join(testDbDir, "assistant.db");
 const testConfigPath = join(testDir, "config.json");
 
 mock.module("../util/platform.js", () => ({
   getRootDir: () => testDir,
-  getDataDir: () => testDir,
+  getDataDir: () => join(testDir, "data"),
+  getWorkspaceDir: () => testDir,
   getWorkspaceConfigPath: () => testConfigPath,
   isMacOS: () => process.platform === "darwin",
   isLinux: () => process.platform === "linux",
@@ -444,7 +445,7 @@ describe("schema version compatibility", () => {
       { schema_version: "3.0" },
     );
 
-    const resolver = new DefaultPathResolver(testDbPath, testConfigPath);
+    const resolver = new DefaultPathResolver(undefined, testDir);
     const result = commitImport({
       archiveData: vbundle,
       pathResolver: resolver,
@@ -462,7 +463,7 @@ describe("schema version compatibility", () => {
       schema_version: "5.0-beta",
     });
 
-    const resolver = new DefaultPathResolver(testDbPath, testConfigPath);
+    const resolver = new DefaultPathResolver(undefined, testDir);
     const validationResult = validateVBundle(vbundle);
     expect(validationResult.manifest).toBeDefined();
 
@@ -773,9 +774,10 @@ describe("round-trip: export -> validate -> preflight -> import", () => {
     expect(preflightBody.files).toBeDefined();
     expect(preflightBody.manifest).toBeDefined();
 
-    // The files should show "unchanged" since we exported from the same disk
+    // The files should show "unchanged" since we exported from the same disk.
+    // New format uses workspace/ prefix for archive paths.
     const dbFile = preflightBody.files!.find(
-      (f) => f.path === "data/db/assistant.db",
+      (f) => f.path === "workspace/data/db/assistant.db",
     );
     expect(dbFile).toBeDefined();
     expect(dbFile!.action).toBe("unchanged");
@@ -828,7 +830,7 @@ describe("round-trip: export -> validate -> preflight -> import", () => {
     );
 
     // Step 3: Analyze (preflight)
-    const resolver = new DefaultPathResolver(testDbPath, testConfigPath);
+    const resolver = new DefaultPathResolver(undefined, testDir);
     const report = analyzeImport({
       manifest: validationResult.manifest!,
       pathResolver: resolver,
@@ -887,13 +889,14 @@ describe("partial failure scenarios", () => {
       { path: "data/db/assistant.db", data: newDbData },
     ]);
 
-    // Point to a path that cannot be written (a non-existent deeply nested
-    // directory whose parent is a regular file, not a directory)
-    const blockerPath = join(testDir, "blocker-file");
-    writeFileSync(blockerPath, "I am a file, not a directory");
-    const impossibleDbPath = join(blockerPath, "nested", "deep", "db.db");
+    // Point to a workspace path where data/db cannot be created
+    // (a regular file blocks directory creation)
+    const blockerWorkspace = join(testDir, "blocker-workspace");
+    mkdirSync(blockerWorkspace, { recursive: true });
+    // Create "data" as a regular file — mkdirSync("data/db") will fail
+    writeFileSync(join(blockerWorkspace, "data"), "I am a file, not a directory");
 
-    const resolver = new DefaultPathResolver(impossibleDbPath, testConfigPath);
+    const resolver = new DefaultPathResolver(undefined, blockerWorkspace);
     const result = commitImport({
       archiveData: vbundle,
       pathResolver: resolver,
@@ -907,11 +910,11 @@ describe("partial failure scenarios", () => {
     }
 
     // Clean up
-    rmSync(blockerPath, { force: true });
+    rmSync(blockerWorkspace, { recursive: true, force: true });
   });
 
   test("commitImport with invalid archive returns validation_failed", () => {
-    const resolver = new DefaultPathResolver(testDbPath, testConfigPath);
+    const resolver = new DefaultPathResolver(undefined, testDir);
     const result = commitImport({
       archiveData: new Uint8Array([0xba, 0xad, 0xf0, 0x0d]),
       pathResolver: resolver,
@@ -999,7 +1002,7 @@ describe("partial failure scenarios", () => {
     ]);
     const corruptVBundle = gzipSync(tar);
 
-    const resolver = new DefaultPathResolver(testDbPath, testConfigPath);
+    const resolver = new DefaultPathResolver(undefined, testDir);
     const result = commitImport({
       archiveData: corruptVBundle,
       pathResolver: resolver,
@@ -1031,7 +1034,7 @@ describe("edge cases", () => {
     expect(result.manifest?.files[0].size).toBe(0);
 
     // Import should also succeed
-    const resolver = new DefaultPathResolver(testDbPath, testConfigPath);
+    const resolver = new DefaultPathResolver(undefined, testDir);
     const importResult = commitImport({
       archiveData: vbundle,
       pathResolver: resolver,
@@ -1185,7 +1188,10 @@ describe("edge cases", () => {
     expect(missingError!.message).toContain("data/extra/ghost.bin");
   });
 
-  test("bundle with only manifest (no required db) fails validation", () => {
+  test("bundle with only manifest (no data files) is valid", () => {
+    // After the workspace walk refactor, only manifest.json is required.
+    // A bundle with no data files is structurally valid — it just won't
+    // restore anything meaningful.
     const manifestWithoutChecksum = {
       schema_version: "1.0",
       created_at: new Date().toISOString(),
@@ -1204,12 +1210,7 @@ describe("edge cases", () => {
     const vbundle = gzipSync(tar);
     const result = validateVBundle(vbundle);
 
-    expect(result.is_valid).toBe(false);
-    expect(
-      result.errors.some(
-        (e) => e.code === "MISSING_ENTRY" && e.path === "data/db/assistant.db",
-      ),
-    ).toBe(true);
+    expect(result.is_valid).toBe(true);
   });
 
   test("completely empty gzip content (no tar entries) fails gracefully", () => {
@@ -1423,7 +1424,7 @@ describe("diagnostic quality", () => {
   });
 
   test("import commit validation_failed response includes error codes and messages", () => {
-    const resolver = new DefaultPathResolver(testDbPath, testConfigPath);
+    const resolver = new DefaultPathResolver(undefined, testDir);
     const result = commitImport({
       archiveData: new Uint8Array([0x00]),
       pathResolver: resolver,
@@ -1632,7 +1633,7 @@ describe("builder -> validator consistency", () => {
 
 describe("import analyzer edge cases", () => {
   test("all-unchanged files produce correct summary", () => {
-    const resolver = new DefaultPathResolver(testDbPath, testConfigPath);
+    const resolver = new DefaultPathResolver(undefined, testDir);
     const existingConfig = new Uint8Array(readFileSync(testConfigPath));
 
     const report = analyzeImport({
@@ -1665,8 +1666,8 @@ describe("import analyzer edge cases", () => {
 
   test("all-create scenario (fresh install) produces correct summary", () => {
     const resolver = new DefaultPathResolver(
-      join(testDir, "nonexistent-dir", "db.db"),
-      join(testDir, "nonexistent-dir", "config.json"),
+      undefined,
+      join(testDir, "nonexistent-workspace"),
     );
 
     const report = analyzeImport({
@@ -1697,7 +1698,7 @@ describe("import analyzer edge cases", () => {
   });
 
   test("mixed create/overwrite/unchanged produces accurate counts", () => {
-    const resolver = new DefaultPathResolver(testDbPath, testConfigPath);
+    const resolver = new DefaultPathResolver(undefined, testDir);
 
     // db: different from disk -> overwrite
     // config: same as disk -> unchanged
@@ -1730,7 +1731,7 @@ describe("import analyzer edge cases", () => {
   });
 
   test("unknown archive path produces UNKNOWN_ARCHIVE_PATH conflict", () => {
-    const resolver = new DefaultPathResolver(testDbPath, testConfigPath);
+    const resolver = new DefaultPathResolver(undefined, testDir);
 
     const report = analyzeImport({
       manifest: {
