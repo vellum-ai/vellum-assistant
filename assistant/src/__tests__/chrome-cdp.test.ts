@@ -145,21 +145,37 @@ describe("ensureChromeWithCdp", () => {
       throw new Error("Connection refused");
     };
 
-    const session = await ensureChromeWithCdp({
-      startUrl: "https://example.com/",
-    });
-    expect(session.launchedByUs).toBe(true);
-    expect(session.baseUrl).toBe("http://localhost:9222");
-    expect(spawnMock).toHaveBeenCalledTimes(1);
+    // Replace setTimeout with a zero-delay version to skip retry waits
+    const origSetTimeout = globalThis.setTimeout;
+    globalThis.setTimeout = ((
+      fn: TimerHandler,
+      _ms?: number,
+      ...args: unknown[]
+    ) => {
+      return origSetTimeout(fn, 0, ...args);
+    }) as typeof setTimeout;
+    try {
+      const session = await ensureChromeWithCdp({
+        startUrl: "https://example.com/",
+      });
+      expect(session.launchedByUs).toBe(true);
+      expect(session.baseUrl).toBe("http://localhost:9222");
+      expect(spawnMock).toHaveBeenCalledTimes(1);
 
-    // Verify spawn was called with the right Chrome path and args
-    const spawnArgs = spawnMock.mock.calls[0] as unknown as [string, string[]];
-    expect(spawnArgs[0]).toContain("Google Chrome");
-    const flags = spawnArgs[1];
-    expect(flags).toContain("--remote-debugging-port=9222");
-    expect(flags).toContain("--force-renderer-accessibility");
-    expect(flags.some((f: string) => f.includes("Chrome-CDP"))).toBe(true);
-    expect(flags).toContain("https://example.com/");
+      // Verify spawn was called with the right Chrome path and args
+      const spawnArgs = spawnMock.mock.calls[0] as unknown as [
+        string,
+        string[],
+      ];
+      expect(spawnArgs[0]).toContain("Google Chrome");
+      const flags = spawnArgs[1];
+      expect(flags).toContain("--remote-debugging-port=9222");
+      expect(flags).toContain("--force-renderer-accessibility");
+      expect(flags.some((f: string) => f.includes("Chrome-CDP"))).toBe(true);
+      expect(flags).toContain("https://example.com/");
+    } finally {
+      globalThis.setTimeout = origSetTimeout;
+    }
   });
 
   test("uses custom port when specified", async () => {
@@ -182,9 +198,22 @@ describe("ensureChromeWithCdp", () => {
       throw new Error("Connection refused");
     };
 
-    const promise = ensureChromeWithCdp();
-    await expect(promise).rejects.toThrow("CDP endpoint not responding");
-  }, 20_000);
+    // Replace setTimeout with a zero-delay version to skip retry waits
+    const origSetTimeout = globalThis.setTimeout;
+    globalThis.setTimeout = ((
+      fn: TimerHandler,
+      _ms?: number,
+      ...args: unknown[]
+    ) => {
+      return origSetTimeout(fn, 0, ...args);
+    }) as typeof setTimeout;
+    try {
+      const promise = ensureChromeWithCdp();
+      await expect(promise).rejects.toThrow("CDP endpoint not responding");
+    } finally {
+      globalThis.setTimeout = origSetTimeout;
+    }
+  });
 });
 
 // ---------------------------------------------------------------------------
