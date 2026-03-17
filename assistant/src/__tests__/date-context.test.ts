@@ -80,13 +80,16 @@ describe("buildTemporalContext", () => {
     });
     expect(sameResult).not.toContain("User timezone:");
 
-    // When different, include it
+    // When user timezone differs from host, it becomes the primary timezone
+    // and the host timezone is shown as a secondary annotation
     const diffResult = buildTemporalContext({
       nowMs: WED_FEB_18,
       hostTimeZone: "UTC",
       userTimeZone: "America/New_York",
     });
-    expect(diffResult).toContain("User timezone: America/New_York");
+    expect(diffResult).toContain("Timezone: America/New_York");
+    expect(diffResult).toContain("Assistant host timezone: UTC");
+    expect(diffResult).not.toContain("User timezone:");
   });
 
   test("shows assistant host timezone only when different from primary timezone", () => {
