@@ -37,7 +37,6 @@ mock.module("../util/logger.js", () => ({
 const testConfig: Record<string, any> = {
   permissions: { mode: "workspace" as "strict" | "workspace" },
   skills: { load: { extraDirs: [] as string[] } },
-  sandbox: { enabled: false },
 };
 
 mock.module("../config/loader.js", () => ({

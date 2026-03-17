@@ -29,7 +29,6 @@ const mockConfig = {
     shellMaxTimeoutSec: 600,
     permissionTimeoutSec: 300,
   },
-  sandbox: { enabled: true },
   rateLimit: { maxRequestsPerMinute: 0, maxTokensPerSession: 0 },
   secretDetection: {
     enabled: true,
@@ -37,6 +36,7 @@ const mockConfig = {
     entropyThreshold: 4.0,
   },
   auditLog: { retentionDays: 0 },
+  sandbox: { enabled: true },
 };
 
 // Track whether wrapCommand was ever called — host_bash must never invoke it

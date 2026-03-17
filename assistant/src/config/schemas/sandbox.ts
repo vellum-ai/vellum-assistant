@@ -4,7 +4,7 @@ export const SandboxConfigSchema = z
   .object({
     enabled: z
       .boolean({ error: "sandbox.enabled must be a boolean" })
-      .default(true)
+      .default(false)
       .describe(
         "Whether to run tool executions in a sandboxed environment for safety",
       ),

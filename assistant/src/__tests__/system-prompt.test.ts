@@ -65,7 +65,6 @@ mock.module("../config/loader.js", () => ({
   getConfig: () => ({
     ui: {},
 
-    sandbox: { enabled: true },
     services: {
       inference: {
         mode: "your-own",

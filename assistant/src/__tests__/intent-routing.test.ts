@@ -54,7 +54,6 @@ mock.module("../config/loader.js", () => ({
   getConfig: () => ({
     ui: {},
 
-    sandbox: { enabled: false, backend: "local" },
     assistantFeatureFlagValues: {},
     services: {
       inference: {

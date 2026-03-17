@@ -32,7 +32,6 @@ mock.module("../config/loader.js", () => ({
       shellMaxTimeoutSec: 600,
       permissionTimeoutSec: 300,
     },
-    sandbox: { enabled: false, backend: "native" as const },
     rateLimit: { maxRequestsPerMinute: 0, maxTokensPerSession: 0 },
     secretDetection: {
       enabled: false,

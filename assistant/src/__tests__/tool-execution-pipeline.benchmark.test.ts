@@ -64,7 +64,6 @@ mock.module("../config/loader.js", () => ({
     permissions: { mode: "workspace" },
     skills: { load: { extraDirs: [] } },
     secretDetection: { enabled: true, entropyThreshold: 4.0, action: "warn" },
-    sandbox: { enabled: false },
     contextWindow: {},
     memory: {},
   }),

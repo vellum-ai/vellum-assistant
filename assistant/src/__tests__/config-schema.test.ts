@@ -125,7 +125,7 @@ describe("AssistantConfigSchema", () => {
       providerStreamTimeoutSec: 300,
     });
     expect(result.sandbox).toEqual({
-      enabled: true,
+      enabled: false,
     });
     expect(result.rateLimit).toEqual({
       maxRequestsPerMinute: 0,
@@ -153,7 +153,6 @@ describe("AssistantConfigSchema", () => {
         shellMaxTimeoutSec: 300,
         permissionTimeoutSec: 60,
       },
-      sandbox: { enabled: true },
       rateLimit: { maxRequestsPerMinute: 10, maxTokensPerSession: 100000 },
       secretDetection: {
         enabled: false,
@@ -1105,7 +1104,7 @@ describe("loadConfig with schema validation", () => {
   test("falls back for invalid sandbox.enabled", () => {
     writeConfig({ sandbox: { enabled: "yes" } });
     const config = loadConfig();
-    expect(config.sandbox.enabled).toBe(true);
+    expect(config.sandbox.enabled).toBe(false);
   });
 
   test("loads sandbox with only enabled field", () => {

@@ -44,7 +44,6 @@ mock.module("../config/loader.js", () => ({
     memory: { enabled: false },
     rateLimit: { maxRequestsPerMinute: 0, maxTokensPerSession: 0 },
     secretDetection: { enabled: false },
-    sandbox: { enabled: false },
     contextWindow: { maxInputTokens: 200000 },
     services: {
       inference: {
