@@ -224,6 +224,14 @@
       "label": "Figma Integration",
       "description": "Enable the Figma OAuth setup skill for connecting to Figma",
       "defaultEnabled": false
+    },
+    {
+      "id": "thread-starters",
+      "scope": "macos",
+      "key": "thread_starters_enabled",
+      "label": "Thread Starters",
+      "description": "Show personalized thread starter suggestions on the empty conversation page",
+      "defaultEnabled": false
     }
   ]
 }
