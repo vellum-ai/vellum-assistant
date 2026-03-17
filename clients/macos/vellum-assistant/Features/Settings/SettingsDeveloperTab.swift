@@ -9,6 +9,7 @@ import VellumAssistantShared
 @MainActor
 struct SettingsDeveloperTab: View {
     @ObservedObject var store: SettingsStore
+    @ObservedObject private var devModeManager = DevModeManager.shared
     var daemonClient: DaemonClient?
     var identityClient: IdentityClientProtocol = IdentityClient()
     var featureFlagClient: FeatureFlagClientProtocol = FeatureFlagClient()
@@ -62,7 +63,7 @@ struct SettingsDeveloperTab: View {
     var body: some View {
         VStack(alignment: .leading, spacing: VSpacing.lg) {
             // Platform URL (dev mode only)
-            if DevModeManager.shared.isDevMode {
+            if devModeManager.isDevMode {
                 platformUrlSection
             }
             // Assistant Info
@@ -266,9 +267,9 @@ struct SettingsDeveloperTab: View {
                     .onTapGesture {
                         devModeTapCount += 1
                         if devModeTapCount >= 7 {
-                            DevModeManager.shared.toggle()
+                            devModeManager.toggle()
                             devModeTapCount = 0
-                            devModeMessage = DevModeManager.shared.isDevMode
+                            devModeMessage = devModeManager.isDevMode
                                 ? "Dev mode enabled"
                                 : "Dev mode disabled"
                             Task {
