@@ -18,7 +18,7 @@ const PROVIDER_MODEL_INTENTS: Record<
   anthropic: {
     "latency-optimized": "claude-haiku-4-5-20251001",
     "quality-optimized": "claude-opus-4-6",
-    "vision-optimized": "claude-sonnet-4-6",
+    "vision-optimized": "claude-opus-4-6",
   },
   openai: {
     "latency-optimized": "gpt-4o-mini",
