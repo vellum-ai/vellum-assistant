@@ -78,6 +78,11 @@ struct ContactDetailView: View {
                     )
 
                 channelsSection
+                    .padding(VSpacing.lg)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: VRadius.xl)
+                            .stroke(VColor.borderDisabled, lineWidth: 2)
+                    )
             }
             .padding(VSpacing.lg)
         }

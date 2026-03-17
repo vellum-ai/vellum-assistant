@@ -30,25 +30,27 @@ struct AssistantChannelsDetailView: View {
 
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: VSpacing.lg) {
-                VStack(alignment: .leading, spacing: VSpacing.xs) {
-                    Text("Assistant Channels")
-                        .font(VFont.sectionTitle)
-                        .foregroundColor(VColor.contentDefault)
-                    Text("Once set up, you and others you trust can talk to your assistant in these channels.")
-                        .font(VFont.caption)
-                        .foregroundColor(VColor.contentTertiary)
-                }
+        VStack(alignment: .leading, spacing: VSpacing.lg) {
+            VStack(alignment: .leading, spacing: VSpacing.xs) {
+                Text("Channels")
+                    .font(VFont.sectionTitle)
+                    .foregroundColor(VColor.contentDefault)
+                Text("Once set up, you and others you trust can talk to your assistant in these channels.")
+                    .font(VFont.caption)
+                    .foregroundColor(VColor.contentTertiary)
+            }
 
+            VStack(alignment: .leading, spacing: 0) {
                 telegramCard
+                SettingsDivider().padding(.vertical, VSpacing.sm)
                 slackChannelCard
+                SettingsDivider().padding(.vertical, VSpacing.sm)
                 voiceCard
                 if isEmailEnabled {
+                    SettingsDivider().padding(.vertical, VSpacing.sm)
                     emailCard
                 }
             }
-            .padding(VSpacing.lg)
         }
         .onAppear {
             store.fetchChannelSetupStatus()
@@ -90,7 +92,7 @@ struct AssistantChannelsDetailView: View {
     // MARK: - Email Channel Card
 
     private var emailCard: some View {
-        SettingsCard(title: "Email", subtitle: "Send and receive emails as your assistant") {
+        SettingsCard(title: "Email", subtitle: "Send and receive emails as your assistant", showBorder: false) {
             if let email = store.assistantEmail {
                 HStack(spacing: VSpacing.sm) {
                     VIconView(.circleCheck, size: 14)
@@ -134,7 +136,7 @@ struct AssistantChannelsDetailView: View {
 
     private var telegramCard: some View {
         let status = store.channelSetupStatus["telegram"]
-        return SettingsCard(title: "Telegram", subtitle: "Message your assistant from Telegram") {
+        return SettingsCard(title: "Telegram", subtitle: "Message your assistant from Telegram", showBorder: false) {
             if status == "ready" {
                 VBadge(style: .label("Connected"), color: VColor.systemPositiveStrong)
             }
@@ -231,7 +233,7 @@ struct AssistantChannelsDetailView: View {
 
     private var slackChannelCard: some View {
         let status = store.channelSetupStatus["slack"]
-        return SettingsCard(title: "Slack", subtitle: "Message your assistant from Slack") {
+        return SettingsCard(title: "Slack", subtitle: "Message your assistant from Slack", showBorder: false) {
             if status == "ready" {
                 VBadge(style: .label("Connected"), color: VColor.systemPositiveStrong)
             }
@@ -345,7 +347,7 @@ struct AssistantChannelsDetailView: View {
 
     private var voiceCard: some View {
         let status = store.channelSetupStatus["phone"]
-        return SettingsCard(title: "Phone Calling", subtitle: "Receive and make phone calls via Twilio") {
+        return SettingsCard(title: "Phone Calling", subtitle: "Receive and make phone calls via Twilio", showBorder: false) {
             if status == "ready" {
                 VBadge(style: .label("Connected"), color: VColor.systemPositiveStrong)
             }

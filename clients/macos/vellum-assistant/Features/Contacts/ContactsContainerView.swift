@@ -190,7 +190,7 @@ struct ContactsContainerView: View {
                         .stroke(VColor.borderDisabled, lineWidth: 2)
                 )
 
-                // Channels card
+                // Channels section in bordered card
                 if let store {
                     AssistantChannelsDetailView(store: store, daemonClient: daemonClient, isEmailEnabled: isEmailEnabled)
                         .padding(VSpacing.lg)

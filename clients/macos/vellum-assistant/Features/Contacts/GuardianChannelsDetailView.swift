@@ -38,7 +38,7 @@ struct GuardianChannelsDetailView: View {
             VStack(alignment: .leading, spacing: VSpacing.lg) {
                 // Header
                 VStack(alignment: .leading, spacing: VSpacing.xs) {
-                    Text("Your Channels")
+                    Text("Channels")
                         .font(VFont.sectionTitle)
                         .foregroundColor(VColor.contentDefault)
                     Text("Once verified, your assistant will recognize you when you message from these channels.")

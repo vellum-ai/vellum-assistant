@@ -6,6 +6,7 @@ import VellumAssistantShared
 struct SettingsCard<Content: View, Accessory: View>: View {
     let title: String
     var subtitle: String? = nil
+    var showBorder: Bool = true
     @ViewBuilder let accessory: () -> Accessory
     @ViewBuilder let content: () -> Content
 
@@ -27,18 +28,31 @@ struct SettingsCard<Content: View, Accessory: View>: View {
             }
             content()
         }
-        .padding(VSpacing.lg)
+        .padding(showBorder ? VSpacing.lg : 0)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .vCard(background: VColor.surfaceOverlay)
+        .modifier(ConditionalCardModifier(showBorder: showBorder))
     }
 }
 
 extension SettingsCard where Accessory == EmptyView {
-    init(title: String, subtitle: String? = nil, @ViewBuilder content: @escaping () -> Content) {
+    init(title: String, subtitle: String? = nil, showBorder: Bool = true, @ViewBuilder content: @escaping () -> Content) {
         self.title = title
         self.subtitle = subtitle
+        self.showBorder = showBorder
         self.accessory = { EmptyView() }
         self.content = content
+    }
+}
+
+/// Conditionally applies vCard styling.
+private struct ConditionalCardModifier: ViewModifier {
+    let showBorder: Bool
+    func body(content: Content) -> some View {
+        if showBorder {
+            content.vCard(background: VColor.surfaceOverlay)
+        } else {
+            content
+        }
     }
 }
 
