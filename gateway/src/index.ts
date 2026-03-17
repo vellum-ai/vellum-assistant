@@ -729,7 +729,7 @@ async function main() {
       },
     },
     {
-      path: /^\/v1\/assistants\/([^/]+)\/feature-flags\/(.+)$/,
+      path: /^\/v1\/assistants\/([^/]+)\/feature-flags\/([^/]+)\/?$/,
       method: "PATCH",
       auth: "edge-scoped",
       scope: "feature_flags.write",
