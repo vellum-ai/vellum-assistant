@@ -215,7 +215,7 @@ function buildAccessPreferenceSection(hasNoClient: boolean): string {
     return [
       "## External Service Access",
       "",
-      "Priority: (1) sandbox `bash` - install tools yourself, only fall back to host when you need local files/auth; (2) browser automation as last resort (no API, visual interaction, or OAuth consent).",
+      "Priority: (1) sandbox `bash` — install tools yourself; (2) browser automation as last resort (no API, visual interaction, or OAuth consent).",
     ].join("\n");
   }
 
