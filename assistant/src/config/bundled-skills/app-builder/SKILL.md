@@ -1,6 +1,6 @@
 ---
 name: app-builder
-description: Build interactive apps, dashboards, calculators, games, trackers, tools, landing pages, and data visualizations with HTML/CSS/JS. Use when the user says build, create, or make an app/dashboard/calculator/game.
+description: Build interactive apps, dashboards, calculators, games, trackers, tools, landing pages, and data visualizations with HTML/CSS/JS
 compatibility: "Designed for Vellum personal assistants"
 metadata:
   emoji: "🏗️"
