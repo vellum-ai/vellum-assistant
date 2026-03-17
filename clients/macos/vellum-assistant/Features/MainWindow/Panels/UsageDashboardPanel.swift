@@ -237,20 +237,12 @@ struct UsageDashboardPanel: View {
             }
             .padding(.horizontal, VSpacing.md)
             .padding(.vertical, VSpacing.sm)
-            .background(VColor.borderBase.opacity(0.15))
 
             ForEach(Array(entries.enumerated()), id: \.element.group) { index, entry in
-                if index > 0 {
-                    Divider().background(VColor.borderBase)
-                }
+                Divider().background(VColor.borderBase)
                 breakdownRow(entry)
             }
         }
-        .overlay(
-            RoundedRectangle(cornerRadius: VRadius.md)
-                .stroke(VColor.borderBase, lineWidth: 1)
-        )
-        .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
         .frame(maxWidth: breakdownTableWidth, alignment: .leading)
     }
 
