@@ -247,14 +247,16 @@ public struct ToolConfirmationBubble: View {
                         showTechnicalDetails.toggle()
                     }
                 } label: {
-                    HStack(spacing: VSpacing.xs) {
+                    HStack(alignment: .firstTextBaseline, spacing: VSpacing.xxs) {
                         VIconView(.chevronRight, size: 9)
                             .foregroundColor(VColor.contentDefault)
                             .rotationEffect(.degrees(showTechnicalDetails ? 90 : 0))
+                            .frame(width: 9, height: 9)
                         Text(showTechnicalDetails ? "Hide details" : "Show details")
                             .font(VFont.captionMedium)
                             .foregroundColor(VColor.contentDefault)
                     }
+                    .offset(x: -1)
                 }
                 .buttonStyle(.plain)
 
