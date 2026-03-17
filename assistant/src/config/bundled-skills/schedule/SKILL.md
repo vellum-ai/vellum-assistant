@@ -1,6 +1,6 @@
 ---
 name: schedule
-description: Recurring and one-shot scheduling — cron, RRULE, or single fire-at time
+description: Recurring and one-shot scheduling - cron, RRULE, or single fire-at time
 compatibility: "Designed for Vellum personal assistants"
 metadata:
   emoji: "📅"
