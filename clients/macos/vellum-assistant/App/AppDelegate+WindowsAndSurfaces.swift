@@ -251,7 +251,17 @@ extension AppDelegate {
     /// visible.  Called from the global window-close observer and from
     /// individual window dismiss handlers (e.g. crash report) that may run
     /// before `setupWindowObserver()` is installed.
+    ///
+    /// Keeps the dock icon visible when a connected assistant exists so the
+    /// user can click it to re-open the window. Only reverts after explicit
+    /// disconnect (logout, retire, switch assistant).
     func revertActivationPolicyIfNoWindows(excluding closedWindow: NSWindow? = nil) {
+        // Keep the dock icon alive while the user has a connected assistant —
+        // they can click the dock icon to re-open the main window.
+        if UserDefaults.standard.string(forKey: "connectedAssistantId") != nil {
+            return
+        }
+
         let hasVisibleWindows = NSApp.windows.contains { win in
             win.isVisible
             && win !== closedWindow
