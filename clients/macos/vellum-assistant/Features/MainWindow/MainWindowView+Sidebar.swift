@@ -7,13 +7,8 @@ import VellumAssistantShared
 extension MainWindowView {
 
     func selectConversation(_ conversation: ConversationModel) {
-        if case .appEditing(let appId, _) = windowState.selection {
-            windowState.selection = .appEditing(appId: appId, conversationId: conversation.id)
-            conversationManager.selectConversation(id: conversation.id)
-        } else {
-            windowState.selection = .conversation(conversation.id)
-            conversationManager.selectConversation(id: conversation.id)
-        }
+        windowState.selection = .conversation(conversation.id)
+        conversationManager.selectConversation(id: conversation.id)
     }
 
     func startNewConversation() {
