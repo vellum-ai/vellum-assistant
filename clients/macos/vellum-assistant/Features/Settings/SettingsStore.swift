@@ -721,19 +721,30 @@ public final class SettingsStore: ObservableObject {
         // Persist locally first so the key survives reconnect/retry flows
         // even if the daemon is unreachable or validation is inconclusive.
         APIKeyManager.setKey(trimmed, for: "anthropic")
-        removeDeletionTombstone(type: "api_key", name: "anthropic")
         hasKey = true
         maskedKey = Self.maskKey(trimmed)
 
         Task {
             let result = await syncKeyToDaemonWithValidation(provider: "anthropic", value: trimmed)
             apiKeySaving = false
-            if let error = result.error {
+            if result.success {
+                // Only remove the tombstone after the daemon accepts the key,
+                // so a pending offline-clear is preserved on transient failure.
+                removeDeletionTombstone(type: "api_key", name: "anthropic")
+                scheduleRoutingSourceRefresh()
+                onSuccess?()
+            } else if let error = result.error {
                 apiKeySaveError = error
-                return
+                if !result.isTransient {
+                    // Definitive validation failure (e.g. 401/422) — revert
+                    // optimistic local state so an invalid key doesn't persist.
+                    APIKeyManager.deleteKey(for: "anthropic")
+                    hasKey = false
+                    maskedKey = ""
+                }
+                // For transient errors (daemon unreachable), keep the local
+                // key so it survives for retry on reconnect.
             }
-            scheduleRoutingSourceRefresh()
-            onSuccess?()
         }
     }
 
@@ -956,27 +967,27 @@ public final class SettingsStore: ObservableObject {
 
     /// Sync an API key to the daemon with server-side validation.
     /// Returns a result indicating success or a validation error message.
-    private func syncKeyToDaemonWithValidation(provider: String, value: String) async -> (success: Bool, error: String?) {
+    private func syncKeyToDaemonWithValidation(provider: String, value: String) async -> (success: Bool, error: String?, isTransient: Bool) {
         guard let assistantId = UserDefaults.standard.string(forKey: "connectedAssistantId") else {
-            return (false, "No connected assistant. Please restart the app.")
+            return (false, "No connected assistant. Please restart the app.", true)
         }
         let body: [String: String] = ["type": "api_key", "name": provider, "value": value]
         guard let bodyData = try? JSONSerialization.data(withJSONObject: body) else {
-            return (false, "Failed to encode request.")
+            return (false, "Failed to encode request.", false)
         }
         do {
             let response = try await GatewayHTTPClient.post(path: "assistants/\(assistantId)/secrets", body: bodyData)
             if response.isSuccess {
-                return (true, nil)
+                return (true, nil, false)
             }
             // Try to parse error message from response body
             if let parsed = try? JSONSerialization.jsonObject(with: response.data) as? [String: Any],
                let errorMsg = parsed["error"] as? String {
-                return (false, errorMsg)
+                return (false, errorMsg, false)
             }
-            return (false, "Failed to save API key (HTTP \(response.statusCode)).")
+            return (false, "Failed to save API key (HTTP \(response.statusCode)).", false)
         } catch {
-            return (false, "Could not reach assistant. Please check that it is running.")
+            return (false, "Could not reach assistant. Please check that it is running.", true)
         }
     }
 
