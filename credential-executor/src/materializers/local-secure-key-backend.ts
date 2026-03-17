@@ -30,7 +30,7 @@ import {
   pbkdf2Sync,
   randomBytes,
 } from "node:crypto";
-import { chmodSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { hostname, userInfo } from "node:os";
 import { dirname, join } from "node:path";
 
@@ -60,10 +60,40 @@ interface EncryptedEntry {
   data: string;
 }
 
-interface StoreFile {
+interface StoreFileV1 {
   version: 1;
   salt: string;
   entries: Record<string, EncryptedEntry>;
+}
+
+interface StoreFileV2 {
+  version: 2;
+  entries: Record<string, EncryptedEntry>;
+}
+
+type StoreFile = StoreFileV1 | StoreFileV2;
+
+// ---------------------------------------------------------------------------
+// Store key file (v2 format)
+// ---------------------------------------------------------------------------
+
+const STORE_KEY_FILENAME = "store.key";
+
+/**
+ * Read the v2 store key file from `<vellumRoot>/protected/store.key`.
+ * Returns the raw 32-byte key buffer, or null if the file is missing,
+ * wrong size, or unreadable.
+ */
+function readStoreKey(vellumRoot: string): Buffer | null {
+  try {
+    const keyPath = join(vellumRoot, "protected", STORE_KEY_FILENAME);
+    if (!existsSync(keyPath)) return null;
+    const buf = readFileSync(keyPath);
+    if (buf.length !== KEY_LENGTH) return null;
+    return buf;
+  } catch {
+    return null;
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -152,14 +182,15 @@ function readStore(storePath: string): StoreFile | null {
   try {
     const raw = readFileSync(storePath, "utf-8");
     const parsed = JSON.parse(raw);
-    if (
-      parsed.version !== 1 ||
-      typeof parsed.salt !== "string" ||
-      typeof parsed.entries !== "object"
-    ) {
-      return null;
+    if (typeof parsed.entries !== "object") return null;
+
+    if (parsed.version === 1 && typeof parsed.salt === "string") {
+      return parsed as StoreFileV1;
     }
-    return parsed as StoreFile;
+    if (parsed.version === 2) {
+      return parsed as StoreFileV2;
+    }
+    return null;
   } catch {
     return null;
   }
@@ -204,12 +235,19 @@ export function createLocalSecureKeyBackend(
         const entry = store.entries[key];
         if (!entry) return undefined;
 
-        // Lazy re-read: prefer getter (handles startup race) over static value.
-        const entropy = entropyGetter?.() ?? staticEntropy;
+        let aesKey: Buffer;
+        if (store.version === 2) {
+          const storeKey = readStoreKey(vellumRoot);
+          if (!storeKey) return undefined;
+          aesKey = storeKey;
+        } else {
+          // v1: derive key from machine entropy via PBKDF2
+          const entropy = entropyGetter?.() ?? staticEntropy;
+          const salt = Buffer.from(store.salt, "hex");
+          aesKey = deriveKey(salt, entropy);
+        }
 
-        const salt = Buffer.from(store.salt, "hex");
-        const derivedKey = deriveKey(salt, entropy);
-        return decrypt(entry, derivedKey);
+        return decrypt(entry, aesKey);
       } catch {
         return undefined;
       }
@@ -225,10 +263,19 @@ export function createLocalSecureKeyBackend(
         const store = readStore(storePath);
         if (!store) return false;
 
-        const entropy = entropyGetter?.() ?? staticEntropy;
-        const salt = Buffer.from(store.salt, "hex");
-        const derivedKey = deriveKey(salt, entropy);
-        store.entries[key] = encrypt(value, derivedKey);
+        let aesKey: Buffer;
+        if (store.version === 2) {
+          const storeKey = readStoreKey(vellumRoot);
+          if (!storeKey) return false;
+          aesKey = storeKey;
+        } else {
+          // v1: derive key from machine entropy via PBKDF2
+          const entropy = entropyGetter?.() ?? staticEntropy;
+          const salt = Buffer.from(store.salt, "hex");
+          aesKey = deriveKey(salt, entropy);
+        }
+
+        store.entries[key] = encrypt(value, aesKey);
         writeStore(store, storePath);
         return true;
       } catch {
