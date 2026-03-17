@@ -1745,12 +1745,12 @@ describe("Regression: cancel semantics and error channel split", () => {
       return origSetTimeout(fn, 0, ...args);
     }) as typeof setTimeout;
 
-    const conversation = makeConversation();
-    await conversation.loadFromDb();
-
-    turnCommitHangForever = true;
-
     try {
+      const conversation = makeConversation();
+      await conversation.loadFromDb();
+
+      turnCommitHangForever = true;
+
       const events1: ServerMessage[] = [];
       const events2: ServerMessage[] = [];
 
