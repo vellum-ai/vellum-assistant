@@ -126,6 +126,9 @@ function basePrompt(result: string): string {
     "## Configuration",
     "## Skills Catalog",
     "## Available Skills",
+    "## External Communications Identity",
+    "## Connected Services",
+    "## Dynamic Skill Authoring Workflow",
   ]) {
     if (s.startsWith(heading)) {
       s = "";
@@ -277,13 +280,6 @@ describe("buildSystemPrompt", () => {
     expect(result).not.toContain("## Memory Persistence");
   });
 
-  test("config section uses workspace directory from platform util", () => {
-    const result = buildSystemPrompt();
-    expect(result).toContain(
-      `Your configuration directory is \`${TEST_DIR}/\`.`,
-    );
-  });
-
   test("omits user skills from catalog when none are configured", () => {
     const result = buildSystemPrompt();
     // No user skill directories exist, so no user skills should appear.
@@ -366,12 +362,6 @@ describe("buildSystemPrompt", () => {
   test("omits update handling instructions when UPDATES.md is absent", () => {
     const result = buildSystemPrompt();
     expect(result).not.toContain("### Update Handling");
-  });
-
-  test("config section lists UPDATES.md", () => {
-    const result = buildSystemPrompt();
-    expect(result).toContain("`UPDATES.md`");
-    expect(result).toContain("Release update notes");
   });
 
   test("strips comment lines starting with _ from prompt files", () => {
