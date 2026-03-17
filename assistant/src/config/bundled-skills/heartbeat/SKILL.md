@@ -16,7 +16,7 @@ The heartbeat feature runs your `HEARTBEAT.md` checklist periodically in a backg
 
 ## Setup
 
-Edit two things in `config.json` using `file_edit`:
+Edit `config.json` using `file_edit`:
 
 1. **Enable heartbeat**: Set `heartbeat.enabled` to `true`.
 2. **Set interval**: Set `heartbeat.intervalMs` (milliseconds between runs, default: 3600000 = 1 hour).
