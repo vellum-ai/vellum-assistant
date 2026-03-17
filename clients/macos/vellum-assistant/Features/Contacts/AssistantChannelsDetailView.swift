@@ -212,7 +212,7 @@ struct AssistantChannelsDetailView: View {
                     value: value,
                     isConnected: isConnected,
                     isExpanded: $telegramRowExpanded,
-                    setupAction: !isConnected ? {
+                    setupAction: !isConnected && !telegramSetupExpanded && !(status == "incomplete" && store.telegramHasBotToken) ? {
                         telegramRowExpanded = true
                         telegramSetupExpanded = true
                     } : nil,
@@ -250,7 +250,7 @@ struct AssistantChannelsDetailView: View {
                     value: value,
                     isConnected: isConnected,
                     isExpanded: $slackRowExpanded,
-                    setupAction: !isConnected ? {
+                    setupAction: !isConnected && !slackChannelSetupExpanded && !(status == "incomplete" && (store.slackChannelHasBotToken || store.slackChannelHasAppToken)) ? {
                         slackRowExpanded = true
                         slackChannelSetupExpanded = true
                     } : nil,
@@ -292,7 +292,7 @@ struct AssistantChannelsDetailView: View {
                     value: value,
                     isConnected: isConnected,
                     isExpanded: $voiceRowExpanded,
-                    setupAction: !isConnected ? {
+                    setupAction: !isConnected && !voiceSetupExpanded ? {
                         voiceRowExpanded = true
                         voiceSetupExpanded = true
                     } : nil,
@@ -607,6 +607,7 @@ struct AssistantChannelsDetailView: View {
                     }
                     VButton(label: "Cancel", style: .ghost) {
                         telegramSetupExpanded = false
+                        telegramRowExpanded = false
                         telegramBotTokenText = ""
                     }
                 }
@@ -721,6 +722,7 @@ struct AssistantChannelsDetailView: View {
                     }
                     VButton(label: "Cancel", style: .ghost) {
                         slackChannelSetupExpanded = false
+                        slackRowExpanded = false
                         slackChannelBotTokenInput = ""
                         slackChannelAppTokenInput = ""
                     }
@@ -824,6 +826,7 @@ struct AssistantChannelsDetailView: View {
                     }
                     VButton(label: "Cancel", style: .ghost) {
                         voiceSetupExpanded = false
+                        voiceRowExpanded = false
                         voiceAccountSidText = ""
                         voiceAuthTokenText = ""
                     }
