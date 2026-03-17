@@ -4,6 +4,7 @@ import { seedDeviceIdMigration } from "./003-seed-device-id.js";
 import { extractCollectUsageDataMigration } from "./004-extract-collect-usage-data.js";
 import { addSendDiagnosticsMigration } from "./005-add-send-diagnostics.js";
 import { servicesConfigMigration } from "./006-services-config.js";
+import { webSearchProviderRenameMigration } from "./007-web-search-provider-rename.js";
 import type { WorkspaceMigration } from "./types.js";
 
 /**
@@ -17,4 +18,5 @@ export const WORKSPACE_MIGRATIONS: WorkspaceMigration[] = [
   extractCollectUsageDataMigration,
   addSendDiagnosticsMigration,
   servicesConfigMigration,
+  webSearchProviderRenameMigration,
 ];

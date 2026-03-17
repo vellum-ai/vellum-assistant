@@ -281,6 +281,7 @@ export async function initializeProviders(
     (config.timeouts?.providerStreamTimeoutSec ?? 300) * 1000;
   const inferenceMode = config.services.inference.mode;
   const useNativeWebSearch =
+    config.services["web-search"].provider === "inference-provider-native" ||
     config.services["web-search"].provider === "anthropic-native";
 
   // Anthropic

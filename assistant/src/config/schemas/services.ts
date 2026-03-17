@@ -18,6 +18,7 @@ export const VALID_WEB_SEARCH_PROVIDERS = [
   "perplexity",
   "brave",
   "anthropic-native",
+  "inference-provider-native",
 ] as const;
 
 export const InferenceServiceSchema = z.object({
@@ -38,7 +39,9 @@ export type ImageGenerationService = z.infer<
 
 export const WebSearchServiceSchema = z.object({
   mode: ServiceModeSchema.default("your-own"),
-  provider: z.enum(VALID_WEB_SEARCH_PROVIDERS).default("anthropic-native"),
+  provider: z
+    .enum(VALID_WEB_SEARCH_PROVIDERS)
+    .default("inference-provider-native"),
 });
 export type WebSearchService = z.infer<typeof WebSearchServiceSchema>;
 
