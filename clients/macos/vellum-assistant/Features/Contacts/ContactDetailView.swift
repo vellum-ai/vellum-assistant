@@ -68,16 +68,21 @@ struct ContactDetailView: View {
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 0) {
+            VStack(alignment: .leading, spacing: VSpacing.lg) {
                 headerSection
-                VColor.surfaceBase.frame(height: 1).padding(.vertical, VSpacing.lg)
+                    .padding(VSpacing.lg)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: VRadius.xl)
+                            .stroke(VColor.borderDisabled, lineWidth: 2)
+                    )
+
                 channelsSection
+                    .padding(VSpacing.lg)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: VRadius.xl)
+                            .stroke(VColor.borderDisabled, lineWidth: 2)
+                    )
             }
-            .padding(VSpacing.lg)
-            .overlay(
-                RoundedRectangle(cornerRadius: VRadius.xl)
-                    .stroke(VColor.borderDisabled, lineWidth: 2)
-            )
             .padding(VSpacing.lg)
         }
         .background(VColor.surfaceOverlay)
@@ -154,42 +159,45 @@ struct ContactDetailView: View {
     }
 
     private var headerFields: some View {
-        VStack(alignment: .leading, spacing: VSpacing.sm) {
+        VStack(alignment: .leading, spacing: VSpacing.md) {
             VStack(alignment: .leading, spacing: VSpacing.xs) {
                 Text("Name")
-                    .font(VFont.caption)
+                    .font(VFont.inputLabel)
                     .foregroundColor(VColor.contentSecondary)
-                TextField("Name", text: $editedName)
-                    .textFieldStyle(.plain)
-                    .font(VFont.body)
-                    .foregroundColor(VColor.contentDefault)
-                    .padding(VSpacing.sm)
-                    .background(VColor.surfaceActive)
-                    .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
+                VTextField(placeholder: "Give this human a name", text: $editedName)
             }
 
             VStack(alignment: .leading, spacing: VSpacing.xs) {
                 Text("Notes")
-                    .font(VFont.caption)
+                    .font(VFont.inputLabel)
                     .foregroundColor(VColor.contentSecondary)
-                TextEditor(text: $editedNotes)
-                    .font(VFont.body)
-                    .foregroundColor(VColor.contentDefault)
-                    .scrollContentBackground(.hidden)
-                    .frame(minHeight: 60, maxHeight: 160)
-                    .padding(VSpacing.xs)
-                    .background(VColor.surfaceActive)
-                    .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
+                ZStack(alignment: .topLeading) {
+                    if editedNotes.isEmpty {
+                        Text("Optional notes about the human which AI will take into account")
+                            .font(VFont.body)
+                            .foregroundColor(VColor.contentTertiary)
+                            .padding(.horizontal, VSpacing.xs)
+                            .padding(.vertical, VSpacing.sm)
+                    }
+                    TextEditor(text: $editedNotes)
+                        .font(VFont.body)
+                        .foregroundColor(VColor.contentDefault)
+                        .scrollContentBackground(.hidden)
+                        .frame(minHeight: 60, maxHeight: 160)
+                }
+                .padding(VSpacing.xs)
+                .background(VColor.surfaceActive)
+                .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
             }
         }
     }
 
     private var headerActions: some View {
         HStack(spacing: VSpacing.sm) {
-            VButton(label: "Save", style: .outlined, size: .compact, isDisabled: isSaving) {
+            VButton(label: "Save", style: .primary, isDisabled: isSaving) {
                 Task { await saveCardEdits() }
             }
-            VButton(label: "Delete Contact", style: .dangerOutline, size: .compact, isDisabled: isDeleting || actionInProgress != nil || verificationInProgress != nil) {
+            VButton(label: "Delete Contact", style: .danger, isDisabled: isDeleting || actionInProgress != nil || verificationInProgress != nil) {
                 showDeleteConfirmation = true
             }
             .accessibilityLabel("Delete contact")
