@@ -746,6 +746,15 @@ private struct WorkspaceFileViewer: View {
                 HStack {
                     Spacer()
                     HStack(spacing: VSpacing.xs) {
+                        VButton(
+                            label: "Discard",
+                            style: .ghost,
+                            size: .compact,
+                            isDisabled: state.isSaving
+                        ) {
+                            state.editableContent = state.originalContent
+                            state.isDirty = false
+                        }
                         if state.isSaving {
                             VBusyIndicator(size: 8)
                         }
