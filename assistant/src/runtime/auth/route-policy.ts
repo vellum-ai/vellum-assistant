@@ -157,6 +157,9 @@ const ACTOR_ENDPOINTS: Array<{ endpoint: string; scopes: Scope[] }> = [
   // Events (SSE)
   { endpoint: "events", scopes: ["chat.read"] },
 
+  // Trace events
+  { endpoint: "trace-events", scopes: ["chat.read"] },
+
   // Attachments
   { endpoint: "attachments:POST", scopes: ["attachments.write"] },
   { endpoint: "attachments:DELETE", scopes: ["attachments.write"] },
