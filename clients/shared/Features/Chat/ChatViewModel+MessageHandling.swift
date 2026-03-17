@@ -1599,6 +1599,11 @@ extension ChatViewModel {
                     log.info("Skipping inline surface - no preview metadata")
                     break
                 }
+            } else if msg.display == "panel" {
+                // Non-dynamic-page surfaces with "panel" display are rendered as
+                // floating panels by SurfaceManager — skip inline rendering to
+                // avoid showing duplicates (one inline, one in a panel window).
+                break
             }
             #endif
 
