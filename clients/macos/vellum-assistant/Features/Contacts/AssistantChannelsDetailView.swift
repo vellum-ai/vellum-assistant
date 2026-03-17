@@ -268,7 +268,6 @@ struct AssistantChannelsDetailView: View {
     }
 
     private var voiceRow: some View {
-        let status = store.channelSetupStatus["phone"]
         let isConnected = store.twilioHasCredentials
         let value: String? = {
             if isConnected, let phone = store.twilioPhoneNumber {
