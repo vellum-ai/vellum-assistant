@@ -125,6 +125,7 @@ import { conversationAttentionRouteDefinitions } from "./routes/conversation-att
 import { conversationManagementRouteDefinitions } from "./routes/conversation-management-routes.js";
 import { conversationQueryRouteDefinitions } from "./routes/conversation-query-routes.js";
 import { conversationRouteDefinitions } from "./routes/conversation-routes.js";
+import { conversationStarterRouteDefinitions } from "./routes/conversation-starter-routes.js";
 import { debugRouteDefinitions } from "./routes/debug-routes.js";
 import { diagnosticsRouteDefinitions } from "./routes/diagnostics-routes.js";
 import { documentRouteDefinitions } from "./routes/documents-routes.js";
@@ -160,7 +161,6 @@ import { skillRouteDefinitions } from "./routes/skills-routes.js";
 import { subagentRouteDefinitions } from "./routes/subagents-routes.js";
 import { surfaceActionRouteDefinitions } from "./routes/surface-action-routes.js";
 import { surfaceContentRouteDefinitions } from "./routes/surface-content-routes.js";
-import { threadStarterRouteDefinitions } from "./routes/thread-starter-routes.js";
 import { trustRulesRouteDefinitions } from "./routes/trust-rules-routes.js";
 import { usageRouteDefinitions } from "./routes/usage-routes.js";
 import { watchRouteDefinitions } from "./routes/watch-routes.js";
@@ -741,7 +741,7 @@ export class RuntimeHttpServer {
       ...usageRouteDefinitions(),
       ...workspaceRouteDefinitions(),
       ...memoryItemRouteDefinitions(),
-      ...threadStarterRouteDefinitions(),
+      ...conversationStarterRouteDefinitions(),
       ...settingsRouteDefinitions(),
       ...avatarRouteDefinitions(),
       ...scheduleRouteDefinitions({

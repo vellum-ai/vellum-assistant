@@ -70,7 +70,7 @@ export interface DaemonDomainEvents {
   "daemon.lifecycle.stopped": {
     stoppedAtMs: number;
   };
-  "daemon.session.created": {
+  "daemon.conversation.created": {
     conversationId: string;
     createdAtMs: number;
   };

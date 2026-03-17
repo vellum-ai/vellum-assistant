@@ -28,6 +28,7 @@ struct DaemonStartupErrorView: View {
                     .foregroundColor(VColor.contentSecondary)
                     .multilineTextAlignment(.center)
                     .frame(maxWidth: 380)
+                    .textSelection(.enabled)
             }
 
             technicalDetails

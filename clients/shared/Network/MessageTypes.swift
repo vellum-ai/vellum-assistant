@@ -2209,6 +2209,7 @@ public enum ServerMessage: Decodable, Sendable {
     case hostBashRequest(HostBashRequest)
     case hostFileRequest(HostFileRequest)
     case hostCuRequest(HostCuRequest)
+    case usageUpdate(UsageUpdate)
     case pong
     case unknown(String)
 
@@ -2632,6 +2633,9 @@ public enum ServerMessage: Decodable, Sendable {
         case "host_cu_request":
             let message = try HostCuRequest(from: decoder)
             self = .hostCuRequest(message)
+        case "usage_update":
+            let message = try UsageUpdate(from: decoder)
+            self = .usageUpdate(message)
         case "pong":
             self = .pong
         default:

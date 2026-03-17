@@ -1,0 +1,130 @@
+name: Create Release Branch
+
+on:
+  workflow_dispatch:
+    inputs:
+      bump:
+        description: 'Version bump type'
+        required: true
+        type: choice
+        options:
+          - patch
+          - minor
+          - major
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  compute-version:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      version: ${{ steps.compute.outputs.version }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Compute version from bump type
+        id: compute
+        run: |
+          LATEST_TAG=$(git tag -l 'v[0-9]*.[0-9]*.[0-9]*' --sort=-v:refname | head -1)
+          if [ -z "$LATEST_TAG" ]; then
+            LATEST_TAG="v0.0.0"
+          fi
+          LATEST_VERSION=${LATEST_TAG#v}
+          IFS='.' read -r MAJOR MINOR PATCH <<< "$LATEST_VERSION"
+
+          case "${{ inputs.bump }}" in
+            major) MAJOR=$((MAJOR + 1)); MINOR=0; PATCH=0 ;;
+            minor) MINOR=$((MINOR + 1)); PATCH=0 ;;
+            patch) PATCH=$((PATCH + 1)) ;;
+          esac
+
+          VERSION="${MAJOR}.${MINOR}.${PATCH}"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+  notify-start:
+    name: Slack Notification (Release Start)
+    needs: compute-version
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    continue-on-error: true
+    steps:
+      - name: Notify Slack of release start
+        uses: slackapi/slack-github-action@v2.1.0
+        with:
+          webhook: ${{ secrets.SLACK_RELEASES_WEBHOOK_URL }}
+          webhook-type: incoming-webhook
+          payload: |
+            unfurl_links: false
+            unfurl_media: false
+            blocks:
+              - type: header
+                text:
+                  type: plain_text
+                  text: "\U0001F680 Release v${{ needs.compute-version.outputs.version }} Started"
+              - type: section
+                text:
+                  type: mrkdwn
+                  text: "*Workflow:* Create Release Branch\n*Version:* `${{ needs.compute-version.outputs.version }}`\n*Bump:* `${{ inputs.bump }}`\n*Triggered by:* ${{ github.actor }}"
+              - type: actions
+                elements:
+                  - type: button
+                    text:
+                      type: plain_text
+                      text: "View Run"
+                    url: "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+
+  create-release-branch:
+    needs: compute-version
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Generate GitHub App token
+        id: app-token
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ secrets.VELLUM_AUTOMATION_GITHUB_APP_ID }}
+          private-key: ${{ secrets.VELLUM_AUTOMATION_GITHUB_PRIVATE_KEY }}
+
+      - uses: actions/checkout@v6
+        with:
+          token: ${{ steps.app-token.outputs.token }}
+          fetch-depth: 0
+
+      - name: Create release branch and bump versions
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+        run: |
+          VERSION="${{ needs.compute-version.outputs.version }}"
+          BRANCH="release/v$VERSION"
+
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git checkout -b "$BRANCH"
+
+          # Bump all package.json files
+          for pkg in assistant cli credential-executor gateway meta; do
+            jq --arg v "$VERSION" '.version = $v' $pkg/package.json > tmp && mv tmp $pkg/package.json
+          done
+
+          # Bump meta-package dependency versions
+          jq --arg v "$VERSION" '
+            .dependencies["@vellumai/assistant"] = $v |
+            .dependencies["@vellumai/cli"] = $v |
+            .dependencies["@vellumai/credential-executor"] = $v |
+            .dependencies["@vellumai/vellum-gateway"] = $v
+          ' meta/package.json > tmp && mv tmp meta/package.json
+
+          # Bump macOS app version
+          sed -i "s/^let appVersion = .*/let appVersion = \"$VERSION\"/" clients/Package.swift
+
+          git add -A
+          if ! git diff --cached --quiet; then
+            git commit -m "Release v$VERSION"
+          fi
+          git push origin "$BRANCH"

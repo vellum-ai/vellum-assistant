@@ -82,6 +82,7 @@ mock.module("../config/loader.js", () => ({
   invalidateConfigCache: () => {},
 }));
 
+import { stripUserTextBlocksByPrefix } from "../daemon/conversation-runtime-assembly.js";
 import { getDb, initializeDb, resetDb } from "../memory/db.js";
 import {
   resetCleanupScheduleThrottle,
@@ -89,8 +90,7 @@ import {
 } from "../memory/jobs-worker.js";
 import {
   buildMemoryRecall,
-  injectMemoryRecallAsSeparateMessage,
-  stripMemoryRecallMessages,
+  injectMemoryRecallAsUserBlock,
 } from "../memory/retriever.js";
 import {
   conversations,
@@ -98,6 +98,7 @@ import {
   memoryItemSources,
   messages,
 } from "../memory/schema.js";
+import type { Message } from "../providers/types.js";
 
 describe("Memory lifecycle E2E regression", () => {
   beforeAll(() => {
@@ -369,30 +370,35 @@ describe("Memory lifecycle E2E regression", () => {
     expect(recall.injectedText).toContain("</memory_context>");
   });
 
-  test("stripping removes <memory_context> tags from injected recall", () => {
+  test("stripping removes <memory_context> block from injected recall", () => {
     const memoryRecallText =
       "<memory_context>\n\n<relevant_context>\nuser prefers concise answers\n</relevant_context>\n\n</memory_context>";
-    const originalMessages = [
+    const originalMessages: Message[] = [
       {
-        role: "user" as const,
-        content: [{ type: "text", text: "Actual user request" }],
+        role: "user",
+        content: [{ type: "text" as const, text: "Actual user request" }],
       },
     ];
-    const injected = injectMemoryRecallAsSeparateMessage(
+    const injected = injectMemoryRecallAsUserBlock(
       originalMessages,
       memoryRecallText,
     );
 
-    expect(injected).toHaveLength(3);
+    // Memory context prepended to the last user message as a content block
+    expect(injected).toHaveLength(1);
     expect(injected[0].role).toBe("user");
-    expect(injected[0].content[0].text).toBe(memoryRecallText);
-    expect(injected[1].role as string).toBe("assistant");
-    expect(injected[2].role).toBe("user");
-    expect(injected[2].content[0].text).toBe("Actual user request");
+    expect(injected[0].content).toHaveLength(2);
+    const b0 = injected[0].content[0];
+    const b1 = injected[0].content[1];
+    expect(b0.type === "text" && b0.text).toBe(memoryRecallText);
+    expect(b1.type === "text" && b1.text).toBe("Actual user request");
 
-    const cleaned = stripMemoryRecallMessages(injected, memoryRecallText);
+    // Stripped by prefix-based stripping (same mechanism as workspace/temporal)
+    const cleaned = stripUserTextBlocksByPrefix(injected, ["<memory_context>"]);
     expect(cleaned).toHaveLength(1);
-    expect(cleaned[0].content[0].text).toBe("Actual user request");
+    expect(cleaned[0].content).toHaveLength(1);
+    const cb0 = cleaned[0].content[0];
+    expect(cb0.type === "text" && cb0.text).toBe("Actual user request");
   });
 
   test("empty retrieval returns no injection", async () => {

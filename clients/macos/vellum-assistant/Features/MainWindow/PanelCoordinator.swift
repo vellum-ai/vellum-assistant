@@ -691,12 +691,20 @@ struct ActiveChatViewWrapper: View {
             conversationId: conversationId,
             daemonGreeting: viewModel.emptyStateGreeting,
             onRequestGreeting: { [weak viewModel] in viewModel?.generateGreeting() },
-            threadStarters: MacOSClientFeatureFlagManager.shared.isEnabled("thread_starters_enabled") ? viewModel.threadStarters : [],
-            threadStartersLoading: MacOSClientFeatureFlagManager.shared.isEnabled("thread_starters_enabled") && viewModel.threadStartersLoading,
+            conversationStarters: MacOSClientFeatureFlagManager.shared.isEnabled("conversation_starters_enabled") ? viewModel.conversationStarters : [],
+            conversationStartersLoading: MacOSClientFeatureFlagManager.shared.isEnabled("conversation_starters_enabled") && viewModel.conversationStartersLoading,
             onSelectStarter: { [weak viewModel] starter in
                 viewModel?.inputText = starter.prompt
             },
-            onFetchThreadStarters: { [weak viewModel] in viewModel?.fetchThreadStarters() },
+            onFetchConversationStarters: { [weak viewModel] in viewModel?.fetchConversationStarters() },
+            capabilityCards: MacOSClientFeatureFlagManager.shared.isEnabled("capability_feed_enabled") ? viewModel.capabilityCards : [],
+            capabilityCardsLoading: MacOSClientFeatureFlagManager.shared.isEnabled("capability_feed_enabled") && viewModel.capabilityCardsLoading,
+            cardCategoryStatuses: MacOSClientFeatureFlagManager.shared.isEnabled("capability_feed_enabled") ? viewModel.cardCategoryStatuses : [:],
+            onSelectCard: { [weak viewModel] card in
+                viewModel?.inputText = card.prompt
+            },
+            onFetchCapabilityCards: { [weak viewModel] in viewModel?.fetchCapabilityCards() },
+            showCapabilityFeed: MacOSClientFeatureFlagManager.shared.isEnabled("capability_feed_enabled"),
             anchorMessageId: $anchorMessageId,
             highlightedMessageId: $highlightedMessageId,
             btwResponse: viewModel.btwResponse,

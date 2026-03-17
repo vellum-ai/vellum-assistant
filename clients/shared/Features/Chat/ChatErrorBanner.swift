@@ -17,6 +17,7 @@ public struct ChatErrorBanner: View {
             Text(message)
                 .font(.footnote)
                 .foregroundStyle(VColor.contentDefault)
+                .textSelection(.enabled)
             Spacer()
             if let onDismiss {
                 Button(action: onDismiss) {

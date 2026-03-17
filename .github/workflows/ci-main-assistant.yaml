@@ -29,7 +29,7 @@ jobs:
           bun-version: '1.3.9'
 
       - name: Cache bun dependencies
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: ~/.bun/install/cache
           key: bun-${{ runner.os }}-${{ hashFiles('assistant/bun.lock') }}
@@ -65,7 +65,7 @@ jobs:
           bun-version: '1.3.9'
 
       - name: Cache bun dependencies
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: ~/.bun/install/cache
           key: bun-${{ runner.os }}-${{ hashFiles('assistant/bun.lock') }}
@@ -101,7 +101,7 @@ jobs:
           bun-version: '1.3.9'
 
       - name: Cache bun dependencies
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: ~/.bun/install/cache
           key: bun-${{ runner.os }}-${{ hashFiles('assistant/bun.lock') }}
@@ -118,7 +118,7 @@ jobs:
         run: cd .. && bun run meta/feature-flags/sync-bundled-copies.ts
 
       - name: Restore test durations cache
-        uses: actions/cache/restore@v4
+        uses: actions/cache/restore@v5
         with:
           path: assistant/.test-durations
           key: test-durations-unused
@@ -133,7 +133,7 @@ jobs:
 
       - name: Save test durations cache
         if: always()
-        uses: actions/cache/save@v4
+        uses: actions/cache/save@v5
         with:
           path: assistant/.test-durations
           key: test-durations-${{ github.run_id }}

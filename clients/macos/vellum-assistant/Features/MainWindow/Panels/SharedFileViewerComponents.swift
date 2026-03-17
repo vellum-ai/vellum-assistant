@@ -15,9 +15,6 @@ func availableViewModes(for fileName: String, mimeType: String) -> [FileViewMode
     if ext == "md" || ext == "markdown" || mime == "text/markdown" {
         return [.preview, .source]
     }
-    if ext == "json" || mime == "application/json" {
-        return [.tree, .source]
-    }
     return [.source]
 }
 
@@ -29,17 +26,87 @@ func viewModeLabel(_ mode: FileViewMode) -> String {
     }
 }
 
-/// Header bar showing file icon, name, and size for file content viewers.
+// MARK: - File Icon
+
+func fileIcon(for mimeType: String) -> VIcon {
+    if mimeType.hasPrefix("image/") { return .image }
+    if mimeType.hasPrefix("video/") { return .video }
+    if mimeType.hasPrefix("text/") { return .fileText }
+    if mimeType == "application/json" || mimeType == "application/javascript" || mimeType == "application/typescript" { return .fileCode }
+    return .file
+}
+
+// MARK: - File Content View
+
+struct FileContentView: View {
+    let fileName: String
+    let mimeType: String
+    @Binding var content: String
+    @Binding var viewMode: FileViewMode
+    var isEditable: Bool = false
+    var showReadOnlyBadge: Bool = false
+    var onTextChange: ((String) -> Void)? = nil
+
+    var body: some View {
+        let modes = availableViewModes(for: fileName, mimeType: mimeType)
+        let effectiveMode = modes.contains(viewMode) ? viewMode : (modes.first ?? .source)
+
+        VStack(alignment: .leading, spacing: 0) {
+            FileContentHeaderBar(
+                icon: fileIcon(for: mimeType),
+                fileName: fileName
+            ) {
+                if modes.count > 1 {
+                    VSegmentedControl(
+                        items: modes.map { (label: viewModeLabel($0), tag: $0) },
+                        selection: $viewMode,
+                        style: .pill,
+                        size: .compact
+                    )
+                    .fixedSize()
+                }
+
+                if showReadOnlyBadge {
+                    Text("Read-only")
+                        .font(VFont.caption)
+                        .foregroundColor(VColor.contentTertiary)
+                }
+            }
+
+            Divider().background(VColor.borderBase)
+
+            switch effectiveMode {
+            case .source:
+                HighlightedTextView(
+                    text: isEditable ? $content : .constant(content),
+                    language: SyntaxLanguage.detect(fileName: fileName, mimeType: mimeType),
+                    isEditable: isEditable,
+                    onTextChange: onTextChange
+                )
+                .id(fileName)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            case .preview:
+                MarkdownPreviewView(content: content)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            case .tree:
+                JSONTreeView(content: content)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            }
+        }
+    }
+}
+
+// MARK: - File Content Header Bar
+
+/// Header bar showing file icon and name for file content viewers.
 struct FileContentHeaderBar<Trailing: View>: View {
     let icon: VIcon
     let fileName: String
-    let fileSize: String
     let trailing: Trailing
 
-    init(icon: VIcon, fileName: String, fileSize: String, @ViewBuilder trailing: () -> Trailing = { EmptyView() }) {
+    init(icon: VIcon, fileName: String, @ViewBuilder trailing: () -> Trailing = { EmptyView() }) {
         self.icon = icon
         self.fileName = fileName
-        self.fileSize = fileSize
         self.trailing = trailing()
     }
 
@@ -53,13 +120,9 @@ struct FileContentHeaderBar<Trailing: View>: View {
                 .lineLimit(1)
                 .truncationMode(.middle)
             Spacer()
-            Text(fileSize)
-                .font(VFont.small)
-                .foregroundColor(VColor.contentTertiary)
-                .fixedSize()
             trailing
         }
-        .padding(.horizontal, VSpacing.md)
+        .padding(.horizontal, VSpacing.sm)
         .frame(height: 36)
     }
 }

@@ -392,6 +392,9 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     /// Called when the daemon sends a `trace_event` message.
     public var onTraceEvent: ((TraceEventMessage) -> Void)?
 
+    /// Called when the daemon sends a `usage_update` message.
+    public var onUsageUpdate: ((UsageUpdate) -> Void)?
+
     /// Called when the daemon sends an `apps_list_response` message.
     public var onAppsListResponse: ((AppsListResponseMessage) -> Void)?
 

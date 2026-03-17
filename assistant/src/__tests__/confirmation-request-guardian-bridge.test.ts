@@ -175,7 +175,7 @@ describe("bridgeConfirmationRequestToGuardian", () => {
     expect(emittedSignals).toHaveLength(1);
     expect(emittedSignals[0].sourceEventName).toBe("guardian.question");
     expect(emittedSignals[0].sourceChannel).toBe("telegram");
-    expect(emittedSignals[0].sourceSessionId).toBe("conv-1");
+    expect(emittedSignals[0].sourceContextId).toBe("conv-1");
 
     const payload = emittedSignals[0].contextPayload as Record<string, unknown>;
     expect(payload.requestId).toBe(canonicalRequest.id);

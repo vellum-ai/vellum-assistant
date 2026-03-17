@@ -1,11 +1,11 @@
 import SwiftUI
 import VellumAssistantShared
 
-/// Card for the Anthropic inference service with Managed/Your Own mode toggle.
+/// Card for the inference service with Managed/Your Own mode toggle.
 ///
 /// Shows different content based on mode and auth state:
-/// - **Managed + logged in**: Token usage notice, model picker, Save button
-/// - **Managed + not logged in**: "Log in to select" tooltip on Managed segment, falls back to Your Own content
+/// - **Managed + logged in**: Model picker, Save button
+/// - **Managed + not logged in**: Empty state prompting login
 /// - **Your Own**: API key field, model picker, Save + Reset buttons
 @MainActor
 struct InferenceServiceCard: View {
@@ -17,24 +17,13 @@ struct InferenceServiceCard: View {
     @State private var draftMode: String = "your-own"
     /// Snapshot of the model at card appear — used to detect model-only changes.
     @State private var initialModel: String = ""
-    /// Whether the Managed segment is being hovered (for tooltip).
-    @State private var isManagedHovered: Bool = false
 
     private var isConnected: Bool {
         store.hasKey
     }
 
-    private var isManagedProxy: Bool {
-        store.providerRoutingSources["anthropic"] == "managed-proxy"
-    }
-
     private var isLoggedIn: Bool {
         authManager.isAuthenticated
-    }
-
-    /// Whether managed mode is available to select (requires login).
-    private var isManagedAvailable: Bool {
-        isLoggedIn
     }
 
     /// True when the user has made changes worth saving.
@@ -47,11 +36,8 @@ struct InferenceServiceCard: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: VSpacing.md) {
-            // Header: title + connected badge + subtitle
+            // Header: title + subtitle + mode toggle
             header
-
-            // Integration Mode segmented control
-            modeSelector
 
             Divider()
                 .background(VColor.borderBase)
@@ -71,22 +57,11 @@ struct InferenceServiceCard: View {
         .vCard(background: VColor.surfaceOverlay)
         .onAppear {
             draftMode = store.inferenceMode
-            if draftMode == "managed" && !authManager.isAuthenticated {
-                draftMode = "your-own"
-            }
             initialModel = store.selectedModel
         }
         .onChange(of: store.inferenceMode) { _, newValue in
             // Sync draft when external changes arrive (e.g. daemon reload)
             draftMode = newValue
-            if draftMode == "managed" && !authManager.isAuthenticated {
-                draftMode = "your-own"
-            }
-        }
-        .onChange(of: authManager.isAuthenticated) { _, isAuthenticated in
-            if !isAuthenticated && draftMode == "managed" {
-                draftMode = "your-own"
-            }
         }
     }
 
@@ -94,40 +69,11 @@ struct InferenceServiceCard: View {
 
     private var header: some View {
         VStack(alignment: .leading, spacing: VSpacing.xs) {
-            HStack(spacing: VSpacing.sm) {
-                Text("Anthropic")
+            HStack {
+                Text("Inference")
                     .font(VFont.sectionTitle)
                     .foregroundColor(VColor.contentDefault)
-
-                if isConnected || isManagedProxy {
-                    HStack(spacing: VSpacing.xs) {
-                        VIconView(.circleCheck, size: 12)
-                        Text("Connected")
-                            .font(VFont.captionMedium)
-                    }
-                    .foregroundColor(VColor.systemPositiveStrong)
-                    .padding(.horizontal, VSpacing.sm)
-                    .padding(.vertical, VSpacing.xxs)
-                    .background(VColor.systemPositiveStrong.opacity(0.12))
-                    .clipShape(Capsule())
-                }
-            }
-            Text("Required for AI responses")
-                .font(VFont.sectionDescription)
-                .foregroundColor(VColor.contentTertiary)
-        }
-    }
-
-    // MARK: - Mode Selector
-
-    private var modeSelector: some View {
-        HStack {
-            Text("Integration Mode")
-                .font(VFont.body)
-                .foregroundColor(VColor.contentTertiary)
-            Spacer()
-
-            if isManagedAvailable {
+                Spacer()
                 VSegmentedControl(
                     items: [
                         (label: "Managed", tag: "managed"),
@@ -137,59 +83,45 @@ struct InferenceServiceCard: View {
                     style: .pill
                 )
                 .frame(width: 220)
-            } else {
-                // Not logged in — show segmented control with Managed disabled + tooltip
-                ZStack(alignment: .top) {
-                    VSegmentedControl(
-                        items: [
-                            (label: "Managed", tag: "managed"),
-                            (label: "Your Own", tag: "your-own"),
-                        ],
-                        selection: .constant("your-own"),
-                        style: .pill
-                    )
-                    .frame(width: 220)
-
-                    // Invisible hover target over the "Managed" half
-                    Color.clear
-                        .frame(width: 110, height: 36)
-                        .contentShape(Rectangle())
-                        .onHover { isManagedHovered = $0 }
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .popover(isPresented: $isManagedHovered, arrowEdge: .top) {
-                            Text("Log in to select")
-                                .font(VFont.captionMedium)
-                                .foregroundColor(VColor.contentInset)
-                                .padding(.horizontal, VSpacing.sm)
-                                .padding(.vertical, VSpacing.xs)
-                        }
-                }
             }
+            Text("Configure which LLM provider and model to use to power your assistant")
+                .font(VFont.sectionDescription)
+                .foregroundColor(VColor.contentTertiary)
         }
     }
 
     // MARK: - Managed Content
 
     private var managedContent: some View {
-        VStack(alignment: .leading, spacing: VSpacing.md) {
-            // Token usage notice
-            HStack(spacing: VSpacing.xs) {
-                VIconView(.info, size: 14)
-                Text("Using a managed Anthropic integration will use the tokens bought with your Vellum subscription.")
-                    .font(VFont.body)
+        Group {
+            if isLoggedIn {
+                modelPicker
+            } else {
+                managedLoginPrompt
             }
-            .foregroundColor(VColor.systemMidStrong)
-            .padding(.horizontal, VSpacing.sm)
-            .padding(.vertical, VSpacing.sm)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(
-                RoundedRectangle(cornerRadius: VRadius.md)
-                    .fill(VColor.systemMidWeak)
-            )
-
-            // Model picker (available in managed mode too)
-            modelPicker
         }
+    }
+
+    // MARK: - Managed Login Prompt
+
+    private var managedLoginPrompt: some View {
+        VStack(spacing: VSpacing.md) {
+            Text("In order to use the managed inference service, you must be logged in to Vellum.")
+                .font(VFont.body)
+                .foregroundColor(VColor.contentTertiary)
+                .multilineTextAlignment(.center)
+            VButton(
+                label: authManager.isSubmitting ? "Logging in..." : "Log In",
+                style: .primary,
+                isDisabled: authManager.isSubmitting
+            ) {
+                Task {
+                    await authManager.startWorkOSLogin()
+                }
+            }
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, VSpacing.lg)
     }
 
     // MARK: - Your Own Content
@@ -242,13 +174,17 @@ struct InferenceServiceCard: View {
 
     private var actionButtons: some View {
         HStack(spacing: VSpacing.sm) {
-            VButton(label: "Save", style: .primary, isDisabled: !hasChanges) {
-                save()
-            }
-            if draftMode == "your-own" && isConnected {
-                VButton(label: "Reset (disconnect)", style: .danger) {
-                    store.clearAPIKey()
-                    apiKeyText = ""
+            if draftMode == "managed" && !isLoggedIn {
+                EmptyView()
+            } else {
+                VButton(label: "Save", style: .primary, isDisabled: !hasChanges) {
+                    save()
+                }
+                if draftMode == "your-own" && isConnected {
+                    VButton(label: "Reset", style: .danger) {
+                        store.clearAPIKey()
+                        apiKeyText = ""
+                    }
                 }
             }
         }

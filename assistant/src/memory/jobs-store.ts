@@ -26,7 +26,9 @@ export type MemoryJobType =
   | "media_processing"
   | "embed_media"
   | "embed_attachment"
-  | "generate_thread_starters";
+  | "generate_conversation_starters"
+  | "generate_capability_cards"
+  | "generate_thread_starters"; // legacy compat — silently dropped by worker (renamed to generate_conversation_starters)
 
 const EMBED_JOB_TYPES: MemoryJobType[] = [
   "embed_segment",

@@ -73,7 +73,7 @@ struct DrawerMenuView: View {
                 if authManager.isAuthenticated {
                     SidebarPrimaryRow(icon: VIcon.logOut.rawValue, label: String(localized: "Log Out"), action: onLogOut)
                 } else {
-                    SidebarPrimaryRow(icon: VIcon.logOut.rawValue, label: String(localized: "Sign In"), action: onSignIn)
+                    SidebarPrimaryRow(icon: VIcon.logOut.rawValue, label: String(localized: "Log In"), action: onSignIn)
                 }
             }
         }

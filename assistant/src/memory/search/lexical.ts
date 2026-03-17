@@ -36,6 +36,8 @@ export function recencySearch(
     source: "recency",
     text: row.text,
     kind: "segment",
+    conversationId: row.conversationId,
+    messageId: row.messageId,
     confidence: 0.55,
     importance: 0.5,
     createdAt: row.createdAt,

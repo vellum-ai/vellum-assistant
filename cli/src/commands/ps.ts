@@ -7,6 +7,7 @@ import {
   type AssistantEntry,
 } from "../lib/assistant-config";
 import { checkHealth, checkManagedHealth } from "../lib/health-check";
+import { dockerResourceNames } from "../lib/docker";
 import {
   classifyProcess,
   detectOrphanedProcesses,
@@ -248,6 +249,52 @@ async function getLocalProcesses(entry: AssistantEntry): Promise<TableRow[]> {
   }));
 }
 
+async function getDockerContainerState(
+  containerName: string,
+): Promise<string | null> {
+  try {
+    const output = await execOutput("docker", [
+      "inspect",
+      "--format",
+      "{{.State.Status}}",
+      containerName,
+    ]);
+    return output.trim() || "unknown";
+  } catch {
+    return null;
+  }
+}
+
+async function getDockerProcesses(entry: AssistantEntry): Promise<TableRow[]> {
+  const res = dockerResourceNames(entry.assistantId);
+
+  const containers: { name: string; containerName: string }[] = [
+    { name: "assistant", containerName: res.assistantContainer },
+    { name: "gateway", containerName: res.gatewayContainer },
+    { name: "credential-executor", containerName: res.cesContainer },
+  ];
+
+  const results = await Promise.all(
+    containers.map(async ({ name, containerName }) => {
+      const state = await getDockerContainerState(containerName);
+      if (!state) {
+        return {
+          name,
+          status: withStatusEmoji("not found"),
+          info: `container ${containerName}`,
+        };
+      }
+      return {
+        name,
+        status: withStatusEmoji(state === "running" ? "running" : state),
+        info: `container ${containerName}`,
+      };
+    }),
+  );
+
+  return results;
+}
+
 async function showAssistantProcesses(entry: AssistantEntry): Promise<void> {
   const cloud = resolveCloud(entry);
 
@@ -255,6 +302,12 @@ async function showAssistantProcesses(entry: AssistantEntry): Promise<void> {
 
   if (cloud === "local") {
     const rows = await getLocalProcesses(entry);
+    printTable(rows);
+    return;
+  }
+
+  if (cloud === "docker") {
+    const rows = await getDockerProcesses(entry);
     printTable(rows);
     return;
   }
@@ -355,6 +408,14 @@ async function listAllAssistants(): Promise<void> {
         const pid = readPidFile(resources.pidFile);
         const alive = pid !== null && isProcessAlive(pid);
         if (!alive) {
+          health = { status: "sleeping", detail: null };
+        } else {
+          health = await checkHealth(a.localUrl ?? a.runtimeUrl, a.bearerToken);
+        }
+      } else if (a.cloud === "docker") {
+        const res = dockerResourceNames(a.assistantId);
+        const state = await getDockerContainerState(res.assistantContainer);
+        if (!state || state !== "running") {
           health = { status: "sleeping", detail: null };
         } else {
           health = await checkHealth(a.localUrl ?? a.runtimeUrl, a.bearerToken);

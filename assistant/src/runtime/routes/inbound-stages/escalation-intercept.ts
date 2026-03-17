@@ -134,7 +134,7 @@ export function handleEscalationIntercept(
   void emitNotificationSignal({
     sourceEventName: "ingress.escalation",
     sourceChannel: sourceChannel as NotificationSourceChannel,
-    sourceSessionId: conversationId,
+    sourceContextId: conversationId,
     attentionHints: {
       requiresAction: true,
       urgency: "high",

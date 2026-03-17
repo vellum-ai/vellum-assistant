@@ -1,9 +1,6 @@
 import { estimateTextTokens } from "../../context/token-estimator.js";
 import type { TieredCandidate } from "./tier-classifier.js";
 
-/** Marker text used in the assistant acknowledgment of a separate context message. */
-export const MEMORY_CONTEXT_ACK = "[Memory context loaded.]";
-
 /**
  * Escape XML-like tag sequences in recalled text to prevent delimiter injection.
  * Recalled content is interpolated verbatim inside `<memory>` wrapper tags,

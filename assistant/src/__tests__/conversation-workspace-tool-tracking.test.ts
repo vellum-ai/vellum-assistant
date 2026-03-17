@@ -152,8 +152,7 @@ mock.module("../memory/retriever.js", () => ({
     latencyMs: 0,
     topCandidates: [],
   }),
-  injectMemoryRecallAsSeparateMessage: (msgs: Message[]) => msgs,
-  stripMemoryRecallMessages: (msgs: Message[]) => msgs,
+  injectMemoryRecallAsUserBlock: (msgs: Message[]) => msgs,
 }));
 mock.module("../memory/query-builder.js", () => ({
   buildMemoryQuery: () => "",

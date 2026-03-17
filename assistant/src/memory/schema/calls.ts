@@ -95,7 +95,7 @@ export const channelVerificationSessions = sqliteTable(
     challengeHash: text("challenge_hash").notNull(),
     expiresAt: integer("expires_at").notNull(),
     status: text("status").notNull().default("pending"),
-    createdByConversationId: text("created_by_session_id"),
+    sourceConversationId: text("source_conversation_id"),
     consumedByExternalUserId: text("consumed_by_external_user_id"),
     consumedByChatId: text("consumed_by_chat_id"),
     // Outbound session: expected-identity binding

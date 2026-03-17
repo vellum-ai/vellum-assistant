@@ -1,7 +1,8 @@
-import { inArray, sql } from "drizzle-orm";
+import { asc, eq, inArray, sql } from "drizzle-orm";
 
 import type { AssistantConfig } from "../config/types.js";
 import { estimateTextTokens } from "../context/token-estimator.js";
+import type { Message } from "../providers/types.js";
 import { getLogger } from "../util/logger.js";
 import {
   abortableSleep,
@@ -25,7 +26,6 @@ import {
 import {
   buildTwoLayerInjection,
   IDENTITY_KINDS,
-  MEMORY_CONTEXT_ACK,
   PREFERENCE_KINDS,
 } from "./search/formatting.js";
 import { recencySearch } from "./search/lexical.js";
@@ -356,6 +356,27 @@ export async function buildMemoryRecall(
     }
   }
 
+  // ── Step 5b: Filter out current-conversation segments still in context ──
+  // Segments whose source message is still in the conversation's context
+  // window are redundant (already visible to the model). However, segments
+  // from messages that were removed by context compaction should be kept —
+  // those messages are no longer in the conversation history and memory is
+  // the only way they can influence the response.
+  if (conversationId) {
+    const inContextMessageIds = getInContextMessageIds(conversationId);
+    if (inContextMessageIds) {
+      for (const [key, c] of candidateMap) {
+        if (
+          c.type === "segment" &&
+          c.messageId &&
+          inContextMessageIds.has(c.messageId)
+        ) {
+          candidateMap.delete(key);
+        }
+      }
+    }
+  }
+
   // Compute RRF-style final scores for the merged candidates
   const allCandidates = [...candidateMap.values()];
   for (const c of allCandidates) {
@@ -529,6 +550,52 @@ export async function buildMemoryRecall(
 }
 
 /**
+ * Get the set of message IDs that are still in the conversation's context
+ * window (i.e., not compacted away). Uses `contextCompactedMessageCount` to
+ * determine the offset: messages ordered by createdAt after that count are
+ * still visible to the model.
+ *
+ * Returns `null` if the conversation is not found (deleted, or no DB row).
+ */
+function getInContextMessageIds(conversationId: string): Set<string> | null {
+  try {
+    const db = getDb();
+
+    // Look up the conversation's compacted message count
+    const conv = db
+      .select({
+        contextCompactedMessageCount:
+          conversations.contextCompactedMessageCount,
+      })
+      .from(conversations)
+      .where(eq(conversations.id, conversationId))
+      .get();
+
+    if (!conv) return null;
+
+    const offset = conv.contextCompactedMessageCount;
+
+    // Fetch message IDs ordered by creation time, skipping compacted ones
+    const rows = db
+      .select({ id: messages.id })
+      .from(messages)
+      .where(eq(messages.conversationId, conversationId))
+      .orderBy(asc(messages.createdAt))
+      .all();
+
+    // Messages up to `offset` have been compacted out of context
+    const inContextRows = rows.slice(offset);
+    return new Set(inContextRows.map((r) => r.id));
+  } catch (err) {
+    log.warn(
+      { err },
+      "Failed to fetch in-context message IDs; skipping segment filter",
+    );
+    return null;
+  }
+}
+
+/**
  * Enrich item candidates with metadata needed for staleness computation:
  * - firstSeenAt: when the item was first extracted
  * - sourceConversationCount: number of distinct conversations that sourced this item
@@ -671,146 +738,32 @@ function enrichSourceLabels(candidates: TieredCandidate[]): void {
 }
 
 /**
- * Strip memory recall messages from the conversation history.
+ * Inject memory recall as a text content block prepended to the last user
+ * message. This follows the same pattern as workspace, temporal, and other
+ * runtime injections — the memory context is a text block in the user
+ * message rather than a separate synthetic message pair.
  *
- * Handles both exact text matching and `<memory_context>` XML wrapper
- * detection: when the recall text starts with `<memory_context>`, we
- * also match user messages whose sole text block starts with the same
- * tag (covering cases where the exact text differs slightly due to
- * dynamic content).
+ * Stripping is handled by `stripUserTextBlocksByPrefix` matching the
+ * `<memory_context>` prefix in `RUNTIME_INJECTION_PREFIXES`, so no
+ * dedicated strip function is needed.
  */
-export function stripMemoryRecallMessages<
-  T extends {
-    role: "user" | "assistant";
-    content: Array<{ type: string; text?: string }>;
-  },
->(
-  messages: T[],
-  memoryRecallText?: string,
-  injectionStrategy?: "prepend_user_block" | "separate_context_message",
-): T[] {
-  const recallText = memoryRecallText ?? "";
-  if (recallText.trim().length === 0) return messages;
-
-  const isAck = (msg: T) =>
-    msg.role === "assistant" &&
-    msg.content.length === 1 &&
-    msg.content[0].type === "text" &&
-    msg.content[0].text === MEMORY_CONTEXT_ACK;
-
-  // Check if the recall text uses the <memory_context> XML format
-  const isMemoryContextFormat = recallText
-    .trimStart()
-    .startsWith("<memory_context>");
-
-  // Helper: does a text block match the recall text?
-  const textMatches = (text: string | undefined): boolean => {
-    if (!text) return false;
-    if (text === recallText) return true;
-    // For <memory_context> format, match any block that starts with the tag
-    if (
-      isMemoryContextFormat &&
-      text.trimStart().startsWith("<memory_context>")
-    ) {
-      return true;
-    }
-    return false;
-  };
-
-  // Prefer the canonical separate_context_message pair: a user message whose
-  // sole text block is the recall text, followed by an assistant ack. This
-  // must be checked first so that a real user message that happens to contain
-  // the same text is not incorrectly removed instead of the synthetic one.
-  if (injectionStrategy !== "prepend_user_block") {
-    for (let i = messages.length - 1; i >= 0; i--) {
-      const msg = messages[i];
-      if (msg.role !== "user") continue;
-      if (msg.content.length !== 1) continue;
-      const block = msg.content[0];
-      if (block.type !== "text" || !textMatches(block.text)) continue;
-      const next = messages[i + 1];
-      if (next && isAck(next)) {
-        return [...messages.slice(0, i), ...messages.slice(i + 2)];
-      }
-    }
-  }
-
-  // Fall back to generic text-match removal: find the last user message
-  // containing the recall text block.
-  let targetIndex = -1;
-  let blockIndex = -1;
-  for (let i = messages.length - 1; i >= 0; i--) {
-    const msg = messages[i];
-    if (msg.role !== "user" || msg.content.length === 0) continue;
-    for (let bi = msg.content.length - 1; bi >= 0; bi--) {
-      const block = msg.content[bi];
-      if (block.type === "text" && textMatches(block.text)) {
-        targetIndex = i;
-        blockIndex = bi;
-        break;
-      }
-    }
-    if (targetIndex !== -1) break;
-  }
-  if (targetIndex === -1) return messages;
-
-  // Strip the adjacent assistant ack when the injection strategy used a
-  // separate context message (or is unknown). This mirrors the canonical
-  // pair removal above but covers repair-merged cases where the user
-  // message has multiple content blocks.
-  const ackIndex =
-    injectionStrategy !== "prepend_user_block" &&
-    targetIndex + 1 < messages.length &&
-    isAck(messages[targetIndex + 1])
-      ? targetIndex + 1
-      : -1;
-
-  const cleaned: T[] = [];
-  for (let i = 0; i < messages.length; i++) {
-    if (i === ackIndex) continue;
-    if (i !== targetIndex) {
-      cleaned.push(messages[i]);
-      continue;
-    }
-    const filteredContent = [
-      ...messages[i].content.slice(0, blockIndex),
-      ...messages[i].content.slice(blockIndex + 1),
-    ];
-    if (filteredContent.length === 0) continue;
-    cleaned.push({ ...messages[i], content: filteredContent } as T);
-  }
-  return cleaned;
-}
-
-/**
- * Inject memory recall as a separate user+assistant message pair before the
- * last user message. This separates memory context from the user's actual
- * query, making it clearer to the model that the memory is background context.
- */
-export function injectMemoryRecallAsSeparateMessage<
-  T extends {
-    role: "user" | "assistant";
-    content: Array<{ type: string; text?: string }>;
-  },
->(messages: T[], memoryRecallText: string): T[] {
+export function injectMemoryRecallAsUserBlock(
+  messages: Message[],
+  memoryRecallText: string,
+): Message[] {
   if (memoryRecallText.trim().length === 0) return messages;
   if (messages.length === 0) return messages;
-  // These synthetic messages satisfy the structural constraint T extends { role; content }
-  // but may lack extra fields present on T. In practice T is always Message which has
-  // only role and content, so the cast is safe.
-  const contextMessage = {
-    role: "user" as const,
-    content: [{ type: "text" as const, text: memoryRecallText }],
-  } as T;
-  const ackMessage = {
-    role: "assistant" as const,
-    content: [{ type: "text" as const, text: MEMORY_CONTEXT_ACK }],
-  } as T;
+  const userTail = messages[messages.length - 1];
+  if (!userTail || userTail.role !== "user") return messages;
   return [
     ...messages.slice(0, -1),
-    contextMessage,
-    ackMessage,
-    messages[messages.length - 1],
+    {
+      ...userTail,
+      content: [
+        { type: "text" as const, text: memoryRecallText },
+        ...userTail.content,
+      ],
+    },
   ];
 }
 

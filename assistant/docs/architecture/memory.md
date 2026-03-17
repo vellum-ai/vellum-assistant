@@ -273,7 +273,7 @@ The recall pipeline runs on every turn that passes the `needsMemory` gate (skips
 
    Empty sections are omitted. Each section has a per-item token budget (150 tokens for tier 1, 100 for tier 2). Tier 1 sections consume budget first; tier 2 uses the remainder.
 
-10. **Injection strategy**: The rendered `<memory_context>` block is injected as a separate user + assistant acknowledgment message pair before the last user message (`injectMemoryRecallAsSeparateMessage`). This separates memory context from the user's actual query.
+10. **Injection strategy**: The rendered `<memory_context>` block is prepended as a text content block to the last user message (`injectMemoryRecallAsUserBlock`), following the same pattern as workspace, temporal, and other runtime injections. Stripping is handled by the generic `stripUserTextBlocksByPrefix` mechanism matching the `<memory_context>` prefix. This avoids synthetic message pairs and preserves prompt prefix caching between turns.
 
 ### Internal-Only Trust Gating
 

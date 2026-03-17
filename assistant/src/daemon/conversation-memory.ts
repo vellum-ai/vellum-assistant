@@ -4,7 +4,7 @@ import { buildMemoryQuery } from "../memory/query-builder.js";
 import { computeRecallBudget } from "../memory/retrieval-budget.js";
 import {
   buildMemoryRecall,
-  injectMemoryRecallAsSeparateMessage,
+  injectMemoryRecallAsUserBlock,
 } from "../memory/retriever.js";
 import type { ScopePolicyOverride } from "../memory/search/types.js";
 import type { Message } from "../providers/types.js";
@@ -68,9 +68,10 @@ export function needsMemory(messages: Message[], content: string): boolean {
  * pipeline. Returns the augmented run messages and metadata for
  * downstream event emission.
  *
- * The V2 pipeline always uses `separate_context_message` injection
- * strategy (user + assistant ack pair). When injection text is empty,
- * no synthetic messages are added.
+ * Memory context is injected as a text content block prepended to the
+ * last user message (same pattern as workspace/temporal injections).
+ * Stripping is handled by `stripUserTextBlocksByPrefix` matching the
+ * `<memory_context>` prefix in `RUNTIME_INJECTION_PREFIXES`.
  */
 export async function prepareMemoryContext(
   ctx: MemoryPrepareContext,
@@ -165,13 +166,13 @@ export async function prepareMemoryContext(
     model: recall.model,
   });
 
-  // Inject recall into messages using separate_context_message strategy.
-  // When injection text is empty, skip injection entirely (no synthetic messages).
+  // Inject recall as a text block prepended to the last user message.
+  // When injection text is empty, skip injection entirely.
   let runMessages = ctx.messages;
   if (recall.injectedText.length > 0) {
     const userTail = ctx.messages[ctx.messages.length - 1];
     if (userTail && userTail.role === "user") {
-      runMessages = injectMemoryRecallAsSeparateMessage(
+      runMessages = injectMemoryRecallAsUserBlock(
         ctx.messages,
         recall.injectedText,
       );

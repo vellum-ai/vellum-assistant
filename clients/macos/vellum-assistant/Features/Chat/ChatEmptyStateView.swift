@@ -29,10 +29,16 @@ struct ChatEmptyStateView: View {
     var conversationId: UUID?
     var daemonGreeting: String? = nil
     var onRequestGreeting: (() -> Void)? = nil
-    var threadStarters: [ThreadStarter] = []
-    var threadStartersLoading: Bool = false
-    var onSelectStarter: ((ThreadStarter) -> Void)? = nil
-    var onFetchThreadStarters: (() -> Void)? = nil
+    var conversationStarters: [ConversationStarter] = []
+    var conversationStartersLoading: Bool = false
+    var onSelectStarter: ((ConversationStarter) -> Void)? = nil
+    var onFetchConversationStarters: (() -> Void)? = nil
+    var capabilityCards: [CapabilityCard] = []
+    var capabilityCardsLoading: Bool = false
+    var cardCategoryStatuses: [String: CategoryStatus] = [:]
+    var onSelectCard: ((CapabilityCard) -> Void)? = nil
+    var onFetchCapabilityCards: (() -> Void)? = nil
+    var showCapabilityFeed: Bool = false
 
     @State private var visible = false
     @State private var placeholder: String = placeholderTexts.randomElement()!
@@ -60,155 +66,369 @@ struct ChatEmptyStateView: View {
         "Type or hold Fn to talk...",
     ]
 
+    @State private var scrolledPastHero = false
+
     // MARK: - Body
 
     var body: some View {
+        if showCapabilityFeed {
+            scrollableBody
+        } else {
+            staticBody
+        }
+    }
+
+    // MARK: - Static Body (original layout, no feed)
+
+    private var staticBody: some View {
         VStack(spacing: 0) {
             Spacer()
             Spacer()
 
-            HStack(spacing: VSpacing.md) {
-                Group {
-                    if let body = appearance.characterBodyShape,
-                       let eyes = appearance.characterEyeStyle,
-                       let color = appearance.characterColor {
-                        AnimatedAvatarView(bodyShape: body, eyeStyle: eyes, color: color, size: 32)
-                            .frame(width: 32, height: 32)
-                    } else {
-                        VAvatarImage(image: appearance.chatAvatarImage, size: 32)
-                    }
-                }
+            heroSection
 
-                if let greeting = effectiveGreeting {
-                    Text(greeting)
-                        .font(.custom("Fraunces", size: 28).weight(.regular))
-                        .foregroundColor(VColor.contentSecondary)
-                        .multilineTextAlignment(.leading)
-                        .transition(.opacity)
-                }
-            }
-            .frame(maxWidth: VSpacing.chatBubbleMaxWidth)
-            .animation(.easeOut(duration: 0.4), value: effectiveGreeting != nil)
-            .opacity(visible ? 1 : 0)
-            .scaleEffect(visible ? 1 : 0.8)
-            .padding(.horizontal, VSpacing.xl)
-            .padding(.bottom, VSpacing.xl)
+            composerSection
 
-            ComposerView(
-                inputText: $inputText,
-                hasAPIKey: hasAPIKey,
-                isSending: isSending,
-                hasPendingConfirmation: false,
-                isRecording: isRecording,
-                suggestion: suggestion,
-                pendingAttachments: pendingAttachments,
-                isLoadingAttachment: isLoadingAttachment,
-                onSend: onSend,
-                onStop: onStop,
-                onAcceptSuggestion: onAcceptSuggestion,
-                onAttach: onAttach,
-                onRemoveAttachment: onRemoveAttachment,
-                onPaste: onPaste,
-                onFileDrop: onFileDrop,
-                onDropImageData: onDropImageData,
-                onMicrophoneToggle: onMicrophoneToggle,
-                recordingAmplitude: recordingAmplitude,
-                onDictateToggle: onDictateToggle,
-                onVoiceModeToggle: onVoiceModeToggle,
-                placeholderText: placeholder,
-                conversationId: conversationId
-            )
-            .frame(maxWidth: VSpacing.chatBubbleMaxWidth)
-            .opacity(visible ? 1 : 0)
-            .offset(y: visible ? 0 : 10)
-
-            if !threadStarters.isEmpty {
-                LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: VSpacing.sm) {
-                    ForEach(threadStarters.prefix(4)) { starter in
-                        ThreadStarterChip(label: starter.label, fullPrompt: starter.prompt) {
-                            onSelectStarter?(starter)
-                        }
-                    }
-                }
-                .frame(maxWidth: VSpacing.chatBubbleMaxWidth)
-                .padding(.top, VSpacing.xxxl)
-                .opacity(visible ? 1 : 0)
-                .offset(y: visible ? 0 : 10)
-            } else if threadStartersLoading {
-                HStack(spacing: VSpacing.sm) {
-                    Group {
-                        if let body = appearance.characterBodyShape,
-                           let eyes = appearance.characterEyeStyle,
-                           let color = appearance.characterColor {
-                            AnimatedAvatarView(bodyShape: body, eyeStyle: eyes, color: color, size: 16)
-                                .frame(width: 16, height: 16)
-                        } else {
-                            ProgressView()
-                                .controlSize(.small)
-                        }
-                    }
-                    Text("Getting some ideas\u{2026}")
-                        .font(VFont.caption)
-                        .foregroundColor(VColor.contentTertiary)
-                }
-                .frame(maxWidth: VSpacing.chatBubbleMaxWidth)
-                .padding(.top, VSpacing.xxxl)
-                .opacity(visible ? 1 : 0)
-                .offset(y: visible ? 0 : 10)
-            }
+            conversationStartersSection
 
             Spacer()
             Spacer()
             Spacer()
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .onAppear {
-            if soulGreeting == nil {
-                onRequestGreeting?()
+        .onAppear(perform: handleAppear)
+        .onDisappear { visible = false }
+    }
+
+    // MARK: - Scrollable Body (hero + capability feed)
+
+    private var scrollableBody: some View {
+        ScrollViewReader { proxy in
+            ScrollView(.vertical, showsIndicators: false) {
+                VStack(spacing: 0) {
+                    // Zone 1: Hero
+                    VStack(spacing: 0) {
+                        Spacer()
+                            .frame(height: 80)
+
+                        heroSection
+                            .id("hero-composer")
+
+                        composerSection
+
+                        conversationStartersSection
+
+                        // Scroll CTA
+                        if !capabilityCards.isEmpty || capabilityCardsLoading {
+                            ScrollCTAView {
+                                withAnimation(.easeInOut(duration: 0.4)) {
+                                    proxy.scrollTo("feed-top", anchor: .top)
+                                }
+                            }
+                        }
+
+                        // Scroll offset detector — when this goes off screen, show floating composer
+                        GeometryReader { geo in
+                            Color.clear
+                                .preference(
+                                    key: ScrollOffsetKey.self,
+                                    value: geo.frame(in: .named("emptyStateScroll")).minY
+                                )
+                        }
+                        .frame(height: 0)
+                    }
+                    .frame(minHeight: 400)
+
+                    // Zone 2: Capabilities Feed
+                    if !capabilityCards.isEmpty || capabilityCardsLoading {
+                        Divider()
+                            .padding(.horizontal, VSpacing.xl)
+                            .id("feed-top")
+
+                        CapabilitiesFeedView(
+                            cards: capabilityCards,
+                            categoryStatuses: cardCategoryStatuses,
+                            loading: capabilityCardsLoading,
+                            onCardTap: { card in
+                                onSelectCard?(card)
+                                withAnimation(.easeInOut(duration: 0.3)) {
+                                    proxy.scrollTo("hero-composer", anchor: .top)
+                                }
+                            }
+                        )
+                        .padding(.top, VSpacing.xxxl)
+                    }
+                }
+                .id("hero-top")
             }
-            onFetchThreadStarters?()
-            withAnimation(.easeOut(duration: 0.5)) {
-                visible = true
+            .coordinateSpace(name: "emptyStateScroll")
+            .onPreferenceChange(ScrollOffsetKey.self) { offset in
+                let isPastHero = offset < -200
+                if isPastHero != scrolledPastHero {
+                    withAnimation(VAnimation.fast) {
+                        scrolledPastHero = isPastHero
+                    }
+                }
+            }
+            .overlay(alignment: .top) {
+                FloatingMiniComposer(visible: scrolledPastHero) {
+                    withAnimation(.easeInOut(duration: 0.3)) {
+                        proxy.scrollTo("hero-composer", anchor: .top)
+                    }
+                }
             }
         }
-        .onDisappear {
-            visible = false
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .onAppear(perform: handleAppear)
+        .onDisappear { visible = false }
+    }
+
+    // MARK: - Shared Sections
+
+    private var heroSection: some View {
+        HStack(spacing: VSpacing.md) {
+            Group {
+                if let body = appearance.characterBodyShape,
+                   let eyes = appearance.characterEyeStyle,
+                   let color = appearance.characterColor {
+                    AnimatedAvatarView(bodyShape: body, eyeStyle: eyes, color: color, size: 32)
+                        .frame(width: 32, height: 32)
+                } else {
+                    VAvatarImage(image: appearance.chatAvatarImage, size: 32)
+                }
+            }
+
+            if let greeting = effectiveGreeting {
+                Text(greeting)
+                    .font(.custom("Fraunces", size: 28).weight(.regular))
+                    .foregroundColor(VColor.contentSecondary)
+                    .multilineTextAlignment(.leading)
+                    .transition(.opacity)
+            }
+        }
+        .frame(maxWidth: VSpacing.chatBubbleMaxWidth)
+        .animation(.easeOut(duration: 0.4), value: effectiveGreeting != nil)
+        .opacity(visible ? 1 : 0)
+        .scaleEffect(visible ? 1 : 0.8)
+        .padding(.horizontal, VSpacing.xl)
+        .padding(.bottom, VSpacing.xl)
+    }
+
+    private var composerSection: some View {
+        ComposerView(
+            inputText: $inputText,
+            hasAPIKey: hasAPIKey,
+            isSending: isSending,
+            hasPendingConfirmation: false,
+            isRecording: isRecording,
+            suggestion: suggestion,
+            pendingAttachments: pendingAttachments,
+            isLoadingAttachment: isLoadingAttachment,
+            onSend: onSend,
+            onStop: onStop,
+            onAcceptSuggestion: onAcceptSuggestion,
+            onAttach: onAttach,
+            onRemoveAttachment: onRemoveAttachment,
+            onPaste: onPaste,
+            onFileDrop: onFileDrop,
+            onDropImageData: onDropImageData,
+            onMicrophoneToggle: onMicrophoneToggle,
+            recordingAmplitude: recordingAmplitude,
+            onDictateToggle: onDictateToggle,
+            onVoiceModeToggle: onVoiceModeToggle,
+            placeholderText: placeholder,
+            conversationId: conversationId
+        )
+        .frame(maxWidth: VSpacing.chatBubbleMaxWidth)
+        .opacity(visible ? 1 : 0)
+        .offset(y: visible ? 0 : 10)
+    }
+
+    @ViewBuilder
+    private var conversationStartersSection: some View {
+        if !conversationStarters.isEmpty {
+            ConversationStarterPillRow(
+                starters: Array(conversationStarters.prefix(4)),
+                onSelect: { starter in onSelectStarter?(starter) }
+            )
+            .frame(maxWidth: VSpacing.chatBubbleMaxWidth)
+            .padding(.top, VSpacing.xl)
+            .opacity(visible ? 1 : 0)
+            .offset(y: visible ? 0 : 10)
+        } else if conversationStartersLoading {
+            HStack(spacing: VSpacing.sm) {
+                Group {
+                    if let body = appearance.characterBodyShape,
+                       let eyes = appearance.characterEyeStyle,
+                       let color = appearance.characterColor {
+                        AnimatedAvatarView(bodyShape: body, eyeStyle: eyes, color: color, size: 16)
+                            .frame(width: 16, height: 16)
+                    } else {
+                        ProgressView()
+                            .controlSize(.small)
+                    }
+                }
+                Text("Getting some ideas\u{2026}")
+                    .font(VFont.caption)
+                    .foregroundColor(VColor.contentTertiary)
+            }
+            .frame(maxWidth: VSpacing.chatBubbleMaxWidth)
+            .padding(.top, VSpacing.xl)
+            .opacity(visible ? 1 : 0)
+            .offset(y: visible ? 0 : 10)
+        }
+    }
+
+    private func handleAppear() {
+        if soulGreeting == nil {
+            onRequestGreeting?()
+        }
+        onFetchConversationStarters?()
+        if showCapabilityFeed {
+            onFetchCapabilityCards?()
+        }
+        withAnimation(.easeOut(duration: 0.5)) {
+            visible = true
         }
     }
 
 }
 
-// MARK: - Thread Starter Chip
+// MARK: - Conversation Starter Pill Row
 
-struct ThreadStarterChip: View {
+/// Horizontally-wrapped row of conversation starter pills, capped at four items.
+/// Preserves server ordering so the strongest recommendations appear first.
+struct ConversationStarterPillRow: View {
+    let starters: [ConversationStarter]
+    let onSelect: (ConversationStarter) -> Void
+
+    /// Maximum number of visible pills in the recommendation row.
+    static let maxVisibleCount = 4
+
+    var body: some View {
+        FlowLayout(spacing: VSpacing.sm) {
+            ForEach(starters.prefix(Self.maxVisibleCount)) { starter in
+                ConversationStarterPill(label: starter.label) {
+                    onSelect(starter)
+                }
+            }
+        }
+    }
+}
+
+/// A single conversation starter pill with warm hover/press feedback.
+struct ConversationStarterPill: View {
     let label: String
-    let fullPrompt: String
     let action: () -> Void
 
     @State private var isHovered = false
+    @State private var isPressed = false
+
+    private var fillColor: Color {
+        if isPressed {
+            return VColor.surfaceOverlay.opacity(0.9)
+        } else if isHovered {
+            return VColor.surfaceOverlay
+        } else {
+            return VColor.surfaceActive
+        }
+    }
+
+    private var borderColor: Color {
+        isHovered ? VColor.borderHover : VColor.borderBase
+    }
 
     var body: some View {
         Button(action: action) {
             Text(label)
-                .font(VFont.body)
-                .foregroundColor(VColor.contentSecondary)
-                .lineLimit(2)
-                .multilineTextAlignment(.leading)
-                .frame(maxWidth: .infinity, alignment: .leading)
+                .font(VFont.bodyMedium)
+                .foregroundColor(isHovered ? VColor.contentDefault : VColor.contentSecondary)
+                .lineLimit(1)
                 .padding(.horizontal, VSpacing.md)
-                .padding(.vertical, VSpacing.sm)
+                .padding(.vertical, VSpacing.xs + 2)
                 .background(
-                    RoundedRectangle(cornerRadius: VRadius.md)
-                        .fill(isHovered ? VColor.surfaceOverlay : VColor.surfaceActive)
+                    Capsule()
+                        .fill(fillColor)
                 )
                 .overlay(
-                    RoundedRectangle(cornerRadius: VRadius.md)
-                        .stroke(VColor.borderBase, lineWidth: 0.5)
+                    Capsule()
+                        .stroke(borderColor, lineWidth: 0.5)
                 )
-                .contentShape(RoundedRectangle(cornerRadius: VRadius.md))
+                .contentShape(Capsule())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(PillButtonStyle(isPressed: $isPressed))
         .onHover { isHovered = $0 }
+        .animation(VAnimation.fast, value: isHovered)
+        .animation(VAnimation.snappy, value: isPressed)
+        .accessibilityLabel(label)
+    }
+}
+
+/// Button style that tracks press state without overriding pill appearance.
+private struct PillButtonStyle: ButtonStyle {
+    @Binding var isPressed: Bool
+
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .onChange(of: configuration.isPressed) { _, newValue in
+                isPressed = newValue
+            }
+    }
+}
+
+/// Simple flow layout that wraps children horizontally.
+private struct FlowLayout: Layout {
+    var spacing: CGFloat
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let result = arrange(proposal: proposal, subviews: subviews)
+        return result.size
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        let result = arrange(proposal: proposal, subviews: subviews)
+        for (index, position) in result.positions.enumerated() {
+            subviews[index].place(
+                at: CGPoint(x: bounds.minX + position.x, y: bounds.minY + position.y),
+                proposal: ProposedViewSize(result.sizes[index])
+            )
+        }
+    }
+
+    private struct ArrangeResult {
+        var size: CGSize
+        var positions: [CGPoint]
+        var sizes: [CGSize]
+    }
+
+    private func arrange(proposal: ProposedViewSize, subviews: Subviews) -> ArrangeResult {
+        let maxWidth = proposal.width ?? .infinity
+        var positions: [CGPoint] = []
+        var sizes: [CGSize] = []
+        var x: CGFloat = 0
+        var y: CGFloat = 0
+        var rowHeight: CGFloat = 0
+        var totalWidth: CGFloat = 0
+
+        for subview in subviews {
+            let size = subview.sizeThatFits(.unspecified)
+            if x + size.width > maxWidth, x > 0 {
+                x = 0
+                y += rowHeight + spacing
+                rowHeight = 0
+            }
+            positions.append(CGPoint(x: x, y: y))
+            sizes.append(size)
+            rowHeight = max(rowHeight, size.height)
+            x += size.width + spacing
+            totalWidth = max(totalWidth, x - spacing)
+        }
+
+        return ArrangeResult(
+            size: CGSize(width: totalWidth, height: y + rowHeight),
+            positions: positions,
+            sizes: sizes
+        )
     }
 }
 
@@ -305,5 +525,14 @@ struct ChatTemporaryChatEmptyStateView: View {
             .offset(y: -40)
             .allowsHitTesting(false)
         )
+    }
+}
+
+// MARK: - Scroll Offset Tracking
+
+private struct ScrollOffsetKey: PreferenceKey {
+    static var defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = nextValue()
     }
 }

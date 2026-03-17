@@ -188,6 +188,18 @@ public final class SettingsStore: ObservableObject {
     /// Values: `"managed"` or `"your-own"`.
     @Published var inferenceMode: String = "your-own"
 
+    /// The selected web search provider, persisted in workspace config under
+    /// `services.web-search.provider`.
+    @Published var webSearchProvider: String = "anthropic-native"
+
+    static let availableWebSearchProviders = ["anthropic-native", "perplexity", "brave"]
+
+    static let webSearchProviderDisplayNames: [String: String] = [
+        "anthropic-native": "Anthropic",
+        "perplexity": "Perplexity",
+        "brave": "Brave",
+    ]
+
     // MARK: - Platform Config State
 
     @Published var platformBaseUrl: String = ""
@@ -356,6 +368,14 @@ public final class SettingsStore: ObservableObject {
         self.mediaEmbedsEnabledSince = mediaSettings.enabledSince
         self.mediaEmbedVideoAllowlistDomains = mediaSettings.domains
         self.userTimezone = Self.loadUserTimezone(from: configPath)
+
+        // Load web search provider from workspace config
+        let config = WorkspaceConfigIO.read(from: configPath)
+        if let services = config["services"] as? [String: Any],
+           let webSearch = services["web-search"] as? [String: Any],
+           let provider = webSearch["provider"] as? String {
+            self.webSearchProvider = provider
+        }
 
         // When enabledSince was defaulted to "now" (no value on disk),
         // persist it immediately so subsequent loads produce the same
@@ -1855,6 +1875,22 @@ public final class SettingsStore: ObservableObject {
             try WorkspaceConfigIO.merge(["services": services], into: configPath)
         } catch {
             log.error("Failed to merge workspace config for inference mode: \(error)")
+        }
+        scheduleRoutingSourceRefresh()
+    }
+
+    func setWebSearchProvider(_ provider: String) {
+        webSearchProvider = provider
+        guard !isCurrentAssistantRemote else { return }
+        let existingConfig = WorkspaceConfigIO.read(from: configPath)
+        var services = existingConfig["services"] as? [String: Any] ?? [:]
+        var webSearch = services["web-search"] as? [String: Any] ?? [:]
+        webSearch["provider"] = provider
+        services["web-search"] = webSearch
+        do {
+            try WorkspaceConfigIO.merge(["services": services], into: configPath)
+        } catch {
+            log.error("Failed to merge workspace config for web search provider: \(error)")
         }
         scheduleRoutingSourceRefresh()
     }

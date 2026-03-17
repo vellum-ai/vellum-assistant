@@ -95,8 +95,7 @@ import {
 } from "../memory/qdrant-circuit-breaker.js";
 import {
   buildMemoryRecall,
-  injectMemoryRecallAsSeparateMessage,
-  stripMemoryRecallMessages,
+  injectMemoryRecallAsUserBlock,
 } from "../memory/retriever.js";
 import {
   conversations,
@@ -104,15 +103,24 @@ import {
   memoryItemSources,
   messages,
 } from "../memory/schema.js";
+import type { ContentBlock, Message } from "../providers/types.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
+/** Extract text from a content block, asserting it is a text block. */
+function textOf(block: ContentBlock): string {
+  if (block.type !== "text")
+    throw new Error(`Expected text block, got ${block.type}`);
+  return block.text;
+}
+
 function insertConversation(
   db: ReturnType<typeof getDb>,
   id: string,
   createdAt: number,
+  opts?: { contextCompactedMessageCount?: number },
 ) {
   db.insert(conversations)
     .values({
@@ -124,7 +132,7 @@ function insertConversation(
       totalOutputTokens: 0,
       totalEstimatedCost: 0,
       contextSummary: null,
-      contextCompactedMessageCount: 0,
+      contextCompactedMessageCount: opts?.contextCompactedMessageCount ?? 0,
       contextCompactedAt: null,
     })
     .run();
@@ -318,8 +326,178 @@ describe("Memory Retriever Pipeline", () => {
     expect(result.tier1Count).toBeDefined();
     expect(result.tier2Count).toBeDefined();
     expect(result.hybridSearchMs).toBeDefined();
-    // Recency search finds candidates even though they don't pass tier classification
+    // Recency search finds raw candidates from this conversation…
     expect(result.recencyHits).toBeGreaterThan(0);
+    // …but they are filtered out because they belong to the active
+    // conversation and are already present in the conversation history.
+    expect(result.mergedCount).toBe(0);
+  });
+
+  // -----------------------------------------------------------------------
+  // Current-conversation segment filtering
+  // -----------------------------------------------------------------------
+
+  test("current-conversation segments are filtered from recency results", async () => {
+    const db = getDb();
+    const now = Date.now();
+    const activeConv = "conv-active";
+    const otherConv = "conv-other";
+
+    insertConversation(db, activeConv, now - 60_000);
+    insertConversation(db, otherConv, now - 120_000);
+
+    // Messages and segments in the active conversation (should be filtered)
+    insertMessage(
+      db,
+      "msg-a1",
+      activeConv,
+      "user",
+      "hello world",
+      now - 50_000,
+    );
+    insertSegment(
+      db,
+      "seg-a1",
+      "msg-a1",
+      activeConv,
+      "user",
+      "hello world",
+      now - 50_000,
+    );
+
+    // Messages and segments in a different conversation (should be kept)
+    insertMessage(
+      db,
+      "msg-o1",
+      otherConv,
+      "user",
+      "hello world from other",
+      now - 100_000,
+    );
+    insertSegment(
+      db,
+      "seg-o1",
+      "msg-o1",
+      otherConv,
+      "user",
+      "hello world from other",
+      now - 100_000,
+    );
+
+    // Query from the active conversation
+    const result = await buildMemoryRecall(
+      "hello world",
+      activeConv,
+      TEST_CONFIG,
+    );
+
+    expect(result.enabled).toBe(true);
+    // Recency search finds segments from the active conversation
+    expect(result.recencyHits).toBeGreaterThan(0);
+    // But they are filtered out of merged results; only other-conversation
+    // segments would survive (none in this case since recency is scoped to
+    // the active conversation).
+    expect(result.mergedCount).toBe(0);
+  });
+
+  test("compacted segments from current conversation are preserved in memory", async () => {
+    const db = getDb();
+    const now = Date.now();
+    const convId = "conv-compacted";
+
+    // Create a conversation where 2 messages have been compacted away
+    insertConversation(db, convId, now - 120_000, {
+      contextCompactedMessageCount: 2,
+    });
+
+    // Older messages (compacted out of context window) — their segments
+    // should NOT be filtered because the model can no longer see them
+    insertMessage(
+      db,
+      "msg-old-1",
+      convId,
+      "user",
+      "old discussion topic",
+      now - 100_000,
+    );
+    insertMessage(
+      db,
+      "msg-old-2",
+      convId,
+      "assistant",
+      "old response",
+      now - 90_000,
+    );
+
+    // Newer messages (still in context window) — their segments should
+    // be filtered since the model can still see them
+    insertMessage(
+      db,
+      "msg-new-1",
+      convId,
+      "user",
+      "recent discussion",
+      now - 50_000,
+    );
+    insertMessage(
+      db,
+      "msg-new-2",
+      convId,
+      "assistant",
+      "recent response",
+      now - 40_000,
+    );
+
+    // Segments from compacted messages (should survive filtering)
+    insertSegment(
+      db,
+      "seg-old-1",
+      "msg-old-1",
+      convId,
+      "user",
+      "old discussion topic details",
+      now - 100_000,
+    );
+    insertSegment(
+      db,
+      "seg-old-2",
+      "msg-old-2",
+      convId,
+      "assistant",
+      "old response details",
+      now - 90_000,
+    );
+
+    // Segments from in-context messages (should be filtered)
+    insertSegment(
+      db,
+      "seg-new-1",
+      "msg-new-1",
+      convId,
+      "user",
+      "recent discussion details",
+      now - 50_000,
+    );
+    insertSegment(
+      db,
+      "seg-new-2",
+      "msg-new-2",
+      convId,
+      "assistant",
+      "recent response details",
+      now - 40_000,
+    );
+
+    const result = await buildMemoryRecall(
+      "discussion topic",
+      convId,
+      TEST_CONFIG,
+    );
+
+    expect(result.enabled).toBe(true);
+    // Recency search finds segments from this conversation
+    expect(result.recencyHits).toBeGreaterThan(0);
+    // Compacted segments survive filtering — they are no longer in context
     expect(result.mergedCount).toBeGreaterThan(0);
   });
 
@@ -527,10 +705,10 @@ describe("Memory Retriever Pipeline", () => {
     expect(result.enabled).toBe(true);
     // Semantic/hybrid search should be skipped
     expect(result.semanticHits).toBe(0);
-    // Recency search finds candidates (but they may not pass tier thresholds
-    // since recency-only candidates have no semantic score component)
+    // Recency search finds raw candidates…
     expect(result.recencyHits).toBeGreaterThan(0);
-    expect(result.mergedCount).toBeGreaterThan(0);
+    // …but current-conversation segments are filtered out
+    expect(result.mergedCount).toBe(0);
   });
 
   // -----------------------------------------------------------------------
@@ -588,81 +766,11 @@ describe("Memory Retriever Pipeline", () => {
   });
 
   // -----------------------------------------------------------------------
-  // stripMemoryRecallMessages with <memory_context> format
+  // injectMemoryRecallAsUserBlock
   // -----------------------------------------------------------------------
 
-  test("stripMemoryRecallMessages: strips <memory_context> XML format", () => {
-    type Msg = {
-      role: "user" | "assistant";
-      content: Array<{ type: string; text?: string }>;
-    };
-    const recallText =
-      "<memory_context>\n\n<relevant_context>\nsome context\n</relevant_context>\n\n</memory_context>";
-
-    const msgs: Msg[] = [
-      {
-        role: "user",
-        content: [{ type: "text", text: recallText }],
-      },
-      {
-        role: "assistant",
-        content: [{ type: "text", text: "[Memory context loaded.]" }],
-      },
-      {
-        role: "user",
-        content: [{ type: "text", text: "Hello, what do you know about me?" }],
-      },
-    ];
-
-    const cleaned = stripMemoryRecallMessages(msgs, recallText);
-    expect(cleaned).toHaveLength(1);
-    expect(cleaned[0].role).toBe("user");
-    expect(cleaned[0].content[0].text).toBe(
-      "Hello, what do you know about me?",
-    );
-  });
-
-  test("stripMemoryRecallMessages: handles <memory_context> with slightly different content", () => {
-    type Msg = {
-      role: "user" | "assistant";
-      content: Array<{ type: string; text?: string }>;
-    };
-    const originalRecall =
-      "<memory_context>\n\n<relevant_context>\noriginal\n</relevant_context>\n\n</memory_context>";
-    const actualRecall =
-      "<memory_context>\n\n<relevant_context>\nslightly different\n</relevant_context>\n\n</memory_context>";
-
-    const msgs: Msg[] = [
-      {
-        role: "user",
-        content: [{ type: "text", text: actualRecall }],
-      },
-      {
-        role: "assistant",
-        content: [{ type: "text", text: "[Memory context loaded.]" }],
-      },
-      {
-        role: "user",
-        content: [{ type: "text", text: "follow-up question" }],
-      },
-    ];
-
-    // The <memory_context> tag-based matching should work even when exact text differs
-    const cleaned = stripMemoryRecallMessages(msgs, originalRecall);
-    expect(cleaned).toHaveLength(1);
-    expect(cleaned[0].content[0].text).toBe("follow-up question");
-  });
-
-  // -----------------------------------------------------------------------
-  // injectMemoryRecallAsSeparateMessage
-  // -----------------------------------------------------------------------
-
-  test("injectMemoryRecallAsSeparateMessage: injects context + ack before last user message", () => {
-    type Msg = {
-      role: "user" | "assistant";
-      content: Array<{ type: string; text?: string }>;
-    };
-    const msgs: Msg[] = [
+  test("injectMemoryRecallAsUserBlock: prepends memory context to last user message", () => {
+    const msgs: Message[] = [
       {
         role: "user",
         content: [{ type: "text", text: "Hello" }],
@@ -671,32 +779,49 @@ describe("Memory Retriever Pipeline", () => {
 
     const recallText =
       "<memory_context>\n\n<relevant_context>\ntest\n</relevant_context>\n\n</memory_context>";
-    const result = injectMemoryRecallAsSeparateMessage(msgs, recallText);
+    const result = injectMemoryRecallAsUserBlock(msgs, recallText);
 
-    expect(result).toHaveLength(3);
+    // Same number of messages — no synthetic pair added
+    expect(result).toHaveLength(1);
     expect(result[0].role).toBe("user");
-    expect(result[0].content[0].text).toBe(recallText);
-    expect(result[1].role).toBe("assistant");
-    expect(result[1].content[0].text).toBe("[Memory context loaded.]");
-    expect(result[2].role).toBe("user");
-    expect(result[2].content[0].text).toBe("Hello");
+    // Memory context prepended as first content block
+    expect(result[0].content).toHaveLength(2);
+    expect(textOf(result[0].content[0])).toBe(recallText);
+    // Original user text preserved as second block
+    expect(textOf(result[0].content[1])).toBe("Hello");
   });
 
-  test("injectMemoryRecallAsSeparateMessage: no-op for empty text", () => {
-    type Msg = {
-      role: "user" | "assistant";
-      content: Array<{ type: string; text?: string }>;
-    };
-    const msgs: Msg[] = [
+  test("injectMemoryRecallAsUserBlock: no-op for empty text", () => {
+    const msgs: Message[] = [
       {
         role: "user",
         content: [{ type: "text", text: "Hello" }],
       },
     ];
 
-    const result = injectMemoryRecallAsSeparateMessage(msgs, "");
+    const result = injectMemoryRecallAsUserBlock(msgs, "");
     expect(result).toHaveLength(1);
-    expect(result[0].content[0].text).toBe("Hello");
+    expect(textOf(result[0].content[0])).toBe("Hello");
+  });
+
+  test("injectMemoryRecallAsUserBlock: preserves history before last user message", () => {
+    const msgs: Message[] = [
+      { role: "user", content: [{ type: "text", text: "First" }] },
+      { role: "assistant", content: [{ type: "text", text: "Response" }] },
+      { role: "user", content: [{ type: "text", text: "Second" }] },
+    ];
+
+    const recallText =
+      "<memory_context>\n\n<relevant_context>\nfact\n</relevant_context>\n\n</memory_context>";
+    const result = injectMemoryRecallAsUserBlock(msgs, recallText);
+
+    expect(result).toHaveLength(3);
+    // Earlier messages unchanged
+    expect(result[0]).toBe(msgs[0]);
+    expect(result[1]).toBe(msgs[1]);
+    // Last user message has memory prepended
+    expect(textOf(result[2].content[0])).toBe(recallText);
+    expect(textOf(result[2].content[1])).toBe("Second");
   });
 
   // -----------------------------------------------------------------------
@@ -728,7 +853,9 @@ describe("Memory Retriever Pipeline", () => {
     // pipeline proceeds non-degraded end-to-end.
     expect(result.enabled).toBe(true);
     expect(result.degraded).toBe(false);
-    // Recency search finds candidates; hybrid search returns empty from mock
+    // Recency search finds raw candidates; hybrid search returns empty from mock
     expect(result.recencyHits).toBeGreaterThan(0);
+    // Current-conversation segments are filtered out of merged results
+    expect(result.mergedCount).toBe(0);
   });
 });

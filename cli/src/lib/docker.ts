@@ -160,7 +160,7 @@ function createLinePrefixer(
 }
 
 /** Derive the Docker resource names from the instance name. */
-function dockerResourceNames(instanceName: string) {
+export function dockerResourceNames(instanceName: string) {
   return {
     assistantContainer: `${instanceName}-assistant`,
     cesContainer: `${instanceName}-credential-executor`,

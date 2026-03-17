@@ -231,68 +231,6 @@ extension AppDelegate {
         newChatItem.image = VIcon.messageCirclePlus.nsImage
         menu.addItem(newChatItem)
 
-        // My Apps submenu
-        let myAppsItem = NSMenuItem(title: "My Apps", action: nil, keyEquivalent: "")
-        myAppsItem.image = VIcon.layoutGrid.nsImage
-        let appsSubmenu = NSMenu(title: "My Apps")
-
-        let recentApps = Array(cachedApps.sorted { $0.createdAt > $1.createdAt }.prefix(5))
-        for app in recentApps {
-            let emoji = app.icon ?? "\u{1F4F1}"
-            let item = NSMenuItem(title: "\(emoji) \(app.name)", action: #selector(openAppById(_:)), keyEquivalent: "")
-            item.target = self
-            item.representedObject = ["id": app.id, "name": app.name, "icon": app.icon ?? ""]
-            appsSubmenu.addItem(item)
-        }
-
-        if !recentApps.isEmpty {
-            appsSubmenu.addItem(NSMenuItem.separator())
-        }
-
-        let manageAppsItem = NSMenuItem(title: "Manage Apps...", action: #selector(openAppCollection), keyEquivalent: "")
-        manageAppsItem.target = self
-        appsSubmenu.addItem(manageAppsItem)
-
-        myAppsItem.submenu = appsSubmenu
-        menu.addItem(myAppsItem)
-
-        // Skills submenu
-        let skillsItem = NSMenuItem(title: "Skills", action: nil, keyEquivalent: "")
-        skillsItem.image = VIcon.puzzle.nsImage
-        let skillsSubmenu = NSMenu(title: "Skills")
-
-        let enabledSkills = cachedSkills.filter { $0.state == "enabled" }
-        let disabledSkills = cachedSkills.filter { $0.state != "enabled" }
-
-        for skill in enabledSkills {
-            let emoji = skill.emoji ?? "\u{1F527}"
-            let item = NSMenuItem(title: "\(emoji) \(skill.name)", action: #selector(toggleSkill(_:)), keyEquivalent: "")
-            item.target = self
-            item.state = .on
-            item.representedObject = skill.id
-            skillsSubmenu.addItem(item)
-        }
-
-        for skill in disabledSkills {
-            let emoji = skill.emoji ?? "\u{1F527}"
-            let item = NSMenuItem(title: "\(emoji) \(skill.name)", action: #selector(toggleSkill(_:)), keyEquivalent: "")
-            item.target = self
-            item.state = .off
-            item.representedObject = skill.id
-            skillsSubmenu.addItem(item)
-        }
-
-        if !cachedSkills.isEmpty {
-            skillsSubmenu.addItem(NSMenuItem.separator())
-        }
-
-        let manageSkillsItem = NSMenuItem(title: "Manage Skills...", action: #selector(showSettingsWindow(_:)), keyEquivalent: "")
-        manageSkillsItem.target = self
-        skillsSubmenu.addItem(manageSkillsItem)
-
-        skillsItem.submenu = skillsSubmenu
-        menu.addItem(skillsItem)
-
         menu.addItem(NSMenuItem.separator())
 
         let updateItem = NSMenuItem(title: "Check for Updates...", action: #selector(checkForUpdates), keyEquivalent: "")
@@ -300,17 +238,6 @@ extension AppDelegate {
         updateItem.isEnabled = updateManager.canCheckForUpdates
         updateItem.image = VIcon.circleArrowDown.nsImage
         menu.addItem(updateItem)
-
-        let sendLogsItem = NSMenuItem(title: "Send Logs to Vellum", action: #selector(sendLogsToSentry), keyEquivalent: "")
-        sendLogsItem.target = self
-        sendLogsItem.image = VIcon.upload.nsImage
-        menu.addItem(sendLogsItem)
-
-        let sendConversationLogsItem = NSMenuItem(title: "Send Logs for Current Conversation", action: #selector(sendCurrentConversationLogsToSentry), keyEquivalent: "")
-        sendConversationLogsItem.target = self
-        sendConversationLogsItem.image = VIcon.upload.nsImage
-        sendConversationLogsItem.isEnabled = mainWindow?.conversationManager.activeConversation?.conversationId != nil && !isCurrentAssistantManaged
-        menu.addItem(sendConversationLogsItem)
 
         if MacOSClientFeatureFlagManager.shared.isEnabled("developer-menu-items") {
             menu.addItem(NSMenuItem.separator())

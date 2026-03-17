@@ -1075,6 +1075,7 @@ const RUNTIME_INJECTION_PREFIXES = [
   "<guardian_context>",
   "<inbound_actor_context>",
   "<interface_turn_context>",
+  "<memory_context>",
   "<voice_call_control>",
   "<workspace_top_level>",
   TEMPORAL_INJECTED_PREFIX,
@@ -1086,19 +1087,13 @@ const RUNTIME_INJECTION_PREFIXES = [
 /**
  * Strip all runtime-injected context from message history in a single pass.
  *
- * Composes:
- * 1. `stripMemoryRecallMessages` (caller-supplied, handles its own logic)
- * 2. Prefix-based stripping for channel capabilities, workspace top-level,
- *    temporal context, and active surface context (single pass).
+ * All injections (memory context, channel capabilities, workspace top-level,
+ * temporal context, active surface context, etc.) are text blocks prepended
+ * to user messages with known XML tag prefixes. A single prefix-based pass
+ * removes them all.
  */
-export function stripInjectedContext(
-  messages: Message[],
-  options: {
-    stripRecall: (msgs: Message[]) => Message[];
-  },
-): Message[] {
-  const afterRecall = options.stripRecall(messages);
-  return stripUserTextBlocksByPrefix(afterRecall, RUNTIME_INJECTION_PREFIXES);
+export function stripInjectedContext(messages: Message[]): Message[] {
+  return stripUserTextBlocksByPrefix(messages, RUNTIME_INJECTION_PREFIXES);
 }
 
 /**

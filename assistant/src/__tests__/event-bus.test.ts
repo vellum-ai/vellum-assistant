@@ -33,18 +33,18 @@ describe("EventBus", () => {
 
     bus.onAny((event) => {
       seenType = event.type;
-      if (event.type === "daemon.session.created") {
+      if (event.type === "daemon.conversation.created") {
         seenConversationId = event.payload.conversationId;
       }
       expect(typeof event.emittedAtMs).toBe("number");
     });
 
-    await bus.emit("daemon.session.created", {
+    await bus.emit("daemon.conversation.created", {
       conversationId: "conv-2",
       createdAtMs: Date.now(),
     });
 
-    expect(seenType).toBe("daemon.session.created");
+    expect(seenType).toBe("daemon.conversation.created");
     expect(seenConversationId).toBe("conv-2");
   });
 

@@ -51,6 +51,7 @@ export class SlackSocketModeClient {
   private config: SlackSocketModeConfig;
   private onEvent: (event: NormalizedSlackEvent) => void;
   private ws: WebSocket | null = null;
+  private connecting = false;
   private running = false;
   private reconnectAttempt = 0;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
@@ -133,6 +134,7 @@ export class SlackSocketModeClient {
 
   stop(): void {
     this.running = false;
+    this.connecting = false;
     this.stopDedupCleanup();
     if (this.reconnectTimer) {
       clearTimeout(this.reconnectTimer);
@@ -149,6 +151,89 @@ export class SlackSocketModeClient {
   }
 
   /**
+   * Force-close the current WebSocket and reconnect immediately.
+   * Used by the sleep/wake detector to recover from half-open connections
+   * that survive system sleep.
+   *
+   * Waits for the old socket to fully close before connecting a new one
+   * to prevent overlapping connections where stale message events could
+   * be ACKed on the wrong socket.
+   */
+  forceReconnect(): void {
+    if (!this.running) return;
+
+    log.info("Force-reconnecting Slack Socket Mode (sleep/wake recovery)");
+
+    if (this.reconnectTimer) {
+      clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = null;
+    }
+
+    this.reconnectAttempt = 0;
+
+    const oldWs = this.ws;
+    this.ws = null;
+
+    // If a connect() call is already in-flight (awaiting getWebSocketUrl),
+    // don't start another one — the in-flight attempt will complete and
+    // establish a fresh connection. We still tear down the old socket and
+    // cancel the reconnect timer above so there's no stale state.
+    if (this.connecting) {
+      log.info(
+        "Connect already in-flight, skipping duplicate — tearing down old socket only",
+      );
+      if (oldWs) {
+        try {
+          oldWs.close(1000, "force reconnect");
+        } catch {
+          // ignore
+        }
+      }
+      return;
+    }
+
+    if (!oldWs || oldWs.readyState === WebSocket.CLOSED) {
+      this.connect().catch((err) => {
+        log.error({ err }, "Force reconnect failed");
+      });
+      return;
+    }
+
+    // Wait for the old socket to fully close before opening a new one.
+    // Use a timeout to avoid blocking indefinitely on half-open sockets
+    // that may never emit a close event (the exact scenario that triggers
+    // a force reconnect after sleep).
+    const CLOSE_TIMEOUT_MS = 5_000;
+    let settled = false;
+
+    const proceed = () => {
+      if (settled) return;
+      settled = true;
+      this.connect().catch((err) => {
+        log.error({ err }, "Force reconnect failed");
+      });
+    };
+
+    oldWs.addEventListener("close", proceed, { once: true });
+
+    setTimeout(() => {
+      if (!settled) {
+        log.warn(
+          "Old Slack socket did not close within timeout, proceeding with reconnect",
+        );
+        proceed();
+      }
+    }, CLOSE_TIMEOUT_MS);
+
+    try {
+      oldWs.close(1000, "force reconnect");
+    } catch {
+      // Socket may already be in a broken state — proceed immediately
+      proceed();
+    }
+  }
+
+  /**
    * Register a thread as active so future replies (without @mention) are forwarded.
    */
   trackThread(threadTs: string): void {
@@ -157,12 +242,15 @@ export class SlackSocketModeClient {
 
   private async connect(): Promise<void> {
     if (!this.running) return;
+    if (this.connecting) return;
+    this.connecting = true;
 
     let wsUrl: string;
     try {
       wsUrl = await this.getWebSocketUrl();
     } catch (err) {
       log.error({ err }, "Failed to obtain Socket Mode WebSocket URL");
+      this.connecting = false;
       this.scheduleReconnect();
       return;
     }
@@ -172,6 +260,7 @@ export class SlackSocketModeClient {
     try {
       const ws = new WebSocket(wsUrl);
       this.ws = ws;
+      this.connecting = false;
 
       ws.addEventListener("open", () => {
         log.info("Slack Socket Mode connected");
@@ -179,7 +268,7 @@ export class SlackSocketModeClient {
       });
 
       ws.addEventListener("message", (messageEvent) => {
-        this.handleMessage(messageEvent.data as string);
+        this.handleMessage(messageEvent.data as string, ws);
       });
 
       ws.addEventListener("close", (closeEvent) => {
@@ -187,8 +276,13 @@ export class SlackSocketModeClient {
           { code: closeEvent.code, reason: closeEvent.reason },
           "Slack Socket Mode disconnected",
         );
-        this.ws = null;
-        this.scheduleReconnect();
+        // Only reconnect if this socket is still the active one.
+        // forceReconnect nulls this.ws before initiating a new connection,
+        // so a stale close event should be ignored.
+        if (this.ws === ws) {
+          this.ws = null;
+          this.scheduleReconnect();
+        }
       });
 
       ws.addEventListener("error", (errorEvent) => {
@@ -200,6 +294,7 @@ export class SlackSocketModeClient {
     } catch (err) {
       log.error({ err }, "Failed to create WebSocket connection");
       this.ws = null;
+      this.connecting = false;
       this.scheduleReconnect();
     }
   }
@@ -242,7 +337,7 @@ export class SlackSocketModeClient {
     };
   }
 
-  private handleMessage(raw: string): void {
+  private handleMessage(raw: string, originWs: WebSocket): void {
     let envelope: {
       envelope_id?: string;
       type?: string;
@@ -272,32 +367,31 @@ export class SlackSocketModeClient {
       return;
     }
 
-    // ACK every envelope immediately
-    if (
-      envelope.envelope_id &&
-      this.ws &&
-      this.ws.readyState === WebSocket.OPEN
-    ) {
-      this.ws.send(JSON.stringify({ envelope_id: envelope.envelope_id }));
+    // ACK every envelope on the socket that received it — never cross-ACK
+    // onto a different connection (e.g. after forceReconnect replaces this.ws).
+    if (envelope.envelope_id && originWs.readyState === WebSocket.OPEN) {
+      originWs.send(JSON.stringify({ envelope_id: envelope.envelope_id }));
     }
 
-    // Handle disconnect type: Slack asks us to reconnect
+    // Handle disconnect type: Slack asks us to reconnect.
+    // Only act if the requesting socket is still the active one —
+    // a stale socket's disconnect should not tear down a new connection.
     if (envelope.type === "disconnect") {
       log.info(
         { reason: envelope.reason },
         "Slack requested disconnect, reconnecting",
       );
-      if (this.ws) {
+      if (this.ws === originWs) {
         try {
           this.ws.close(1000, "server requested disconnect");
         } catch {
           // ignore
         }
         this.ws = null;
+        // Reconnect immediately (attempt 0 = minimal backoff)
+        this.reconnectAttempt = 0;
+        this.scheduleReconnect();
       }
-      // Reconnect immediately (attempt 0 = minimal backoff)
-      this.reconnectAttempt = 0;
-      this.scheduleReconnect();
       return;
     }
 

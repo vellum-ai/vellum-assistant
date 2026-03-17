@@ -2,6 +2,7 @@ import {
   blob,
   index,
   integer,
+  primaryKey,
   real,
   sqliteTable,
   text,
@@ -149,8 +150,8 @@ export const memoryCheckpoints = sqliteTable("memory_checkpoints", {
   updatedAt: integer("updated_at").notNull(),
 });
 
-export const threadStarters = sqliteTable(
-  "thread_starters",
+export const conversationStarters = sqliteTable(
+  "conversation_starters",
   {
     id: text("id").primaryKey(),
     label: text("label").notNull(),
@@ -159,12 +160,32 @@ export const threadStarters = sqliteTable(
     scopeId: text("scope_id").notNull().default("default"),
     sourceMemoryKinds: text("source_memory_kinds"),
     category: text("category"),
+    icon: text("icon"),
+    description: text("description"),
+    tags: text("tags"),
+    cardType: text("card_type").notNull().default("chip"),
     createdAt: integer("created_at").notNull(),
   },
   (table) => [
-    index("idx_thread_starters_batch").on(
+    index("idx_conversation_starters_batch").on(
       table.generationBatch,
       table.createdAt,
     ),
+    index("idx_conversation_starters_card_type").on(
+      table.cardType,
+      table.scopeId,
+    ),
   ],
+);
+
+export const capabilityCardCategories = sqliteTable(
+  "capability_card_categories",
+  {
+    scopeId: text("scope_id").notNull(),
+    category: text("category").notNull(),
+    relevance: real("relevance").notNull(),
+    generationBatch: integer("generation_batch").notNull(),
+    createdAt: integer("created_at").notNull(),
+  },
+  (table) => [primaryKey({ columns: [table.scopeId, table.category] })],
 );

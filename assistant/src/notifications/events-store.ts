@@ -16,7 +16,7 @@ export interface NotificationEventRow {
   id: string;
   sourceEventName: string;
   sourceChannel: string;
-  sourceSessionId: string;
+  sourceContextId: string;
   attentionHintsJson: string;
   payloadJson: string;
   dedupeKey: string | null;
@@ -31,7 +31,7 @@ function rowToEvent(
     id: row.id,
     sourceEventName: row.sourceEventName,
     sourceChannel: row.sourceChannel,
-    sourceSessionId: row.sourceSessionId,
+    sourceContextId: row.sourceContextId,
     attentionHintsJson: row.attentionHintsJson,
     payloadJson: row.payloadJson,
     dedupeKey: row.dedupeKey,
@@ -44,7 +44,7 @@ export interface CreateEventParams {
   id: string;
   sourceEventName: string;
   sourceChannel: string;
-  sourceSessionId: string;
+  sourceContextId: string;
   attentionHints: AttentionHints;
   payload: Record<string, unknown>;
   dedupeKey?: string;
@@ -76,7 +76,7 @@ export function createEvent(
     id: params.id,
     sourceEventName: params.sourceEventName,
     sourceChannel: params.sourceChannel,
-    sourceSessionId: params.sourceSessionId,
+    sourceContextId: params.sourceContextId,
     attentionHintsJson: JSON.stringify(params.attentionHints),
     payloadJson: JSON.stringify(params.payload),
     dedupeKey: normalizedDedupeKey,

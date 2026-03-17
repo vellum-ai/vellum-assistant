@@ -112,6 +112,10 @@ export { migrateRenameSequenceEnrollmentsThreadIdColumn } from "./167-rename-seq
 export { migrateRenameSequenceStepsReplyKey } from "./168-rename-sequence-steps-reply-key.js";
 export { migrateRenameGmailProviderKeyToGoogle } from "./169-rename-gmail-provider-key-to-google.js";
 export { migrateCreateThreadStartersTable } from "./170-thread-starters-table.js";
+export { migrateCapabilityCardColumns } from "./171-capability-card-columns.js";
+export { migrateRenameCreatedBySessionIdColumns } from "./172-rename-created-by-session-id.js";
+export { migrateRenameSourceSessionIdColumn } from "./173-rename-source-session-id.js";
+export { migrateRenameThreadStartersTable } from "./174-rename-thread-starters-table.js";
 export {
   MIGRATION_REGISTRY,
   type MigrationRegistryEntry,

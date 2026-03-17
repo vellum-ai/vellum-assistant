@@ -490,45 +490,12 @@ struct AgentPanelContent: View {
 
     @ViewBuilder
     private func skillFileContentPane(file: SkillFileEntry, content: String) -> some View {
-        let modes = availableViewModes(for: file.path, mimeType: file.mimeType)
-        let effectiveMode = modes.contains(skillFileViewMode) ? skillFileViewMode : (modes.first ?? .source)
-
-        VStack(alignment: .leading, spacing: 0) {
-            // File header
-            FileContentHeaderBar(
-                icon: fileIcon(for: file.mimeType),
-                fileName: file.path,
-                fileSize: formatFileSize(file.size)
-            ) {
-                if modes.count > 1 {
-                    VSegmentedControl(
-                        items: modes.map { (label: viewModeLabel($0), tag: $0) },
-                        selection: $skillFileViewMode,
-                        style: .pill
-                    )
-                    .fixedSize()
-                }
-            }
-
-            Divider().background(VColor.borderBase)
-
-            // File content
-            switch effectiveMode {
-            case .source:
-                HighlightedTextView(
-                    text: .constant(content),
-                    language: SyntaxLanguage.detect(fileName: file.path, mimeType: file.mimeType),
-                    isEditable: false
-                )
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-            case .preview:
-                MarkdownPreviewView(content: content)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-            case .tree:
-                JSONTreeView(content: content)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-            }
-        }
+        FileContentView(
+            fileName: file.path,
+            mimeType: file.mimeType,
+            content: .constant(content),
+            viewMode: $skillFileViewMode
+        )
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .background(VColor.surfaceOverlay)
         .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
@@ -598,14 +565,6 @@ struct AgentPanelContent: View {
             .background(VColor.surfaceBase)
             .clipShape(RoundedRectangle(cornerRadius: VRadius.lg))
         }
-    }
-
-    private func fileIcon(for mimeType: String) -> VIcon {
-        if mimeType.hasPrefix("image/") { return .image }
-        if mimeType.hasPrefix("video/") { return .video }
-        if mimeType.hasPrefix("text/") { return .fileText }
-        if mimeType == "application/json" || mimeType == "application/javascript" || mimeType == "application/typescript" { return .fileCode }
-        return .file
     }
 
 }

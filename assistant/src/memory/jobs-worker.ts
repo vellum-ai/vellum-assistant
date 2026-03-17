@@ -3,10 +3,12 @@ import type { AssistantConfig } from "../config/types.js";
 import { getLogger } from "../util/logger.js";
 import { rawRun } from "./db.js";
 import { backfillJob } from "./job-handlers/backfill.js";
+import { generateCapabilityCardsJob } from "./job-handlers/capability-cards.js";
 import {
   cleanupStaleSupersededItemsJob,
   pruneOldConversationsJob,
 } from "./job-handlers/cleanup.js";
+import { generateConversationStartersJob } from "./job-handlers/conversation-starters.js";
 // ── Per-job-type handlers ──────────────────────────────────────────
 import {
   embedAttachmentJob,
@@ -22,7 +24,6 @@ import {
 } from "./job-handlers/index-maintenance.js";
 import { mediaProcessingJob } from "./job-handlers/media-processing.js";
 import { buildConversationSummaryJob } from "./job-handlers/summarization.js";
-import { generateThreadStartersJob } from "./job-handlers/thread-starters.js";
 import {
   BackendUnavailableError,
   classifyError,
@@ -307,8 +308,14 @@ async function processJob(
     case "embed_attachment":
       await embedAttachmentJob(job, config);
       return;
+    case "generate_conversation_starters":
+      await generateConversationStartersJob(job);
+      return;
+    case "generate_capability_cards":
+      await generateCapabilityCardsJob(job);
+      return;
     case "generate_thread_starters":
-      await generateThreadStartersJob(job);
+      // Thread starters renamed to conversation starters — silently drop legacy jobs
       return;
     default:
       throw new Error(

@@ -249,7 +249,7 @@ extension AppDelegate {
 
                 AvatarAppearanceManager.shared.reloadAvatar()
                 mainWindow?.windowState.showToast(
-                    message: "Signed out. You can sign in again from Settings.",
+                    message: "Logged out. You can log in again from Settings.",
                     style: .success
                 )
             } else {
@@ -392,7 +392,7 @@ extension AppDelegate {
                 SentryDeviceInfo.updateOrganizationTag(UserDefaults.standard.string(forKey: "connectedOrganizationId"))
                 NotificationCenter.default.post(name: .localBootstrapCompleted, object: nil)
                 self.mainWindow?.windowState.showToast(
-                    message: "Failed to set up Vellum credentials. You may need to sign out and sign in again.",
+                    message: "Failed to set up Vellum credentials. You may need to log out and log in again.",
                     style: .error
                 )
             }

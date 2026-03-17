@@ -128,7 +128,7 @@ export function createInboundVerificationSession(
     channel,
     challengeHash,
     expiresAt,
-    createdByConversationId: conversationId,
+    sourceConversationId: conversationId,
   });
 
   const ttlSeconds = CHALLENGE_TTL_MS / 1000;

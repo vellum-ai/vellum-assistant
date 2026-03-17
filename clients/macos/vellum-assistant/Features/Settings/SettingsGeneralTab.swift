@@ -76,7 +76,7 @@ struct SettingsGeneralTab: View {
     // MARK: - Account Section
 
     private var accountSection: some View {
-        SettingsCard(title: "Account", subtitle: "Sign in to Your Account") {
+        SettingsCard(title: "Account", subtitle: "Log in to your account") {
             if authManager.isLoading {
                 HStack(spacing: VSpacing.sm) {
                     ProgressView()
@@ -91,7 +91,7 @@ struct SettingsGeneralTab: View {
                 }
             } else {
                 VButton(
-                    label: authManager.isSubmitting ? "Signing in..." : "Sign In",
+                    label: authManager.isSubmitting ? "Logging in..." : "Log In",
                     style: .primary,
                     isDisabled: authManager.isSubmitting
                 ) {

@@ -45,7 +45,9 @@ mock.module("../prompts/system-prompt.js", () => ({
 
 // ── Provider mock with system prompt capture ──────────────────────────
 
-let configuredProvider: { sendMessage: (...args: unknown[]) => Promise<unknown> } | null = null;
+let configuredProvider: {
+  sendMessage: (...args: unknown[]) => Promise<unknown>;
+} | null = null;
 let extractedToolUse: unknown = null;
 let capturedSystemPrompt: string | undefined;
 
@@ -81,7 +83,7 @@ function makeSignal(
     signalId: "sig-identity-test-1",
     createdAt: Date.now(),
     sourceChannel: "phone",
-    sourceSessionId: "call-session-1",
+    sourceContextId: "call-session-1",
     sourceEventName: "guardian.question",
     contextPayload: {
       questionText: "What is the gate code?",
@@ -141,9 +143,7 @@ describe("identity context in notification decision engine", () => {
 
     expect(capturedSystemPrompt).toBeDefined();
     expect(capturedSystemPrompt).toContain("<assistant-identity>");
-    expect(capturedSystemPrompt).toContain(
-      "I am Jarvis, a helpful assistant",
-    );
+    expect(capturedSystemPrompt).toContain("I am Jarvis, a helpful assistant");
     expect(capturedSystemPrompt).toContain("</assistant-identity>");
   });
 
@@ -192,10 +192,9 @@ describe("identity context in notification decision engine", () => {
     configuredProvider = null;
 
     const signal = makeSignal();
-    const decision = await evaluateSignal(
-      signal,
-      ["vellum"] as NotificationChannel[],
-    );
+    const decision = await evaluateSignal(signal, [
+      "vellum",
+    ] as NotificationChannel[]);
 
     // Fallback should produce valid copy regardless of identity context
     expect(decision.fallbackUsed).toBe(true);

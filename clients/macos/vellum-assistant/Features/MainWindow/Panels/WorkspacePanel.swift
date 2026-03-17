@@ -48,8 +48,6 @@ final class WorkspaceBrowserState {
         let ext = (targetPath as NSString).pathExtension.lowercased()
         if ext == "md" || ext == "markdown" {
             viewMode = .preview
-        } else if ext == "json" {
-            viewMode = .tree
         } else {
             viewMode = .source
         }
@@ -713,41 +711,34 @@ private struct WorkspaceFileViewer: View {
         let readOnly = isText && isHiddenPath(detail.path)
 
         VStack(spacing: 0) {
-            FileContentHeaderBar(
-                icon: fileIcon(for: mime),
-                fileName: detail.name,
-                fileSize: formatFileSize(detail.size)
-            ) {
-                if isText {
-                    let modes = availableViewModes(for: detail.name, mimeType: detail.mimeType)
-                    if modes.count > 1 {
-                        VSegmentedControl(
-                            items: modes.map { (label: viewModeLabel($0), tag: $0) },
-                            selection: $state.viewMode,
-                            style: .pill
-                        )
-                        .fixedSize()
-                    }
-                }
-
-                if isText && readOnly {
-                    Text("Read-only")
-                        .font(VFont.caption)
-                        .foregroundColor(VColor.contentTertiary)
-                }
-            }
-            Divider().background(VColor.borderBase)
-
             if isText {
-                textViewer(detail, readOnly: readOnly)
-            } else if mime.hasPrefix("image/") {
-                imageViewer(detail)
-            } else if mime.hasPrefix("video/") {
-                videoViewer(detail)
-            } else if !detail.isBinary, detail.content == nil {
-                fileTooLarge(detail)
+                FileContentView(
+                    fileName: detail.name,
+                    mimeType: detail.mimeType,
+                    content: $state.editableContent,
+                    viewMode: $state.viewMode,
+                    isEditable: !readOnly,
+                    showReadOnlyBadge: readOnly,
+                    onTextChange: { newValue in
+                        state.isDirty = newValue != state.originalContent
+                    }
+                )
             } else {
-                binaryFallback(detail)
+                FileContentHeaderBar(
+                    icon: fileIcon(for: mime),
+                    fileName: detail.name
+                )
+                Divider().background(VColor.borderBase)
+
+                if mime.hasPrefix("image/") {
+                    imageViewer(detail)
+                } else if mime.hasPrefix("video/") {
+                    videoViewer(detail)
+                } else if !detail.isBinary, detail.content == nil {
+                    fileTooLarge(detail)
+                } else {
+                    binaryFallback(detail)
+                }
             }
 
             if isText && !readOnly && state.isDirty {
@@ -755,6 +746,15 @@ private struct WorkspaceFileViewer: View {
                 HStack {
                     Spacer()
                     HStack(spacing: VSpacing.xs) {
+                        VButton(
+                            label: "Discard",
+                            style: .ghost,
+                            size: .compact,
+                            isDisabled: state.isSaving
+                        ) {
+                            state.editableContent = state.originalContent
+                            state.isDirty = false
+                        }
                         if state.isSaving {
                             VBusyIndicator(size: 8)
                         }
@@ -774,64 +774,6 @@ private struct WorkspaceFileViewer: View {
                 .background(VColor.surfaceOverlay)
             }
         }
-    }
-
-    private func fileIcon(for mimeType: String) -> VIcon {
-        if mimeType.hasPrefix("image/") { return .image }
-        if mimeType.hasPrefix("video/") { return .video }
-        if mimeType.hasPrefix("text/") { return .fileText }
-        if mimeType == "application/json" || mimeType == "application/javascript" || mimeType == "application/typescript" { return .fileCode }
-        return .file
-    }
-
-    @ViewBuilder
-    private func textViewer(_ detail: WorkspaceFileResponse, readOnly: Bool) -> some View {
-        let modes = availableViewModes(for: detail.name, mimeType: detail.mimeType)
-        let effectiveMode = modes.contains(state.viewMode) ? state.viewMode : (modes.first ?? .source)
-
-        switch effectiveMode {
-        case .source:
-            sourceView(detail)
-        case .preview:
-            previewView(detail)
-        case .tree:
-            treeView(detail)
-        }
-    }
-
-    private func sourceView(_ detail: WorkspaceFileResponse) -> some View {
-        let readOnly = isHiddenPath(detail.path)
-        let language = SyntaxLanguage.detect(fileName: detail.name, mimeType: detail.mimeType)
-        return Group {
-            if readOnly {
-                HighlightedTextView(
-                    text: .constant(detail.content ?? ""),
-                    language: language,
-                    isEditable: false
-                )
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-            } else {
-                HighlightedTextView(
-                    text: $state.editableContent,
-                    language: language,
-                    isEditable: true,
-                    onTextChange: { newValue in
-                        state.isDirty = newValue != state.originalContent
-                    }
-                )
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-            }
-        }
-    }
-
-    private func previewView(_ detail: WorkspaceFileResponse) -> some View {
-        MarkdownPreviewView(content: state.editableContent)
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-    }
-
-    private func treeView(_ detail: WorkspaceFileResponse) -> some View {
-        JSONTreeView(content: state.editableContent)
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }
 
     private func saveFile(path: String) async {

@@ -362,40 +362,11 @@ struct SettingsPanel: View {
                 apiKeyText: $apiKeyText
             )
 
-            // PERPLEXITY SEARCH
-            ServiceCredentialCard(
-                title: "Perplexity Search",
-                subtitle: "Enables real-time web search in responses",
-                isConnected: store.hasPerplexityKey,
-                keyPlaceholder: "Enter your Perplexity API key",
-                isManagedProxy: store.providerRoutingSources["perplexity"] == "managed-proxy",
-                keyText: $perplexityKeyText,
-                onSave: {
-                    store.savePerplexityKey(perplexityKeyText)
-                    perplexityKeyText = ""
-                },
-                onReset: {
-                    store.clearPerplexityKey()
-                    perplexityKeyText = ""
-                }
-            )
-
-            // BRAVE SEARCH
-            ServiceCredentialCard(
-                title: "Brave Search",
-                subtitle: "Enables private web search in responses",
-                isConnected: store.hasBraveKey,
-                keyPlaceholder: "Enter your Brave Search API key",
-                isManagedProxy: store.providerRoutingSources["brave"] == "managed-proxy",
-                keyText: $braveKeyText,
-                onSave: {
-                    store.saveBraveKey(braveKeyText)
-                    braveKeyText = ""
-                },
-                onReset: {
-                    store.clearBraveKey()
-                    braveKeyText = ""
-                }
+            // WEB SEARCH
+            WebSearchServiceCard(
+                store: store,
+                perplexityKeyText: $perplexityKeyText,
+                braveKeyText: $braveKeyText
             )
 
             // IMAGE GENERATION

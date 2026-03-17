@@ -290,6 +290,11 @@ public final class MainWindow {
                 self?.traceStore.ingest(msg)
             }
         }
+        services.daemonClient.onUsageUpdate = { [weak self] _ in
+            Task { @MainActor in
+                self?.usageDashboardStore.reset()
+            }
+        }
         observeDaemonReconnects()
     }
 

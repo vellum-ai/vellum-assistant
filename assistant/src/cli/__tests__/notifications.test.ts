@@ -337,7 +337,7 @@ describe("notifications list", () => {
       id: `evt-${Date.now()}-1`,
       sourceEventName: "user.send_notification",
       sourceChannel: "assistant_tool",
-      sourceSessionId: "session-1",
+      sourceContextId: "session-1",
       attentionHints: {
         requiresAction: true,
         urgency: "medium",
@@ -362,7 +362,7 @@ describe("notifications list", () => {
         id: `evt-limit-${Date.now()}-${i}`,
         sourceEventName: "user.send_notification",
         sourceChannel: "assistant_tool",
-        sourceSessionId: `session-limit-${i}`,
+        sourceContextId: `session-limit-${i}`,
         attentionHints: {
           requiresAction: true,
           urgency: "medium",
@@ -386,7 +386,7 @@ describe("notifications list", () => {
       id: `evt-filter-notif-${Date.now()}`,
       sourceEventName: "user.send_notification",
       sourceChannel: "assistant_tool",
-      sourceSessionId: "session-filter-1",
+      sourceContextId: "session-filter-1",
       attentionHints: {
         requiresAction: true,
         urgency: "medium",
@@ -400,7 +400,7 @@ describe("notifications list", () => {
       id: `evt-filter-reminder-${Date.now()}`,
       sourceEventName: "schedule.notify",
       sourceChannel: "scheduler",
-      sourceSessionId: "session-filter-2",
+      sourceContextId: "session-filter-2",
       attentionHints: {
         requiresAction: true,
         urgency: "high",
@@ -430,7 +430,7 @@ describe("notifications list", () => {
       id: `evt-custom-${Date.now()}`,
       sourceEventName: "custom.my_event",
       sourceChannel: "assistant_tool",
-      sourceSessionId: "session-custom",
+      sourceContextId: "session-custom",
       attentionHints: {
         requiresAction: true,
         urgency: "medium",

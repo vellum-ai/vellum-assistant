@@ -203,7 +203,7 @@ export function notifyGuardianOfAccessRequest(
   void emitNotificationSignal({
     sourceEventName: "ingress.access_request",
     sourceChannel: sourceChannel as NotificationSourceChannel,
-    sourceSessionId: `access-req-${sourceChannel}-${actorExternalId}`,
+    sourceContextId: `access-req-${sourceChannel}-${actorExternalId}`,
     attentionHints: {
       requiresAction: true,
       urgency: "high",

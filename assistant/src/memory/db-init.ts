@@ -41,6 +41,7 @@ import {
   migrateCallSessionMode,
   migrateCanonicalGuardianDeliveriesDestinationIndex,
   migrateCanonicalGuardianRequesterChatId,
+  migrateCapabilityCardColumns,
   migrateChannelInboundDeliveredSegments,
   migrateChannelInteractionColumns,
   migrateContactChannelsAccessFields,
@@ -83,6 +84,7 @@ import {
   migrateReminderRoutingIntent,
   migrateRemindersToSchedules,
   migrateRenameConversationTypeColumn,
+  migrateRenameCreatedBySessionIdColumns,
   migrateRenameFollowupsThreadIdColumn,
   migrateRenameGmailProviderKeyToGoogle,
   migrateRenameGuardianVerificationValues,
@@ -90,6 +92,8 @@ import {
   migrateRenameNotificationThreadColumns,
   migrateRenameSequenceEnrollmentsThreadIdColumn,
   migrateRenameSequenceStepsReplyKey,
+  migrateRenameSourceSessionIdColumn,
+  migrateRenameThreadStartersTable,
   migrateRenameVerificationSessionIdColumn,
   migrateRenameVerificationTable,
   migrateRenameVoiceToPhone,
@@ -425,8 +429,20 @@ export function initializeDb(): void {
   // 72. Rename integration:gmail → integration:google across OAuth tables
   migrateRenameGmailProviderKeyToGoogle(database);
 
-  // 73. Create thread_starters table for personalized empty-thread suggestions
+  // 73. Create thread_starters table for personalized empty-thread suggestions (renamed in migration 77)
   migrateCreateThreadStartersTable(database);
+
+  // 74. Add capability card columns to thread_starters + category relevance table
+  migrateCapabilityCardColumns(database);
+
+  // 75. Rename created_by_session_id → source_conversation_id in verification sessions and invites
+  migrateRenameCreatedBySessionIdColumns(database);
+
+  // 76. Rename source_session_id → source_context_id in notification_events
+  migrateRenameSourceSessionIdColumn(database);
+
+  // 77. Rename thread_starters → conversation_starters table and indexes
+  migrateRenameThreadStartersTable(database);
 
   validateMigrationState(database);
 

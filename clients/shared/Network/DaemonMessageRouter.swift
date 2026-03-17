@@ -171,6 +171,8 @@ extension DaemonClient {
             latestMemoryStatus = msg
         case .traceEvent(let msg):
             onTraceEvent?(msg)
+        case .usageUpdate(let msg):
+            onUsageUpdate?(msg)
         case .error(let msg):
             onError?(msg)
         #if os(macOS)

@@ -59,7 +59,7 @@ export interface VerificationSession {
   challengeHash: string;
   expiresAt: number;
   status: SessionStatus;
-  createdByConversationId: string | null;
+  sourceConversationId: string | null;
   consumedByExternalUserId: string | null;
   consumedByChatId: string | null;
   // Outbound session: expected-identity binding
@@ -96,7 +96,7 @@ function rowToSession(
     challengeHash: row.challengeHash,
     expiresAt: row.expiresAt,
     status: row.status as SessionStatus,
-    createdByConversationId: row.createdByConversationId,
+    sourceConversationId: row.sourceConversationId,
     consumedByExternalUserId: row.consumedByExternalUserId,
     consumedByChatId: row.consumedByChatId,
     expectedExternalUserId: row.expectedExternalUserId ?? null,
@@ -127,7 +127,7 @@ export function createInboundSession(params: {
   channel: string;
   challengeHash: string;
   expiresAt: number;
-  createdByConversationId?: string;
+  sourceConversationId?: string;
 }): VerificationSession {
   const db = getDb();
   const now = Date.now();
@@ -150,7 +150,7 @@ export function createInboundSession(params: {
     challengeHash: params.challengeHash,
     expiresAt: params.expiresAt,
     status: "pending" as const,
-    createdByConversationId: params.createdByConversationId ?? null,
+    sourceConversationId: params.sourceConversationId ?? null,
     consumedByExternalUserId: null,
     consumedByChatId: null,
     expectedExternalUserId: null,
@@ -278,7 +278,7 @@ export function createVerificationSession(params: {
   challengeHash: string;
   expiresAt: number;
   status: SessionStatus;
-  createdByConversationId?: string;
+  sourceConversationId?: string;
   expectedExternalUserId?: string | null;
   expectedChatId?: string | null;
   expectedPhoneE164?: string | null;
@@ -313,7 +313,7 @@ export function createVerificationSession(params: {
     challengeHash: params.challengeHash,
     expiresAt: params.expiresAt,
     status: params.status as string,
-    createdByConversationId: params.createdByConversationId ?? null,
+    sourceConversationId: params.sourceConversationId ?? null,
     consumedByExternalUserId: null,
     consumedByChatId: null,
     expectedExternalUserId: params.expectedExternalUserId ?? null,

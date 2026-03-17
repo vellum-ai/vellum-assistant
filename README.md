@@ -472,7 +472,7 @@ GET /v1/events?conversationKey=<key>
 ```
 event: assistant_event
 id: <uuid>
-data: {"id":"...","assistantId":"self","sessionId":"conv_xxx","emittedAt":"2026-02-21T12:00:00.000Z","message":{...}}
+data: {"id":"...","assistantId":"self","conversationId":"conv_xxx","emittedAt":"2026-02-21T12:00:00.000Z","message":{...}}
 
 ```
 
@@ -491,11 +491,11 @@ Each `data` field is a JSON-serialized `AssistantEvent`:
 {
   "id": "550e8400-e29b-41d4-a716-446655440000",
   "assistantId": "self",
-  "sessionId": "conv_abc123",
+  "conversationId": "conv_abc123",
   "emittedAt": "2026-02-21T12:00:00.000Z",
   "message": {
     "type": "assistant_text_delta",
-    "sessionId": "conv_abc123",
+    "conversationId": "conv_abc123",
     "text": "Working on it..."
   }
 }

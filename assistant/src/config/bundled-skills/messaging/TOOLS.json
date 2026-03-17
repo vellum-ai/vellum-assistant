@@ -276,10 +276,6 @@
             "type": "string",
             "description": "Platform (e.g. \"slack\", \"gmail\"). Required for create/list."
           },
-          "account": {
-            "type": "string",
-            "description": "Email address of the account to use. Required when multiple accounts are connected for the same platform. If omitted, uses the most recently connected account."
-          },
           "conversation_id": {
             "type": "string",
             "description": "Target conversation/channel ID (for create)"

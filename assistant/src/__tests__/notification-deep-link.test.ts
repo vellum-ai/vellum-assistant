@@ -89,7 +89,7 @@ function makeSignal(
     signalId: "sig-deeplink-001",
     createdAt: Date.now(),
     sourceChannel: "scheduler",
-    sourceSessionId: "sess-001",
+    sourceContextId: "sess-001",
     sourceEventName: "test.event",
     contextPayload: {},
     attentionHints: {
