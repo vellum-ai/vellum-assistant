@@ -169,6 +169,6 @@ describe("TraceEmitter", () => {
     expect(newSent).toHaveLength(1);
     expect(newSent[0].summary).toBe("after");
     // Sequence continues from where it left off
-    expect(newSent[0].sequence).toBe(1);
+    expect(newSent[0].sequence).toBe(sent[0].sequence + 1);
   });
 });
