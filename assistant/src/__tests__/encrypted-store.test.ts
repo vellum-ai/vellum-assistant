@@ -1,4 +1,8 @@
-import { randomBytes } from "node:crypto";
+import {
+  createCipheriv,
+  pbkdf2Sync,
+  randomBytes,
+} from "node:crypto";
 import {
   chmodSync,
   existsSync,
@@ -7,9 +11,10 @@ import {
   readFileSync,
   rmSync,
   statSync,
+  unlinkSync,
   writeFileSync,
 } from "node:fs";
-import { tmpdir } from "node:os";
+import { hostname, tmpdir, userInfo } from "node:os";
 import { join } from "node:path";
 import {
   afterAll,
@@ -23,7 +28,7 @@ import {
 } from "bun:test";
 
 // ---------------------------------------------------------------------------
-// Mock only the logger (not platform — we use _setStorePath instead)
+// Mock only the logger (not platform -- we use _setStorePath instead)
 // ---------------------------------------------------------------------------
 
 mock.module("../util/logger.js", () => ({
@@ -34,8 +39,10 @@ mock.module("../util/logger.js", () => ({
 }));
 
 import {
+  _setStoreKeyPath,
   _setStorePath,
   deleteKey,
+  getMachineEntropy,
   getKey,
   listKeys,
   setKey,
@@ -50,6 +57,57 @@ const TEST_DIR = join(
   `vellum-enc-test-${randomBytes(4).toString("hex")}`,
 );
 const STORE_PATH = join(TEST_DIR, "keys.enc");
+const STORE_KEY_PATH = join(TEST_DIR, "store.key");
+
+// ---------------------------------------------------------------------------
+// Legacy v1 helpers (for migration tests)
+// ---------------------------------------------------------------------------
+
+const ALGORITHM = "aes-256-gcm";
+const KEY_LENGTH = 32;
+const IV_LENGTH = 16;
+const AUTH_TAG_LENGTH = 16;
+const PBKDF2_ITERATIONS = process.env.BUN_TEST === "1" ? 1 : 100_000;
+const SALT_LENGTH = 32;
+
+function legacyDeriveKey(salt: Buffer): Buffer {
+  const entropy = getMachineEntropy();
+  return pbkdf2Sync(entropy, salt, PBKDF2_ITERATIONS, KEY_LENGTH, "sha512");
+}
+
+function legacyEncrypt(
+  plaintext: string,
+  key: Buffer,
+): { iv: string; tag: string; data: string } {
+  const iv = randomBytes(IV_LENGTH);
+  const cipher = createCipheriv(ALGORITHM, key, iv, {
+    authTagLength: AUTH_TAG_LENGTH,
+  });
+  const encrypted = Buffer.concat([
+    cipher.update(plaintext, "utf-8"),
+    cipher.final(),
+  ]);
+  const tag = cipher.getAuthTag();
+  return {
+    iv: iv.toString("hex"),
+    tag: tag.toString("hex"),
+    data: encrypted.toString("hex"),
+  };
+}
+
+/** Write a v1 store file directly (bypassing the module's writeStore). */
+function writeV1Store(
+  path: string,
+  salt: Buffer,
+  entries: Record<string, { iv: string; tag: string; data: string }>,
+): void {
+  const store = {
+    version: 1,
+    salt: salt.toString("hex"),
+    entries,
+  };
+  writeFileSync(path, JSON.stringify(store, null, 2), { mode: 0o600 });
+}
 
 // ---------------------------------------------------------------------------
 // Tests
@@ -66,10 +124,12 @@ describe("encrypted-store", () => {
       rmSync(join(TEST_DIR, entry), { recursive: true, force: true });
     }
     _setStorePath(STORE_PATH);
+    _setStoreKeyPath(STORE_KEY_PATH);
   });
 
   afterEach(() => {
     _setStorePath(null);
+    _setStoreKeyPath(null);
   });
 
   afterAll(() => {
@@ -173,16 +233,15 @@ describe("encrypted-store", () => {
   });
 
   // -----------------------------------------------------------------------
-  // Store format
+  // Store format (v2)
   // -----------------------------------------------------------------------
   describe("store format", () => {
-    test("store file is valid JSON with version, salt, and entries", () => {
+    test("store file is valid JSON with version 2 and entries (no salt)", () => {
       setKey("test", "value");
       const raw = readFileSync(STORE_PATH, "utf-8");
       const parsed = JSON.parse(raw);
-      expect(parsed.version).toBe(1);
-      expect(typeof parsed.salt).toBe("string");
-      expect(parsed.salt.length).toBe(64); // 32 bytes = 64 hex chars
+      expect(parsed.version).toBe(2);
+      expect(parsed.salt).toBeUndefined();
       expect(typeof parsed.entries).toBe("object");
       expect(parsed.entries.test).toBeDefined();
     });
@@ -220,6 +279,159 @@ describe("encrypted-store", () => {
 
       // IVs should differ (random), so ciphertext should differ too
       expect(entry1.iv).not.toBe(entry2.iv);
+    });
+  });
+
+  // -----------------------------------------------------------------------
+  // v2 format and store.key
+  // -----------------------------------------------------------------------
+  describe("v2 format and store.key", () => {
+    test("fresh store creates v2 format and store.key", () => {
+      setKey("test", "value");
+
+      // Verify keys.enc is v2 with no salt
+      const raw = readFileSync(STORE_PATH, "utf-8");
+      const parsed = JSON.parse(raw);
+      expect(parsed.version).toBe(2);
+      expect(parsed.salt).toBeUndefined();
+
+      // Verify store.key exists with exactly 32 bytes and 0o600 perms
+      expect(existsSync(STORE_KEY_PATH)).toBe(true);
+      const keyBuf = readFileSync(STORE_KEY_PATH);
+      expect(keyBuf.length).toBe(32);
+      const mode = statSync(STORE_KEY_PATH).mode & 0o777;
+      expect(mode).toBe(0o600);
+    });
+
+    test("v2 round-trip", () => {
+      // Set multiple values and read them back
+      setKey("key-a", "value-a");
+      setKey("key-b", "value-b");
+      setKey("key-c", "value-c");
+
+      expect(getKey("key-a")).toBe("value-a");
+      expect(getKey("key-b")).toBe("value-b");
+      expect(getKey("key-c")).toBe("value-c");
+
+      // Delete one and verify others remain
+      deleteKey("key-b");
+      expect(getKey("key-b")).toBeUndefined();
+      expect(getKey("key-a")).toBe("value-a");
+      expect(getKey("key-c")).toBe("value-c");
+    });
+
+    test("v2 store without store.key returns undefined", () => {
+      setKey("test", "value");
+      // Delete store.key
+      unlinkSync(STORE_KEY_PATH);
+      expect(getKey("test")).toBeUndefined();
+    });
+  });
+
+  // -----------------------------------------------------------------------
+  // v1 -> v2 migration
+  // -----------------------------------------------------------------------
+  describe("v1 to v2 migration", () => {
+    test("v1 to v2 migration preserves entries", () => {
+      // Create a v1 store using legacy encryption
+      const salt = randomBytes(SALT_LENGTH);
+      const legacyKey = legacyDeriveKey(salt);
+      const entries: Record<string, { iv: string; tag: string; data: string }> = {};
+      entries["api-key"] = legacyEncrypt("secret-123", legacyKey);
+      entries["other-key"] = legacyEncrypt("secret-456", legacyKey);
+      writeV1Store(STORE_PATH, salt, entries);
+
+      // Access via getKey -- should trigger migration
+      const val1 = getKey("api-key");
+      expect(val1).toBe("secret-123");
+
+      const val2 = getKey("other-key");
+      expect(val2).toBe("secret-456");
+
+      // Store should now be v2
+      const raw = readFileSync(STORE_PATH, "utf-8");
+      const parsed = JSON.parse(raw);
+      expect(parsed.version).toBe(2);
+      expect(parsed.salt).toBeUndefined();
+
+      // store.key should exist
+      expect(existsSync(STORE_KEY_PATH)).toBe(true);
+    });
+
+    test("migration is idempotent", () => {
+      // Create a v1 store
+      const salt = randomBytes(SALT_LENGTH);
+      const legacyKey = legacyDeriveKey(salt);
+      const entries: Record<string, { iv: string; tag: string; data: string }> = {};
+      entries["my-key"] = legacyEncrypt("my-value", legacyKey);
+      writeV1Store(STORE_PATH, salt, entries);
+
+      // First access triggers migration
+      const val1 = getKey("my-key");
+      expect(val1).toBe("my-value");
+
+      // Second access should work the same (already migrated)
+      const val2 = getKey("my-key");
+      expect(val2).toBe("my-value");
+
+      // Should still be v2
+      const raw = readFileSync(STORE_PATH, "utf-8");
+      expect(JSON.parse(raw).version).toBe(2);
+    });
+
+    test("migration skips corrupt entries", () => {
+      // Create a v1 store with one good entry and one tampered entry
+      const salt = randomBytes(SALT_LENGTH);
+      const legacyKey = legacyDeriveKey(salt);
+      const entries: Record<string, { iv: string; tag: string; data: string }> = {};
+      entries["good"] = legacyEncrypt("good-value", legacyKey);
+      entries["bad"] = legacyEncrypt("bad-value", legacyKey);
+      // Tamper with the bad entry
+      const badData = entries["bad"].data;
+      entries["bad"].data =
+        badData[0] === "0" ? "1" + badData.slice(1) : "0" + badData.slice(1);
+      writeV1Store(STORE_PATH, salt, entries);
+
+      // Trigger migration via getKey
+      const goodVal = getKey("good");
+      expect(goodVal).toBe("good-value");
+
+      // Bad entry should be gone (not migrated)
+      const badVal = getKey("bad");
+      expect(badVal).toBeUndefined();
+
+      // Store should be v2
+      const raw = readFileSync(STORE_PATH, "utf-8");
+      const parsed = JSON.parse(raw);
+      expect(parsed.version).toBe(2);
+      expect(parsed.entries["good"]).toBeDefined();
+      expect(parsed.entries["bad"]).toBeUndefined();
+    });
+
+    test("partial migration recovery", () => {
+      // Simulate crash between store.key write and store rewrite:
+      // write v1 store + store.key but leave store as v1
+      const salt = randomBytes(SALT_LENGTH);
+      const legacyKey = legacyDeriveKey(salt);
+      const entries: Record<string, { iv: string; tag: string; data: string }> = {};
+      entries["test-key"] = legacyEncrypt("test-value", legacyKey);
+      writeV1Store(STORE_PATH, salt, entries);
+
+      // Pre-write store.key (simulating partial migration)
+      const preKey = randomBytes(32);
+      writeFileSync(STORE_KEY_PATH, preKey, { mode: 0o600 });
+
+      // Migration should complete using the existing store.key
+      const val = getKey("test-key");
+      expect(val).toBe("test-value");
+
+      // Verify the store.key was reused (not regenerated)
+      const afterKey = readFileSync(STORE_KEY_PATH);
+      expect(afterKey.equals(preKey)).toBe(true);
+
+      // Store should now be v2
+      const raw = readFileSync(STORE_PATH, "utf-8");
+      expect(JSON.parse(raw).version).toBe(2);
     });
   });
 
@@ -273,7 +485,9 @@ describe("encrypted-store", () => {
     test("setKey creates directory if missing", () => {
       // Point to a path in a non-existent subdirectory
       const nestedPath = join(TEST_DIR, "sub", "dir", "keys.enc");
+      const nestedKeyPath = join(TEST_DIR, "sub", "dir", "store.key");
       _setStorePath(nestedPath);
+      _setStoreKeyPath(nestedKeyPath);
       const result = setKey("test", "value");
       expect(result).toBe(true);
       expect(getKey("test")).toBe("value");
@@ -311,7 +525,7 @@ describe("encrypted-store", () => {
       setKey("test", "value");
       // Loosen permissions
       chmodSync(STORE_PATH, 0o644);
-      // Write again — should re-enforce 0600
+      // Write again -- should re-enforce 0600
       setKey("test2", "value2");
       const mode = statSync(STORE_PATH).mode & 0o777;
       expect(mode).toBe(0o600);
@@ -352,16 +566,14 @@ describe("encrypted-store", () => {
       expect(getKey("__proto__")).toBeUndefined();
     });
 
-    test("salt is preserved across set operations", () => {
+    test("store.key is reused across set operations", () => {
       setKey("key1", "val1");
-      const raw1 = readFileSync(STORE_PATH, "utf-8");
-      const salt1 = JSON.parse(raw1).salt;
+      const key1 = readFileSync(STORE_KEY_PATH);
 
       setKey("key2", "val2");
-      const raw2 = readFileSync(STORE_PATH, "utf-8");
-      const salt2 = JSON.parse(raw2).salt;
+      const key2 = readFileSync(STORE_KEY_PATH);
 
-      expect(salt1).toBe(salt2);
+      expect(key1.equals(key2)).toBe(true);
     });
   });
 });
