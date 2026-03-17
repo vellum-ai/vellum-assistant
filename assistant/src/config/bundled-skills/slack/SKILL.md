@@ -1,6 +1,6 @@
 ---
 name: slack
-description: Scan channels, summarize threads, and manage Slack with privacy guardrails
+description: Scan channels, summarize threads, and manage Slack
 compatibility: "Designed for Vellum personal assistants"
 metadata:
   emoji: "💬"
