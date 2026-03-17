@@ -35,7 +35,7 @@ const CK_LAST_GEN_AT = "thread_starters:last_gen_at";
 
 // ── Rollup construction ───────────────────────────────────────────
 
-function buildMemoryRollup(scopeId: string): string {
+export function buildMemoryRollup(scopeId: string): string {
   const db = getDb();
   const items = db
     .select({
@@ -102,7 +102,7 @@ function buildNewItemsDiff(scopeId: string): string {
   );
 }
 
-function buildSkillsSummary(): string {
+export function buildSkillsSummary(): string {
   try {
     const catalog = loadSkillCatalog();
     if (catalog.length === 0) return "";

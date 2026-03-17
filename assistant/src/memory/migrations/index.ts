@@ -112,6 +112,7 @@ export { migrateRenameSequenceEnrollmentsThreadIdColumn } from "./167-rename-seq
 export { migrateRenameSequenceStepsReplyKey } from "./168-rename-sequence-steps-reply-key.js";
 export { migrateRenameGmailProviderKeyToGoogle } from "./169-rename-gmail-provider-key-to-google.js";
 export { migrateCreateThreadStartersTable } from "./170-thread-starters-table.js";
+export { migrateCapabilityCardColumns } from "./171-capability-card-columns.js";
 export {
   MIGRATION_REGISTRY,
   type MigrationRegistryEntry,
