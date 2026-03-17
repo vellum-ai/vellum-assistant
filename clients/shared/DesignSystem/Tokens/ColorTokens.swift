@@ -166,7 +166,6 @@ public enum VSemanticColorToken: String, CaseIterable {
     case surfaceOverlay
     case surfaceActive
     case surfaceLift
-    case surfaceRaised
 
     case borderDisabled
     case borderBase
@@ -280,7 +279,6 @@ public enum VColor {
         .surfaceOverlay: .init(lightHex: "#F5F3EB", darkHex: "#20201E"),
         .surfaceActive: .init(lightHex: "#D4D1C1", darkHex: "#3A3A37"),
         .surfaceLift: .init(lightHex: "#FFFFFF", darkHex: "#000000"),
-        .surfaceRaised: .init(lightHex: "#FFFFFF", darkHex: "#3A3A37"),
 
         .borderDisabled: .init(lightHex: "#D4D1C1", darkHex: "#3A3A37"),
         .borderBase: .init(lightHex: "#BDB9A9", darkHex: "#4A4A46"),
@@ -317,7 +315,6 @@ public enum VColor {
     public static let surfaceOverlay = adaptiveColor(light: FigmaRawColor.surfaceLightOverlay, dark: FigmaRawColor.surfaceDarkOverlay)
     public static let surfaceActive = adaptiveColor(light: FigmaRawColor.surfaceLightActive, dark: FigmaRawColor.surfaceDarkActive)
     public static let surfaceLift = adaptiveColor(light: FigmaRawColor.surfaceLightLift, dark: FigmaRawColor.surfaceDarkLift)
-    public static let surfaceRaised = adaptiveColor(light: FigmaRawColor.surfaceLightLift, dark: FigmaRawColor.surfaceDarkActive)
 
     // Border
     public static let borderDisabled = adaptiveColor(light: FigmaRawColor.borderLightDisabled, dark: FigmaRawColor.borderDarkDisabled)
