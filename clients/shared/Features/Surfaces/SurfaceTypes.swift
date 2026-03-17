@@ -967,6 +967,12 @@ public extension Surface {
             return TableColumn(id: id, label: label, width: colDict["width"] as? Int)
         }
 
+        let selectionModeStr = dict["selectionMode"] as? String ?? "none"
+        let selectionMode = SelectionMode(rawValue: selectionModeStr) ?? .none
+
+        // When selectionMode is active, rows default to selectable unless explicitly opted out.
+        let defaultSelectable = selectionMode != .none
+
         let rows: [TableRow] = rowsArray.compactMap { rowDict in
             guard let id = rowDict["id"] as? String,
                   let cellsRaw = rowDict["cells"] as? [String: Any?] else { return nil }
@@ -980,13 +986,10 @@ public extension Surface {
             return TableRow(
                 id: id,
                 cells: cells,
-                selectable: rowDict["selectable"] as? Bool ?? false,
+                selectable: rowDict["selectable"] as? Bool ?? defaultSelectable,
                 selected: rowDict["selected"] as? Bool ?? false
             )
         }
-
-        let selectionModeStr = dict["selectionMode"] as? String ?? "none"
-        let selectionMode = SelectionMode(rawValue: selectionModeStr) ?? .none
         let caption = dict["caption"] as? String
 
         return TableSurfaceData(columns: columns, rows: rows, selectionMode: selectionMode, caption: caption)
@@ -1001,6 +1004,16 @@ public extension Surface {
                 return TableColumn(id: id, label: label, width: colDict["width"] as? Int)
             }
         }
+
+        let selectionMode: SelectionMode
+        if let modeStr = update["selectionMode"] as? String,
+           let mode = SelectionMode(rawValue: modeStr) {
+            selectionMode = mode
+        } else {
+            selectionMode = existing.selectionMode
+        }
+
+        let defaultSelectable = selectionMode != .none
 
         var rows = existing.rows
         if let rowsArray = update["rows"] as? [[String: Any?]] {
@@ -1017,18 +1030,10 @@ public extension Surface {
                 return TableRow(
                     id: id,
                     cells: cells,
-                    selectable: rowDict["selectable"] as? Bool ?? false,
+                    selectable: rowDict["selectable"] as? Bool ?? defaultSelectable,
                     selected: rowDict["selected"] as? Bool ?? false
                 )
             }
-        }
-
-        let selectionMode: SelectionMode
-        if let modeStr = update["selectionMode"] as? String,
-           let mode = SelectionMode(rawValue: modeStr) {
-            selectionMode = mode
-        } else {
-            selectionMode = existing.selectionMode
         }
 
         let caption: String? = update.keys.contains("caption")
