@@ -12,6 +12,7 @@ struct ImageGenerationServiceCard: View {
     @ObservedObject var store: SettingsStore
     var authManager: AuthManager
     @Binding var apiKeyText: String
+    var showToast: ((String, ToastInfo.Style) -> Void)?
 
     /// Local draft of the mode selection — only persisted on Save.
     @State private var draftMode: String = "your-own"
@@ -105,7 +106,11 @@ struct ImageGenerationServiceCard: View {
                 isDisabled: authManager.isSubmitting
             ) {
                 Task {
-                    await authManager.startWorkOSLogin()
+                    if let showToast {
+                        await authManager.loginWithToast(showToast: showToast)
+                    } else {
+                        await authManager.startWorkOSLogin()
+                    }
                 }
             }
         }

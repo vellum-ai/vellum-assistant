@@ -25,7 +25,7 @@ extension MainWindowView {
         case .chat:
             chatView
         case .settings:
-            SettingsPanel(onClose: { windowState.selection = nil }, store: settingsStore, daemonClient: daemonClient, conversationManager: conversationManager, authManager: authManager)
+            SettingsPanel(onClose: { windowState.selection = nil }, store: settingsStore, daemonClient: daemonClient, conversationManager: conversationManager, authManager: authManager, showToast: { msg, style in windowState.showToast(message: msg, style: style) })
         case .debug:
             DebugPanel(
                 traceStore: traceStore,
@@ -406,7 +406,7 @@ extension MainWindowView {
     func fullWindowPanel(_ panel: SidePanelType) -> some View {
         switch panel {
         case .settings:
-            SettingsPanel(onClose: { windowState.dismissOverlay() }, store: settingsStore, daemonClient: daemonClient, conversationManager: conversationManager, authManager: authManager)
+            SettingsPanel(onClose: { windowState.dismissOverlay() }, store: settingsStore, daemonClient: daemonClient, conversationManager: conversationManager, authManager: authManager, showToast: { msg, style in windowState.showToast(message: msg, style: style) })
         case .debug:
             DebugPanel(
                 traceStore: traceStore,
