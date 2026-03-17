@@ -30,6 +30,7 @@ mock.module("../util/logger.js", () => ({
 import { getSqlite, initializeDb, resetDb } from "../memory/db.js";
 import {
   conversationStarterRouteDefinitions,
+  orderCardsForHero,
   orderStrongestFirst,
 } from "../runtime/routes/conversation-starter-routes.js";
 
@@ -67,6 +68,7 @@ function clearTables() {
   getSqlite().run("DELETE FROM memory_items");
   getSqlite().run("DELETE FROM memory_jobs");
   getSqlite().run("DELETE FROM memory_checkpoints");
+  getSqlite().run("DELETE FROM capability_card_categories");
 }
 
 function insertStarter(overrides: {
@@ -320,5 +322,249 @@ describe("orderStrongestFirst", () => {
 
     // All three distinct categories should appear in the top 3
     expect(uniqueTop.size).toBe(3);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// orderCardsForHero unit tests
+// ---------------------------------------------------------------------------
+
+describe("orderCardsForHero", () => {
+  function makeCard(
+    label: string,
+    category: string,
+    opts: { highPriority?: boolean; batch?: number } = {},
+  ) {
+    const tags: string[] = [];
+    if (opts.highPriority) tags.push("__high_priority__");
+    tags.push("Quick win");
+    return {
+      id: uuid(),
+      icon: "lucide-sparkles",
+      label,
+      description: `desc for ${label}`,
+      prompt: `prompt for ${label}`,
+      category,
+      tags: tags.join(","),
+      batch: opts.batch ?? 1,
+    };
+  }
+
+  test("returns empty array for empty input", () => {
+    expect(orderCardsForHero([], new Map())).toEqual([]);
+  });
+
+  test("returns single card unchanged", () => {
+    const card = makeCard("A", "development");
+    expect(orderCardsForHero([card], new Map())).toEqual([card]);
+  });
+
+  test("high_priority cards come first", () => {
+    const normal = makeCard("Normal", "development");
+    const priority = makeCard("Priority", "media", { highPriority: true });
+
+    const ordered = orderCardsForHero([normal, priority], new Map());
+    expect(ordered[0].label).toBe("Priority");
+    expect(ordered[1].label).toBe("Normal");
+  });
+
+  test("contextual cluster beats active_work and discovery", () => {
+    const discovery = makeCard("Discovery", "media");
+    const activeWork = makeCard("Active", "development");
+    const contextual = makeCard("Contextual", "communication");
+
+    const ordered = orderCardsForHero(
+      [discovery, activeWork, contextual],
+      new Map(),
+    );
+    expect(ordered[0].label).toBe("Contextual");
+    expect(ordered[1].label).toBe("Active");
+    expect(ordered[2].label).toBe("Discovery");
+  });
+
+  test("higher category relevance wins within same cluster", () => {
+    const lowRel = makeCard("Low", "media");
+    const highRel = makeCard("High", "automation");
+
+    const relevance = new Map([
+      ["media", 0.7],
+      ["automation", 0.95],
+    ]);
+
+    const ordered = orderCardsForHero([lowRel, highRel], relevance);
+    // Both are discovery cluster — automation has higher relevance
+    expect(ordered[0].label).toBe("High");
+    expect(ordered[1].label).toBe("Low");
+  });
+
+  test("high_priority overrides cluster precedence", () => {
+    const contextual = makeCard("Contextual", "communication");
+    const priorityDiscovery = makeCard("Priority Discovery", "media", {
+      highPriority: true,
+    });
+
+    const ordered = orderCardsForHero(
+      [contextual, priorityDiscovery],
+      new Map(),
+    );
+    // high_priority takes precedence over cluster
+    expect(ordered[0].label).toBe("Priority Discovery");
+    expect(ordered[1].label).toBe("Contextual");
+  });
+
+  test("produces deterministic output for same input", () => {
+    const cards = [
+      makeCard("A", "development"),
+      makeCard("B", "communication"),
+      makeCard("C", "media", { highPriority: true }),
+      makeCard("D", "productivity"),
+    ];
+
+    const relevance = new Map([
+      ["development", 0.9],
+      ["communication", 0.8],
+    ]);
+
+    const run1 = orderCardsForHero([...cards], relevance);
+    const run2 = orderCardsForHero([...cards], relevance);
+    expect(run1.map((c) => c.label)).toEqual(run2.map((c) => c.label));
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Card route integration tests
+// ---------------------------------------------------------------------------
+
+function insertCard(overrides: {
+  label: string;
+  prompt: string;
+  category: string;
+  tags?: string;
+  batch?: number;
+  scopeId?: string;
+  createdAt?: number;
+}) {
+  const now = Date.now();
+  getSqlite().run(
+    `INSERT INTO conversation_starters (id, label, prompt, category, generation_batch, scope_id, card_type, tags, icon, description, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, 'card', ?, 'lucide-sparkles', 'desc', ?)`,
+    uuid(),
+    overrides.label,
+    overrides.prompt,
+    overrides.category,
+    overrides.batch ?? 1,
+    overrides.scopeId ?? "default",
+    overrides.tags ?? "Quick win",
+    overrides.createdAt ?? now,
+  );
+}
+
+function insertCategoryRelevance(
+  category: string,
+  relevance: number,
+  scopeId = "default",
+) {
+  getSqlite().run(
+    `INSERT OR REPLACE INTO capability_card_categories (scope_id, category, relevance, generation_batch, created_at)
+     VALUES (?, ?, ?, 1, ?)`,
+    scopeId,
+    category,
+    relevance,
+    Date.now(),
+  );
+}
+
+describe("GET /v1/conversation-starters?card_type=card", () => {
+  test("returns cards with tags as arrays and strips internal tags", async () => {
+    insertCard({
+      label: "Clear inbox",
+      prompt: "Help me clear my inbox",
+      category: "communication",
+      tags: "__high_priority__,Quick win,2 min",
+    });
+
+    const res = await dispatch("conversation-starters?card_type=card");
+    const body = (await res.json()) as {
+      cards: Array<{ label: string; tags: string[] }>;
+      status: string;
+    };
+
+    expect(res.status).toBe(200);
+    expect(body.cards).toHaveLength(1);
+    // Internal __high_priority__ tag should be stripped
+    expect(body.cards[0].tags).toEqual(["Quick win", "2 min"]);
+    expect(body.cards[0].tags).not.toContain("__high_priority__");
+  });
+
+  test("orders cards with high_priority first", async () => {
+    const now = Date.now();
+    insertCard({
+      label: "Normal card",
+      prompt: "p1",
+      category: "development",
+      tags: "High leverage",
+      createdAt: now + 2,
+    });
+    insertCard({
+      label: "Priority card",
+      prompt: "p2",
+      category: "media",
+      tags: "__high_priority__,Quick win",
+      createdAt: now + 1,
+    });
+    insertCategoryRelevance("development", 0.9);
+    insertCategoryRelevance("media", 0.7);
+
+    const res = await dispatch("conversation-starters?card_type=card");
+    const body = (await res.json()) as {
+      cards: Array<{ label: string }>;
+    };
+
+    expect(body.cards[0].label).toBe("Priority card");
+    expect(body.cards[1].label).toBe("Normal card");
+  });
+
+  test("orders by cluster precedence when no high_priority", async () => {
+    const now = Date.now();
+    insertCard({
+      label: "Discovery card",
+      prompt: "p1",
+      category: "media",
+      createdAt: now + 3,
+    });
+    insertCard({
+      label: "Active work card",
+      prompt: "p2",
+      category: "development",
+      createdAt: now + 2,
+    });
+    insertCard({
+      label: "Contextual card",
+      prompt: "p3",
+      category: "communication",
+      createdAt: now + 1,
+    });
+
+    const res = await dispatch("conversation-starters?card_type=card");
+    const body = (await res.json()) as {
+      cards: Array<{ label: string; category: string }>;
+    };
+
+    // contextual > active_work > discovery
+    expect(body.cards[0].label).toBe("Contextual card");
+    expect(body.cards[1].label).toBe("Active work card");
+    expect(body.cards[2].label).toBe("Discovery card");
+  });
+
+  test("returns empty status when no memory items", async () => {
+    const res = await dispatch("conversation-starters?card_type=card");
+    const body = (await res.json()) as {
+      cards: unknown[];
+      total: number;
+      status: string;
+    };
+
+    expect(body.status).toBe("empty");
+    expect(body.cards).toHaveLength(0);
   });
 });

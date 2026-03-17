@@ -7,7 +7,11 @@
 import { and, desc, eq, inArray, like } from "drizzle-orm";
 
 import { getDb } from "../../memory/db.js";
-import { CAPABILITY_CARD_CATEGORIES } from "../../memory/job-handlers/capability-cards.js";
+import {
+  CAPABILITY_CARD_CATEGORIES,
+  type CardCluster,
+  CLUSTER_PRECEDENCE,
+} from "../../memory/job-handlers/capability-cards.js";
 import { enqueueMemoryJob } from "../../memory/jobs-store.js";
 import { rawAll, rawGet } from "../../memory/raw-query.js";
 import {
@@ -93,6 +97,88 @@ export function orderStrongestFirst<T extends StarterItem>(items: T[]): T[] {
   }
 
   return result;
+}
+
+// ---------------------------------------------------------------------------
+// Hero-candidate ordering for capability cards
+// ---------------------------------------------------------------------------
+
+/** Sentinel tag stored by the card generator to signal priority. */
+const HIGH_PRIORITY_TAG = "__high_priority__";
+
+/** Map categories to their cluster for precedence lookup. */
+const CATEGORY_TO_CLUSTER: Record<string, CardCluster> = {
+  communication: "contextual",
+  productivity: "active_work",
+  development: "active_work",
+  media: "discovery",
+  automation: "discovery",
+  web_social: "discovery",
+  integration: "discovery",
+};
+
+interface CardItem {
+  id: string;
+  icon: string | null;
+  label: string;
+  description: string | null;
+  prompt: string;
+  category: string | null;
+  tags: string | null;
+  batch: number;
+}
+
+/**
+ * Order capability cards so the first card is a stable hero candidate.
+ *
+ * Ordering signals (applied in priority order):
+ * 1. high_priority cards come first (concrete why-now moments)
+ * 2. Cluster precedence: contextual > active_work > discovery
+ * 3. Category relevance from capability_card_categories table
+ * 4. Model order preserved within each group (strongest-first from generation)
+ */
+export function orderCardsForHero(
+  cards: CardItem[],
+  categoryRelevance: Map<string, number>,
+): CardItem[] {
+  if (cards.length <= 1) return cards;
+
+  const clusterIndex = new Map(CLUSTER_PRECEDENCE.map((c, i) => [c, i]));
+
+  return [...cards].sort((a, b) => {
+    // 1. high_priority first
+    const aHigh = a.tags?.includes(HIGH_PRIORITY_TAG) ? 1 : 0;
+    const bHigh = b.tags?.includes(HIGH_PRIORITY_TAG) ? 1 : 0;
+    if (aHigh !== bHigh) return bHigh - aHigh;
+
+    // 2. Cluster precedence
+    const aCluster =
+      clusterIndex.get(CATEGORY_TO_CLUSTER[a.category ?? ""] ?? "discovery") ??
+      2;
+    const bCluster =
+      clusterIndex.get(CATEGORY_TO_CLUSTER[b.category ?? ""] ?? "discovery") ??
+      2;
+    if (aCluster !== bCluster) return aCluster - bCluster;
+
+    // 3. Category relevance (higher is better)
+    const aRel = categoryRelevance.get(a.category ?? "") ?? 0;
+    const bRel = categoryRelevance.get(b.category ?? "") ?? 0;
+    if (aRel !== bRel) return bRel - aRel;
+
+    // 4. Preserve model order (already sorted by batch desc, createdAt desc)
+    return 0;
+  });
+}
+
+/**
+ * Strip the internal high_priority sentinel from the tags string before
+ * returning cards to clients.
+ */
+function stripInternalTags(tagsStr: string | null): string[] {
+  if (!tagsStr) return [];
+  return tagsStr
+    .split(",")
+    .filter((t) => t !== HIGH_PRIORITY_TAG && t.length > 0);
 }
 
 // ---------------------------------------------------------------------------
@@ -206,7 +292,8 @@ function handleListCapabilityCards(url: URL): Response {
     conditions.push(eq(conversationStarters.category, categoryFilter));
   }
 
-  const cards = db
+  // Fetch more than limit so ordering can surface the best hero candidates
+  const rawCards = db
     .select({
       id: conversationStarters.id,
       icon: conversationStarters.icon,
@@ -223,13 +310,32 @@ function handleListCapabilityCards(url: URL): Response {
       desc(conversationStarters.generationBatch),
       desc(conversationStarters.createdAt),
     )
-    .limit(limitParam)
+    .limit(Math.max(limitParam, 50))
     .all();
 
-  // Transform tags from comma-separated string to array
-  const transformedCards = cards.map((c) => ({
+  // Build category relevance map for ordering
+  const relevanceRows = db
+    .select({
+      category: capabilityCardCategories.category,
+      relevance: capabilityCardCategories.relevance,
+    })
+    .from(capabilityCardCategories)
+    .where(eq(capabilityCardCategories.scopeId, scopeId))
+    .all();
+  const categoryRelevance = new Map(
+    relevanceRows.map((r) => [r.category, r.relevance]),
+  );
+
+  // Apply hero-candidate ordering, then limit
+  const orderedCards = orderCardsForHero(rawCards, categoryRelevance).slice(
+    0,
+    limitParam,
+  );
+
+  // Transform tags: strip internal sentinels, split to array
+  const transformedCards = orderedCards.map((c) => ({
     ...c,
-    tags: c.tags ? c.tags.split(",").filter(Boolean) : [],
+    tags: stripInternalTags(c.tags),
   }));
 
   // Build per-category status map

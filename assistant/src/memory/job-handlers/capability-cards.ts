@@ -32,7 +32,7 @@ import {
 
 const log = getLogger("capability-cards-gen");
 
-/** Capability categories for the feed (knowledge dropped — not actionable). */
+/** Capability categories for the feed. */
 export const CAPABILITY_CARD_CATEGORIES = [
   "communication",
   "productivity",
@@ -61,6 +61,44 @@ const CATEGORY_DESCRIPTIONS: Record<CapabilityCardCategory, string> = {
   integration:
     "Third-party services, APIs, syncing data across tools, connecting services",
 };
+
+/**
+ * Internal clusters that guide card generation intent. Categories map to one
+ * of these clusters to shape copy tone and priority signals.
+ */
+export type CardCluster = "contextual" | "active_work" | "discovery";
+
+export const CATEGORY_CLUSTER: Record<CapabilityCardCategory, CardCluster> = {
+  communication: "contextual",
+  productivity: "active_work",
+  development: "active_work",
+  media: "discovery",
+  automation: "discovery",
+  web_social: "discovery",
+  integration: "discovery",
+};
+
+/** Cluster precedence — lower index = higher hero-candidate priority. */
+export const CLUSTER_PRECEDENCE: CardCluster[] = [
+  "contextual",
+  "active_work",
+  "discovery",
+];
+
+/**
+ * Allowed action-value tags. The LLM must choose from this set instead of
+ * tool/integration taxonomy labels.
+ */
+const ACTION_VALUE_TAGS = [
+  "Quick win",
+  "Most useful tonight",
+  "Unblocks tomorrow",
+  "High leverage",
+  "Work",
+  "Personal",
+  "2 min",
+  "5 min",
+] as const;
 
 /**
  * Curated subset of VIcon names the LLM can choose from, organized by
@@ -130,11 +168,24 @@ interface GeneratedCard {
   description: string;
   prompt: string;
   tags: string[];
+  high_priority: boolean;
 }
 
 interface GenerationResult {
   relevance: number;
   cards: GeneratedCard[];
+}
+
+/** Cluster-specific prompt guidance for outcome-first copy generation. */
+function buildClusterPrompt(cluster: CardCluster): string {
+  switch (cluster) {
+    case "contextual":
+      return "These cards address something happening right now — an unread message, an upcoming meeting, a recent notification. Emphasize timeliness and the relief of handling it. high_priority is appropriate here when there is a clear deadline or unread item.";
+    case "active_work":
+      return "These cards relate to work the user is actively doing — open PRs, in-progress tasks, ongoing projects. Emphasize momentum and getting unblocked. high_priority is appropriate only if there is a concrete blocker or imminent deadline.";
+    case "discovery":
+      return "These cards surface capabilities the user might not know about or hasn't tried yet. Emphasize the payoff and how little effort it takes. high_priority should almost never be true for discovery cards.";
+  }
 }
 
 async function generateCardsForCategory(
@@ -154,6 +205,7 @@ async function generateCardsForCategory(
   }
 
   const skills = buildSkillsSummary();
+  const cluster = CATEGORY_CLUSTER[category];
   const icons = ICON_PALETTE[category] ?? [];
   const allIcons = [
     ...icons,
@@ -165,26 +217,30 @@ async function generateCardsForCategory(
     "lucide-briefcase",
   ];
 
-  const systemPrompt = `You are generating capability cards for a personal AI assistant's new conversation page. These cards showcase what the assistant can do, personalized to the user's context.
+  const clusterGuidance = buildClusterPrompt(cluster);
+
+  const systemPrompt = `You are generating action-concierge cards for a personal AI assistant. Each card should read like a service the user would want — outcome-first, emphasizing what they get, not what the system does internally.
 
 You are generating cards for the "${category}" category: ${CATEGORY_DESCRIPTIONS[category]}.
+Cluster intent: ${cluster} — ${clusterGuidance}
 
 Given the user's memories below, do two things:
 1. Assess how relevant this category is to this user (0.0–1.0). A score of 0.7+ means the user has clear context that makes this category actionable. Score lower if the user's memories have little relation to this category.
-2. If relevant (0.7+), generate 2–3 capability cards that cross the user's context with what the assistant can do in this area.
+2. If relevant (0.7+), generate 2–3 cards ordered strongest-first (the card you're most confident delivers value should come first).
 
 For each card, provide:
 - icon: One of these Lucide icon names: ${allIcons.join(", ")}
-- title: Action-oriented, verb-first, max 50 chars (e.g., "Triage your inbox", "Debug the auth middleware")
-- description: One line explaining the outcome, personalized to the user's context, max 120 chars
+- title: Outcome-first, user-desire-oriented, max 50 chars. Frame as what the user gets, not what the tool does. Good: "Clear your inbox before standup", "Unblock the auth PR". Bad: "Run email triage", "Check PR status".
+- description: One line explaining the concrete payoff, personalized to the user's context, max 120 chars
 - prompt: The full message that will be sent when clicked (1-2 natural sentences, as if the user typed it)
-- tags: 1-3 short labels for integrations/tools involved (e.g., "Gmail", "Calendar", "Linear")
+- tags: 1-2 action-value labels from this list ONLY: ${ACTION_VALUE_TAGS.join(", ")}. Choose labels that signal urgency, payoff, or effort — never use tool or integration names as tags.
+- high_priority: true ONLY if there is a concrete why-now moment (e.g., a meeting in the next few hours, an unread thread from today, a deploy deadline). Do not mark cards as high_priority for general usefulness.
 
 Rules:
 - Be specific to THIS user — generic suggestions are not useful.
-- Titles should be concise and scannable, starting with a verb.
+- Cards should feel like services the user would want, not internal task tickets.
+- Return cards strongest-first — the first card should be the most compelling.
 - Prompts should be natural, as if the user typed them.
-- Tags should reference actual tools/services relevant to the suggestion.
 - If relevance is below 0.7, you may return an empty cards array.
 
 ${rollup}
@@ -237,10 +293,23 @@ ${skills}`;
                     tags: {
                       type: "array",
                       items: { type: "string" },
-                      description: "1-3 integration/tool tags",
+                      description:
+                        "1-2 action-value labels from the allowed set",
+                    },
+                    high_priority: {
+                      type: "boolean",
+                      description:
+                        "true only for concrete why-now moments, false otherwise",
                     },
                   },
-                  required: ["icon", "title", "description", "prompt", "tags"],
+                  required: [
+                    "icon",
+                    "title",
+                    "description",
+                    "prompt",
+                    "tags",
+                    "high_priority",
+                  ],
                 },
               },
             },
@@ -283,6 +352,8 @@ ${skills}`;
       return { relevance, cards: [] };
     }
 
+    // Preserve model order (strongest-first) and cap visible tags at 2
+    const allowedTags = new Set<string>(ACTION_VALUE_TAGS);
     const cards = input.cards
       .filter(
         (c) =>
@@ -300,8 +371,13 @@ ${skills}`;
         description: truncate(c.description ?? "", 120, ""),
         prompt: truncate(c.prompt, 500, ""),
         tags: Array.isArray(c.tags)
-          ? c.tags.filter((t): t is string => typeof t === "string").slice(0, 3)
+          ? c.tags
+              .filter(
+                (t): t is string => typeof t === "string" && allowedTags.has(t),
+              )
+              .slice(0, 2)
           : [],
+        high_priority: c.high_priority === true,
       }));
 
     return { relevance, cards };
@@ -377,8 +453,13 @@ export async function generateCapabilityCardsJob(
     )
     .run();
 
-  // Insert new cards
+  // Insert new cards — encode high_priority as a tag prefix so the route
+  // layer can read the signal without a schema migration.
   for (const card of result.cards) {
+    const tagParts = [...card.tags];
+    if (card.high_priority) {
+      tagParts.unshift("__high_priority__");
+    }
     db.insert(conversationStarters)
       .values({
         id: uuid(),
@@ -386,7 +467,7 @@ export async function generateCapabilityCardsJob(
         prompt: card.prompt,
         icon: card.icon,
         description: card.description,
-        tags: card.tags.join(","),
+        tags: tagParts.join(","),
         category,
         cardType: "card",
         generationBatch: nextBatch,
