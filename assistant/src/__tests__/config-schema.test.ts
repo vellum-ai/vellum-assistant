@@ -96,7 +96,9 @@ describe("AssistantConfigSchema", () => {
       "gemini-3.1-flash-image-preview",
     );
     expect(result.services["image-generation"].mode).toBe("your-own");
-    expect(result.services["web-search"].provider).toBe("inference-provider-native");
+    expect(result.services["web-search"].provider).toBe(
+      "inference-provider-native",
+    );
     expect(result.services["web-search"].mode).toBe("your-own");
     expect(result.maxTokens).toBe(16000);
     expect(result.thinking).toEqual({

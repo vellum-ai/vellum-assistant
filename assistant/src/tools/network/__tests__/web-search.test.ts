@@ -383,8 +383,8 @@ describe("web_search tool", () => {
     expect(capturedUrl).toContain("perplexity");
   });
 
-  test("maps anthropic-native to perplexity", async () => {
-    mockWebSearchProvider = "anthropic-native";
+  test("maps inference-provider-native to perplexity", async () => {
+    mockWebSearchProvider = "inference-provider-native";
     mockPerplexitySecureKey = "pplx-key";
     let capturedUrl = "";
     globalThis.fetch = (async (url: string) => {

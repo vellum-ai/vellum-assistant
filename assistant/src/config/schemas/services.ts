@@ -17,7 +17,6 @@ export const VALID_IMAGE_GEN_PROVIDERS = ["gemini", "openai"] as const;
 export const VALID_WEB_SEARCH_PROVIDERS = [
   "perplexity",
   "brave",
-  "anthropic-native",
   "inference-provider-native",
 ] as const;
 

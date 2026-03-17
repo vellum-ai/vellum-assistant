@@ -91,7 +91,7 @@ mock.module("../config/loader.js", () => ({
         provider: "gemini",
         model: "gemini-3.1-flash-image-preview",
       },
-      "web-search": { mode: "your-own", provider: "anthropic-native" },
+      "web-search": { mode: "your-own", provider: "inference-provider-native" },
     },
   }),
   loadRawConfig: () => ({}),
