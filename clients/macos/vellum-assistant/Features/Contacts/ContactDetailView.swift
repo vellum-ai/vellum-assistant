@@ -21,6 +21,7 @@ struct ContactDetailView: View {
     @State var errorMessage: String?
     @State private var editedName = ""
     @State private var editedNotes = ""
+    @FocusState private var isNameFocused: Bool
     @State private var isSaving = false
     @State private var verificationInProgress: String?
     @State private var verificationSuccessChannelId: String?
@@ -143,8 +144,14 @@ struct ContactDetailView: View {
         .onAppear {
             // Leave name empty for placeholder contacts so the placeholder text shows
             let name = displayContact.displayName
-            editedName = (name == "New Contact") ? "" : name
+            let isNewContact = name == "New Contact"
+            editedName = isNewContact ? "" : name
             editedNotes = displayContact.notes ?? ""
+            if isNewContact {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                    isNameFocused = true
+                }
+            }
         }
     }
 
@@ -169,6 +176,7 @@ struct ContactDetailView: View {
                     .font(VFont.inputLabel)
                     .foregroundColor(VColor.contentSecondary)
                 VTextField(placeholder: "Give this human a name", text: $editedName)
+                    .focused($isNameFocused)
             }
 
             VStack(alignment: .leading, spacing: VSpacing.xs) {
@@ -198,7 +206,7 @@ struct ContactDetailView: View {
 
     private var headerActions: some View {
         HStack(spacing: VSpacing.sm) {
-            VButton(label: "Save", style: .primary, isDisabled: isSaving) {
+            VButton(label: "Save", style: .primary, isDisabled: isSaving || editedName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty) {
                 Task { await saveCardEdits() }
             }
             VButton(label: "Delete Contact", style: .danger, isDisabled: isDeleting || actionInProgress != nil || verificationInProgress != nil) {
