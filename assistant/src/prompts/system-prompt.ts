@@ -379,10 +379,12 @@ export function buildCoreIdentityContext(): string | null {
   const parts: string[] = [];
   for (const file of PROMPT_FILES) {
     const content = readPromptFile(getWorkspacePromptPath(file));
-    // Skip template files — see the matching guard in buildSystemPrompt().
-    if (content && !isTemplateContent(content, file)) {
-      parts.push(content);
-    }
+    if (!content) continue;
+    // SOUL.md is always included — it provides personality defaults even
+    // before onboarding completes.  Only skip IDENTITY.md and USER.md when
+    // they are still unmodified templates (matching buildSystemPrompt).
+    if (file !== "SOUL.md" && isTemplateContent(content, file)) continue;
+    parts.push(content);
   }
   return parts.length > 0 ? parts.join("\n\n") : null;
 }
