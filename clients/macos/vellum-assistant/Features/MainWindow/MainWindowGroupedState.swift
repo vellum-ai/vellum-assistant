@@ -49,7 +49,13 @@ final class SidebarInteractionState {
     /// Updates conversation hover state and clears stale pending-deletion when hover
     /// moves to a different conversation. Centralises the invariant so callers don't
     /// need to coordinate.
+    ///
+    /// During an active drag, hover updates are suppressed to avoid triggering
+    /// icon-swap animations and unnecessary re-renders across sibling rows.
     func setConversationHover(conversationId: UUID?, hovering: Bool) {
+        // Suppress hover changes while dragging to prevent visual jank.
+        if draggingConversationId != nil { return }
+
         if hovering {
             // Moving to a new conversation clears pending archive of the old one
             if let pending = conversationPendingDeletion, pending != conversationId {
