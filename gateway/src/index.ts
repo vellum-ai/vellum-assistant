@@ -840,7 +840,7 @@ async function main() {
         // know the full stack is ready, not just the gateway process.
         try {
           const upstream = await fetch(
-            `${config.assistantRuntimeBaseUrl}/v1/health`,
+            `${config.assistantRuntimeBaseUrl}/healthz`,
             { signal: AbortSignal.timeout(3000) },
           );
           if (!upstream.ok) {

@@ -764,7 +764,15 @@ async function waitForGatewayAndLease(opts: {
         ready = true;
         break;
       }
-      log(`Readiness check: ${resp.status} (retrying...)`);
+      const body = await resp.text();
+      let detail = "";
+      try {
+        const json = JSON.parse(body);
+        const parts = [json.status];
+        if (json.upstream != null) parts.push(`upstream=${json.upstream}`);
+        detail = ` — ${parts.join(", ")}`;
+      } catch {}
+      log(`Readiness check: ${resp.status}${detail} (retrying...)`);
     } catch {
       // Connection refused / timeout — not up yet
     }
