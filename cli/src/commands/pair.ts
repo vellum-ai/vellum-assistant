@@ -7,6 +7,8 @@ import { PNG } from "pngjs";
 import { saveAssistantEntry } from "../lib/assistant-config";
 import type { AssistantEntry } from "../lib/assistant-config";
 import type { Species } from "../lib/constants";
+import { saveGuardianToken } from "../lib/guardian-token";
+import type { GuardianTokenData } from "../lib/guardian-token";
 import { generateInstanceName } from "../lib/random-name";
 
 interface QRPairingPayload {
@@ -168,12 +170,26 @@ export async function pair(): Promise<void> {
     const customEntry: AssistantEntry = {
       assistantId: instanceName,
       runtimeUrl,
-      bearerToken,
       cloud: "custom",
       species,
       hatchedAt: new Date().toISOString(),
     };
     saveAssistantEntry(customEntry);
+
+    if (bearerToken) {
+      const tokenData: GuardianTokenData = {
+        guardianPrincipalId: "",
+        accessToken: bearerToken,
+        accessTokenExpiresAt: "",
+        refreshToken: "",
+        refreshTokenExpiresAt: "",
+        refreshAfter: "",
+        isNew: true,
+        deviceId: getDeviceId(),
+        leasedAt: new Date().toISOString(),
+      };
+      saveGuardianToken(instanceName, tokenData);
+    }
 
     console.log("");
     console.log("Successfully paired with remote assistant!");

@@ -6,6 +6,7 @@ import {
   loadAllAssistants,
   type AssistantEntry,
 } from "../lib/assistant-config";
+import { loadGuardianToken } from "../lib/guardian-token";
 import { checkHealth, checkManagedHealth } from "../lib/health-check";
 import { dockerResourceNames } from "../lib/docker";
 import {
@@ -420,12 +421,14 @@ async function listAllAssistants(): Promise<void> {
         if (!state || state !== "running") {
           health = { status: "sleeping", detail: null };
         } else {
-          health = await checkHealth(a.localUrl ?? a.runtimeUrl, a.bearerToken);
+          const token = a.bearerToken ?? loadGuardianToken(a.assistantId)?.accessToken;
+          health = await checkHealth(a.localUrl ?? a.runtimeUrl, token);
         }
       } else if (a.cloud === "vellum") {
         health = await checkManagedHealth(a.runtimeUrl, a.assistantId);
       } else {
-        health = await checkHealth(a.localUrl ?? a.runtimeUrl, a.bearerToken);
+        const token = a.bearerToken ?? loadGuardianToken(a.assistantId)?.accessToken;
+        health = await checkHealth(a.localUrl ?? a.runtimeUrl, token);
       }
 
       const infoParts = [a.runtimeUrl];
