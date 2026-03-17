@@ -151,6 +151,12 @@ export function conversationManagementRouteDefinitions(
             targetId: itemId,
           });
         }
+        for (const summaryId of result.deletedSummaryIds) {
+          enqueueMemoryJob("delete_qdrant_vectors", {
+            targetType: "summary",
+            targetId: summaryId,
+          });
+        }
         log.info(
           {
             conversationId: resolvedId,
