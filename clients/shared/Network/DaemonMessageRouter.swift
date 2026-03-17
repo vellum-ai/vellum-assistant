@@ -212,20 +212,20 @@ extension DaemonClient {
             onDiagnosticsExportResponse?(msg)
         case .envVarsResponse(let msg):
             onEnvVarsResponse?(msg)
-        case .workItemsListResponse(let msg):
-            onWorkItemsListResponse?(msg)
+        case .workItemsListResponse:
+            break // Handled by WorkItemClient via GatewayHTTPClient.
         case .workItemStatusChanged(let msg):
             onWorkItemStatusChanged?(msg)
         case .tasksChanged(let msg):
             onTasksChanged?(msg)
-        case .workItemDeleteResponse(let msg):
-            onWorkItemDeleteResponse?(msg)
-        case .workItemRunTaskResponse(let msg):
-            onWorkItemRunTaskResponse?(msg)
-        case .workItemOutputResponse(let msg):
-            onWorkItemOutputResponse?(msg)
-        case .workItemUpdateResponse(let msg):
-            onWorkItemUpdateResponse?(msg)
+        case .workItemDeleteResponse:
+            break // Handled by WorkItemClient via GatewayHTTPClient.
+        case .workItemRunTaskResponse:
+            break // Handled by WorkItemClient via GatewayHTTPClient.
+        case .workItemOutputResponse:
+            break // Handled by WorkItemClient via GatewayHTTPClient.
+        case .workItemUpdateResponse:
+            break // Handled by WorkItemClient via GatewayHTTPClient.
         case .workItemPreflightResponse(let msg):
             onWorkItemPreflightResponse?(msg)
         case .workItemApprovePermissionsResponse(let msg):

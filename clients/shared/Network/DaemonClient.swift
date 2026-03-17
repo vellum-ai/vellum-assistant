@@ -447,8 +447,6 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     /// Called when the daemon sends an `env_vars_response` message (debug builds only).
     public var onEnvVarsResponse: ((EnvVarsResponseMessage) -> Void)?
 
-    /// Called when the daemon sends a `work_items_list_response` message.
-    public var onWorkItemsListResponse: ((WorkItemsListResponse) -> Void)?
 
     /// Called when the daemon sends a `work_item_status_changed` broadcast.
     public var onWorkItemStatusChanged: ((WorkItemStatusChanged) -> Void)?
@@ -456,17 +454,9 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     /// Called when the daemon sends a `tasks_changed` broadcast.
     public var onTasksChanged: ((TasksChanged) -> Void)?
 
-    /// Called when the daemon sends a `work_item_delete_response` message.
-    public var onWorkItemDeleteResponse: ((WorkItemDeleteResponse) -> Void)?
 
-    /// Called when the daemon sends a `work_item_run_task_response` message.
-    public var onWorkItemRunTaskResponse: ((WorkItemRunTaskResponse) -> Void)?
 
-    /// Called when the daemon sends a `work_item_output_response` message.
-    public var onWorkItemOutputResponse: ((WorkItemOutputResponse) -> Void)?
 
-    /// Called when the daemon sends a `work_item_update_response` message.
-    public var onWorkItemUpdateResponse: ((WorkItemUpdateResponse) -> Void)?
 
     /// Called when the daemon sends a `work_item_preflight_response` message.
     public var onWorkItemPreflightResponse: ((WorkItemPreflightResponse) -> Void)?
@@ -843,36 +833,6 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
 
 
     // MARK: - Work Items (Task Queue)
-
-    /// Request the list of work items from the daemon, optionally filtered by status.
-    public func sendWorkItemsList(status: String? = nil) throws {
-        try send(WorkItemsListRequest(type: "work_items_list", status: status))
-    }
-
-    /// Mark a work item as complete (reviewed).
-    public func sendWorkItemComplete(id: String) throws {
-        try send(WorkItemCompleteRequest(type: "work_item_complete", id: id))
-    }
-
-    /// Delete a work item.
-    public func sendWorkItemDelete(id: String) throws {
-        try send(WorkItemDeleteRequest(type: "work_item_delete", id: id))
-    }
-
-    /// Run the task associated with a work item via daemon-side execution.
-    public func sendWorkItemRunTask(id: String) throws {
-        try send(WorkItemRunTaskRequest(type: "work_item_run_task", id: id))
-    }
-
-    /// Request the latest output for a work item.
-    public func sendWorkItemOutput(id: String) throws {
-        try send(WorkItemOutputRequest(type: "work_item_output", id: id))
-    }
-
-    /// Update fields on an existing work item.
-    public func sendWorkItemUpdate(id: String, title: String? = nil, notes: String? = nil, status: String? = nil, priorityTier: Double? = nil, sortIndex: Int? = nil) throws {
-        try send(WorkItemUpdateRequest(type: "work_item_update", id: id, title: title, notes: notes, status: status, priorityTier: priorityTier, sortIndex: sortIndex))
-    }
 
     /// Request a permission preflight check for a work item's required tools.
     public func sendWorkItemPreflight(id: String) throws {
