@@ -1795,6 +1795,43 @@ export function buildSchema(): Record<string, unknown> {
           },
         },
       },
+      "/v1/integrations/status": {
+        get: {
+          summary: "Integration status (v1)",
+          description:
+            "Returns the current status of configured integrations, including the assistant's email address. Requires a valid bearer token.",
+          operationId: "integrationsStatusV1",
+          security: [{ BearerAuth: [] }],
+          responses: {
+            "200": {
+              description: "Integration status",
+              content: {
+                "application/json": {
+                  schema: {
+                    $ref: "#/components/schemas/IntegrationsStatusResponse",
+                  },
+                },
+              },
+            },
+            "401": {
+              description: "Unauthorized — missing or invalid bearer token",
+              content: {
+                "application/json": {
+                  schema: { $ref: "#/components/schemas/ErrorResponse" },
+                },
+              },
+            },
+            "503": {
+              description: "Bearer token not configured",
+              content: {
+                "application/json": {
+                  schema: { $ref: "#/components/schemas/ErrorResponse" },
+                },
+              },
+            },
+          },
+        },
+      },
       "/deliver/telegram": {
         post: {
           summary: "Telegram delivery (internal)",
