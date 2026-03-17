@@ -193,16 +193,20 @@ extension AppDelegate {
                 }
             }
 
-            // Clear locally-cached credentials from Keychain for all local assistants
-            let keychainStorage = KeychainCredentialStorage()
+            // Clear locally-cached credentials for all local assistants
+            #if DEBUG
+            let credStorage = FileCredentialStorage()
+            #else
+            let credStorage = KeychainCredentialStorage()
+            #endif
             for assistant in LockfileAssistant.loadAll() where !assistant.isRemote && !assistant.isManaged {
                 let credentialAccount = LocalAssistantBootstrapService.credentialAccount(for: assistant.assistantId)
-                _ = keychainStorage.delete(account: credentialAccount)
+                _ = credStorage.delete(account: credentialAccount)
             }
             // Also clear for the connected assistant in case it's not in the lockfile
             if let assistantId = connectedAssistantId {
                 let credentialAccount = LocalAssistantBootstrapService.credentialAccount(for: assistantId)
-                _ = keychainStorage.delete(account: credentialAccount)
+                _ = credStorage.delete(account: credentialAccount)
             }
 
             // Stop all non-current local daemons to clear in-memory managed proxy
@@ -359,7 +363,11 @@ extension AppDelegate {
             }
 
             do {
+                #if DEBUG
+                let credentialStorage = FileCredentialStorage()
+                #else
                 let credentialStorage = KeychainCredentialStorage()
+                #endif
                 let bootstrapService = LocalAssistantBootstrapService(credentialStorage: credentialStorage)
                 let outcome = try await bootstrapService.bootstrap(
                     runtimeAssistantId: assistantId,

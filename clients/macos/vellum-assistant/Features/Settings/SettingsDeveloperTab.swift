@@ -507,7 +507,13 @@ struct SettingsDeveloperTab: View {
             isManaged: assistant.isManaged,
             organizationId: orgId,
             userId: userId,
-            credentialStorage: KeychainCredentialStorage()
+            credentialStorage: {
+                #if DEBUG
+                return FileCredentialStorage()
+                #else
+                return KeychainCredentialStorage()
+                #endif
+            }()
         )
     }
 
