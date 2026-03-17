@@ -7,6 +7,7 @@ final class SettingsStoreTelegramTests: XCTestCase {
 
     private var daemonClient: DaemonClient!
     private var sentMessages: [Any] = []
+    private var mockSettingsClient: MockSettingsClient!
     private var store: SettingsStore!
 
     override func setUp() {
@@ -17,12 +18,14 @@ final class SettingsStoreTelegramTests: XCTestCase {
         daemonClient.sendOverride = { [weak self] message in
             self?.sentMessages.append(message)
         }
-        store = SettingsStore(daemonClient: daemonClient)
+        mockSettingsClient = MockSettingsClient()
+        store = SettingsStore(daemonClient: daemonClient, settingsClient: mockSettingsClient)
     }
 
     override func tearDown() {
         store = nil
         daemonClient = nil
+        mockSettingsClient = nil
         sentMessages = []
         super.tearDown()
     }
@@ -225,16 +228,18 @@ final class SettingsStoreTelegramTests: XCTestCase {
 
     // MARK: - refreshTelegramStatus
 
-    func testRefreshTelegramStatusSendsGetAction() {
-        // Init already sends a "get", so count those first
-        let telegramMessagesBefore = sentMessages.compactMap { $0 as? TelegramConfigRequestMessage }
-        let getCountBefore = telegramMessagesBefore.filter { $0.action == "get" }.count
+    func testRefreshTelegramStatusCallsSettingsClient() {
+        let callCountBefore = mockSettingsClient.fetchTelegramConfigCallCount
 
         store.refreshTelegramStatus()
 
-        let telegramMessages = sentMessages.compactMap { $0 as? TelegramConfigRequestMessage }
-        let getCountAfter = telegramMessages.filter { $0.action == "get" }.count
-        XCTAssertEqual(getCountAfter, getCountBefore + 1)
+        let predicate = NSPredicate { _, _ in
+            self.mockSettingsClient.fetchTelegramConfigCallCount > callCountBefore
+        }
+        let expectation = XCTNSPredicateExpectation(predicate: predicate, object: nil)
+        wait(for: [expectation], timeout: 2.0)
+
+        XCTAssertGreaterThan(mockSettingsClient.fetchTelegramConfigCallCount, callCountBefore)
     }
 
     func testRefreshTelegramStatusWithNilDaemonClient() {
