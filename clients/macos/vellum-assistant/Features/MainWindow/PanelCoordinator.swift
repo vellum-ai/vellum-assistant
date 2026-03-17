@@ -691,8 +691,8 @@ struct ActiveChatViewWrapper: View {
             conversationId: conversationId,
             daemonGreeting: viewModel.emptyStateGreeting,
             onRequestGreeting: { [weak viewModel] in viewModel?.generateGreeting() },
-            threadStarters: viewModel.threadStarters,
-            threadStartersLoading: viewModel.threadStartersLoading,
+            threadStarters: MacOSClientFeatureFlagManager.shared.isEnabled("thread_starters_enabled") ? viewModel.threadStarters : [],
+            threadStartersLoading: MacOSClientFeatureFlagManager.shared.isEnabled("thread_starters_enabled") && viewModel.threadStartersLoading,
             onSelectStarter: { [weak viewModel] starter in
                 viewModel?.inputText = starter.prompt
             },
