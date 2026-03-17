@@ -1217,28 +1217,4 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
         }
     }
 
-    // MARK: - Trace Event History
-
-    /// Fetches persisted trace events for a conversation from the daemon.
-    public func fetchTraceEventHistory(conversationId: String) async throws -> [TraceEventMessage] {
-        let encodedId = conversationId.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? conversationId
-        let path = "v1/trace-events?conversationId=\(encodedId)"
-
-        if let httpTransport {
-            guard let url = URL(string: "\(httpTransport.baseURL)/\(path)") else { return [] }
-            var request = URLRequest(url: url)
-            request.timeoutInterval = 10
-            if let token = httpTransport.bearerToken, !token.isEmpty {
-                request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
-            }
-            let (data, response) = try await URLSession.shared.data(for: request)
-            guard let http = response as? HTTPURLResponse, http.statusCode == 200 else { return [] }
-            let decoded = try JSONDecoder().decode(TraceEventsHistoryResponse.self, from: data)
-            return decoded.events
-        }
-
-        let result: TraceEventsHistoryResponse? = await executeLocalRequest(path: path)
-        return result?.events ?? []
-    }
-
 }
