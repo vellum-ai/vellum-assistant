@@ -143,23 +143,17 @@ export function buildSystemPrompt(options?: BuildSystemPromptOptions): string {
   const bootstrap = readPromptFile(bootstrapPath);
   const updates = readPromptFile(updatesPath);
 
-  // When BOOTSTRAP.md is present (onboarding not complete), the template
-  // IDENTITY.md contains meta-instructions ("Purpose of this file", "figure
-  // it out with your user") that confuse the model into leaking internal file
-  // names and narrating its own setup process instead of following the
-  // bootstrap ritual.  Skip IDENTITY.md when it is still in template state
-  // and the bootstrap ritual should be driving behavior.
   const includeBootstrap = !!bootstrap && !options?.excludeBootstrap;
 
-  // Template prompt files contain meta-instructions ("Purpose of this file",
-  // placeholder fields like "figure it out with your user") that are meant
-  // for the assistant to fill in during onboarding.  When included verbatim
-  // in the system prompt, the model leaks internal file names and narrates
-  // its own setup process instead of behaving naturally.  Detect templates
-  // by the "Purpose of this file" marker and skip them — SOUL.md provides
-  // sufficient personality defaults until onboarding completes.
-  const identityIsTemplate = isTemplateContent(identity);
-  const userIsTemplate = isTemplateContent(user);
+  // Template prompt files contain placeholder fields and meta-instructions
+  // meant for the assistant to fill in during onboarding.  When included
+  // verbatim in the system prompt, the model can leak internal details and
+  // narrate its own setup process instead of following the BOOTSTRAP.md
+  // ritual.  Detect unmodified templates by comparing against the bundled
+  // source and skip them — SOUL.md provides sufficient personality defaults
+  // until onboarding completes.
+  const identityIsTemplate = isTemplateContent(identity, "IDENTITY.md");
+  const userIsTemplate = isTemplateContent(user, "USER.md");
 
   if (identity && !identityIsTemplate) {
     dynamicParts.push(identity);
@@ -334,11 +328,30 @@ export function stripCommentLines(content: string): string {
 
 /**
  * Returns true when the prompt file content is still the unmodified template
- * (contains meta-instructions meant for the assistant to fill in during
- * onboarding, not to be shown to users).
+ * shipped with the daemon.  Compares the stripped workspace content against
+ * the stripped bundled template source so the check stays accurate even if
+ * templates are edited in future releases.
  */
-export function isTemplateContent(content: string | null): boolean {
-  return content != null && content.includes("Purpose of this file");
+export function isTemplateContent(
+  content: string | null,
+  templateFileName: string,
+): boolean {
+  if (content == null) return false;
+  const templatesDir = resolveBundledDir(
+    import.meta.dirname ?? __dirname,
+    "templates",
+    "templates",
+  );
+  const templatePath = join(templatesDir, templateFileName);
+  if (!existsSync(templatePath)) return false;
+  try {
+    const templateContent = stripCommentLines(
+      readFileSync(templatePath, "utf-8"),
+    );
+    return content === templateContent;
+  } catch {
+    return false;
+  }
 }
 
 function readPromptFile(path: string): string | null {
@@ -367,7 +380,7 @@ export function buildCoreIdentityContext(): string | null {
   for (const file of PROMPT_FILES) {
     const content = readPromptFile(getWorkspacePromptPath(file));
     // Skip template files — see the matching guard in buildSystemPrompt().
-    if (content && !isTemplateContent(content)) {
+    if (content && !isTemplateContent(content, file)) {
       parts.push(content);
     }
   }
