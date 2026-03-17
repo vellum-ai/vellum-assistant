@@ -36,6 +36,7 @@ const mockConfig = {
     entropyThreshold: 4.0,
   },
   auditLog: { retentionDays: 0 },
+  sandbox: { enabled: true },
 };
 
 // Track whether wrapCommand was ever called — host_bash must never invoke it
