@@ -19,10 +19,14 @@ public final class ToolConfirmationNotificationService {
         content.body = formatBody(message)
         content.categoryIdentifier = "TOOL_CONFIRMATION"
         content.sound = .default
-        content.userInfo = [
+        var userInfo: [String: Any] = [
             "requestId": message.requestId,
             "type": "tool_confirmation"
         ]
+        if let conversationId = message.conversationId {
+            userInfo["conversationId"] = conversationId
+        }
+        content.userInfo = userInfo
 
         content.attachAppIcon()
 
@@ -37,7 +41,7 @@ public final class ToolConfirmationNotificationService {
             log.info("Posted tool confirmation notification: requestId=\(message.requestId, privacy: .public), tool=\(message.toolName, privacy: .public)")
         } catch {
             log.error("Failed to post notification: \(error.localizedDescription)")
-            return "deny"
+            return Self.inlineHandledSentinel
         }
 
         // If a continuation already exists for this requestId (e.g. daemon re-sent
