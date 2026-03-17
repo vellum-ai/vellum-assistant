@@ -64,6 +64,25 @@ extension DaemonClient {
             isConnecting = false
             log.info("connect: transport connected successfully to \(baseURL, privacy: .public), SSE should be running")
         } catch {
+            #if os(macOS)
+            // Auto-wake: if the daemon process is not alive and a wake handler is
+            // configured, try waking the daemon and retrying the connection once.
+            if let wakeHandler, !DaemonClient.isDaemonProcessAlive(environment: config.instanceDir.map { ["BASE_DATA_DIR": $0] }) {
+                log.info("connect: daemon process not alive — attempting auto-wake before retry")
+                do {
+                    try await wakeHandler()
+                    log.info("connect: auto-wake succeeded, retrying connection to \(baseURL, privacy: .public)")
+                    try await transport.connect()
+                    isAuthenticated = true
+                    isConnecting = false
+                    log.info("connect: retry after auto-wake succeeded for \(baseURL, privacy: .public)")
+                    return
+                } catch {
+                    log.error("connect: auto-wake or retry failed for \(baseURL, privacy: .public): \(error)")
+                }
+            }
+            #endif
+
             isConnecting = false
             httpTransport = nil
             log.error("connect: transport connection failed for \(baseURL, privacy: .public): \(error)")

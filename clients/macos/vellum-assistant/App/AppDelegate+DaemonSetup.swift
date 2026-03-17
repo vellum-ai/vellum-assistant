@@ -157,6 +157,15 @@ extension AppDelegate {
         daemonClient.recoveryPlatform = "macos"
         daemonClient.recoveryDeviceId = PairingQRCodeSheet.computeHostId()
 
+        // Auto-wake: if a connection attempt finds the daemon process dead,
+        // wake it via the CLI before retrying.
+        daemonClient.wakeHandler = { [weak self] in
+            guard let self else { return }
+            let name = UserDefaults.standard.string(forKey: "connectedAssistantId") ?? "default"
+            log.info("Auto-wake: waking assistant '\(name, privacy: .private)' via CLI")
+            try await self.assistantCli.wake(name: name)
+        }
+
         // Rebind the menu bar icon observer after transport reconfiguration
         // so connection status changes continue to update the icon.
         rebindConnectionStatusObserver()
