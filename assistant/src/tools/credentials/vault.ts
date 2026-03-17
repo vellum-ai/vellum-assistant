@@ -1,5 +1,6 @@
 import { getConfig } from "../../config/loader.js";
 import { orchestrateOAuthConnect } from "../../oauth/connect-orchestrator.js";
+import { syncManualTokenConnection } from "../../oauth/manual-token-connection.js";
 import {
   disconnectOAuthProvider,
   getAppByProviderAndClientId,
@@ -344,6 +345,7 @@ class CredentialStoreTool implements Tool {
             "metadata write failed after storing credential",
           );
         }
+        await syncManualTokenConnection(service);
         const metadata = getCredentialMetadata(service, field);
         const credIdSuffix = metadata
           ? ` (credential_id: ${metadata.credentialId})`
@@ -725,6 +727,7 @@ class CredentialStoreTool implements Tool {
             "metadata write failed after storing credential",
           );
         }
+        await syncManualTokenConnection(service);
         const promptMeta = getCredentialMetadata(service, field);
         const promptCredIdSuffix = promptMeta
           ? ` (credential_id: ${promptMeta.credentialId})`

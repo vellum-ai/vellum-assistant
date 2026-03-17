@@ -148,6 +148,25 @@ mock.module("../oauth/manual-token-connection.js", () => ({
   removeManualTokenConnection: (providerKey: string) => {
     delete oauthConnectionStore[providerKey];
   },
+  syncManualTokenConnection: async (
+    providerKey: string,
+    accountInfo?: string,
+  ) => {
+    if (providerKey !== "slack_channel") return;
+    const hasBotToken =
+      !!secureKeyStore[credentialKey("slack_channel", "bot_token")];
+    const hasAppToken =
+      !!secureKeyStore[credentialKey("slack_channel", "app_token")];
+    if (hasBotToken && hasAppToken) {
+      oauthConnectionStore[providerKey] = {
+        id: `conn-${providerKey}`,
+        status: "active",
+        accountInfo: accountInfo ?? null,
+      };
+      return;
+    }
+    delete oauthConnectionStore[providerKey];
+  },
 }));
 
 // Mock credential metadata store
@@ -247,6 +266,17 @@ describe("Slack channel config handler", () => {
     expect(result.hasBotToken).toBe(true);
     expect(result.hasAppToken).toBe(true);
     expect(result.connected).toBe(true);
+  });
+
+  test("GET backfills the slack_channel connection row when chat setup stored both credentials", async () => {
+    secureKeyStore[credentialKey("slack_channel", "bot_token")] = "xoxb-test";
+    secureKeyStore[credentialKey("slack_channel", "app_token")] = "xapp-test";
+
+    const result = await getSlackChannelConfig();
+
+    expect(result.success).toBe(true);
+    expect(result.connected).toBe(true);
+    expect(oauthConnectionStore["slack_channel"]).toBeDefined();
   });
 
   test("GET reports per-field token presence independently of connection row", async () => {

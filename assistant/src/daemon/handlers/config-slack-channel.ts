@@ -8,6 +8,7 @@ import {
 import {
   ensureManualTokenConnection,
   removeManualTokenConnection,
+  syncManualTokenConnection,
 } from "../../oauth/manual-token-connection.js";
 import { getConnectionByProvider } from "../../oauth/oauth-store.js";
 import { credentialKey } from "../../security/credential-key.js";
@@ -40,6 +41,12 @@ export interface SlackChannelConfigResult {
 // -- Business logic --
 
 export async function getSlackChannelConfig(): Promise<SlackChannelConfigResult> {
+  const { teamId, teamName, botUserId, botUsername } = getConfig().slack;
+  const accountInfo = teamName
+    ? `${teamName}${botUsername ? ` (@${botUsername})` : ""}`
+    : undefined;
+  await syncManualTokenConnection("slack_channel", accountInfo);
+
   const hasBotToken = !!(await getSecureKeyAsync(
     credentialKey("slack_channel", "bot_token"),
   ));
@@ -49,7 +56,6 @@ export async function getSlackChannelConfig(): Promise<SlackChannelConfigResult>
   const conn = getConnectionByProvider("slack_channel");
   const connected =
     !!(conn && conn.status === "active") && hasBotToken && hasAppToken;
-  const { teamId, teamName, botUserId, botUsername } = getConfig().slack;
   return {
     success: true,
     hasBotToken,

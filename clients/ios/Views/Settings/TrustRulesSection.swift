@@ -8,6 +8,12 @@ struct TrustRulesSection: View {
     @State private var showingAddRule = false
     @State private var editingRule: TrustRuleItem?
 
+    private let trustRuleClient: TrustRuleClientProtocol
+
+    init(trustRuleClient: TrustRuleClientProtocol = TrustRuleClient()) {
+        self.trustRuleClient = trustRuleClient
+    }
+
     var body: some View {
         Form {
             Section {
@@ -37,23 +43,18 @@ struct TrustRulesSection: View {
         .navigationTitle("Trust Rules")
         .navigationBarTitleDisplayMode(.inline)
         .sheet(isPresented: $showingAddRule) {
-            TrustRuleFormView(daemon: clientProvider.client as? DaemonClient) { _ in
+            TrustRuleFormView(trustRuleClient: trustRuleClient) { _ in
                 loadTrustRules()
             }
         }
         .sheet(item: $editingRule) { rule in
-            TrustRuleFormView(daemon: clientProvider.client as? DaemonClient, existing: rule) { _ in
+            TrustRuleFormView(trustRuleClient: trustRuleClient, existing: rule) { _ in
                 loadTrustRules()
             }
         }
         .onAppear { loadTrustRules() }
         .onChange(of: clientProvider.isConnected) { _, connected in
             if connected { loadTrustRules() }
-        }
-        .onDisappear {
-            if let daemon = clientProvider.client as? DaemonClient {
-                daemon.onTrustRulesListResponse = nil
-            }
         }
     }
 
@@ -108,24 +109,25 @@ struct TrustRulesSection: View {
     }
 
     private func loadTrustRules() {
-        guard let daemon = clientProvider.client as? DaemonClient else { return }
-        daemon.onTrustRulesListResponse = { rules in
-            trustRules = rules
+        Task {
+            if let rules = try? await trustRuleClient.fetchTrustRules() {
+                trustRules = rules
+            }
         }
-        try? daemon.send(TrustRulesListMessage())
     }
 
     private func deleteRule(_ rule: TrustRuleItem) {
-        guard let daemon = clientProvider.client as? DaemonClient else { return }
-        try? daemon.send(RemoveTrustRuleMessage(id: rule.id))
-        loadTrustRules()
+        Task {
+            _ = try? await trustRuleClient.removeTrustRule(id: rule.id)
+            loadTrustRules()
+        }
     }
 }
 
 // MARK: - Trust Rule Form
 
 struct TrustRuleFormView: View {
-    let daemon: DaemonClient?
+    let trustRuleClient: TrustRuleClientProtocol
     var existing: TrustRuleItem?
     let onSave: (Bool) -> Void
 
@@ -194,23 +196,28 @@ struct TrustRuleFormView: View {
 
     private func saveRule() {
         let finalScope = isEverywhere ? "*" : scope
-        if let rule = existing {
-            try? daemon?.send(UpdateTrustRuleMessage(
-                id: rule.id,
-                tool: tool,
-                pattern: pattern,
-                scope: finalScope,
-                decision: decision
-            ))
-        } else {
-            try? daemon?.send(AddTrustRuleMessage(
-                toolName: tool,
-                pattern: pattern,
-                scope: finalScope,
-                decision: decision
-            ))
+        Task {
+            if let rule = existing {
+                _ = try? await trustRuleClient.updateTrustRule(
+                    id: rule.id,
+                    tool: tool,
+                    pattern: pattern,
+                    scope: finalScope,
+                    decision: decision,
+                    priority: nil
+                )
+            } else {
+                _ = try? await trustRuleClient.addTrustRule(
+                    toolName: tool,
+                    pattern: pattern,
+                    scope: finalScope,
+                    decision: decision,
+                    allowHighRisk: nil,
+                    executionTarget: nil
+                )
+            }
+            onSave(true)
         }
-        onSave(true)
     }
 }
 #endif

@@ -11,6 +11,7 @@ import {
 } from "../../config/loader.js";
 import type { CesClient } from "../../credential-execution/client.js";
 import { setSentryOrganizationId } from "../../instrument.js";
+import { syncManualTokenConnection } from "../../oauth/manual-token-connection.js";
 import { validateAnthropicApiKey } from "../../providers/anthropic/client.js";
 import { initializeProviders } from "../../providers/registry.js";
 import { credentialKey } from "../../security/credential-key.js";
@@ -217,6 +218,7 @@ export async function handleAddSecret(
           );
         }
         upsertCredentialMetadata(service, field, {});
+        await syncManualTokenConnection(service);
         if (service === "vellum" && field === "platform_base_url") {
           setPlatformBaseUrl(effectiveValue);
         }

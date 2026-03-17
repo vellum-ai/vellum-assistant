@@ -48,7 +48,7 @@ struct ToolFieldDescriptor: Identifiable {
 
 /// View-model for the tool permission simulation tester in Settings.
 ///
-/// Manages form fields, fires simulate requests via DaemonClient,
+/// Manages form fields, fires simulate requests via ToolClient,
 /// and surfaces results (including prompt payloads) for the UI layer.
 @MainActor
 final class ToolPermissionTesterModel: ObservableObject {
@@ -86,6 +86,8 @@ final class ToolPermissionTesterModel: ObservableObject {
     // MARK: - Dependencies
 
     private let daemonClient: DaemonClientProtocol
+    private let toolClient: ToolClientProtocol
+    private let trustRuleClient: TrustRuleClientProtocol
     private var cancellables = Set<AnyCancellable>()
 
     // Snapshot of form values captured at simulate() time so
@@ -94,8 +96,10 @@ final class ToolPermissionTesterModel: ObservableObject {
     private var pendingSnapshotToolName: String = ""
     private var pendingSnapshotInputJSON: String = ""
 
-    init(daemonClient: DaemonClientProtocol) {
+    init(daemonClient: DaemonClientProtocol, toolClient: ToolClientProtocol = ToolClient(), trustRuleClient: TrustRuleClientProtocol = TrustRuleClient()) {
         self.daemonClient = daemonClient
+        self.toolClient = toolClient
+        self.trustRuleClient = trustRuleClient
 
         // Rebuild dynamic fields whenever the selected tool changes.
         $toolName
@@ -105,28 +109,13 @@ final class ToolPermissionTesterModel: ObservableObject {
             }
             .store(in: &cancellables)
 
-        // Wire up the response callback and connection-state subscription
-        // once in init so they are never duplicated.
+        // Re-fetch tool names whenever the daemon (re)connects.
         if let dc = daemonClient as? DaemonClient {
-            dc.onToolNamesListResponse = { [weak self] response in
-                Task { @MainActor [weak self] in
-                    guard let self else { return }
-                    self.availableToolNames = response.names
-                    // Store raw schemas from the response.
-                    self.toolSchemas = Self.extractSchemas(from: response.schemas ?? [:])
-                    // Refresh fields if a tool is already selected.
-                    if !self.toolName.isEmpty {
-                        self.updateFieldsForTool(self.toolName)
-                    }
-                }
-            }
-
-            // Re-fetch tool names whenever the daemon (re)connects.
             dc.$isConnected
                 .removeDuplicates()
                 .filter { $0 }
-                .sink { [weak dc] _ in
-                    try? dc?.sendToolNamesList()
+                .sink { [weak self] _ in
+                    self?.fetchToolNames()
                 }
                 .store(in: &cancellables)
         }
@@ -134,13 +123,22 @@ final class ToolPermissionTesterModel: ObservableObject {
 
     // MARK: - Tool Names Fetching
 
-    /// Request a fresh list of registered tool names from the daemon.
+    /// Request a fresh list of registered tool names via the gateway.
     ///
-    /// Safe to call multiple times (e.g. on every `onAppear`). The response
-    /// callback and connection subscription are set up once in `init`.
+    /// Safe to call multiple times (e.g. on every `onAppear`).
     func fetchToolNames() {
-        guard let dc = daemonClient as? DaemonClient else { return }
-        try? dc.sendToolNamesList()
+        Task {
+            do {
+                let response = try await toolClient.fetchToolNamesList()
+                self.availableToolNames = response.names
+                self.toolSchemas = Self.extractSchemas(from: response.schemas ?? [:])
+                if !self.toolName.isEmpty {
+                    self.updateFieldsForTool(self.toolName)
+                }
+            } catch {
+                // Fetch failed — keep previous tool names visible
+            }
+        }
     }
 
     // MARK: - Schema Parsing
@@ -319,7 +317,7 @@ final class ToolPermissionTesterModel: ObservableObject {
 
     // MARK: - Actions
 
-    /// Build input from fields, send a simulate request via HTTP, and update result state.
+    /// Build input from fields, send a simulate request via the gateway, and update result state.
     func simulate() {
         lastError = nil
         lastResult = nil
@@ -333,26 +331,20 @@ final class ToolPermissionTesterModel: ObservableObject {
         pendingSnapshotToolName = toolName
         pendingSnapshotInputJSON = buildInputJSONString()
 
-        // Wire up the one-shot response callback before sending.
-        if let dc = daemonClient as? DaemonClient {
-            dc.onToolPermissionSimulateResponse = { [weak self] response in
-                Task { @MainActor [weak self] in
-                    self?.handleSimulateResponse(response)
-                }
+        Task {
+            do {
+                let response = try await toolClient.simulateToolPermission(
+                    toolName: toolName,
+                    input: parsed,
+                    workingDir: workingDir.isEmpty ? nil : workingDir,
+                    isInteractive: isInteractive,
+                    forcePromptSideEffects: forcePromptSideEffects
+                )
+                handleSimulateResponse(response)
+            } catch {
+                isSimulating = false
+                lastError = "Simulate failed: \(error.localizedDescription)"
             }
-        }
-
-        do {
-            try daemonClient.send(ToolPermissionSimulateMessage(
-                toolName: toolName,
-                input: parsed,
-                workingDir: workingDir.isEmpty ? nil : workingDir,
-                isInteractive: isInteractive,
-                forcePromptSideEffects: forcePromptSideEffects
-            ))
-        } catch {
-            isSimulating = false
-            lastError = "Send failed: \(error.localizedDescription)"
         }
     }
 
@@ -370,17 +362,12 @@ final class ToolPermissionTesterModel: ObservableObject {
         lastResult = result
     }
 
-    /// Persist a trust rule via HTTP, then re-simulate to show updated decision.
+    /// Persist a trust rule via the gateway, then re-simulate to show updated decision.
     ///
     /// Uses the snapshot captured at simulation time so the persisted rule
     /// matches the context that produced the prompt, not whatever the user
     /// may have edited in the form since then.
     func alwaysAllow(pattern: String, scope: String) {
-        guard let dc = daemonClient as? DaemonClient else {
-            lastError = "Cannot add trust rule: assistant not connected"
-            return
-        }
-
         guard let snapshot = lastResult else {
             lastError = "Cannot add trust rule: no simulation result"
             return
@@ -388,19 +375,21 @@ final class ToolPermissionTesterModel: ObservableObject {
 
         let isHighRisk = snapshot.riskLevel.lowercased() == "high"
 
-        do {
-            try dc.sendAddTrustRule(
-                toolName: snapshot.snapshotToolName,
-                pattern: pattern,
-                scope: scope,
-                decision: "allow",
-                allowHighRisk: isHighRisk ? true : nil,
-                executionTarget: snapshot.snapshotExecutionTarget
-            )
-            // Re-simulate to show the updated outcome with the new rule in effect.
-            simulate()
-        } catch {
-            lastError = "Failed to add trust rule: \(error.localizedDescription)"
+        Task {
+            do {
+                try await trustRuleClient.addTrustRule(
+                    toolName: snapshot.snapshotToolName,
+                    pattern: pattern,
+                    scope: scope,
+                    decision: "allow",
+                    allowHighRisk: isHighRisk ? true : nil,
+                    executionTarget: snapshot.snapshotExecutionTarget
+                )
+                // Re-simulate to show the updated outcome with the new rule in effect.
+                simulate()
+            } catch {
+                lastError = "Failed to add trust rule: \(error.localizedDescription)"
+            }
         }
     }
 

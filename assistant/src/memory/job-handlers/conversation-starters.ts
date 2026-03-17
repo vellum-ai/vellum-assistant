@@ -9,6 +9,7 @@ import { and, desc, eq } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 
 import { loadSkillCatalog } from "../../config/skills.js";
+import { buildCoreIdentityContext } from "../../prompts/system-prompt.js";
 import {
   createTimeout,
   extractToolUse,
@@ -168,13 +169,15 @@ async function generateStarters(scopeId: string): Promise<GeneratedStarter[]> {
   const now = new Date();
   const timeContext = `Current time: ${now.toLocaleString("en-US", { weekday: "long", year: "numeric", month: "long", day: "numeric", hour: "numeric", minute: "2-digit", hour12: true })}`;
 
+  const identityContext = buildCoreIdentityContext();
+
   const systemPrompt = `You are generating 4 conversation starters for a personal assistant app. These appear as clickable chips on the empty conversation page — the first thing the user sees when they open the app.
 
 ${timeContext}
 
 Your goal: look at what's going on in this person's life right now and suggest the 4 most useful things they could ask you to do. Think about what a thoughtful chief of staff would proactively bring up in a 30-second check-in.
 
-## What you know
+${identityContext ? `## Assistant identity & user profile\n\n${identityContext}\n\n` : ""}## What you know
 
 ${rollup}
 ${diff}

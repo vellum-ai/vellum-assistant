@@ -11,6 +11,7 @@ private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.
 public protocol SettingsClientProtocol {
     func fetchVercelConfig() async -> VercelApiConfigResponseMessage?
     func fetchModelInfo() async -> ModelInfoMessage?
+    func setModel(model: String) async -> ModelInfoMessage?
     func fetchTelegramConfig() async -> TelegramConfigResponseMessage?
     func fetchChannelVerificationStatus(channel: String) async -> ChannelVerificationSessionResponseMessage?
 }
@@ -50,6 +51,23 @@ public struct SettingsClient: SettingsClientProtocol {
             return try JSONDecoder().decode(ModelInfoMessage.self, from: patched)
         } catch {
             log.error("fetchModelInfo error: \(error.localizedDescription)")
+            return nil
+        }
+    }
+
+    public func setModel(model: String) async -> ModelInfoMessage? {
+        do {
+            let response = try await GatewayHTTPClient.put(
+                path: "model", json: ["modelId": model], timeout: 10
+            )
+            guard response.isSuccess else {
+                log.error("setModel failed (HTTP \(response.statusCode))")
+                return nil
+            }
+            let patched = injectType("model_info", into: response.data)
+            return try JSONDecoder().decode(ModelInfoMessage.self, from: patched)
+        } catch {
+            log.error("setModel error: \(error.localizedDescription)")
             return nil
         }
     }

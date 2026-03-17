@@ -240,7 +240,7 @@ describe("wipeConversation", () => {
     // with superseded_by = NULL. When we later wipe convB, Step F should NOT
     // restore that unrelated item.
     const convA = createConversation("conversation A");
-    await addMessage(convA.id, "user", "I use dark theme");
+    const _msgA = await addMessage(convA.id, "user", "I use dark theme");
 
     const convB = createConversation("conversation B");
     const msgB = await addMessage(convB.id, "user", "I use vim");

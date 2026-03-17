@@ -264,10 +264,8 @@ struct SettingsPanel: View {
         .onReceive(NotificationCenter.default.publisher(for: .localBootstrapCompleted)) { _ in
             bootstrapGeneration += 1
         }
-        .sheet(isPresented: $showingTrustRules) {
-            if let daemonClient {
-                TrustRulesView(daemonClient: daemonClient)
-            }
+        .sheet(isPresented: $showingTrustRules, onDismiss: { daemonClient?.isTrustRulesSheetOpen = false }) {
+            TrustRulesView(trustRuleClient: TrustRuleClient())
         }
         .onAppear {
             devUnlockMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in

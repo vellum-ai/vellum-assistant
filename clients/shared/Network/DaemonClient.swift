@@ -365,14 +365,6 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     /// Called when a notification delivery creates a new vellum conversation.
     public var onNotificationConversationCreated: ((NotificationConversationCreated) -> Void)?
 
-    /// Called when the daemon sends a `trust_rules_list_response` message.
-    public var onTrustRulesListResponse: (([TrustRuleItem]) -> Void)?
-
-    /// Called when the daemon sends a `tool_permission_simulate_response` message.
-    public var onToolPermissionSimulateResponse: ((ToolPermissionSimulateResponseMessage) -> Void)?
-
-    /// Called when the daemon sends a `tool_names_list_response` message.
-    public var onToolNamesListResponse: ((ToolNamesListResponseMessage) -> Void)?
 
     /// Called when the daemon sends a `skills_state_changed` push event.
     public var onSkillStateChanged: ((SkillStateChangedMessage) -> Void)?
@@ -473,11 +465,11 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     /// Called when the daemon sends a `heartbeat_checklist_write_response` message.
     public var onHeartbeatChecklistWriteResponse: ((HeartbeatChecklistWriteResponse) -> Void)?
 
-    /// Called when the daemon sends a `model_info` message.
-    public var onModelInfo: ((ModelInfoMessage) -> Void)?
-
     /// The currently active model ID, populated via `model_info` responses.
     @Published public var currentModel: String?
+
+    /// The latest full model info response from the daemon stream.
+    @Published public var latestModelInfo: ModelInfoMessage?
 
     /// Called when the daemon sends a `publish_page_response` message.
     public var onPublishPageResponse: ((PublishPageResponseMessage) -> Void)?
@@ -897,81 +889,6 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
         try send(SecretResponseMessage(requestId: requestId, value: value, delivery: delivery))
     }
 
-    // MARK: - Trust Rule Addition
-
-    /// Send an add_trust_rule message to persist a trust rule on the daemon.
-    public func sendAddTrustRule(
-        toolName: String,
-        pattern: String,
-        scope: String,
-        decision: String,
-        allowHighRisk: Bool? = nil,
-        executionTarget: String? = nil
-    ) throws {
-        try send(AddTrustRuleMessage(
-            toolName: toolName,
-            pattern: pattern,
-            scope: scope,
-            decision: decision,
-            allowHighRisk: allowHighRisk,
-            executionTarget: executionTarget
-        ))
-    }
-
-    // MARK: - Trust Rule Management
-
-    /// Request the list of all trust rules from the daemon.
-    public func sendListTrustRules() throws {
-        try send(TrustRulesListMessage())
-    }
-
-    /// Remove a trust rule by its ID.
-    public func sendRemoveTrustRule(id: String) throws {
-        try send(RemoveTrustRuleMessage(id: id))
-    }
-
-    /// Update fields on an existing trust rule.
-    public func sendUpdateTrustRule(
-        id: String,
-        tool: String? = nil,
-        pattern: String? = nil,
-        scope: String? = nil,
-        decision: String? = nil,
-        priority: Int? = nil
-    ) throws {
-        try send(UpdateTrustRuleMessage(
-            id: id,
-            tool: tool,
-            pattern: pattern,
-            scope: scope,
-            decision: decision,
-            priority: priority
-        ))
-    }
-
-    // MARK: - Tool Permission Simulation
-
-    /// Simulate a tool permission check without executing the tool.
-    public func sendToolPermissionSimulate(
-        toolName: String,
-        input: [String: AnyCodable],
-        workingDir: String? = nil,
-        isInteractive: Bool? = nil,
-        forcePromptSideEffects: Bool? = nil
-    ) throws {
-        try send(ToolPermissionSimulateMessage(
-            toolName: toolName,
-            input: input,
-            workingDir: workingDir,
-            isInteractive: isInteractive,
-            forcePromptSideEffects: forcePromptSideEffects
-        ))
-    }
-
-    /// Request the sorted list of all registered tool names from the daemon.
-    public func sendToolNamesList() throws {
-        try send(ToolNamesListMessage())
-    }
 
     // MARK: - Work Items (Task Queue)
 
@@ -1249,16 +1166,6 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     }
 
     // MARK: - Model Config
-
-    /// Request the current model/provider configuration from the daemon.
-    public func sendModelGet() throws {
-        try send(ModelGetRequestMessage())
-    }
-
-    /// Set the active model on the daemon.
-    public func sendModelSet(model: String) throws {
-        try send(ModelSetRequestMessage(model: model))
-    }
 
     /// Set the image generation model on the daemon.
     public func sendImageGenModelSet(model: String) throws {
