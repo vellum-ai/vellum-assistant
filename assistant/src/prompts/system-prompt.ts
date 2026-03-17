@@ -10,7 +10,6 @@ import { listConnections } from "../oauth/oauth-store.js";
 import { resolveBundledDir } from "../util/bundled-asset.js";
 import { getLogger } from "../util/logger.js";
 import {
-  getWorkspaceDir,
   getWorkspacePromptPath,
   isMacOS,
 } from "../util/platform.js";
@@ -175,7 +174,8 @@ export function buildSystemPrompt(options?: BuildSystemPromptOptions): string {
       ].join("\n"),
     );
   }
-  dynamicParts.push(buildConfigSection(hasNoClient));
+  // Configuration section removed — workspace files are self-describing,
+  // tool routing lives in tool descriptions.
   dynamicParts.push(buildExternalCommsIdentitySection());
   dynamicParts.push(buildIntegrationSection());
 
@@ -290,69 +290,6 @@ function buildContainerizedSection(): string {
     "- Never write persistent data to system directories, `/tmp`, or paths outside the mounted volume",
     "- When in doubt, prefer paths nested under the data directory",
     "- If you create a file that is only needed temporarily (scratch files, intermediate outputs, download staging), delete it when you are done - disk space on the persistent volume is finite and will grow unboundedly if temp files are not cleaned up",
-  ].join("\n");
-}
-
-function buildConfigSection(hasNoClient: boolean): string {
-  // Always use `file_edit` (not `host_file_edit`) for workspace files — file_edit
-  // handles sandbox path mapping internally, and host_file_edit is permission-gated
-  // which would trigger approval prompts for routine workspace updates.
-  const hostWorkspaceDir = getWorkspaceDir();
-
-  const config = getConfig();
-  const configPreamble = `Your configuration directory is \`${hostWorkspaceDir}/\`.`;
-
-  const fileToolGuidance = hasNoClient
-    ? `${configPreamble} **Always use \`file_read\` and \`file_edit\` for these files** — they are inside your sandbox working directory:`
-    : `${configPreamble} **Always use \`file_read\` and \`file_edit\` (not \`host_file_read\` / \`host_file_edit\`) for these files** — they are inside your sandbox working directory and do not require host access or user approval:`;
-
-  return [
-    "## Configuration",
-    `- **Active model**: \`${config.services.inference.model}\` (provider: ${config.services.inference.provider})`,
-    fileToolGuidance,
-    "",
-    "- `IDENTITY.md` — Your name, nature, personality, and emoji. Updated during the first-run ritual.",
-    "- `SOUL.md` — Core principles, personality, and evolution guidance. Your behavioral foundation.",
-    "- `USER.md` — Profile of your user. Update as you learn about them over time.",
-    "- `HEARTBEAT.md` — Checklist for periodic heartbeat runs. When heartbeat is enabled, the assistant runs this checklist on a timer and flags anything that needs attention. Edit this file to control what gets checked each run.",
-    "- `BOOTSTRAP.md` — First-run ritual script (only present during onboarding; you delete it when done).",
-    "- `UPDATES.md` — Release update notes (created automatically on new releases; delete when updates are actioned).",
-    "- `skills/` — Directory of installed skills (loaded automatically at startup).",
-    "",
-    "### Heartbeat",
-    "",
-    "The heartbeat feature runs your `HEARTBEAT.md` checklist periodically in a background conversation. To enable it, set `heartbeat.enabled: true` and `heartbeat.intervalMs` (default: 3600000 = 1 hour) in `config.json`. You can also set `heartbeat.activeHoursStart` and `heartbeat.activeHoursEnd` (0-23) to restrict runs to certain hours. When asked to set up a heartbeat, edit both the config and `HEARTBEAT.md` directly — no restart is needed for checklist changes, but toggling `heartbeat.enabled` requires a daemon restart.",
-    "",
-    "### Proactive Workspace Editing",
-    "",
-    `You MUST actively update your workspace files as you learn. You don't need to ask your user whether it's okay — just briefly explain what you're updating, then use \`file_edit\` to make targeted edits.`,
-    "",
-    "**USER.md** — update when you learn:",
-    "- Their name or what they prefer to be called",
-    "- Projects they're working on, tools they use, languages they code in",
-    "- Communication preferences (concise vs detailed, formal vs casual)",
-    "- Interests, hobbies, or context that helps you assist them better",
-    "- Anything else about your user that will help you serve them better",
-    "",
-    "**SOUL.md** — update when you notice:",
-    "- They prefer a different tone or interaction style (add to Personality or User-Specific Behavior)",
-    '- A behavioral pattern worth codifying (e.g. "always explain before acting", "skip preamble")',
-    "- You've adapted in a way that's working well and should persist",
-    "- You decide to change your personality to better serve your user",
-    "",
-    "**IDENTITY.md** — update when:",
-    "- They rename you or change your role",
-    "- Your avatar appearance changes (update the `## Avatar` section with a description of the new look)",
-    "",
-    ...(hasNoClient
-      ? [
-          "When reading or updating workspace files, always use the sandbox tools (`file_read`, `file_edit`).",
-        ]
-      : [
-          "When reading or updating workspace files, always use the sandbox tools (`file_read`, `file_edit`). Never use `host_file_read` or `host_file_edit` for workspace files — those are for host-only resources outside your workspace.",
-        ]),
-    "",
-    "When updating, read the file first, then make a targeted edit. Include all useful information, but don't bloat the files over time",
   ].join("\n");
 }
 

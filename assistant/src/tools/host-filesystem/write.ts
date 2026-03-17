@@ -8,7 +8,7 @@ import type { Tool, ToolContext, ToolExecutionResult } from "../types.js";
 class HostFileWriteTool implements Tool {
   name = "host_file_write";
   description =
-    "Write content to a file on the host filesystem, creating it if it does not exist";
+    "Write content to a file on the host filesystem, creating it if it does not exist. Not for workspace files under .vellum (use file_write instead).";
   category = "host-filesystem";
   defaultRiskLevel = RiskLevel.Medium;
 
