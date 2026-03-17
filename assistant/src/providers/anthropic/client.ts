@@ -530,7 +530,6 @@ export class AnthropicProvider implements Provider {
   private model: string;
   private useNativeWebSearch: boolean;
   private streamTimeoutMs: number;
-  private fastMode: boolean;
 
   constructor(
     apiKey: string,
@@ -542,9 +541,7 @@ export class AnthropicProvider implements Provider {
     } = {},
   ) {
     this.client = new Anthropic({ apiKey, baseURL: options.baseURL });
-    // Models ending in "-fast" use the beta fast-mode API
-    this.fastMode = model.endsWith("-fast");
-    this.model = this.fastMode ? model.slice(0, -"-fast".length) : model;
+    this.model = model;
     this.useNativeWebSearch = options.useNativeWebSearch ?? false;
     this.streamTimeoutMs = options.streamTimeoutMs ?? 300_000;
   }
@@ -799,18 +796,9 @@ export class AnthropicProvider implements Provider {
 
       let response: Anthropic.Message;
       try {
-        const stream: UnifiedStream = this.fastMode
-          ? (this.client.beta.messages.stream(
-              {
-                ...params,
-                betas: ["fast-mode-2026-02-01"],
-                speed: "fast",
-              } as Parameters<typeof this.client.beta.messages.stream>[0],
-              { signal: timeoutSignal },
-            ) as unknown as UnifiedStream)
-          : (this.client.messages.stream(params, {
-              signal: timeoutSignal,
-            }) as unknown as UnifiedStream);
+        const stream: UnifiedStream = this.client.messages.stream(params, {
+          signal: timeoutSignal,
+        }) as unknown as UnifiedStream;
 
         // Track whether we've seen a text content block so we can insert a
         // separator between consecutive text blocks in the same response.
@@ -961,7 +949,7 @@ export class AnthropicProvider implements Provider {
         content: response.content.map((block) =>
           this.fromAnthropicBlock(block),
         ),
-        model: this.fastMode ? `${response.model}-fast` : response.model,
+        model: response.model,
         usage: {
           inputTokens:
             response.usage.input_tokens +
