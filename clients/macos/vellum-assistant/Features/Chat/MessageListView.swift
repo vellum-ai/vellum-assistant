@@ -341,6 +341,10 @@ struct MessageListView: View {
 
     private func applyAvatarDisplayY(forAnchorY anchorY: CGFloat) {
         let y = anchorY + ConversationAvatarFollower.verticalOffset
+        // Dead-zone: skip @State update when position hasn't moved meaningfully.
+        // Each avatarDisplayY change triggers a MessageListView body re-evaluation;
+        // sub-pixel jitter during scroll would otherwise cause continuous re-renders.
+        guard abs(avatarDisplayY - y) > 2 else { return }
         withAnimation(ConversationAvatarFollower.spring) {
             avatarDisplayY = y
         }
@@ -370,6 +374,19 @@ struct MessageListView: View {
             pendingAvatarY = nil
             avatarLastAppliedAt = nil
             if avatarDisplayY != .infinity { avatarDisplayY = .infinity }
+            return
+        }
+
+        // Skip position tracking when the avatar is off-screen. The avatar
+        // overlay is hidden via shouldShowConversationTailAvatar, so updating
+        // avatarDisplayY for an invisible element just wastes layout passes.
+        let nowVisible = ConversationAvatarFollower.shouldShow(
+            anchorY: anchorY, viewportHeight: scrollViewportHeight
+        )
+        guard nowVisible else {
+            avatarSmoothingTask?.cancel()
+            avatarSmoothingTask = nil
+            pendingAvatarY = nil
             return
         }
 
