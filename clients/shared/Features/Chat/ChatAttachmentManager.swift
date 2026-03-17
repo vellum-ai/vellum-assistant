@@ -54,7 +54,7 @@ public final class ChatAttachmentManager: ObservableObject {
     }
 
     /// Limits concurrent attachment I/O to keep memory usage reasonable.
-    private static let maxConcurrentLoads = 4
+    private static let maxConcurrentLoads = 2
     private let loadSemaphore = AsyncSemaphore(value: maxConcurrentLoads)
 
     /// Memory safety limit to avoid OOM from loading extremely large files.
