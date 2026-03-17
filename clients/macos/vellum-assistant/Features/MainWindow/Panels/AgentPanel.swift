@@ -493,7 +493,6 @@ struct AgentPanelContent: View {
         FileContentView(
             fileName: file.path,
             mimeType: file.mimeType,
-            fileSize: formatFileSize(file.size),
             content: .constant(content),
             viewMode: $skillFileViewMode
         )

@@ -41,7 +41,6 @@ func fileIcon(for mimeType: String) -> VIcon {
 struct FileContentView: View {
     let fileName: String
     let mimeType: String
-    let fileSize: String
     @Binding var content: String
     @Binding var viewMode: FileViewMode
     var isEditable: Bool = false
@@ -55,8 +54,7 @@ struct FileContentView: View {
         VStack(alignment: .leading, spacing: 0) {
             FileContentHeaderBar(
                 icon: fileIcon(for: mimeType),
-                fileName: fileName,
-                fileSize: fileSize
+                fileName: fileName
             ) {
                 if modes.count > 1 {
                     VSegmentedControl(
@@ -100,17 +98,15 @@ struct FileContentView: View {
 
 // MARK: - File Content Header Bar
 
-/// Header bar showing file icon, name, and size for file content viewers.
+/// Header bar showing file icon and name for file content viewers.
 struct FileContentHeaderBar<Trailing: View>: View {
     let icon: VIcon
     let fileName: String
-    let fileSize: String
     let trailing: Trailing
 
-    init(icon: VIcon, fileName: String, fileSize: String, @ViewBuilder trailing: () -> Trailing = { EmptyView() }) {
+    init(icon: VIcon, fileName: String, @ViewBuilder trailing: () -> Trailing = { EmptyView() }) {
         self.icon = icon
         self.fileName = fileName
-        self.fileSize = fileSize
         self.trailing = trailing()
     }
 
@@ -124,13 +120,9 @@ struct FileContentHeaderBar<Trailing: View>: View {
                 .lineLimit(1)
                 .truncationMode(.middle)
             Spacer()
-            Text(fileSize)
-                .font(VFont.small)
-                .foregroundColor(VColor.contentTertiary)
-                .fixedSize()
             trailing
         }
-        .padding(.horizontal, VSpacing.md)
+        .padding(.horizontal, VSpacing.sm)
         .frame(height: 36)
     }
 }
