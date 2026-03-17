@@ -450,10 +450,13 @@ struct GuardianChannelsDetailView: View {
 
     // MARK: - Skeleton Loading
 
-    /// Skeleton placeholder rows that mimic the channel row layout while loading.
+    /// Skeleton placeholder rows matching the number of channels the assistant has set up.
     private func channelSkeletonRows() -> some View {
-        VStack(alignment: .leading, spacing: 0) {
-            ForEach(0..<3, id: \.self) { index in
+        let configuredCount = store?.channelSetupStatus.values
+            .filter { $0 == "ready" || $0 == "incomplete" }.count ?? 0
+        let rowCount = max(configuredCount, 1)
+        return VStack(alignment: .leading, spacing: 0) {
+            ForEach(0..<rowCount, id: \.self) { index in
                 HStack(spacing: VSpacing.sm) {
                     VSkeletonBone(width: 16, height: 16, radius: VRadius.xs)
                     VSkeletonBone(width: 80, height: 14)
@@ -462,7 +465,7 @@ struct GuardianChannelsDetailView: View {
                 }
                 .frame(minHeight: 36)
                 .padding(.vertical, VSpacing.sm)
-                if index < 2 {
+                if index < rowCount - 1 {
                     SettingsDivider()
                 }
             }
