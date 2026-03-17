@@ -383,13 +383,13 @@ function formatSkillsCatalog(skills: SkillSummary[]): string {
         ? getMcpSetupDescription()
         : skill.description;
 
-    // Build a single line: - **id**: description. Hints. Avoid-when.
-    const parts = [desc];
+    // Build a single line: - **id**: description. Hints. Avoid: ...
+    const parts = [desc.replace(/\.\s*$/, "")];
     if (skill.activationHints && skill.activationHints.length > 0) {
       parts.push(skill.activationHints.join(". "));
     }
     if (skill.avoidWhen && skill.avoidWhen.length > 0) {
-      parts.push(skill.avoidWhen.join(". "));
+      parts.push(`Avoid: ${skill.avoidWhen.join(". ")}`);
     }
     lines.push(`- **${skill.id}**: ${parts.join(". ")}`);
   }

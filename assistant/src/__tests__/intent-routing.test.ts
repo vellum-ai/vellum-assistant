@@ -247,6 +247,7 @@ describe("Activation hints in skills catalog", () => {
     expect(line).toBeDefined();
     // Activation hints and avoid-when are folded into the description
     expect(line).toContain("Twilio");
+    expect(line).toContain("Avoid: ");
     expect(line).toContain("voice-setup");
   });
 
