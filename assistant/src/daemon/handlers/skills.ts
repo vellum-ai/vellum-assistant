@@ -38,6 +38,7 @@ import {
   removeSkillsIndexEntry,
   validateManagedSkillId,
 } from "../../skills/managed-store.js";
+import { deleteSkillCapabilityMemory } from "../../skills/skill-memory.js";
 import { getWorkspaceSkillsDir } from "../../util/platform.js";
 import {
   CONFIG_RELOAD_DEBOUNCE_MS,
@@ -604,6 +605,9 @@ export async function uninstallSkill(
         /* best effort */
       }
     }
+
+    // Best-effort cleanup of capability memory for uninstalled skill
+    deleteSkillCapabilityMemory(skillId);
 
     // Clean config entry
     const raw = loadRawConfig();

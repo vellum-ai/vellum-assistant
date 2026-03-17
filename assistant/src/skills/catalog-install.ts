@@ -19,6 +19,7 @@ import {
   getWorkspaceSkillsDir,
   readPlatformToken,
 } from "../util/platform.js";
+import { deleteSkillCapabilityMemory } from "./skill-memory.js";
 
 const log = getLogger("catalog-install");
 
@@ -288,6 +289,7 @@ export function uninstallSkillLocally(skillId: string): void {
 
   rmSync(skillDir, { recursive: true, force: true });
   removeSkillsIndexEntry(skillId);
+  deleteSkillCapabilityMemory(skillId);
 }
 
 export async function installSkillLocally(
