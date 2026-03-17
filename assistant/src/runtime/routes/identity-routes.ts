@@ -11,6 +11,7 @@ import { getBaseDataDir } from "../../config/env-registry.js";
 import { getWorkspacePromptPath, readLockfile } from "../../util/platform.js";
 import { httpError } from "../http-errors.js";
 import type { RouteDefinition } from "../http-router.js";
+import { getCachedIntro } from "./identity-intro-cache.js";
 
 interface DiskSpaceInfo {
   path: string;
@@ -234,6 +235,18 @@ export function handleGetIdentity(): Response {
 }
 
 // ---------------------------------------------------------------------------
+// Identity intro cache
+// ---------------------------------------------------------------------------
+
+export function handleGetIdentityIntro(): Response {
+  const cached = getCachedIntro();
+  if (!cached) {
+    return httpError("NOT_FOUND", "No cached identity intro available", 404);
+  }
+  return Response.json({ text: cached.text });
+}
+
+// ---------------------------------------------------------------------------
 // Route definitions
 // ---------------------------------------------------------------------------
 
@@ -248,6 +261,11 @@ export function identityRouteDefinitions(): RouteDefinition[] {
       endpoint: "identity",
       method: "GET",
       handler: () => handleGetIdentity(),
+    },
+    {
+      endpoint: "identity/intro",
+      method: "GET",
+      handler: () => handleGetIdentityIntro(),
     },
   ];
 }

@@ -25,8 +25,12 @@ import type { AuthContext } from "../auth/types.js";
 import { httpError } from "../http-errors.js";
 import type { RouteDefinition } from "../http-router.js";
 import type { SendMessageDeps } from "../http-types.js";
+import { getCachedIntro, setCachedIntro } from "./identity-intro-cache.js";
 
 const log = getLogger("btw-routes");
+
+/** Conversation key used by the client for identity intro generation. */
+const IDENTITY_INTRO_KEY = "identity-intro";
 
 // ---------------------------------------------------------------------------
 // Handler
@@ -77,6 +81,38 @@ async function handleBtw(
     );
   }
 
+  // ----- Identity intro cache fast-path -----
+  // When the client requests the identity intro, check the cache first.
+  // If the cached text is still fresh and the identity files haven't changed,
+  // return it immediately as an SSE stream without making an LLM call.
+  if (conversationKey === IDENTITY_INTRO_KEY) {
+    const cached = getCachedIntro();
+    if (cached) {
+      log.debug("Returning cached identity intro");
+      const encoder = new TextEncoder();
+      const stream = new ReadableStream({
+        start(controller) {
+          controller.enqueue(
+            encoder.encode(
+              `event: btw_text_delta\ndata: ${JSON.stringify({ text: cached.text })}\n\n`,
+            ),
+          );
+          controller.enqueue(
+            encoder.encode(`event: btw_complete\ndata: {}\n\n`),
+          );
+          controller.close();
+        },
+      });
+      return new Response(stream, {
+        headers: {
+          "Content-Type": "text/event-stream",
+          "Cache-Control": "no-cache",
+          Connection: "keep-alive",
+        },
+      });
+    }
+  }
+
   // Look up an existing conversation — never create one.  BTW is ephemeral
   // (the file header promises "No messages are persisted"), so we must not
   // call getOrCreateConversation which would insert a DB row.  When no
@@ -116,7 +152,9 @@ async function handleBtw(
             ? conversation.systemPrompt
             : buildSystemPrompt({ excludeBootstrap: true });
 
+          const isIntroRequest = conversationKey === IDENTITY_INTRO_KEY;
           let textDeltaCount = 0;
+          let collectedText = "";
           await conversation.provider.sendMessage(
             messages,
             tools,
@@ -130,6 +168,7 @@ async function handleBtw(
               onEvent: (event) => {
                 if (event.type === "text_delta") {
                   textDeltaCount++;
+                  if (isIntroRequest) collectedText += event.text;
                   controller.enqueue(
                     encoder.encode(
                       `event: btw_text_delta\ndata: ${JSON.stringify({ text: event.text })}\n\n`,
@@ -146,6 +185,16 @@ async function handleBtw(
               { conversationKey, messageCount: messages.length },
               "btw side-chain completed with no text deltas",
             );
+          }
+
+          // Cache the generated identity intro for subsequent requests.
+          if (isIntroRequest && collectedText.trim()) {
+            try {
+              setCachedIntro(collectedText.trim());
+              log.debug("Cached identity intro text");
+            } catch {
+              // Non-fatal — next request will regenerate.
+            }
           }
 
           controller.enqueue(
