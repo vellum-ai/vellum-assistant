@@ -148,7 +148,7 @@ final class AssistantCli {
             return
         }
 
-        log.info("Running hatch via CLI at \(binaryURL.path, privacy: .private)")
+        log.info("Running hatch via CLI at \(binaryURL.path, privacy: .public)")
 
         var arguments = ["hatch", "-d"]
         if daemonOnly {
@@ -169,7 +169,7 @@ final class AssistantCli {
         let (_, stderr, status) = try await runCLI(binaryURL: binaryURL, arguments: arguments)
 
         if status != 0 {
-            log.error("CLI hatch failed with exit code \(status, privacy: .public): \(stderr, privacy: .private)")
+            log.error("CLI hatch failed with exit code \(status, privacy: .public): \(stderr, privacy: .public)")
             throw CLIError.daemonStartupFailed(Self.parseDaemonStartupError(from: stderr))
         }
 
@@ -196,7 +196,7 @@ final class AssistantCli {
             throw CLIError.binaryNotFound
         }
 
-        log.info("Running retire via CLI at \(binaryURL.path, privacy: .private) for '\(name, privacy: .private)'")
+        log.info("Running retire via CLI at \(binaryURL.path, privacy: .public) for '\(name, privacy: .public)'")
 
         let (stderr, status) = try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<(String, Int32), Error>) in
             let proc = Process()
@@ -215,7 +215,7 @@ final class AssistantCli {
                 guard !data.isEmpty, let line = String(data: data, encoding: .utf8) else { return }
                 let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
                 if !trimmed.isEmpty {
-                    log.info("[retire stdout] \(trimmed, privacy: .private)")
+                    log.info("[retire stdout] \(trimmed, privacy: .public)")
                 }
             }
             stderrPipe.fileHandleForReading.readabilityHandler = { handle in
@@ -223,7 +223,7 @@ final class AssistantCli {
                 guard !data.isEmpty, let line = String(data: data, encoding: .utf8) else { return }
                 let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
                 if !trimmed.isEmpty {
-                    log.warning("[retire stderr] \(trimmed, privacy: .private)")
+                    log.warning("[retire stderr] \(trimmed, privacy: .public)")
                 }
             }
 
@@ -271,7 +271,7 @@ final class AssistantCli {
         }
 
         if status != 0 {
-            log.error("CLI retire failed with exit code \(status, privacy: .public): \(stderr, privacy: .private)")
+            log.error("CLI retire failed with exit code \(status, privacy: .public): \(stderr, privacy: .public)")
             throw CLIError.executionFailed(stderr)
         }
 
@@ -289,7 +289,7 @@ final class AssistantCli {
             return
         }
 
-        log.info("Running stop via CLI at \(binaryURL.path, privacy: .private)")
+        log.info("Running stop via CLI at \(binaryURL.path, privacy: .public)")
 
         // stop must be synchronous (called from applicationWillTerminate)
         let proc = Process()
@@ -334,14 +334,14 @@ final class AssistantCli {
             return
         }
 
-        log.info("Running wake via CLI for '\(name, privacy: .private)'")
+        log.info("Running wake via CLI for '\(name, privacy: .public)'")
         let (_, stderr, status) = try await runCLI(binaryURL: binaryURL, arguments: ["wake", name])
 
         if status != 0 {
-            log.error("CLI wake failed with exit code \(status, privacy: .public): \(stderr, privacy: .private)")
+            log.error("CLI wake failed with exit code \(status, privacy: .public): \(stderr, privacy: .public)")
             throw CLIError.executionFailed(stderr)
         }
-        log.info("CLI wake completed successfully for '\(name, privacy: .private)'")
+        log.info("CLI wake completed successfully for '\(name, privacy: .public)'")
     }
 
     /// Sleep a specific assistant's daemon via the CLI.
@@ -351,14 +351,14 @@ final class AssistantCli {
             return
         }
 
-        log.info("Running sleep via CLI for '\(name, privacy: .private)'")
+        log.info("Running sleep via CLI for '\(name, privacy: .public)'")
         let (_, stderr, status) = try await runCLI(binaryURL: binaryURL, arguments: ["sleep", name])
 
         if status != 0 {
-            log.error("CLI sleep failed with exit code \(status, privacy: .public): \(stderr, privacy: .private)")
+            log.error("CLI sleep failed with exit code \(status, privacy: .public): \(stderr, privacy: .public)")
             throw CLIError.executionFailed(stderr)
         }
-        log.info("CLI sleep completed successfully for '\(name, privacy: .private)'")
+        log.info("CLI sleep completed successfully for '\(name, privacy: .public)'")
     }
 
     // MARK: - Remote Hatch (pass-through to CLI)
@@ -384,7 +384,7 @@ final class AssistantCli {
             throw CLIError.binaryNotFound
         }
 
-        log.info("Running remote hatch via CLI at \(binaryURL.path, privacy: .private) --remote \(config.remote, privacy: .private)")
+        log.info("Running remote hatch via CLI at \(binaryURL.path, privacy: .public) --remote \(config.remote, privacy: .public)")
 
         let proc = Process()
         proc.executableURL = binaryURL
@@ -512,7 +512,7 @@ final class AssistantCli {
             let detail = stderr.isEmpty
                 ? "Hatch process exited with code \(status)"
                 : stderr
-            log.error("CLI remote hatch failed with exit code \(status): \(detail, privacy: .private)")
+            log.error("CLI remote hatch failed with exit code \(status): \(detail, privacy: .public)")
             throw CLIError.executionFailed(detail)
         }
 
@@ -535,7 +535,7 @@ final class AssistantCli {
         try qrCodeImageData.write(to: tmpQRPath)
         defer { try? FileManager.default.removeItem(at: tmpQRPath) }
 
-        log.info("Running pair via CLI at \(binaryURL.path, privacy: .private)")
+        log.info("Running pair via CLI at \(binaryURL.path, privacy: .public)")
 
         let proc = Process()
         proc.executableURL = binaryURL
@@ -594,7 +594,7 @@ final class AssistantCli {
             let detail = stderr.isEmpty
                 ? "Pair process exited with code \(status)"
                 : stderr
-            log.error("CLI pair failed with exit code \(status): \(detail, privacy: .private)")
+            log.error("CLI pair failed with exit code \(status): \(detail, privacy: .public)")
             throw CLIError.executionFailed(detail)
         }
 
@@ -669,7 +669,7 @@ final class AssistantCli {
         do {
             pidData = try Data(contentsOf: pidFileURL)
         } catch {
-            log.error("Failed to read PID file at \(self.pidFileURL.path, privacy: .private): \(error)")
+            log.error("Failed to read PID file at \(self.pidFileURL.path, privacy: .public): \(error)")
             return
         }
         guard let pidString = String(data: pidData, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines),

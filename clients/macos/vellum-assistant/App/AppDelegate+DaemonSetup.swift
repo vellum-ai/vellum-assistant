@@ -162,7 +162,7 @@ extension AppDelegate {
         daemonClient.wakeHandler = { [weak self] in
             guard let self else { return }
             let name = UserDefaults.standard.string(forKey: "connectedAssistantId") ?? "default"
-            log.info("Auto-wake: waking assistant '\(name, privacy: .private)' via CLI")
+            log.info("Auto-wake: waking assistant '\(name, privacy: .public)' via CLI")
             try await self.assistantCli.wake(name: name)
         }
 
@@ -398,7 +398,7 @@ extension AppDelegate {
                     } catch let error as AssistantCli.CLIError {
                         switch error {
                         case .daemonStartupFailed(let startupError):
-                            log.error("Daemon startup failed [\(startupError.category)]: \(startupError.message, privacy: .private)")
+                            log.error("Daemon startup failed [\(startupError.category, privacy: .public)]: \(startupError.message, privacy: .public)")
                             self.daemonStartupError = startupError
                             MetricKitManager.reportDaemonStartupFailure(startupError)
                         default:

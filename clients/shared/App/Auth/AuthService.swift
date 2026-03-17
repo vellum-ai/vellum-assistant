@@ -535,7 +535,7 @@ public final class AuthService {
             decoded = try JSONDecoder().decode(AllauthResponse<T>.self, from: attempt.data)
         } catch {
             let rawBody = String(data: attempt.data, encoding: .utf8) ?? "<non-utf8>"
-            log.error("Failed to decode auth response for \(requestConfig.method, privacy: .public) \(requestConfig.path, privacy: .public): \(error)\nRaw body: \(rawBody, privacy: .private)")
+            log.error("Failed to decode auth response for \(requestConfig.method, privacy: .public) \(requestConfig.path, privacy: .public): \(error)\nRaw body: \(rawBody, privacy: .public)")
             throw AuthServiceError.decodingError(error)
         }
 
