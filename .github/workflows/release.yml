@@ -1497,8 +1497,8 @@ jobs:
       - name: Tag release
         run: |
           VERSION="${{ needs.extract-version.outputs.version }}"
-          git tag "v$VERSION"
-          git push origin "v$VERSION"
+          git tag "v$VERSION" 2>/dev/null || true
+          git push origin "v$VERSION" 2>/dev/null || echo "Tag v$VERSION already exists on remote"
 
       - name: Download macOS build artifacts
         uses: actions/download-artifact@v4
