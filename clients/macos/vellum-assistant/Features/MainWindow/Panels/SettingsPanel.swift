@@ -13,7 +13,7 @@ enum SettingsTab: String {
     case privacy = "Privacy"
     case voice = "Voice"
     case billing = "Billing"
-    case archivedConversations = "Archived Threads"
+    case archivedConversations = "Archived Conversations"
     case developer = "Developer"
 
     /// Primary tabs shown in the main nav list (excludes feature-flagged bottom tabs).

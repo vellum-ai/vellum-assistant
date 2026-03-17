@@ -134,7 +134,7 @@ struct SidebarConversationItem: View {
             onSelect?()
         }
         .accessibilityAddTraits(.isButton)
-        .accessibilityLabel("Thread: \(conversation.title)")
+        .accessibilityLabel("Conversation: \(conversation.title)")
         .accessibilityAction(.default) {
             selectConversation()
         }
@@ -172,18 +172,18 @@ struct SidebarConversationItem: View {
                     }
                 }
             } label: {
-                Label { Text(conversation.isPinned ? "Unpin thread" : "Pin thread") } icon: { VIconView(conversation.isPinned ? .pinOff : .pin, size: 14) }
+                Label { Text(conversation.isPinned ? "Unpin conversation" : "Pin conversation") } icon: { VIconView(conversation.isPinned ? .pinOff : .pin, size: 14) }
             }
             Button {
                 sidebar.renamingConversationId = conversation.id
                 sidebar.renameText = conversation.title
             } label: {
-                Label { Text("Rename thread") } icon: { VIconView(.pencil, size: 14) }
+                Label { Text("Rename conversation") } icon: { VIconView(.pencil, size: 14) }
             }
             Button {
                 conversationManager.archiveConversation(id: conversation.id)
             } label: {
-                Label { Text("Archive thread") } icon: { VIconView(.archive, size: 14) }
+                Label { Text("Archive conversation") } icon: { VIconView(.archive, size: 14) }
             }
             Button {
                 conversationManager.markConversationUnread(conversationId: conversation.id)
@@ -198,7 +198,7 @@ struct SidebarConversationItem: View {
                 guard let conversationId = conversation.conversationId else { return }
                 AppDelegate.shared?.showLogReportWindow(scope: .conversation(conversationId: conversationId, conversationTitle: conversation.title))
             } label: {
-                Label { Text("Send Logs for Thread") } icon: { VIconView(.upload, size: 14) }
+                Label { Text("Send Logs for Conversation") } icon: { VIconView(.upload, size: 14) }
             }
             .disabled(conversation.conversationId == nil || LogExporter.isManagedAssistant)
         }

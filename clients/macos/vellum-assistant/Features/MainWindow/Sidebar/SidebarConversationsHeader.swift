@@ -9,7 +9,7 @@ struct SidebarConversationsHeader: View {
 
     var body: some View {
         HStack {
-            Text("Threads")
+            Text("Conversations")
                 .font(.system(size: 13, weight: .medium))
                 .foregroundColor(VColor.contentDefault)
             Spacer()
@@ -23,7 +23,7 @@ struct SidebarConversationsHeader: View {
                 )
                 .disabled(isLoading)
             }
-            VButton(label: "New thread", iconOnly: VIcon.squarePen.rawValue, style: .ghost, action: onNewConversation)
+            VButton(label: "New conversation", iconOnly: VIcon.squarePen.rawValue, style: .ghost, action: onNewConversation)
                 .disabled(isLoading)
                 .opacity(isLoading ? 0.4 : 1)
         }

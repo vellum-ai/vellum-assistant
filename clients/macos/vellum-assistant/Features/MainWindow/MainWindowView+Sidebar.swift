@@ -123,7 +123,7 @@ extension MainWindowView {
         .background(VColor.surfaceOverlay)
         .clipShape(RoundedRectangle(cornerRadius: VRadius.xl))
         .clipped()
-        .alert("Rename Thread", isPresented: Binding(
+        .alert("Rename Conversation", isPresented: Binding(
             get: { sidebar.renamingConversationId != nil },
             set: { if !$0 { sidebar.renamingConversationId = nil } }
         )) {
@@ -139,7 +139,7 @@ extension MainWindowView {
                 sidebar.renamingConversationId = nil
             }
         } message: {
-            Text("Enter a new name for this thread")
+            Text("Enter a new name for this conversation")
         }
     }
 
@@ -210,7 +210,7 @@ extension MainWindowView {
                     guard !markedIds.isEmpty else { return }
                     let count = markedIds.count
                     let toastId = windowState.showToast(
-                        message: "Marked \(count) thread\(count == 1 ? "" : "s") as seen",
+                        message: "Marked \(count) conversation\(count == 1 ? "" : "s") as seen",
                         style: .success,
                         primaryAction: VToastAction(label: "Undo") {
                             conversationManager.restoreUnseen(conversationIds: markedIds)

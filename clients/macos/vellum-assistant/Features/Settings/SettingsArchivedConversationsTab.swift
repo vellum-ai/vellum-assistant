@@ -8,8 +8,8 @@ struct SettingsArchivedConversationsTab: View {
         VStack(alignment: .leading, spacing: VSpacing.lg) {
             if conversationManager.archivedConversations.isEmpty {
                 VEmptyState(
-                    title: "No archived threads",
-                    subtitle: "Threads you archive will appear here.",
+                    title: "No archived conversations",
+                    subtitle: "Conversations you archive will appear here.",
                     icon: VIcon.archive.rawValue
                 )
             } else {

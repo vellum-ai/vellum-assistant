@@ -39,7 +39,7 @@ struct ConversationActionsDrawer: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             if presentation.canCopy {
-                SidebarPrimaryRow(icon: VIcon.copy.rawValue, label: "Copy full thread", action: onCopy)
+                SidebarPrimaryRow(icon: VIcon.copy.rawValue, label: "Copy full conversation", action: onCopy)
             }
 
             SidebarPrimaryRow(
@@ -48,9 +48,9 @@ struct ConversationActionsDrawer: View {
                 action: presentation.isPinned ? onUnpin : onPin
             )
 
-            SidebarPrimaryRow(icon: VIcon.pencil.rawValue, label: "Rename thread", action: onRename)
+            SidebarPrimaryRow(icon: VIcon.pencil.rawValue, label: "Rename conversation", action: onRename)
 
-            SidebarPrimaryRow(icon: VIcon.archive.rawValue, label: "Archive thread", action: onArchive)
+            SidebarPrimaryRow(icon: VIcon.archive.rawValue, label: "Archive conversation", action: onArchive)
         }
         .padding(VSpacing.sm)
         .background(VColor.surfaceLift)

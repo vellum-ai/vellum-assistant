@@ -202,7 +202,7 @@ struct MainWindowView: View {
         guard !markdown.isEmpty else { return }
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(markdown, forType: .string)
-        windowState.showToast(message: "Thread copied to clipboard", style: .success)
+        windowState.showToast(message: "Conversation copied to clipboard", style: .success)
     }
 
     private var conversationHeaderPresentation: ConversationHeaderPresentation {

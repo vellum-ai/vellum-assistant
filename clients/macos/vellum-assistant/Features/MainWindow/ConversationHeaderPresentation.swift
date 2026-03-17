@@ -14,7 +14,7 @@ struct ConversationHeaderPresentation {
 
     init(activeConversation: ConversationModel?, activeViewModel: ChatViewModel?, isConversationVisible: Bool) {
         guard isConversationVisible, let conversation = activeConversation else {
-            self.displayTitle = "New thread"
+            self.displayTitle = "New conversation"
             self.isStarted = false
             self.showsActionsMenu = false
             self.isPrivateConversation = false

@@ -60,7 +60,7 @@ public enum ConversationErrorCategory: Equatable, Sendable {
         case .providerWebSearch:
             return "This is usually temporary — click Retry to continue."
         case .contextTooLarge:
-            return "Start a new thread to reset context, or try a shorter message."
+            return "Start a new conversation to reset context, or try a shorter message."
         case .conversationAborted:
             return "Send a new message to continue the conversation."
         case .processingFailed:
