@@ -72,9 +72,12 @@ struct ImageGenerationServiceCard: View {
                             .foregroundColor(VColor.contentDefault)
 
                         if isConnected && apiKeyText.isEmpty {
-                            Label("Key saved", systemImage: "checkmark.circle.fill")
-                                .font(VFont.caption)
-                                .foregroundColor(VColor.systemPositiveStrong)
+                            HStack(spacing: VSpacing.xs) {
+                                VIconView(.circleCheck, size: 12)
+                                Text("Key saved")
+                            }
+                            .font(VFont.caption)
+                            .foregroundColor(VColor.systemPositiveStrong)
                         }
                     }
 
