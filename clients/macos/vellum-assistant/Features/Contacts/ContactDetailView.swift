@@ -11,6 +11,7 @@ struct ContactDetailView: View {
     var store: SettingsStore?
     var onDelete: (() -> Void)?
     var onSelectAssistant: (() -> Void)?
+    var showToast: ((String, ToastInfo.Style) -> Void)?
     var guardianName: String?
 
     @State var currentContact: ContactPayload?
@@ -187,11 +188,14 @@ struct ContactDetailView: View {
                 currentContact = updated
                 editedName = updated.displayName
                 editedNotes = updated.notes ?? ""
+                showToast?("Contact saved", .success)
             } else {
                 errorMessage = "Failed to save changes"
+                showToast?("Failed to save contact", .error)
             }
         } catch {
             errorMessage = "Failed to save: \(error.localizedDescription)"
+            showToast?("Failed to save contact", .error)
         }
         isSaving = false
     }

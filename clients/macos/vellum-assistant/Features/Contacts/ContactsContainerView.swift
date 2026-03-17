@@ -16,16 +16,18 @@ struct ContactsContainerView: View {
     var daemonClient: DaemonClient?
     var store: SettingsStore?
     var isEmailEnabled: Bool = false
+    var showToast: ((String, ToastInfo.Style) -> Void)?
 
     @StateObject private var viewModel: ContactsViewModel
     @State private var selection: ContactSelection? = .assistant
 
     private let contactClient: ContactClientProtocol = ContactClient()
 
-    init(daemonClient: DaemonClient?, store: SettingsStore? = nil, isEmailEnabled: Bool = false) {
+    init(daemonClient: DaemonClient?, store: SettingsStore? = nil, isEmailEnabled: Bool = false, showToast: ((String, ToastInfo.Style) -> Void)? = nil) {
         self.daemonClient = daemonClient
         self.store = store
         self.isEmailEnabled = isEmailEnabled
+        self.showToast = showToast
         _viewModel = StateObject(wrappedValue: ContactsViewModel(daemonClient: daemonClient))
     }
 
@@ -111,6 +113,7 @@ struct ContactsContainerView: View {
                                     viewModel.loadContacts()
                                 },
                                 onSelectAssistant: { selection = .assistant },
+                                showToast: showToast,
                                 guardianName: viewModel.guardianContact?.displayName
                             )
                             .id(contactId)
@@ -227,6 +230,9 @@ struct ContactsContainerView: View {
             guardianEditedNotes = contact.notes ?? ""
         }
         .onChange(of: contact) { _, newContact in
+            // Don't reset fields while a save is in flight — the reload
+            // triggers this with stale data before the API response propagates.
+            guard !guardianIsSaving else { return }
             guardianEditedName = newContact.displayName
             guardianEditedNotes = newContact.notes ?? ""
         }
@@ -248,9 +254,10 @@ struct ContactsContainerView: View {
                 guardianEditedName = updated.displayName
                 guardianEditedNotes = updated.notes ?? ""
                 viewModel.loadContacts()
+                showToast?("Contact saved", .success)
             }
         } catch {
-            // Silently fail — user can retry
+            showToast?("Failed to save contact", .error)
         }
         guardianIsSaving = false
     }

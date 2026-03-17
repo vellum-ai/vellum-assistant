@@ -387,7 +387,7 @@ struct SettingsPanel: View {
         case .permissionsAndPrivacy:
             permissionsAndPrivacyContent
         case .contacts:
-            ContactsContainerView(daemonClient: daemonClient, store: store, isEmailEnabled: isEmailEnabled)
+            ContactsContainerView(daemonClient: daemonClient, store: store, isEmailEnabled: isEmailEnabled, showToast: showToast)
         case .billing:
             SettingsBillingTab(authManager: authManager)
         case .archivedConversations:
