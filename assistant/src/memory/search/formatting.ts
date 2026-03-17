@@ -77,6 +77,9 @@ export const IDENTITY_KINDS = new Set(["identity"]);
 /** Kinds classified as preferences for the <applicable_preferences> section. */
 export const PREFERENCE_KINDS = new Set(["preference", "constraint"]);
 
+/** Kinds classified as capabilities for the <available_capabilities> section. */
+export const CAPABILITY_KINDS = new Set(["capability"]);
+
 /** Per-item token budget for tier 1 items. */
 const TIER1_PER_ITEM_TOKENS = 150;
 
@@ -102,6 +105,7 @@ export function buildTwoLayerInjection(params: {
   tier1Candidates: TieredCandidate[];
   tier2Candidates: TieredCandidate[];
   preferences: TieredCandidate[];
+  capabilities: TieredCandidate[];
   totalBudgetTokens?: number;
 }): string {
   const {
@@ -109,6 +113,7 @@ export function buildTwoLayerInjection(params: {
     tier1Candidates,
     tier2Candidates,
     preferences,
+    capabilities,
     totalBudgetTokens,
   } = params;
 
@@ -117,7 +122,8 @@ export function buildTwoLayerInjection(params: {
     identityItems.length === 0 &&
     tier1Candidates.length === 0 &&
     tier2Candidates.length === 0 &&
-    preferences.length === 0
+    preferences.length === 0 &&
+    capabilities.length === 0
   ) {
     return "";
   }
@@ -136,6 +142,7 @@ export function buildTwoLayerInjection(params: {
     tier1Candidates.length,
     tier2Candidates.length,
     preferences.length,
+    capabilities.length,
   ].filter((n) => n > 0).length;
   const structuralOverhead =
     WRAPPER_OVERHEAD_TOKENS + sectionCount * SECTION_TAG_TOKENS;
@@ -165,6 +172,13 @@ export function buildTwoLayerInjection(params: {
   );
   remainingTokens -= estimateTextTokens(preferenceLines.join("\n"));
 
+  const capabilityLines = renderPlainStatements(
+    capabilities,
+    TIER1_PER_ITEM_TOKENS,
+    remainingTokens,
+  );
+  remainingTokens -= estimateTextTokens(capabilityLines.join("\n"));
+
   // Tier 2 uses remaining budget
   const possiblyRelevantEpisodes = renderEpisodesWithStaleness(
     tier2Candidates,
@@ -190,6 +204,12 @@ export function buildTwoLayerInjection(params: {
   if (preferenceLines.length > 0) {
     sections.push(
       `<applicable_preferences>\n${preferenceLines.join("\n")}\n</applicable_preferences>`,
+    );
+  }
+
+  if (capabilityLines.length > 0) {
+    sections.push(
+      `<available_capabilities>\n${capabilityLines.join("\n")}\n</available_capabilities>`,
     );
   }
 

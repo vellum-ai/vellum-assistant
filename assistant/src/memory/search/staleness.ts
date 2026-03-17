@@ -8,6 +8,7 @@ const BASE_LIFETIME_MS: Record<string, number> = {
   project: 14 * 86_400_000, // 2 weeks
   decision: 14 * 86_400_000, // 2 weeks
   event: 3 * 86_400_000, // 3 days
+  capability: Infinity,
 };
 
 const DEFAULT_LIFETIME_MS = 30 * 86_400_000;
