@@ -216,7 +216,8 @@ export function conversationManagementRouteDefinitions(
       method: "POST",
       policyKey: "conversations/cancel",
       handler: ({ params }) => {
-        deps.cancelGeneration(params.id);
+        const resolvedId = resolveConversationId(params.id) ?? params.id;
+        deps.cancelGeneration(resolvedId);
         return new Response(null, { status: 202 });
       },
     },
