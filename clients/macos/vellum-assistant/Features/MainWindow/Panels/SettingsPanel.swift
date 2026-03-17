@@ -80,7 +80,17 @@ struct SettingsPanel: View {
         // the selection didSet, which consumes pendingSettingsTab on the
         // first instance and leaves the second with .general).
         if let pending = store.pendingSettingsTab {
-            _selectedTab = State(initialValue: pending)
+            // Validate that the deep-linked tab is actually visible before
+            // accepting it. @AppStorage isn't wired to UserDefaults in init,
+            // so read connectedOrgId directly from UserDefaults.
+            let orgId = UserDefaults.standard.string(forKey: "connectedOrganizationId")
+            let canShowBilling = billingEnabled && authManager.isAuthenticated && orgId != nil
+            // Contacts and developer flags load asynchronously, so default
+            // to false at init time — those tabs aren't visible yet.
+            let visibleTabs = SettingsTab.primaryTabs(contactsEnabled: false, billingEnabled: canShowBilling)
+            if visibleTabs.contains(pending) {
+                _selectedTab = State(initialValue: pending)
+            }
         }
     }
 
