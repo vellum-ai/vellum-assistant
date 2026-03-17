@@ -247,15 +247,12 @@ struct ChatEmptyStateView: View {
     @ViewBuilder
     private var conversationStartersSection: some View {
         if !conversationStarters.isEmpty {
-            LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: VSpacing.sm) {
-                ForEach(conversationStarters.prefix(4)) { starter in
-                    ConversationStarterChip(label: starter.label, fullPrompt: starter.prompt) {
-                        onSelectStarter?(starter)
-                    }
-                }
-            }
+            ConversationStarterPillRow(
+                starters: Array(conversationStarters.prefix(4)),
+                onSelect: { starter in onSelectStarter?(starter) }
+            )
             .frame(maxWidth: VSpacing.chatBubbleMaxWidth)
-            .padding(.top, VSpacing.xxxl)
+            .padding(.top, VSpacing.xl)
             .opacity(visible ? 1 : 0)
             .offset(y: visible ? 0 : 10)
         } else if conversationStartersLoading {
@@ -276,7 +273,7 @@ struct ChatEmptyStateView: View {
                     .foregroundColor(VColor.contentTertiary)
             }
             .frame(maxWidth: VSpacing.chatBubbleMaxWidth)
-            .padding(.top, VSpacing.xxxl)
+            .padding(.top, VSpacing.xl)
             .opacity(visible ? 1 : 0)
             .offset(y: visible ? 0 : 10)
         }
@@ -297,37 +294,141 @@ struct ChatEmptyStateView: View {
 
 }
 
-// MARK: - Conversation Starter Chip
+// MARK: - Conversation Starter Pill Row
 
-struct ConversationStarterChip: View {
+/// Horizontally-wrapped row of conversation starter pills, capped at four items.
+/// Preserves server ordering so the strongest recommendations appear first.
+struct ConversationStarterPillRow: View {
+    let starters: [ConversationStarter]
+    let onSelect: (ConversationStarter) -> Void
+
+    /// Maximum number of visible pills in the recommendation row.
+    static let maxVisibleCount = 4
+
+    var body: some View {
+        FlowLayout(spacing: VSpacing.sm) {
+            ForEach(starters.prefix(Self.maxVisibleCount)) { starter in
+                ConversationStarterPill(label: starter.label) {
+                    onSelect(starter)
+                }
+            }
+        }
+    }
+}
+
+/// A single conversation starter pill with warm hover/press feedback.
+struct ConversationStarterPill: View {
     let label: String
-    let fullPrompt: String
     let action: () -> Void
 
     @State private var isHovered = false
+    @State private var isPressed = false
+
+    private var fillColor: Color {
+        if isPressed {
+            return VColor.surfaceOverlay.opacity(0.9)
+        } else if isHovered {
+            return VColor.surfaceOverlay
+        } else {
+            return VColor.surfaceActive
+        }
+    }
+
+    private var borderColor: Color {
+        isHovered ? VColor.borderHover : VColor.borderBase
+    }
 
     var body: some View {
         Button(action: action) {
             Text(label)
-                .font(VFont.body)
-                .foregroundColor(VColor.contentSecondary)
-                .lineLimit(2)
-                .multilineTextAlignment(.leading)
-                .frame(maxWidth: .infinity, alignment: .leading)
+                .font(VFont.bodyMedium)
+                .foregroundColor(isHovered ? VColor.contentDefault : VColor.contentSecondary)
+                .lineLimit(1)
                 .padding(.horizontal, VSpacing.md)
-                .padding(.vertical, VSpacing.sm)
+                .padding(.vertical, VSpacing.xs + 2)
                 .background(
-                    RoundedRectangle(cornerRadius: VRadius.md)
-                        .fill(isHovered ? VColor.surfaceOverlay : VColor.surfaceActive)
+                    Capsule()
+                        .fill(fillColor)
                 )
                 .overlay(
-                    RoundedRectangle(cornerRadius: VRadius.md)
-                        .stroke(VColor.borderBase, lineWidth: 0.5)
+                    Capsule()
+                        .stroke(borderColor, lineWidth: 0.5)
                 )
-                .contentShape(RoundedRectangle(cornerRadius: VRadius.md))
+                .contentShape(Capsule())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(PillButtonStyle(isPressed: $isPressed))
         .onHover { isHovered = $0 }
+        .animation(VAnimation.fast, value: isHovered)
+        .animation(VAnimation.snappy, value: isPressed)
+        .accessibilityLabel(label)
+    }
+}
+
+/// Button style that tracks press state without overriding pill appearance.
+private struct PillButtonStyle: ButtonStyle {
+    @Binding var isPressed: Bool
+
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .onChange(of: configuration.isPressed) { _, newValue in
+                isPressed = newValue
+            }
+    }
+}
+
+/// Simple flow layout that wraps children horizontally.
+private struct FlowLayout: Layout {
+    var spacing: CGFloat
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let result = arrange(proposal: proposal, subviews: subviews)
+        return result.size
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        let result = arrange(proposal: proposal, subviews: subviews)
+        for (index, position) in result.positions.enumerated() {
+            subviews[index].place(
+                at: CGPoint(x: bounds.minX + position.x, y: bounds.minY + position.y),
+                proposal: ProposedViewSize(result.sizes[index])
+            )
+        }
+    }
+
+    private struct ArrangeResult {
+        var size: CGSize
+        var positions: [CGPoint]
+        var sizes: [CGSize]
+    }
+
+    private func arrange(proposal: ProposedViewSize, subviews: Subviews) -> ArrangeResult {
+        let maxWidth = proposal.width ?? .infinity
+        var positions: [CGPoint] = []
+        var sizes: [CGSize] = []
+        var x: CGFloat = 0
+        var y: CGFloat = 0
+        var rowHeight: CGFloat = 0
+        var totalWidth: CGFloat = 0
+
+        for subview in subviews {
+            let size = subview.sizeThatFits(.unspecified)
+            if x + size.width > maxWidth, x > 0 {
+                x = 0
+                y += rowHeight + spacing
+                rowHeight = 0
+            }
+            positions.append(CGPoint(x: x, y: y))
+            sizes.append(size)
+            rowHeight = max(rowHeight, size.height)
+            x += size.width + spacing
+            totalWidth = max(totalWidth, x - spacing)
+        }
+
+        return ArrangeResult(
+            size: CGSize(width: totalWidth, height: y + rowHeight),
+            positions: positions,
+            sizes: sizes
+        )
     }
 }
 

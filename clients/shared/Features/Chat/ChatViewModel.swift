@@ -22,6 +22,14 @@ public struct ConversationStarter: Identifiable, Codable {
     public let prompt: String
     public let category: String?
     public let batch: Int
+
+    public init(id: String, label: String, prompt: String, category: String?, batch: Int) {
+        self.id = id
+        self.label = label
+        self.prompt = prompt
+        self.category = category
+        self.batch = batch
+    }
 }
 
 struct ConversationStartersResponse: Codable {

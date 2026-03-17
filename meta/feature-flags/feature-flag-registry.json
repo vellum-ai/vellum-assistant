@@ -229,8 +229,8 @@
       "id": "conversation-starters",
       "scope": "macos",
       "key": "conversation_starters_enabled",
-      "label": "Conversation Starters",
-      "description": "Show personalized conversation starter suggestions on the empty conversation page",
+      "label": "Recommended Starts",
+      "description": "Show a curated row of recommended starting actions on the empty conversation page, ordered by relevance as confident first-click options",
       "defaultEnabled": false
     },
     {
