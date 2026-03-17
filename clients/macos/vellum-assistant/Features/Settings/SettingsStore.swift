@@ -264,6 +264,7 @@ public final class SettingsStore: ObservableObject {
     private weak var daemonClient: DaemonClient?
     private let channelClient: ChannelClientProtocol
     private let integrationClient: IntegrationClientProtocol
+    private let settingsClient: SettingsClientProtocol
     private var cancellables = Set<AnyCancellable>()
     private let configPath: String?
 
@@ -312,6 +313,7 @@ public final class SettingsStore: ObservableObject {
         daemonClient: DaemonClient? = nil,
         channelClient: ChannelClientProtocol = ChannelClient(),
         integrationClient: IntegrationClientProtocol = IntegrationClient(),
+        settingsClient: SettingsClientProtocol = SettingsClient(),
         configPath: String? = nil,
         verificationSessionTimeoutDuration: TimeInterval = 12,
         verificationStatusPollInterval: TimeInterval = 2,
@@ -320,6 +322,7 @@ public final class SettingsStore: ObservableObject {
         self.daemonClient = daemonClient
         self.channelClient = channelClient
         self.integrationClient = integrationClient
+        self.settingsClient = settingsClient
         self.configPath = configPath
         self.verificationSessionTimeoutDuration = max(0.05, verificationSessionTimeoutDuration)
         self.verificationStatusPollInterval = max(0.05, verificationStatusPollInterval)
@@ -495,19 +498,13 @@ public final class SettingsStore: ObservableObject {
         // Wire up Vercel API config response
         daemonClient?.onVercelApiConfigResponse = { [weak self] response in
             guard let self else { return }
-            if response.success {
-                self.hasVercelKey = response.hasToken
-            }
+            self.applyVercelConfigResponse(response)
         }
 
         // Wire up model info response
         daemonClient?.onModelInfo = { [weak self] response in
             guard let self else { return }
-            self.lastDaemonModel = response.model
-            self.selectedModel = response.model
-            if let providers = response.configuredProviders {
-                self.configuredProviders = Set(providers)
-            }
+            self.applyModelInfoResponse(response)
         }
 
         // Wire up ingress config response
@@ -573,19 +570,7 @@ public final class SettingsStore: ObservableObject {
         // Wire up Telegram config response
         daemonClient?.onTelegramConfigResponse = { [weak self] response in
             guard let self else { return }
-            self.telegramSaveInProgress = false
-            if response.success {
-                self.telegramHasBotToken = response.hasBotToken
-                self.telegramBotId = response.botId
-                self.telegramBotUsername = response.botUsername
-                self.telegramConnected = response.connected
-                self.telegramHasWebhookSecret = response.hasWebhookSecret
-                self.telegramError = nil
-                self.fetchChannelSetupStatus()
-            } else {
-                self.telegramError = response.error
-                self.fetchChannelSetupStatus()
-            }
+            self.applyTelegramConfigResponse(response)
         }
 
         // Twilio config is now handled via HTTP — no callback wiring needed.
@@ -593,115 +578,14 @@ public final class SettingsStore: ObservableObject {
         // Wire up channel verification response
         daemonClient?.onChannelVerificationSessionResponse = { [weak self] response in
             guard let self else { return }
-            guard let channel = self.resolveVerificationResponseChannel(response.channel) else { return }
-            let isStatusPoll = response.success && response.secret == nil && response.instruction == nil && response.bound != true
-            if !isStatusPoll {
-                self.clearVerificationSessionPending(for: channel)
-            }
-
-            switch channel {
-            case "telegram":
-                self.telegramVerificationInProgress = false
-                if response.success {
-                    self.telegramVerificationIdentity = response.guardianExternalUserId
-                    self.telegramVerificationUsername = Self.reflectedString(response, key: "guardianUsername")
-                    self.telegramVerificationDisplayName = Self.reflectedString(response, key: "guardianDisplayName")
-                    let isVerified = response.bound ?? false
-                    self.telegramVerificationVerified = isVerified
-                    if isVerified {
-                        self.telegramVerificationInstruction = nil
-                    } else if let instruction = response.instruction {
-                        self.telegramVerificationInstruction = instruction
-                    }
-                    self.telegramVerificationError = nil
-                    self.telegramVerificationAlreadyBound = false
-                } else {
-                    let isAlreadyBound = response.error == "already_bound"
-                    self.telegramVerificationAlreadyBound = isAlreadyBound
-                    self.telegramVerificationError = isAlreadyBound
-                        ? "A guardian is already bound. Revoke it first or replace it."
-                        : response.error
-                }
-            case "phone":
-                self.voiceVerificationInProgress = false
-                if response.success {
-                    self.voiceVerificationIdentity = response.guardianExternalUserId
-                    self.voiceVerificationUsername = Self.reflectedString(response, key: "guardianUsername")
-                    self.voiceVerificationDisplayName = Self.reflectedString(response, key: "guardianDisplayName")
-                    let isVerified = response.bound ?? false
-                    self.voiceVerificationVerified = isVerified
-                    if isVerified {
-                        self.voiceVerificationInstruction = nil
-                    } else if let instruction = response.instruction {
-                        self.voiceVerificationInstruction = instruction
-                    }
-                    self.voiceVerificationError = nil
-                    self.voiceVerificationAlreadyBound = false
-                } else {
-                    let isAlreadyBound = response.error == "already_bound"
-                    self.voiceVerificationAlreadyBound = isAlreadyBound
-                    self.voiceVerificationError = isAlreadyBound
-                        ? "A guardian is already bound. Revoke it first or replace it."
-                        : response.error
-                }
-            case "slack":
-                self.slackVerificationInProgress = false
-                if response.success {
-                    self.slackVerificationIdentity = response.guardianExternalUserId
-                    self.slackVerificationUsername = Self.reflectedString(response, key: "guardianUsername")
-                    self.slackVerificationDisplayName = Self.reflectedString(response, key: "guardianDisplayName")
-                    let isVerified = response.bound ?? false
-                    self.slackVerificationVerified = isVerified
-                    if isVerified {
-                        self.slackVerificationInstruction = nil
-                    } else if let instruction = response.instruction {
-                        self.slackVerificationInstruction = instruction
-                    }
-                    self.slackVerificationError = nil
-                    self.slackVerificationAlreadyBound = false
-                } else {
-                    let isAlreadyBound = response.error == "already_bound"
-                    self.slackVerificationAlreadyBound = isAlreadyBound
-                    self.slackVerificationError = isAlreadyBound
-                        ? "A guardian is already bound. Revoke it first or replace it."
-                        : response.error
-                }
-            default:
-                break
-            }
-
-            // Handle outbound verification session state
-            if response.success {
-                if response.verificationSessionId != nil {
-                    self.applyOutboundResponseState(channel: channel, response: response)
-                    self.startVerificationStatusPolling(for: channel)
-                } else if response.secret != nil || response.instruction != nil {
-                    self.startVerificationStatusPolling(for: channel)
-                } else if response.bound == true {
-                    self.clearOutboundState(for: channel)
-                    self.stopVerificationStatusPolling(for: channel)
-                }
-            } else {
-                // Errors that indicate the outbound session is no longer valid
-                // should clear the outbound UI state so the user isn't stuck
-                // in the pending verification view.
-                let terminalErrors: Set<String> = ["no_active_session", "already_bound"]
-                if let error = response.error, terminalErrors.contains(error) {
-                    self.clearOutboundState(for: channel)
-                }
-                self.stopVerificationStatusPolling(for: channel)
-            }
+            self.applyChannelVerificationResponse(response)
         }
 
         // Refresh Vercel key state on init
         refreshVercelKeyState()
 
-        // Fetch current model from daemon
-        do {
-            try daemonClient?.sendModelGet()
-        } catch {
-            log.error("Failed to send model get request: \(error)")
-        }
+        // Fetch current model
+        refreshModelInfo()
 
         // Refresh Telegram integration status on init
         refreshTelegramStatus()
@@ -913,21 +797,55 @@ public final class SettingsStore: ObservableObject {
     }
 
     func refreshVercelKeyState() {
-        do {
-            try daemonClient?.sendVercelApiConfig(action: "get")
-        } catch {
-            log.error("Failed to send Vercel API config get: \(error)")
+        Task {
+            guard let response = await settingsClient.fetchVercelConfig() else { return }
+            self.applyVercelConfigResponse(response)
+        }
+    }
+
+    private func applyVercelConfigResponse(_ response: VercelApiConfigResponseMessage) {
+        if response.success {
+            self.hasVercelKey = response.hasToken
+        }
+    }
+
+    func refreshModelInfo() {
+        Task {
+            guard let response = await settingsClient.fetchModelInfo() else { return }
+            self.applyModelInfoResponse(response)
+        }
+    }
+
+    private func applyModelInfoResponse(_ response: ModelInfoMessage) {
+        self.lastDaemonModel = response.model
+        self.selectedModel = response.model
+        if let providers = response.configuredProviders {
+            self.configuredProviders = Set(providers)
         }
     }
 
     // MARK: - Telegram Integration Actions
 
     func refreshTelegramStatus() {
-        do {
-            guard let daemonClient else { return }
-            try daemonClient.sendTelegramConfig(action: "get")
-        } catch {
-            log.error("Failed to send Telegram config get: \(error)")
+        Task {
+            guard let response = await settingsClient.fetchTelegramConfig() else { return }
+            self.applyTelegramConfigResponse(response)
+        }
+    }
+
+    private func applyTelegramConfigResponse(_ response: TelegramConfigResponseMessage) {
+        self.telegramSaveInProgress = false
+        if response.success {
+            self.telegramHasBotToken = response.hasBotToken
+            self.telegramBotId = response.botId
+            self.telegramBotUsername = response.botUsername
+            self.telegramConnected = response.connected
+            self.telegramHasWebhookSecret = response.hasWebhookSecret
+            self.telegramError = nil
+            self.fetchChannelSetupStatus()
+        } else {
+            self.telegramError = response.error
+            self.fetchChannelSetupStatus()
         }
     }
 
@@ -1441,10 +1359,106 @@ public final class SettingsStore: ObservableObject {
     // MARK: - Channel Verification Actions
 
     func refreshChannelVerificationStatus(channel: String) {
-        do {
-            try daemonClient?.sendChannelVerificationSession(action: "status", channel: channel)
-        } catch {
-            log.error("Failed to refresh \(channel) verification status: \(error)")
+        Task {
+            guard let response = await settingsClient.fetchChannelVerificationStatus(channel: channel) else { return }
+            self.applyChannelVerificationResponse(response)
+        }
+    }
+
+    private func applyChannelVerificationResponse(_ response: ChannelVerificationSessionResponseMessage) {
+        guard let channel = resolveVerificationResponseChannel(response.channel) else { return }
+        let isStatusPoll = response.success && response.secret == nil && response.instruction == nil && response.bound != true
+        if !isStatusPoll {
+            clearVerificationSessionPending(for: channel)
+        }
+
+        switch channel {
+        case "telegram":
+            telegramVerificationInProgress = false
+            if response.success {
+                telegramVerificationIdentity = response.guardianExternalUserId
+                telegramVerificationUsername = Self.reflectedString(response, key: "guardianUsername")
+                telegramVerificationDisplayName = Self.reflectedString(response, key: "guardianDisplayName")
+                let isVerified = response.bound ?? false
+                telegramVerificationVerified = isVerified
+                if isVerified {
+                    telegramVerificationInstruction = nil
+                } else if let instruction = response.instruction {
+                    telegramVerificationInstruction = instruction
+                }
+                telegramVerificationError = nil
+                telegramVerificationAlreadyBound = false
+            } else {
+                let isAlreadyBound = response.error == "already_bound"
+                telegramVerificationAlreadyBound = isAlreadyBound
+                telegramVerificationError = isAlreadyBound
+                    ? "A guardian is already bound. Revoke it first or replace it."
+                    : response.error
+            }
+        case "phone":
+            voiceVerificationInProgress = false
+            if response.success {
+                voiceVerificationIdentity = response.guardianExternalUserId
+                voiceVerificationUsername = Self.reflectedString(response, key: "guardianUsername")
+                voiceVerificationDisplayName = Self.reflectedString(response, key: "guardianDisplayName")
+                let isVerified = response.bound ?? false
+                voiceVerificationVerified = isVerified
+                if isVerified {
+                    voiceVerificationInstruction = nil
+                } else if let instruction = response.instruction {
+                    voiceVerificationInstruction = instruction
+                }
+                voiceVerificationError = nil
+                voiceVerificationAlreadyBound = false
+            } else {
+                let isAlreadyBound = response.error == "already_bound"
+                voiceVerificationAlreadyBound = isAlreadyBound
+                voiceVerificationError = isAlreadyBound
+                    ? "A guardian is already bound. Revoke it first or replace it."
+                    : response.error
+            }
+        case "slack":
+            slackVerificationInProgress = false
+            if response.success {
+                slackVerificationIdentity = response.guardianExternalUserId
+                slackVerificationUsername = Self.reflectedString(response, key: "guardianUsername")
+                slackVerificationDisplayName = Self.reflectedString(response, key: "guardianDisplayName")
+                let isVerified = response.bound ?? false
+                slackVerificationVerified = isVerified
+                if isVerified {
+                    slackVerificationInstruction = nil
+                } else if let instruction = response.instruction {
+                    slackVerificationInstruction = instruction
+                }
+                slackVerificationError = nil
+                slackVerificationAlreadyBound = false
+            } else {
+                let isAlreadyBound = response.error == "already_bound"
+                slackVerificationAlreadyBound = isAlreadyBound
+                slackVerificationError = isAlreadyBound
+                    ? "A guardian is already bound. Revoke it first or replace it."
+                    : response.error
+            }
+        default:
+            break
+        }
+
+        if response.success {
+            if response.verificationSessionId != nil {
+                applyOutboundResponseState(channel: channel, response: response)
+                startVerificationStatusPolling(for: channel)
+            } else if response.secret != nil || response.instruction != nil {
+                startVerificationStatusPolling(for: channel)
+            } else if response.bound == true {
+                clearOutboundState(for: channel)
+                stopVerificationStatusPolling(for: channel)
+            }
+        } else {
+            let terminalErrors: Set<String> = ["no_active_session", "already_bound"]
+            if let error = response.error, terminalErrors.contains(error) {
+                clearOutboundState(for: channel)
+            }
+            stopVerificationStatusPolling(for: channel)
         }
     }
 

@@ -1,0 +1,141 @@
+import Foundation
+import os
+
+private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "SettingsClient")
+
+/// Focused client for settings-related operations routed through the gateway.
+///
+/// Covers Vercel API config, model info, Telegram config, and channel
+/// verification status — the endpoints invoked during `SettingsStore.init()`.
+@MainActor
+public protocol SettingsClientProtocol {
+    func fetchVercelConfig() async -> VercelApiConfigResponseMessage?
+    func fetchModelInfo() async -> ModelInfoMessage?
+    func fetchTelegramConfig() async -> TelegramConfigResponseMessage?
+    func fetchChannelVerificationStatus(channel: String) async -> ChannelVerificationSessionResponseMessage?
+}
+
+/// Gateway-backed implementation of ``SettingsClientProtocol``.
+@MainActor
+public struct SettingsClient: SettingsClientProtocol {
+    nonisolated public init() {}
+
+    public func fetchVercelConfig() async -> VercelApiConfigResponseMessage? {
+        do {
+            let response = try await GatewayHTTPClient.get(
+                path: "integrations/vercel/config", timeout: 10
+            )
+            guard response.isSuccess else {
+                log.error("fetchVercelConfig failed (HTTP \(response.statusCode))")
+                return nil
+            }
+            let patched = injectType("vercel_api_config_response", into: response.data)
+            return try JSONDecoder().decode(VercelApiConfigResponseMessage.self, from: patched)
+        } catch {
+            log.error("fetchVercelConfig error: \(error.localizedDescription)")
+            return nil
+        }
+    }
+
+    public func fetchModelInfo() async -> ModelInfoMessage? {
+        do {
+            let response = try await GatewayHTTPClient.get(
+                path: "model", timeout: 10
+            )
+            guard response.isSuccess else {
+                log.error("fetchModelInfo failed (HTTP \(response.statusCode))")
+                return nil
+            }
+            let patched = injectType("model_info", into: response.data)
+            return try JSONDecoder().decode(ModelInfoMessage.self, from: patched)
+        } catch {
+            log.error("fetchModelInfo error: \(error.localizedDescription)")
+            return nil
+        }
+    }
+
+    public func fetchTelegramConfig() async -> TelegramConfigResponseMessage? {
+        do {
+            let response = try await GatewayHTTPClient.get(
+                path: "integrations/telegram/config", timeout: 10
+            )
+            guard response.isSuccess else {
+                log.error("fetchTelegramConfig failed (HTTP \(response.statusCode))")
+                return syntheticTelegramError("HTTP \(response.statusCode)", from: response.data)
+            }
+            let patched = injectType("telegram_config_response", into: response.data)
+            return try JSONDecoder().decode(TelegramConfigResponseMessage.self, from: patched)
+        } catch {
+            log.error("fetchTelegramConfig error: \(error.localizedDescription)")
+            return syntheticTelegramError(error.localizedDescription)
+        }
+    }
+
+    public func fetchChannelVerificationStatus(channel: String) async -> ChannelVerificationSessionResponseMessage? {
+        do {
+            let response = try await GatewayHTTPClient.get(
+                path: "channel-verification-sessions/status",
+                params: ["channel": channel],
+                timeout: 10
+            )
+            guard response.isSuccess else {
+                log.error("fetchChannelVerificationStatus(\(channel)) failed (HTTP \(response.statusCode))")
+                return syntheticVerificationError(channel: channel, message: "HTTP \(response.statusCode)", from: response.data)
+            }
+            let patched = injectType("channel_verification_session_response", into: response.data)
+            return try JSONDecoder().decode(ChannelVerificationSessionResponseMessage.self, from: patched)
+        } catch {
+            log.error("fetchChannelVerificationStatus(\(channel)) error: \(error.localizedDescription)")
+            return syntheticVerificationError(channel: channel, message: error.localizedDescription)
+        }
+    }
+
+    // MARK: - Helpers
+
+    /// Injects the `"type"` discriminant required by `Codable` decoding of
+    /// server message types whose JSON payloads omit it over HTTP.
+    private func injectType(_ type: String, into data: Data) -> Data {
+        guard var json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            return data
+        }
+        json["type"] = type
+        return (try? JSONSerialization.data(withJSONObject: json)) ?? data
+    }
+
+    /// Extracts an error message string from a JSON error response body.
+    private func extractErrorMessage(from data: Data) -> String? {
+        guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return nil }
+        if let error = json["error"] as? [String: Any], let message = error["message"] as? String {
+            return message
+        }
+        if let error = json["error"] as? String {
+            return error
+        }
+        return nil
+    }
+
+    /// Builds a synthetic error response so callers still receive a typed
+    /// message with `success: false` instead of `nil`, keeping UI state
+    /// consistent (e.g. clearing loading spinners).
+    private func syntheticTelegramError(_ fallback: String, from data: Data? = nil) -> TelegramConfigResponseMessage {
+        let message = data.flatMap { extractErrorMessage(from: $0) } ?? fallback
+        return TelegramConfigResponseMessage(
+            type: "telegram_config_response",
+            success: false,
+            hasBotToken: false,
+            connected: false,
+            hasWebhookSecret: false,
+            error: message
+        )
+    }
+
+    private func syntheticVerificationError(channel: String, message: String, from data: Data? = nil) -> ChannelVerificationSessionResponseMessage {
+        let errorMessage = data.flatMap { extractErrorMessage(from: $0) } ?? message
+        return ChannelVerificationSessionResponseMessage(
+            type: "channel_verification_session_response",
+            success: false,
+            channel: channel,
+            error: errorMessage
+        )
+    }
+}
