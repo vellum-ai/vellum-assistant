@@ -178,6 +178,13 @@ public final class ChatAttachmentManager: ObservableObject {
                 return Result<ChatAttachment, AttachmentError>.failure(.message("Could not read file."))
             }
 
+            // Belt-and-suspenders: validate the actual byte count after reading,
+            // in case the pre-read attributesOfItem check was bypassed.
+            if data.count > Self.memorySafetyLimit {
+                let sizeMB = data.count / (1024 * 1024)
+                return .failure(.message("This file is \(sizeMB) MB which is too large to process safely. Please choose a smaller file."))
+            }
+
             let filename = url.lastPathComponent
             var mimeType = UTType(filenameExtension: url.pathExtension)?.preferredMIMEType ?? "application/octet-stream"
 
