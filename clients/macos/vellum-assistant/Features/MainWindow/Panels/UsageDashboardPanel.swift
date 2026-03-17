@@ -9,7 +9,7 @@ struct UsageDashboardPanel: View {
     @State private var breakdownTask: Task<Void, Never>?
 
     var body: some View {
-        VSidePanel(title: "Usage", onClose: onClose, pinnedContent: {
+        VSidePanel(title: "Usage", contentPadding: EdgeInsets(top: VSpacing.lg, leading: 0, bottom: VSpacing.lg, trailing: 0), onClose: onClose, pinnedContent: {
             timeRangeStrip(store: store)
         }) {
             contentView(store: store)
