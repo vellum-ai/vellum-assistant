@@ -16,12 +16,13 @@ public struct VButton: View {
     public var size: Size = .regular
     public var tooltip: String? = nil
     public var accessibilityID: String? = nil
+    public var iconColor: Color? = nil
     public let action: () -> Void
 
     @State private var isHovered = false
     @FocusState private var isFocused: Bool
 
-    public init(label: String, icon: String? = nil, leftIcon: String? = nil, rightIcon: String? = nil, iconOnly: String? = nil, style: Style = .primary, size: Size = .regular, isFullWidth: Bool = false, isDisabled: Bool = false, isActive: Bool = false, iconSize: CGFloat? = nil, tooltip: String? = nil, accessibilityID: String? = nil, action: @escaping () -> Void) {
+    public init(label: String, icon: String? = nil, leftIcon: String? = nil, rightIcon: String? = nil, iconOnly: String? = nil, style: Style = .primary, size: Size = .regular, isFullWidth: Bool = false, isDisabled: Bool = false, isActive: Bool = false, iconSize: CGFloat? = nil, tooltip: String? = nil, accessibilityID: String? = nil, iconColor: Color? = nil, action: @escaping () -> Void) {
         self.label = label
         self.leftIcon = leftIcon ?? icon
         self.rightIcon = rightIcon
@@ -34,6 +35,7 @@ public struct VButton: View {
         self.size = size
         self.tooltip = tooltip
         self.accessibilityID = accessibilityID
+        self.iconColor = iconColor
         self.action = action
     }
 
@@ -44,7 +46,7 @@ public struct VButton: View {
                     VIconView(.resolve(iconOnly), size: 13)
                         .frame(width: 20, height: 20)
                 }
-                .foregroundColor(iconOnlyForegroundColor)
+                .foregroundColor(iconColor ?? iconOnlyForegroundColor)
             } else {
                 HStack(spacing: VSpacing.sm) {
                     if let leftIcon {

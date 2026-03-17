@@ -4,6 +4,7 @@ public struct VSplitButton<MenuContent: View>: View {
     public let label: String
     public var icon: String?
     public var style: VButton.Style
+    public var size: VButton.Size
     public var isDisabled: Bool
     public var accessibilityID: String?
     public let action: () -> Void
@@ -16,6 +17,7 @@ public struct VSplitButton<MenuContent: View>: View {
         label: String,
         icon: String? = nil,
         style: VButton.Style = .primary,
+        size: VButton.Size = .regular,
         isDisabled: Bool = false,
         accessibilityID: String? = nil,
         action: @escaping () -> Void,
@@ -24,11 +26,17 @@ public struct VSplitButton<MenuContent: View>: View {
         self.label = label
         self.icon = icon
         self.style = style
+        self.size = size
         self.isDisabled = isDisabled
         self.accessibilityID = accessibilityID
         self.action = action
         self.menuContent = menuContent
     }
+
+    /// Matches the height logic in VButton's ButtonLayoutModifier.
+    private var zoneHeight: CGFloat { size == .regular ? VSpacing.xxl : VSpacing.xl }
+    /// Dropdown zone is square (width == height).
+    private var dropdownWidth: CGFloat { zoneHeight }
 
     public var body: some View {
         let cornerRadius = VRadius.md
@@ -42,12 +50,11 @@ public struct VSplitButton<MenuContent: View>: View {
                         VIconView(.resolve(icon), size: 13)
                     }
                     Text(label)
-                        .font(VFont.bodyMedium)
+                        .font(size == .regular ? VFont.bodyMedium : VFont.captionMedium)
                 }
                 .foregroundColor(foregroundColor)
-                .padding(.horizontal, VSpacing.md)
-                .padding(.vertical, VSpacing.buttonV)
-                .frame(height: 32)
+                .padding(.horizontal, size == .regular ? VSpacing.md : VSpacing.sm)
+                .frame(height: zoneHeight)
                 .background(zoneBackgroundColor(isHovered: isPrimaryHovered))
             }
             .buttonStyle(.plain)
@@ -63,11 +70,11 @@ public struct VSplitButton<MenuContent: View>: View {
             ZStack(alignment: .center) {
                 // Visual layer: background + centered icon
                 zoneBackgroundColor(isHovered: isDropdownHovered)
-                    .frame(width: 32, height: 32)
+                    .frame(width: dropdownWidth, height: zoneHeight)
 
                 VIconView(.chevronDown, size: 11)
                     .foregroundColor(foregroundColor)
-                    .frame(width: 32, height: 32)
+                    .frame(width: dropdownWidth, height: zoneHeight)
                     .allowsHitTesting(false)
 
                 // Interactive layer: fills entire zone
@@ -75,13 +82,13 @@ public struct VSplitButton<MenuContent: View>: View {
                     menuContent()
                 } label: {
                     Color.clear
-                        .frame(width: 32, height: 32)
+                        .frame(width: dropdownWidth, height: zoneHeight)
                         .contentShape(Rectangle())
                 }
                 .menuStyle(.borderlessButton)
                 .menuIndicator(.hidden)
             }
-            .frame(width: 32, height: 32)
+            .frame(width: dropdownWidth, height: zoneHeight)
             .clipped()
             .onHover { hovering in
                 isDropdownHovered = isDisabled ? false : hovering
@@ -115,23 +122,23 @@ public struct VSplitButton<MenuContent: View>: View {
             ZStack {
                 Rectangle()
                     .fill(filledBaseColor)
-                    .frame(width: 1 + 2, height: 32) // 1px divider + 1px padding each side
+                    .frame(width: 1 + 2, height: zoneHeight) // 1px divider + 1px padding each side
                 Rectangle()
                     .fill(VColor.auxWhite.opacity(0.3))
-                    .frame(width: 1, height: 32)
+                    .frame(width: 1, height: zoneHeight)
             }
         case .outlined, .dangerOutline:
             Rectangle()
                 .fill(borderColor)
-                .frame(width: 1, height: 32)
+                .frame(width: 1, height: zoneHeight)
         case .ghost, .dangerGhost:
             Rectangle()
                 .fill(VColor.borderBase)
-                .frame(width: 1, height: 32)
+                .frame(width: 1, height: zoneHeight)
         case .contrast:
             Rectangle()
                 .fill(VColor.auxWhite.opacity(0.3))
-                .frame(width: 1, height: 32)
+                .frame(width: 1, height: zoneHeight)
         }
     }
 
