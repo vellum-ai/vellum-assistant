@@ -124,7 +124,7 @@ export function buildSystemPrompt(options?: BuildSystemPromptOptions): string {
   staticParts.push(buildAttachmentSection());
   staticParts.push(buildInChatConfigurationSection());
   // System Permissions section removed — guidance lives in request_system_permission tool description.
-  staticParts.push(buildSwarmGuidanceSection());
+  // Parallel Task Orchestration section removed — orchestration skill description + hints cover this.
   staticParts.push(buildAccessPreferenceSection(hasNoClient));
   staticParts.push(buildMemoryPersistenceSection());
   staticParts.push(buildMemoryRecallSection());
@@ -231,14 +231,6 @@ export function buildExternalCommsIdentitySection(): string {
     "- This is guidance for natural, human-like communication — not a hard constraint. Occasional variations are acceptable.",
   );
   return lines.join("\n");
-}
-
-export function buildSwarmGuidanceSection(): string {
-  return [
-    "## Parallel Task Orchestration",
-    "",
-    'When a task has **multiple independent parts** that benefit from parallel execution (e.g. "research X, implement Y, and review Z"), load the `orchestration` skill using `skill_load` first, then use `swarm_delegate` to decompose and run them in parallel. For single-focus tasks, work directly — do not decompose them into a swarm.',
-  ].join("\n");
 }
 
 function buildAccessPreferenceSection(hasNoClient: boolean): string {
