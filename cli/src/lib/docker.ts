@@ -5,11 +5,16 @@ import { dirname, join } from "path";
 // Direct import — bun embeds this at compile time so it works in compiled binaries.
 import cliPkg from "../../package.json";
 
-import { saveAssistantEntry, setActiveAssistant } from "./assistant-config";
+import {
+  findAssistantByName,
+  saveAssistantEntry,
+  setActiveAssistant,
+} from "./assistant-config";
 import type { AssistantEntry } from "./assistant-config";
 import { DEFAULT_GATEWAY_PORT } from "./constants";
 import type { Species } from "./constants";
 import { leaseGuardianToken } from "./guardian-token";
+import { stopProcess } from "./process";
 import { generateInstanceName } from "./random-name";
 import { exec, execOutput } from "./step-runner";
 import {
@@ -190,6 +195,14 @@ async function removeContainer(containerName: string): Promise<void> {
 
 export async function retireDocker(name: string): Promise<void> {
   console.log(`\u{1F5D1}\ufe0f  Stopping Docker containers for '${name}'...\n`);
+
+  // Stop the file watcher process if one is tracked for this instance.
+  const entry = findAssistantByName(name);
+  const watcherPid =
+    typeof entry?.watcherPid === "number" ? entry.watcherPid : null;
+  if (watcherPid !== null) {
+    await stopProcess(watcherPid, "file-watcher");
+  }
 
   const res = dockerResourceNames(name);
 
@@ -680,9 +693,6 @@ export async function hatchDocker(
     saveAssistantEntry(dockerEntry);
     setActiveAssistant(instanceName);
 
-    // The assistant image runs the daemon directly (not via the CLI hatch
-    // command), so we watch for the DaemonServer readiness message instead
-    // of the CLI's "Local assistant hatched!" sentinel.
     await tailContainerUntilReady({
       containerName: res.assistantContainer,
       detached: watch ? false : detached,
@@ -693,6 +703,8 @@ export async function hatchDocker(
     });
 
     if (watch && repoRoot) {
+      saveAssistantEntry({ ...dockerEntry, watcherPid: process.pid });
+
       const stopWatcher = startFileWatcher({
         gatewayPort,
         imageTags,
@@ -706,6 +718,7 @@ export async function hatchDocker(
           log("\n🛑 Shutting down...");
           stopWatcher();
           await stopContainers(res);
+          saveAssistantEntry({ ...dockerEntry, watcherPid: undefined });
           log("✅ Docker instance stopped.");
           resolve();
         };

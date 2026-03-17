@@ -266,6 +266,15 @@ async function getDockerContainerState(
   }
 }
 
+function isLocalProcessAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 async function getDockerProcesses(entry: AssistantEntry): Promise<TableRow[]> {
   const res = dockerResourceNames(entry.assistantId);
 
@@ -292,6 +301,18 @@ async function getDockerProcesses(entry: AssistantEntry): Promise<TableRow[]> {
       };
     }),
   );
+
+  // Show the file watcher process if the instance was hatched with --watch.
+  const watcherPid =
+    typeof entry.watcherPid === "number" ? entry.watcherPid : null;
+  if (watcherPid !== null) {
+    const alive = isLocalProcessAlive(watcherPid);
+    results.push({
+      name: "file-watcher",
+      status: withStatusEmoji(alive ? "running" : "not running"),
+      info: alive ? `PID ${watcherPid}` : "not detected",
+    });
+  }
 
   return results;
 }
