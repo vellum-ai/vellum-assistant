@@ -40,16 +40,57 @@ struct ContactsContainerView: View {
             .frame(maxHeight: .infinity, alignment: .top)
             // Right pane: detail, loading, or placeholder
             if viewModel.isLoading && viewModel.contacts.isEmpty {
-                // Loading state — contacts are being fetched
-                VStack(spacing: VSpacing.md) {
-                    ProgressView()
-                        .controlSize(.regular)
-                    Text("Loading contacts...")
-                        .font(VFont.body)
-                        .foregroundColor(VColor.contentSecondary)
+                // Skeleton loading state for detail pane
+                ScrollView {
+                    VStack(alignment: .leading, spacing: VSpacing.lg) {
+                        // Header card skeleton
+                        VStack(alignment: .leading, spacing: VSpacing.lg) {
+                            HStack(spacing: VSpacing.sm) {
+                                VSkeletonBone(width: 140, height: 18)
+                                VSkeletonBone(width: 60, height: 20, radius: VRadius.sm)
+                            }
+                            VSkeletonBone(width: 100, height: 12)
+                            VStack(alignment: .leading, spacing: VSpacing.md) {
+                                VStack(alignment: .leading, spacing: VSpacing.xs) {
+                                    VSkeletonBone(width: 40, height: 12)
+                                    VSkeletonBone(height: 28, radius: VRadius.md)
+                                }
+                                VStack(alignment: .leading, spacing: VSpacing.xs) {
+                                    VSkeletonBone(width: 40, height: 12)
+                                    VSkeletonBone(height: 80, radius: VRadius.md)
+                                }
+                            }
+                            VSkeletonBone(width: 60, height: 28, radius: VRadius.md)
+                        }
+                        .padding(VSpacing.lg)
+                        .vCard(radius: VRadius.lg, background: VColor.surfaceOverlay)
+
+                        // Channels card skeleton
+                        VStack(alignment: .leading, spacing: VSpacing.lg) {
+                            VSkeletonBone(width: 80, height: 16)
+                            VSkeletonBone(width: 200, height: 12)
+                            VStack(alignment: .leading, spacing: 0) {
+                                ForEach(0..<2, id: \.self) { index in
+                                    HStack(spacing: VSpacing.sm) {
+                                        VSkeletonBone(width: 16, height: 16, radius: VRadius.xs)
+                                        VSkeletonBone(width: 100, height: 14)
+                                        Spacer()
+                                        VSkeletonBone(width: 72, height: 28, radius: VRadius.md)
+                                    }
+                                    .frame(minHeight: 36)
+                                    .padding(.vertical, VSpacing.sm)
+                                    if index < 1 {
+                                        SettingsDivider()
+                                    }
+                                }
+                            }
+                        }
+                        .padding(VSpacing.lg)
+                        .vCard(radius: VRadius.lg, background: VColor.surfaceOverlay)
+                    }
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .background(VColor.surfaceOverlay)
+                .accessibilityHidden(true)
             } else {
                 switch selection {
                 case .assistant:
