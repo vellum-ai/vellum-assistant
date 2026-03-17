@@ -196,10 +196,7 @@ struct WebSearchServiceCard: View {
     // MARK: - API Key Section
 
     private var apiKeySection: some View {
-        let hasKey = isPerplexity ? store.hasPerplexityKey : store.hasBraveKey
-        let keyText = isPerplexity ? perplexityKeyText : braveKeyText
-
-        return VStack(alignment: .leading, spacing: VSpacing.sm) {
+        VStack(alignment: .leading, spacing: VSpacing.sm) {
             Text("API Key")
                 .font(VFont.inputLabel)
                 .foregroundColor(VColor.contentSecondary)
