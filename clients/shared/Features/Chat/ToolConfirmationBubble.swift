@@ -37,10 +37,6 @@ public struct ToolConfirmationBubble: View {
         !confirmation.allowlistOptions.isEmpty
     }
 
-    private var needsScopeChoice: Bool {
-        !confirmation.scopeOptions.isEmpty
-    }
-
     private var isCommandTool: Bool {
         confirmation.toolName == "bash" || confirmation.toolName == "host_bash"
     }
