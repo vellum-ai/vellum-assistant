@@ -260,7 +260,7 @@ struct SettingsPanel: View {
                             // Persist the flag so it survives relaunch
                             Task {
                                 do {
-                                    if let daemonClient {
+                                    if daemonClient != nil {
                                         try await featureFlagClient.setFeatureFlag(key: Self.developerFeatureFlagKey, enabled: true)
                                     } else {
                                         try WorkspaceConfigIO.merge([
@@ -504,7 +504,7 @@ struct SettingsPanel: View {
     // MARK: - Feature Flag Loading
 
     private func loadFeatureFlags() async {
-        if let daemonClient {
+        if daemonClient != nil {
             do {
                 let flags = try await featureFlagClient.getFeatureFlags()
                 if let contactsFlag = flags.first(where: { $0.key == Self.contactsFeatureFlagKey }) {
