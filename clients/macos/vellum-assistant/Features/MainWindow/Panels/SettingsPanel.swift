@@ -49,6 +49,41 @@ struct SettingsPanel: View {
     var showToast: ((String, ToastInfo.Style) -> Void)?
     var featureFlagClient: FeatureFlagClientProtocol = FeatureFlagClient()
 
+    // MARK: - Init
+
+    init(
+        onClose: @escaping () -> Void,
+        store: SettingsStore,
+        daemonClient: DaemonClient? = nil,
+        conversationManager: ConversationManager,
+        authManager: AuthManager,
+        showToast: ((String, ToastInfo.Style) -> Void)? = nil,
+        featureFlagClient: FeatureFlagClientProtocol = FeatureFlagClient()
+    ) {
+        self.onClose = onClose
+        self._store = ObservedObject(wrappedValue: store)
+        self.daemonClient = daemonClient
+        self._conversationManager = ObservedObject(wrappedValue: conversationManager)
+        self.authManager = authManager
+        self.showToast = showToast
+        self.featureFlagClient = featureFlagClient
+
+        // Pre-compute the billing flag so the first render already has the
+        // correct tab list in the sidebar nav.
+        let billingEnabled = MacOSClientFeatureFlagManager.shared.isEnabled(Self.billingFeatureFlagKey)
+        _isBillingEnabled = State(initialValue: billingEnabled)
+
+        // Derive the initial tab from the pending deep-link at construction
+        // time. Previous attempts set selectedTab in onAppear / onChange, but
+        // those fire *after* the first render and are susceptible to timing
+        // races (e.g. the view being recreated when isAppChatOpen toggles in
+        // the selection didSet, which consumes pendingSettingsTab on the
+        // first instance and leaves the second with .general).
+        if let pending = store.pendingSettingsTab {
+            _selectedTab = State(initialValue: pending)
+        }
+    }
+
     @State private var apiKeyText: String = ""
     @State private var braveKeyText: String = ""
     @State private var perplexityKeyText: String = ""
@@ -137,25 +172,15 @@ struct SettingsPanel: View {
             await loadFeatureFlags()
         }
         .onAppear {
-            let billingEnabled = MacOSClientFeatureFlagManager.shared.isEnabled(Self.billingFeatureFlagKey)
-            isBillingEnabled = billingEnabled
+            isBillingEnabled = MacOSClientFeatureFlagManager.shared.isEnabled(Self.billingFeatureFlagKey)
             store.refreshAPIKeyState()
             store.loadProviderRoutingSources()
             store.refreshTelegramStatus()
             store.refreshTwilioStatus()
             store.refreshIngressConfig()
-            if let pending = store.pendingSettingsTab {
-                // Compute visibility inline using the fresh local value — @State
-                // mutations within .onAppear may not propagate to computed
-                // properties (billingVisible → allVisibleTabs) until the next
-                // render cycle, which caused "Add funds" to land on the General
-                // tab instead of Billing.
-                let canShowBilling = billingEnabled && authManager.isAuthenticated && connectedOrgId != nil
-                let visibleTabs = SettingsTab.primaryTabs(contactsEnabled: isContactsEnabled, billingEnabled: canShowBilling)
-                    + (isDeveloperEnabled ? [.developer] : [])
-                if visibleTabs.contains(pending) {
-                    selectedTab = pending
-                }
+            // The init already consumed pendingSettingsTab into selectedTab.
+            // Clear the store value so it doesn't leak into future navigations.
+            if store.pendingSettingsTab != nil {
                 store.pendingSettingsTab = nil
             }
         }
