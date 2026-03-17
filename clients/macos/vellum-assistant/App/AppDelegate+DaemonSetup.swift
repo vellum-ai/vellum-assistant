@@ -89,7 +89,7 @@ extension AppDelegate {
                 transportMetadata: metadata
             )
             services.reconfigureDaemonClient(config: config)
-            log.info("Configured managed transport for assistant \(assistant.assistantId) via platform at \(platformBaseURL, privacy: .public)")
+            log.info("Configured managed transport for assistant \(assistant.assistantId, privacy: .public) via platform at \(platformBaseURL, privacy: .public)")
             return
         }
 
