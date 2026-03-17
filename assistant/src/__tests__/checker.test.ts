@@ -673,23 +673,23 @@ describe("Permission Checker", () => {
       expect(result.decision).toBe("allow");
     });
 
-    test("file_write within workspace with no rule → prompt (medium risk bypasses workspace auto-allow)", async () => {
+    test("file_write → auto-allow (Low risk)", async () => {
       const result = await check(
         "file_write",
         { path: "/tmp/file.txt" },
         "/tmp",
       );
-      expect(result.decision).toBe("prompt");
-      expect(result.reason).toContain("medium risk");
+      expect(result.decision).toBe("allow");
+      expect(result.reason).toContain("Low risk");
     });
 
-    test("file_write outside workspace with no rule → prompt", async () => {
+    test("file_write outside workspace → auto-allow (Low risk)", async () => {
       const result = await check(
         "file_write",
         { path: "/etc/some-file.txt" },
         "/tmp",
       );
-      expect(result.decision).toBe("prompt");
+      expect(result.decision).toBe("allow");
     });
 
     test("file_write with matching rule → allow", async () => {
@@ -2096,16 +2096,16 @@ describe("Permission Checker", () => {
       expect(risk).toBe(RiskLevel.High);
     });
 
-    test("file_write to non-skill path remains Medium risk", async () => {
+    test("file_write to non-skill path is Low risk", async () => {
       const normalPath = "/tmp/some-file.txt";
       const risk = await classifyRisk("file_write", { path: normalPath });
-      expect(risk).toBe(RiskLevel.Medium);
+      expect(risk).toBe(RiskLevel.Low);
     });
 
-    test("file_edit of non-skill path remains Medium risk", async () => {
+    test("file_edit of non-skill path is Low risk", async () => {
       const normalPath = "/tmp/some-file.txt";
       const risk = await classifyRisk("file_edit", { path: normalPath });
-      expect(risk).toBe(RiskLevel.Medium);
+      expect(risk).toBe(RiskLevel.Low);
     });
 
     test("host_file_write to non-skill path remains Medium risk (via registry)", async () => {
@@ -2557,12 +2557,12 @@ describe("Permission Checker", () => {
         expect(result.reason).toContain("requires approval");
       });
 
-      test("strict mode: file_write to non-skill path prompts as Strict mode (not High risk)", async () => {
+      test("strict mode: file_write to non-skill path prompts as Strict mode", async () => {
         testConfig.permissions.mode = "strict";
         const normalPath = "/tmp/some-file.txt";
         const result = await check("file_write", { path: normalPath }, "/tmp");
         expect(result.decision).toBe("prompt");
-        // Medium-risk file_write in strict mode with no rule → Strict mode reason
+        // Low-risk file_write in strict mode with no rule → Strict mode reason
         expect(result.reason).toContain("Strict mode");
       });
 
@@ -2865,7 +2865,7 @@ describe("Permission Checker", () => {
       const symlinkedFile = join(symDir, "config.json");
       const realFileResolved = join(realDirResolved, "config.json");
 
-      // file_write is Medium risk — needs a matching rule to allow.
+      // file_write is Low risk — but add a rule to verify symlink path matching.
       addRule("file_write", `file_write:${realFileResolved}`, "everywhere");
       const result = await check(
         "file_write",
@@ -3597,7 +3597,7 @@ describe("Permission Checker", () => {
         expect(result.matchedRule!.pattern).toBe("skill_load:*");
       });
 
-      test("medium-risk file_write with no rule prompts in strict mode", async () => {
+      test("low-risk file_write with no rule prompts in strict mode", async () => {
         testConfig.permissions.mode = "strict";
         const result = await check(
           "file_write",
@@ -3996,14 +3996,14 @@ describe("Permission Checker", () => {
     );
 
     test(
-      "file_write to non-extra dir remains Medium when extra dirs are configured",
+      "file_write to non-extra dir remains Low when extra dirs are configured",
       withExtraDirs(async () => {
         const risk = await classifyRisk(
           "file_write",
           { path: "/tmp/unrelated.txt" },
           "/tmp",
         );
-        expect(risk).toBe(RiskLevel.Medium);
+        expect(risk).toBe(RiskLevel.Low);
       }),
     );
 
@@ -4583,24 +4583,24 @@ describe("workspace mode — auto-allow workspace-scoped operations", () => {
     expect(result.reason).toContain("Workspace mode");
   });
 
-  test("file_write within workspace → prompt (Medium risk bypasses workspace auto-allow)", async () => {
+  test("file_write within workspace → allow (Low risk)", async () => {
     const result = await check(
       "file_write",
       { file_path: "/home/user/my-project/src/index.ts" },
       workspaceDir,
     );
-    expect(result.decision).toBe("prompt");
-    expect(result.reason).toContain("medium risk");
+    expect(result.decision).toBe("allow");
+    expect(result.reason).toContain("Low risk");
   });
 
-  test("file_edit within workspace → prompt (Medium risk bypasses workspace auto-allow)", async () => {
+  test("file_edit within workspace → allow (Low risk)", async () => {
     const result = await check(
       "file_edit",
       { file_path: "/home/user/my-project/src/index.ts" },
       workspaceDir,
     );
-    expect(result.decision).toBe("prompt");
-    expect(result.reason).toContain("medium risk");
+    expect(result.decision).toBe("allow");
+    expect(result.reason).toContain("Low risk");
   });
 
   // ── file operations outside workspace follow risk-based fallback ──
@@ -4615,14 +4615,14 @@ describe("workspace mode — auto-allow workspace-scoped operations", () => {
     expect(result.reason).toContain("Low risk");
   });
 
-  test("file_write outside workspace → prompt (Medium risk fallback)", async () => {
+  test("file_write outside workspace → allow (Low risk fallback)", async () => {
     const result = await check(
       "file_write",
       { file_path: "/tmp/outside.txt" },
       workspaceDir,
     );
-    expect(result.decision).toBe("prompt");
-    expect(result.reason).toContain("risk");
+    expect(result.decision).toBe("allow");
+    expect(result.reason).toContain("Low risk");
   });
 
   // ── bash (sandbox) — default rule matches, workspace mode not reached ──
