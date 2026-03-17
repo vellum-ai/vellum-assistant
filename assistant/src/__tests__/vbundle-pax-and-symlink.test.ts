@@ -6,7 +6,6 @@
  * - Builder emits PAX headers for paths >100 bytes; validator parses them
  * - buildExportVBundle follows symlinks when checking skillsDir
  */
-import { createHash } from "node:crypto";
 import {
   mkdirSync,
   mkdtempSync,
@@ -65,7 +64,7 @@ mock.module("../config/env.js", () => ({
   setIngressPublicBaseUrl: () => {},
 }));
 
-import { buildVBundle, buildExportVBundle } from "../runtime/migrations/vbundle-builder.js";
+import { buildExportVBundle, buildVBundle } from "../runtime/migrations/vbundle-builder.js";
 import { validateVBundle } from "../runtime/migrations/vbundle-validator.js";
 
 afterAll(() => {
@@ -90,7 +89,7 @@ describe("PAX extended header round-trip", () => {
     const fileData = new TextEncoder().encode("# Long path skill content");
     const dbData = new Uint8Array([0x53, 0x51, 0x4c, 0x69, 0x74, 0x65]);
 
-    const { archive, manifest } = buildVBundle({
+    const { archive } = buildVBundle({
       files: [
         { path: "data/db/assistant.db", data: dbData },
         { path: longPath, data: fileData },
