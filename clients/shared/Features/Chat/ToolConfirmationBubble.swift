@@ -386,7 +386,6 @@ public struct ToolConfirmationBubble: View {
         switch effectivePrimaryAction {
         case "allow_10m": actions.append(.allow10m)
         case "allow_conversation": actions.append(.allowConversation)
-        case "always_allow": actions.append(.alwaysAllow)
         default: actions.append(.allowOnce)
         }
         actions.append(.dontAllow)
@@ -400,7 +399,6 @@ public struct ToolConfirmationBubble: View {
         switch effectivePrimaryAction {
         case "allow_10m": return selected == .allow10m
         case "allow_conversation": return selected == .allowConversation
-        case "always_allow": return selected == .alwaysAllow
         default: return selected == .allowOnce
         }
     }
@@ -411,7 +409,6 @@ public struct ToolConfirmationBubble: View {
         switch preferredAllowAction {
         case "allow_10m" where hasAllow10m: return "allow_10m"
         case "allow_conversation" where hasAllowConversation: return "allow_conversation"
-        case "always_allow" where hasAlwaysAllow: return "always_allow"
         case "allow_once": return "allow_once"
         default:
             return "allow_once"
@@ -422,7 +419,6 @@ public struct ToolConfirmationBubble: View {
         switch effectivePrimaryAction {
         case "allow_10m": return "Allow for 10 minutes"
         case "allow_conversation": return "Allow for this conversation"
-        case "always_allow": return "Always allow"
         default: return "Allow once"
         }
     }
@@ -434,14 +430,6 @@ public struct ToolConfirmationBubble: View {
             onTemporaryAllow?(confirmation.requestId, "allow_10m")
         case "allow_conversation":
             onTemporaryAllow?(confirmation.requestId, "allow_conversation")
-        case "always_allow":
-            let pattern = confirmation.allowlistOptions.first?.pattern ?? ""
-            let scope = confirmation.scopeOptions.first?.scope ?? "everywhere"
-            if pattern.isEmpty {
-                onAllow()
-            } else {
-                onAlwaysAllow(confirmation.requestId, pattern, scope, alwaysAllowDecision)
-            }
         default:
             onAllow()
         }
@@ -456,7 +444,7 @@ public struct ToolConfirmationBubble: View {
         return (primary != "allow_once") ||
                (hasAllow10m && primary != "allow_10m") ||
                (hasAllowConversation && primary != "allow_conversation") ||
-               (hasAlwaysAllow && primary != "always_allow")
+               hasAlwaysAllow
     }
 
     @ViewBuilder
@@ -476,7 +464,7 @@ public struct ToolConfirmationBubble: View {
                         }
                     }
 
-                    if hasAlwaysAllow && primary != "always_allow" {
+                    if hasAlwaysAllow {
                         alwaysAllowMenuItems
                     }
                 }
@@ -530,7 +518,7 @@ public struct ToolConfirmationBubble: View {
                         if scopes.isEmpty {
                             Button(option.label) {
                                 markCommandExplanationSeen()
-                                preferredAllowAction = "always_allow"
+    
                                 onAlwaysAllow(confirmation.requestId, option.pattern, "everywhere", alwaysAllowDecision)
                             }
                         } else {
@@ -539,7 +527,7 @@ public struct ToolConfirmationBubble: View {
                                     ForEach(Array(scopes.enumerated()), id: \.element.scope) { _, scopeOption in
                                         Button(scopeOption.label) {
                                             markCommandExplanationSeen()
-                                            preferredAllowAction = "always_allow"
+                
                                             onAlwaysAllow(confirmation.requestId, option.pattern, scopeOption.scope, alwaysAllowDecision)
                                         }
                                     }
@@ -568,7 +556,7 @@ public struct ToolConfirmationBubble: View {
                         ForEach(Array(scopes.enumerated()), id: \.element.scope) { _, scopeOption in
                             Button(scopeOption.label) {
                                 markCommandExplanationSeen()
-                                preferredAllowAction = "always_allow"
+    
                                 onAlwaysAllow(confirmation.requestId, option.pattern, scopeOption.scope, alwaysAllowDecision)
                             }
                         }
