@@ -677,6 +677,23 @@ export async function hatchDocker(
   await exec("docker", ["volume", "create", res.dataVolume]);
   await exec("docker", ["volume", "create", res.socketVolume]);
 
+  // The CES container runs as a non-root user (uid 1001) and needs write
+  // access to the socket volume to create the bootstrap Unix socket.
+  // Docker named volumes default to root:root 755, so we use a throwaway
+  // container (running as root via the assistant image) to widen permissions
+  // before any real container starts.
+  await exec("docker", [
+    "run",
+    "--rm",
+    "--entrypoint",
+    "chmod",
+    "-v",
+    `${res.socketVolume}:/run/ces-bootstrap`,
+    imageTags.assistant,
+    "777",
+    "/run/ces-bootstrap",
+  ]);
+
   await startContainers({ gatewayPort, imageTags, instanceName, res });
 
   const runtimeUrl = `http://localhost:${gatewayPort}`;
