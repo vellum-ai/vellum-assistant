@@ -4,6 +4,7 @@
  * POST   /v1/conversations/switch         — switch to an existing conversation
  * PATCH  /v1/conversations/:id/name       — rename a conversation
  * DELETE /v1/conversations                 — clear all conversations
+ * POST   /v1/conversations/:id/wipe       — wipe conversation and revert memory
  * DELETE /v1/conversations/:id            — delete a single conversation
  * POST   /v1/conversations/:id/cancel     — cancel generation
  * POST   /v1/conversations/:id/undo       — undo last message
@@ -14,6 +15,7 @@
 import {
   batchSetDisplayOrders,
   deleteConversation,
+  wipeConversation,
 } from "../../memory/conversation-crud.js";
 import {
   resolveConversationId,
@@ -119,6 +121,51 @@ export function conversationManagementRouteDefinitions(
       handler: () => {
         deps.clearAllConversations();
         return new Response(null, { status: 204 });
+      },
+    },
+    {
+      endpoint: "conversations/:id/wipe",
+      method: "POST",
+      policyKey: "conversations",
+      handler: async ({ params }) => {
+        const resolvedId = resolveConversationId(params.id);
+        if (!resolvedId) {
+          return httpError(
+            "NOT_FOUND",
+            `Conversation ${params.id} not found`,
+            404,
+          );
+        }
+        deps.destroyConversation(resolvedId);
+        const result = wipeConversation(resolvedId);
+        // Enqueue Qdrant vector cleanup jobs
+        for (const segId of result.segmentIds) {
+          enqueueMemoryJob("delete_qdrant_vectors", {
+            targetType: "segment",
+            targetId: segId,
+          });
+        }
+        for (const itemId of result.orphanedItemIds) {
+          enqueueMemoryJob("delete_qdrant_vectors", {
+            targetType: "item",
+            targetId: itemId,
+          });
+        }
+        log.info(
+          {
+            conversationId: resolvedId,
+            unsuperseded: result.unsupersededItemIds.length,
+            summariesDeleted: result.deletedSummaryIds.length,
+            jobsCancelled: result.cancelledJobCount,
+          },
+          "Wiped conversation and reverted memory changes",
+        );
+        return Response.json({
+          wiped: true,
+          unsupersededItems: result.unsupersededItemIds.length,
+          deletedSummaries: result.deletedSummaryIds.length,
+          cancelledJobs: result.cancelledJobCount,
+        });
       },
     },
     {
