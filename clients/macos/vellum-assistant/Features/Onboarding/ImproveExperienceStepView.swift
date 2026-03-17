@@ -89,6 +89,7 @@ struct ImproveExperienceStepView: View {
                 ) {
                     saveAndContinue()
                 }
+                .padding(.top, VSpacing.lg)
 
                 OnboardingButton(title: "Back", style: .ghost) {
                     goBack()
