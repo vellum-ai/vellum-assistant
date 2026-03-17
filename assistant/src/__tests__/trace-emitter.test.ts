@@ -1,5 +1,12 @@
 import { describe, expect, it, mock } from "bun:test";
 
+// Mock the persistence layer so tests are isolated from the database.
+// getMaxSequence returning -1 means "no persisted events" → sequence starts at 0.
+mock.module("../memory/trace-event-store.js", () => ({
+  getMaxSequence: () => -1,
+  persistTraceEvent: () => {},
+}));
+
 import type { ServerMessage, TraceEvent } from "../daemon/message-protocol.js";
 import { TraceEmitter } from "../daemon/trace-emitter.js";
 
