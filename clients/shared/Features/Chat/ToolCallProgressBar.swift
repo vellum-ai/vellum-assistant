@@ -118,7 +118,7 @@ public struct ToolCallProgressBar: View {
 
     // Calculate label width to align with circles and lines
     private func labelWidth(index: Int) -> CGFloat {
-        let circleWidth: CGFloat = 20
+        let circleWidth: CGFloat = 28
         let lineWidth: CGFloat = 32
 
         if index == toolCalls.count - 1 {
