@@ -133,7 +133,7 @@ function isVellumDaemonProcess(pid: number): boolean {
  *  Wildcard addresses (0.0.0.0, ::) bind all interfaces but aren't
  *  connectable on all platforms — substitute loopback. IPv6 literals
  *  need brackets in URLs. */
-function healthCheckHost(host: string): string {
+export function healthCheckHost(host: string): string {
   if (host === "0.0.0.0") return "127.0.0.1";
   if (host === "::") return "[::1]";
   if (host.includes(":")) return `[${host}]`;

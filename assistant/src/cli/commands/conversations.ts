@@ -1,9 +1,18 @@
 import type { Command } from "commander";
 
-import { getQdrantUrlEnv, getRuntimeHttpPort } from "../../config/env.js";
+import {
+  getQdrantUrlEnv,
+  getRuntimeHttpHost,
+  getRuntimeHttpPort,
+} from "../../config/env.js";
 import { getConfig } from "../../config/loader.js";
 import { shouldAutoStartDaemon } from "../../daemon/connection-policy.js";
-import { isHttpHealthy } from "../../daemon/daemon-control.js";
+import { healthCheckHost, isHttpHealthy } from "../../daemon/daemon-control.js";
+import {
+  initAuthSigningKey,
+  loadOrCreateSigningKey,
+  mintDaemonDeliveryToken,
+} from "../../runtime/auth/token-service.js";
 import { ensureDaemonRunning } from "../../daemon/lifecycle.js";
 import { formatJson, formatMarkdown } from "../../export/formatter.js";
 import {
@@ -315,9 +324,15 @@ Examples:
       // rows — preventing FK constraint failures from follow-up writes.
       if (await isHttpHealthy()) {
         const port = getRuntimeHttpPort();
+        const host = healthCheckHost(getRuntimeHttpHost());
+        initAuthSigningKey(loadOrCreateSigningKey());
+        const token = mintDaemonDeliveryToken();
         const res = await fetch(
-          `http://127.0.0.1:${port}/v1/conversations/${conversation.id}/wipe`,
-          { method: "POST" },
+          `http://${host}:${port}/v1/conversations/${conversation.id}/wipe`,
+          {
+            method: "POST",
+            headers: { Authorization: `Bearer ${token}` },
+          },
         );
         if (!res.ok) {
           const body = await res.text();
