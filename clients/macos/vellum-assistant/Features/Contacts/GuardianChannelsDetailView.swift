@@ -460,10 +460,13 @@ struct GuardianChannelsDetailView: View {
         return VStack(alignment: .leading, spacing: 0) {
             ForEach(0..<rowCount, id: \.self) { index in
                 HStack(spacing: VSpacing.sm) {
+                    // Icon placeholder (matches VIconView size: 16)
                     VSkeletonBone(width: 16, height: 16, radius: VRadius.xs)
-                    VSkeletonBone(width: 80, height: 14)
+                    // Name placeholder (matches .frame(width: 100))
+                    VSkeletonBone(width: 100, height: 14)
                     Spacer()
-                    VSkeletonBone(width: 90, height: 28, radius: VRadius.md)
+                    // "Set up" button placeholder
+                    VSkeletonBone(width: 72, height: 28, radius: VRadius.md)
                 }
                 .frame(minHeight: 36)
                 .padding(.vertical, VSpacing.sm)
