@@ -70,7 +70,7 @@ public struct VToast: View {
                                 showCopied = false
                             }
                         } label: {
-                            VIconView(showCopied ? .check : .copy, size: 12)
+                            VIconView(showCopied ? .check : .clipboard, size: 12)
                                 .foregroundColor(showCopied ? VColor.systemPositiveStrong : VColor.contentSecondary)
                                 .frame(width: 24, height: 24)
                         }
