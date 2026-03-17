@@ -1494,11 +1494,10 @@ export async function runAgentLoopImpl(
         errChannelMeta,
       );
       newMessages.push(errorAssistantMessage);
-      onEvent({
-        type: "assistant_text_delta",
-        text: state.providerErrorUserMessage,
-        conversationId: ctx.conversationId,
-      });
+      // Do NOT send assistant_text_delta here — handleProviderError already
+      // emitted a conversation_error event for this same error text, and the
+      // client renders it as an InlineChatErrorAlert. Sending a text delta
+      // would create a duplicate plain-text bubble below the alert card.
     }
 
     const restoredHistory = [...preRepairMessages, ...newMessages];

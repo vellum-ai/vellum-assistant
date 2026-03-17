@@ -1834,11 +1834,18 @@ describe("session-agent-loop", () => {
       const ctx = makeCtx({ agentLoopRun });
       await runAgentLoopImpl(ctx, "hello", "msg-1", (msg) => events.push(msg));
 
-      // The providerErrorUserMessage should trigger a synthesized assistant_text_delta
+      // The error should be sent as a conversation_error (not as an
+      // assistant_text_delta, which would cause duplicate text rendering
+      // alongside the InlineChatErrorAlert card).
       const textDeltas = events.filter(
         (e) => e.type === "assistant_text_delta",
       );
-      expect(textDeltas.length).toBeGreaterThanOrEqual(1);
+      expect(textDeltas).toHaveLength(0);
+
+      const conversationErrors = events.filter(
+        (e) => e.type === "conversation_error",
+      );
+      expect(conversationErrors.length).toBeGreaterThanOrEqual(1);
     });
   });
 });
