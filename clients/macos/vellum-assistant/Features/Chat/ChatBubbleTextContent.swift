@@ -11,29 +11,14 @@ extension ChatBubble {
     func textBubble(for segmentText: String) -> some View {
         let streaming = message.isStreaming
         let segments = resolveSegments(for: segmentText, isStreaming: streaming)
-        let hasRichContent = segments.contains(where: {
-            switch $0 {
-            case .table, .image, .heading, .codeBlock, .horizontalRule, .list: return true
-            case .text: return false
-            }
-        })
 
         bubbleChrome {
-            if hasRichContent {
-                MarkdownSegmentView(segments: segments)
-            } else {
-                let attributed = Self.cachedInlineMarkdown(for: segmentText, isStreaming: streaming)
-                Text(attributed)
-                    .font(.system(size: 14 * conversationZoomScale))
-                    .lineSpacing(6)
-                    .foregroundColor(VColor.contentDefault)
-                    .tint(VColor.primaryBase)
-                    .textSelection(.enabled)
-                    .frame(maxWidth: VSpacing.chatBubbleMaxWidth, alignment: .leading)
-                    // lineLimit(nil) wraps text in a single measurement pass,
-                    // avoiding the double-measurement that fixedSize causes.
-                    .lineLimit(nil)
-            }
+            // Always render through MarkdownSegmentView to keep view
+            // identity stable across async segment parsing transitions.
+            // Switching between Text and MarkdownSegmentView caused
+            // LazyVStack to use stale height measurements, resulting in
+            // content truncation and footer overlap.
+            MarkdownSegmentView(segments: segments)
         }
         .task(id: "\(segmentText)|\(streaming)") {
             // Only run async parsing for large, non-streaming text with a cache miss

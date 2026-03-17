@@ -348,38 +348,26 @@ struct ChatBubble: View {
                     }
                 } else if hasText {
                     let segments = resolveSegments(for: message.text, isStreaming: message.isStreaming)
-                    let hasRichContent = segments.contains(where: {
-                        switch $0 {
-                        case .table, .image, .heading, .codeBlock, .horizontalRule, .list: return true
-                        case .text: return false
-                        }
-                    })
-                    if hasRichContent {
-                        MarkdownSegmentView(
-                            segments: segments,
-                            maxContentWidth: nil,
-                            textColor: isUser ? VColor.contentDefault : VColor.contentDefault,
-                            secondaryTextColor: isUser ? VColor.contentSecondary : VColor.contentSecondary,
-                            mutedTextColor: isUser ? VColor.contentSecondary : VColor.contentTertiary,
-                            tintColor: isUser ? VColor.contentDefault : VColor.primaryBase,
-                            codeTextColor: isUser ? VColor.contentDefault : VColor.systemNegativeStrong,
-                            codeBackgroundColor: isUser ? VColor.contentDefault.opacity(0.1) : VColor.surfaceActive,
-                            hrColor: isUser ? VColor.contentDefault.opacity(0.3) : VColor.borderBase
-                        )
-                    } else {
-                        Text(markdownText)
-                            .font(.system(size: 14 * conversationZoomScale))
-                            .lineSpacing(6)
-                            .foregroundColor(isUser ? VColor.contentDefault : VColor.contentDefault)
-                            .tint(isUser ? VColor.contentDefault : VColor.primaryBase)
-                            .textSelection(.enabled)
-                            // For assistant messages, fill available width for readability.
-                            // For user messages, let the bubble shrink-wrap to text width.
-                            .frame(maxWidth: isUser ? nil : .infinity, alignment: .leading)
-                            // lineLimit(nil) wraps text in a single measurement pass,
-                            // avoiding the double-measurement that fixedSize causes.
-                            .lineLimit(nil)
-                    }
+                    // Always render through MarkdownSegmentView to keep view
+                    // identity stable across async segment parsing transitions.
+                    // When a large message first renders, resolveSegments returns
+                    // [.text(text)] (plain placeholder) before async parsing
+                    // completes with rich segments (tables, headings, etc.).
+                    // Branching on hasRichContent used to switch between Text and
+                    // MarkdownSegmentView — different view types that caused
+                    // LazyVStack to use stale height measurements, resulting in
+                    // content truncation and footer overlap.
+                    MarkdownSegmentView(
+                        segments: segments,
+                        maxContentWidth: isUser ? nil : nil,
+                        textColor: isUser ? VColor.contentDefault : VColor.contentDefault,
+                        secondaryTextColor: isUser ? VColor.contentSecondary : VColor.contentSecondary,
+                        mutedTextColor: isUser ? VColor.contentSecondary : VColor.contentTertiary,
+                        tintColor: isUser ? VColor.contentDefault : VColor.primaryBase,
+                        codeTextColor: isUser ? VColor.contentDefault : VColor.systemNegativeStrong,
+                        codeBackgroundColor: isUser ? VColor.contentDefault.opacity(0.1) : VColor.surfaceActive,
+                        hrColor: isUser ? VColor.contentDefault.opacity(0.3) : VColor.borderBase
+                    )
                 } else if !message.attachments.isEmpty {
                     Text(attachmentSummary)
                         .font(VFont.caption)

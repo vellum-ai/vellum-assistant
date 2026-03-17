@@ -392,5 +392,8 @@ struct MarkdownTableView: View {
             .font(.custom("Inter", size: 13 * zoomScale))
             .foregroundColor(VColor.contentDefault)
             .textSelection(.enabled)
+            // lineLimit(nil) ensures text wraps within the column width
+            // instead of truncating with "..." on a single line.
+            .lineLimit(nil)
     }
 }
