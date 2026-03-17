@@ -219,6 +219,57 @@ describe("schemaDefinesProperty", () => {
     ).toBe(true);
   });
 
+  test("returns true for $ref nested in allOf with assume-defined refBehavior", () => {
+    const schema = {
+      allOf: [{ $ref: "#/definitions/Foo" }],
+    };
+    expect(
+      schemaDefinesProperty(schema, "activity", {
+        refBehavior: "assume-defined",
+      }),
+    ).toBe(true);
+  });
+
+  test("returns false for $ref nested in allOf with assume-undefined refBehavior", () => {
+    const schema = {
+      allOf: [{ $ref: "#/definitions/Foo" }],
+    };
+    expect(
+      schemaDefinesProperty(schema, "activity", {
+        refBehavior: "assume-undefined",
+      }),
+    ).toBe(false);
+  });
+
+  test("returns true for $ref nested in oneOf with assume-defined refBehavior", () => {
+    const schema = {
+      oneOf: [{ $ref: "#/definitions/Foo" }],
+    };
+    expect(
+      schemaDefinesProperty(schema, "activity", {
+        refBehavior: "assume-defined",
+      }),
+    ).toBe(true);
+  });
+
+  test("returns true for $ref nested in anyOf with assume-defined refBehavior", () => {
+    const schema = {
+      anyOf: [{ $ref: "#/definitions/Foo" }],
+    };
+    expect(
+      schemaDefinesProperty(schema, "activity", {
+        refBehavior: "assume-defined",
+      }),
+    ).toBe(true);
+  });
+
+  test("returns false for $ref nested in allOf with default refBehavior (fail-closed)", () => {
+    const schema = {
+      allOf: [{ $ref: "#/definitions/Foo" }],
+    };
+    expect(schemaDefinesProperty(schema, "activity")).toBe(false);
+  });
+
   test("returns false for null schema", () => {
     expect(schemaDefinesProperty(null, "activity")).toBe(false);
   });
