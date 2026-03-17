@@ -906,7 +906,7 @@ public final class SettingsStore: ObservableObject {
         telegramSaveInProgress = true
         telegramError = nil
         Task {
-            guard let response = await settingsClient.setTelegramConfig(action: "set", botToken: trimmed) else {
+            guard let response = await settingsClient.setTelegramConfig(action: "set", botToken: trimmed, commands: nil) else {
                 telegramSaveInProgress = false
                 telegramError = "Failed to save Telegram config"
                 return
@@ -919,7 +919,7 @@ public final class SettingsStore: ObservableObject {
         telegramSaveInProgress = true
         telegramError = nil
         Task {
-            guard let response = await settingsClient.setTelegramConfig(action: "clear") else {
+            guard let response = await settingsClient.setTelegramConfig(action: "clear", botToken: nil, commands: nil) else {
                 telegramSaveInProgress = false
                 log.error("Failed to send Telegram config clear")
                 return
