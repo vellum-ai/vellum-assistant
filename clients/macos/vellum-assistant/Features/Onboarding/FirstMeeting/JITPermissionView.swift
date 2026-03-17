@@ -154,7 +154,7 @@ struct JITPermissionView: View {
                 permissionButton("Allow", isPrimary: false) {
                     manager.grantActivePermission()
                 }
-                permissionButton("Don't Allow", isPrimary: false) {
+                permissionButton("Deny", isPrimary: false) {
                     dismiss()
                 }
                 permissionButton("Always Allow", isPrimary: true) {

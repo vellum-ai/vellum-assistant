@@ -16,14 +16,10 @@ public struct ToolConfirmationBubble: View {
     public let isKeyboardActive: Bool
 
     @State private var showDiff = false
-    @State private var showAlwaysAllowMenu = false
-    @State private var showTechnicalDetails = true
-    /// Tracks a selected pattern while waiting for the user to pick a scope.
-    @State private var pendingPattern: String?
-    @State private var showScopePickerMenu = false
+    @State private var showTechnicalDetails = false
     @State private var keyboardModel: ToolConfirmationKeyboardModel?
-    @State private var popoverKeyboardModel: ToolConfirmationPopoverKeyboardModel?
     @AppStorage("hasSeenCommandExplanation") private var hasSeenCommandExplanation = false
+    @AppStorage("preferredAllowAction") private var preferredAllowAction: String = "allow_once"
     #if os(macOS)
     @State private var keyMonitor: Any?
     #endif
@@ -39,10 +35,6 @@ public struct ToolConfirmationBubble: View {
 
     private var hasRuleOptions: Bool {
         !confirmation.allowlistOptions.isEmpty
-    }
-
-    private var needsScopeChoice: Bool {
-        !confirmation.scopeOptions.isEmpty
     }
 
     private var isCommandTool: Bool {
@@ -205,37 +197,57 @@ public struct ToolConfirmationBubble: View {
 
     @ViewBuilder
     private var pendingContent: some View {
+        let actions = topLevelActions
         VStack(alignment: .leading, spacing: VSpacing.sm) {
-            // Bold non-technical question
-            Text(confirmation.humanDescription)
-                .font(VFont.bodyBold)
-                .foregroundColor(VColor.contentDefault)
+            // Title + action buttons inline
+            HStack(alignment: .top, spacing: VSpacing.sm) {
+                Text(confirmation.humanDescription)
+                    .font(VFont.bodyBold)
+                    .foregroundColor(VColor.contentDefault)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                Spacer(minLength: VSpacing.md)
+
+                HStack(spacing: VSpacing.sm) {
+                    allowSplitButton
+                        .overlay(
+                            RoundedRectangle(cornerRadius: VRadius.md)
+                                .strokeBorder(VColor.primaryBase, lineWidth: isPrimaryAllowKeyboardSelected ? 2 : 0)
+                        )
+
+                    VButton(label: "Deny", style: .danger, size: .compact) {
+                        markCommandExplanationSeen()
+                        onDeny()
+                    }
+                    .overlay(
+                        RoundedRectangle(cornerRadius: VRadius.md)
+                            .strokeBorder(VColor.systemNegativeStrong, lineWidth: keyboardModel?.selectedAction == .dontAllow ? 2 : 0)
+                    )
+                }
+            }
 
             // First-time educational banner for command confirmations
             if isCommandTool && !hasSeenCommandExplanation {
                 commandExplanationBanner
             }
 
-            // Action buttons at top
-            buttonRow
-
-            Divider()
-
-            // More Details accordion (expanded by default)
+            // Show details accordion
             VStack(alignment: .leading, spacing: 0) {
                 Button {
                     withAnimation(VAnimation.fast) {
                         showTechnicalDetails.toggle()
                     }
                 } label: {
-                    HStack(spacing: VSpacing.xs) {
+                    HStack(alignment: .firstTextBaseline, spacing: VSpacing.xxs) {
                         VIconView(.chevronRight, size: 9)
                             .foregroundColor(VColor.contentDefault)
                             .rotationEffect(.degrees(showTechnicalDetails ? 90 : 0))
-                        Text(showTechnicalDetails ? "Hide" : "More details")
+                            .frame(width: 9, height: 9)
+                        Text(showTechnicalDetails ? "Hide details" : "Show details")
                             .font(VFont.captionMedium)
                             .foregroundColor(VColor.contentDefault)
                     }
+                    .offset(x: -1)
                 }
                 .buttonStyle(.plain)
 
@@ -263,6 +275,34 @@ public struct ToolConfirmationBubble: View {
                         .stroke(VColor.borderBase, lineWidth: 0.5)
                 )
         )
+        .onAppear {
+            if isKeyboardActive {
+                #if os(macOS)
+                installKeyMonitor(actions: actions)
+                #else
+                keyboardModel = ToolConfirmationKeyboardModel(actions: actions)
+                #endif
+            }
+        }
+        .onDisappear {
+            #if os(macOS)
+            removeKeyMonitor()
+            #endif
+        }
+        .onChange(of: isKeyboardActive) {
+            if isKeyboardActive {
+                #if os(macOS)
+                installKeyMonitor(actions: actions)
+                #else
+                keyboardModel = ToolConfirmationKeyboardModel(actions: actions)
+                #endif
+            } else {
+                #if os(macOS)
+                removeKeyMonitor()
+                #endif
+                keyboardModel = nil
+            }
+        }
     }
 
 
@@ -341,125 +381,186 @@ public struct ToolConfirmationBubble: View {
 
     // MARK: - Button Row
 
-    /// Build the ordered list of top-level actions based on current confirmation state.
-    /// Order matches visual layout (top-to-bottom, left-to-right) so keyboard Tab
-    /// navigation follows the same sequence the user sees on screen.
     private var topLevelActions: [ToolConfirmationKeyboardModel.Action] {
         var actions: [ToolConfirmationKeyboardModel.Action] = []
-        // When allow10m is present, it and dontAllow share the top "Recommended" row
-        if hasAllow10m {
-            actions.append(.allow10m)
-            actions.append(.dontAllow)
+        switch effectivePrimaryAction {
+        case "allow_10m": actions.append(.allow10m)
+        case "allow_conversation": actions.append(.allowConversation)
+        default: actions.append(.allowOnce)
         }
-        // Bottom row (or only row): allowOnce, alwaysAllow?, allowConversation?
-        actions.append(.allowOnce)
-        if hasRuleOptions && confirmation.persistentDecisionsAllowed {
-            actions.append(.alwaysAllow)
-        }
-        if hasAllowConversation { actions.append(.allowConversation) }
-        // When allow10m is absent, dontAllow goes at the end (matching its rightmost
-        // visual position) so an allow action is always the default at index 0
-        if !hasAllow10m { actions.append(.dontAllow) }
+        actions.append(.dontAllow)
         return actions
     }
 
-    private var hasTemporaryOptions: Bool {
-        hasAllow10m || hasAllowConversation
+    // MARK: - Allow Split Button
+
+    private var isPrimaryAllowKeyboardSelected: Bool {
+        guard let selected = keyboardModel?.selectedAction else { return false }
+        switch effectivePrimaryAction {
+        case "allow_10m": return selected == .allow10m
+        case "allow_conversation": return selected == .allowConversation
+        default: return selected == .allowOnce
+        }
+    }
+
+    /// The effective primary action, resolving the persisted preference against
+    /// what this confirmation actually supports.
+    private var effectivePrimaryAction: String {
+        switch preferredAllowAction {
+        case "allow_10m" where hasAllow10m: return "allow_10m"
+        case "allow_conversation" where hasAllowConversation: return "allow_conversation"
+        case "allow_once": return "allow_once"
+        default:
+            return "allow_once"
+        }
+    }
+
+    private var primaryAllowLabel: String {
+        switch effectivePrimaryAction {
+        case "allow_10m": return "Allow for 10 minutes"
+        case "allow_conversation": return "Allow for this conversation"
+        default: return "Allow once"
+        }
+    }
+
+    private func firePrimaryAllow() {
+        markCommandExplanationSeen()
+        switch effectivePrimaryAction {
+        case "allow_10m":
+            onTemporaryAllow?(confirmation.requestId, "allow_10m")
+        case "allow_conversation":
+            onTemporaryAllow?(confirmation.requestId, "allow_conversation")
+        default:
+            onAllow()
+        }
+    }
+
+    private var hasAlwaysAllow: Bool {
+        hasRuleOptions && confirmation.persistentDecisionsAllowed
+    }
+
+    private var hasSecondaryAllowOptions: Bool {
+        let primary = effectivePrimaryAction
+        return (primary != "allow_once") ||
+               (hasAllow10m && primary != "allow_10m") ||
+               (hasAllowConversation && primary != "allow_conversation") ||
+               hasAlwaysAllow
     }
 
     @ViewBuilder
-    private var buttonRow: some View {
-        let actions = topLevelActions
-        VStack(alignment: .leading, spacing: VSpacing.sm) {
-            // Top group: recommended actions — only shown when allow10m is available
-            // (pairs "Allow for 10 minutes" with "Don't Allow" under "Recommended")
-            if hasAllow10m {
-                VStack(alignment: .leading, spacing: VSpacing.xs) {
-                    Text("Recommended")
-                        .font(VFont.captionMedium)
-                        .foregroundColor(VColor.contentDefault)
-                    HStack(spacing: VSpacing.xs) {
-                        confirmationButton(
-                            "Allow for 10 minutes",
-                            isPrimary: true,
-                            isDanger: false,
-                            isKeyboardSelected: keyboardModel?.selectedAction == .allow10m
-                        ) { markCommandExplanationSeen(); onTemporaryAllow?(confirmation.requestId, "allow_10m") }
-                        confirmationButton(
-                            "Don\u{2019}t Allow",
-                            isPrimary: false,
-                            isDanger: true,
-                            isKeyboardSelected: keyboardModel?.selectedAction == .dontAllow
-                        ) { markCommandExplanationSeen(); onDeny() }
+    private var allowSplitButton: some View {
+        let primary = effectivePrimaryAction
+        if hasSecondaryAllowOptions {
+            VSplitButton(label: primaryAllowLabel, style: .primary, size: .compact, action: {
+                firePrimaryAllow()
+            }) {
+                // "This action" — scoped to this specific invocation or pattern
+                Section("This action") {
+                    if primary != "allow_once" {
+                        Button("Allow once") {
+                            markCommandExplanationSeen()
+                            preferredAllowAction = "allow_once"
+                            onAllow()
+                        }
+                    }
+
+                    if hasAlwaysAllow {
+                        alwaysAllowMenuItems
+                    }
+                }
+
+                // "All actions" — blanket approval for a duration
+                if hasAllow10m || hasAllowConversation {
+                    Section("All actions") {
+                        if hasAllow10m && primary != "allow_10m" {
+                            Button("Allow for 10 minutes") {
+                                markCommandExplanationSeen()
+                                preferredAllowAction = "allow_10m"
+                                onTemporaryAllow?(confirmation.requestId, "allow_10m")
+                            }
+                        }
+
+                        if hasAllowConversation && primary != "allow_conversation" {
+                            Button("Allow for this conversation") {
+                                markCommandExplanationSeen()
+                                preferredAllowAction = "allow_conversation"
+                                onTemporaryAllow?(confirmation.requestId, "allow_conversation")
+                            }
+                        }
                     }
                 }
             }
-            // Bottom group: more options
-            VStack(alignment: .leading, spacing: VSpacing.xs) {
-                if hasAllow10m {
-                    Text("More Options")
-                        .font(VFont.captionMedium)
-                        .foregroundColor(VColor.contentDefault)
-                }
-                HStack(spacing: VSpacing.xs) {
-                    confirmationButton(
-                        "Allow Once",
-                        isPrimary: !hasAllow10m,
-                        isDanger: false,
-                        isKeyboardSelected: keyboardModel?.selectedAction == .allowOnce
-                    ) { markCommandExplanationSeen(); onAllow() }
-                    if hasRuleOptions && confirmation.persistentDecisionsAllowed { alwaysAllowInlineButton }
-                    if hasAllowConversation {
-                        confirmationButton(
-                            "Allow for this conversation",
-                            isPrimary: false,
-                            isDanger: false,
-                            isKeyboardSelected: keyboardModel?.selectedAction == .allowConversation
-                        ) { markCommandExplanationSeen(); onTemporaryAllow?(confirmation.requestId, "allow_conversation") }
-                    }
-                    if !hasAllow10m {
-                        confirmationButton(
-                            "Don\u{2019}t Allow",
-                            isPrimary: false,
-                            isDanger: true,
-                            isKeyboardSelected: keyboardModel?.selectedAction == .dontAllow
-                        ) { markCommandExplanationSeen(); onDeny() }
-                    }
-                    Spacer()
-                }
+        } else {
+            VButton(label: primaryAllowLabel, style: .primary, size: .compact) {
+                firePrimaryAllow()
             }
         }
-        .onAppear {
-            if isKeyboardActive {
-                #if os(macOS)
-                installKeyMonitor(actions: actions)
-                #else
-                keyboardModel = ToolConfirmationKeyboardModel(actions: actions)
-                #endif
+    }
+
+    private var alwaysAllowPatternLabel: String {
+        let tool = confirmation.toolName
+        if tool == "bash" || tool == "host_bash" { return "Command" }
+        if tool.contains("file") { return "File" }
+        if tool == "web_fetch" || tool == "web_search" { return "URL" }
+        return "Pattern"
+    }
+
+    @ViewBuilder
+    private var alwaysAllowMenuItems: some View {
+        let options = confirmation.allowlistOptions
+        let scopes = confirmation.scopeOptions
+
+        if options.count > 1 {
+            // Multiple patterns — show each, with scope submenus if needed
+            Menu("Always allow") {
+                Section(alwaysAllowPatternLabel) {
+                    ForEach(Array(options.enumerated()), id: \.element.pattern) { _, option in
+                        if scopes.isEmpty {
+                            Button(option.label) {
+                                markCommandExplanationSeen()
+    
+                                onAlwaysAllow(confirmation.requestId, option.pattern, "everywhere", alwaysAllowDecision)
+                            }
+                        } else {
+                            Menu(option.label) {
+                                Section("Scope") {
+                                    ForEach(Array(scopes.enumerated()), id: \.element.scope) { _, scopeOption in
+                                        Button(scopeOption.label) {
+                                            markCommandExplanationSeen()
+                
+                                            onAlwaysAllow(confirmation.requestId, option.pattern, scopeOption.scope, alwaysAllowDecision)
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
             }
-        }
-        .onDisappear {
-            popoverKeyboardModel = nil
-            #if os(macOS)
-            removeKeyMonitor()
-            #endif
-        }
-        .onChange(of: isKeyboardActive) {
-            if isKeyboardActive {
-                #if os(macOS)
-                installKeyMonitor(actions: actions)
-                #else
-                keyboardModel = ToolConfirmationKeyboardModel(actions: actions)
-                #endif
+        } else if let option = options.first {
+            // Single pattern
+            if scopes.isEmpty {
+                Button("Always allow") {
+                    markCommandExplanationSeen()
+                    if option.pattern.isEmpty {
+                        onAllow()
+                    } else {
+                        onAlwaysAllow(confirmation.requestId, option.pattern, "everywhere", alwaysAllowDecision)
+                    }
+                }
             } else {
-                #if os(macOS)
-                removeKeyMonitor()
-                #endif
-                keyboardModel = nil
-                popoverKeyboardModel = nil
-                showAlwaysAllowMenu = false
-                showScopePickerMenu = false
-                pendingPattern = nil
+                // Single pattern with scope choice
+                Menu("Always allow") {
+                    Section("Scope") {
+                        ForEach(Array(scopes.enumerated()), id: \.element.scope) { _, scopeOption in
+                            Button(scopeOption.label) {
+                                markCommandExplanationSeen()
+    
+                                onAlwaysAllow(confirmation.requestId, option.pattern, scopeOption.scope, alwaysAllowDecision)
+                            }
+                        }
+                    }
+                }
             }
         }
     }
@@ -486,10 +587,6 @@ public struct ToolConfirmationBubble: View {
                 return event
             }
             let mods = event.modifierFlags.intersection(Self.intentionalModifiers)
-            // Nested popover is open — handle up/down/enter/escape within it
-            if showAlwaysAllowMenu || showScopePickerMenu {
-                return handlePopoverKey(event, mods: mods)
-            }
             // Top-level button row navigation
             switch event.keyCode {
             case 48 where mods == .shift:
@@ -513,109 +610,6 @@ public struct ToolConfirmationBubble: View {
             default:
                 return event
             }
-        }
-    }
-
-    /// Handle key events when a nested popover (Always Allow dropdown or
-    /// scope picker) is open.
-    private func handlePopoverKey(_ event: NSEvent, mods: NSEvent.ModifierFlags) -> NSEvent? {
-        switch event.keyCode {
-        case 126:
-            // Up arrow
-            popoverKeyboardModel?.moveUp()
-            return nil
-        case 125:
-            // Down arrow
-            popoverKeyboardModel?.moveDown()
-            return nil
-        case 36 where mods.isEmpty, 76 where mods.isEmpty:
-            // Plain Return / numpad Enter — activate selected row (modified Enter passes through)
-            activatePopoverSelection()
-            return nil
-        case 53 where mods.isEmpty:
-            // Plain Escape — back or close (modified Escape passes through)
-            handlePopoverEscape()
-            return nil
-        default:
-            return event
-        }
-    }
-
-    /// Activate the currently selected row in the nested popover.
-    private func activatePopoverSelection() {
-        markCommandExplanationSeen()
-        guard let model = popoverKeyboardModel else { return }
-        let index = model.selectedIndex
-
-        if showAlwaysAllowMenu {
-            if pendingPattern != nil && needsScopeChoice {
-                // We're in the scope step of the dropdown
-                guard index < confirmation.scopeOptions.count else { return }
-                let scopeOption = confirmation.scopeOptions[index]
-                showAlwaysAllowMenu = false
-                let pattern = pendingPattern!
-                pendingPattern = nil
-                popoverKeyboardModel = nil
-                onAlwaysAllow(confirmation.requestId, pattern, scopeOption.scope, alwaysAllowDecision)
-            } else {
-                // We're in the pattern step of the dropdown
-                guard index < confirmation.allowlistOptions.count else { return }
-                let option = confirmation.allowlistOptions[index]
-                if option.pattern.isEmpty {
-                    showAlwaysAllowMenu = false
-                    popoverKeyboardModel = nil
-                    onAllow()
-                } else if needsScopeChoice {
-                    pendingPattern = option.pattern
-                    popoverKeyboardModel = ToolConfirmationPopoverKeyboardModel(
-                        mode: .scopes,
-                        itemCount: confirmation.scopeOptions.count
-                    )
-                } else {
-                    // No scope options (non-scoped tool) — auto-use "everywhere"
-                    showAlwaysAllowMenu = false
-                    popoverKeyboardModel = nil
-                    onAlwaysAllow(confirmation.requestId, option.pattern, "everywhere", alwaysAllowDecision)
-                }
-            }
-        } else if showScopePickerMenu {
-            // Inline scope picker
-            guard index < confirmation.scopeOptions.count else { return }
-            let scopeOption = confirmation.scopeOptions[index]
-            showScopePickerMenu = false
-            popoverKeyboardModel = nil
-            if let pattern = pendingPattern {
-                onAlwaysAllow(confirmation.requestId, pattern, scopeOption.scope, alwaysAllowDecision)
-                pendingPattern = nil
-            }
-        }
-    }
-
-    /// Handle Escape in a nested popover.
-    private func handlePopoverEscape() {
-        guard let model = popoverKeyboardModel else { return }
-        switch model.handleEscape() {
-        case .backToPatterns:
-            if showScopePickerMenu {
-                // Standalone scope picker has no pattern list to return to — just close.
-                showScopePickerMenu = false
-                popoverKeyboardModel = nil
-                pendingPattern = nil
-            } else {
-                pendingPattern = nil
-                popoverKeyboardModel = ToolConfirmationPopoverKeyboardModel(
-                    mode: .patterns,
-                    itemCount: confirmation.allowlistOptions.count
-                )
-            }
-        case .closePopover:
-            if showAlwaysAllowMenu {
-                showAlwaysAllowMenu = false
-            }
-            if showScopePickerMenu {
-                showScopePickerMenu = false
-            }
-            popoverKeyboardModel = nil
         }
     }
 
@@ -649,216 +643,16 @@ public struct ToolConfirmationBubble: View {
         case .allowConversation:
             onTemporaryAllow?(confirmation.requestId, "allow_conversation")
         case .alwaysAllow:
-            if confirmation.allowlistOptions.count > 1 {
-                withAnimation(VAnimation.fast) {
-                    pendingPattern = nil
-                    showAlwaysAllowMenu.toggle()
-                }
-                if showAlwaysAllowMenu {
-                    popoverKeyboardModel = ToolConfirmationPopoverKeyboardModel(
-                        mode: .patterns,
-                        itemCount: confirmation.allowlistOptions.count
-                    )
-                } else {
-                    popoverKeyboardModel = nil
-                }
+            let pattern = confirmation.allowlistOptions.first?.pattern ?? ""
+            let scope = confirmation.scopeOptions.first?.scope ?? "everywhere"
+            if pattern.isEmpty {
+                onAllow()
             } else {
-                handleSingleOptionAlwaysAllow()
+                onAlwaysAllow(confirmation.requestId, pattern, scope, alwaysAllowDecision)
             }
         case .dontAllow:
             onDeny()
         }
-    }
-
-    /// Shared logic for the single-option Always Allow action, used by both the
-    /// inline button click handler and keyboard Enter activation.
-    private func handleSingleOptionAlwaysAllow() {
-        markCommandExplanationSeen()
-        let pattern = confirmation.allowlistOptions.first?.pattern ?? ""
-        if pattern.isEmpty {
-            onAllow()
-            return
-        }
-        if needsScopeChoice {
-            pendingPattern = pattern
-            showScopePickerMenu = true
-            popoverKeyboardModel = ToolConfirmationPopoverKeyboardModel(
-                mode: .scopes,
-                itemCount: confirmation.scopeOptions.count
-            )
-        } else {
-            // No scope options (non-scoped tool) — auto-use "everywhere"
-            onAlwaysAllow(confirmation.requestId, pattern, "everywhere", alwaysAllowDecision)
-        }
-    }
-
-    /// Convenience wrapper that maps the legacy isPrimary/isDanger flags to a `VButton.Style`.
-    @ViewBuilder
-    private func confirmationButton(_ label: String, isPrimary: Bool, isDanger: Bool, isDangerOutline: Bool = false, isKeyboardSelected: Bool = false, action: @escaping () -> Void) -> some View {
-        let style: VButton.Style = isDanger ? .danger : isDangerOutline ? .dangerOutline : isPrimary ? .primary : .outlined
-        VButton(label: label, style: style, size: .compact, action: action)
-            .overlay(
-                RoundedRectangle(cornerRadius: VRadius.md)
-                    .stroke(VColor.primaryBase, lineWidth: isKeyboardSelected ? 2 : 0)
-            )
-            .accessibilityLabel(label)
-    }
-
-    // MARK: - Always Allow Button
-
-    @ViewBuilder
-    private var alwaysAllowInlineButton: some View {
-        if !confirmation.allowlistOptions.isEmpty && confirmation.allowlistOptions.count > 1 {
-            alwaysAllowDropdown
-        } else {
-            let patternDesc = confirmation.allowlistOptions.first?.description ?? ""
-            confirmationButton("Always Allow", isPrimary: false, isDanger: false, isKeyboardSelected: keyboardModel?.selectedAction == .alwaysAllow) {
-                handleSingleOptionAlwaysAllow()
-            }
-            .help(patternDesc.isEmpty ? "Always allow this action" : patternDesc)
-            .popover(isPresented: $showScopePickerMenu, arrowEdge: .bottom) {
-                scopePickerContent
-            }
-        }
-    }
-
-    // MARK: - Always Allow Dropdown
-
-    @ViewBuilder
-    private var alwaysAllowDropdown: some View {
-        confirmationButton("Always Allow", isPrimary: false, isDanger: false, isKeyboardSelected: keyboardModel?.selectedAction == .alwaysAllow) {
-            withAnimation(VAnimation.fast) {
-                pendingPattern = nil
-                showAlwaysAllowMenu.toggle()
-            }
-            if showAlwaysAllowMenu {
-                popoverKeyboardModel = ToolConfirmationPopoverKeyboardModel(
-                    mode: .patterns,
-                    itemCount: confirmation.allowlistOptions.count
-                )
-            } else {
-                popoverKeyboardModel = nil
-            }
-        }
-        .popover(isPresented: $showAlwaysAllowMenu, arrowEdge: .bottom) {
-            VStack(alignment: .leading, spacing: 0) {
-                if let pending = pendingPattern, needsScopeChoice {
-                    // Scope selection step after pattern was chosen
-                    HStack(spacing: VSpacing.xs) {
-                        Button {
-                            pendingPattern = nil
-                            popoverKeyboardModel = ToolConfirmationPopoverKeyboardModel(
-                                mode: .patterns,
-                                itemCount: confirmation.allowlistOptions.count
-                            )
-                        } label: {
-                            VIconView(.chevronLeft, size: 10)
-                                .foregroundColor(VColor.contentTertiary)
-                        }
-                        .buttonStyle(.plain)
-
-                        Text("Choose scope")
-                            .font(VFont.captionMedium)
-                            .foregroundColor(VColor.contentTertiary)
-                    }
-                    .padding(.horizontal, VSpacing.sm)
-                    .padding(.vertical, VSpacing.xs)
-
-                    Divider()
-                        .background(VColor.borderBase)
-
-                    ForEach(Array(confirmation.scopeOptions.enumerated()), id: \.element.scope) { index, scopeOption in
-                        ScopePickerRow(
-                            label: scopeOption.label,
-                            isKeyboardSelected: popoverKeyboardModel?.mode == .scopes && popoverKeyboardModel?.selectedIndex == index
-                        ) {
-                            markCommandExplanationSeen()
-                            showAlwaysAllowMenu = false
-                            pendingPattern = nil
-                            popoverKeyboardModel = nil
-                            onAlwaysAllow(confirmation.requestId, pending, scopeOption.scope, alwaysAllowDecision)
-                        }
-
-                        if index < confirmation.scopeOptions.count - 1 {
-                            Divider()
-                                .background(VColor.borderBase)
-                        }
-                    }
-                } else {
-                    // Pattern selection step
-                    ForEach(Array(confirmation.allowlistOptions.enumerated()), id: \.element.pattern) { index, option in
-                        AlwaysAllowRow(
-                            title: option.label,
-                            subtitle: option.description,
-                            isKeyboardSelected: popoverKeyboardModel?.mode == .patterns && popoverKeyboardModel?.selectedIndex == index
-                        ) {
-                            markCommandExplanationSeen()
-                            if option.pattern.isEmpty {
-                                showAlwaysAllowMenu = false
-                                popoverKeyboardModel = nil
-                                onAllow()
-                            } else if needsScopeChoice {
-                                pendingPattern = option.pattern
-                                popoverKeyboardModel = ToolConfirmationPopoverKeyboardModel(
-                                    mode: .scopes,
-                                    itemCount: confirmation.scopeOptions.count
-                                )
-                            } else {
-                                // No scope options (non-scoped tool) — auto-use "everywhere"
-                                showAlwaysAllowMenu = false
-                                popoverKeyboardModel = nil
-                                onAlwaysAllow(confirmation.requestId, option.pattern, "everywhere", alwaysAllowDecision)
-                            }
-                        }
-
-                        if index < confirmation.allowlistOptions.count - 1 {
-                            Divider()
-                                .background(VColor.borderBase)
-                        }
-                    }
-                }
-            }
-            .padding(VSpacing.xs)
-            .frame(minWidth: 200)
-        }
-    }
-
-    // MARK: - Scope Picker (inline button popover)
-
-    @ViewBuilder
-    private var scopePickerContent: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            Text("Choose scope")
-                .font(VFont.captionMedium)
-                .foregroundColor(VColor.contentTertiary)
-                .padding(.horizontal, VSpacing.sm)
-                .padding(.vertical, VSpacing.xs)
-
-            Divider()
-                .background(VColor.borderBase)
-
-            ForEach(Array(confirmation.scopeOptions.enumerated()), id: \.element.scope) { index, scopeOption in
-                ScopePickerRow(
-                    label: scopeOption.label,
-                    isKeyboardSelected: popoverKeyboardModel?.mode == .scopes && popoverKeyboardModel?.selectedIndex == index
-                ) {
-                    markCommandExplanationSeen()
-                    showScopePickerMenu = false
-                    popoverKeyboardModel = nil
-                    if let pattern = pendingPattern {
-                        onAlwaysAllow(confirmation.requestId, pattern, scopeOption.scope, alwaysAllowDecision)
-                        pendingPattern = nil
-                    }
-                }
-
-                if index < confirmation.scopeOptions.count - 1 {
-                    Divider()
-                        .background(VColor.borderBase)
-                }
-            }
-        }
-        .padding(VSpacing.xs)
-        .frame(minWidth: 180)
     }
 
     // MARK: - Tool Permission (decided)
@@ -880,84 +674,6 @@ public struct ToolConfirmationBubble: View {
         }
     }
 
-}
-
-// MARK: - Always Allow Row
-
-private struct AlwaysAllowRow: View {
-    let title: String
-    let subtitle: String
-    var isKeyboardSelected: Bool = false
-    let action: () -> Void
-
-    @State private var isHovered = false
-
-    var body: some View {
-        Button(action: action) {
-            VStack(alignment: .leading, spacing: 2) {
-                Text(title)
-                    .font(VFont.monoSmall)
-                    .foregroundColor(VColor.contentDefault)
-                if !subtitle.isEmpty {
-                    Text(subtitle)
-                        .font(VFont.caption)
-                        .foregroundColor(VColor.contentTertiary)
-                }
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.vertical, VSpacing.sm)
-            .padding(.horizontal, VSpacing.sm)
-            .background(
-                RoundedRectangle(cornerRadius: VRadius.sm)
-                    .fill(isHovered || isKeyboardSelected ? VColor.borderBase.opacity(0.5) : .clear)
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: VRadius.sm)
-                    .stroke(isKeyboardSelected ? VColor.primaryBase : .clear, lineWidth: 2)
-            )
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .onHover { hovering in
-            isHovered = hovering
-        }
-        .pointerCursor()
-    }
-}
-
-// MARK: - Scope Picker Row
-
-private struct ScopePickerRow: View {
-    let label: String
-    var isKeyboardSelected: Bool = false
-    let action: () -> Void
-
-    @State private var isHovered = false
-
-    var body: some View {
-        Button(action: action) {
-            Text(label)
-                .font(VFont.body)
-                .foregroundColor(VColor.contentDefault)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.vertical, VSpacing.sm)
-                .padding(.horizontal, VSpacing.sm)
-                .background(
-                    RoundedRectangle(cornerRadius: VRadius.sm)
-                        .fill(isHovered || isKeyboardSelected ? VColor.borderBase.opacity(0.5) : .clear)
-                )
-                .overlay(
-                    RoundedRectangle(cornerRadius: VRadius.sm)
-                        .stroke(isKeyboardSelected ? VColor.primaryBase : .clear, lineWidth: 2)
-                )
-                .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .onHover { hovering in
-            isHovered = hovering
-        }
-        .pointerCursor()
-    }
 }
 
 #if DEBUG

@@ -843,6 +843,7 @@ private struct StepDetailRow: View {
                 }
             }
             .padding(VSpacing.sm)
+            .padding(.trailing, VSpacing.xl) // reserve space for copy button
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(VColor.surfaceOverlay.opacity(0.6))
             .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
@@ -851,19 +852,11 @@ private struct StepDetailRow: View {
                     .stroke(VColor.borderBase, lineWidth: 0.5)
             )
 
-            Button {
+            VButton(label: copyLabel, iconOnly: VIcon.copy.rawValue, style: .ghost, iconSize: 24, iconColor: VColor.contentTertiary) {
                 NSPasteboard.general.clearContents()
                 NSPasteboard.general.setString(copyText, forType: .string)
-            } label: {
-                VIconView(.copy, size: 10)
-                    .foregroundColor(VColor.contentTertiary)
-                    .frame(width: 24, height: 24)
-                    .background(VColor.surfaceBase)
-                    .clipShape(RoundedRectangle(cornerRadius: VRadius.xs))
             }
-            .buttonStyle(.plain)
             .padding(VSpacing.xs)
-            .accessibilityLabel(copyLabel)
         }
     }
 
