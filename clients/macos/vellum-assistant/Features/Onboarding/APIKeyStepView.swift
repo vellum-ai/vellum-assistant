@@ -41,7 +41,7 @@ struct APIKeyStepView: View {
                     handleContinue()
                 }
 
-                OnboardingButton(title: "Need help deciding?", style: .secondary) {
+                OnboardingButton(title: "Need help deciding?", style: .ghostPrimary) {
                     NSWorkspace.shared.open(URL(string: "https://vellum.ai/docs/environments")!)
                 }
 
