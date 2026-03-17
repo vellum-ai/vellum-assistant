@@ -10,6 +10,8 @@ metadata:
 
 You are helping the user customize their assistant's avatar. There are three ways to set an avatar: building a native character from traits, uploading a custom image, or generating one with AI. When the user says they want to change their avatar, present all three options and ask which they prefer.
 
+**All commands in this skill use the `bash` tool.** `$VELLUM_DATA_DIR` and `$INTERNAL_GATEWAY_BASE_URL` are available in the sandbox environment — do not use `host_bash`.
+
 ## Avatar Modes
 
 The avatar system supports two representations:
