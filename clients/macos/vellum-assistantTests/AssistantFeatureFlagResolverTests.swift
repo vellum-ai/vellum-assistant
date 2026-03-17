@@ -54,4 +54,45 @@ final class AssistantFeatureFlagResolverTests: XCTestCase {
 
         XCTAssertTrue(enabled)
     }
+
+    @MainActor
+    func testStoreCachesResolvedFlagsAfterInitialLoad() {
+        var readCount = 0
+        let store = AssistantFeatureFlagStore(
+            notificationCenter: NotificationCenter(),
+            registry: makeRegistry(defaultEnabled: false),
+            readConfig: {
+                readCount += 1
+                return [:]
+            }
+        )
+
+        XCTAssertFalse(store.isEnabled(conversationStartersKey))
+        XCTAssertFalse(store.isEnabled(conversationStartersKey))
+        XCTAssertEqual(readCount, 1)
+    }
+
+    @MainActor
+    func testStoreAppliesFlagChangeNotificationsWithoutReloadingConfig() {
+        let notificationCenter = NotificationCenter()
+        var readCount = 0
+        let store = AssistantFeatureFlagStore(
+            notificationCenter: notificationCenter,
+            registry: makeRegistry(defaultEnabled: false),
+            readConfig: {
+                readCount += 1
+                return [:]
+            }
+        )
+
+        notificationCenter.post(
+            name: .assistantFeatureFlagDidChange,
+            object: nil,
+            userInfo: ["key": conversationStartersKey, "enabled": true]
+        )
+        RunLoop.main.run(until: Date().addingTimeInterval(0.05))
+
+        XCTAssertTrue(store.isEnabled(conversationStartersKey))
+        XCTAssertEqual(readCount, 1)
+    }
 }

@@ -363,9 +363,13 @@ extension MainWindowView {
     var chatView: some View {
         if let viewModel = conversationManager.activeViewModel {
             let activeConversation = conversationManager.activeConversation
+            let conversationStartersEnabled = assistantFeatureFlagStore.isEnabled(
+                Self.conversationStartersFeatureFlagKey
+            )
             ActiveChatViewWrapper(
                 viewModel: viewModel,
                 windowState: windowState,
+                conversationStartersEnabled: conversationStartersEnabled,
                 daemonClient: daemonClient,
                 ambientAgent: ambientAgent,
                 settingsStore: settingsStore,
@@ -568,6 +572,7 @@ func openFilePicker(viewModel: ChatViewModel) {
 struct ActiveChatViewWrapper: View {
     @ObservedObject var viewModel: ChatViewModel
     @ObservedObject var windowState: MainWindowState
+    let conversationStartersEnabled: Bool
     let daemonClient: DaemonClient
     @ObservedObject var ambientAgent: AmbientAgent
     @ObservedObject var settingsStore: SettingsStore
@@ -589,10 +594,6 @@ struct ActiveChatViewWrapper: View {
     private var isBootstrapTimedOut: Bool { bootstrapStateRaw == "timedOut" }
 
     var body: some View {
-        let conversationStartersEnabled = AssistantFeatureFlagResolver.isEnabled(
-            MainWindowView.conversationStartersFeatureFlagKey
-        )
-
         ChatView(
             messages: viewModel.messages,
             inputText: Binding(
