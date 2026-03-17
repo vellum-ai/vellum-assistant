@@ -1237,6 +1237,11 @@ public struct TraceEventMessage: Decodable, Sendable {
     public let attributes: [String: AnyCodable]?
 }
 
+/// Response containing historical trace events for a conversation.
+public struct TraceEventsHistoryResponse: Decodable, Sendable {
+    public let events: [TraceEventMessage]
+}
+
 /// Structured error codes for conversation-level errors.
 public enum ConversationErrorCode: String, CaseIterable, Codable, Sendable {
     case providerNetwork = "PROVIDER_NETWORK"
