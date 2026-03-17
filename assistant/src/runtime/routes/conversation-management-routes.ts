@@ -126,7 +126,7 @@ export function conversationManagementRouteDefinitions(
     {
       endpoint: "conversations/:id/wipe",
       method: "POST",
-      policyKey: "conversations",
+      policyKey: "conversations/wipe",
       handler: async ({ params }) => {
         const resolvedId = resolveConversationId(params.id);
         if (!resolvedId) {
