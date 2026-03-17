@@ -484,17 +484,22 @@ describe("OAuth2 gateway transport", () => {
       };
 
       let capturedAuthUrl = "";
+      let urlReady!: () => void;
+      const urlReadyPromise = new Promise<void>((r) => {
+        urlReady = r;
+      });
       const flowPromise = startOAuth2Flow(
         BASE_OAUTH_CONFIG,
         {
           openUrl: (url) => {
             capturedAuthUrl = url;
+            urlReady();
           },
         },
         { callbackTransport: "loopback" },
       );
 
-      await new Promise((r) => setTimeout(r, 50));
+      await urlReadyPromise;
 
       const authUrl = new URL(capturedAuthUrl);
       const redirectUri = authUrl.searchParams.get("redirect_uri")!;
