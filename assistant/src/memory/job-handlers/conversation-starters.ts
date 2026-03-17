@@ -165,38 +165,83 @@ async function generateStarters(scopeId: string): Promise<GeneratedStarter[]> {
   const diff = buildNewItemsDiff(scopeId);
   const skills = buildSkillsSummary();
 
-  const systemPrompt = `You are a personal concierge choosing the 4-6 smartest next moves for the user. These appear as clickable pills on the empty conversation page — the first thing they see when they open the app.
+  const now = new Date();
+  const timeContext = `Current time: ${now.toLocaleString("en-US", { weekday: "long", year: "numeric", month: "long", day: "numeric", hour: "numeric", minute: "2-digit", hour12: true })}`;
 
-Your job is to make the user feel like they have a sharp, opinionated assistant who already knows what matters. Not a feature catalog. Not a menu. A curated shortlist of moves that would make a thoughtful chief-of-staff recommend.
+  const systemPrompt = `You are generating 4 conversation starters for a personal assistant app. These appear as clickable chips on the empty conversation page — the first thing the user sees when they open the app.
 
-Given the user's accumulated memories and the assistant's available skills, generate 4-6 suggested starts. Each has:
-- label: A premium, concierge-quality phrase (max 40 chars). Start with a verb. Write it like a confident recommendation, not a feature name or task description. Think "Get ahead of tomorrow" not "Review tomorrow's calendar". Think "Catch the Slack threads that matter" not "Check Slack messages".
-- prompt: The full message sent when clicked (1-2 natural sentences, written as the user would say it).
-- category: One of: ${CONVERSATION_STARTER_CATEGORIES.join(", ")}. Pick the best-fit category.
+${timeContext}
 
-Tone and voice for labels:
-- Confident and slightly opinionated — like a trusted advisor who knows what's worth your time.
-- Action-oriented but not bossy — "Protect this week's focus" not "Block your calendar".
-- Specific enough to feel personal, abstract enough to feel premium — not robotic task descriptions.
-- Each label should make the user think "yes, that's exactly what I need right now."
+Your goal: look at what's going on in this person's life right now and suggest the 4 most useful things they could ask you to do. Think about what a thoughtful chief of staff would proactively bring up in a 30-second check-in.
 
-Quality bar — prioritize:
-- Relief: remove a pain point or unblock something stuck.
-- Momentum: advance work already in progress.
-- Confidence: surface information the user needs to make a decision.
-- Curiosity: highlight something timely or surprising.
-- Timely usefulness: prioritize what matters this week over what matters in general.
-
-Coherence rules:
-- The full set must read as one curated row — a premium recommendation set at the same abstraction level. No jarring mix of mundane chores and strategic projects.
-- Do NOT suggest setup, admin, or configuration tasks unless they are genuinely blocking or time-sensitive.
-- Every starter must be grounded in THIS user's context — but frame it with polish, not as a raw task ticket.
-- Vary across different skills and memory areas, but keep the row feeling intentional and curated.
-- Prompts should sound natural, as if the user typed them unprompted.
+## What you know
 
 ${rollup}
 ${diff}
-${skills}`;
+${skills}
+
+## How to think about this
+
+Start from the user's situation, not from the skill list. Ask yourself:
+- What is this person likely dealing with right now (given the day/time and their context)?
+- What's active, stuck, or coming up soon?
+- Where could I save them real time or effort right now?
+
+The skills list tells you what the assistant CAN do — use it to filter out suggestions the assistant can't actually help with, not as a menu to generate suggestions from.
+
+## Selection
+
+Generate exactly 4 starters, ranked #1 (best) to #4.
+
+For each, you must be able to clearly answer:
+- Why now? (timing — day of week, recent activity, upcoming deadline)
+- Why this user? (grounded in their specific context, not generic)
+- Why would they be glad I suggested this? (genuine usefulness, not just relevance)
+
+If you can't answer all three strongly, replace it with something better.
+
+Prioritize:
+- Relief: unblock something stuck, reduce drag
+- Momentum: advance work already in motion
+- Confidence: surface what they need to decide or act on
+- Curiosity: something timely they'd want to know about
+
+Favor what is live over what is merely true. Recent changes matter more than old memories. Active work matters more than dormant topics. This week matters more than "someday."
+
+## Output format
+
+Return exactly 4 starters in rank order (best first).
+
+Each starter has:
+- label: 3-6 words, max 40 chars, starts with a verb. Should sound like a smart offer of help, not a feature name or task description. Must sound natural when read aloud.
+- prompt: 1-2 natural sentences, written as the user would actually say them — not templated.
+- category: one of ${CONVERSATION_STARTER_CATEGORIES.join(", ")}
+
+The 4 starters should feel like one coherent set of recommendations for this moment — similar abstraction level, no jarring mix of mundane chores and life strategy. Don't lift raw memory phrases, project names, or jargon into labels unless they already sound natural in conversation.
+
+Never include a chip whose primary meaning is configuration, setup, workflow creation, or "set up X for Y" unless it solves an urgent pain the user is actively feeling right now. Prefer the outcome over the mechanism — "Catch the emails that matter" beats "Set up a playbook for inbox."
+
+## Topic diversity
+
+Each chip should cover a distinct topic or concern. Never have two chips about the same tool, project, or theme — even if there are multiple related issues. Pick the single most impactful angle and give the other slot to something different. Four chips about three topics is too narrow; four chips about four topics is right.
+
+## User-facingness check
+
+If a label sounds like an issue title, project ticket, or implementation task, rewrite it. Prefer the user-visible payoff over the internal object name. The chip should feel inviting and useful, not merely accurate.
+
+Prefer natural, flowing language over mechanical or operational phrasing. "Get Slack messages flowing" is better than "Restore outgoing Slack messages." The label should sound like something a helpful person would say, not a support ticket.
+
+Before finalizing each label, ask yourself: would this feel good to click? Or does it sound like a backlog item? If it sounds like a backlog item, rewrite it.
+
+Examples of bad vs good:
+- BAD: "Fix Slack Socket Mode blocker" → GOOD: "Fix Slack so it just works"
+- BAD: "Rewire messaging for Socket Mode" → GOOD: "Get Socket Mode stable"
+- BAD: "Review this week's calendar" → GOOD: "Protect this week's focus"
+- BAD: "Model the coaching transition" → GOOD: "Plan the coaching transition"
+- BAD: "Restore outgoing Slack messages" → GOOD: "Get Slack messages flowing"
+- BAD: "Set up a playbook for inbox" → GOOD: "Catch the emails that matter"
+
+The good versions emphasize the user's payoff, not the internal mechanism.`;
 
   const { signal, cleanup } = createTimeout(20000);
   try {
@@ -221,11 +266,12 @@ ${skills}`;
                     label: {
                       type: "string",
                       description:
-                        "Short chip text (max 40 chars, starts with a verb, compressed user intent)",
+                        "Concierge-quality chip text (2-7 words, max 40 chars, starts with a verb)",
                     },
                     prompt: {
                       type: "string",
-                      description: "Full message sent on click (1-2 sentences)",
+                      description:
+                        "Full message sent on click (1-2 natural sentences, as the user would say it)",
                     },
                     category: {
                       type: "string",
@@ -278,6 +324,7 @@ ${skills}`;
           typeof s.prompt === "string" &&
           s.prompt.length > 0,
       )
+      .slice(0, 4)
       .map((s) => ({
         label: truncate(s.label, 40, ""),
         prompt: truncate(s.prompt, 500, ""),
@@ -332,7 +379,12 @@ export async function generateConversationStartersJob(
     .all();
   const sourceKinds = kindRows.map((r) => r.kind).join(",");
 
-  // Insert starters
+  // Remove previous starters for this scope before inserting the new batch
+  db.delete(conversationStarters)
+    .where(eq(conversationStarters.scopeId, scopeId))
+    .run();
+
+  // Insert starters — all are chips
   for (const starter of starters) {
     db.insert(conversationStarters)
       .values({
@@ -340,6 +392,7 @@ export async function generateConversationStartersJob(
         label: starter.label,
         prompt: starter.prompt,
         category: starter.category,
+        cardType: "chip",
         generationBatch: nextBatch,
         scopeId,
         sourceMemoryKinds: sourceKinds,

@@ -3,6 +3,7 @@ import SwiftUI
 public struct VSearchBar: View {
     public let placeholder: String
     @Binding public var text: String
+    @FocusState private var isFocused: Bool
 
     public init(placeholder: String = "Search...", text: Binding<String>) {
         self.placeholder = placeholder
@@ -10,7 +11,7 @@ public struct VSearchBar: View {
     }
 
     public var body: some View {
-        HStack(spacing: VSpacing.sm) {
+        HStack(spacing: VSpacing.md) {
             VIconView(.search, size: 12)
                 .foregroundColor(VColor.contentTertiary)
 
@@ -18,6 +19,7 @@ public struct VSearchBar: View {
                 .textFieldStyle(.plain)
                 .font(VFont.body)
                 .foregroundColor(VColor.contentDefault)
+                .focused($isFocused)
 
             if !text.isEmpty {
                 Button(action: { text = "" }) {
@@ -31,7 +33,6 @@ public struct VSearchBar: View {
         .padding(.horizontal, VSpacing.md)
         .padding(.vertical, VSpacing.xs)
         .frame(height: 32)
-        .background(VColor.surfaceActive)
-        .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
+        .vInputChrome(isFocused: isFocused)
     }
 }

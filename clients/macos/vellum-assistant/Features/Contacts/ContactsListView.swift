@@ -1,9 +1,7 @@
 import SwiftUI
 import VellumAssistantShared
 
-/// Contacts list panel matching the Figma design: a single bordered card
-/// with header, assistant/guardian rows, divider, search, and contact rows
-/// with colored role tags and channel name text.
+/// Contacts list panel for the Settings > Contacts page.
 @MainActor
 struct ContactsListView: View {
     @ObservedObject var viewModel: ContactsViewModel
@@ -41,25 +39,22 @@ struct ContactsListView: View {
 
     private var contactsCard: some View {
         VStack(alignment: .leading, spacing: VSpacing.lg) {
-            // Header: "Contacts" + add button
             HStack {
                 Text("Contacts")
                     .font(VFont.sectionTitle)
                     .foregroundColor(VColor.contentEmphasized)
                 Spacer()
-                VButton(label: "Add", iconOnly: VIcon.plus.rawValue, style: .outlined, size: .compact) {
+                VButton(label: "Add", iconOnly: VIcon.plus.rawValue, style: .ghost, size: .compact) {
                     viewModel.isCreatingContact = true
                 }
                 .accessibilityLabel("Add contact")
             }
 
-            // Pinned rows (assistant + guardian)
             VStack(alignment: .leading, spacing: VSpacing.xs) {
                 contactListRow(
                     name: cachedAssistantDisplayName,
                     channelText: "Assistant channels",
                     tag: "Assistant",
-                    tagColor: VColor.tagAssistant,
                     isSelected: selection == .assistant,
                     isHovered: isAssistantHovered,
                     onTap: { selection = .assistant },
@@ -71,7 +66,6 @@ struct ContactsListView: View {
                         name: "\(guardian.displayName) (You)",
                         channelText: channelNamesText(guardian.channels),
                         tag: "Guardian",
-                        tagColor: VColor.tagGuardian,
                         isSelected: selection == .contact(guardian.id),
                         isHovered: hoveredContactId == guardian.id,
                         onTap: { selection = .contact(guardian.id) },
@@ -80,21 +74,18 @@ struct ContactsListView: View {
                 }
             }
 
-            VColor.surfaceBase.frame(height: 1)
+            SettingsDivider()
 
-            // Contacts area — fills remaining height
+            searchBar
+
             if viewModel.hasNonGuardianContacts {
                 ScrollView {
                     VStack(alignment: .leading, spacing: VSpacing.xs) {
-                        searchBar
-                            .padding(.top, VSpacing.sm)
-
                         ForEach(viewModel.otherContacts, id: \.id) { contact in
                             contactListRow(
                                 name: contact.displayName,
                                 channelText: channelNamesText(contact.channels),
                                 tag: formatContactType(contact.role),
-                                tagColor: tagColor(for: contact.role),
                                 isSelected: selection == .contact(contact.id),
                                 isHovered: hoveredContactId == contact.id,
                                 onTap: { selection = .contact(contact.id) },
@@ -132,10 +123,7 @@ struct ContactsListView: View {
         }
         .padding(VSpacing.lg)
         .frame(maxHeight: .infinity, alignment: .top)
-        .overlay(
-            RoundedRectangle(cornerRadius: VRadius.xl)
-                .stroke(VColor.borderDisabled, lineWidth: 2)
-        )
+        .vCard(radius: VRadius.lg, background: VColor.surfaceOverlay)
     }
 
     // MARK: - Contact List Row
@@ -144,7 +132,6 @@ struct ContactsListView: View {
         name: String,
         channelText: String,
         tag: String,
-        tagColor: Color,
         isSelected: Bool,
         isHovered: Bool,
         onTap: @escaping () -> Void,
@@ -155,33 +142,31 @@ struct ContactsListView: View {
                 VStack(alignment: .leading, spacing: 2) {
                     Text(name)
                         .font(VFont.bodyMedium)
-                        .foregroundColor(VColor.contentDefault)
+                        .foregroundColor(isSelected ? VColor.contentEmphasized : VColor.contentDefault)
                         .lineLimit(1)
 
                     Text(channelText)
                         .font(VFont.small)
-                        .foregroundColor(VColor.contentTertiary)
+                        .foregroundColor(isSelected ? VColor.contentSecondary : VColor.contentTertiary)
                         .lineLimit(1)
                 }
 
                 Spacer()
 
-                Text(tag)
-                    .font(VFont.captionMedium)
-                    .foregroundColor(VColor.contentDefault)
-                    .padding(.horizontal, VSpacing.sm)
-                    .padding(.vertical, VSpacing.xs)
-                    .background(tagColor)
-                    .clipShape(RoundedRectangle(cornerRadius: VRadius.sm + 2))
+                VBadge(label: tag, tone: .neutral)
             }
             .padding(VSpacing.sm)
-            .background(
-                isSelected
-                    ? VColor.surfaceActive
-                    : (isHovered ? VColor.surfaceActive.opacity(0.5) : VColor.surfaceOverlay)
-            )
+            .background(rowBackground(isSelected: isSelected, isHovered: isHovered))
+            .overlay(rowBorder(isSelected: isSelected, isHovered: isHovered))
+            .overlay(alignment: .leading) {
+                Capsule()
+                    .fill(isSelected ? VColor.primaryBase : .clear)
+                    .frame(width: 4)
+                    .padding(.vertical, VSpacing.sm)
+                    .padding(.leading, 2)
+            }
             .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
-            .contentShape(Rectangle())
+            .contentShape(RoundedRectangle(cornerRadius: VRadius.md))
         }
         .buttonStyle(.plain)
         .onHover(perform: onHover)
@@ -190,17 +175,7 @@ struct ContactsListView: View {
     // MARK: - Search Bar
 
     private var searchBar: some View {
-        HStack(spacing: VSpacing.xs) {
-            VIconView(.search, size: 12)
-                .foregroundColor(VColor.contentTertiary)
-            TextField("Search Contacts", text: $viewModel.searchQuery)
-                .textFieldStyle(.plain)
-                .font(VFont.body)
-                .foregroundColor(VColor.contentDefault)
-        }
-        .padding(VSpacing.sm)
-        .background(VColor.surfaceBase)
-        .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
+        VSearchBar(placeholder: "Search Contacts", text: $viewModel.searchQuery)
     }
 
     // MARK: - Loading State
@@ -262,11 +237,22 @@ struct ContactsListView: View {
         }
     }
 
-    private func tagColor(for role: String?) -> Color {
-        switch role {
-        case "guardian": return VColor.tagGuardian
-        case "assistant": return VColor.tagAssistant
-        default: return VColor.tagHuman
-        }
+    private func rowBackground(isSelected: Bool, isHovered: Bool) -> some View {
+        RoundedRectangle(cornerRadius: VRadius.md)
+            .fill(
+                isSelected
+                    ? VColor.primaryBase.opacity(0.10)
+                    : (isHovered ? VColor.surfaceBase : Color.clear)
+            )
+    }
+
+    private func rowBorder(isSelected: Bool, isHovered: Bool) -> some View {
+        RoundedRectangle(cornerRadius: VRadius.md)
+            .strokeBorder(
+                isSelected
+                    ? VColor.borderActive
+                    : (isHovered ? VColor.borderBase.opacity(0.45) : Color.clear),
+                lineWidth: 1
+            )
     }
 }

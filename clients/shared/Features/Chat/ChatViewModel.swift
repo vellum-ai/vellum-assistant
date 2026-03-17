@@ -21,9 +21,9 @@ public struct ConversationStarter: Identifiable, Codable {
     public let label: String
     public let prompt: String
     public let category: String?
-    public let batch: Int
+    public let batch: Int?
 
-    public init(id: String, label: String, prompt: String, category: String?, batch: Int) {
+    public init(id: String, label: String, prompt: String, category: String?, batch: Int? = nil) {
         self.id = id
         self.label = label
         self.prompt = prompt
@@ -2514,11 +2514,12 @@ public final class ChatViewModel: ObservableObject {
 
     /// Accept the current suggestion, appending the ghost suffix to input.
     public func acceptSuggestion() {
-        guard let suggestion else { return }
-        if suggestion.hasPrefix(inputText) {
-            inputText = suggestion
+        let effectiveSuggestion = suggestion
+        guard let effectiveSuggestion else { return }
+        if effectiveSuggestion.hasPrefix(inputText) {
+            inputText = effectiveSuggestion
         } else if inputText.isEmpty {
-            inputText = suggestion
+            inputText = effectiveSuggestion
         }
         self.suggestion = nil
     }

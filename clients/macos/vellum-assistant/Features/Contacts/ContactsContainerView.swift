@@ -118,19 +118,12 @@ struct ContactsContainerView: View {
     private func guardianDetailView(contact: ContactPayload) -> some View {
         ScrollView {
             VStack(alignment: .leading, spacing: VSpacing.lg) {
-                // Header card matching assistant/human style
                 VStack(alignment: .leading, spacing: VSpacing.xs) {
                     HStack(spacing: VSpacing.sm) {
                         Text(contact.displayName)
                             .font(VFont.display)
                             .foregroundColor(VColor.contentDefault)
-                        Text("Guardian")
-                            .font(VFont.captionMedium)
-                            .foregroundColor(VColor.contentDefault)
-                            .padding(.horizontal, VSpacing.sm)
-                            .padding(.vertical, VSpacing.xs)
-                            .background(VColor.tagGuardian)
-                            .clipShape(RoundedRectangle(cornerRadius: VRadius.sm + 2))
+                        VBadge(label: "Guardian", tone: .neutral)
                     }
                     Text("\(contact.interactionCount) interaction\(contact.interactionCount == 1 ? "" : "s")")
                         .font(VFont.caption)
@@ -138,23 +131,17 @@ struct ContactsContainerView: View {
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(VSpacing.lg)
-                .overlay(
-                    RoundedRectangle(cornerRadius: VRadius.xl)
-                        .stroke(VColor.borderDisabled, lineWidth: 2)
-                )
+                .vCard(radius: VRadius.lg, background: VColor.surfaceOverlay)
 
-                // Channels card
                 GuardianChannelsDetailView(
                     contact: contact,
                     daemonClient: daemonClient,
                     store: store,
-                    onSelectAssistant: { selection = .assistant }
+                    onSelectAssistant: { selection = .assistant },
+                    showCardBorders: false
                 )
                 .padding(VSpacing.lg)
-                .overlay(
-                    RoundedRectangle(cornerRadius: VRadius.xl)
-                        .stroke(VColor.borderDisabled, lineWidth: 2)
-                )
+                .vCard(radius: VRadius.lg, background: VColor.surfaceOverlay)
             }
             .padding(VSpacing.lg)
         }
@@ -168,36 +155,22 @@ struct ContactsContainerView: View {
     private var assistantDetailView: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: VSpacing.lg) {
-                // Header card matching human contact style
                 VStack(alignment: .leading, spacing: VSpacing.md) {
                     HStack(spacing: VSpacing.sm) {
                         Text(cachedAssistantName)
                             .font(VFont.display)
                             .foregroundColor(VColor.contentDefault)
-                        Text("Assistant")
-                            .font(VFont.captionMedium)
-                            .foregroundColor(VColor.contentDefault)
-                            .padding(.horizontal, VSpacing.sm)
-                            .padding(.vertical, VSpacing.xs)
-                            .background(VColor.tagAssistant)
-                            .clipShape(RoundedRectangle(cornerRadius: VRadius.sm + 2))
+                        VBadge(label: "Assistant", tone: .neutral)
                     }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(VSpacing.lg)
-                .overlay(
-                    RoundedRectangle(cornerRadius: VRadius.xl)
-                        .stroke(VColor.borderDisabled, lineWidth: 2)
-                )
+                .vCard(radius: VRadius.lg, background: VColor.surfaceOverlay)
 
-                // Channels section in bordered card
                 if let store {
                     AssistantChannelsDetailView(store: store, daemonClient: daemonClient, isEmailEnabled: isEmailEnabled, showCardBorders: false)
                         .padding(VSpacing.lg)
-                        .overlay(
-                            RoundedRectangle(cornerRadius: VRadius.xl)
-                                .stroke(VColor.borderDisabled, lineWidth: 2)
-                        )
+                        .vCard(radius: VRadius.lg, background: VColor.surfaceOverlay)
                 }
             }
             .padding(VSpacing.lg)
