@@ -64,6 +64,31 @@ extension ComposerView {
         .background(VColor.borderBase.opacity(0.3))
         .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
         .frame(maxWidth: 280)
+        .if(isImage) { view in
+            view
+                .contentShape(Rectangle())
+                .onTapGesture { openAttachmentPreview(attachment) }
+                .pointerCursor()
+        }
+    }
+}
+
+// MARK: - Attachment Preview
+
+extension ComposerView {
+    func openAttachmentPreview(_ attachment: ChatAttachment) {
+        guard !attachment.data.isEmpty,
+              let data = Data(base64Encoded: attachment.data),
+              !data.isEmpty else { return }
+        let tempDir = FileManager.default.temporaryDirectory
+        let sanitized = (attachment.filename as NSString).lastPathComponent
+        let fileURL = tempDir.appendingPathComponent(sanitized.isEmpty ? "image" : sanitized)
+        do {
+            try data.write(to: fileURL)
+            NSWorkspace.shared.open(fileURL)
+        } catch {
+            // Silently fail — not critical
+        }
     }
 }
 
