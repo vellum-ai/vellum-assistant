@@ -474,7 +474,11 @@ extension HTTPTransport {
             if let s = value as? String {
                 stringValue = s
             } else if let n = value as? NSNumber {
-                stringValue = n.stringValue
+                if CFGetTypeID(n) == CFBooleanGetTypeID() {
+                    stringValue = n.boolValue ? "true" : "false"
+                } else {
+                    stringValue = n.stringValue
+                }
             } else {
                 continue
             }
