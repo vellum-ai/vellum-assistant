@@ -23,6 +23,7 @@ private let log = Logger(
 /// - `auth-debug.json` — non-sensitive token expiry and refresh state for session debugging
 /// - `port-diagnostics.json` — processes listening on assistant-relevant TCP ports
 /// - `config-snapshot.json` — sanitized workspace config (API key values redacted, structure preserved)
+/// - `crash-reports/` — recent macOS crash/hang reports (.ips, .crash, .spin) for assistant-related processes (bun, qdrant, vellum-assistant)
 /// - `daemon-logs-fallback/` — when daemon is unreachable: vellum.log, recent hatch-*.log, and XDG hatch.log read directly from disk (10 MB cap)
 @MainActor
 enum LogExporter {
@@ -273,7 +274,13 @@ enum LogExporter {
             to: tempDir.appendingPathComponent("port-diagnostics.json")
         )
 
-        // 9. Report metadata — reason and message from the log report form.
+        // 9. macOS crash/hang reports — recent .ips/.crash/.spin files for assistant-related processes
+        collectCrashReports(
+            into: tempDir.appendingPathComponent("crash-reports", isDirectory: true),
+            fileManager: fileManager
+        )
+
+        // 10. Report metadata — reason and message from the log report form.
         // Email is excluded from the archive since it's already sent via
         // Sentry's Feedback API (linked to the event).
         if let formData {
@@ -306,7 +313,7 @@ enum LogExporter {
             }
         }
 
-        // 10. Sanitized workspace config — client-side fallback if daemon export didn't include it.
+        // 11. Sanitized workspace config — client-side fallback if daemon export didn't include it.
         //     The daemon archive extracts into daemon-exports/, so check both locations.
         let configSnapshotPath = tempDir.appendingPathComponent("config-snapshot.json")
         let daemonConfigPath = tempDir.appendingPathComponent("daemon-exports/config-snapshot.json")
@@ -560,6 +567,97 @@ enum LogExporter {
         handle.seek(toFileOffset: offset)
         let data = handle.readData(ofLength: bytes)
         try? data.write(to: destination)
+    }
+
+    // MARK: - Crash Report Collection
+
+    /// Process name prefixes to match in DiagnosticReports filenames.
+    /// macOS names crash files `<process>_<date>-<time>_<host>.<ext>`.
+    private nonisolated static let crashReportProcessPrefixes = [
+        "bun",
+        "node",
+        "qdrant",
+        "vellum-assistant",
+    ]
+
+    /// File extensions recognised as crash/hang reports.
+    private nonisolated static let crashReportExtensions: Set<String> = ["ips", "crash", "spin"]
+
+    /// Maximum total bytes to copy from crash reports.
+    private nonisolated static let crashReportSizeLimit = 5 * 1024 * 1024 // 5 MB
+
+    /// Collects recent macOS crash and hang reports for assistant-related
+    /// processes from `~/Library/Logs/DiagnosticReports/`.
+    /// Only files from the last 7 days that match known process names are
+    /// included, capped at 5 MB total (newest first).
+    private nonisolated static func collectCrashReports(
+        into dest: URL,
+        fileManager: FileManager
+    ) {
+        let home = NSHomeDirectory()
+        let reportsDir = URL(fileURLWithPath: home)
+            .appendingPathComponent("Library/Logs/DiagnosticReports", isDirectory: true)
+        guard fileManager.fileExists(atPath: reportsDir.path) else { return }
+
+        guard let contents = try? fileManager.contentsOfDirectory(
+            at: reportsDir,
+            includingPropertiesForKeys: [.contentModificationDateKey, .fileSizeKey],
+            options: [.skipsHiddenFiles]
+        ) else { return }
+
+        let cutoff = Date().addingTimeInterval(-7 * 24 * 60 * 60)
+
+        // Filter to matching files, then sort newest-first
+        let matching = contents
+            .filter { url in
+                guard crashReportExtensions.contains(url.pathExtension.lowercased()) else {
+                    return false
+                }
+                let name = url.lastPathComponent
+                guard crashReportProcessPrefixes.contains(where: { name.hasPrefix($0) }) else {
+                    return false
+                }
+                guard let values = try? url.resourceValues(forKeys: [.contentModificationDateKey]),
+                      let modDate = values.contentModificationDate,
+                      modDate >= cutoff else {
+                    return false
+                }
+                return true
+            }
+            .sorted { a, b in
+                let aDate = (try? a.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate ?? .distantPast
+                let bDate = (try? b.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate ?? .distantPast
+                return aDate > bDate
+            }
+
+        guard !matching.isEmpty else { return }
+        try? fileManager.createDirectory(at: dest, withIntermediateDirectories: true)
+
+        var totalBytes = 0
+        for file in matching {
+            guard totalBytes < crashReportSizeLimit else { break }
+            guard let values = try? file.resourceValues(forKeys: [.fileSizeKey]),
+                  let size = values.fileSize,
+                  size > 0 else { continue }
+
+            let bytesToRead = min(size, crashReportSizeLimit - totalBytes)
+            if bytesToRead >= size {
+                try? fileManager.copyItem(
+                    at: file,
+                    to: dest.appendingPathComponent(file.lastPathComponent)
+                )
+            } else {
+                // Truncate oversized reports to fit within the budget
+                copyTail(
+                    of: file,
+                    bytes: bytesToRead,
+                    to: dest.appendingPathComponent(file.lastPathComponent)
+                )
+            }
+            totalBytes += bytesToRead
+        }
+
+        log.info("Collected \(matching.count) crash report(s) (\(totalBytes) bytes)")
     }
 
     // MARK: - Platform Log Helpers
