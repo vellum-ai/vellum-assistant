@@ -33,16 +33,29 @@ struct APIKeyStepView: View {
             VStack(spacing: VSpacing.md) {
                 hostingCards
 
+                Button {
+                    NSWorkspace.shared.open(URL(string: "https://vellum.ai/docs/environments")!)
+                } label: {
+                    HStack(spacing: VSpacing.xs) {
+                        VIconView(.info, size: 14)
+                            .foregroundColor(VColor.contentSecondary)
+                        Text("Need help deciding?")
+                            .font(VFont.caption)
+                            .foregroundColor(VColor.contentSecondary)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .buttonStyle(.plain)
+                .pointerCursor()
+                .accessibilityLabel("Need help deciding?")
+                .padding(.top, VSpacing.xs)
+
                 OnboardingButton(
                     title: continueButtonTitle,
                     style: .primary,
                     disabled: !canContinue
                 ) {
                     handleContinue()
-                }
-
-                OnboardingButton(title: "Need help deciding?", style: .ghostPrimary) {
-                    NSWorkspace.shared.open(URL(string: "https://vellum.ai/docs/environments")!)
                 }
 
                 if !isAuthenticated {

@@ -42,8 +42,10 @@ struct APIKeyEntryStepView: View {
                             .font(VFont.caption)
                             .foregroundColor(VColor.contentSecondary)
                     }
+                    .frame(maxWidth: .infinity, alignment: .leading)
                 }
                 .buttonStyle(.plain)
+                .pointerCursor()
                 .accessibilityLabel("Get an API key")
                 .padding(.top, VSpacing.xs)
 
