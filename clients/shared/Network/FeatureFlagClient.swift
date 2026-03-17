@@ -120,9 +120,8 @@ public struct FeatureFlagClient: FeatureFlagClientProtocol {
     }
 
     public func setFeatureFlag(key: String, enabled: Bool) async throws {
-        let encoded = key.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? key
         let response = try await GatewayHTTPClient.patch(
-            path: "assistants/{assistantId}/feature-flags/\(encoded)",
+            path: "assistants/{assistantId}/feature-flags/\(key)",
             json: ["enabled": enabled],
             timeout: 10
         )
