@@ -369,7 +369,11 @@ struct MainWindowView: View {
             DaemonLoadingOverlayContent(
                 error: daemonStartupError,
                 onRetry: { handleDaemonRetry() },
-                onSendLogs: { AppDelegate.shared?.showLogReportWindow(reason: .connectionIssue) }
+                onSendLogs: { AppDelegate.shared?.showLogReportWindow(reason: .connectionIssue) },
+                onGoToDeveloper: {
+                    settingsStore.pendingSettingsTab = .developer
+                    windowState.selection = .panel(.settings)
+                }
             )
             .transition(.opacity)
         }
@@ -1022,13 +1026,20 @@ private struct ErrorToastOverlay: View {
 // MARK: - Daemon Loading Overlay Content
 
 /// Standalone view for the daemon loading overlay that shows either a
-/// structured error view or the default skeleton placeholder.
+/// structured error view, a connection timeout error, or the default
+/// skeleton placeholder.
 /// Extracted from MainWindowView to reduce type-checker complexity in
 /// `coreLayoutView`.
 private struct DaemonLoadingOverlayContent: View {
     let error: DaemonStartupError?
     let onRetry: () -> Void
     let onSendLogs: () -> Void
+    let onGoToDeveloper: () -> Void
+
+    /// How long to wait before showing the timeout error state.
+    private static let timeoutSeconds: UInt64 = 15
+
+    @State private var timedOut = false
 
     var body: some View {
         if let error {
@@ -1041,8 +1052,28 @@ private struct DaemonLoadingOverlayContent: View {
                     onSendLogs: onSendLogs
                 )
             }
+        } else if timedOut {
+            ZStack {
+                VColor.surfaceBase
+                    .clipShape(RoundedRectangle(cornerRadius: VRadius.xl))
+                DaemonConnectionTimeoutView(
+                    onRetry: {
+                        timedOut = false
+                        onRetry()
+                    },
+                    onGoToDeveloper: onGoToDeveloper,
+                    onSendLogs: onSendLogs
+                )
+            }
         } else {
             DaemonLoadingChatSkeleton()
+                .task {
+                    try? await Task.sleep(nanoseconds: Self.timeoutSeconds * 1_000_000_000)
+                    guard !Task.isCancelled else { return }
+                    withAnimation(VAnimation.standard) {
+                        timedOut = true
+                    }
+                }
         }
     }
 }
