@@ -504,8 +504,17 @@ public final class SettingsStore: ObservableObject {
             self.applyVercelConfigResponse(response)
         }
 
-        // Model info is fetched via SettingsClient on init (refreshModelInfo)
-        // and on demand (setModel). No daemon callback wiring needed.
+        // Subscribe to daemon-pushed model changes so the UI stays in sync
+        // when the model is changed externally (e.g. via CLI or another client).
+        daemonClient?.$currentModel
+            .compactMap { $0 }
+            .receive(on: RunLoop.main)
+            .sink { [weak self] model in
+                guard let self else { return }
+                self.lastDaemonModel = model
+                self.selectedModel = model
+            }
+            .store(in: &cancellables)
 
         // Wire up ingress config response
         daemonClient?.onIngressConfigResponse = { [weak self] response in
