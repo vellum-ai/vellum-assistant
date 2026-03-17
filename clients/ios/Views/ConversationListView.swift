@@ -282,7 +282,7 @@ struct ConversationListView: View {
                 }
             } label: {
                 Label {
-                    Text(conversation.isPinned ? "Unpin conversation" : "Pin conversation")
+                    Text(conversation.isPinned ? "Unpin" : "Pin")
                 } icon: {
                     VIconView(conversation.isPinned ? .pinOff : .pin, size: 14)
                 }
@@ -292,13 +292,13 @@ struct ConversationListView: View {
         Button {
             beginRenaming(conversation)
         } label: {
-            Label { Text("Rename conversation") } icon: { VIconView(.pencil, size: 14) }
+            Label { Text("Rename") } icon: { VIconView(.pencil, size: 14) }
         }
 
         Button {
             archiveActiveConversation(conversation)
         } label: {
-            Label { Text("Archive conversation") } icon: { VIconView(.archive, size: 14) }
+            Label { Text("Archive") } icon: { VIconView(.archive, size: 14) }
         }
 
         Button {

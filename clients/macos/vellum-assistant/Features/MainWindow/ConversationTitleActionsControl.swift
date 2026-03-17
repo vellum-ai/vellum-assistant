@@ -48,9 +48,9 @@ struct ConversationActionsDrawer: View {
                 action: presentation.isPinned ? onUnpin : onPin
             )
 
-            SidebarPrimaryRow(icon: VIcon.pencil.rawValue, label: "Rename conversation", action: onRename)
+            SidebarPrimaryRow(icon: VIcon.pencil.rawValue, label: "Rename", action: onRename)
 
-            SidebarPrimaryRow(icon: VIcon.archive.rawValue, label: "Archive conversation", action: onArchive)
+            SidebarPrimaryRow(icon: VIcon.archive.rawValue, label: "Archive", action: onArchive)
         }
         .padding(VSpacing.sm)
         .background(VColor.surfaceLift)
