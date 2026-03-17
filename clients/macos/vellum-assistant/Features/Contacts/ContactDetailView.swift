@@ -75,9 +75,15 @@ struct ContactDetailView: View {
                     .padding(VSpacing.lg)
                     .vCard(radius: VRadius.lg, background: VColor.surfaceOverlay)
 
-                channelsSection
-                    .padding(VSpacing.lg)
-                    .vCard(radius: VRadius.lg, background: VColor.surfaceOverlay)
+                GuardianChannelsDetailView(
+                    contact: displayContact,
+                    daemonClient: daemonClient,
+                    store: store,
+                    onSelectAssistant: nil,
+                    showCardBorders: false
+                )
+                .padding(VSpacing.lg)
+                .vCard(radius: VRadius.lg, background: VColor.surfaceOverlay)
             }
             .padding(VSpacing.lg)
         }

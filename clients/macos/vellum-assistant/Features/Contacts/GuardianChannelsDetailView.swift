@@ -99,8 +99,10 @@ struct GuardianChannelsDetailView: View {
                         .font(VFont.caption)
                         .foregroundColor(VColor.contentTertiary)
                         .multilineTextAlignment(.center)
-                    VButton(label: "Set Up Assistant", style: .outlined) {
-                        onSelectAssistant?()
+                    if let onSelectAssistant {
+                        VButton(label: "Set Up Assistant", style: .outlined) {
+                            onSelectAssistant()
+                        }
                     }
                 }
                 .frame(maxWidth: .infinity)

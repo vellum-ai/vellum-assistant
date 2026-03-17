@@ -120,7 +120,7 @@ struct ContactsContainerView: View {
                     // Title row: display name + badge + interaction count
                     VStack(alignment: .leading, spacing: VSpacing.xs) {
                         HStack(spacing: VSpacing.sm) {
-                            Text(contact.displayName)
+                            Text("\(contact.displayName) (You)")
                                 .font(VFont.display)
                                 .foregroundColor(VColor.contentDefault)
                             VBadge(label: "Guardian", tone: .neutral)
