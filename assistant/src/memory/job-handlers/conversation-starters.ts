@@ -17,6 +17,13 @@ import {
 } from "../../providers/provider-send-message.js";
 import { getLogger } from "../../util/logger.js";
 import { truncate } from "../../util/truncate.js";
+import {
+  CK_CONVERSATION_STARTERS_BATCH,
+  CK_CONVERSATION_STARTERS_ITEM_COUNT,
+  CK_CONVERSATION_STARTERS_LAST_ATTEMPT_AT,
+  CK_CONVERSATION_STARTERS_LAST_GEN_AT,
+  conversationStartersCheckpointKey,
+} from "../conversation-starters-policy.js";
 import { getDb } from "../db.js";
 import { asString } from "../job-utils.js";
 import type { MemoryJob } from "../jobs-store.js";
@@ -28,14 +35,6 @@ import {
 } from "../schema.js";
 
 const log = getLogger("conversation-starters-gen");
-
-function checkpointKey(base: string, scopeId: string): string {
-  return `${base}:${scopeId}`;
-}
-
-const CK_ITEM_COUNT = "conversation_starters:item_count_at_last_gen";
-const CK_BATCH = "conversation_starters:generation_batch";
-const CK_LAST_GEN_AT = "conversation_starters:last_gen_at";
 
 // ── Rollup construction ───────────────────────────────────────────
 
@@ -80,7 +79,15 @@ function buildNewItemsDiff(scopeId: string): string {
   const checkpoint = db
     .select({ value: memoryCheckpoints.value })
     .from(memoryCheckpoints)
-    .where(eq(memoryCheckpoints.key, checkpointKey(CK_LAST_GEN_AT, scopeId)))
+    .where(
+      eq(
+        memoryCheckpoints.key,
+        conversationStartersCheckpointKey(
+          CK_CONVERSATION_STARTERS_LAST_GEN_AT,
+          scopeId,
+        ),
+      ),
+    )
     .get();
   const lastGenAt = checkpoint ? parseInt(checkpoint.value, 10) : 0;
 
@@ -348,6 +355,26 @@ export async function generateConversationStartersJob(
   job: MemoryJob,
 ): Promise<void> {
   const scopeId = asString(job.payload.scopeId) ?? "default";
+  const db = getDb();
+  const now = Date.now();
+
+  const upsertCheckpoint = (key: string, value: string) => {
+    db.insert(memoryCheckpoints)
+      .values({ key, value, updatedAt: now })
+      .onConflictDoUpdate({
+        target: memoryCheckpoints.key,
+        set: { value, updatedAt: now },
+      })
+      .run();
+  };
+
+  upsertCheckpoint(
+    conversationStartersCheckpointKey(
+      CK_CONVERSATION_STARTERS_LAST_ATTEMPT_AT,
+      scopeId,
+    ),
+    String(now),
+  );
 
   const starters = await generateStarters(scopeId);
   if (starters.length === 0) {
@@ -355,14 +382,19 @@ export async function generateConversationStartersJob(
     return;
   }
 
-  const db = getDb();
-  const now = Date.now();
-
   // Determine next batch number
   const batchCheckpoint = db
     .select({ value: memoryCheckpoints.value })
     .from(memoryCheckpoints)
-    .where(eq(memoryCheckpoints.key, checkpointKey(CK_BATCH, scopeId)))
+    .where(
+      eq(
+        memoryCheckpoints.key,
+        conversationStartersCheckpointKey(
+          CK_CONVERSATION_STARTERS_BATCH,
+          scopeId,
+        ),
+      ),
+    )
     .get();
   const nextBatch = batchCheckpoint
     ? parseInt(batchCheckpoint.value, 10) + 1
@@ -409,19 +441,24 @@ export async function generateConversationStartersJob(
   const totalActive = countRow?.c ?? 0;
 
   // Update all three checkpoints
-  const upsertCheckpoint = (key: string, value: string) => {
-    db.insert(memoryCheckpoints)
-      .values({ key, value, updatedAt: now })
-      .onConflictDoUpdate({
-        target: memoryCheckpoints.key,
-        set: { value, updatedAt: now },
-      })
-      .run();
-  };
-
-  upsertCheckpoint(checkpointKey(CK_ITEM_COUNT, scopeId), String(totalActive));
-  upsertCheckpoint(checkpointKey(CK_BATCH, scopeId), String(nextBatch));
-  upsertCheckpoint(checkpointKey(CK_LAST_GEN_AT, scopeId), String(now));
+  upsertCheckpoint(
+    conversationStartersCheckpointKey(
+      CK_CONVERSATION_STARTERS_ITEM_COUNT,
+      scopeId,
+    ),
+    String(totalActive),
+  );
+  upsertCheckpoint(
+    conversationStartersCheckpointKey(CK_CONVERSATION_STARTERS_BATCH, scopeId),
+    String(nextBatch),
+  );
+  upsertCheckpoint(
+    conversationStartersCheckpointKey(
+      CK_CONVERSATION_STARTERS_LAST_GEN_AT,
+      scopeId,
+    ),
+    String(now),
+  );
 
   log.info(
     { scopeId, batch: nextBatch, count: starters.length },

@@ -6,6 +6,7 @@
 
 import { and, desc, eq, inArray, like } from "drizzle-orm";
 
+import { hasRecentConversationStarterAttempt } from "../../memory/conversation-starters-cadence.js";
 import { getDb } from "../../memory/db.js";
 import { enqueueMemoryJob } from "../../memory/jobs-store.js";
 import { rawGet } from "../../memory/raw-query.js";
@@ -184,6 +185,10 @@ function handleListConversationStarters(url: URL): Response {
       ),
     )
     .get();
+
+  if (!existing && hasRecentConversationStarterAttempt(scopeId)) {
+    return Response.json({ starters: [], total: 0, status: "empty" });
+  }
 
   if (!existing) {
     enqueueMemoryJob("generate_conversation_starters", { scopeId });

@@ -8,6 +8,15 @@
 import { and, eq, inArray, like } from "drizzle-orm";
 
 import { getLogger } from "../util/logger.js";
+import {
+  CK_CONVERSATION_STARTERS_ITEM_COUNT,
+  CK_CONVERSATION_STARTERS_LAST_ATTEMPT_AT,
+  CK_CONVERSATION_STARTERS_LAST_GEN_AT,
+  CONVERSATION_STARTERS_ATTEMPT_COOLDOWN_MS,
+  CONVERSATION_STARTERS_MIN_REGEN_INTERVAL_MS,
+  conversationStartersCheckpointKey,
+  conversationStartersGenerationThreshold,
+} from "./conversation-starters-policy.js";
 import { getDb } from "./db.js";
 import { enqueueMemoryJob } from "./jobs-store.js";
 import { rawGet } from "./raw-query.js";
@@ -15,11 +24,43 @@ import { memoryCheckpoints, memoryJobs } from "./schema.js";
 
 const log = getLogger("conversation-starters-cadence");
 
+function readCheckpointInt(scopeId: string, baseKey: string): number {
+  const db = getDb();
+  const checkpoint = db
+    .select({ value: memoryCheckpoints.value })
+    .from(memoryCheckpoints)
+    .where(
+      eq(
+        memoryCheckpoints.key,
+        conversationStartersCheckpointKey(baseKey, scopeId),
+      ),
+    )
+    .get();
+  return checkpoint ? parseInt(checkpoint.value, 10) : 0;
+}
+
+export function hasRecentConversationStarterAttempt(
+  scopeId: string,
+  nowMs = Date.now(),
+): boolean {
+  const lastAttemptAt = readCheckpointInt(
+    scopeId,
+    CK_CONVERSATION_STARTERS_LAST_ATTEMPT_AT,
+  );
+  return (
+    lastAttemptAt > 0 &&
+    nowMs - lastAttemptAt < CONVERSATION_STARTERS_ATTEMPT_COOLDOWN_MS
+  );
+}
+
 /**
  * Check whether enough new memory items have accumulated to justify
  * generating a fresh batch of conversation starters.
  */
-export function maybeEnqueueConversationStartersJob(scopeId: string): void {
+export function maybeEnqueueConversationStartersJob(
+  scopeId: string,
+  nowMs = Date.now(),
+): void {
   const db = getDb();
 
   // Count total active memory items
@@ -30,24 +71,24 @@ export function maybeEnqueueConversationStartersJob(scopeId: string): void {
   const totalActive = countRow?.c ?? 0;
   if (totalActive === 0) return;
 
-  // Read checkpoint: item count at last generation (scoped so each scope tracks independently)
-  const checkpointKey = `conversation_starters:item_count_at_last_gen:${scopeId}`;
-  const checkpoint = db
-    .select({ value: memoryCheckpoints.value })
-    .from(memoryCheckpoints)
-    .where(eq(memoryCheckpoints.key, checkpointKey))
-    .get();
-  const lastCount = checkpoint ? parseInt(checkpoint.value, 10) : 0;
+  if (hasRecentConversationStarterAttempt(scopeId, nowMs)) return;
 
-  // Cadence formula
-  let threshold: number;
-  if (totalActive <= 10) {
-    threshold = 1;
-  } else if (totalActive <= 50) {
-    threshold = 5;
-  } else {
-    threshold = 10;
+  const lastGenAt = readCheckpointInt(
+    scopeId,
+    CK_CONVERSATION_STARTERS_LAST_GEN_AT,
+  );
+  if (
+    lastGenAt > 0 &&
+    nowMs - lastGenAt < CONVERSATION_STARTERS_MIN_REGEN_INTERVAL_MS
+  ) {
+    return;
   }
+
+  const lastCount = readCheckpointInt(
+    scopeId,
+    CK_CONVERSATION_STARTERS_ITEM_COUNT,
+  );
+  const threshold = conversationStartersGenerationThreshold(totalActive);
 
   const delta = totalActive - lastCount;
   if (delta < threshold) return;
