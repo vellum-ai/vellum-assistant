@@ -14,7 +14,7 @@ import type { AssistantEntry } from "./assistant-config";
 import { DEFAULT_GATEWAY_PORT } from "./constants";
 import type { Species } from "./constants";
 import { leaseGuardianToken } from "./guardian-token";
-import { stopProcess } from "./process";
+import { isVellumProcess, stopProcess } from "./process";
 import { generateInstanceName } from "./random-name";
 import { exec, execOutput } from "./step-runner";
 import {
@@ -201,7 +201,13 @@ export async function retireDocker(name: string): Promise<void> {
   const watcherPid =
     typeof entry?.watcherPid === "number" ? entry.watcherPid : null;
   if (watcherPid !== null) {
-    await stopProcess(watcherPid, "file-watcher");
+    if (isVellumProcess(watcherPid)) {
+      await stopProcess(watcherPid, "file-watcher");
+    } else {
+      console.log(
+        `PID ${watcherPid} is not a vellum process — skipping stale file-watcher PID.`,
+      );
+    }
   }
 
   const res = dockerResourceNames(name);

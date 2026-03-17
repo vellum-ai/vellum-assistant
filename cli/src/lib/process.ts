@@ -6,7 +6,7 @@ import { existsSync, readFileSync, unlinkSync } from "fs";
  * command line via `ps`. Prevents killing unrelated processes when a PID file
  * is stale and the OS has reused the PID.
  */
-function isVellumProcess(pid: number): boolean {
+export function isVellumProcess(pid: number): boolean {
   try {
     const output = execFileSync("ps", ["-p", String(pid), "-o", "command="], {
       encoding: "utf-8",
