@@ -70,9 +70,10 @@ private struct AttachmentImageGrid<Fallback: View>: View {
                             .frame(width: 60, height: 60)
                             .clipped()
                             .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
-                            .onTapGesture {
+                            .onTapGesture(count: 2) {
                                 onTap(attachment)
                             }
+                            .pointerCursor()
                     } else if failedIds.contains(attachment.id) {
                         // All decode paths failed — show a file chip so the user still has the
                         // filename and a download affordance for corrupt/unsupported payloads.
