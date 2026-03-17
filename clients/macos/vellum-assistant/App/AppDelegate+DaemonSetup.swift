@@ -208,7 +208,7 @@ extension AppDelegate {
         daemonClient.onPairingApprovalRequest = { [weak self] msg in
             guard let self else { return }
             if self.pairingApprovalWindow == nil {
-                self.pairingApprovalWindow = PairingApprovalWindow(daemonClient: self.daemonClient)
+                self.pairingApprovalWindow = PairingApprovalWindow()
             }
             self.pairingApprovalWindow?.show(
                 pairingRequestId: msg.pairingRequestId,

@@ -17,47 +17,45 @@ extension MainWindowView {
         sharing.publishError = nil
 
         Task { @MainActor in
-            daemonClient.onPublishPageResponse = { [self] response in
+            let publishClient = PublishClient()
+            guard let response = try? await publishClient.publishPage(html: html, title: title, appId: appId) else {
                 sharing.isPublishing = false
-                if response.success, let url = response.publicUrl {
-                    sharing.publishedUrl = url
-                    NSPasteboard.general.clearContents()
-                    NSPasteboard.general.setString(url, forType: .string)
-                } else if response.errorCode == "credentials_missing" {
-                    // Save pending publish for auto-retry after credential setup
-                    sharing.pendingPublish = (html: html, title: title, appId: appId)
-                    // Open the chat dock so the user can see the credential setup flow.
-                    // Use the publish target's appId (not windowState.selection) to avoid
-                    // a race where the user navigates away before this async callback fires.
-                    if let targetAppId = appId {
-                        enterAppEditing(appId: targetAppId)
-                    } else if case .app(let currentAppId) = windowState.selection {
-                        enterAppEditing(appId: currentAppId)
-                    }
-                    // Inject message into active session to trigger assistant-driven setup
-                    if let viewModel = conversationManager.activeViewModel {
-                        viewModel.inputText = "I need to set up a Vercel API token to publish my app. Please load the vercel-token-setup skill and follow its instructions."
-                        viewModel.sendMessage()
-                    }
-                    startCredentialPollForPublish()
-                } else if let error = response.error, error != "Cancelled" {
-                    sharing.publishError = error
-                    // Auto-dismiss error after 5 seconds
-                    sharing.errorDismissTask?.cancel()
-                    sharing.errorDismissTask = Task { @MainActor in
-                        try? await Task.sleep(for: .seconds(5))
-                        guard !Task.isCancelled else { return }
-                        if sharing.publishError == error {
-                            withAnimation(VAnimation.standard) { sharing.publishError = nil }
-                        }
-                    }
-                }
+                return
             }
 
-            do {
-                try daemonClient.sendPublishPage(html: html, title: title, appId: appId)
-            } catch {
-                sharing.isPublishing = false
+            sharing.isPublishing = false
+            if response.success, let url = response.publicUrl {
+                sharing.publishedUrl = url
+                NSPasteboard.general.clearContents()
+                NSPasteboard.general.setString(url, forType: .string)
+            } else if response.errorCode == "credentials_missing" {
+                // Save pending publish for auto-retry after credential setup
+                sharing.pendingPublish = (html: html, title: title, appId: appId)
+                // Open the chat dock so the user can see the credential setup flow.
+                // Use the publish target's appId (not windowState.selection) to avoid
+                // a race where the user navigates away before this async callback fires.
+                if let targetAppId = appId {
+                    enterAppEditing(appId: targetAppId)
+                } else if case .app(let currentAppId) = windowState.selection {
+                    enterAppEditing(appId: currentAppId)
+                }
+                // Inject message into active session to trigger assistant-driven setup
+                if let viewModel = conversationManager.activeViewModel {
+                    viewModel.inputText = "I need to set up a Vercel API token to publish my app. Please load the vercel-token-setup skill and follow its instructions."
+                    viewModel.sendMessage()
+                }
+                startCredentialPollForPublish()
+            } else if let error = response.error, error != "Cancelled" {
+                sharing.publishError = error
+                // Auto-dismiss error after 5 seconds
+                sharing.errorDismissTask?.cancel()
+                sharing.errorDismissTask = Task { @MainActor in
+                    try? await Task.sleep(for: .seconds(5))
+                    guard !Task.isCancelled else { return }
+                    if sharing.publishError == error {
+                        withAnimation(VAnimation.standard) { sharing.publishError = nil }
+                    }
+                }
             }
         }
     }
