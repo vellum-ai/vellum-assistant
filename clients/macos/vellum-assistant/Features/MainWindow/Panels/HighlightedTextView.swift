@@ -34,14 +34,30 @@ struct HighlightedTextView: View {
 
     // MARK: - Editable Mode
 
-    /// Syntax-highlighted editable view backed by NSTextView via SyntaxTextView.
-    /// Native Cmd+F find bar is provided by NSTextView.usesFindBar.
+    /// Syntax-highlighted editable view with a line number gutter. Uses SyntaxTextView
+    /// (NSViewRepresentable) inside a SwiftUI ScrollView for vertical scrolling,
+    /// matching the proven CodeTextView architecture.
     private var editableView: some View {
-        SyntaxTextView(
-            text: $text,
-            language: language,
-            onTextChange: onTextChange
-        )
+        let lines = text.components(separatedBy: "\n")
+        let lineCount = lines.count
+        let gutterWidth = gutterWidth(for: lineCount)
+
+        return GeometryReader { geometry in
+            ScrollView([.vertical]) {
+                HStack(alignment: .top, spacing: 0) {
+                    lineNumberGutter(lineCount: lineCount, width: gutterWidth)
+
+                    SyntaxTextView(
+                        text: $text,
+                        language: language,
+                        onTextChange: onTextChange
+                    )
+                    .frame(minWidth: geometry.size.width - gutterWidth)
+                }
+                .frame(minHeight: geometry.size.height, alignment: .topLeading)
+            }
+            .background(Self.editorBackground)
+        }
     }
 
     // MARK: - Read-Only Mode

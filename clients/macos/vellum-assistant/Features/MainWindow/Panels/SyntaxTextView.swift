@@ -2,93 +2,15 @@ import SwiftUI
 import AppKit
 import VellumAssistantShared
 
-// MARK: - Line Number Gutter
-
-/// Renders line numbers in a vertical ruler alongside an `NSTextView`.
-private class LineNumberRulerView: NSRulerView {
-    private let gutterFont: NSFont
-    private let gutterTextColor: NSColor
-    private let gutterBgColor: NSColor
-
-    init(scrollView: NSScrollView, textView: NSTextView) {
-        self.gutterFont = NSFont(name: "DMMono-Regular", size: 11)
-            ?? NSFont.monospacedSystemFont(ofSize: 11, weight: .regular)
-        self.gutterTextColor = NSColor(VColor.contentTertiary)
-        self.gutterBgColor = NSColor(VColor.surfaceBase)
-        super.init(scrollView: scrollView, orientation: .verticalRuler)
-        self.clientView = textView
-        self.ruleThickness = 40
-    }
-
-    @available(*, unavailable)
-    required init(coder: NSCoder) { fatalError("init(coder:) not supported") }
-
-    override func drawHashMarksAndLabels(in rect: NSRect) {
-        guard let textView = clientView as? NSTextView,
-              let layoutManager = textView.layoutManager,
-              let textContainer = textView.textContainer else { return }
-
-        // Fill background
-        gutterBgColor.setFill()
-        rect.fill()
-
-        let visibleRect = scrollView?.contentView.bounds ?? .zero
-        let visibleGlyphRange = layoutManager.glyphRange(forBoundingRect: visibleRect, in: textContainer)
-        let visibleCharRange = layoutManager.characterRange(
-            forGlyphRange: visibleGlyphRange, actualGlyphRange: nil
-        )
-
-        let text = textView.string as NSString
-        var lineNumber = 1
-        // Count newlines before visible range
-        let beforeVisible = text.substring(to: visibleCharRange.location)
-        lineNumber += beforeVisible.components(separatedBy: "\n").count - 1
-
-        var glyphIndex = visibleGlyphRange.location
-        while glyphIndex < NSMaxRange(visibleGlyphRange) {
-            let charRange = layoutManager.characterRange(
-                forGlyphRange: NSRange(location: glyphIndex, length: 1), actualGlyphRange: nil
-            )
-            var lineRect = layoutManager.lineFragmentRect(forGlyphAt: glyphIndex, effectiveRange: nil)
-            lineRect.origin.y -= visibleRect.origin.y
-
-            let attrs: [NSAttributedString.Key: Any] = [
-                .font: gutterFont,
-                .foregroundColor: gutterTextColor,
-            ]
-            let lineStr = "\(lineNumber)" as NSString
-            let strSize = lineStr.size(withAttributes: attrs)
-            let drawPoint = NSPoint(
-                x: ruleThickness - strSize.width - 8,
-                y: lineRect.origin.y + (lineRect.height - strSize.height) / 2
-            )
-            lineStr.draw(at: drawPoint, withAttributes: attrs)
-
-            lineNumber += 1
-            // Advance to next line
-            let lineRange = text.lineRange(for: charRange)
-            glyphIndex = NSMaxRange(
-                layoutManager.glyphRange(forCharacterRange: lineRange, actualCharacterRange: nil)
-            )
-        }
-
-        // Update rule thickness based on digit count
-        let digitCount = max(3, "\(lineNumber)".count)
-        let newThickness = CGFloat(digitCount * 8 + 16)
-        if ruleThickness != newThickness {
-            ruleThickness = newThickness
-        }
-    }
-}
-
 // MARK: - SyntaxTextView
 
 /// An editable text view with live syntax highlighting, backed by `NSTextView`.
 ///
-/// Wraps `NSScrollView` > `NSTextView` and applies token-based syntax coloring
-/// via `SyntaxTheme`. Rehighlighting is debounced at 150ms to avoid per-keystroke
-/// lag on large files. Supports horizontal scrolling (no line wrap), native Cmd+F
-/// find bar, and bidirectional text binding with SwiftUI.
+/// Wraps `HorizontalOnlyScrollView` > `NSTextView` and applies token-based syntax
+/// coloring via `SyntaxTheme`. Rehighlighting is debounced at 150ms to avoid
+/// per-keystroke lag on large files. Only handles horizontal scrolling — the parent
+/// SwiftUI `ScrollView([.vertical])` handles vertical scrolling, matching the
+/// proven architecture from `CodeTextView`.
 struct SyntaxTextView: NSViewRepresentable {
     @Binding var text: String
     let language: SyntaxLanguage
@@ -98,9 +20,8 @@ struct SyntaxTextView: NSViewRepresentable {
         Coordinator(self)
     }
 
-    func makeNSView(context: Context) -> NSScrollView {
+    func makeNSView(context: Context) -> HorizontalOnlyScrollView {
         // Explicit TextKit 1 stack — gives full control over text container sizing
-        // and matches the pattern proven to work in CodeTextView on main.
         let textStorage = NSTextStorage()
         let layoutManager = NSLayoutManager()
         textStorage.addLayoutManager(layoutManager)
@@ -115,15 +36,31 @@ struct SyntaxTextView: NSViewRepresentable {
 
         let textView = NSTextView(frame: .zero, textContainer: textContainer)
 
-        // Appearance
+        // Appearance — transparent so SwiftUI background shows through
         textView.font = SyntaxTheme.nsMonoFont
         textView.textColor = SyntaxTheme.nsContentDefault
-        textView.backgroundColor = NSColor(VColor.surfaceOverlay)
+        textView.backgroundColor = .clear
+        textView.drawsBackground = false
         textView.insertionPointColor = SyntaxTheme.nsContentDefault
         textView.selectedTextAttributes = [
             .backgroundColor: NSColor(VColor.primaryBase.opacity(0.3))
         ]
+
+        // Match gutter's .padding(.top, VSpacing.sm) exactly
         textView.textContainerInset = NSSize(width: 0, height: VSpacing.sm)
+
+        // Fix line height so emoji/tall glyphs don't expand individual lines
+        // and lines stay aligned with the SwiftUI gutter
+        let fixedLineHeight = layoutManager.defaultLineHeight(for: textView.font!)
+        let paragraphStyle = NSMutableParagraphStyle()
+        paragraphStyle.minimumLineHeight = fixedLineHeight
+        paragraphStyle.maximumLineHeight = fixedLineHeight
+        textView.defaultParagraphStyle = paragraphStyle
+        textView.typingAttributes = [
+            .font: textView.font!,
+            .foregroundColor: textView.textColor!,
+            .paragraphStyle: paragraphStyle,
+        ]
 
         // Behavior
         textView.delegate = context.coordinator
@@ -131,6 +68,7 @@ struct SyntaxTextView: NSViewRepresentable {
         textView.isSelectable = true
         textView.allowsUndo = true
         textView.isRichText = true
+        textView.usesFontPanel = false
         textView.isAutomaticQuoteSubstitutionEnabled = false
         textView.isAutomaticDashSubstitutionEnabled = false
         textView.isAutomaticTextReplacementEnabled = false
@@ -140,8 +78,7 @@ struct SyntaxTextView: NSViewRepresentable {
         textView.isIncrementalSearchingEnabled = true
 
         // Sizing — autoresizingMask is critical for the text view to fill the
-        // scroll view's width. Without it, the text view stays at zero width
-        // and nothing renders.
+        // scroll view's width. Without it, the text view stays at zero width.
         textView.isHorizontallyResizable = true
         textView.isVerticallyResizable = true
         textView.autoresizingMask = [.width]
@@ -153,28 +90,14 @@ struct SyntaxTextView: NSViewRepresentable {
         // Content
         textView.string = text
 
-        // Scroll view
-        let scrollView = NSScrollView()
+        // Horizontal-only scroll view — vertical scrolling handled by SwiftUI
+        let scrollView = HorizontalOnlyScrollView()
         scrollView.documentView = textView
-        scrollView.hasVerticalScroller = true
+        scrollView.hasVerticalScroller = false
         scrollView.hasHorizontalScroller = true
         scrollView.autohidesScrollers = true
         scrollView.drawsBackground = false
-
-        // Line number gutter
-        scrollView.hasVerticalRuler = true
-        scrollView.rulersVisible = true
-        let rulerView = LineNumberRulerView(scrollView: scrollView, textView: textView)
-        scrollView.verticalRulerView = rulerView
-
-        // Redraw ruler on scroll
-        scrollView.contentView.postsBoundsChangedNotifications = true
-        NotificationCenter.default.addObserver(
-            context.coordinator,
-            selector: #selector(Coordinator.scrollViewDidScroll(_:)),
-            name: NSView.boundsDidChangeNotification,
-            object: scrollView.contentView
-        )
+        scrollView.borderType = .noBorder
 
         // Apply initial highlighting
         SyntaxTheme.applyHighlighting(to: textStorage, language: language)
@@ -185,12 +108,11 @@ struct SyntaxTextView: NSViewRepresentable {
         return scrollView
     }
 
-    static func dismantleNSView(_ scrollView: NSScrollView, coordinator: Coordinator) {
-        NotificationCenter.default.removeObserver(coordinator)
+    static func dismantleNSView(_ scrollView: HorizontalOnlyScrollView, coordinator: Coordinator) {
         coordinator.rehighlightTask?.cancel()
     }
 
-    func updateNSView(_ scrollView: NSScrollView, context: Context) {
+    func updateNSView(_ scrollView: HorizontalOnlyScrollView, context: Context) {
         guard let textView = scrollView.documentView as? NSTextView else { return }
         let coordinator = context.coordinator
 
@@ -226,6 +148,20 @@ struct SyntaxTextView: NSViewRepresentable {
         }
     }
 
+    func sizeThatFits(
+        _ proposal: ProposedViewSize,
+        nsView: HorizontalOnlyScrollView,
+        context: Context
+    ) -> CGSize? {
+        guard let textView = nsView.documentView as? NSTextView,
+              let layoutManager = textView.layoutManager,
+              let textContainer = textView.textContainer else { return nil }
+        layoutManager.ensureLayout(for: textContainer)
+        let usedRect = layoutManager.usedRect(for: textContainer)
+        let height = usedRect.height + textView.textContainerInset.height * 2
+        return CGSize(width: proposal.width ?? 400, height: height)
+    }
+
     // MARK: - Coordinator
 
     final class Coordinator: NSObject, NSTextViewDelegate {
@@ -250,11 +186,6 @@ struct SyntaxTextView: NSViewRepresentable {
             parent.text = newText
             parent.onTextChange?(newText)
 
-            // Redraw line numbers immediately on text change
-            if let scrollView = textView.enclosingScrollView {
-                scrollView.verticalRulerView?.needsDisplay = true
-            }
-
             // Debounce rehighlighting to avoid per-keystroke lag on large files
             rehighlightTask?.cancel()
             rehighlightTask = Task { @MainActor [weak self] in
@@ -264,17 +195,25 @@ struct SyntaxTextView: NSViewRepresentable {
             }
         }
 
-        @objc func scrollViewDidScroll(_ notification: Notification) {
-            guard let clipView = notification.object as? NSClipView,
-                  let scrollView = clipView.enclosingScrollView else { return }
-            scrollView.verticalRulerView?.needsDisplay = true
-        }
-
         func rehighlight(_ textView: NSTextView) {
             guard let storage = textView.textStorage else { return }
             storage.beginEditing()
             SyntaxTheme.applyHighlighting(to: storage, language: language)
             storage.endEditing()
+        }
+    }
+}
+
+// MARK: - HorizontalOnlyScrollView
+
+/// NSScrollView that only handles horizontal scrolling, forwarding vertical
+/// scroll events to the parent responder chain (SwiftUI's vertical ScrollView).
+class HorizontalOnlyScrollView: NSScrollView {
+    override func scrollWheel(with event: NSEvent) {
+        if abs(event.scrollingDeltaX) > abs(event.scrollingDeltaY) {
+            super.scrollWheel(with: event)
+        } else {
+            nextResponder?.scrollWheel(with: event)
         }
     }
 }

@@ -134,14 +134,19 @@ struct SyntaxTheme {
     }
 
     /// Applies syntax highlighting to an `NSMutableAttributedString` in-place.
-    /// Sets the base font and foreground color, then overlays token colors.
+    /// Sets the base font, foreground color, and fixed line height, then overlays token colors.
     static func applyHighlighting(to storage: NSMutableAttributedString, language: SyntaxLanguage) {
         let fullRange = NSRange(location: 0, length: storage.length)
         let text = storage.string
 
-        // Set base attributes
+        // Set base attributes including fixed line height for gutter alignment
         storage.addAttribute(.font, value: nsMonoFont, range: fullRange)
         storage.addAttribute(.foregroundColor, value: nsContentDefault, range: fullRange)
+        let paragraphStyle = NSMutableParagraphStyle()
+        let lineHeight = NSLayoutManager().defaultLineHeight(for: nsMonoFont)
+        paragraphStyle.minimumLineHeight = lineHeight
+        paragraphStyle.maximumLineHeight = lineHeight
+        storage.addAttribute(.paragraphStyle, value: paragraphStyle, range: fullRange)
 
         guard language != .plain else { return }
 
