@@ -18,6 +18,84 @@ import {
 import type { RouteDefinition } from "../http-router.js";
 
 // ---------------------------------------------------------------------------
+// Strongest-first ordering — maximize category diversity so the top four
+// chips form a coherent, non-repetitive row.
+// ---------------------------------------------------------------------------
+
+interface StarterItem {
+  id: string;
+  label: string;
+  prompt: string;
+  category: string | null;
+  batch: number;
+}
+
+/**
+ * Re-order starters so adjacent items have distinct categories wherever
+ * possible. Within each category, preserve the original (batch-desc) order.
+ * This is deterministic — same input always produces the same output.
+ */
+export function orderStrongestFirst<T extends StarterItem>(items: T[]): T[] {
+  if (items.length <= 1) return items;
+
+  // Group by category, preserving original order within each group
+  const byCategory = new Map<string, T[]>();
+  for (const item of items) {
+    const cat = item.category ?? "other";
+    let group = byCategory.get(cat);
+    if (!group) {
+      group = [];
+      byCategory.set(cat, group);
+    }
+    group.push(item);
+  }
+
+  // Round-robin pick from categories sorted by group size (largest first)
+  // to spread diversity across the top positions.
+  const sortedGroups = [...byCategory.entries()]
+    .sort((a, b) => b[1].length - a[1].length)
+    .map(([, group]) => ({ items: group, idx: 0 }));
+
+  const result: T[] = [];
+  let lastCategory: string | null = null;
+
+  while (result.length < items.length) {
+    let picked = false;
+
+    // First pass: pick from a group whose category differs from last
+    for (const group of sortedGroups) {
+      if (group.idx >= group.items.length) continue;
+      const candidate = group.items[group.idx];
+      const cat = candidate.category ?? "other";
+      if (cat !== lastCategory) {
+        result.push(candidate);
+        group.idx++;
+        lastCategory = cat;
+        picked = true;
+        break;
+      }
+    }
+
+    // Fallback: if all remaining items share the same category, just pick next
+    if (!picked) {
+      for (const group of sortedGroups) {
+        if (group.idx < group.items.length) {
+          result.push(group.items[group.idx]);
+          group.idx++;
+          lastCategory = group.items[group.idx - 1].category ?? "other";
+          picked = true;
+          break;
+        }
+      }
+    }
+
+    if (!picked) break;
+  }
+
+  return result;
+}
+
+// ---------------------------------------------------------------------------
 // GET /v1/conversation-starters?card_type=chip (default, backwards-compat)
 // ---------------------------------------------------------------------------
 
@@ -37,7 +115,9 @@ function handleListConversationStarters(url: URL): Response {
 
   const db = getDb();
 
-  const items = db
+  // Fetch from the latest batch, then apply strongest-first ordering so the
+  // first four chips form a coherent, category-diverse row.
+  const rawItems = db
     .select({
       id: conversationStarters.id,
       label: conversationStarters.label,
@@ -56,9 +136,11 @@ function handleListConversationStarters(url: URL): Response {
       desc(conversationStarters.generationBatch),
       desc(conversationStarters.createdAt),
     )
-    .limit(limitParam)
+    .limit(Math.max(limitParam, 20))
     .offset(offsetParam)
     .all();
+
+  const items = orderStrongestFirst(rawItems).slice(0, limitParam);
 
   const countRow = rawGet<{ c: number }>(
     `SELECT COUNT(*) AS c FROM conversation_starters WHERE scope_id = ? AND card_type = 'chip'`,

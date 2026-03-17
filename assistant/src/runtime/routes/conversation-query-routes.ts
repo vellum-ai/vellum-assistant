@@ -200,7 +200,7 @@ export function conversationQueryRouteDefinitions(
             requestId: params.id,
           });
         }
-        if (result.reason === "session_not_found") {
+        if (result.reason === "conversation_not_found") {
           return httpError("NOT_FOUND", "Conversation not found", 404);
         }
         return httpError("NOT_FOUND", "Queued message not found", 404);
