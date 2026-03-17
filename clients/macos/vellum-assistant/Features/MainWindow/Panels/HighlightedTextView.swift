@@ -50,10 +50,14 @@ struct HighlightedTextView: View {
 
     /// TextEditor-based editable view with a pure SwiftUI line number gutter.
     /// Reuses the same gutter pattern as the read-only view for consistency.
+    /// Wraps the editor in a horizontal ScrollView to prevent text wrapping,
+    /// which would misalign line numbers with their corresponding lines.
     private var editableView: some View {
         let lines = text.components(separatedBy: "\n")
         let lineCount = lines.count
         let gutterWidth = gutterWidth(for: lineCount)
+        let maxLineLength = lines.map(\.count).max() ?? 0
+        let contentMinWidth = CGFloat(maxLineLength) * Self.charWidth + VSpacing.md * 2
 
         return VStack(spacing: 0) {
             if isSearchVisible {
@@ -66,17 +70,24 @@ struct HighlightedTextView: View {
             }
 
             GeometryReader { geometry in
+                let availableWidth = geometry.size.width - gutterWidth
                 ScrollView([.vertical]) {
                     HStack(alignment: .top, spacing: 0) {
                         lineNumberGutter(lineCount: lineCount, width: gutterWidth)
 
-                        TextEditor(text: editableBinding)
-                            .font(VFont.mono)
-                            .foregroundStyle(VColor.contentDefault)
-                            .scrollContentBackground(.hidden)
-                            .scrollDisabled(true)
-                            .background(Self.editorBackground)
-                            .frame(minWidth: geometry.size.width - gutterWidth)
+                        ScrollView(.horizontal, showsIndicators: true) {
+                            TextEditor(text: editableBinding)
+                                .font(VFont.mono)
+                                .foregroundStyle(VColor.contentDefault)
+                                .scrollContentBackground(.hidden)
+                                .scrollDisabled(true)
+                                .background(Self.editorBackground)
+                                .frame(
+                                    minWidth: max(availableWidth, contentMinWidth),
+                                    minHeight: geometry.size.height
+                                )
+                        }
+                        .frame(minWidth: availableWidth)
                     }
                     .frame(minHeight: geometry.size.height, alignment: .topLeading)
                 }
@@ -250,12 +261,23 @@ struct HighlightedTextView: View {
         .background(Self.gutterBackground)
     }
 
-    /// Line height for the text content font, computed from actual NSFont metrics
-    /// so the gutter stays aligned even if the font or size changes.
+    /// Line height for the text content font, derived from NSLayoutManager so the
+    /// gutter matches the actual line spacing NSTextView uses (which rounds each
+    /// metric component individually rather than ceiling the sum).
     private static let lineHeight: CGFloat = {
         let nsFont = NSFont(name: "DMMono-Regular", size: 13)
             ?? NSFont.monospacedSystemFont(ofSize: 13, weight: .regular)
-        return ceil(nsFont.ascender - nsFont.descender + nsFont.leading)
+        let layoutManager = NSLayoutManager()
+        return layoutManager.defaultLineHeight(for: nsFont)
+    }()
+
+    /// Width of a single monospace character, used to calculate the minimum editor
+    /// width that prevents text wrapping and keeps line numbers aligned.
+    private static let charWidth: CGFloat = {
+        let nsFont = NSFont(name: "DMMono-Regular", size: 13)
+            ?? NSFont.monospacedSystemFont(ofSize: 13, weight: .regular)
+        let attributes: [NSAttributedString.Key: Any] = [.font: nsFont]
+        return ("M" as NSString).size(withAttributes: attributes).width
     }()
 
     private func gutterWidth(for lineCount: Int) -> CGFloat {

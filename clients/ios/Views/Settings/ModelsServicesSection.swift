@@ -69,11 +69,6 @@ struct ModelsServicesSection: View {
         .navigationTitle("Models & Services")
         .navigationBarTitleDisplayMode(.inline)
         .onAppear { fetchModel() }
-        .onDisappear {
-            if let daemon = clientProvider.client as? DaemonClient {
-                daemon.onModelInfo = nil
-            }
-        }
         .onChange(of: clientProvider.isConnected) { _, connected in
             if connected { fetchModel() }
         }
@@ -102,33 +97,27 @@ struct ModelsServicesSection: View {
         .accessibilityHint("Opens API key management")
     }
 
-    // MARK: - Daemon Communication
+    // MARK: - Model Communication
+
+    private let settingsClient = SettingsClient()
 
     private func fetchModel() {
-        guard let daemon = clientProvider.client as? DaemonClient else { return }
         loading = true
-        daemon.onModelInfo = { info in
-            currentModel = info.model
-            loading = false
-        }
-        do {
-            try daemon.sendModelGet()
-        } catch {
+        Task {
+            let info = await settingsClient.fetchModelInfo()
+            currentModel = info?.model
             loading = false
         }
     }
 
     private func setModel(_ model: String) {
-        guard let daemon = clientProvider.client as? DaemonClient else { return }
         loading = true
-        daemon.onModelInfo = { info in
-            currentModel = info.model
-            modelInput = ""
-            loading = false
-        }
-        do {
-            try daemon.sendModelSet(model: model)
-        } catch {
+        Task {
+            let info = await settingsClient.setModel(model: model)
+            if let info {
+                currentModel = info.model
+                modelInput = ""
+            }
             loading = false
         }
     }

@@ -139,6 +139,7 @@ final class AvatarAppearanceManager {
         loadAvatarComponents()
         watchAvatarFile()
         watchTraitsFile()
+        updateDockLabel()
 
         // Fire-and-forget: fetch character component definitions from the
         // daemon and populate AvatarComponentStore.shared so downstream
@@ -167,6 +168,7 @@ final class AvatarAppearanceManager {
                 self.cachedFallbackName = nil
                 self.cachedFullFallbackAvatar = nil
                 self.cachedFullFallbackName = nil
+                self.updateDockLabel()
             }
         }
     }
@@ -273,7 +275,9 @@ final class AvatarAppearanceManager {
         cachedFallbackName = nil
         cachedFullFallbackAvatar = nil
         cachedFullFallbackName = nil
+        assistantName = "V"
         updateDockIcon()
+        updateDockLabel()
     }
 
     func clearCustomAvatar() {
@@ -508,6 +512,59 @@ final class AvatarAppearanceManager {
             square.draw(in: rect, from: NSRect(origin: .zero, size: square.size),
                         operation: .copy, fraction: 1.0)
             return true
+        }
+    }
+
+    // MARK: - Dock Label
+
+    /// Default app name used for the dock label when no assistant is connected.
+    private static let defaultDockLabel = "Vellum"
+
+    /// Updates the dock label (text under the icon) to the assistant's name.
+    /// Writes `CFBundleDisplayName` into the running app bundle's Info.plist
+    /// and re-registers with LaunchServices so the Dock picks up the change.
+    private func updateDockLabel() {
+        // Use the assistant's name if it's a real name (not the single-letter
+        // avatar fallback "V"); otherwise revert to the default app name.
+        let label = assistantName.count > 1 ? assistantName : Self.defaultDockLabel
+
+        guard let bundleURL = Bundle.main.bundleURL as URL?,
+              bundleURL.pathExtension == "app" else { return }
+
+        let plistURL = bundleURL.appendingPathComponent("Contents/Info.plist")
+        guard FileManager.default.isWritableFile(atPath: plistURL.path),
+              let data = FileManager.default.contents(atPath: plistURL.path),
+              var plist = try? PropertyListSerialization.propertyList(
+                  from: data, format: nil
+              ) as? [String: Any] else { return }
+
+        // Skip the write if the label is already correct.
+        if plist["CFBundleDisplayName"] as? String == label { return }
+
+        plist["CFBundleDisplayName"] = label
+
+        guard let updated = try? PropertyListSerialization.data(
+            fromPropertyList: plist, format: .xml, options: 0
+        ) else { return }
+
+        do {
+            try updated.write(to: plistURL)
+        } catch {
+            log.warning("Failed to update dock label: \(error.localizedDescription)")
+            return
+        }
+
+        // Force LaunchServices to re-read the bundle so the Dock picks up
+        // the new display name. The deprecated LSRegisterURL API is
+        // unreliable on modern macOS; use the lsregister CLI tool instead.
+        let lsregister = "/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister"
+        if FileManager.default.fileExists(atPath: lsregister) {
+            let process = Process()
+            process.executableURL = URL(fileURLWithPath: lsregister)
+            process.arguments = ["-f", bundleURL.path]
+            process.standardOutput = FileHandle.nullDevice
+            process.standardError = FileHandle.nullDevice
+            try? process.run()
         }
     }
 

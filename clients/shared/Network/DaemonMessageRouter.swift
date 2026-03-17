@@ -92,12 +92,12 @@ extension DaemonClient {
             onNotificationIntent?(msg)
         case .notificationConversationCreated(let msg):
             onNotificationConversationCreated?(msg)
-        case .trustRulesListResponse(let msg):
-            onTrustRulesListResponse?(msg.rules)
-        case .toolPermissionSimulateResponse(let msg):
-            onToolPermissionSimulateResponse?(msg)
-        case .toolNamesListResponse(let msg):
-            onToolNamesListResponse?(msg)
+        case .trustRulesListResponse:
+            break // Handled by TrustRuleClient via GatewayHTTPClient.
+        case .toolPermissionSimulateResponse:
+            break // Handled by ToolClient via GatewayHTTPClient.
+        case .toolNamesListResponse:
+            break // Handled by ToolClient via GatewayHTTPClient.
         case .schedulesListResponse:
             break // Handled by ScheduleClient via GatewayHTTPClient.
         case .skillStateChanged(let msg):
@@ -158,7 +158,7 @@ extension DaemonClient {
             onTelegramConfigResponse?(msg)
         case .modelInfo(let msg):
             currentModel = msg.model
-            onModelInfo?(msg)
+            latestModelInfo = msg
         case .publishPageResponse(let msg):
             onPublishPageResponse?(msg)
         case .openUrl(let msg):

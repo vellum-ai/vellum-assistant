@@ -116,7 +116,9 @@ describe("wipeConversation", () => {
       }
     ).$client;
     const itemARow = raw
-      .query("SELECT status, superseded_by FROM memory_items WHERE id = 'itemA'")
+      .query(
+        "SELECT status, superseded_by FROM memory_items WHERE id = 'itemA'",
+      )
       .get() as { status: string; superseded_by: string | null } | null;
     expect(itemARow).not.toBeNull();
     expect(itemARow!.status).toBe("active");
@@ -230,6 +232,75 @@ describe("wipeConversation", () => {
       .get() as { status: string } | null;
     expect(itemOldRow).not.toBeNull();
     expect(itemOldRow!.status).toBe("active");
+  });
+
+  test("does not restore superseded items from unrelated conversations", async () => {
+    // convA has an item that superseded an older item — convA was previously
+    // deleted via regular deleteConversation, leaving the old item superseded
+    // with superseded_by = NULL. When we later wipe convB, Step F should NOT
+    // restore that unrelated item.
+    const convA = createConversation("conversation A");
+    const _msgA = await addMessage(convA.id, "user", "I use dark theme");
+
+    const convB = createConversation("conversation B");
+    const msgB = await addMessage(convB.id, "user", "I use vim");
+
+    const db = getDb();
+    const now = Date.now();
+
+    // unrelatedOld: superseded item from an old conversation (e.g. "uses light theme")
+    // Its superseder was deleted in a prior deleteConversation, leaving
+    // superseded_by = NULL.
+    db.run(
+      `INSERT INTO memory_items (id, status, kind, subject, statement, confidence, fingerprint, scope_id, first_seen_at, last_seen_at)
+       VALUES ('unrelatedOld', 'superseded', 'preference', 'theme', 'uses light theme', 0.7, 'fp-unrelated', 'default', ${now}, ${now})`,
+    );
+
+    // convA's active item that superseded unrelatedOld — we simulate the
+    // case where convA was already deleted, leaving unrelatedOld with
+    // superseded_by = NULL and no active replacement.
+    // (We don't actually insert the superseder — just leave unrelatedOld
+    // as a superseded item with no superseded_by and no active match.)
+
+    // convB's items — itemOld is superseded by itemNew (subject: editor)
+    db.run(
+      `INSERT INTO memory_items (id, status, kind, subject, statement, confidence, fingerprint, scope_id, first_seen_at, last_seen_at)
+       VALUES ('editorOld', 'superseded', 'preference', 'editor', 'uses emacs', 0.7, 'fp-editor-old', 'default', ${now}, ${now})`,
+    );
+    db.run(
+      `INSERT INTO memory_items (id, status, kind, subject, statement, confidence, fingerprint, scope_id, first_seen_at, last_seen_at)
+       VALUES ('editorNew', 'active', 'preference', 'editor', 'uses vim', 0.9, 'fp-editor-new', 'default', ${now}, ${now})`,
+    );
+    db.run(
+      `INSERT INTO memory_item_sources (memory_item_id, message_id, created_at) VALUES ('editorNew', '${msgB.id}', ${now})`,
+    );
+
+    const result = wipeConversation(convB.id);
+
+    const raw = (
+      getDb() as unknown as {
+        $client: import("bun:sqlite").Database;
+      }
+    ).$client;
+
+    // editorOld SHOULD be restored (its kind+subject matches an orphaned item from convB)
+    const editorOldRow = raw
+      .query("SELECT status FROM memory_items WHERE id = 'editorOld'")
+      .get() as { status: string } | null;
+    expect(editorOldRow).not.toBeNull();
+    expect(editorOldRow!.status).toBe("active");
+
+    // unrelatedOld should NOT be restored — it was superseded by a different
+    // conversation's item (theme, not editor) and has nothing to do with convB
+    const unrelatedOldRow = raw
+      .query("SELECT status FROM memory_items WHERE id = 'unrelatedOld'")
+      .get() as { status: string } | null;
+    expect(unrelatedOldRow).not.toBeNull();
+    expect(unrelatedOldRow!.status).toBe("superseded");
+
+    // Only editorOld should be in the unsuperseded list, not unrelatedOld
+    expect(result.unsupersededItemIds).toContain("editorOld");
+    expect(result.unsupersededItemIds).not.toContain("unrelatedOld");
   });
 
   test("deletes conversation summaries", async () => {

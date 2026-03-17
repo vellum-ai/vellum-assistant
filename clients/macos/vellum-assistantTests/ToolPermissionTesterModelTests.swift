@@ -6,24 +6,28 @@ import XCTest
 final class ToolPermissionTesterModelTests: XCTestCase {
 
     private var daemonClient: DaemonClient!
-    private var sentMessages: [Any] = []
+    private var mockToolClient: MockToolClient!
+    private var mockTrustRuleClient: MockTrustRuleClient!
     private var model: ToolPermissionTesterModel!
 
     override func setUp() {
         super.setUp()
-        sentMessages = []
         daemonClient = DaemonClient()
         daemonClient.isConnected = true
-        daemonClient.sendOverride = { [weak self] message in
-            self?.sentMessages.append(message)
-        }
-        model = ToolPermissionTesterModel(daemonClient: daemonClient)
+        mockToolClient = MockToolClient()
+        mockTrustRuleClient = MockTrustRuleClient()
+        model = ToolPermissionTesterModel(
+            daemonClient: daemonClient,
+            toolClient: mockToolClient,
+            trustRuleClient: mockTrustRuleClient
+        )
     }
 
     override func tearDown() {
         model = nil
+        mockToolClient = nil
+        mockTrustRuleClient = nil
         daemonClient = nil
-        sentMessages = []
         super.tearDown()
     }
 
@@ -80,6 +84,12 @@ final class ToolPermissionTesterModelTests: XCTestCase {
     }
 
     func testSimulate_sendsMessage() {
+        mockToolClient.simulateResponse = ToolPermissionSimulateResponseMessage(
+            type: "tool_permission_simulate_response",
+            success: true, decision: "allow", riskLevel: "low", reason: "test",
+            promptPayload: nil, executionTarget: nil, matchedRuleId: nil, error: nil
+        )
+
         model.toolName = "host_bash"
         model.fieldDescriptors = [ToolFieldDescriptor(id: "command", fieldType: .string, description: nil, isRequired: true)]
         model.fieldValues = ["command": "echo hello"]
@@ -89,34 +99,48 @@ final class ToolPermissionTesterModelTests: XCTestCase {
         model.forcePromptSideEffects = true
         model.simulate()
 
-        XCTAssertEqual(sentMessages.count, 1)
-        let msg = sentMessages[0] as? ToolPermissionSimulateMessage
-        XCTAssertNotNil(msg)
-        XCTAssertEqual(msg?.toolName, "host_bash")
-        XCTAssertEqual(msg?.workingDir, "/tmp")
-        XCTAssertEqual(msg?.isInteractive, false)
-        XCTAssertEqual(msg?.forcePromptSideEffects, true)
+        let predicate = NSPredicate { _, _ in !self.model.isSimulating }
+        let expectation = XCTNSPredicateExpectation(predicate: predicate, object: nil)
+        wait(for: [expectation], timeout: 2.0)
+
+        XCTAssertEqual(mockToolClient.simulateToolPermissionCalls.count, 1)
+        let call = mockToolClient.simulateToolPermissionCalls[0]
+        XCTAssertEqual(call.toolName, "host_bash")
+        XCTAssertEqual(call.workingDir, "/tmp")
+        XCTAssertEqual(call.isInteractive, false)
+        XCTAssertEqual(call.forcePromptSideEffects, true)
     }
 
     func testSimulate_emptyOptionalFieldsSendNil() {
+        mockToolClient.simulateResponse = ToolPermissionSimulateResponseMessage(
+            type: "tool_permission_simulate_response",
+            success: true, decision: "allow", riskLevel: "low", reason: "test",
+            promptPayload: nil, executionTarget: nil, matchedRuleId: nil, error: nil
+        )
+
         model.toolName = "host_bash"
         model.workingDir = ""
 
         model.simulate()
 
-        XCTAssertEqual(sentMessages.count, 1)
-        let msg = sentMessages[0] as? ToolPermissionSimulateMessage
-        XCTAssertNotNil(msg)
-        XCTAssertNil(msg?.workingDir)
+        let predicate = NSPredicate { _, _ in !self.model.isSimulating }
+        let expectation = XCTNSPredicateExpectation(predicate: predicate, object: nil)
+        wait(for: [expectation], timeout: 2.0)
+
+        XCTAssertEqual(mockToolClient.simulateToolPermissionCalls.count, 1)
+        let call = mockToolClient.simulateToolPermissionCalls[0]
+        XCTAssertNil(call.workingDir)
     }
 
     func testSimulate_sendFailure_setsError() {
-        daemonClient.sendOverride = { _ in
-            throw NSError(domain: "test", code: 1, userInfo: [NSLocalizedDescriptionKey: "socket closed"])
-        }
+        mockToolClient.simulateError = NSError(domain: "test", code: 1, userInfo: [NSLocalizedDescriptionKey: "socket closed"])
 
         model.toolName = "host_bash"
         model.simulate()
+
+        let predicate = NSPredicate { _, _ in !self.model.isSimulating }
+        let expectation = XCTNSPredicateExpectation(predicate: predicate, object: nil)
+        wait(for: [expectation], timeout: 2.0)
 
         XCTAssertNotNil(model.lastError)
         XCTAssertTrue(model.lastError?.contains("socket closed") == true)
@@ -124,11 +148,7 @@ final class ToolPermissionTesterModelTests: XCTestCase {
     }
 
     func testSimulate_handlesSuccessResponse() {
-        model.toolName = "host_bash"
-        model.simulate()
-
-        // Simulate the daemon sending a response
-        daemonClient.onToolPermissionSimulateResponse?(ToolPermissionSimulateResponseMessage(
+        mockToolClient.simulateResponse = ToolPermissionSimulateResponseMessage(
             type: "tool_permission_simulate_response",
             success: true,
             decision: "allow",
@@ -138,9 +158,11 @@ final class ToolPermissionTesterModelTests: XCTestCase {
             executionTarget: nil,
             matchedRuleId: "rule-42",
             error: nil
-        ))
+        )
 
-        // Wait for the Task { @MainActor } dispatch to complete
+        model.toolName = "host_bash"
+        model.simulate()
+
         let predicate = NSPredicate { _, _ in !self.model.isSimulating }
         let expectation = XCTNSPredicateExpectation(predicate: predicate, object: nil)
         wait(for: [expectation], timeout: 2.0)
@@ -154,10 +176,7 @@ final class ToolPermissionTesterModelTests: XCTestCase {
     }
 
     func testSimulate_handlesErrorResponse() {
-        model.toolName = "host_bash"
-        model.simulate()
-
-        daemonClient.onToolPermissionSimulateResponse?(ToolPermissionSimulateResponseMessage(
+        mockToolClient.simulateResponse = ToolPermissionSimulateResponseMessage(
             type: "tool_permission_simulate_response",
             success: false,
             decision: nil,
@@ -167,9 +186,11 @@ final class ToolPermissionTesterModelTests: XCTestCase {
             executionTarget: nil,
             matchedRuleId: nil,
             error: "Tool not found"
-        ))
+        )
 
-        // Wait for the Task { @MainActor } dispatch to complete
+        model.toolName = "host_bash"
+        model.simulate()
+
         let predicate = NSPredicate { _, _ in !self.model.isSimulating }
         let expectation = XCTNSPredicateExpectation(predicate: predicate, object: nil)
         wait(for: [expectation], timeout: 2.0)
@@ -220,6 +241,12 @@ final class ToolPermissionTesterModelTests: XCTestCase {
     // MARK: - alwaysAllow()
 
     func testAlwaysAllow_sendsAddTrustRuleAndResimulates() {
+        mockToolClient.simulateResponse = ToolPermissionSimulateResponseMessage(
+            type: "tool_permission_simulate_response",
+            success: true, decision: "allow", riskLevel: "low", reason: "Matched trust rule",
+            promptPayload: nil, executionTarget: "host", matchedRuleId: nil, error: nil
+        )
+
         model.toolName = "host_bash"
         model.lastResult = SimulationResult(
             decision: "prompt", riskLevel: "medium", reason: "test",
@@ -229,23 +256,29 @@ final class ToolPermissionTesterModelTests: XCTestCase {
 
         model.alwaysAllow(pattern: "echo *", scope: "project")
 
-        // Should have sent AddTrustRuleMessage + ToolPermissionSimulateMessage (re-simulate)
-        XCTAssertEqual(sentMessages.count, 2)
+        let predicate = NSPredicate { _, _ in self.mockTrustRuleClient.addTrustRuleCalls.count >= 1 }
+        let expectation = XCTNSPredicateExpectation(predicate: predicate, object: nil)
+        wait(for: [expectation], timeout: 2.0)
 
-        let trustRuleMsg = sentMessages[0] as? AddTrustRuleMessage
-        XCTAssertNotNil(trustRuleMsg)
-        XCTAssertEqual(trustRuleMsg?.toolName, "host_bash")
-        XCTAssertEqual(trustRuleMsg?.pattern, "echo *")
-        XCTAssertEqual(trustRuleMsg?.scope, "project")
-        XCTAssertEqual(trustRuleMsg?.decision, "allow")
-        XCTAssertEqual(trustRuleMsg?.executionTarget, "host")
+        XCTAssertEqual(mockTrustRuleClient.addTrustRuleCalls.count, 1)
+        let trustCall = mockTrustRuleClient.addTrustRuleCalls[0]
+        XCTAssertEqual(trustCall.toolName, "host_bash")
+        XCTAssertEqual(trustCall.pattern, "echo *")
+        XCTAssertEqual(trustCall.scope, "project")
+        XCTAssertEqual(trustCall.decision, "allow")
+        XCTAssertEqual(trustCall.executionTarget, "host")
 
-        // Second message is the re-simulate
-        let resimMsg = sentMessages[1] as? ToolPermissionSimulateMessage
-        XCTAssertNotNil(resimMsg)
+        // Re-simulate should have been called.
+        XCTAssertGreaterThanOrEqual(mockToolClient.simulateToolPermissionCalls.count, 1)
     }
 
     func testAlwaysAllow_highRisk_usesAlwaysAllowHighRiskDecision() {
+        mockToolClient.simulateResponse = ToolPermissionSimulateResponseMessage(
+            type: "tool_permission_simulate_response",
+            success: true, decision: "allow", riskLevel: "low", reason: "ok",
+            promptPayload: nil, executionTarget: nil, matchedRuleId: nil, error: nil
+        )
+
         model.toolName = "host_bash"
         model.lastResult = SimulationResult(
             decision: "prompt", riskLevel: "high", reason: "dangerous",
@@ -255,13 +288,22 @@ final class ToolPermissionTesterModelTests: XCTestCase {
 
         model.alwaysAllow(pattern: "rm -rf *", scope: "global")
 
-        let trustRuleMsg = sentMessages[0] as? AddTrustRuleMessage
-        XCTAssertNotNil(trustRuleMsg)
-        XCTAssertEqual(trustRuleMsg?.decision, "allow")
-        XCTAssertEqual(trustRuleMsg?.allowHighRisk, true)
+        let predicate = NSPredicate { _, _ in self.mockTrustRuleClient.addTrustRuleCalls.count >= 1 }
+        let expectation = XCTNSPredicateExpectation(predicate: predicate, object: nil)
+        wait(for: [expectation], timeout: 2.0)
+
+        let trustCall = mockTrustRuleClient.addTrustRuleCalls[0]
+        XCTAssertEqual(trustCall.decision, "allow")
+        XCTAssertEqual(trustCall.allowHighRisk, true)
     }
 
     func testAlwaysAllow_mediumRisk_doesNotSetAllowHighRisk() {
+        mockToolClient.simulateResponse = ToolPermissionSimulateResponseMessage(
+            type: "tool_permission_simulate_response",
+            success: true, decision: "allow", riskLevel: "low", reason: "ok",
+            promptPayload: nil, executionTarget: nil, matchedRuleId: nil, error: nil
+        )
+
         model.toolName = "host_bash"
         model.lastResult = SimulationResult(
             decision: "prompt", riskLevel: "medium", reason: "test",
@@ -271,13 +313,22 @@ final class ToolPermissionTesterModelTests: XCTestCase {
 
         model.alwaysAllow(pattern: "echo *", scope: "project")
 
-        let trustRuleMsg = sentMessages[0] as? AddTrustRuleMessage
-        XCTAssertNotNil(trustRuleMsg)
-        XCTAssertEqual(trustRuleMsg?.decision, "allow")
-        XCTAssertNil(trustRuleMsg?.allowHighRisk)
+        let predicate = NSPredicate { _, _ in self.mockTrustRuleClient.addTrustRuleCalls.count >= 1 }
+        let expectation = XCTNSPredicateExpectation(predicate: predicate, object: nil)
+        wait(for: [expectation], timeout: 2.0)
+
+        let trustCall = mockTrustRuleClient.addTrustRuleCalls[0]
+        XCTAssertEqual(trustCall.decision, "allow")
+        XCTAssertNil(trustCall.allowHighRisk)
     }
 
     func testAlwaysAllow_emptyMetadata_doesNotPassNilFields() {
+        mockToolClient.simulateResponse = ToolPermissionSimulateResponseMessage(
+            type: "tool_permission_simulate_response",
+            success: true, decision: "allow", riskLevel: "low", reason: "ok",
+            promptPayload: nil, executionTarget: nil, matchedRuleId: nil, error: nil
+        )
+
         model.toolName = "host_bash"
         model.lastResult = SimulationResult(
             decision: "prompt", riskLevel: "low", reason: "test",
@@ -287,9 +338,12 @@ final class ToolPermissionTesterModelTests: XCTestCase {
 
         model.alwaysAllow(pattern: "*", scope: "global")
 
-        let trustRuleMsg = sentMessages[0] as? AddTrustRuleMessage
-        XCTAssertNotNil(trustRuleMsg)
-        XCTAssertNil(trustRuleMsg?.executionTarget)
+        let predicate = NSPredicate { _, _ in self.mockTrustRuleClient.addTrustRuleCalls.count >= 1 }
+        let expectation = XCTNSPredicateExpectation(predicate: predicate, object: nil)
+        wait(for: [expectation], timeout: 2.0)
+
+        let trustCall = mockTrustRuleClient.addTrustRuleCalls[0]
+        XCTAssertNil(trustCall.executionTarget)
     }
 
     // MARK: - Initial State

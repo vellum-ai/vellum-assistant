@@ -42,10 +42,14 @@ export function isConversationFailed(conversationId: string): boolean {
 export function invalidateAssistantInferredItemsForConversation(
   conversationId: string,
 ): number {
-  // Cancel pending memory jobs for this conversation's messages
+  // Cancel pending extraction jobs for this conversation's messages
   // so the worker never processes them. Jobs already running will be
   // caught by the isConversationFailed check in the extraction handler.
-  cancelPendingJobsForConversation(conversationId, "conversation_failed");
+  // NOTE: Only extract_items jobs are cancelled here — not embed_item or
+  // other job types. Multi-sourced items may still be valid (corroborated
+  // by other conversations), and their embedding jobs must not be killed.
+  // The broader cancelPendingJobsForConversation is used by the wipe path.
+  cancelPendingExtractionJobsForConversation(conversationId);
 
   const affected = rawRun(
     `UPDATE memory_items
@@ -160,4 +164,38 @@ export function cancelPendingJobsForConversation(
   }
 
   return total;
+}
+
+/**
+ * Cancel only pending/running `extract_items` jobs for messages in the
+ * given conversation. Used by the task-failure path where we want to
+ * stop new extractions but must NOT cancel `embed_item` jobs — those
+ * items may be multi-sourced and still valid.
+ */
+function cancelPendingExtractionJobsForConversation(
+  conversationId: string,
+): number {
+  const now = Date.now();
+  const cancelled = rawRun(
+    `UPDATE memory_jobs
+        SET status = 'failed',
+            last_error = 'conversation_failed',
+            updated_at = ?
+      WHERE status IN ('pending', 'running')
+        AND type = 'extract_items'
+        AND json_extract(payload, '$.messageId') IN (
+          SELECT id FROM messages WHERE conversation_id = ?
+        )`,
+    now,
+    conversationId,
+  );
+
+  if (cancelled > 0) {
+    log.info(
+      { conversationId, cancelled },
+      "Cancelled pending extraction jobs for failed conversation",
+    );
+  }
+
+  return cancelled;
 }
