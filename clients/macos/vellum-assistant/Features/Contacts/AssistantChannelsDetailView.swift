@@ -39,6 +39,11 @@ struct AssistantChannelsDetailView: View {
     @State private var voiceRowExpanded: Bool = false
     @State private var emailRowExpanded: Bool = false
 
+    // Auto-focus first input when setup expands
+    @FocusState private var isTelegramTokenFocused: Bool
+    @FocusState private var isSlackBotTokenFocused: Bool
+    @FocusState private var isVoiceAccountSidFocused: Bool
+
     var body: some View {
         Group {
             if showCardBorders {
@@ -100,6 +105,36 @@ struct AssistantChannelsDetailView: View {
         .onChange(of: isEmailEnabled) { _, enabled in
             if enabled {
                 store.refreshAssistantEmail()
+            }
+        }
+        .onChange(of: telegramSetupExpanded) { _, expanded in
+            if expanded {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { isTelegramTokenFocused = true }
+            }
+        }
+        .onChange(of: slackChannelSetupExpanded) { _, expanded in
+            if expanded {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { isSlackBotTokenFocused = true }
+            }
+        }
+        .onChange(of: voiceSetupExpanded) { _, expanded in
+            if expanded {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { isVoiceAccountSidFocused = true }
+            }
+        }
+        .onChange(of: telegramRowExpanded) { _, expanded in
+            if expanded {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { isTelegramTokenFocused = true }
+            }
+        }
+        .onChange(of: slackRowExpanded) { _, expanded in
+            if expanded {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { isSlackBotTokenFocused = true }
+            }
+        }
+        .onChange(of: voiceRowExpanded) { _, expanded in
+            if expanded {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { isVoiceAccountSidFocused = true }
             }
         }
     }
@@ -550,6 +585,7 @@ struct AssistantChannelsDetailView: View {
                 .vInputStyle()
                 .font(VFont.body)
                 .foregroundColor(VColor.contentDefault)
+                .focused($isTelegramTokenFocused)
 
             Text("Get your bot token from @BotFather on Telegram")
                 .font(VFont.caption)
@@ -649,6 +685,7 @@ struct AssistantChannelsDetailView: View {
                 .vInputStyle()
                 .font(VFont.body)
                 .foregroundColor(VColor.contentDefault)
+                .focused($isSlackBotTokenFocused)
 
             SecureField("App Token (xapp-...)", text: $slackChannelAppTokenInput)
                 .vInputStyle()
@@ -755,6 +792,7 @@ struct AssistantChannelsDetailView: View {
                 .vInputStyle()
                 .font(VFont.body)
                 .foregroundColor(VColor.contentDefault)
+                .focused($isVoiceAccountSidFocused)
 
             SecureField("Auth Token", text: $voiceAuthTokenText)
                 .vInputStyle()
