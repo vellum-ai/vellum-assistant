@@ -10,13 +10,7 @@ struct APIKeyEntryStepView: View {
     @State private var isEditing = false
     @State private var showTitle = false
     @State private var showContent = false
-    @State private var showCharacters = false
     @FocusState private var keyFieldFocused: Bool
-
-    private static let welcomeCharacters: NSImage? = {
-        guard let url = ResourceBundle.bundle.url(forResource: "welcome-characters", withExtension: "png") else { return nil }
-        return NSImage(contentsOf: url)
-    }()
 
     var body: some View {
         Text("Anthropic API Key")
@@ -34,29 +28,9 @@ struct APIKeyEntryStepView: View {
             .offset(y: showTitle ? 0 : 8)
             .padding(.bottom, VSpacing.xxl)
 
-        Spacer()
-
         VStack(spacing: VSpacing.md) {
-            VStack(spacing: 0) {
+            VStack(spacing: VSpacing.md) {
                 apiKeyField
-
-                Button {
-                    NSWorkspace.shared.open(URL(string: "https://console.anthropic.com/settings/keys")!)
-                } label: {
-                    HStack(spacing: VSpacing.xs) {
-                        VIconView(.info, size: 14)
-                            .foregroundColor(VColor.contentSecondary)
-                        Text("Get an API key")
-                            .font(VFont.caption)
-                            .foregroundColor(VColor.contentSecondary)
-                    }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                }
-                .buttonStyle(.plain)
-                .pointerCursor()
-                .accessibilityLabel("Get an API key")
-                .padding(.top, VSpacing.sm)
-                .padding(.bottom, VSpacing.xl)
 
                 OnboardingButton(
                     title: "Continue",
@@ -66,10 +40,13 @@ struct APIKeyEntryStepView: View {
                     saveAndHatch()
                 }
 
+                OnboardingButton(title: "Get an API key", style: .ghostPrimary) {
+                    NSWorkspace.shared.open(URL(string: "https://console.anthropic.com/settings/keys")!)
+                }
+
                 OnboardingButton(title: "Back", style: .ghost) {
                     goBack()
                 }
-                .padding(.top, VSpacing.md)
             }
         }
         .padding(.horizontal, VSpacing.xxl)
@@ -89,26 +66,6 @@ struct APIKeyEntryStepView: View {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
                 keyFieldFocused = true
             }
-        }
-
-        Spacer()
-
-        if let characters = Self.welcomeCharacters {
-            Image(nsImage: characters)
-                .resizable()
-                .aspectRatio(contentMode: .fit)
-                .frame(maxWidth: .infinity)
-                .clipShape(UnevenRoundedRectangle(
-                    topLeadingRadius: 0,
-                    bottomLeadingRadius: VRadius.window,
-                    bottomTrailingRadius: VRadius.window,
-                    topTrailingRadius: 0
-                ))
-                .opacity(showCharacters ? 1 : 0)
-                .offset(y: showCharacters ? 0 : 30)
-                .animation(.easeOut(duration: 0.6).delay(0.5), value: showCharacters)
-                .onAppear { showCharacters = true }
-                .accessibilityHidden(true)
         }
     }
 
