@@ -423,7 +423,7 @@ struct GuardianChannelsDetailView: View {
         case "telegram": return "Telegram"
         case "email": return "Email"
         case "whatsapp": return "WhatsApp"
-        case "phone": return "Phone"
+        case "phone": return "Phone Calling"
         case "slack": return "Slack"
         default: return type.capitalized
         }
