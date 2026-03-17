@@ -148,13 +148,30 @@ jobs:
         with:
           bun-version: '1.3.9'
 
+      - name: Configure GitHub auth for SPM binary downloads
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          printf "machine github.com\nlogin oauth2\npassword %s\n" "${GH_TOKEN}" > ~/.netrc
+          chmod 600 ~/.netrc
+
       - name: Design token guard
         working-directory: .
         run: bash clients/scripts/check-design-tokens.sh --mode=strict
 
       - name: Install linked package dependencies
         working-directory: .
-        run: cd packages/ces-contracts && bun install --frozen-lockfile
+        run: |
+          pids=()
+          for dir in packages/*/; do
+            [ -f "${dir}/package.json" ] || continue
+            echo "Installing dependencies in ${dir}"
+            (cd "${dir}" && bun install) &
+            pids+=($!)
+          done
+          for pid in "${pids[@]}"; do
+            wait "$pid"
+          done
 
       - name: Build binaries
         run: ./build.sh binaries
@@ -181,7 +198,7 @@ jobs:
 
       - name: Free disk space
         run: |
-          rm -rf .build daemon-bin cli-bin gateway-bin
+          rm -rf daemon-bin cli-bin gateway-bin
           rm -rf ../../assistant/node_modules ../../cli/node_modules ../../gateway/node_modules
           rm -rf ~/Library/Developer/Xcode/DerivedData 2>/dev/null || true
           rm -rf ~/Library/Caches/org.swift.swiftpm 2>/dev/null || true
