@@ -19,11 +19,9 @@ struct ContactDetailView: View {
     @State private var isDeleting = false
     @State private var actionInProgress: String?
     @State var errorMessage: String?
-    @State private var isEditing = false
     @State private var editedName = ""
     @State private var editedNotes = ""
     @State private var isSaving = false
-    @State private var isHoveringHeader = false
     @State private var verificationInProgress: String?
     @State private var verificationSuccessChannelId: String?
     @State private var telegramBootstrapUrl: String?
@@ -91,6 +89,8 @@ struct ContactDetailView: View {
         }
         .onChange(of: contact.id) { _, _ in
             currentContact = nil
+            editedName = contact.displayName
+            editedNotes = contact.notes ?? ""
             inviteCodeRevealed = false
             inviteHandleInput = ""
             inviteExpanded = []
@@ -100,6 +100,8 @@ struct ContactDetailView: View {
         }
         .onChange(of: contact) { _, _ in
             currentContact = nil
+            editedName = contact.displayName
+            editedNotes = contact.notes ?? ""
         }
         .onDisappear {
             verificationTimeoutTask?.cancel()
@@ -119,119 +121,77 @@ struct ContactDetailView: View {
     // MARK: - Header Section
 
     private var headerSection: some View {
-        VStack(alignment: .leading, spacing: VSpacing.sm) {
-            HStack {
-                if isEditing {
-                    TextField("Display name", text: $editedName)
-                        .font(VFont.largeTitle)
-                        .foregroundColor(VColor.contentDefault)
-                        .textFieldStyle(.plain)
-                        .onSubmit { Task { await saveCardEdits() } }
-                } else {
-                    Text(displayContact.displayName)
-                        .font(VFont.largeTitle)
-                        .foregroundColor(VColor.contentDefault)
-                }
+        VStack(alignment: .leading, spacing: VSpacing.md) {
+            headerTitle
+            headerFields
+            headerActions
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(VSpacing.lg)
+        .overlay(
+            RoundedRectangle(cornerRadius: 16)
+                .stroke(VColor.borderDisabled, lineWidth: 1)
+        )
+        .onAppear {
+            editedName = displayContact.displayName
+            editedNotes = displayContact.notes ?? ""
+        }
+    }
 
-                Spacer()
-
-                if isEditing {
-                    HStack(spacing: VSpacing.sm) {
-                        VButton(label: "Save", style: .primary, isDisabled: isSaving) {
-                            Task { await saveCardEdits() }
-                        }
-                        Button {
-                            isEditing = false
-                        } label: {
-                            Text("Cancel")
-                                .font(VFont.captionMedium)
-                                .foregroundColor(VColor.contentTertiary)
-                        }
-                        .buttonStyle(.plain)
-                        .keyboardShortcut(.escape, modifiers: [])
-                    }
-                } else {
-                    Button {
-                        editedName = displayContact.displayName
-                        editedNotes = displayContact.notes ?? ""
-                        isEditing = true
-                    } label: {
-                        VIconView(.pencil, size: 12)
-                            .foregroundColor(VColor.contentSecondary)
-                    }
-                    .buttonStyle(.plain)
-                    .opacity(isHoveringHeader ? 1 : 0)
-                    .animation(VAnimation.fast, value: isHoveringHeader)
-                    .accessibilityLabel("Edit contact")
-
-                    Button(action: { showDeleteConfirmation = true }) {
-                        if isDeleting {
-                            ProgressView()
-                                .controlSize(.small)
-                        } else {
-                            VIconView(.trash, size: 14)
-                                .foregroundColor(VColor.systemNegativeStrong)
-                        }
-                    }
-                    .buttonStyle(.plain)
-                    .disabled(isDeleting || actionInProgress != nil || verificationInProgress != nil)
-                    .help("Delete contact")
-                    .opacity(isHoveringHeader ? 1 : 0)
-                    .animation(VAnimation.fast, value: isHoveringHeader)
-                    .accessibilityLabel("Delete contact")
-                }
-            }
-
+    private var headerTitle: some View {
+        VStack(alignment: .leading, spacing: VSpacing.xs) {
             HStack(spacing: VSpacing.sm) {
+                Text(displayContact.displayName)
+                    .font(.system(size: 18, weight: .semibold))
+                    .foregroundColor(VColor.contentDefault)
                 contactTypeBadge
-                Text("\(displayContact.interactionCount) interaction\(displayContact.interactionCount == 1 ? "" : "s")")
-                    .font(VFont.caption)
-                    .foregroundColor(VColor.contentTertiary)
-                if let lastInteraction = displayContact.lastInteraction {
-                    Text("\u{00B7}")
-                        .font(VFont.caption)
-                        .foregroundColor(VColor.contentTertiary)
-                    Text("Last \(relativeTime(epochMs: Int(lastInteraction)))")
-                        .font(VFont.caption)
-                        .foregroundColor(VColor.contentTertiary)
-                }
             }
+            Text("\(displayContact.interactionCount) interaction\(displayContact.interactionCount == 1 ? "" : "s")")
+                .font(VFont.caption)
+                .foregroundColor(VColor.contentTertiary)
+        }
+    }
 
-            Divider().background(VColor.borderBase)
+    private var headerFields: some View {
+        VStack(alignment: .leading, spacing: VSpacing.sm) {
+            VStack(alignment: .leading, spacing: VSpacing.xs) {
+                Text("Name")
+                    .font(VFont.caption)
+                    .foregroundColor(VColor.contentSecondary)
+                TextField("Name", text: $editedName)
+                    .textFieldStyle(.plain)
+                    .font(VFont.body)
+                    .foregroundColor(VColor.contentDefault)
+                    .padding(VSpacing.sm)
+                    .background(VColor.surfaceActive)
+                    .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
+            }
 
             VStack(alignment: .leading, spacing: VSpacing.xs) {
                 Text("Notes")
                     .font(VFont.caption)
                     .foregroundColor(VColor.contentSecondary)
-
-                if isEditing {
-                    TextEditor(text: $editedNotes)
-                        .font(VFont.body)
-                        .foregroundColor(VColor.contentDefault)
-                        .scrollContentBackground(.hidden)
-                        .frame(minHeight: 60, maxHeight: 160)
-                        .padding(VSpacing.xs)
-                        .background(VColor.surfaceActive)
-                        .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
-                } else if let notes = displayContact.notes, !notes.isEmpty {
-                    Text(notes)
-                        .font(VFont.body)
-                        .foregroundColor(VColor.contentDefault)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                } else {
-                    Text("No notes")
-                        .font(VFont.body)
-                        .foregroundColor(VColor.contentTertiary)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                }
+                TextEditor(text: $editedNotes)
+                    .font(VFont.body)
+                    .foregroundColor(VColor.contentDefault)
+                    .scrollContentBackground(.hidden)
+                    .frame(minHeight: 60, maxHeight: 160)
+                    .padding(VSpacing.xs)
+                    .background(VColor.surfaceActive)
+                    .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(VSpacing.lg)
-        .vCard(background: VColor.surfaceOverlay)
-        .onHover { hovering in
-            isHoveringHeader = hovering
+    }
+
+    private var headerActions: some View {
+        HStack(spacing: VSpacing.sm) {
+            VButton(label: "Save", style: .primary, size: .compact, isDisabled: isSaving) {
+                Task { await saveCardEdits() }
+            }
+            VButton(label: "Delete Contact", style: .dangerOutline, size: .compact, isDisabled: isDeleting || actionInProgress != nil || verificationInProgress != nil) {
+                showDeleteConfirmation = true
+            }
+            .accessibilityLabel("Delete contact")
         }
     }
 
@@ -936,6 +896,8 @@ struct ContactDetailView: View {
         switch contactType {
         case "assistant":
             return "Assistant"
+        case "guardian":
+            return "Guardian"
         default:
             return "Human"
         }
@@ -1002,7 +964,6 @@ struct ContactDetailView: View {
 
         let originalNotes = displayContact.notes ?? ""
         if trimmedName == displayContact.displayName && trimmedNotes == originalNotes {
-            isEditing = false
             return
         }
 
@@ -1015,7 +976,8 @@ struct ContactDetailView: View {
                 notes: trimmedNotes
             ) {
                 currentContact = updated
-                isEditing = false
+                editedName = updated.displayName
+                editedNotes = updated.notes ?? ""
             } else {
                 errorMessage = "Failed to save changes"
             }
