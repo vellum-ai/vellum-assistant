@@ -406,15 +406,18 @@ const SERVICE_START_ORDER: ServiceName[] = [
 ];
 
 /** Start all three containers in dependency order. */
-async function startContainers(opts: {
-  gatewayPort: number;
-  imageTags: Record<ServiceName, string>;
-  instanceName: string;
-  res: ReturnType<typeof dockerResourceNames>;
-}): Promise<void> {
+async function startContainers(
+  opts: {
+    gatewayPort: number;
+    imageTags: Record<ServiceName, string>;
+    instanceName: string;
+    res: ReturnType<typeof dockerResourceNames>;
+  },
+  log: (msg: string) => void,
+): Promise<void> {
   const runArgs = serviceDockerRunArgs(opts);
   for (const service of SERVICE_START_ORDER) {
-    console.log(`🚀 Starting ${service} container...`);
+    log(`🚀 Starting ${service} container...`);
     await exec("docker", runArgs[service]());
   }
 }
@@ -589,6 +592,12 @@ export async function hatchDocker(
 ): Promise<void> {
   resetLogFile("hatch.log");
 
+  let logFd = openLogFile("hatch.log");
+  const log = (msg: string): void => {
+    console.log(msg);
+    writeToLogFile(logFd, `${new Date().toISOString()} ${msg}\n`);
+  };
+
   await ensureDockerInstalled();
 
   const instanceName = generateInstanceName(species, name);
@@ -609,32 +618,29 @@ export async function hatchDocker(
     imageTags.gateway = `vellum-gateway:${localTag}`;
     imageTags["credential-executor"] = `vellum-credential-executor:${localTag}`;
 
-    console.log(`🥚 Hatching Docker assistant: ${instanceName}`);
-    console.log(`   Species: ${species}`);
-    console.log(`   Mode: development (watch)`);
-    console.log(`   Repo: ${repoRoot}`);
-    console.log(`   Images (local build):`);
-    console.log(`     assistant:            ${imageTags.assistant}`);
-    console.log(`     gateway:              ${imageTags.gateway}`);
-    console.log(
+    log(`🥚 Hatching Docker assistant: ${instanceName}`);
+    log(`   Species: ${species}`);
+    log(`   Mode: development (watch)`);
+    log(`   Repo: ${repoRoot}`);
+    log(`   Images (local build):`);
+    log(`     assistant:            ${imageTags.assistant}`);
+    log(`     gateway:              ${imageTags.gateway}`);
+    log(
       `     credential-executor:  ${imageTags["credential-executor"]}`,
     );
-    console.log("");
+    log("");
 
-    const logFd = openLogFile("hatch.log");
     try {
       await buildAllImages(repoRoot, imageTags);
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      writeToLogFile(
-        logFd,
-        `[docker-build] ${new Date().toISOString()} ERROR\n${message}\n`,
+      log(
+        `[docker-build] ERROR: ${err instanceof Error ? err.message : String(err)}`,
       );
       closeLogFile(logFd);
+      logFd = "ignore";
       throw err;
     }
-    closeLogFile(logFd);
-    console.log("✅ Docker images built\n");
+    log("✅ Docker images built");
   } else {
     const version = cliPkg.version;
     const versionTag = version ? `v${version}` : "latest";
@@ -643,44 +649,40 @@ export async function hatchDocker(
     imageTags["credential-executor"] =
       `${DOCKERHUB_IMAGES["credential-executor"]}:${versionTag}`;
 
-    console.log(`🥚 Hatching Docker assistant: ${instanceName}`);
-    console.log(`   Species: ${species}`);
-    console.log(`   Images:`);
-    console.log(`     assistant:            ${imageTags.assistant}`);
-    console.log(`     gateway:              ${imageTags.gateway}`);
-    console.log(
+    log(`🥚 Hatching Docker assistant: ${instanceName}`);
+    log(`   Species: ${species}`);
+    log(`   Images:`);
+    log(`     assistant:            ${imageTags.assistant}`);
+    log(`     gateway:              ${imageTags.gateway}`);
+    log(
       `     credential-executor:  ${imageTags["credential-executor"]}`,
     );
-    console.log("");
+    log("");
 
-    const logFd = openLogFile("hatch.log");
-    console.log("📦 Pulling Docker images...");
+    log("📦 Pulling Docker images...");
     try {
       await exec("docker", ["pull", imageTags.assistant]);
       await exec("docker", ["pull", imageTags.gateway]);
       await exec("docker", ["pull", imageTags["credential-executor"]]);
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      writeToLogFile(
-        logFd,
-        `[docker-pull] ${new Date().toISOString()} ERROR\n${message}\n`,
+      log(
+        `[docker-pull] ERROR: ${err instanceof Error ? err.message : String(err)}`,
       );
       closeLogFile(logFd);
+      logFd = "ignore";
       throw err;
     }
-    closeLogFile(logFd);
-    console.log("✅ Docker images pulled\n");
+    log("✅ Docker images pulled");
   }
 
   const res = dockerResourceNames(instanceName);
 
-  // Create shared network and volumes
-  console.log("📁 Creating shared network and volumes...");
+  log("📁 Creating shared network and volumes...");
   await exec("docker", ["network", "create", res.network]);
   await exec("docker", ["volume", "create", res.dataVolume]);
   await exec("docker", ["volume", "create", res.socketVolume]);
 
-  await startContainers({ gatewayPort, imageTags, instanceName, res });
+  await startContainers({ gatewayPort, imageTags, instanceName, res }, log);
 
   const runtimeUrl = `http://localhost:${gatewayPort}`;
   const dockerEntry: AssistantEntry = {
@@ -701,6 +703,7 @@ export async function hatchDocker(
     containerName: res.assistantContainer,
     detached: watch ? false : detached,
     instanceName,
+    logFd,
     runtimeUrl,
     sentinel: "DaemonServer started",
   });
@@ -716,16 +719,21 @@ export async function hatchDocker(
 
     await new Promise<void>((resolve) => {
       const cleanup = async () => {
-        console.log("\n🛑 Shutting down...");
+        log("\n🛑 Shutting down...");
         stopWatcher();
         await stopContainers(res);
-        console.log("✅ Docker instance stopped.");
+        log("✅ Docker instance stopped.");
+        closeLogFile(logFd);
+        logFd = "ignore";
         resolve();
       };
 
       process.on("SIGINT", () => void cleanup());
       process.on("SIGTERM", () => void cleanup());
     });
+  } else {
+    closeLogFile(logFd);
+    logFd = "ignore";
   }
 }
 
@@ -738,6 +746,7 @@ async function tailContainerUntilReady(opts: {
   containerName: string;
   detached: boolean;
   instanceName: string;
+  logFd: number | "ignore";
   runtimeUrl: string;
   sentinel: string;
 }): Promise<void> {
@@ -745,26 +754,30 @@ async function tailContainerUntilReady(opts: {
     containerName,
     detached,
     instanceName,
+    logFd,
     runtimeUrl,
     sentinel,
   } = opts;
 
+  const log = (msg: string): void => {
+    console.log(msg);
+    writeToLogFile(logFd, `${new Date().toISOString()} ${msg}\n`);
+  };
+
   if (detached) {
-    console.log("\n✅ Docker assistant hatched!\n");
-    console.log("Instance details:");
-    console.log(`  Name: ${instanceName}`);
-    console.log(`  Runtime: ${runtimeUrl}`);
-    console.log(`  Container: ${containerName}`);
-    console.log("");
-    console.log(`Stop with: vellum retire ${instanceName}`);
+    log("\n✅ Docker assistant hatched!\n");
+    log("Instance details:");
+    log(`  Name: ${instanceName}`);
+    log(`  Runtime: ${runtimeUrl}`);
+    log(`  Container: ${containerName}`);
+    log("");
+    log(`Stop with: vellum retire ${instanceName}`);
     return;
   }
 
-  console.log(`  Container: ${containerName}`);
-  console.log(`  Runtime: ${runtimeUrl}`);
-  console.log("");
-
-  const logFd = openLogFile("hatch.log");
+  log(`  Container: ${containerName}`);
+  log(`  Runtime: ${runtimeUrl}`);
+  log("");
 
   await new Promise<void>((resolve, reject) => {
     let settled = false;
@@ -782,16 +795,15 @@ async function tailContainerUntilReady(opts: {
     const timeout = setTimeout(() => {
       settle(() => {
         child.kill();
-        closeLogFile(logFd);
-        console.log("");
-        console.log(
+        log("");
+        log(
           `   \u26a0\ufe0f  Timed out waiting for assistant to become ready.`,
         );
-        console.log(`   The container is still running.`);
-        console.log(
+        log(`   The container is still running.`);
+        log(
           `   Check logs with: docker logs -f ${containerName}`,
         );
-        console.log("");
+        log("");
         resolve();
       });
     }, DOCKER_READY_TIMEOUT_MS);
@@ -815,13 +827,12 @@ async function tailContainerUntilReady(opts: {
           }
 
           settle(() => {
-            console.log("");
-            console.log(`\u2705 Docker containers are up and running!`);
-            console.log(`   Name: ${instanceName}`);
-            console.log(`   Runtime: ${runtimeUrl}`);
-            console.log("");
+            log("");
+            log(`\u2705 Docker containers are up and running!`);
+            log(`   Name: ${instanceName}`);
+            log(`   Runtime: ${runtimeUrl}`);
+            log("");
             child.kill();
-            closeLogFile(logFd);
             resolve();
           });
         });
@@ -846,7 +857,6 @@ async function tailContainerUntilReady(opts: {
 
     child.on("close", (code) => {
       settle(() => {
-        closeLogFile(logFd);
         if (
           code === 0 ||
           code === null ||
@@ -862,7 +872,6 @@ async function tailContainerUntilReady(opts: {
     });
     child.on("error", (err) => {
       settle(() => {
-        closeLogFile(logFd);
         reject(err);
       });
     });
@@ -870,7 +879,6 @@ async function tailContainerUntilReady(opts: {
     process.on("SIGINT", () => {
       settle(() => {
         child.kill();
-        closeLogFile(logFd);
         resolve();
       });
     });
