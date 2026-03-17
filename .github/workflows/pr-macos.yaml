@@ -165,6 +165,7 @@ jobs:
           SIGN_IDENTITY="Developer ID Application" \
           RELEASE_ARCH_FLAGS="--arch arm64" \
           SKIP_BUN_REBUILD=1 \
+          SKIP_CLEAN=1 \
           ./build.sh release
 
           APP_PATH="dist/$APP_DISPLAY_NAME.app"
