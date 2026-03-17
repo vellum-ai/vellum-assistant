@@ -8,6 +8,7 @@ final class MockSettingsClient: SettingsClientProtocol {
 
     var fetchVercelConfigCallCount = 0
     var fetchModelInfoCallCount = 0
+    var setModelCalls: [String] = []
     var fetchTelegramConfigCallCount = 0
     var fetchChannelVerificationStatusCalls: [String] = []
 
@@ -15,6 +16,7 @@ final class MockSettingsClient: SettingsClientProtocol {
 
     var vercelConfigResponse: VercelApiConfigResponseMessage?
     var modelInfoResponse: ModelInfoMessage?
+    var setModelResponse: ModelInfoMessage?
     var telegramConfigResponse: TelegramConfigResponseMessage?
     var channelVerificationResponses: [String: ChannelVerificationSessionResponseMessage] = [:]
 
@@ -28,6 +30,11 @@ final class MockSettingsClient: SettingsClientProtocol {
     func fetchModelInfo() async -> ModelInfoMessage? {
         fetchModelInfoCallCount += 1
         return modelInfoResponse
+    }
+
+    func setModel(model: String) async -> ModelInfoMessage? {
+        setModelCalls.append(model)
+        return setModelResponse
     }
 
     func fetchTelegramConfig() async -> TelegramConfigResponseMessage? {
