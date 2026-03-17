@@ -978,6 +978,13 @@ struct DynamicWorkspaceWrapper: View {
                 // Flag stays disabled on error
             }
         }
+        .onReceive(NotificationCenter.default.publisher(for: .assistantFeatureFlagDidChange)) { notification in
+            if let key = notification.userInfo?["key"] as? String,
+               let enabled = notification.userInfo?["enabled"] as? Bool,
+               key == Self.deployToVercelFlagKey {
+                isDeployToVercelEnabled = enabled
+            }
+        }
     }
 }
 
