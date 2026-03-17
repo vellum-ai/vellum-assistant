@@ -22,7 +22,7 @@ struct ImproveExperienceStepView: View {
             .offset(y: showTitle ? 0 : 8)
             .padding(.bottom, VSpacing.md)
 
-        Text("Here\u{2019}s how Vellum handles your data.\nYou can change these anytime in Settings.")
+        Text("Choose your privacy preferences.\nYou can update these anytime in Settings.")
             .font(.system(size: 16))
             .multilineTextAlignment(.center)
             .foregroundColor(VColor.contentSecondary)
@@ -83,7 +83,7 @@ struct ImproveExperienceStepView: View {
                 )
 
                 OnboardingButton(
-                    title: "Accept and Hatch",
+                    title: "Accept and Start",
                     style: .primary,
                     disabled: !tosAccepted
                 ) {
