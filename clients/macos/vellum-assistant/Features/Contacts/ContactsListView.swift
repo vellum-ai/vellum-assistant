@@ -94,18 +94,6 @@ struct ContactsListView: View {
                 }
             }
 
-            if viewModel.contacts.isEmpty {
-                Spacer()
-                VEmptyState(
-                    title: "No contacts yet",
-                    icon: VIcon.users.rawValue,
-                    actionLabel: "Add Contact",
-                    actionIcon: VIcon.plus.rawValue,
-                    action: { viewModel.isCreatingContact = true }
-                )
-                .frame(maxWidth: .infinity)
-                Spacer()
-            }
         }
         .padding(VSpacing.lg)
         .frame(maxHeight: .infinity, alignment: .top)

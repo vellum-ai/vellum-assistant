@@ -52,6 +52,7 @@ import {
   migrateContactsRolePrincipal,
   migrateConversationsThreadTypeIndex,
   migrateCreateThreadStartersTable,
+  migrateCreateTraceEventsTable,
   migrateDropAccountsTable,
   migrateDropAssistantIdColumns,
   migrateDropCapabilityCardState,
@@ -451,6 +452,9 @@ export function initializeDb(): void {
 
   // 79. Remove deleted capability-card state while keeping conversation starter chips
   migrateDropCapabilityCardState(database);
+
+  // 80. Trace events table for persistent trace/activity storage across sessions
+  migrateCreateTraceEventsTable(database);
 
   validateMigrationState(database);
 

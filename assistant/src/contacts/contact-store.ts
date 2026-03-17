@@ -904,15 +904,44 @@ export function updateChannelLastSeenById(channelId: string): void {
  * Update a guardian contact's principalId and its channel's identity fields.
  * Used for healing guardian binding drift when the JWT principal no longer
  * matches the stored guardian binding after a DB reset.
+ *
+ * Returns false if the update would violate the unique (type, address)
+ * constraint on contact_channels — e.g. when the incoming principal already
+ * exists on another channel record (a revoked former guardian entry).
+ * In that case the heal is skipped and trust stays `unknown`.
  */
 export function updateContactPrincipalAndChannel(
   contactId: string,
   channelId: string,
   newPrincipalId: string,
-): void {
+): boolean {
   const db = getDb();
   const now = Date.now();
   const normalizedAddress = newPrincipalId.toLowerCase();
+
+  // Look up the channel we're about to update so we know its type.
+  const channel = db
+    .select()
+    .from(contactChannels)
+    .where(eq(contactChannels.id, channelId))
+    .get();
+  if (!channel) return false;
+
+  // Guard: check if another channel row already holds this (type, address).
+  const conflicting = db
+    .select()
+    .from(contactChannels)
+    .where(
+      and(
+        eq(contactChannels.type, channel.type),
+        eq(contactChannels.address, normalizedAddress),
+      ),
+    )
+    .get();
+
+  if (conflicting && conflicting.id !== channelId) {
+    return false;
+  }
 
   db.transaction(() => {
     db.update(contacts)
@@ -931,6 +960,7 @@ export function updateContactPrincipalAndChannel(
   });
 
   emitContactChange();
+  return true;
 }
 
 /**

@@ -31,6 +31,9 @@ public final class SettingsStore: ObservableObject {
     @Published var maskedKey: String = ""
     @Published var apiKeySaveError: String?
     @Published var apiKeySaving: Bool = false
+    @Published var braveKeySaveError: String?
+    @Published var perplexityKeySaveError: String?
+    @Published var imageGenKeySaveError: String?
     @Published var maskedBraveKey: String = ""
     @Published var maskedPerplexityKey: String = ""
     @Published var maskedImageGenKey: String = ""
@@ -670,12 +673,24 @@ public final class SettingsStore: ObservableObject {
     func saveBraveKey(_ raw: String) {
         let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
+        braveKeySaveError = nil
         APIKeyManager.setKey(trimmed, for: "brave")
         removeDeletionTombstone(type: "api_key", name: "brave")
-        syncKeyToDaemon(provider: "brave", value: trimmed)
         hasBraveKey = true
         maskedBraveKey = Self.maskKey(trimmed)
-        scheduleRoutingSourceRefresh()
+        Task {
+            let result = await syncKeyToDaemonWithValidation(provider: "brave", value: trimmed)
+            if result.success {
+                scheduleRoutingSourceRefresh()
+            } else if let error = result.error {
+                braveKeySaveError = error
+                if !result.isTransient {
+                    APIKeyManager.deleteKey(for: "brave")
+                    hasBraveKey = false
+                    maskedBraveKey = ""
+                }
+            }
+        }
     }
 
     func clearBraveKey() {
@@ -690,12 +705,24 @@ public final class SettingsStore: ObservableObject {
     func savePerplexityKey(_ raw: String) {
         let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
+        perplexityKeySaveError = nil
         APIKeyManager.setKey(trimmed, for: "perplexity")
         removeDeletionTombstone(type: "api_key", name: "perplexity")
-        syncKeyToDaemon(provider: "perplexity", value: trimmed)
         hasPerplexityKey = true
         maskedPerplexityKey = Self.maskKey(trimmed)
-        scheduleRoutingSourceRefresh()
+        Task {
+            let result = await syncKeyToDaemonWithValidation(provider: "perplexity", value: trimmed)
+            if result.success {
+                scheduleRoutingSourceRefresh()
+            } else if let error = result.error {
+                perplexityKeySaveError = error
+                if !result.isTransient {
+                    APIKeyManager.deleteKey(for: "perplexity")
+                    hasPerplexityKey = false
+                    maskedPerplexityKey = ""
+                }
+            }
+        }
     }
 
     func clearPerplexityKey() {
@@ -710,12 +737,24 @@ public final class SettingsStore: ObservableObject {
     func saveImageGenKey(_ raw: String) {
         let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
+        imageGenKeySaveError = nil
         APIKeyManager.setKey(trimmed, for: "gemini")
         removeDeletionTombstone(type: "api_key", name: "gemini")
-        syncKeyToDaemon(provider: "gemini", value: trimmed)
         hasImageGenKey = true
         maskedImageGenKey = Self.maskKey(trimmed)
-        scheduleRoutingSourceRefresh()
+        Task {
+            let result = await syncKeyToDaemonWithValidation(provider: "gemini", value: trimmed)
+            if result.success {
+                scheduleRoutingSourceRefresh()
+            } else if let error = result.error {
+                imageGenKeySaveError = error
+                if !result.isTransient {
+                    APIKeyManager.deleteKey(for: "gemini")
+                    hasImageGenKey = false
+                    maskedImageGenKey = ""
+                }
+            }
+        }
     }
 
     func clearImageGenKey() {

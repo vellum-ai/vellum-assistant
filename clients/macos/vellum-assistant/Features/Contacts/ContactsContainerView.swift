@@ -34,10 +34,17 @@ struct ContactsContainerView: View {
     var body: some View {
         HStack(alignment: .top, spacing: VSpacing.lg) {
             // Left pane: contacts list (full height, internal scrolling)
-            ContactsListView(
-                viewModel: viewModel,
-                selection: $selection
-            )
+            VStack(spacing: VSpacing.sm) {
+                ContactsListView(
+                    viewModel: viewModel,
+                    selection: $selection
+                )
+                .frame(maxHeight: .infinity, alignment: .top)
+
+                if let createContactError {
+                    VInlineMessage(createContactError)
+                }
+            }
             .frame(width: 320)
             .frame(maxHeight: .infinity, alignment: .top)
             // Right pane: detail, loading, or placeholder
@@ -99,7 +106,7 @@ struct ContactsContainerView: View {
                     assistantDetailView
                         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
                 case .contact(let contactId):
-                    if let contact = viewModel.contacts.first(where: { $0.id == contactId }) {
+                    if let contact = viewModel.deduplicatedContacts.first(where: { $0.id == contactId }) {
                         if contact.role == "guardian" {
                             guardianDetailView(contact: contact)
                                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
@@ -210,6 +217,10 @@ struct ContactsContainerView: View {
                                 .controlSize(.small)
                         }
                     }
+
+                    if let guardianErrorMessage {
+                        VInlineMessage(guardianErrorMessage)
+                    }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(VSpacing.lg)
@@ -247,6 +258,7 @@ struct ContactsContainerView: View {
         let trimmedNotes = guardianEditedNotes.trimmingCharacters(in: .whitespacesAndNewlines)
 
         guardianIsSaving = true
+        guardianErrorMessage = nil
         do {
             if let updated = try await contactClient.updateContact(
                 contactId: contact.id,
@@ -259,6 +271,7 @@ struct ContactsContainerView: View {
                 showToast?("Contact saved", .success)
             }
         } catch {
+            guardianErrorMessage = "Failed to save changes. Please try again."
             showToast?("Failed to save contact", .error)
         }
         guardianIsSaving = false
@@ -267,6 +280,9 @@ struct ContactsContainerView: View {
     @State private var guardianEditedName: String = ""
     @State private var guardianEditedNotes: String = ""
     @State private var guardianIsSaving: Bool = false
+    @State private var guardianErrorMessage: String?
+    @State private var isCreatingContact: Bool = false
+    @State private var createContactError: String?
 
     @State private var cachedAssistantName: String = AssistantDisplayName.placeholder
 
@@ -291,6 +307,9 @@ struct ContactsContainerView: View {
     /// list, and shows the detail pane so the user can edit inline.
     private func createPlaceholderContact() async {
         viewModel.isCreatingContact = false
+        guard !isCreatingContact else { return }
+        isCreatingContact = true
+        createContactError = nil
         do {
             let contact = try await contactClient.createContact(
                 displayName: "New Contact",
@@ -304,7 +323,8 @@ struct ContactsContainerView: View {
                 selection = .contact(contact.id)
             }
         } catch {
-            // Silently fail — user can retry via the + button
+            createContactError = "Failed to create contact: \(error.localizedDescription)"
         }
+        isCreatingContact = false
     }
 }

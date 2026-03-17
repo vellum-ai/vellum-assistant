@@ -344,53 +344,11 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     /// Called when the daemon sends a `skills_state_changed` push event.
     public var onSkillStateChanged: ((SkillStateChangedMessage) -> Void)?
 
-    /// Called when the daemon sends a `skills_operation_response` message.
-    public var onSkillsOperationResponse: ((SkillsOperationResponseMessage) -> Void)?
-
-    /// Called when the daemon sends a `skills_inspect_response` message.
-    public var onSkillsInspectResponse: ((SkillsInspectResponseMessage) -> Void)?
-
-    /// Called when the daemon sends a `skills_draft_response` message.
-    public var onSkillsDraftResponse: ((SkillsDraftResponseMessage) -> Void)?
-
     /// Called when the daemon sends a `trace_event` message.
     public var onTraceEvent: ((TraceEventMessage) -> Void)?
 
     /// Called when the daemon sends a `usage_update` message.
     public var onUsageUpdate: ((UsageUpdate) -> Void)?
-
-    /// Called when the daemon sends an `apps_list_response` message.
-    public var onAppsListResponse: ((AppsListResponseMessage) -> Void)?
-
-    /// Called when the daemon sends an `app_preview_response` message.
-    public var onAppPreviewResponse: ((AppPreviewResponseMessage) -> Void)?
-
-    /// Called when the daemon sends a `shared_apps_list_response` message.
-    public var onSharedAppsListResponse: ((SharedAppsListResponseMessage) -> Void)?
-
-    /// Called when the daemon sends an `app_delete_response` message.
-    public var onAppDeleteResponse: ((AppDeleteResponseMessage) -> Void)?
-
-    /// Called when the daemon sends a `shared_app_delete_response` message.
-    public var onSharedAppDeleteResponse: ((SharedAppDeleteResponseMessage) -> Void)?
-
-    /// Called when the daemon sends a `fork_shared_app_response` message.
-    public var onForkSharedAppResponse: ((ForkSharedAppResponseMessage) -> Void)?
-
-    /// Called when the daemon sends an `app_history_response` message.
-    public var onAppHistoryResponse: ((AppHistoryResponse) -> Void)?
-
-    /// Called when the daemon sends an `app_diff_response` message.
-    public var onAppDiffResponse: ((AppDiffResponse) -> Void)?
-
-    /// Called when the daemon sends an `app_restore_response` message.
-    public var onAppRestoreResponse: ((AppRestoreResponse) -> Void)?
-
-    /// Called when the daemon sends a `bundle_app_response` message.
-    public var onBundleAppResponse: ((BundleAppResponseMessage) -> Void)?
-
-    /// Called when the daemon sends an `open_bundle_response` message.
-    public var onOpenBundleResponse: ((OpenBundleResponseMessage) -> Void)?
 
     /// Called when the daemon sends a `conversation_list_response` message.
     public var onConversationListResponse: ((ConversationListResponseMessage) -> Void)?
@@ -403,9 +361,6 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
 
     /// Called when the daemon sends a `message_content_response` with full (untruncated) content.
     public var onMessageContentResponse: ((MessageContentResponse) -> Void)?
-
-    /// Called when the daemon sends a `share_app_cloud_response` message.
-    public var onShareAppCloudResponse: ((ShareAppCloudResponseMessage) -> Void)?
 
     /// Called when the daemon sends a `slack_webhook_config_response` message.
     public var onSlackWebhookConfigResponse: ((SlackWebhookConfigResponseMessage) -> Void)?
@@ -823,63 +778,6 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
 
 
 
-    // MARK: - Skills Management
-
-    /// Enable a skill by name.
-    public func enableSkill(_ name: String) throws {
-        try send(SkillsEnableMessage(name: name))
-    }
-
-    /// Disable a skill by name.
-    public func disableSkill(_ name: String) throws {
-        try send(SkillsDisableMessage(name: name))
-    }
-
-    /// Install a skill from ClaWHub.
-    public func installSkill(slug: String, version: String? = nil) throws {
-        try send(SkillsInstallMessage(slug: slug, version: version))
-    }
-
-    /// Uninstall a skill by name.
-    public func uninstallSkill(_ name: String) throws {
-        try send(SkillsUninstallMessage(name: name))
-    }
-
-    /// Update a skill to its latest version.
-    public func updateSkill(_ name: String) throws {
-        try send(SkillsUpdateMessage(name: name))
-    }
-
-    /// Check for available skill updates.
-    public func checkSkillUpdates() throws {
-        try send(SkillsCheckUpdatesMessage())
-    }
-
-    /// Search for skills on ClaWHub.
-    public func searchSkills(query: String) throws {
-        try send(SkillsSearchMessage(query: query))
-    }
-
-    /// Inspect a ClaWHub skill for detailed metadata.
-    public func inspectSkill(slug: String) throws {
-        try send(SkillsInspectMessage(slug: slug))
-    }
-
-    /// Configure a skill's environment, API key, or config.
-    public func configureSkill(name: String, env: [String: String]? = nil, apiKey: String? = nil, config: [String: AnyCodable]? = nil) throws {
-        try send(SkillsConfigureMessage(name: name, env: env, apiKey: apiKey, config: config))
-    }
-
-    /// Draft metadata for a skill from source text.
-    public func draftSkill(sourceText: String) throws {
-        try send(SkillsDraftRequestMessage(sourceText: sourceText))
-    }
-
-    /// Create a new managed skill.
-    public func createSkill(skillId: String, name: String, description: String, emoji: String? = nil, bodyMarkdown: String, overwrite: Bool? = nil) throws {
-        try send(SkillsCreateMessage(skillId: skillId, name: name, description: description, emoji: emoji, bodyMarkdown: bodyMarkdown, overwrite: overwrite))
-    }
-
     // MARK: - Queue Management
 
     /// Delete a specific queued message by its requestId.
@@ -917,78 +815,6 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     /// Used to rehydrate messages that were loaded with truncated text/tool results.
     public func sendMessageContentRequest(conversationId: String, messageId: String) throws {
         try send(MessageContentRequest(type: "message_content_request", conversationId: conversationId, messageId: messageId))
-    }
-
-    // MARK: - Apps
-
-    /// Request opening an app by ID. The daemon responds with a `ui_surface_show` message.
-    public func sendAppOpen(appId: String) throws {
-        try send(AppOpenRequestMessage(appId: appId))
-    }
-
-    /// Send a preview screenshot for an app.
-    public func sendAppUpdatePreview(appId: String, preview: String) throws {
-        try send(AppUpdatePreviewRequestMessage(appId: appId, preview: preview))
-    }
-
-    /// Request the list of all apps from the daemon.
-    public func sendAppsList() throws {
-        try send(AppsListRequestMessage())
-    }
-
-    /// Request a single app's preview screenshot.
-    public func sendAppPreview(appId: String) throws {
-        try send(AppPreviewRequestMessage(type: "app_preview_request", appId: appId))
-    }
-
-    /// Request version history for an app.
-    public func sendAppHistory(appId: String, limit: Int? = nil) throws {
-        try send(AppHistoryRequest(type: "app_history_request", appId: appId, limit: limit.map { Double($0) }))
-    }
-
-    /// Request a diff between two versions of an app.
-    public func sendAppDiff(appId: String, fromCommit: String, toCommit: String? = nil) throws {
-        try send(AppDiffRequest(type: "app_diff_request", appId: appId, fromCommit: fromCommit, toCommit: toCommit))
-    }
-
-    /// Restore an app to a previous version.
-    public func sendAppRestore(appId: String, commitHash: String) throws {
-        try send(AppRestoreRequest(type: "app_restore_request", appId: appId, commitHash: commitHash))
-    }
-
-    /// Request bundling an app for sharing.
-    public func sendBundleApp(appId: String) throws {
-        try send(BundleAppRequestMessage(appId: appId))
-    }
-
-    /// Request opening and scanning a .vellum bundle.
-    public func sendOpenBundle(filePath: String) throws {
-        try send(OpenBundleMessage(filePath: filePath))
-    }
-
-    /// Request the list of shared/received apps.
-    public func sendSharedAppsList() throws {
-        try send(SharedAppsListRequestMessage())
-    }
-
-    /// Delete a persistent user-created app by ID.
-    public func sendAppDelete(appId: String) throws {
-        try send(AppDeleteRequestMessage(appId: appId))
-    }
-
-    /// Delete a shared app by UUID.
-    public func sendSharedAppDelete(uuid: String) throws {
-        try send(SharedAppDeleteRequestMessage(uuid: uuid))
-    }
-
-    /// Fork a shared app into a local editable copy.
-    public func sendForkSharedApp(uuid: String) throws {
-        try send(ForkSharedAppRequestMessage(uuid: uuid))
-    }
-
-    /// Share a local app via a cloud link.
-    public func sendShareAppCloud(appId: String) throws {
-        try send(ShareAppCloudRequestMessage(appId: appId))
     }
 
     /// Get or set the Slack webhook URL configuration.

@@ -350,27 +350,15 @@ extension AppDelegate {
         let storedIcon = info["icon"]
         let appIcon = cachedApp?.icon ?? (storedIcon?.isEmpty == false ? storedIcon : nil)
         mainWindow?.appListManager.recordAppOpen(id: appId, name: appName, icon: appIcon)
-        do {
-            try daemonClient.sendAppOpen(appId: appId)
-        } catch {
-            log.error("Failed to send app open for \(appId, privacy: .public): \(error)")
-        }
+        Task { await AppsClient.openAppAndDispatchSurface(id: appId, daemonClient: daemonClient) }
     }
 
     @objc func toggleSkill(_ sender: NSMenuItem) {
         guard let name = sender.representedObject as? String else { return }
         if sender.state == .on {
-            do {
-                try daemonClient.disableSkill(name)
-            } catch {
-                log.error("Failed to disable skill \(name, privacy: .public): \(error)")
-            }
+            Task { await SkillsClient().disableSkill(name: name) }
         } else {
-            do {
-                try daemonClient.enableSkill(name)
-            } catch {
-                log.error("Failed to enable skill \(name, privacy: .public): \(error)")
-            }
+            Task { await SkillsClient().enableSkill(name: name) }
         }
         refreshSkillsCache()
     }
@@ -378,26 +366,16 @@ extension AppDelegate {
     func refreshAppsCache() {
         refreshAppsTask?.cancel()
         refreshAppsTask = Task {
-            let stream = daemonClient.subscribe()
-            do {
-                try daemonClient.sendAppsList()
-            } catch { return }
-            for await message in stream {
-                guard !Task.isCancelled else { return }
-                if case .appsListResponse(let response) = message {
-                    if response.success {
-                        self.cachedApps = response.apps
-                        let daemonItems = response.apps.map {
-                            AppListManager.AppItem_Daemon(
-                                id: $0.id, name: $0.name, description: $0.description,
-                                icon: $0.icon, appType: nil, createdAt: $0.createdAt
-                            )
-                        }
-                        self.mainWindow?.appListManager.syncFromDaemon(daemonItems)
-                    }
-                    return
-                }
+            let response = await AppsClient().fetchAppsList()
+            guard let response, response.success else { return }
+            self.cachedApps = response.apps
+            let daemonItems = response.apps.map {
+                AppListManager.AppItem_Daemon(
+                    id: $0.id, name: $0.name, description: $0.description,
+                    icon: $0.icon, appType: nil, createdAt: $0.createdAt
+                )
             }
+            self.mainWindow?.appListManager.syncFromDaemon(daemonItems)
         }
     }
 
@@ -513,22 +491,11 @@ extension AppDelegate {
     }
 
     func refreshSkillsCache() {
-        // Cancel any in-flight refresh so we don't consume a stale response.
-        // The new task will send its own request and wait for the next response,
-        // ensuring the cache always reflects the latest daemon state.
         refreshSkillsTask?.cancel()
         refreshSkillsTask = Task {
-            let stream = daemonClient.subscribe()
-            do {
-                try daemonClient.send(SkillsListRequestMessage())
-            } catch { return }
-            for await message in stream {
-                guard !Task.isCancelled else { return }
-                if case .skillsListResponse(let response) = message {
-                    self.cachedSkills = response.skills
-                    return
-                }
-            }
+            let response = await SkillsClient().fetchSkillsList()
+            guard let response else { return }
+            self.cachedSkills = response.skills
         }
     }
 

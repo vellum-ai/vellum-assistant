@@ -8,6 +8,7 @@ const BASE_LIFETIME_MS: Record<string, number> = {
   project: 14 * 86_400_000, // 2 weeks
   decision: 14 * 86_400_000, // 2 weeks
   event: 3 * 86_400_000, // 3 days
+  capability: Infinity,
 };
 
 const DEFAULT_LIFETIME_MS = 30 * 86_400_000;
@@ -21,7 +22,10 @@ export function computeStaleness(
   now: number,
 ): { level: StalenessLevel; ratio: number } {
   const baseLifetime = BASE_LIFETIME_MS[item.kind] ?? DEFAULT_LIFETIME_MS;
-  const reinforcement = Math.max(1, 1 + 0.3 * (item.sourceConversationCount - 1));
+  const reinforcement = Math.max(
+    1,
+    1 + 0.3 * (item.sourceConversationCount - 1),
+  );
   const effectiveLifetime = baseLifetime * reinforcement;
   const age = now - item.firstSeenAt;
   const ratio = age / effectiveLifetime;

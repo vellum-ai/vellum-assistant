@@ -19,7 +19,6 @@ let mockPrimaryInboxAddress: string | undefined;
 mock.module("../calls/twilio-rest.js", () => ({
   hasTwilioCredentials: () => mockHasTwilioCredentials,
   getPhoneNumberSid: async () => null,
-  getTollFreeVerificationStatus: async () => null,
 }));
 
 mock.module("../config/env.js", () => ({}));

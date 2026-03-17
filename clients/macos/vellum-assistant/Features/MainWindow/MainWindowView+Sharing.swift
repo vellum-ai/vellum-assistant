@@ -118,9 +118,8 @@ extension MainWindowView {
         sharing.shareAppId = appId
 
         Task { @MainActor in
-            let previousHandler = daemonClient.onBundleAppResponse
-            daemonClient.onBundleAppResponse = { response in
-                daemonClient.onBundleAppResponse = previousHandler
+            let response = await AppsClient().bundleApp(appId: appId)
+            if let response {
                 let url = Self.cleanBundleURL(bundlePath: response.bundlePath, appName: response.manifest.name)
                 Self.applyFileIcon(to: url, iconBase64: response.iconImageBase64, emojiIcon: response.manifest.icon, appName: response.manifest.name)
                 sharing.shareFileURL = url
@@ -128,13 +127,8 @@ extension MainWindowView {
                 sharing.shareAppIcon = Self.buildAppIcon(iconBase64: response.iconImageBase64, emojiIcon: response.manifest.icon, appName: response.manifest.name)
                 sharing.isBundling = false
                 sharing.showSharePicker = true
-            }
-
-            do {
-                try daemonClient.sendBundleApp(appId: appId)
-            } catch {
+            } else {
                 sharing.isBundling = false
-                daemonClient.onBundleAppResponse = previousHandler
             }
         }
     }

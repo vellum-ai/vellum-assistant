@@ -61,6 +61,7 @@ import {
 import { ensureVellumGuardianBinding } from "../runtime/guardian-vellum-migration.js";
 import { RuntimeHttpServer } from "../runtime/http-server.js";
 import { startScheduler } from "../schedule/scheduler.js";
+import { seedCatalogSkillMemories } from "../skills/skill-memory.js";
 import { UsageTelemetryReporter } from "../telemetry/usage-telemetry-reporter.js";
 import { getLogger, initLogger } from "../util/logger.js";
 import {
@@ -372,6 +373,12 @@ export async function runDaemon(): Promise<void> {
 
     log.info("Daemon startup: starting memory worker");
     const memoryWorker = startMemoryJobsWorker();
+
+    // Seed capability memories for first-party catalog skills so the memory
+    // pipeline can surface relevant skills via semantic search.
+    void seedCatalogSkillMemories().catch((err) =>
+      log.warn({ err }, "Catalog skill memory seeding failed — continuing"),
+    );
 
     registerWatcherProviders();
     registerMessagingProviders();

@@ -183,11 +183,8 @@ mock.module("../calls/twilio-config.js", () => ({
 }));
 
 mock.module("../calls/twilio-rest.js", () => ({
-  deleteTollFreeVerification: async () => {},
   fetchMessageStatus: async () => ({ status: "delivered" }),
   getPhoneNumberSid: async () => "PN_test",
-  getTollFreeVerificationBySid: async () => null,
-  getTollFreeVerificationStatus: async () => null,
   getTwilioCredentials: () => ({
     accountSid: readMockTwilioAccountSid() ?? "",
     authToken: readMockTwilioAuthToken() ?? "",
@@ -205,20 +202,6 @@ mock.module("../calls/twilio-rest.js", () => ({
   }),
   releasePhoneNumber: async () => {},
   searchAvailableNumbers: async () => mockAvailableNumbers,
-  submitTollFreeVerification: async () => ({
-    sid: "VF_test",
-    status: "PENDING_REVIEW",
-  }),
-  updateTollFreeVerification: async (
-    _accountSid: string,
-    _authToken: string,
-    verificationSid: string,
-  ) => ({
-    sid: verificationSid,
-    status: "PENDING_REVIEW",
-    editAllowed: true,
-    editExpiration: undefined,
-  }),
   updatePhoneNumberWebhooks: async (
     accountSid: string,
     authToken: string,

@@ -102,38 +102,14 @@ extension DaemonClient {
             break // Handled by ScheduleClient via GatewayHTTPClient.
         case .skillStateChanged(let msg):
             onSkillStateChanged?(msg)
-        case .skillsOperationResponse(let msg):
-            onSkillsOperationResponse?(msg)
-        case .skillsInspectResponse(let msg):
-            onSkillsInspectResponse?(msg)
-        case .skillsDraftResponse(let msg):
-            onSkillsDraftResponse?(msg)
-        case .appsListResponse(let msg):
-            onAppsListResponse?(msg)
-        case .appUpdatePreviewResponse:
-            break // Fire-and-forget; no callback needed
-        case .appPreviewResponse(let msg):
-            onAppPreviewResponse?(msg)
-        case .appHistoryResponse(let msg):
-            onAppHistoryResponse?(msg)
-        case .appDiffResponse(let msg):
-            onAppDiffResponse?(msg)
-        case .appFileAtVersionResponse:
-            break // Handled by subscribers
-        case .appRestoreResponse(let msg):
-            onAppRestoreResponse?(msg)
-        case .sharedAppsListResponse(let msg):
-            onSharedAppsListResponse?(msg)
-        case .appDeleteResponse(let msg):
-            onAppDeleteResponse?(msg)
-        case .sharedAppDeleteResponse(let msg):
-            onSharedAppDeleteResponse?(msg)
-        case .forkSharedAppResponse(let msg):
-            onForkSharedAppResponse?(msg)
-        case .bundleAppResponse(let msg):
-            onBundleAppResponse?(msg)
-        case .openBundleResponse(let msg):
-            onOpenBundleResponse?(msg)
+        case .skillsOperationResponse, .skillsInspectResponse, .skillsDraftResponse:
+            break // Handled by SkillsClient via GatewayHTTPClient.
+        case .appsListResponse, .appUpdatePreviewResponse, .appPreviewResponse,
+             .appHistoryResponse, .appDiffResponse, .appFileAtVersionResponse,
+             .appRestoreResponse, .sharedAppsListResponse, .appDeleteResponse,
+             .sharedAppDeleteResponse, .forkSharedAppResponse, .bundleAppResponse,
+             .openBundleResponse:
+            break // Handled by AppsClient via GatewayHTTPClient.
         case .conversationListResponse(let msg):
             onConversationListResponse?(msg)
         case .conversationTitleUpdated(let msg):
@@ -142,8 +118,8 @@ extension DaemonClient {
             onHistoryResponse?(msg)
         case .messageContentResponse(let msg):
             onMessageContentResponse?(msg)
-        case .shareAppCloudResponse(let msg):
-            onShareAppCloudResponse?(msg)
+        case .shareAppCloudResponse:
+            break // Handled by AppsClient via GatewayHTTPClient.
         case .slackWebhookConfigResponse(let msg):
             onSlackWebhookConfigResponse?(msg)
         case .ingressConfigResponse(let msg):

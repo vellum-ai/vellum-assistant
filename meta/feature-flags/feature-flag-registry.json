@@ -39,7 +39,7 @@
       "key": "feature_flags.app-builder-multifile.enabled",
       "label": "App Builder Multi-file",
       "description": "Enable multi-file TSX app creation with esbuild compilation instead of single-HTML apps",
-      "defaultEnabled": true
+      "defaultEnabled": false
     },
     {
       "id": "mobile-pairing",

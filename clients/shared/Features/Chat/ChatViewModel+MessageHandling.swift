@@ -1900,6 +1900,16 @@ extension ChatViewModel {
                         break
                     }
                 }
+
+                // Clean up the native notification path when the daemon resolves
+                // the confirmation independently (timeout, new-message auto-deny,
+                // system cascade). Skip when source is "button" or "inline_nl"
+                // because respondToConfirmation / respondToAlwaysAllow already
+                // called onInlineConfirmationResponse for those paths.
+                if msg.source != "button" && msg.source != "inline_nl" {
+                    let decisionString = msg.state == "approved" ? "allow" : "deny"
+                    onInlineConfirmationResponse?(msg.requestId, decisionString)
+                }
             }
 
         case .assistantActivityState(let msg):

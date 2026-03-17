@@ -91,9 +91,7 @@ export function ensureVellumGuardianBinding(
  *
  * Returns true if healing occurred, false otherwise.
  */
-export function healGuardianBindingDrift(
-  incomingPrincipalId: string,
-): boolean {
+export function healGuardianBindingDrift(incomingPrincipalId: string): boolean {
   if (!incomingPrincipalId.startsWith("vellum-principal-")) {
     return false;
   }
@@ -105,11 +103,22 @@ export function healGuardianBindingDrift(
   if (!currentPrincipalId?.startsWith("vellum-principal-")) return false;
   if (currentPrincipalId === incomingPrincipalId) return false;
 
-  updateContactPrincipalAndChannel(
+  const updated = updateContactPrincipalAndChannel(
     guardianResult.contact.id,
     guardianResult.channel.id,
     incomingPrincipalId,
   );
+
+  if (!updated) {
+    log.warn(
+      {
+        oldPrincipalId: currentPrincipalId,
+        newPrincipalId: incomingPrincipalId,
+      },
+      "Skipped guardian binding drift heal — address collision on contact_channels",
+    );
+    return false;
+  }
 
   log.info(
     {

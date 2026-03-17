@@ -13,7 +13,6 @@ let mockGatewayHealth = {
 
 mock.module("../calls/twilio-rest.js", () => ({
   getPhoneNumberSid: async () => null,
-  getTollFreeVerificationStatus: async () => null,
   getTwilioCredentials: () => ({
     accountSid: "AC_test",
     authToken: "test-auth-token",

@@ -331,6 +331,7 @@ extension AppDelegate {
 
                 hasSetupApp = false
                 hasSetupDaemon = false
+                UserDefaults.standard.removeObject(forKey: "managedServiceModesInitialized")
                 showAuthWindow(reusingWindow: detachedWindow)
                 authManager.errorMessage = nil
             }
@@ -416,11 +417,16 @@ extension AppDelegate {
                     log.info("Local assistant API key provisioned: \(id, privacy: .public)")
                 }
 
-                // Set service modes to "managed", forcing overwrite so that daemon-
-                // materialized schema defaults ("your-own") are replaced on first
-                // authenticated startup. On subsequent restarts the user's explicit
-                // choices are preserved because authentication is already established.
-                WorkspaceConfigIO.initializeServiceDefaults(defaultMode: "managed", force: true)
+                // Set service modes to "managed" on the first authenticated
+                // bootstrap so daemon-materialized schema defaults ("your-own")
+                // are replaced. On subsequent launches, pass force: false so
+                // user-chosen service modes (e.g. "your-own") are preserved.
+                let flagKey = "managedServiceModesInitialized"
+                let alreadyInitialized = UserDefaults.standard.bool(forKey: flagKey)
+                WorkspaceConfigIO.initializeServiceDefaults(defaultMode: "managed", force: !alreadyInitialized)
+                if !alreadyInitialized {
+                    UserDefaults.standard.set(true, forKey: flagKey)
+                }
 
                 self.localBootstrapDidComplete = true
                 SentryDeviceInfo.updateOrganizationTag(UserDefaults.standard.string(forKey: "connectedOrganizationId"))
@@ -632,6 +638,7 @@ extension AppDelegate {
         SentryDeviceInfo.updateOrganizationTag(nil)
         SentryDeviceInfo.updateUserTag(nil)
         UserDefaults.standard.removeObject(forKey: "lastActivePanel")
+        UserDefaults.standard.removeObject(forKey: "managedServiceModesInitialized")
 
         daemonClient.disconnect()
         actorTokenBootstrapTask?.cancel()

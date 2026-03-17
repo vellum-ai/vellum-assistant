@@ -662,6 +662,20 @@ export function handleSurfaceAction(
     mergedData,
     surfaceData,
   );
+
+  // Forms are one-shot surfaces — auto-complete immediately so the client
+  // transitions from the "Submitting…" spinner to a completion chip without
+  // requiring the LLM to call ui_dismiss.
+  if (pending.surfaceType === "form") {
+    ctx.sendToClient({
+      type: "ui_surface_complete",
+      conversationId: ctx.conversationId,
+      surfaceId,
+      summary,
+      submittedData: mergedData,
+    });
+  }
+
   let fallbackContent = `[User action on ${pending.surfaceType} surface: ${summary}]`;
   // Append structured data so the LLM has access to IDs/values it needs
   // to act on (e.g. selectedIds for archiving).

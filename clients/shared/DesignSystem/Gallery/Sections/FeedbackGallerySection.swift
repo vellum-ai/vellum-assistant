@@ -65,6 +65,18 @@ struct FeedbackGallerySection: View {
                         VBadge(style: .label("Error"), color: VColor.systemNegativeStrong)
                         VBadge(style: .label("Warn"), color: VColor.systemNegativeHover)
                     }
+
+                    // Icon label row
+                    HStack(spacing: VSpacing.lg) {
+                        VStack(spacing: VSpacing.xs) {
+                            Text("With iconColor").font(VFont.caption).foregroundColor(VColor.contentTertiary)
+                            VBadge(label: "Guardian", icon: .shieldCheck, iconColor: VColor.primaryBase, tone: .neutral)
+                        }
+                        VStack(spacing: VSpacing.xs) {
+                            Text("Default iconColor").font(VFont.caption).foregroundColor(VColor.contentTertiary)
+                            VBadge(label: "Status", icon: .sparkles, tone: .accent)
+                        }
+                    }
                 }
             }
 

@@ -655,22 +655,6 @@ export function injectTurnContext(
   };
 }
 
-// Keep legacy wrappers for backwards compatibility with existing callers.
-/** @deprecated Use {@link buildTurnContextBlock} instead. */
-export function buildChannelTurnContextBlock(
-  params: ChannelTurnContextParams,
-): string {
-  return buildTurnContextBlock(params, undefined);
-}
-
-/** @deprecated Use {@link injectTurnContext} instead. */
-export function injectChannelTurnContext(
-  message: Message,
-  params: ChannelTurnContextParams,
-): Message {
-  return injectTurnContext(message, params, undefined);
-}
-
 /**
  * Build the `<inbound_actor_context>` text block used for model grounding.
  *
@@ -752,7 +736,10 @@ export function buildInboundActorContextBlock(
   }
   // Contact metadata - only included when the sender has a contact record
   // with non-default values.
-  if (ctx.contactNotes && sanitizeInlineContextValue(ctx.contactNotes) !== ctx.trustClass) {
+  if (
+    ctx.contactNotes &&
+    sanitizeInlineContextValue(ctx.contactNotes) !== ctx.trustClass
+  ) {
     lines.push(
       `contact_notes: ${sanitizeInlineContextValue(ctx.contactNotes)}`,
     );
@@ -945,21 +932,6 @@ export function stripChannelTurnContext(messages: Message[]): Message[] {
 export interface InterfaceTurnContextParams {
   turnContext: TurnInterfaceContext;
   conversationOriginInterface: InterfaceId | null;
-}
-
-/** @deprecated Use {@link buildTurnContextBlock} instead. */
-export function buildInterfaceTurnContextBlock(
-  params: InterfaceTurnContextParams,
-): string {
-  return buildTurnContextBlock(undefined, params);
-}
-
-/** @deprecated Use {@link injectTurnContext} instead. */
-export function injectInterfaceTurnContext(
-  message: Message,
-  params: InterfaceTurnContextParams,
-): Message {
-  return injectTurnContext(message, undefined, params);
 }
 
 /** Strip interface turn context blocks (both legacy separate and unified). */

@@ -406,8 +406,26 @@ export function wipeConversation(id: string): WipeConversationResult {
            AND mi_active.scope_id = mi_old.scope_id
            AND mi_active.status = 'active'
            AND mi_active.id != mi_old.id
-           AND mi_active.id != mi_new.id
+           -- Exclude items sourced exclusively from the conversation being
+           -- wiped — deleteConversation will remove them, so they should not
+           -- block restoration of mi_old.
+           AND NOT (
+             EXISTS (
+               SELECT 1 FROM memory_item_sources mis_a
+               JOIN messages m_a ON m_a.id = mis_a.message_id
+               WHERE mis_a.memory_item_id = mi_active.id
+                 AND m_a.conversation_id = ?
+             )
+             AND NOT EXISTS (
+               SELECT 1 FROM memory_item_sources mis_b
+               JOIN messages m_b ON m_b.id = mis_b.message_id
+               WHERE mis_b.memory_item_id = mi_active.id
+                 AND m_b.conversation_id != ?
+             )
+           )
        )`,
+    id,
+    id,
     id,
     id,
   );

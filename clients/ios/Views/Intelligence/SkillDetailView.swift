@@ -94,15 +94,10 @@ struct SkillDetailView: View {
                 if isInstalled {
                     // Enable/Disable toggle
                     Button {
-                        do {
-                            if skill.state == "enabled" {
-                                try skillsStore.disableSkill(name: skill.name)
-                            } else {
-                                try skillsStore.enableSkill(name: skill.name)
-                            }
-                            skillsStore.fetchSkills(force: true)
-                        } catch {
-                            // Silently fail — the store handles errors
+                        if skill.state == "enabled" {
+                            skillsStore.disableSkill(name: skill.name)
+                        } else {
+                            skillsStore.enableSkill(name: skill.name)
                         }
                     } label: {
                         HStack {

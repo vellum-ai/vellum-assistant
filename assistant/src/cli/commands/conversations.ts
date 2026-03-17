@@ -1,9 +1,13 @@
 import type { Command } from "commander";
 
-import { getQdrantUrlEnv, getRuntimeHttpPort } from "../../config/env.js";
+import {
+  getQdrantUrlEnv,
+  getRuntimeHttpHost,
+  getRuntimeHttpPort,
+} from "../../config/env.js";
 import { getConfig } from "../../config/loader.js";
 import { shouldAutoStartDaemon } from "../../daemon/connection-policy.js";
-import { isHttpHealthy } from "../../daemon/daemon-control.js";
+import { healthCheckHost, isHttpHealthy } from "../../daemon/daemon-control.js";
 import { ensureDaemonRunning } from "../../daemon/lifecycle.js";
 import { formatJson, formatMarkdown } from "../../export/formatter.js";
 import {
@@ -20,6 +24,11 @@ import {
 } from "../../memory/embedding-backend.js";
 import { enqueueMemoryJob } from "../../memory/jobs-store.js";
 import { initQdrantClient } from "../../memory/qdrant-client.js";
+import {
+  initAuthSigningKey,
+  loadOrCreateSigningKey,
+  mintDaemonDeliveryToken,
+} from "../../runtime/auth/token-service.js";
 import { timeAgo } from "../../util/time.js";
 import { initializeDb } from "../db.js";
 import { log } from "../logger.js";
@@ -315,9 +324,15 @@ Examples:
       // rows — preventing FK constraint failures from follow-up writes.
       if (await isHttpHealthy()) {
         const port = getRuntimeHttpPort();
+        const host = healthCheckHost(getRuntimeHttpHost());
+        initAuthSigningKey(loadOrCreateSigningKey());
+        const token = mintDaemonDeliveryToken();
         const res = await fetch(
-          `http://127.0.0.1:${port}/v1/conversations/${conversation.id}/wipe`,
-          { method: "POST" },
+          `http://${host}:${port}/v1/conversations/${conversation.id}/wipe`,
+          {
+            method: "POST",
+            headers: { Authorization: `Bearer ${token}` },
+          },
         );
         if (!res.ok) {
           const body = await res.text();
