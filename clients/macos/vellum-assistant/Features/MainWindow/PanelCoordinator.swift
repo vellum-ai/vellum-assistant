@@ -697,6 +697,14 @@ struct ActiveChatViewWrapper: View {
                 viewModel?.inputText = starter.prompt
             },
             onFetchThreadStarters: { [weak viewModel] in viewModel?.fetchThreadStarters() },
+            capabilityCards: MacOSClientFeatureFlagManager.shared.isEnabled("capability_feed_enabled") ? viewModel.capabilityCards : [],
+            capabilityCardsLoading: MacOSClientFeatureFlagManager.shared.isEnabled("capability_feed_enabled") && viewModel.capabilityCardsLoading,
+            cardCategoryStatuses: MacOSClientFeatureFlagManager.shared.isEnabled("capability_feed_enabled") ? viewModel.cardCategoryStatuses : [:],
+            onSelectCard: { [weak viewModel] card in
+                viewModel?.inputText = card.prompt
+            },
+            onFetchCapabilityCards: { [weak viewModel] in viewModel?.fetchCapabilityCards() },
+            showCapabilityFeed: MacOSClientFeatureFlagManager.shared.isEnabled("capability_feed_enabled"),
             anchorMessageId: $anchorMessageId,
             highlightedMessageId: $highlightedMessageId,
             btwResponse: viewModel.btwResponse,
