@@ -12,7 +12,13 @@
  */
 
 import { createHash } from "node:crypto";
-import { existsSync, lstatSync, readdirSync, readFileSync } from "node:fs";
+import {
+  existsSync,
+  lstatSync,
+  readdirSync,
+  readFileSync,
+  statSync,
+} from "node:fs";
 import { join, relative } from "node:path";
 import { gzipSync } from "node:zlib";
 
@@ -396,7 +402,17 @@ export interface BuildExportVBundleOptions {
 export function buildExportVBundle(
   options: BuildExportVBundleOptions,
 ): BuildVBundleResult {
-  const { dbPath, configPath, source, description, checkpoint, trustPath, skillsDir, workspaceDir, hooksDir } = options;
+  const {
+    dbPath,
+    configPath,
+    source,
+    description,
+    checkpoint,
+    trustPath,
+    skillsDir,
+    workspaceDir,
+    hooksDir,
+  } = options;
 
   // Flush WAL to the main database file before reading so the export
   // captures all committed rows (SQLite WAL mode keeps recent writes
@@ -426,7 +442,7 @@ export function buildExportVBundle(
   }
 
   // Include workspace skills if the path exists and is a directory.
-  if (skillsDir && existsSync(skillsDir) && lstatSync(skillsDir).isDirectory()) {
+  if (skillsDir && existsSync(skillsDir) && statSync(skillsDir).isDirectory()) {
     files.push(...walkDirectory(skillsDir, "skills"));
   }
 

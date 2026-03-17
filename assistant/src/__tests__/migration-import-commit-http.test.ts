@@ -755,6 +755,192 @@ describe("commitImport", () => {
 });
 
 // ---------------------------------------------------------------------------
+// Skills/hooks directory clearing tests
+// ---------------------------------------------------------------------------
+
+describe("commitImport — directory clearing", () => {
+  let skillsDir: string;
+  let hooksDir: string;
+
+  beforeEach(() => {
+    skillsDir = join(testDir, "skills");
+    hooksDir = join(testDir, "hooks");
+  });
+
+  afterEach(() => {
+    // Clean up skills/hooks dirs and any backup dirs
+    for (const entry of readdirSync(testDir)) {
+      if (entry.startsWith("skills") || entry.startsWith("hooks")) {
+        rmSync(join(testDir, entry), { recursive: true, force: true });
+      }
+    }
+  });
+
+  test("clears stale skills not present in the bundle", () => {
+    mkdirSync(join(skillsDir, "stale-skill"), { recursive: true });
+    writeFileSync(join(skillsDir, "stale-skill", "SKILL.md"), "stale");
+
+    const skillData = new TextEncoder().encode("# New Skill");
+    const vbundle = createValidVBundle([
+      { path: "data/db/assistant.db", data: new Uint8Array([0x01]) },
+      { path: "skills/new-skill/SKILL.md", data: skillData },
+    ]);
+
+    const resolver = new DefaultPathResolver(
+      testDbPath,
+      testConfigPath,
+      undefined,
+      skillsDir,
+    );
+    const result = commitImport({
+      archiveData: vbundle,
+      pathResolver: resolver,
+    });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+
+    // New skill written
+    expect(existsSync(join(skillsDir, "new-skill", "SKILL.md"))).toBe(true);
+    expect(readFileSync(join(skillsDir, "new-skill", "SKILL.md"), "utf8")).toBe(
+      "# New Skill",
+    );
+
+    // Stale skill removed from active directory
+    expect(existsSync(join(skillsDir, "stale-skill"))).toBe(false);
+  });
+
+  test("preserves backup of existing skills directory", () => {
+    mkdirSync(join(skillsDir, "old-skill"), { recursive: true });
+    writeFileSync(join(skillsDir, "old-skill", "SKILL.md"), "old content");
+
+    const skillData = new TextEncoder().encode("# New Skill");
+    const vbundle = createValidVBundle([
+      { path: "data/db/assistant.db", data: new Uint8Array([0x01]) },
+      { path: "skills/new-skill/SKILL.md", data: skillData },
+    ]);
+
+    const resolver = new DefaultPathResolver(
+      testDbPath,
+      testConfigPath,
+      undefined,
+      skillsDir,
+    );
+    const result = commitImport({
+      archiveData: vbundle,
+      pathResolver: resolver,
+    });
+
+    expect(result.ok).toBe(true);
+
+    // A backup directory should exist alongside the skills dir
+    const backupDirs = readdirSync(testDir).filter((f) =>
+      f.startsWith("skills.pre-import-backup-"),
+    );
+    expect(backupDirs.length).toBe(1);
+
+    // Backup contains the old skill
+    expect(
+      existsSync(join(testDir, backupDirs[0], "old-skill", "SKILL.md")),
+    ).toBe(true);
+    expect(
+      readFileSync(
+        join(testDir, backupDirs[0], "old-skill", "SKILL.md"),
+        "utf8",
+      ),
+    ).toBe("old content");
+  });
+
+  test("skips clearing when resolver has no skills root", () => {
+    // Resolver without skillsDir — resolveRoot returns null
+    const resolver = new DefaultPathResolver(testDbPath, testConfigPath);
+
+    const skillData = new TextEncoder().encode("# Skill");
+    const vbundle = createValidVBundle([
+      { path: "data/db/assistant.db", data: new Uint8Array([0x01]) },
+      { path: "skills/my-skill/SKILL.md", data: skillData },
+    ]);
+
+    const result = commitImport({
+      archiveData: vbundle,
+      pathResolver: resolver,
+    });
+
+    // Skills entry is skipped (no disk target), but import succeeds
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const skillsFile = result.report.files.find(
+      (f) => f.path === "skills/my-skill/SKILL.md",
+    );
+    expect(skillsFile?.action).toBe("skipped");
+  });
+
+  test("clears stale hooks not present in the bundle", () => {
+    mkdirSync(join(hooksDir, "stale-hook"), { recursive: true });
+    writeFileSync(join(hooksDir, "stale-hook", "hook.sh"), "stale");
+
+    const hookData = new TextEncoder().encode("#!/bin/sh\necho new");
+    const vbundle = createValidVBundle([
+      { path: "data/db/assistant.db", data: new Uint8Array([0x01]) },
+      { path: "hooks/new-hook/hook.sh", data: hookData },
+    ]);
+
+    const resolver = new DefaultPathResolver(
+      testDbPath,
+      testConfigPath,
+      undefined,
+      undefined,
+      undefined,
+      hooksDir,
+    );
+    const result = commitImport({
+      archiveData: vbundle,
+      pathResolver: resolver,
+    });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+
+    expect(existsSync(join(hooksDir, "new-hook", "hook.sh"))).toBe(true);
+    expect(existsSync(join(hooksDir, "stale-hook"))).toBe(false);
+  });
+
+  test("does not clear directory when bundle has no entries for that prefix", () => {
+    mkdirSync(join(skillsDir, "existing-skill"), { recursive: true });
+    writeFileSync(
+      join(skillsDir, "existing-skill", "SKILL.md"),
+      "should survive",
+    );
+
+    // Bundle with only db data, no skills
+    const vbundle = createValidVBundle([
+      { path: "data/db/assistant.db", data: new Uint8Array([0x01]) },
+    ]);
+
+    const resolver = new DefaultPathResolver(
+      testDbPath,
+      testConfigPath,
+      undefined,
+      skillsDir,
+    );
+    const result = commitImport({
+      archiveData: vbundle,
+      pathResolver: resolver,
+    });
+
+    expect(result.ok).toBe(true);
+
+    // Skills directory untouched
+    expect(existsSync(join(skillsDir, "existing-skill", "SKILL.md"))).toBe(
+      true,
+    );
+    expect(
+      readFileSync(join(skillsDir, "existing-skill", "SKILL.md"), "utf8"),
+    ).toBe("should survive");
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Auth policy registration tests
 // ---------------------------------------------------------------------------
 

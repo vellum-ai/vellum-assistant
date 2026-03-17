@@ -84,6 +84,8 @@ export interface ImportDryRunReport {
  */
 export interface PathResolver {
   resolve(archivePath: string): string | null;
+  /** Resolves the root directory for a given archive path prefix (e.g. "skills/", "hooks/"). */
+  resolveRoot?(prefix: string): string | null;
 }
 
 export class DefaultPathResolver implements PathResolver {
@@ -96,6 +98,19 @@ export class DefaultPathResolver implements PathResolver {
     private hooksDir?: string,
   ) {}
 
+  resolveRoot(prefix: string): string | null {
+    switch (prefix) {
+      case "skills/":
+        return this.skillsDir ? resolve(this.skillsDir) : null;
+      case "hooks/":
+        return this.hooksDir ? resolve(this.hooksDir) : null;
+      case "prompts/":
+        return this.workspaceDir ? resolve(this.workspaceDir) : null;
+      default:
+        return null;
+    }
+  }
+
   resolve(archivePath: string): string | null {
     switch (archivePath) {
       case "data/db/assistant.db":
@@ -107,9 +122,15 @@ export class DefaultPathResolver implements PathResolver {
           return join(this.protectedDir, "trust.json");
         }
         if (archivePath.startsWith("skills/") && this.skillsDir) {
-          const resolved = resolve(this.skillsDir, archivePath.slice("skills/".length));
+          const resolved = resolve(
+            this.skillsDir,
+            archivePath.slice("skills/".length),
+          );
           const skillsRoot = resolve(this.skillsDir);
-          if (resolved !== skillsRoot && !resolved.startsWith(skillsRoot + "/")) {
+          if (
+            resolved !== skillsRoot &&
+            !resolved.startsWith(skillsRoot + "/")
+          ) {
             return null;
           }
           return resolved;
@@ -123,13 +144,19 @@ export class DefaultPathResolver implements PathResolver {
           }
           const resolved = resolve(this.workspaceDir, filename);
           const workspaceRoot = resolve(this.workspaceDir);
-          if (resolved !== workspaceRoot && !resolved.startsWith(workspaceRoot + "/")) {
+          if (
+            resolved !== workspaceRoot &&
+            !resolved.startsWith(workspaceRoot + "/")
+          ) {
             return null;
           }
           return resolved;
         }
         if (archivePath.startsWith("hooks/") && this.hooksDir) {
-          const resolved = resolve(this.hooksDir, archivePath.slice("hooks/".length));
+          const resolved = resolve(
+            this.hooksDir,
+            archivePath.slice("hooks/".length),
+          );
           const hooksRoot = resolve(this.hooksDir);
           if (resolved !== hooksRoot && !resolved.startsWith(hooksRoot + "/")) {
             return null;

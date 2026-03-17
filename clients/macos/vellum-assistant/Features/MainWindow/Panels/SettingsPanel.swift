@@ -358,8 +358,10 @@ struct SettingsPanel: View {
             // WEB SEARCH
             WebSearchServiceCard(
                 store: store,
+                authManager: authManager,
                 perplexityKeyText: $perplexityKeyText,
-                braveKeyText: $braveKeyText
+                braveKeyText: $braveKeyText,
+                showToast: showToast
             )
 
             // IMAGE GENERATION

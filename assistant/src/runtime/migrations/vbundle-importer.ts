@@ -18,7 +18,7 @@ import {
   existsSync,
   mkdirSync,
   readFileSync,
-  rmSync,
+  renameSync,
   unlinkSync,
   writeFileSync,
 } from "node:fs";
@@ -156,60 +156,29 @@ export function commitImport(options: ImportCommitOptions): ImportCommitResult {
     entryMap = validation.entries;
   }
 
-  // Step 1b: Clear skills directory if the bundle contains skills entries.
-  // This ensures the restored skills match the backup exactly — no stale
-  // skills left behind from the current assistant state.
-  const hasSkillsEntries = manifest.files.some((f) =>
-    f.path.startsWith("skills/"),
-  );
-  if (hasSkillsEntries) {
-    // Derive the skills root safely: resolve a synthetic single-segment
-    // path and use dirname() to strip the filename. This avoids fragile
-    // string-length slicing that breaks when paths are normalized.
-    const probe = pathResolver.resolve("skills/sentinel");
-    if (probe) {
-      const skillsDirPath = dirname(probe);
+  // Step 1b: Back up and clear directories that will be fully restored from
+  // the bundle. We rename (not delete) to preserve a recoverable backup in
+  // case a later write fails — this prevents irrecoverable data loss.
+  for (const prefix of ["skills/", "hooks/"] as const) {
+    const hasEntries = manifest.files.some((f) => f.path.startsWith(prefix));
+    if (!hasEntries) continue;
 
-      if (existsSync(skillsDirPath)) {
-        try {
-          rmSync(skillsDirPath, { recursive: true, force: true });
-        } catch (err) {
-          return {
-            ok: false,
-            reason: "write_failed",
-            message: `Failed to clear skills directory "${skillsDirPath}": ${
-              err instanceof Error ? err.message : String(err)
-            }`,
-          };
-        }
-      }
-    }
-  }
+    const dirRoot = pathResolver.resolveRoot?.(prefix);
+    if (!dirRoot || !existsSync(dirRoot)) continue;
 
-  // Step 1c: Clear hooks directory if the bundle contains hooks entries.
-  // This ensures the restored hooks match the backup exactly — no stale
-  // hooks left behind from the current assistant state.
-  const hasHooksEntries = manifest.files.some((f) =>
-    f.path.startsWith("hooks/"),
-  );
-  if (hasHooksEntries) {
-    const probe = pathResolver.resolve("hooks/sentinel");
-    if (probe) {
-      const hooksDirPath = dirname(probe);
-
-      if (existsSync(hooksDirPath)) {
-        try {
-          rmSync(hooksDirPath, { recursive: true, force: true });
-        } catch (err) {
-          return {
-            ok: false,
-            reason: "write_failed",
-            message: `Failed to clear hooks directory "${hooksDirPath}": ${
-              err instanceof Error ? err.message : String(err)
-            }`,
-          };
-        }
-      }
+    const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
+    const backupPath = `${dirRoot}.pre-import-backup-${timestamp}`;
+    try {
+      renameSync(dirRoot, backupPath);
+    } catch (err) {
+      const label = prefix.slice(0, -1); // "skills" or "hooks"
+      return {
+        ok: false,
+        reason: "write_failed",
+        message: `Failed to backup ${label} directory "${dirRoot}": ${
+          err instanceof Error ? err.message : String(err)
+        }`,
+      };
     }
   }
 
@@ -220,7 +189,12 @@ export function commitImport(options: ImportCommitOptions): ImportCommitResult {
     f.path.startsWith("prompts/"),
   );
   if (hasPromptsEntries) {
-    const PROMPT_FILENAMES = ["IDENTITY.md", "SOUL.md", "USER.md", "UPDATES.md"];
+    const PROMPT_FILENAMES = [
+      "IDENTITY.md",
+      "SOUL.md",
+      "USER.md",
+      "UPDATES.md",
+    ];
     for (const filename of PROMPT_FILENAMES) {
       const diskPath = pathResolver.resolve(`prompts/${filename}`);
       if (diskPath && existsSync(diskPath)) {
