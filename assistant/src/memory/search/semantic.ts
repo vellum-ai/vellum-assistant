@@ -246,6 +246,7 @@ export async function semanticSearch(
         text: payload.text,
         kind: "segment",
         conversationId: payload.conversation_id,
+        messageId: payload.message_id,
         confidence: 0.55,
         importance: 0.5,
         createdAt,

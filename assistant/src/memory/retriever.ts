@@ -1,4 +1,4 @@
-import { inArray, sql } from "drizzle-orm";
+import { asc, eq, inArray, sql } from "drizzle-orm";
 
 import type { AssistantConfig } from "../config/types.js";
 import { estimateTextTokens } from "../context/token-estimator.js";
@@ -356,15 +356,23 @@ export async function buildMemoryRecall(
     }
   }
 
-  // ── Step 5b: Filter out current-conversation segments ───────────
-  // Segments from the active conversation are already present in the
-  // conversation history, so including them in memory_context wastes
-  // tokens and causes the block to change between turns (hurting prompt
-  // caching). Items are cross-conversation and are kept.
+  // ── Step 5b: Filter out current-conversation segments still in context ──
+  // Segments whose source message is still in the conversation's context
+  // window are redundant (already visible to the model). However, segments
+  // from messages that were removed by context compaction should be kept —
+  // those messages are no longer in the conversation history and memory is
+  // the only way they can influence the response.
   if (conversationId) {
-    for (const [key, c] of candidateMap) {
-      if (c.type === "segment" && c.conversationId === conversationId) {
-        candidateMap.delete(key);
+    const inContextMessageIds = getInContextMessageIds(conversationId);
+    if (inContextMessageIds) {
+      for (const [key, c] of candidateMap) {
+        if (
+          c.type === "segment" &&
+          c.messageId &&
+          inContextMessageIds.has(c.messageId)
+        ) {
+          candidateMap.delete(key);
+        }
       }
     }
   }
@@ -539,6 +547,52 @@ export async function buildMemoryRecall(
   };
 
   return result;
+}
+
+/**
+ * Get the set of message IDs that are still in the conversation's context
+ * window (i.e., not compacted away). Uses `contextCompactedMessageCount` to
+ * determine the offset: messages ordered by createdAt after that count are
+ * still visible to the model.
+ *
+ * Returns `null` if the conversation is not found (deleted, or no DB row).
+ */
+function getInContextMessageIds(conversationId: string): Set<string> | null {
+  try {
+    const db = getDb();
+
+    // Look up the conversation's compacted message count
+    const conv = db
+      .select({
+        contextCompactedMessageCount:
+          conversations.contextCompactedMessageCount,
+      })
+      .from(conversations)
+      .where(eq(conversations.id, conversationId))
+      .get();
+
+    if (!conv) return null;
+
+    const offset = conv.contextCompactedMessageCount;
+
+    // Fetch message IDs ordered by creation time, skipping compacted ones
+    const rows = db
+      .select({ id: messages.id })
+      .from(messages)
+      .where(eq(messages.conversationId, conversationId))
+      .orderBy(asc(messages.createdAt))
+      .all();
+
+    // Messages up to `offset` have been compacted out of context
+    const inContextRows = rows.slice(offset);
+    return new Set(inContextRows.map((r) => r.id));
+  } catch (err) {
+    log.warn(
+      { err },
+      "Failed to fetch in-context message IDs; skipping segment filter",
+    );
+    return null;
+  }
 }
 
 /**
