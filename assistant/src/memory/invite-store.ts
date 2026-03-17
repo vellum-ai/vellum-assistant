@@ -23,7 +23,7 @@ export interface IngressInvite {
   id: string;
   sourceChannel: string;
   tokenHash: string;
-  createdByConversationId: string | null;
+  sourceConversationId: string | null;
   note: string | null;
   maxUses: number;
   useCount: number;
@@ -73,7 +73,7 @@ function rowToInvite(
     id: row.id,
     sourceChannel: row.sourceChannel,
     tokenHash: row.tokenHash,
-    createdByConversationId: row.createdByConversationId,
+    sourceConversationId: row.sourceConversationId,
     note: row.note,
     maxUses: row.maxUses,
     useCount: row.useCount,
@@ -101,7 +101,7 @@ function rowToInvite(
 export function createInvite(params: {
   sourceChannel: string;
   contactId: string;
-  createdByConversationId?: string;
+  sourceConversationId?: string;
   note?: string;
   maxUses?: number;
   expiresInMs?: number;
@@ -124,7 +124,7 @@ export function createInvite(params: {
     id,
     sourceChannel: params.sourceChannel,
     tokenHash: tokenH,
-    createdByConversationId: params.createdByConversationId ?? null,
+    sourceConversationId: params.sourceConversationId ?? null,
     note: params.note ?? null,
     maxUses: params.maxUses ?? 1,
     useCount: 0,
