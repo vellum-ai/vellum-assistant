@@ -48,7 +48,8 @@ function buildHostShellEnv(): Record<string, string> {
 
 class HostShellTool implements Tool {
   name = "host_bash";
-  description = "Execute a shell command on the host machine";
+  description =
+    "Execute a shell command on the host machine. Approval-gated: your user must allow each invocation. Do not use for commands that require injected credentials or secrets.";
   category = "host-terminal";
   // host_bash is a weaker-tier escape hatch under CES lockdown. It remains
   // Medium risk by default but persistent approvals are disabled for
