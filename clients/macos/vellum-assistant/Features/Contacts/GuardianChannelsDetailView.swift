@@ -87,9 +87,15 @@ struct GuardianChannelsDetailView: View {
         }
     }
 
-    // MOCK: show all channel types for visual preview
     private var visibleTypes: [String] {
-        Self.allChannelTypes
+        Self.allChannelTypes.filter { type in
+            let hasExisting = displayContact.channels.contains { $0.type == type && $0.status != "revoked" }
+            let readiness = channelReadiness[type]
+            let isAvailable = readiness?.ready == true
+                || readiness?.setupStatus == "ready"
+                || readiness?.setupStatus == "incomplete"
+            return hasExisting || isAvailable
+        }
     }
 
     private var content: some View {
@@ -175,18 +181,7 @@ struct GuardianChannelsDetailView: View {
                 channelCardContent(type: type, existingChannels: existingChannels, activeChannel: activeChannel, isVerified: isVerified)
             }
         } else {
-            // MOCK: force all channels as verified with mock data
-            let mockVerified = true
-            let mockValue: String = {
-                switch type {
-                case "telegram": return "@timur_k"
-                case "phone": return "+1 (914) 555-0123"
-                case "slack": return "@timur.k"
-                default: return type
-                }
-            }()
-            let realVerified = isVerified
-            let realNeedsSetup = !isVerified
+            let needsSetup = !isVerified
                 && store?.channelVerificationState(for: type).verified != true
                 && (existingChannels.isEmpty || dismissedChannels.contains(type))
                 && !setupExpanded.contains(type)
@@ -194,26 +189,38 @@ struct GuardianChannelsDetailView: View {
             VStack(alignment: .leading, spacing: VSpacing.sm) {
                 HStack(spacing: VSpacing.sm) {
                     VIconView(channelIcon(for: type), size: 16)
-                        .foregroundColor(mockVerified ? VColor.systemPositiveStrong : VColor.contentSecondary)
+                        .foregroundColor(isVerified ? VColor.systemPositiveStrong : VColor.contentSecondary)
                     Text(channelLabel(for: type))
                         .font(VFont.bodyMedium)
                         .foregroundColor(VColor.contentDefault)
 
-                    Text(mockValue)
-                        .font(VFont.body)
-                        .foregroundColor(VColor.contentSecondary)
-                        .lineLimit(1)
+                    if isVerified, let channel = activeChannel {
+                        Text(channel.address)
+                            .font(VFont.body)
+                            .foregroundColor(VColor.contentSecondary)
+                            .lineLimit(1)
+                    }
 
                     Spacer()
 
-                    VButton(label: "Verified", leftIcon: VIcon.circleCheck.rawValue, style: .primary) {}
-                    VButton(label: "Revoke", iconOnly: VIcon.x.rawValue, style: .danger, tooltip: "Revoke access") {}
+                    if isVerified {
+                        VButton(label: "Verified", leftIcon: VIcon.circleCheck.rawValue, style: .primary) {}
+                        if let channel = activeChannel, daemonClient != nil {
+                            VButton(label: "Revoke", iconOnly: VIcon.x.rawValue, style: .danger, tooltip: "Revoke access") {
+                                channelToRevoke = (id: channel.id, type: type)
+                            }
+                        }
+                    } else if needsSetup {
+                        VButton(label: "Set up", style: .outlined) {
+                            dismissedChannels.remove(type)
+                            setupExpanded.insert(type)
+                        }
+                    }
                 }
                 .frame(minHeight: 36)
 
-                // Show real content if actually has data
-                if !realNeedsSetup && !realVerified {
-                    channelCardContent(type: type, existingChannels: existingChannels, activeChannel: activeChannel, isVerified: realVerified)
+                if !needsSetup && !isVerified {
+                    channelCardContent(type: type, existingChannels: existingChannels, activeChannel: activeChannel, isVerified: isVerified)
                 }
             }
         }

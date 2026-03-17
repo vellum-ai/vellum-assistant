@@ -145,53 +145,15 @@ struct AssistantChannelsDetailView: View {
             }
 
             VStack(alignment: .leading, spacing: 0) {
-                // MOCK: all channels connected for visual preview
-                mockConnectedRow(name: "Slack", value: "@cartman-bot", icon: .hash, expandedBinding: $slackRowExpanded, expandContent: { slackChannelCredentialEntry })
+                slackRow
                 SettingsDivider()
-                mockConnectedRow(name: "Telegram", value: "@CartmanAssistant", icon: .send, expandedBinding: $telegramRowExpanded, expandContent: { telegramCredentialEntry })
+                telegramRow
                 SettingsDivider()
-                mockConnectedRow(name: "Phone Calling", value: "(914) 677-2270", icon: .phone, expandedBinding: $voiceRowExpanded, expandContent: {
-                    HStack(spacing: VSpacing.sm) {
-                        Text("Phone Number")
-                            .font(VFont.caption)
-                            .foregroundColor(VColor.contentSecondary)
-                        VDropdown(
-                            placeholder: "Not Set",
-                            selection: .constant("(914) 677-2270"),
-                            options: [("(914) 677-2270", "(914) 677-2270")],
-                            emptyValue: ""
-                        )
-                        .frame(maxWidth: 280)
-                    }
-                })
-                SettingsDivider()
-                mockConnectedRow(name: "Email", value: "cartman@vellum.ai", icon: .mail, expandedBinding: $emailRowExpanded, isExpandable: false, expandContent: { EmptyView() })
-            }
-        }
-    }
-
-    // MARK: - Mock Connected Row (temporary preview)
-
-    @ViewBuilder
-    private func mockConnectedRow<Content: View>(name: String, value: String, icon: VIcon, expandedBinding: Binding<Bool>, isExpandable: Bool = true, @ViewBuilder expandContent: @escaping () -> Content) -> some View {
-        VStack(alignment: .leading, spacing: VSpacing.sm) {
-            ChannelRowHeader(
-                name: name,
-                icon: icon,
-                channelKey: name.lowercased(),
-                value: value,
-                isConnected: true,
-                isExpanded: expandedBinding,
-                isExpandable: isExpandable,
-                isDisconnectDisabled: false,
-                onDisconnect: { _ in }
-            )
-            .padding(.vertical, VSpacing.sm)
-
-            if expandedBinding.wrappedValue {
-                expandContent()
-                    .padding(.top, VSpacing.sm)
-                    .padding(.bottom, VSpacing.md)
+                voiceRow
+                if isEmailEnabled {
+                    SettingsDivider()
+                    emailRow
+                }
             }
         }
     }
