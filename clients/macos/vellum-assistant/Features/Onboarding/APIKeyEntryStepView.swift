@@ -13,14 +13,14 @@ struct APIKeyEntryStepView: View {
     @FocusState private var keyFieldFocused: Bool
 
     var body: some View {
-        Text("Add your API key")
+        Text("Anthropic API Key")
             .font(.system(size: 32, weight: .regular, design: .serif))
             .foregroundColor(VColor.contentDefault)
             .opacity(showTitle ? 1 : 0)
             .offset(y: showTitle ? 0 : 8)
             .padding(.bottom, VSpacing.md)
 
-        Text("Vellum needs an Anthropic API key to work.\nEnter yours to connect.")
+        Text("Since you skipped creating an account,\nwe\u{2019}ll need your Anthropic API key.")
             .font(.system(size: 16))
             .multilineTextAlignment(.center)
             .foregroundColor(VColor.contentSecondary)
