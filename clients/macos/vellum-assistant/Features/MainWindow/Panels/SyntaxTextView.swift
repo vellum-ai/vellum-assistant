@@ -2,6 +2,87 @@ import SwiftUI
 import AppKit
 import VellumAssistantShared
 
+// MARK: - Line Number Gutter
+
+/// Renders line numbers in a vertical ruler alongside an `NSTextView`.
+private class LineNumberRulerView: NSRulerView {
+    private let gutterFont: NSFont
+    private let gutterTextColor: NSColor
+    private let gutterBgColor: NSColor
+
+    init(scrollView: NSScrollView, textView: NSTextView) {
+        self.gutterFont = NSFont(name: "DMMono-Regular", size: 11)
+            ?? NSFont.monospacedSystemFont(ofSize: 11, weight: .regular)
+        self.gutterTextColor = NSColor(VColor.contentTertiary)
+        self.gutterBgColor = NSColor(VColor.surfaceBase)
+        super.init(scrollView: scrollView, orientation: .verticalRuler)
+        self.clientView = textView
+        self.ruleThickness = 40
+    }
+
+    @available(*, unavailable)
+    required init(coder: NSCoder) { fatalError("init(coder:) not supported") }
+
+    override func drawHashMarksAndLabels(in rect: NSRect) {
+        guard let textView = clientView as? NSTextView,
+              let layoutManager = textView.layoutManager,
+              let textContainer = textView.textContainer else { return }
+
+        // Fill background
+        gutterBgColor.setFill()
+        rect.fill()
+
+        let visibleRect = scrollView?.contentView.bounds ?? .zero
+        let visibleGlyphRange = layoutManager.glyphRange(forBoundingRect: visibleRect, in: textContainer)
+        let visibleCharRange = layoutManager.characterRange(
+            forGlyphRange: visibleGlyphRange, actualGlyphRange: nil
+        )
+
+        let text = textView.string as NSString
+        var lineNumber = 1
+        // Count newlines before visible range
+        let beforeVisible = text.substring(to: visibleCharRange.location)
+        lineNumber += beforeVisible.components(separatedBy: "\n").count - 1
+
+        var glyphIndex = visibleGlyphRange.location
+        while glyphIndex < NSMaxRange(visibleGlyphRange) {
+            let charRange = layoutManager.characterRange(
+                forGlyphRange: NSRange(location: glyphIndex, length: 1), actualGlyphRange: nil
+            )
+            var lineRect = layoutManager.lineFragmentRect(forGlyphAt: glyphIndex, effectiveRange: nil)
+            lineRect.origin.y -= visibleRect.origin.y
+
+            let attrs: [NSAttributedString.Key: Any] = [
+                .font: gutterFont,
+                .foregroundColor: gutterTextColor,
+            ]
+            let lineStr = "\(lineNumber)" as NSString
+            let strSize = lineStr.size(withAttributes: attrs)
+            let drawPoint = NSPoint(
+                x: ruleThickness - strSize.width - 8,
+                y: lineRect.origin.y + (lineRect.height - strSize.height) / 2
+            )
+            lineStr.draw(at: drawPoint, withAttributes: attrs)
+
+            lineNumber += 1
+            // Advance to next line
+            let lineRange = text.lineRange(for: charRange)
+            glyphIndex = NSMaxRange(
+                layoutManager.glyphRange(forCharacterRange: lineRange, actualCharacterRange: nil)
+            )
+        }
+
+        // Update rule thickness based on digit count
+        let digitCount = max(3, "\(lineNumber)".count)
+        let newThickness = CGFloat(digitCount * 8 + 16)
+        if ruleThickness != newThickness {
+            ruleThickness = newThickness
+        }
+    }
+}
+
+// MARK: - SyntaxTextView
+
 /// An editable text view with live syntax highlighting, backed by `NSTextView`.
 ///
 /// Wraps `NSScrollView` > `NSTextView` and applies token-based syntax coloring
@@ -54,6 +135,21 @@ struct SyntaxTextView: NSViewRepresentable {
         scrollView.autohidesScrollers = true
         scrollView.drawsBackground = false
         scrollView.documentView = textView
+
+        // Set up line number gutter
+        scrollView.hasVerticalRuler = true
+        scrollView.rulersVisible = true
+        let rulerView = LineNumberRulerView(scrollView: scrollView, textView: textView)
+        scrollView.verticalRulerView = rulerView
+
+        // Redraw ruler on scroll
+        scrollView.contentView.postsBoundsChangedNotifications = true
+        NotificationCenter.default.addObserver(
+            context.coordinator,
+            selector: #selector(Coordinator.scrollViewDidScroll(_:)),
+            name: NSView.boundsDidChangeNotification,
+            object: scrollView.contentView
+        )
 
         // Apply initial highlighting
         SyntaxTheme.applyHighlighting(to: textView.textStorage!, language: language)
@@ -110,6 +206,11 @@ struct SyntaxTextView: NSViewRepresentable {
             parent.text = newText
             parent.onTextChange?(newText)
 
+            // Redraw line numbers immediately on text change
+            if let scrollView = textView.enclosingScrollView {
+                scrollView.verticalRulerView?.needsDisplay = true
+            }
+
             // Debounce rehighlighting to avoid per-keystroke lag on large files
             rehighlightWorkItem?.cancel()
             let workItem = DispatchWorkItem { [weak self] in
@@ -117,6 +218,12 @@ struct SyntaxTextView: NSViewRepresentable {
             }
             rehighlightWorkItem = workItem
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.15, execute: workItem)
+        }
+
+        @objc func scrollViewDidScroll(_ notification: Notification) {
+            guard let clipView = notification.object as? NSClipView,
+                  let scrollView = clipView.enclosingScrollView else { return }
+            scrollView.verticalRulerView?.needsDisplay = true
         }
 
         func rehighlight(_ textView: NSTextView) {
