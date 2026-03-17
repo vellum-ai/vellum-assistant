@@ -43,6 +43,7 @@ struct AssistantChannelsDetailView: View {
     @FocusState private var isTelegramTokenFocused: Bool
     @FocusState private var isSlackBotTokenFocused: Bool
     @FocusState private var isVoiceAccountSidFocused: Bool
+    @State private var focusTask: Task<Void, Never>?
 
     var body: some View {
         Group {
@@ -88,16 +89,19 @@ struct AssistantChannelsDetailView: View {
         .onChange(of: store.channelSetupStatus["telegram"]) { _, status in
             if status == nil || status == "not_configured" {
                 telegramSetupExpanded = false
+                telegramRowExpanded = false
             }
         }
         .onChange(of: store.channelSetupStatus["slack"]) { _, status in
             if status == nil || status == "not_configured" {
                 slackChannelSetupExpanded = false
+                slackRowExpanded = false
             }
         }
         .onChange(of: store.channelSetupStatus["phone"]) { _, status in
             if status == nil || status == "not_configured" {
                 voiceSetupExpanded = false
+                voiceRowExpanded = false
             } else if status == "ready" {
                 voiceSetupExpanded = false
                 store.refreshTwilioNumbers()
@@ -111,35 +115,24 @@ struct AssistantChannelsDetailView: View {
             }
         }
         .onChange(of: telegramSetupExpanded) { _, expanded in
-            if expanded {
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { isTelegramTokenFocused = true }
-            }
+            if expanded { scheduleFocus { isTelegramTokenFocused = true } }
         }
         .onChange(of: slackChannelSetupExpanded) { _, expanded in
-            if expanded {
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { isSlackBotTokenFocused = true }
-            }
+            if expanded { scheduleFocus { isSlackBotTokenFocused = true } }
         }
         .onChange(of: voiceSetupExpanded) { _, expanded in
-            if expanded {
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { isVoiceAccountSidFocused = true }
-            }
+            if expanded { scheduleFocus { isVoiceAccountSidFocused = true } }
         }
         .onChange(of: telegramRowExpanded) { _, expanded in
-            if expanded {
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { isTelegramTokenFocused = true }
-            }
+            if expanded { scheduleFocus { isTelegramTokenFocused = true } }
         }
         .onChange(of: slackRowExpanded) { _, expanded in
-            if expanded {
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { isSlackBotTokenFocused = true }
-            }
+            if expanded { scheduleFocus { isSlackBotTokenFocused = true } }
         }
         .onChange(of: voiceRowExpanded) { _, expanded in
-            if expanded {
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { isVoiceAccountSidFocused = true }
-            }
+            if expanded { scheduleFocus { isVoiceAccountSidFocused = true } }
         }
+        .onDisappear { focusTask?.cancel() }
     }
 
     // MARK: - Layouts
@@ -464,18 +457,31 @@ struct AssistantChannelsDetailView: View {
             store.clearTelegramCredentials()
             telegramBotTokenText = ""
             telegramSetupExpanded = false
+            telegramRowExpanded = false
             store.channelSetupStatus["telegram"] = "not_configured"
         case "slack":
             store.clearSlackChannelConfig()
             slackChannelBotTokenInput = ""
             slackChannelAppTokenInput = ""
             slackChannelSetupExpanded = false
+            slackRowExpanded = false
             store.channelSetupStatus["slack"] = "not_configured"
         case "phone":
             store.clearTwilioCredentials()
+            voiceRowExpanded = false
             store.channelSetupStatus["phone"] = "not_configured"
         default:
             break
+        }
+    }
+
+    /// Schedule a cancellable focus action after a short delay.
+    private func scheduleFocus(_ action: @escaping @MainActor () -> Void) {
+        focusTask?.cancel()
+        focusTask = Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 100_000_000)
+            guard !Task.isCancelled else { return }
+            action()
         }
     }
 
