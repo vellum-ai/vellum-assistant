@@ -32,16 +32,19 @@ struct APIKeyEntryStepView: View {
             VStack(spacing: VSpacing.md) {
                 apiKeyField
 
-                HStack(spacing: VSpacing.xs) {
-                    VIconView(.info, size: 14)
-                        .foregroundColor(VColor.contentSecondary)
-                    Text("Get an API key")
-                        .font(VFont.caption)
-                        .foregroundColor(VColor.contentSecondary)
-                        .onTapGesture {
-                            NSWorkspace.shared.open(URL(string: "https://console.anthropic.com/settings/keys")!)
-                        }
+                Button {
+                    NSWorkspace.shared.open(URL(string: "https://console.anthropic.com/settings/keys")!)
+                } label: {
+                    HStack(spacing: VSpacing.xs) {
+                        VIconView(.info, size: 14)
+                            .foregroundColor(VColor.contentSecondary)
+                        Text("Get an API key")
+                            .font(VFont.caption)
+                            .foregroundColor(VColor.contentSecondary)
+                    }
                 }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Get an API key")
                 .padding(.top, VSpacing.xs)
 
                 OnboardingButton(
