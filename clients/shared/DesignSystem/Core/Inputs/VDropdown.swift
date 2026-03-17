@@ -30,20 +30,8 @@ public struct VDropdown<T: Hashable>: View {
     }
 
     public var body: some View {
-        Menu {
-            ForEach(options, id: \.value) { option in
-                Button {
-                    selection = option.value
-                } label: {
-                    HStack {
-                        Text(option.label)
-                        if option.value == selection {
-                            VIconView(.check, size: 12)
-                        }
-                    }
-                }
-            }
-        } label: {
+        ZStack {
+            // Visual layer — identical to VTextField(trailingIcon: "chevron.down")
             HStack(spacing: VSpacing.md) {
                 Group {
                     if let label = selectedLabel {
@@ -70,10 +58,28 @@ public struct VDropdown<T: Hashable>: View {
                 RoundedRectangle(cornerRadius: VRadius.md)
                     .stroke(VColor.borderBase.opacity(0.5), lineWidth: 1)
             )
+
+            // Interaction layer — transparent Menu, no visual chrome
+            Menu {
+                ForEach(options, id: \.value) { option in
+                    Button {
+                        selection = option.value
+                    } label: {
+                        HStack {
+                            Text(option.label)
+                            if option.value == selection {
+                                VIconView(.check, size: 12)
+                            }
+                        }
+                    }
+                }
+            } label: {
+                Color.clear.contentShape(Rectangle())
+            }
+            .menuStyle(.borderlessButton)
+            .menuIndicator(.hidden)
+            .accessibilityLabel(selectedLabel ?? placeholder)
         }
-        .menuStyle(.borderlessButton)
-        .menuIndicator(.hidden)
-        .accessibilityLabel(selectedLabel ?? placeholder)
         .frame(maxWidth: .infinity)
     }
 }
