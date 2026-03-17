@@ -1,5 +1,5 @@
 /**
- * Cadence logic for thread starters and capability cards generation.
+ * Cadence logic for conversation starters and capability cards generation.
  *
  * Decides whether new generation jobs should be enqueued based on how many
  * active memory items have accumulated since the last generation.
@@ -14,13 +14,13 @@ import { enqueueMemoryJob } from "./jobs-store.js";
 import { rawGet } from "./raw-query.js";
 import { memoryCheckpoints, memoryJobs } from "./schema.js";
 
-const log = getLogger("thread-starters-cadence");
+const log = getLogger("conversation-starters-cadence");
 
 /**
  * Check whether enough new memory items have accumulated to justify
- * generating a fresh batch of thread starters and capability cards.
+ * generating a fresh batch of conversation starters and capability cards.
  */
-export function maybeEnqueueThreadStartersJob(scopeId: string): void {
+export function maybeEnqueueConversationStartersJob(scopeId: string): void {
   const db = getDb();
 
   // Count total active memory items
@@ -32,7 +32,7 @@ export function maybeEnqueueThreadStartersJob(scopeId: string): void {
   if (totalActive === 0) return;
 
   // Read checkpoint: item count at last generation (scoped so each scope tracks independently)
-  const checkpointKey = `thread_starters:item_count_at_last_gen:${scopeId}`;
+  const checkpointKey = `conversation_starters:item_count_at_last_gen:${scopeId}`;
   const checkpoint = db
     .select({ value: memoryCheckpoints.value })
     .from(memoryCheckpoints)
@@ -59,7 +59,7 @@ export function maybeEnqueueThreadStartersJob(scopeId: string): void {
     .from(memoryJobs)
     .where(
       and(
-        eq(memoryJobs.type, "generate_thread_starters"),
+        eq(memoryJobs.type, "generate_conversation_starters"),
         inArray(memoryJobs.status, ["pending", "running"]),
         like(memoryJobs.payload, `%"scopeId":"${scopeId}"%`),
       ),
@@ -67,10 +67,10 @@ export function maybeEnqueueThreadStartersJob(scopeId: string): void {
     .get();
   if (existing) return;
 
-  enqueueMemoryJob("generate_thread_starters", { scopeId });
+  enqueueMemoryJob("generate_conversation_starters", { scopeId });
   log.info(
     { totalActive, lastCount, delta, threshold, scopeId },
-    "Enqueued thread starters generation job",
+    "Enqueued conversation starters generation job",
   );
 
   // Also enqueue capability card regeneration for all categories

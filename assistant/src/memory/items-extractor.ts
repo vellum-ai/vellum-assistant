@@ -12,6 +12,7 @@ import {
 } from "../providers/provider-send-message.js";
 import { getLogger } from "../util/logger.js";
 import { truncate } from "../util/truncate.js";
+import { maybeEnqueueConversationStartersJob } from "./conversation-starters-cadence.js";
 import { getDb } from "./db.js";
 import { computeMemoryFingerprint } from "./fingerprint.js";
 import { enqueueMemoryJob } from "./jobs-store.js";
@@ -20,7 +21,6 @@ import { withQdrantBreaker } from "./qdrant-circuit-breaker.js";
 import { getQdrantClient } from "./qdrant-client.js";
 import { memoryItems, memoryItemSources, messages } from "./schema.js";
 import { isConversationFailed } from "./task-memory-cleanup.js";
-import { maybeEnqueueThreadStartersJob } from "./thread-starters-cadence.js";
 import { clampUnitInterval } from "./validation.js";
 
 const log = getLogger("memory-items-extractor");
@@ -715,14 +715,14 @@ export async function extractAndUpsertMemoryItemsForMessage(
     "Extracted memory items from message",
   );
 
-  // Trigger thread starters generation when new items are upserted
+  // Trigger conversation starters generation when new items are upserted
   if (upserted > 0) {
     try {
-      maybeEnqueueThreadStartersJob(effectiveScopeId);
+      maybeEnqueueConversationStartersJob(effectiveScopeId);
     } catch (err) {
       log.warn(
         { err: err instanceof Error ? err.message : String(err) },
-        "Failed to check thread starters cadence",
+        "Failed to check conversation starters cadence",
       );
     }
   }

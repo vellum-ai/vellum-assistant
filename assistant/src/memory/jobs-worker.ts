@@ -8,6 +8,7 @@ import {
   cleanupStaleSupersededItemsJob,
   pruneOldConversationsJob,
 } from "./job-handlers/cleanup.js";
+import { generateConversationStartersJob } from "./job-handlers/conversation-starters.js";
 // ── Per-job-type handlers ──────────────────────────────────────────
 import {
   embedAttachmentJob,
@@ -23,7 +24,6 @@ import {
 } from "./job-handlers/index-maintenance.js";
 import { mediaProcessingJob } from "./job-handlers/media-processing.js";
 import { buildConversationSummaryJob } from "./job-handlers/summarization.js";
-import { generateThreadStartersJob } from "./job-handlers/thread-starters.js";
 import {
   BackendUnavailableError,
   classifyError,
@@ -308,8 +308,8 @@ async function processJob(
     case "embed_attachment":
       await embedAttachmentJob(job, config);
       return;
-    case "generate_thread_starters":
-      await generateThreadStartersJob(job);
+    case "generate_conversation_starters":
+      await generateConversationStartersJob(job);
       return;
     case "generate_capability_cards":
       await generateCapabilityCardsJob(job);

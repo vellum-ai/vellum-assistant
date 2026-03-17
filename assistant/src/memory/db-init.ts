@@ -429,7 +429,7 @@ export function initializeDb(): void {
   // 72. Rename integration:gmail → integration:google across OAuth tables
   migrateRenameGmailProviderKeyToGoogle(database);
 
-  // 73. Create thread_starters table for personalized empty-thread suggestions
+  // 73. Create conversation_starters table for personalized empty-conversation suggestions
   migrateCreateThreadStartersTable(database);
 
   // 74. Add capability card columns to thread_starters + category relevance table
