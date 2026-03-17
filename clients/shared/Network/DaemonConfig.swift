@@ -96,11 +96,6 @@ public struct DaemonConfig {
     /// When set, token resolution uses this directory instead of the lockfile's latest entry.
     public let instanceDir: String?
 
-    /// Feature-flag bearer token for authenticating PATCH /v1/feature-flags/:flagKey requests.
-    /// On macOS this is read from `~/.vellum/feature-flag-token`.
-    /// On iOS this is received during QR pairing and stored in the Keychain.
-    public let featureFlagToken: String?
-
     #if os(macOS)
     public static var `default`: DaemonConfig {
         let portString = ProcessInfo.processInfo.environment["RUNTIME_HTTP_PORT"] ?? "7821"
@@ -114,15 +109,10 @@ public struct DaemonConfig {
     }
     #endif
 
-    public init(transport: Transport, transportMetadata: TransportMetadata = .defaultLocal, instanceDir: String? = nil, featureFlagToken: String? = nil) {
+    public init(transport: Transport, transportMetadata: TransportMetadata = .defaultLocal, instanceDir: String? = nil) {
         self.transport = transport
         self.transportMetadata = transportMetadata
         self.instanceDir = instanceDir
-        #if os(macOS)
-        self.featureFlagToken = featureFlagToken ?? readFeatureFlagToken()
-        #else
-        self.featureFlagToken = featureFlagToken
-        #endif
     }
 
     #if os(iOS)
@@ -136,8 +126,6 @@ public struct DaemonConfig {
 
     /// Create a `DaemonConfig` populated from UserDefaults / Keychain.
     public static func fromUserDefaults() -> DaemonConfig {
-        let featureFlagToken = APIKeyManager.shared.getAPIKey(provider: "feature-flag-token")
-
         // Managed assistant: cloud-hosted via platform proxy with session token auth.
         // Set after Vellum login + managed bootstrap completes.
         if let managedAssistantId = UserDefaults.standard.string(forKey: "managed_assistant_id"),
@@ -155,8 +143,7 @@ public struct DaemonConfig {
                     bearerToken: nil,
                     conversationKey: managedAssistantId
                 ),
-                transportMetadata: metadata,
-                featureFlagToken: featureFlagToken
+                transportMetadata: metadata
             )
         }
 
@@ -171,12 +158,12 @@ public struct DaemonConfig {
                 conversationKey = UUID().uuidString
                 UserDefaults.standard.set(conversationKey, forKey: "conversation_key")
             }
-            return DaemonConfig(transport: .http(baseURL: baseURL, bearerToken: bearerToken, conversationKey: conversationKey), featureFlagToken: featureFlagToken)
+            return DaemonConfig(transport: .http(baseURL: baseURL, bearerToken: bearerToken, conversationKey: conversationKey))
         }
 
         // No gateway URL configured — return a placeholder HTTP config that won't connect.
         // The user needs to pair via QR code (which sets gateway_base_url) before connecting.
-        return DaemonConfig(transport: .http(baseURL: "", bearerToken: nil, conversationKey: ""), featureFlagToken: featureFlagToken)
+        return DaemonConfig(transport: .http(baseURL: "", bearerToken: nil, conversationKey: ""))
     }
     #endif
 }

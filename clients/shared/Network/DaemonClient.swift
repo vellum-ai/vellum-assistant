@@ -45,34 +45,9 @@ private func resolveInstanceDirFromLockfile() -> String? {
     return instanceDir
 }
 
-/// Resolve the feature-flag bearer token path.
-/// Uses BASE_DATA_DIR when set to match daemon root resolution.
-public func resolveFeatureFlagTokenPath(environment: [String: String]? = nil) -> String {
-    return resolveVellumDir(environment: environment) + "/feature-flag-token"
-}
-
 /// Resolve the daemon PID file path, honoring `BASE_DATA_DIR`.
 public func resolvePidPath(environment: [String: String]? = nil) -> String {
     return resolveVellumDir(environment: environment) + "/vellum.pid"
-}
-
-/// Read the feature-flag bearer token from disk.
-/// Used to authenticate PATCH /v1/feature-flags/:flagKey requests.
-public func readFeatureFlagToken(environment: [String: String]? = nil) -> String? {
-    let tokenPath = resolveFeatureFlagTokenPath(environment: environment)
-    let data: Data
-    do {
-        data = try Data(contentsOf: URL(fileURLWithPath: tokenPath))
-    } catch {
-        log.error("Failed to read feature-flag token from \(tokenPath, privacy: .public): \(error)")
-        return nil
-    }
-    guard let token = String(data: data, encoding: .utf8)?
-            .trimmingCharacters(in: .whitespacesAndNewlines),
-          !token.isEmpty else {
-        return nil
-    }
-    return token
 }
 
 /// Protocol for daemon client communication, enabling dependency injection and testing.
@@ -1197,7 +1172,7 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     /// Build an authenticated URLRequest for a local HTTP endpoint.
     ///
     /// Token resolution order:
-    /// 1. `tokenOverride` (for callers that need a specific token, e.g. feature-flag token)
+    /// 1. `tokenOverride` (for callers that need a specific token)
     /// 2. JWT from `ActorTokenManager.getToken()` — persisted in Keychain, so available
     ///    across app restarts once the initial bootstrap has completed. On first-ever
     ///    launch the bootstrap endpoint is unprotected (pre-auth), so the lack of a

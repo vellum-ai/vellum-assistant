@@ -77,7 +77,7 @@ final class TransportMetadataTests: XCTestCase {
         let config = DaemonConfig(
             transport: .http(baseURL: "https://example.com", bearerToken: nil, conversationKey: "test"),
             transportMetadata: .defaultLocal,
-            featureFlagToken: nil
+
         )
         XCTAssertEqual(config.transportMetadata.routeMode, .runtimeFlat)
         XCTAssertEqual(config.transportMetadata.authMode, .bearerToken)
@@ -93,7 +93,7 @@ final class TransportMetadataTests: XCTestCase {
         let config = DaemonConfig(
             transport: .http(baseURL: "https://platform.vellum.ai", bearerToken: nil, conversationKey: "key"),
             transportMetadata: managedMetadata,
-            featureFlagToken: nil
+
         )
         XCTAssertEqual(config.transportMetadata.routeMode, .platformAssistantProxy)
         XCTAssertEqual(config.transportMetadata.authMode, .sessionToken)
