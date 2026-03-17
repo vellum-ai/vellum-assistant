@@ -62,7 +62,7 @@ describe("model intents", () => {
       "claude-opus-4-6",
     );
     expect(resolveModelIntent("anthropic", "vision-optimized")).toBe(
-      "claude-sonnet-4-6",
+      "claude-opus-4-6",
     );
     expect(resolveModelIntent("openai", "latency-optimized")).toBe(
       "gpt-4o-mini",
