@@ -69,7 +69,11 @@ struct GuardianChannelsDetailView: View {
     private var visibleTypes: [String] {
         Self.allChannelTypes.filter { type in
             let hasExisting = displayContact.channels.contains { $0.type == type && $0.status != "revoked" }
-            return hasExisting || channelReadiness[type]?.ready == true
+            let readiness = channelReadiness[type]
+            let isAvailable = readiness?.ready == true
+                || readiness?.setupStatus == "ready"
+                || readiness?.setupStatus == "incomplete"
+            return hasExisting || isAvailable
         }
     }
 

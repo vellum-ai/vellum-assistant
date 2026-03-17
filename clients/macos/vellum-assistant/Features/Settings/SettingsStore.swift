@@ -1293,6 +1293,10 @@ public final class SettingsStore: ObservableObject {
             )
             twilioSaveInProgress = false
             self.fetchChannelSetupStatus()
+            // Fetch available phone numbers immediately after saving credentials
+            if twilioHasCredentials {
+                self.refreshTwilioNumbers()
+            }
         }
     }
 
