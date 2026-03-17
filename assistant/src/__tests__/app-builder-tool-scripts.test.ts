@@ -63,7 +63,21 @@ function makeContext(overrides: Partial<ToolContext> = {}): ToolContext {
 
 const mockStore = makeMockStore();
 
-mock.module("../memory/app-store.js", () => mockStore);
+mock.module("../memory/app-store.js", () => ({
+  ...mockStore,
+  getAppsDir: () => "/tmp/test-apps",
+  isMultifileApp: (app: AppDefinition) => app.formatVersion === 2,
+}));
+
+// Mock compileApp for multifile scaffold path
+mock.module("../bundler/app-compiler.js", () => ({
+  compileApp: async () => ({
+    ok: true,
+    errors: [],
+    warnings: [],
+    durationMs: 0,
+  }),
+}));
 
 // ---------------------------------------------------------------------------
 // Import skill scripts (after mocking)
