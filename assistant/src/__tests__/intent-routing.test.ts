@@ -66,7 +66,7 @@ mock.module("../config/loader.js", () => ({
         provider: "gemini",
         model: "gemini-3.1-flash-image-preview",
       },
-      "web-search": { mode: "your-own", provider: "anthropic-native" },
+      "web-search": { mode: "your-own", provider: "inference-provider-native" },
     },
   }),
   loadConfig: () => ({}),
@@ -252,7 +252,9 @@ describe("Activation hints in skills catalog", () => {
 
   test("orchestration skill includes hints and avoid-when in catalog line", () => {
     const prompt = buildSystemPrompt();
-    const line = prompt.split("\n").find((l) => l.includes("**orchestration**"));
+    const line = prompt
+      .split("\n")
+      .find((l) => l.includes("**orchestration**"));
     expect(line).toBeDefined();
     expect(line).toContain("parallel");
     expect(line).toContain("Single-focus");

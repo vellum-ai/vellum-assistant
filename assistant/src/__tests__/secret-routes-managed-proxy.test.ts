@@ -26,7 +26,10 @@ const mockConfig = {
       provider: "gemini",
       model: "gemini-3.1-flash-image-preview",
     },
-    "web-search": { mode: "your-own" as const, provider: "anthropic-native" },
+    "web-search": {
+      mode: "your-own" as const,
+      provider: "inference-provider-native",
+    },
   },
 };
 

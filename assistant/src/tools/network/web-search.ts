@@ -44,13 +44,9 @@ interface PerplexityResponse {
 function getWebSearchProvider(): WebSearchProvider {
   const config = getConfig();
   const configured = config.services["web-search"].provider ?? "perplexity";
-  // 'inference-provider-native' (and legacy 'anthropic-native') is handled by
-  // the inference provider client directly; fall back to perplexity for other providers.
-  if (
-    configured === "inference-provider-native" ||
-    configured === "anthropic-native"
-  )
-    return "perplexity";
+  // 'inference-provider-native' is handled by the inference provider client
+  // directly; fall back to perplexity for other providers.
+  if (configured === "inference-provider-native") return "perplexity";
   return configured as WebSearchProvider;
 }
 

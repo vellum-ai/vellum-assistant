@@ -195,15 +195,15 @@ public final class SettingsStore: ObservableObject {
 
     /// The selected web search provider, persisted in workspace config under
     /// `services.web-search.provider`.
-    @Published var webSearchProvider: String = "anthropic-native"
+    @Published var webSearchProvider: String = "inference-provider-native"
 
     /// Current web search mode. Values: "managed" or "your-own".
     @Published var webSearchMode: String = "your-own"
 
-    static let availableWebSearchProviders = ["anthropic-native", "perplexity", "brave"]
+    static let availableWebSearchProviders = ["inference-provider-native", "perplexity", "brave"]
 
     static let webSearchProviderDisplayNames: [String: String] = [
-        "anthropic-native": "Anthropic",
+        "inference-provider-native": "Provider Native",
         "perplexity": "Perplexity",
         "brave": "Brave",
     ]
