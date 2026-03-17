@@ -390,6 +390,7 @@ public struct ToolConfirmationBubble: View {
         switch effectivePrimaryAction {
         case "allow_10m": actions.append(.allow10m)
         case "allow_conversation": actions.append(.allowConversation)
+        case "always_allow": actions.append(.alwaysAllow)
         default: actions.append(.allowOnce)
         }
         actions.append(.dontAllow)
@@ -403,6 +404,7 @@ public struct ToolConfirmationBubble: View {
         switch effectivePrimaryAction {
         case "allow_10m": return selected == .allow10m
         case "allow_conversation": return selected == .allowConversation
+        case "always_allow": return selected == .alwaysAllow
         default: return selected == .allowOnce
         }
     }
@@ -604,7 +606,13 @@ public struct ToolConfirmationBubble: View {
         case .allowConversation:
             onTemporaryAllow?(confirmation.requestId, "allow_conversation")
         case .alwaysAllow:
-            break // Always-allow is handled via the split button dropdown
+            let pattern = confirmation.allowlistOptions.first?.pattern ?? ""
+            let scope = confirmation.scopeOptions.first?.scope ?? "everywhere"
+            if pattern.isEmpty {
+                onAllow()
+            } else {
+                onAlwaysAllow(confirmation.requestId, pattern, scope, alwaysAllowDecision)
+            }
         case .dontAllow:
             onDeny()
         }
