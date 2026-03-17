@@ -1,5 +1,4 @@
-import { Resvg } from "@resvg/resvg-js";
-
+import { getResvg } from "./resvg-lazy.js";
 import { composeSvg } from "./svg-compositor.js";
 
 const RAMP = " .·:;+=xX$&@";
@@ -25,6 +24,7 @@ export function renderCharacterAscii(
 ): string {
   const renderSize = width * 2;
   const svg = composeSvg(bodyShapeId, eyeStyleId, colorId, renderSize);
+  const Resvg = getResvg();
   const resvg = new Resvg(svg, {
     fitTo: { mode: "width", value: renderSize },
   });

@@ -1,5 +1,4 @@
-import { Resvg } from "@resvg/resvg-js";
-
+import { getResvg } from "./resvg-lazy.js";
 import { composeSvg } from "./svg-compositor.js";
 
 export function renderCharacterPng(
@@ -9,6 +8,7 @@ export function renderCharacterPng(
   size = 512,
 ): Buffer {
   const svg = composeSvg(bodyShapeId, eyeStyleId, colorId, size);
+  const Resvg = getResvg();
   const resvg = new Resvg(svg, {
     fitTo: { mode: "width", value: size },
   });
