@@ -1,7 +1,14 @@
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
+import {
+  afterAll,
+  beforeEach,
+  describe,
+  expect,
+  mock,
+  test,
+} from "bun:test";
 
 import { eq } from "drizzle-orm";
 
@@ -38,6 +45,14 @@ mock.module("../memory/qdrant-client.js", () => ({
   initQdrantClient: () => {},
 }));
 
+// Controllable mock for resolveCatalog used by seedCatalogSkillMemories
+let mockResolveCatalog: () => Promise<import("../skills/catalog-install.js").CatalogSkill[]> =
+  async () => [];
+
+mock.module("../skills/catalog-install.js", () => ({
+  resolveCatalog: (...args: unknown[]) => mockResolveCatalog(),
+}));
+
 import { DEFAULT_CONFIG } from "../config/defaults.js";
 
 const TEST_CONFIG = {
@@ -66,6 +81,7 @@ import type { CatalogSkill } from "../skills/catalog-install.js";
 import {
   buildCapabilityStatement,
   deleteSkillCapabilityMemory,
+  seedCatalogSkillMemories,
   upsertSkillCapabilityMemory,
 } from "../skills/skill-memory.js";
 
@@ -304,6 +320,138 @@ describe("deleteSkillCapabilityMemory", () => {
     expect(() => {
       deleteSkillCapabilityMemory("test-skill");
     }).not.toThrow();
+
+    // Restore DB state for subsequent tests
+    resetDb();
+    initializeDb();
+  });
+});
+
+// ─── seedCatalogSkillMemories ─────────────────────────────────────────────
+
+describe("seedCatalogSkillMemories", () => {
+  beforeEach(() => {
+    resetTables();
+    // Reset the mock to return empty catalog by default
+    mockResolveCatalog = async () => [];
+  });
+
+  test("upserts capability memories for all catalog entries", async () => {
+    const skills: CatalogSkill[] = [
+      makeSkill({ id: "skill-a", name: "Skill A", description: "Does A" }),
+      makeSkill({ id: "skill-b", name: "Skill B", description: "Does B" }),
+      makeSkill({ id: "skill-c", name: "Skill C", description: "Does C" }),
+    ];
+    mockResolveCatalog = async () => skills;
+
+    await seedCatalogSkillMemories();
+
+    const db = getDb();
+    const items = db
+      .select()
+      .from(memoryItems)
+      .where(eq(memoryItems.kind, "capability"))
+      .all();
+    expect(items).toHaveLength(3);
+
+    const subjects = items.map((i) => i.subject).sort();
+    expect(subjects).toEqual([
+      "skill:skill-a",
+      "skill:skill-b",
+      "skill:skill-c",
+    ]);
+
+    // All should be active
+    for (const item of items) {
+      expect(item.status).toBe("active");
+    }
+  });
+
+  test("prunes stale capabilities for skills no longer in catalog", async () => {
+    // First seed with three skills
+    const initialSkills: CatalogSkill[] = [
+      makeSkill({ id: "skill-a", name: "Skill A", description: "Does A" }),
+      makeSkill({ id: "skill-b", name: "Skill B", description: "Does B" }),
+      makeSkill({ id: "skill-c", name: "Skill C", description: "Does C" }),
+    ];
+    mockResolveCatalog = async () => initialSkills;
+    await seedCatalogSkillMemories();
+
+    const db = getDb();
+    const beforeItems = db
+      .select()
+      .from(memoryItems)
+      .where(eq(memoryItems.kind, "capability"))
+      .all();
+    expect(beforeItems).toHaveLength(3);
+    expect(beforeItems.every((i) => i.status === "active")).toBe(true);
+
+    // Now seed with only skill-a — skill-b and skill-c should be pruned
+    mockResolveCatalog = async () => [
+      makeSkill({ id: "skill-a", name: "Skill A", description: "Does A" }),
+    ];
+    await seedCatalogSkillMemories();
+
+    const afterItems = db
+      .select()
+      .from(memoryItems)
+      .where(eq(memoryItems.kind, "capability"))
+      .all();
+    expect(afterItems).toHaveLength(3); // still 3 rows, but 2 are soft-deleted
+
+    const active = afterItems.filter((i) => i.status === "active");
+    const deleted = afterItems.filter((i) => i.status === "deleted");
+
+    expect(active).toHaveLength(1);
+    expect(active[0].subject).toBe("skill:skill-a");
+
+    expect(deleted).toHaveLength(2);
+    const deletedSubjects = deleted.map((i) => i.subject).sort();
+    expect(deletedSubjects).toEqual(["skill:skill-b", "skill:skill-c"]);
+  });
+
+  test("handles empty catalog without errors", async () => {
+    // Pre-populate a skill so we can verify it gets pruned
+    upsertSkillCapabilityMemory(
+      "existing-skill",
+      makeSkill({ id: "existing-skill" }),
+    );
+
+    const db = getDb();
+    const beforeItems = db.select().from(memoryItems).all();
+    expect(beforeItems).toHaveLength(1);
+    expect(beforeItems[0].status).toBe("active");
+
+    // Seed with empty catalog
+    mockResolveCatalog = async () => [];
+    await seedCatalogSkillMemories();
+
+    // The existing skill should be pruned (soft-deleted)
+    const afterItems = db.select().from(memoryItems).all();
+    expect(afterItems).toHaveLength(1);
+    expect(afterItems[0].status).toBe("deleted");
+  });
+
+  test("does not throw when resolveCatalog rejects", async () => {
+    mockResolveCatalog = async () => {
+      throw new Error("Network failure");
+    };
+
+    // Best-effort: should not propagate the error
+    await expect(seedCatalogSkillMemories()).resolves.toBeUndefined();
+  });
+
+  test("does not throw on DB error during pruning", async () => {
+    mockResolveCatalog = async () => [
+      makeSkill({ id: "skill-a", name: "Skill A", description: "Does A" }),
+    ];
+
+    // Drop memory_items to force a DB error during the prune phase
+    resetDb();
+    const db = getDb();
+    db.run("DROP TABLE IF EXISTS memory_items");
+
+    await expect(seedCatalogSkillMemories()).resolves.toBeUndefined();
 
     // Restore DB state for subsequent tests
     resetDb();
