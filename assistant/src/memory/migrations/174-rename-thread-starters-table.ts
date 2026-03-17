@@ -40,6 +40,13 @@ export function migrateRenameThreadStartersTable(database: DrizzleDb): void {
       raw.exec(
         /*sql*/ `CREATE INDEX IF NOT EXISTS idx_conversation_starters_card_type ON conversation_starters(card_type, scope_id)`,
       );
+
+      // Migrate checkpoint keys from old thread_starters: prefix to
+      // conversation_starters: so existing checkpoint data is found by
+      // the renamed code paths and unnecessary re-generation is avoided.
+      raw.exec(
+        /*sql*/ `UPDATE memory_checkpoints SET key = replace(key, 'thread_starters:', 'conversation_starters:') WHERE key LIKE 'thread_starters:%'`,
+      );
     },
   );
 }
