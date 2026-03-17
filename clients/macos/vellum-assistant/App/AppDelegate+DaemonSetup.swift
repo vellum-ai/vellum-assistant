@@ -89,7 +89,7 @@ extension AppDelegate {
                 transportMetadata: metadata
             )
             services.reconfigureDaemonClient(config: config)
-            log.info("Configured managed transport for assistant \(assistant.assistantId) via platform at \(platformBaseURL, privacy: .public)")
+            log.info("Configured managed transport for assistant \(assistant.assistantId, privacy: .public) via platform at \(platformBaseURL, privacy: .public)")
             return
         }
 
@@ -121,7 +121,7 @@ extension AppDelegate {
         // object identity so all long-lived holders keep a valid reference.
         services.reconfigureDaemonClient(config: config)
 
-        log.info("Configured HTTP transport for remote assistant \(assistant.assistantId) at \(runtimeUrl, privacy: .public)")
+        log.info("Configured HTTP transport for remote assistant \(assistant.assistantId, privacy: .public) at \(runtimeUrl, privacy: .public)")
     }
 
     // MARK: - Daemon Client Setup
