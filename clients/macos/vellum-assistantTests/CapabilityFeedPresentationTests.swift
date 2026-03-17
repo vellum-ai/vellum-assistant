@@ -168,7 +168,7 @@ final class CapabilityFeedPresentationTests: XCTestCase {
     }
 
     func testScrollCTAMatchesExpectedCopy() {
-        XCTAssertEqual(FeedFraming.scrollCTA, "There\u{2019}s a lot more I can do")
+        XCTAssertEqual(FeedFraming.scrollCTA, "See what else you could do")
     }
 
     func testFeedCloserMatchesExpectedCopy() {

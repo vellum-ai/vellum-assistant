@@ -1,7 +1,7 @@
 import SwiftUI
 import VellumAssistantShared
 
-/// "There's a lot more I can do" scroll prompt with a bouncing chevron.
+/// "See what else you could do" scroll prompt with a bouncing chevron.
 /// Fades in ~1 second after appearing.
 struct ScrollCTAView: View {
     let onTap: () -> Void
@@ -12,7 +12,7 @@ struct ScrollCTAView: View {
     var body: some View {
         Button(action: onTap) {
             VStack(spacing: VSpacing.sm) {
-                Text("There\u{2019}s a lot more I can do")
+                Text("See what else you could do")
                     .font(.custom("Fraunces", size: 14).italic())
                     .foregroundColor(VColor.contentTertiary)
 

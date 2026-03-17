@@ -24,7 +24,7 @@ struct FloatingMiniComposer: View {
                         }
                     }
 
-                    Text("Type a message\u{2026}")
+                    Text("Back to composer\u{2026}")
                         .font(VFont.body)
                         .foregroundColor(VColor.contentTertiary)
 

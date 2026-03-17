@@ -1,132 +1,166 @@
 import SwiftUI
 import VellumAssistantShared
 
-/// Masonry-style grid of capability cards grouped by category.
-/// Shows skeleton placeholders for categories still generating.
+/// Concierge-style card feed built from `CapabilityFeedPresentation`.
+///
+/// Displays one hero recommendation, a small set of supporting cards,
+/// and a collapsed overflow section — replacing the old category-grouped grid.
 struct CapabilitiesFeedView: View {
     let cards: [CapabilityCard]
     let categoryStatuses: [String: CategoryStatus]
     let loading: Bool
     let onCardTap: (CapabilityCard) -> Void
 
-    /// Categories in display order.
-    private static let categoryOrder = [
-        "communication",
-        "productivity",
-        "development",
-        "automation",
-        "web_social",
-        "integration",
-        "media",
-    ]
+    @State private var overflowExpanded = false
 
-    /// Human-readable category labels.
-    private static let categoryLabels: [String: String] = [
-        "communication": "Communication",
-        "productivity": "Productivity",
-        "development": "Development",
-        "media": "Media",
-        "automation": "Automation",
-        "web_social": "Web & Social",
-        "integration": "Integration",
-    ]
-
-    private let columns = [
-        GridItem(.flexible(), spacing: VSpacing.md),
-        GridItem(.flexible(), spacing: VSpacing.md),
-        GridItem(.flexible(), spacing: VSpacing.md),
-    ]
-
-    /// Cards grouped by category in display order, filtered to relevant categories.
-    private var groupedCards: [(category: String, label: String, cards: [CapabilityCard])] {
-        let byCategory = Dictionary(grouping: cards, by: { $0.category ?? "other" })
-        return Self.categoryOrder.compactMap { cat in
-            guard let items = byCategory[cat], !items.isEmpty else { return nil }
-            let label = Self.categoryLabels[cat] ?? cat.capitalized
-            return (category: cat, label: label, cards: items)
-        }
-    }
-
-    /// Categories that are still generating (no cards yet, status is "generating").
-    private var generatingCategories: [String] {
-        Self.categoryOrder.filter { cat in
-            let status = categoryStatuses[cat]
-            let hasCards = cards.contains { $0.category == cat }
-            return !hasCards && status?.status == "generating"
-        }
+    private var presentation: CapabilityFeedPresentation {
+        CapabilityFeedPresentation(cards: cards, categoryStatuses: categoryStatuses)
     }
 
     var body: some View {
         VStack(alignment: .leading, spacing: VSpacing.xxl) {
-            // Section header
-            VStack(alignment: .center, spacing: VSpacing.xs) {
-                Text("Everything I can do for you")
-                    .font(VFont.title)
-                    .foregroundColor(VColor.contentDefault)
+            heroSection
 
-                Text("Personalized for you \u{00B7} Tap any card to start")
-                    .font(VFont.caption)
-                    .foregroundColor(VColor.contentTertiary)
-            }
-            .frame(maxWidth: .infinity)
-            .padding(.bottom, VSpacing.md)
+            supportingSection
 
-            // Cards grouped by category
-            ForEach(groupedCards, id: \.category) { group in
-                VStack(alignment: .leading, spacing: VSpacing.md) {
-                    Text(group.label)
-                        .font(VFont.captionMedium)
-                        .foregroundColor(VColor.contentTertiary)
-                        .textCase(.uppercase)
-                        .tracking(0.5)
+            overflowSection
 
-                    LazyVGrid(columns: columns, spacing: VSpacing.md) {
-                        ForEach(group.cards) { card in
-                            CapabilityCardView(card: card) {
-                                onCardTap(card)
-                            }
-                        }
-                    }
+            loadingSection
+
+            closerSection
+        }
+        .frame(maxWidth: VSpacing.chatBubbleMaxWidth + 80)
+        .padding(.horizontal, VSpacing.xl)
+    }
+
+    // MARK: - Hero
+
+    @ViewBuilder
+    private var heroSection: some View {
+        if let hero = presentation.hero {
+            VStack(alignment: .leading, spacing: VSpacing.md) {
+                sectionHeader(FeedFraming.heroHeader, eyebrow: FeedFraming.currentHeroEyebrow)
+
+                CapabilityCardView(card: hero, treatment: .hero) {
+                    onCardTap(hero)
                 }
-            }
-
-            // Skeleton placeholders for categories still generating
-            ForEach(generatingCategories, id: \.self) { cat in
-                VStack(alignment: .leading, spacing: VSpacing.md) {
-                    Text(Self.categoryLabels[cat] ?? cat.capitalized)
-                        .font(VFont.captionMedium)
-                        .foregroundColor(VColor.contentTertiary)
-                        .textCase(.uppercase)
-                        .tracking(0.5)
-
-                    LazyVGrid(columns: columns, spacing: VSpacing.md) {
-                        ForEach(0..<2, id: \.self) { _ in
-                            CapabilityCardSkeleton()
-                        }
-                    }
-                }
-            }
-
-            // Loading state when no cards or generating categories exist yet
-            if cards.isEmpty && generatingCategories.isEmpty && loading {
-                LazyVGrid(columns: columns, spacing: VSpacing.md) {
-                    ForEach(0..<6, id: \.self) { _ in
-                        CapabilityCardSkeleton()
-                    }
-                }
-            }
-
-            // Soft closer
-            if !cards.isEmpty {
-                Text("And anything else you can dream up.")
-                    .font(.custom("Fraunces", size: 16).italic())
-                    .foregroundColor(VColor.contentTertiary)
-                    .frame(maxWidth: .infinity)
-                    .padding(.top, VSpacing.lg)
-                    .padding(.bottom, VSpacing.xxxl)
             }
         }
-        .frame(maxWidth: VSpacing.chatBubbleMaxWidth + 200) // Wider than hero for 3-col grid
-        .padding(.horizontal, VSpacing.xl)
+    }
+
+    // MARK: - Supporting
+
+    @ViewBuilder
+    private var supportingSection: some View {
+        if !presentation.supporting.isEmpty {
+            VStack(alignment: .leading, spacing: VSpacing.md) {
+                sectionHeader(FeedFraming.supportingHeader)
+
+                ForEach(presentation.supporting) { card in
+                    CapabilityCardView(card: card, treatment: .compact) {
+                        onCardTap(card)
+                    }
+                }
+            }
+        }
+    }
+
+    // MARK: - Overflow
+
+    @ViewBuilder
+    private var overflowSection: some View {
+        if !presentation.overflow.isEmpty {
+            VStack(alignment: .leading, spacing: VSpacing.md) {
+                Button {
+                    withAnimation(VAnimation.standard) {
+                        overflowExpanded.toggle()
+                    }
+                } label: {
+                    HStack(spacing: VSpacing.sm) {
+                        Text(FeedFraming.overflowHeader)
+                            .font(VFont.captionMedium)
+                            .foregroundColor(VColor.contentTertiary)
+                            .textCase(.uppercase)
+                            .tracking(0.5)
+
+                        Spacer()
+
+                        VIcon.chevronDown.image
+                            .resizable()
+                            .frame(width: 12, height: 12)
+                            .foregroundColor(VColor.contentTertiary)
+                            .rotationEffect(.degrees(overflowExpanded ? 180 : 0))
+                            .animation(VAnimation.standard, value: overflowExpanded)
+                    }
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(
+                    overflowExpanded
+                        ? "Collapse more ideas"
+                        : "Show \(presentation.overflow.count) more ideas"
+                )
+
+                if overflowExpanded {
+                    ForEach(presentation.overflow) { card in
+                        CapabilityCardView(card: card, treatment: .compact) {
+                            onCardTap(card)
+                        }
+                    }
+                    .transition(.opacity.combined(with: .move(edge: .top)))
+                }
+            }
+        }
+    }
+
+    // MARK: - Loading
+
+    @ViewBuilder
+    private var loadingSection: some View {
+        if cards.isEmpty && loading {
+            VStack(alignment: .leading, spacing: VSpacing.md) {
+                CapabilityCardSkeleton(treatment: .hero)
+
+                ForEach(0..<2, id: \.self) { _ in
+                    CapabilityCardSkeleton(treatment: .compact)
+                }
+            }
+        } else if presentation.isGenerating {
+            CapabilityCardSkeleton(treatment: .compact)
+        }
+    }
+
+    // MARK: - Closer
+
+    @ViewBuilder
+    private var closerSection: some View {
+        if !cards.isEmpty {
+            Text(FeedFraming.feedCloser)
+                .font(.custom("Fraunces", size: 16).italic())
+                .foregroundColor(VColor.contentTertiary)
+                .frame(maxWidth: .infinity)
+                .padding(.top, VSpacing.lg)
+                .padding(.bottom, VSpacing.xxxl)
+        }
+    }
+
+    // MARK: - Helpers
+
+    @ViewBuilder
+    private func sectionHeader(_ title: String, eyebrow: String? = nil) -> some View {
+        VStack(alignment: .leading, spacing: VSpacing.xxs) {
+            if let eyebrow {
+                Text(eyebrow)
+                    .font(VFont.small)
+                    .foregroundColor(VColor.contentTertiary)
+                    .italic()
+            }
+
+            Text(title)
+                .font(VFont.captionMedium)
+                .foregroundColor(VColor.contentTertiary)
+                .textCase(.uppercase)
+                .tracking(0.5)
+        }
     }
 }

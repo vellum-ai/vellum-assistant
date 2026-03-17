@@ -95,8 +95,8 @@ enum FeedFraming {
 
     // MARK: Feed Chrome
 
-    /// Scroll CTA copy inviting the user to explore more capabilities.
-    static let scrollCTA = "There\u{2019}s a lot more I can do"
+    /// Scroll CTA copy inviting the user to explore what they could do next.
+    static let scrollCTA = "See what else you could do"
 
     /// Soft closer text at the bottom of the full feed.
     static let feedCloser = "And anything else you can dream up."

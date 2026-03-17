@@ -59,8 +59,8 @@ struct ChatEmptyStateView: View {
     // MARK: - Greeting Data
 
     static let placeholderTexts = [
-        "Ask me anything...",
-        "Tell me what you need...",
+        "What would help right now?",
+        "What should we tackle?",
         "Say the word...",
         "Go ahead, I'm listening...",
         "Type or hold Fn to talk...",
