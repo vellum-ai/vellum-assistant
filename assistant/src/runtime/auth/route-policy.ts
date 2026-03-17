@@ -340,6 +340,7 @@ const ACTOR_ENDPOINTS: Array<{ endpoint: string; scopes: Scope[] }> = [
   { endpoint: "model/image-gen", scopes: ["settings.write"] },
 
   // Conversation management
+  { endpoint: "conversations/wipe", scopes: ["chat.write"] },
   { endpoint: "conversations/reorder", scopes: ["chat.write"] },
 
   // Conversation search
