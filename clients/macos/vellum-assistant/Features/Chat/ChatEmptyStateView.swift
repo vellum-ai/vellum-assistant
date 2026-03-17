@@ -90,7 +90,7 @@ struct ChatEmptyStateView: View {
     // MARK: - Shared Sections
 
     private var heroSection: some View {
-        HStack(spacing: VSpacing.md) {
+        VStack(spacing: VSpacing.md) {
             Group {
                 if let body = appearance.characterBodyShape,
                    let eyes = appearance.characterEyeStyle,
@@ -106,7 +106,7 @@ struct ChatEmptyStateView: View {
                 Text(greeting)
                     .font(VFont.largeTitle)
                     .foregroundColor(VColor.contentSecondary)
-                    .multilineTextAlignment(.leading)
+                    .multilineTextAlignment(.center)
                     .transition(.opacity)
             }
         }
