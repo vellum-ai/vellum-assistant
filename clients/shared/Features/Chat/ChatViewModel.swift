@@ -49,7 +49,7 @@ struct ConversationStarterClient: ConversationStarterClientProtocol {
 
     func fetchConversationStarters(limit: Int) async -> ConversationStartersResponse? {
         guard let response = try? await GatewayHTTPClient.get(
-            path: "conversation-starters",
+            path: "assistants/{assistantId}/conversation-starters",
             params: ["limit": String(limit)]
         ), response.isSuccess else { return nil }
         return try? JSONDecoder().decode(ConversationStartersResponse.self, from: response.data)

@@ -1,0 +1,150 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"  # .claude/ → repo root
+PARENT_DIR="$(dirname "$REPO_ROOT")"
+REPO_NAME="$(basename "$REPO_ROOT")"
+WT_PREFIX="${REPO_NAME}-wt"
+
+usage() {
+  echo "Usage: .claude/worktree <create|remove|list> [args]"
+  echo ""
+  echo "Commands:"
+  echo "  create <branch-name> [start-point]  Create a worktree + branch and install deps"
+  echo "  remove <branch-name> [options]      Remove a worktree and optionally delete the branch"
+  echo "  list                                List all worktrees"
+  echo ""
+  echo "Remove options:"
+  echo "  --delete-branch      Always delete the branch (no prompt)"
+  echo "  --no-delete-branch   Never delete the branch (no prompt)"
+  echo ""
+  echo "Examples:"
+  echo "  .claude/worktree create feat/streaming"
+  echo "  .claude/worktree remove feat/streaming"
+  echo "  .claude/worktree remove feat/streaming --delete-branch"
+  echo "  .claude/worktree list"
+}
+
+create() {
+  local branch="$1"
+  local start_point="${2:-}"
+  local slug="${branch//\//-}"
+  local dir="$PARENT_DIR/${WT_PREFIX}-${slug}"
+
+  if [ -d "$dir" ]; then
+    echo "Error: worktree already exists at $dir"
+    exit 1
+  fi
+
+  echo "Creating worktree at $dir on branch $branch..."
+  if [ -n "$start_point" ]; then
+    git -C "$REPO_ROOT" worktree add "$dir" -b "$branch" "$start_point"
+  else
+    git -C "$REPO_ROOT" worktree add "$dir" -b "$branch"
+  fi
+
+  # Install dependencies if a package manager lock file exists
+  export PATH="$HOME/.bun/bin:$PATH"
+  if [ -f "$dir/bun.lockb" ] || [ -f "$dir/bun.lock" ]; then
+    echo "Installing dependencies..."
+    cd "$dir" && bun install
+  elif [ -f "$dir/package-lock.json" ]; then
+    echo "Installing dependencies..."
+    cd "$dir" && npm install
+  fi
+  # Also install in subdirectories that have their own lock files
+  for subdir in "$dir"/*/; do
+    if [ -f "${subdir}bun.lockb" ] || [ -f "${subdir}bun.lock" ]; then
+      echo "Installing dependencies in $(basename "$subdir")..."
+      cd "$subdir" && bun install
+    elif [ -f "${subdir}package-lock.json" ]; then
+      echo "Installing dependencies in $(basename "$subdir")..."
+      cd "$subdir" && npm install
+    fi
+  done
+
+  # Copy local settings so agents spawned in this worktree have tool permissions
+  if [ -f "$REPO_ROOT/.claude/settings.local.json" ]; then
+    cp "$REPO_ROOT/.claude/settings.local.json" "$dir/.claude/settings.local.json"
+  fi
+
+  echo ""
+  echo "Ready! To start working:"
+  echo "  cd $dir && claude"
+}
+
+remove() {
+  local branch="$1"
+  local delete_branch=""
+  shift
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --delete-branch) delete_branch="yes"; shift ;;
+      --no-delete-branch) delete_branch="no"; shift ;;
+      *) echo "Error: unknown option $1"; usage; exit 1 ;;
+    esac
+  done
+
+  local slug="${branch//\//-}"
+  local dir="$PARENT_DIR/${WT_PREFIX}-${slug}"
+
+  # Fall back to legacy prefix for worktrees created before the rename
+  if [ ! -d "$dir" ]; then
+    local legacy_dir="$PARENT_DIR/vellum-wt-${slug}"
+    if [ -d "$legacy_dir" ]; then
+      dir="$legacy_dir"
+    else
+      echo "Error: no worktree at $dir"
+      exit 1
+    fi
+  fi
+
+  echo "Removing worktree at $dir..."
+  git -C "$REPO_ROOT" worktree remove "$dir"
+
+  if [[ "$delete_branch" == "yes" ]]; then
+    REPLY="y"
+  elif [[ "$delete_branch" == "no" ]]; then
+    REPLY="n"
+  elif [[ -t 0 ]]; then
+    read -p "Delete branch $branch? [y/N] " -n 1 -r
+    echo
+  else
+    # Non-TTY: read piped input if available, default to "n" (safe)
+    read -r REPLY 2>/dev/null || REPLY=""
+    REPLY="${REPLY:-n}"
+  fi
+  if [[ $REPLY =~ ^[Yy]$ ]]; then
+    git -C "$REPO_ROOT" branch -d "$branch" 2>/dev/null || \
+      git -C "$REPO_ROOT" branch -D "$branch"
+    echo "Branch $branch deleted."
+  fi
+}
+
+list() {
+  git -C "$REPO_ROOT" worktree list
+}
+
+if [ $# -lt 1 ]; then
+  usage
+  exit 1
+fi
+
+case "$1" in
+  create)
+    [ $# -lt 2 ] && { echo "Error: branch name required"; usage; exit 1; }
+    create "$2" "${3:-}"
+    ;;
+  remove)
+    [ $# -lt 2 ] && { echo "Error: branch name required"; usage; exit 1; }
+    shift
+    remove "$@"
+    ;;
+  list)
+    list
+    ;;
+  *)
+    usage
+    exit 1
+    ;;
+esac

@@ -1,0 +1,239 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# .claude/check-pr-reviews — Fetch and classify reviewer status for one or more PRs
+# Outputs structured JSON with reviewer verdicts and raw review data.
+
+usage() {
+  cat <<'EOF'
+Usage: .claude/check-pr-reviews <pr-number> [pr-number ...]
+
+Fetches review data for one or more PRs and classifies each reviewer's status.
+
+With a single PR number, outputs a single JSON object.
+With multiple PR numbers, outputs a JSON array.
+
+Output per PR:
+{
+  "pr_number": 123,
+  "title": "Fix login validation",
+  "head_ref_name": "swarm/ws-daemon-ipc/task-1",
+  "created_at": "2024-01-15T10:00:00Z",
+  "age_seconds": 3600,
+  "codex": {
+    "status": "approved|changes_requested|rate_limited|pending",
+    "reviews": [...],
+    "inline_comments": [...],
+    "has_plus_one_reaction": true|false
+  },
+  "devin": {
+    "status": "approved|changes_requested|skipped|pending",
+    "reviews": [...],
+    "inline_comments": [...]
+  }
+}
+
+Reviewer classification:
+  codex (chatgpt-codex-connector[bot]):
+    approved          — +1 reaction on PR description
+    changes_requested — review or inline comment with suggestions
+    rate_limited      — most recent comment mentions rate limit
+    pending           — none of the above
+
+  devin (devin-ai-integration[bot]):
+    approved          — review containing "No Issues Found"
+    changes_requested — review or inline comment (not "No Issues Found")
+    skipped           — no review after 30 minutes (Devin likely errored)
+    pending           — no review from this user (PR < 30 minutes old)
+
+Examples:
+  .claude/check-pr-reviews 123
+  .claude/check-pr-reviews 123 456 789
+  .claude/check-pr-reviews 123 | jq '.codex.status'
+  .claude/check-pr-reviews 123 456 | jq '.[].codex.status'
+EOF
+}
+
+if [ $# -lt 1 ] || [ "$1" = "-h" ] || [ "$1" = "--help" ]; then
+  usage
+  exit 0
+fi
+
+PR_NUMBERS=("$@")
+NOW=$(date -u +%s)
+
+# Derive org/repo from git remote (e.g. "vellum-ai/vellum-assistant")
+REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+REPO_SLUG=$(git -C "$REPO_ROOT" remote get-url origin | sed -E 's#.+github\.com[:/]##; s/\.git$//')
+
+TMPDIR_WORK=$(mktemp -d)
+trap 'rm -rf "$TMPDIR_WORK"' EXIT
+
+# Process a single PR and write its JSON result to a file
+check_pr() {
+  local pr_number="$1"
+  local pr_dir="$TMPDIR_WORK/$pr_number"
+  mkdir -p "$pr_dir"
+
+  # Fetch all data in parallel
+  gh pr view "$pr_number" --json comments,reviews,createdAt,title,headRefName > "$pr_dir/pr.json" &
+  local pid1=$!
+
+  gh api "repos/$REPO_SLUG/issues/$pr_number/reactions" \
+    --jq '[.[] | {user: .user.login, content: .content}]' > "$pr_dir/reactions.json" &
+  local pid2=$!
+
+  gh api "repos/$REPO_SLUG/pulls/$pr_number/comments" \
+    --jq '[.[] | {user: .user.login, body: .body, path: .path, line: .line}]' > "$pr_dir/inline.json" &
+  local pid3=$!
+
+  wait $pid1 $pid2 $pid3
+
+  # Parse title, head branch, and creation time
+  local title
+  title=$(jq -r '.title // ""' "$pr_dir/pr.json")
+
+  local head_ref_name
+  head_ref_name=$(jq -r '.headRefName // ""' "$pr_dir/pr.json")
+
+  # Parse creation time and compute age
+  local created_at
+  created_at=$(jq -r '.createdAt' "$pr_dir/pr.json")
+  local created_epoch
+  if date -j -f "%Y-%m-%dT%H:%M:%SZ" "$created_at" +%s >/dev/null 2>&1; then
+    created_epoch=$(date -j -f "%Y-%m-%dT%H:%M:%SZ" "$created_at" +%s)
+  else
+    created_epoch=$(date -d "$created_at" +%s 2>/dev/null || echo "$NOW")
+  fi
+  local age_seconds=$((NOW - created_epoch))
+
+  # --- Classify Codex ---
+
+  local codex_plus_one
+  codex_plus_one=$(jq '[.[] | select(.user == "chatgpt-codex-connector[bot]" and .content == "+1")] | length > 0' "$pr_dir/reactions.json")
+
+  local codex_reviews
+  codex_reviews=$(jq '[.reviews[] | select(.author.login == "chatgpt-codex-connector") | {body: .body, state: .state}]' "$pr_dir/pr.json")
+
+  local codex_inline
+  codex_inline=$(jq '[.[] | select(.user == "chatgpt-codex-connector[bot]")]' "$pr_dir/inline.json")
+
+  local codex_rate_limited
+  codex_rate_limited=$(jq '
+    [.comments[] | select(.author.login == "chatgpt-codex-connector")]
+    | sort_by(.createdAt)
+    | last
+    | if . == null then false
+      elif (.body | test("rate.?limit|too many requests"; "i")) then true
+      else false
+      end
+  ' "$pr_dir/pr.json")
+
+  local codex_review_count codex_inline_count
+  codex_review_count=$(echo "$codex_reviews" | jq 'length')
+  codex_inline_count=$(echo "$codex_inline" | jq 'length')
+
+  local codex_status
+  if [ "$codex_plus_one" = "true" ]; then
+    codex_status="approved"
+  elif [ "$codex_rate_limited" = "true" ]; then
+    codex_status="rate_limited"
+  elif [ "$codex_review_count" -gt 0 ] || [ "$codex_inline_count" -gt 0 ]; then
+    codex_status="changes_requested"
+  else
+    codex_status="pending"
+  fi
+
+  # --- Classify Devin ---
+
+  local devin_reviews
+  devin_reviews=$(jq '[.reviews[] | select(.author.login == "devin-ai-integration") | {body: .body, state: .state}]' "$pr_dir/pr.json")
+
+  local devin_inline
+  devin_inline=$(jq '[.[] | select(.user == "devin-ai-integration[bot]")]' "$pr_dir/inline.json")
+
+  local devin_review_count devin_inline_count
+  devin_review_count=$(echo "$devin_reviews" | jq 'length')
+  devin_inline_count=$(echo "$devin_inline" | jq 'length')
+
+  local devin_approved
+  devin_approved=$(echo "$devin_reviews" | jq '[.[] | select(.body | test("No Issues Found"))] | length > 0')
+
+  local devin_status
+  if [ "$devin_approved" = "true" ]; then
+    devin_status="approved"
+  elif [ "$devin_review_count" -gt 0 ] || [ "$devin_inline_count" -gt 0 ]; then
+    devin_status="changes_requested"
+  elif [ "$age_seconds" -ge 1800 ]; then
+    devin_status="skipped"
+  else
+    devin_status="pending"
+  fi
+
+  # --- Write result JSON to file ---
+
+  jq -n \
+    --argjson pr_number "$pr_number" \
+    --arg title "$title" \
+    --arg head_ref_name "$head_ref_name" \
+    --arg created_at "$created_at" \
+    --argjson age_seconds "$age_seconds" \
+    --arg codex_status "$codex_status" \
+    --argjson codex_reviews "$codex_reviews" \
+    --argjson codex_inline "$codex_inline" \
+    --argjson codex_plus_one "$codex_plus_one" \
+    --arg devin_status "$devin_status" \
+    --argjson devin_reviews "$devin_reviews" \
+    --argjson devin_inline "$devin_inline" \
+    '{
+      pr_number: $pr_number,
+      title: $title,
+      head_ref_name: $head_ref_name,
+      created_at: $created_at,
+      age_seconds: $age_seconds,
+      codex: {
+        status: $codex_status,
+        reviews: $codex_reviews,
+        inline_comments: $codex_inline,
+        has_plus_one_reaction: $codex_plus_one
+      },
+      devin: {
+        status: $devin_status,
+        reviews: $devin_reviews,
+        inline_comments: $devin_inline
+      }
+    }' > "$pr_dir/result.json"
+}
+
+# Process all PRs in parallel, tracking PIDs to surface failures
+WORKER_PIDS=()
+for pr in "${PR_NUMBERS[@]}"; do
+  check_pr "$pr" &
+  WORKER_PIDS+=($!)
+done
+
+# Wait on each worker individually so non-zero exits fail the command
+FAILED=0
+for pid in "${WORKER_PIDS[@]}"; do
+  if ! wait "$pid"; then
+    FAILED=1
+  fi
+done
+if [ "$FAILED" -ne 0 ]; then
+  echo "error: one or more PR checks failed" >&2
+  exit 1
+fi
+
+# Collect results in argument order
+RESULTS=()
+for pr in "${PR_NUMBERS[@]}"; do
+  RESULTS+=("$(cat "$TMPDIR_WORK/$pr/result.json")")
+done
+
+# Single PR: output a single JSON object (backward compatible)
+# Multiple PRs: output a JSON array
+if [ ${#RESULTS[@]} -eq 1 ]; then
+  echo "${RESULTS[0]}"
+else
+  printf '%s\n' "${RESULTS[@]}" | jq -s '.'
+fi

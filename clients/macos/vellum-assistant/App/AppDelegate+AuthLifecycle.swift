@@ -169,7 +169,16 @@ extension AppDelegate {
             // Capture actor token before logout clears session state
             let actorToken = ActorTokenManager.getToken()
 
-            await authManager.logout()
+            // Capture managed status before logout clears UserDefaults
+            let wasManaged = isCurrentAssistantManaged
+
+            if !wasManaged {
+                await authManager.logoutWithToast { [weak self] msg, style in
+                    self?.mainWindow?.windowState.showToast(message: msg, style: style)
+                }
+            } else {
+                await authManager.logout()
+            }
 
             // Clear managed proxy credentials from the running daemon (local assistants only)
             if !isCurrentAssistantManaged && !isCurrentAssistantRemote {
@@ -232,9 +241,6 @@ extension AppDelegate {
             // Reset dock icon to default before tearing down UI
             AvatarAppearanceManager.shared.resetForDisconnect()
 
-            // Capture managed status before it gets reset during teardown
-            let wasManaged = isCurrentAssistantManaged
-
             if !wasManaged {
                 // Self-hosted (local or remote): clear auth state but keep the
                 // app running. The user can sign in again from Settings > General.
@@ -252,10 +258,6 @@ extension AppDelegate {
                 hasSetupDaemon = false
 
                 AvatarAppearanceManager.shared.reloadAvatar()
-                mainWindow?.windowState.showToast(
-                    message: "Logged out. You can log in again from Settings.",
-                    style: .success
-                )
             } else {
                 // Managed (platform): full teardown — close everything and
                 // show the reauth screen.
@@ -312,6 +314,7 @@ extension AppDelegate {
                 hasSetupApp = false
                 hasSetupDaemon = false
                 showAuthWindow(reusingWindow: detachedWindow)
+                authManager.errorMessage = nil
             }
         }
     }
@@ -395,10 +398,9 @@ extension AppDelegate {
                     log.info("Local assistant API key provisioned: \(id, privacy: .public)")
                 }
 
-                // After successful managed-proxy bootstrap, set all service modes to "managed".
-                // This overwrites the schema default ("your-own") that the daemon materializes
-                // on first load. If the user later switches mode in settings, the per-service
-                // setter will overwrite individual values.
+                // Set service modes to "managed" for any services that don't already have a
+                // mode configured. On first bootstrap this sets all three; on subsequent app
+                // restarts the user's existing choices are preserved.
                 WorkspaceConfigIO.initializeServiceDefaults(defaultMode: "managed")
 
                 self.localBootstrapDidComplete = true

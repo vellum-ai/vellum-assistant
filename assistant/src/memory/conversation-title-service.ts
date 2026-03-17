@@ -146,7 +146,6 @@ export async function generateAndPersistConversationTitle(
       signal: combinedSignal,
     },
   );
-
   const textBlock = response.content.find((b) => b.type === "text");
   if (textBlock && textBlock.type === "text") {
     let title = normalizeTitle(textBlock.text);
@@ -312,7 +311,7 @@ function buildTitlePrompt(
   assistantResponse?: string,
 ): string {
   const parts: string[] = [
-    "Generate a very short title for this conversation. Rules: at most 5 words, at most 40 characters, no quotes, no markdown formatting.",
+    "Generate a very short title summarizing the TOPIC of this conversation. Rules: at most 5 words, at most 40 characters, no quotes, no markdown formatting. IMPORTANT: Summarize what the user is asking about — do NOT respond to the message, do NOT assess feasibility, and do NOT comment on your own capabilities.",
   ];
 
   if (context) {
@@ -369,7 +368,7 @@ function deriveFallbackTitle(context?: TitleContext): string | null {
 
 function buildRegenerationPrompt(recentMessages: MessageRow[]): string {
   const parts: string[] = [
-    "Generate a very short title for this conversation based on the recent messages below. Rules: at most 5 words, at most 40 characters, no quotes, no markdown formatting.",
+    "Generate a very short title summarizing the TOPIC of this conversation based on the recent messages below. Rules: at most 5 words, at most 40 characters, no quotes, no markdown formatting. IMPORTANT: Summarize what the user is asking about — do NOT respond to the messages, do NOT assess feasibility, and do NOT comment on your own capabilities.",
     "",
     "Recent messages:",
   ];

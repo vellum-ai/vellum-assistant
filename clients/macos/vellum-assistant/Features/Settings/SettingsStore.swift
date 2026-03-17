@@ -236,10 +236,6 @@ public final class SettingsStore: ObservableObject {
     @Published var isCheckingTunnel: Bool = false
     @Published var tunnelLastChecked: Date?
 
-    // MARK: - Dev Mode
-
-    @Published var isDevMode: Bool
-
     // MARK: - Trust Rules Coordination
 
     /// Whether any settings surface currently has a trust rules sheet open.
@@ -373,12 +369,6 @@ public final class SettingsStore: ObservableObject {
         let storedQIKeyCode = UserDefaults.standard.object(forKey: "quickInputHotkeyKeyCode") as? Int
         self.quickInputHotkeyKeyCode = storedQIKeyCode ?? kVK_ANSI_Slash
 
-        #if DEBUG
-        self.isDevMode = UserDefaults.standard.object(forKey: "devModeEnabled") as? Bool ?? true
-        #else
-        self.isDevMode = UserDefaults.standard.bool(forKey: "devModeEnabled")
-        #endif
-
         // Load media embed settings from workspace config
         let mediaSettings = Self.loadMediaEmbedSettings(from: configPath)
         self.mediaEmbedsEnabled = mediaSettings.enabled
@@ -411,11 +401,20 @@ public final class SettingsStore: ObservableObject {
             .sink { [weak self] _ in self?.refreshAPIKeyState() }
             .store(in: &cancellables)
 
-        // Re-sync all API keys to daemon when it reconnects
+        // Re-sync all API keys and refresh remote state when the daemon reconnects.
+        // This also covers the first-launch case where SettingsStore is initialized
+        // before onboarding sets connectedAssistantId.
         NotificationCenter.default.publisher(for: .daemonDidReconnect)
             .receive(on: RunLoop.main)
             .sink { [weak self] _ in
                 self?.syncAllKeysToDaemon()
+                self?.refreshVercelKeyState()
+                self?.refreshModelInfo()
+                self?.refreshTelegramStatus()
+                self?.refreshTwilioStatus()
+                self?.refreshChannelVerificationStatus(channel: "telegram")
+                self?.refreshChannelVerificationStatus(channel: "phone")
+                self?.refreshChannelVerificationStatus(channel: "slack")
                 self?.loadProviderRoutingSources()
             }
             .store(in: &cancellables)
@@ -486,11 +485,6 @@ public final class SettingsStore: ObservableObject {
         $quickInputHotkeyKeyCode
             .dropFirst()
             .sink { value in UserDefaults.standard.set(value, forKey: "quickInputHotkeyKeyCode") }
-            .store(in: &cancellables)
-
-        $isDevMode
-            .dropFirst()
-            .sink { value in UserDefaults.standard.set(value, forKey: "devModeEnabled") }
             .store(in: &cancellables)
 
         // Mirror DaemonClient's trust-rules-open flag so views can disable their buttons
@@ -584,29 +578,22 @@ public final class SettingsStore: ObservableObject {
             self.applyChannelVerificationResponse(response)
         }
 
-        // Refresh Vercel key state on init
-        refreshVercelKeyState()
+        // Only fetch remote state when an assistant is already connected.
+        // During initial setup there is no assistant yet, so these calls
+        // would all fail with "No connected assistant" errors.
+        let hasConnectedAssistant = UserDefaults.standard.string(forKey: "connectedAssistantId") != nil
+        if hasConnectedAssistant {
+            refreshVercelKeyState()
+            refreshModelInfo()
+            refreshTelegramStatus()
+            refreshTwilioStatus()
+            refreshChannelVerificationStatus(channel: "telegram")
+            refreshChannelVerificationStatus(channel: "phone")
+            refreshChannelVerificationStatus(channel: "slack")
 
-        // Fetch current model
-        refreshModelInfo()
-
-        // Refresh Telegram integration status on init
-        refreshTelegramStatus()
-
-        // Refresh Twilio integration status on init
-        refreshTwilioStatus()
-
-        // Refresh channel verification status on init
-        refreshChannelVerificationStatus(channel: "telegram")
-        refreshChannelVerificationStatus(channel: "phone")
-        refreshChannelVerificationStatus(channel: "slack")
-
-        // Ingress config is refreshed by onAppear in SettingsPanel,
-        // not here, to avoid duplicate get requests whose
-        // stale responses could overwrite an optimistic toggle.
-
-        // Fetch provider routing sources (managed vs BYO) on init
-        loadProviderRoutingSources()
+            // Fetch provider routing sources (managed vs BYO) on init
+            loadProviderRoutingSources()
+        }
     }
 
     // MARK: - API Key Actions
@@ -2189,12 +2176,6 @@ public final class SettingsStore: ObservableObject {
         guard let ip = LANIPHelper.currentLANAddress() else { return nil }
         let connectedId = UserDefaults.standard.string(forKey: "connectedAssistantId")
         return "http://\(ip):\(LockfilePaths.resolveGatewayPort(connectedAssistantId: connectedId))"
-    }
-
-    // MARK: - Dev Mode Actions
-
-    func toggleDevMode() {
-        isDevMode.toggle()
     }
 
     // MARK: - Model Actions

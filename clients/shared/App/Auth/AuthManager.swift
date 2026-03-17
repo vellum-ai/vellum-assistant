@@ -173,8 +173,10 @@ public final class AuthManager {
     public func logout() async {
         do {
             _ = try await authService.logout()
+            errorMessage = nil
         } catch {
             log.error("Logout request failed: baseURL=\(self.authService.baseURL, privacy: .public) error=\(error.localizedDescription, privacy: .public)")
+            errorMessage = error.localizedDescription
         }
         await SessionTokenManager.deleteTokenAsync()
         UserDefaults.standard.removeObject(forKey: "connectedOrganizationId")
@@ -182,7 +184,6 @@ public final class AuthManager {
         UserDefaults.standard.removeObject(forKey: "managed_assistant_id")
         UserDefaults.standard.removeObject(forKey: "managed_platform_base_url")
         state = .unauthenticated
-        errorMessage = nil
     }
 
     private func generateCodeVerifier() -> String {

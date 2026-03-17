@@ -3,8 +3,8 @@ import VellumAssistantShared
 
 /// A code viewer with line numbers, horizontal scrolling, and syntax highlighting.
 ///
-/// Uses pure SwiftUI rendering (TextEditor for editable mode, Text for read-only)
-/// to avoid NSTextView compositing issues inside SwiftUI view hierarchies.
+/// Uses pure SwiftUI rendering (TextEditor with line number gutter for editable mode,
+/// Text with syntax highlighting for read-only) to avoid AppKit compositing issues.
 struct HighlightedTextView: View {
     @Binding var text: String
     let language: SyntaxLanguage
@@ -48,11 +48,18 @@ struct HighlightedTextView: View {
 
     // MARK: - Editable Mode
 
-    /// TextEditor-based editable view — no line numbers but text is visible and editable.
-    /// Shows search bar with match count but does not highlight matches inline
-    /// (TextEditor doesn't support AttributedString).
+    /// TextEditor-based editable view with a pure SwiftUI line number gutter.
+    /// Reuses the same gutter pattern as the read-only view for consistency.
+    /// Wraps the editor in a horizontal ScrollView to prevent text wrapping,
+    /// which would misalign line numbers with their corresponding lines.
     private var editableView: some View {
-        VStack(spacing: 0) {
+        let lines = text.components(separatedBy: "\n")
+        let lineCount = lines.count
+        let gutterWidth = gutterWidth(for: lineCount)
+        let maxLineLength = lines.map(\.count).max() ?? 0
+        let contentMinWidth = CGFloat(maxLineLength) * Self.charWidth + VSpacing.md * 2
+
+        return VStack(spacing: 0) {
             if isSearchVisible {
                 SourceSearchBar(
                     searchQuery: $searchQuery,
@@ -62,12 +69,30 @@ struct HighlightedTextView: View {
                 )
             }
 
-            TextEditor(text: editableBinding)
-                .font(VFont.mono)
-                .foregroundStyle(VColor.contentDefault)
-                .scrollContentBackground(.hidden)
+            GeometryReader { geometry in
+                let availableWidth = geometry.size.width - gutterWidth
+                ScrollView([.vertical]) {
+                    HStack(alignment: .top, spacing: 0) {
+                        lineNumberGutter(lineCount: lineCount, width: gutterWidth)
+
+                        ScrollView(.horizontal, showsIndicators: true) {
+                            TextEditor(text: editableBinding)
+                                .font(VFont.mono)
+                                .foregroundStyle(VColor.contentDefault)
+                                .scrollContentBackground(.hidden)
+                                .scrollDisabled(true)
+                                .background(Self.editorBackground)
+                                .frame(
+                                    minWidth: max(availableWidth, contentMinWidth),
+                                    minHeight: geometry.size.height
+                                )
+                        }
+                        .frame(minWidth: availableWidth)
+                    }
+                    .frame(minHeight: geometry.size.height, alignment: .topLeading)
+                }
                 .background(Self.editorBackground)
-                .scrollDisabled(false)
+            }
         }
         .onKeyPress("f", phases: .down) { press in
             guard press.modifiers == .command else { return .ignored }
@@ -155,11 +180,18 @@ struct HighlightedTextView: View {
 
                         // Text content — scrolls both directions
                         ScrollView(.horizontal, showsIndicators: true) {
-                            Text(highlightedText)
-                                .textSelection(.enabled)
-                                .fixedSize(horizontal: true, vertical: false)
-                                .padding(.vertical, VSpacing.sm)
-                                .padding(.horizontal, VSpacing.md)
+                            Group {
+                                if isEditable {
+                                    Text(highlightedText)
+                                        .textSelection(.disabled)
+                                } else {
+                                    Text(highlightedText)
+                                        .textSelection(.enabled)
+                                }
+                            }
+                            .fixedSize(horizontal: true, vertical: false)
+                            .padding(.vertical, VSpacing.sm)
+                            .padding(.horizontal, VSpacing.md)
                         }
                         .frame(minWidth: geometry.size.width - gutterWidth)
                     }
@@ -229,12 +261,23 @@ struct HighlightedTextView: View {
         .background(Self.gutterBackground)
     }
 
-    /// Line height for the text content font, computed from actual NSFont metrics
-    /// so the gutter stays aligned even if the font or size changes.
+    /// Line height for the text content font, derived from NSLayoutManager so the
+    /// gutter matches the actual line spacing NSTextView uses (which rounds each
+    /// metric component individually rather than ceiling the sum).
     private static let lineHeight: CGFloat = {
         let nsFont = NSFont(name: "DMMono-Regular", size: 13)
             ?? NSFont.monospacedSystemFont(ofSize: 13, weight: .regular)
-        return ceil(nsFont.ascender - nsFont.descender + nsFont.leading)
+        let layoutManager = NSLayoutManager()
+        return layoutManager.defaultLineHeight(for: nsFont)
+    }()
+
+    /// Width of a single monospace character, used to calculate the minimum editor
+    /// width that prevents text wrapping and keeps line numbers aligned.
+    private static let charWidth: CGFloat = {
+        let nsFont = NSFont(name: "DMMono-Regular", size: 13)
+            ?? NSFont.monospacedSystemFont(ofSize: 13, weight: .regular)
+        let attributes: [NSAttributedString.Key: Any] = [.font: nsFont]
+        return ("M" as NSString).size(withAttributes: attributes).width
     }()
 
     private func gutterWidth(for lineCount: Int) -> CGFloat {

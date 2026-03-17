@@ -193,7 +193,7 @@ describe("UsageTelemetryReporter", () => {
 
     expect(mockFetch).toHaveBeenCalledTimes(1);
     const [url, opts] = mockFetch.mock.calls[0] as [string, RequestInit];
-    expect(url).toBe("https://test.vellum.ai/v1/assistants/telemetry/ingest/");
+    expect(url).toBe("https://test.vellum.ai/v1/telemetry/ingest/");
     expect((opts.headers as Record<string, string>)["Authorization"]).toBe(
       "Api-Key test-key",
     );

@@ -4,14 +4,14 @@ import VellumAssistantShared
 import SwiftUI
 
 /// Delegate that intercepts the window close button to hide the window
-/// instead of closing it, keeping the app running in the menu bar.
+/// instead of closing it, keeping the app running in the dock + menu bar.
+/// The dock icon stays visible (with the assistant's avatar) so the user
+/// can click it to re-open the window. The dock icon only disappears on
+/// explicit disconnect (logout, retire, switch assistant).
 @MainActor
 private class MainWindowCloseDelegate: NSObject, NSWindowDelegate {
     func windowShouldClose(_ sender: NSWindow) -> Bool {
         sender.orderOut(nil)
-        // Switch to accessory policy so the app disappears from the dock
-        // but remains accessible via the menu bar status item.
-        NSApp.setActivationPolicy(.accessory)
         return false
     }
 }

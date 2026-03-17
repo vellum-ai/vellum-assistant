@@ -18,6 +18,8 @@ struct InferenceServiceCard: View {
     @State private var draftMode: String = "your-own"
     /// Snapshot of the model at card appear — used to detect model-only changes.
     @State private var initialModel: String = ""
+    /// Whether to show the web search impact confirmation alert.
+    @State private var showWebSearchAlert = false
 
     private var isConnected: Bool {
         store.hasKey
@@ -25,6 +27,24 @@ struct InferenceServiceCard: View {
 
     private var isLoggedIn: Bool {
         authManager.isAuthenticated
+    }
+
+    /// True when changing inference mode would invalidate the current web search config.
+    private var wouldInvalidateWebSearch: Bool {
+        let modeChanging = draftMode != store.inferenceMode
+        guard modeChanging else { return false }
+
+        // Switching to Your Own inference while web search is Managed
+        // (managed web search requires managed inference).
+        if draftMode == "your-own" && store.webSearchMode == "managed" {
+            return true
+        }
+        // Switching to Managed inference while web search uses Provider Native
+        // (Provider Native requires Your Own inference).
+        if draftMode == "managed" && store.webSearchProvider == "inference-provider-native" {
+            return true
+        }
+        return false
     }
 
     /// True when the user has made changes worth saving.
@@ -73,9 +93,12 @@ struct InferenceServiceCard: View {
                             .disabled(store.apiKeySaving)
 
                         if isConnected && apiKeyText.isEmpty {
-                            Label("Key saved", systemImage: "checkmark.circle.fill")
-                                .font(VFont.caption)
-                                .foregroundColor(VColor.systemPositiveStrong)
+                            HStack(spacing: VSpacing.xs) {
+                                VIconView(.circleCheck, size: 12)
+                                Text("Key saved")
+                            }
+                            .font(VFont.caption)
+                            .foregroundColor(VColor.systemPositiveStrong)
                         }
 
                         if let error = store.apiKeySaveError {
@@ -97,6 +120,15 @@ struct InferenceServiceCard: View {
         .onChange(of: store.inferenceMode) { _, newValue in
             // Sync draft when external changes arrive (e.g. daemon reload)
             draftMode = newValue
+        }
+        .alert("Heads up", isPresented: $showWebSearchAlert) {
+            Button("Go Back", role: .cancel) {}
+            Button("Continue") { performSave() }
+        } message: {
+            Text(
+                "Changing your inference mode will also update your Web Search settings."
+                    + " You'll need to review and save them below."
+            )
         }
     }
 
@@ -149,6 +181,14 @@ struct InferenceServiceCard: View {
     // MARK: - Save
 
     private func save() {
+        if wouldInvalidateWebSearch {
+            showWebSearchAlert = true
+            return
+        }
+        performSave()
+    }
+
+    private func performSave() {
         store.apiKeySaveError = nil
 
         // Persist mode if changed

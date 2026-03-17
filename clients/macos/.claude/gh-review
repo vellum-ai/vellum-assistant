@@ -1,0 +1,116 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# .claude/gh-review — Review thread operations
+# Reply to and resolve bot review threads on PRs.
+
+REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+REPO_SLUG=$(git -C "$REPO_ROOT" remote get-url origin | sed -E 's#.+github\.com[:/]##; s/\.git$//')
+REPO_OWNER="${REPO_SLUG%%/*}"
+REPO_NAME="${REPO_SLUG##*/}"
+
+usage() {
+  cat <<'EOF'
+Usage: .claude/gh-review <command> [args]
+
+Commands:
+  resolve-threads <pr-number> <message>   Reply to and resolve all bot review threads
+
+Only resolves threads from chatgpt-codex-connector[bot] and
+devin-ai-integration[bot]. Human review threads are left untouched.
+
+Examples:
+  .claude/gh-review resolve-threads 123 "Addressed in #456"
+  .claude/gh-review resolve-threads 123 "Addressed in latest push."
+EOF
+}
+
+cmd_resolve_threads() {
+  if [ $# -lt 2 ]; then
+    echo "Error: PR number and message are required" >&2
+    echo "Usage: .claude/gh-review resolve-threads <pr-number> <message>" >&2
+    exit 1
+  fi
+
+  local pr_number="$1"
+  local message="$2"
+
+  echo "==> Fetching review threads for PR #$pr_number..."
+  local threads_json
+  threads_json=$(gh api graphql \
+    -F prNumber="$pr_number" \
+    -f query='query($prNumber: Int!) {
+    repository(owner: "'"$REPO_OWNER"'", name: "'"$REPO_NAME"'") {
+      pullRequest(number: $prNumber) {
+        reviewThreads(first: 100) {
+          nodes {
+            id
+            isResolved
+            comments(first: 1) {
+              nodes {
+                body
+                author { login }
+              }
+            }
+          }
+        }
+      }
+    }
+  }')
+
+  # Extract unresolved bot threads
+  local thread_ids
+  thread_ids=$(echo "$threads_json" | jq -r '
+    .data.repository.pullRequest.reviewThreads.nodes[]
+    | select(.isResolved == false)
+    | select(.comments.nodes[0].author.login == "chatgpt-codex-connector[bot]" or .comments.nodes[0].author.login == "chatgpt-codex-connector" or .comments.nodes[0].author.login == "devin-ai-integration[bot]" or .comments.nodes[0].author.login == "devin-ai-integration")
+    | .id
+  ')
+
+  if [ -z "$thread_ids" ]; then
+    echo "No unresolved bot threads found."
+    return 0
+  fi
+
+  local count=0
+  while IFS= read -r thread_id; do
+    [ -z "$thread_id" ] && continue
+    count=$((count + 1))
+
+    echo "==> Replying to thread $thread_id..."
+    gh api graphql \
+      -f query='mutation($threadId: ID!, $body: String!) {
+        addPullRequestReviewThreadReply(input: {
+          pullRequestReviewThreadId: $threadId
+          body: $body
+        }) { comment { id } }
+      }' \
+      -f threadId="$thread_id" \
+      -f body="$message" > /dev/null
+
+    echo "==> Resolving thread $thread_id..."
+    gh api graphql \
+      -f query='mutation($threadId: ID!) {
+        resolveReviewThread(input: {
+          threadId: $threadId
+        }) { thread { isResolved } }
+      }' \
+      -f threadId="$thread_id" > /dev/null
+
+  done <<< "$thread_ids"
+
+  echo "Done. Resolved $count bot thread(s)."
+}
+
+# --- Dispatch ---
+
+if [ $# -lt 1 ]; then
+  usage
+  exit 1
+fi
+
+case "$1" in
+  resolve-threads) shift; cmd_resolve_threads "$@" ;;
+  -h|--help) usage ;;
+  *) echo "Error: unknown command '$1'" >&2; usage >&2; exit 1 ;;
+esac

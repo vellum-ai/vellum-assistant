@@ -729,8 +729,6 @@ cat > "$CONTENTS/Info.plist" <<PLIST
     <string>6.0</string>
     <key>CFBundleDevelopmentRegion</key>
     <string>en</string>
-    <key>LSUIElement</key>
-    <true/>
     $LSE_ENVIRONMENT_PLIST
     $COMMIT_SHA_PLIST
     <key>LSMinimumSystemVersion</key>

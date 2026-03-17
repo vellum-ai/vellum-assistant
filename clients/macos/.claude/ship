@@ -1,0 +1,145 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# .claude/ship — PR lifecycle pipeline
+# Stages, commits, pushes, creates a PR, optionally merges, tracks, and cleans up.
+
+usage() {
+  cat <<'EOF'
+Usage: .claude/ship [options]
+
+Stages all changes, commits, pushes, creates a PR, and optionally merges it.
+Co-Authored-By trailer is appended to the commit message automatically.
+
+Required:
+  --commit-msg MSG         Commit message
+  --title TITLE            PR title
+
+Optional:
+  --body BODY              PR body (default: none)
+  --base BRANCH            Base branch for PR (default: main)
+  --merge                  Squash-merge the PR after creation
+  --assignee USER          PR assignee (e.g., @me)
+  --track-unreviewed       Append PR URL to .private/UNREVIEWED_PRS.md
+  --cleanup-worktree NAME  Remove named worktree after merge (requires --merge)
+  --pull-base              Checkout and pull base branch after merge (requires --merge)
+  -h, --help               Show this help
+
+Examples:
+  # Full lifecycle (do.md style)
+  .claude/ship --commit-msg "feat: add validation" --title "Add validation" \
+    --body "## Summary" --merge --track-unreviewed \
+    --cleanup-worktree do/add-validation --pull-base
+
+  # Create PR without merging (safe-do.md style)
+  .claude/ship --commit-msg "feat: add validation" --title "Add validation" \
+    --body "## Summary" --track-unreviewed
+
+  # Swarm agent style
+  .claude/ship --commit-msg "fix: bug" --title "Fix bug" \
+    --body "Fixed the bug" --merge --assignee @me
+EOF
+}
+
+# Defaults
+BASE="main"
+MERGE=false
+TRACK_UNREVIEWED=false
+CLEANUP_WORKTREE=""
+ASSIGNEE=""
+COMMIT_MSG=""
+TITLE=""
+BODY=""
+PULL_BASE=false
+
+# Parse args
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --commit-msg) COMMIT_MSG="$2"; shift 2 ;;
+    --title) TITLE="$2"; shift 2 ;;
+    --body) BODY="$2"; shift 2 ;;
+    --base) BASE="$2"; shift 2 ;;
+    --merge) MERGE=true; shift ;;
+    --assignee) ASSIGNEE="$2"; shift 2 ;;
+    --track-unreviewed) TRACK_UNREVIEWED=true; shift ;;
+    --cleanup-worktree) CLEANUP_WORKTREE="$2"; shift 2 ;;
+    --pull-base) PULL_BASE=true; shift ;;
+    -h|--help) usage; exit 0 ;;
+    *) echo "Error: unknown option: $1" >&2; usage >&2; exit 1 ;;
+  esac
+done
+
+# Validate required args
+[[ -z "$COMMIT_MSG" ]] && { echo "Error: --commit-msg is required" >&2; exit 1; }
+[[ -z "$TITLE" ]] && { echo "Error: --title is required" >&2; exit 1; }
+
+# Validate flag combinations
+if [[ -n "$CLEANUP_WORKTREE" ]] && ! $MERGE; then
+  echo "Error: --cleanup-worktree requires --merge" >&2; exit 1
+fi
+if $PULL_BASE && ! $MERGE; then
+  echo "Error: --pull-base requires --merge" >&2; exit 1
+fi
+
+# Append Co-Authored-By if not already present
+if [[ "$COMMIT_MSG" != *"Co-Authored-By:"* ]]; then
+  COMMIT_MSG="$COMMIT_MSG
+
+Co-Authored-By: Claude <noreply@anthropic.com>"
+fi
+
+# Find the main repo root (first worktree is always the main one)
+# Use read instead of head to avoid dependency on external utilities
+MAIN_REPO=$(git worktree list --porcelain | { read -r line; echo "${line#worktree }"; })
+
+echo "==> Staging changes..."
+git add -A
+
+echo "==> Committing..."
+git commit -m "$COMMIT_MSG"
+
+echo "==> Pushing..."
+git push -u origin HEAD
+
+echo "==> Creating PR..."
+PR_ARGS=(--base "$BASE" --title "$TITLE")
+[[ -n "$BODY" ]] && PR_ARGS+=(--body "$BODY")
+[[ -n "$ASSIGNEE" ]] && PR_ARGS+=(--assignee "$ASSIGNEE")
+
+PR_URL=$(gh pr create "${PR_ARGS[@]}")
+PR_NUMBER=$(basename "$PR_URL")
+
+echo "Created PR #$PR_NUMBER: $PR_URL"
+
+# Track in unreviewed list
+if $TRACK_UNREVIEWED; then
+  UNREVIEWED="$MAIN_REPO/.private/UNREVIEWED_PRS.md"
+  mkdir -p "$(dirname "$UNREVIEWED")"
+  echo "$PR_URL" >> "$UNREVIEWED"
+  echo "==> Added to unreviewed list"
+fi
+
+# Merge
+if $MERGE; then
+  echo "==> Merging PR #$PR_NUMBER (squash)..."
+  gh pr merge "$PR_NUMBER" --squash
+  echo "Merged."
+fi
+
+# Clean up worktree (must cd out first since we may be inside it)
+if [[ -n "$CLEANUP_WORKTREE" ]]; then
+  echo "==> Cleaning up worktree: $CLEANUP_WORKTREE"
+  cd "$MAIN_REPO"
+  "$MAIN_REPO/.claude/worktree" remove "$CLEANUP_WORKTREE" --delete-branch
+fi
+
+# Pull base branch
+if $PULL_BASE; then
+  echo "==> Pulling $BASE..."
+  cd "$MAIN_REPO"
+  git checkout "$BASE"
+  git pull origin "$BASE"
+fi
+
+echo ""
+echo "Done. PR #$PR_NUMBER: $PR_URL"

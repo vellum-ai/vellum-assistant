@@ -97,10 +97,15 @@ Tell the user their avatar has been updated. The client will pick up the new ima
 
 ## Mode 3: AI-Generated Image
 
-The user describes what they want their avatar to look like. Use the CLI to generate the avatar:
+The user describes what they want their avatar to look like. Use the `bash` tool to run the CLI command below.
 
-```bash
-assistant avatar generate --description "<user's description>"
+**IMPORTANT: You MUST set `network_mode` to `"proxied"` on this tool call. Without it, the command cannot reach the image generation API and will fail.**
+
+```json
+{
+  "command": "assistant avatar generate --description \"<user's description>\"",
+  "network_mode": "proxied"
+}
 ```
 
 This generates an image using AI, saves it to `data/avatar/avatar-image.png`, and removes any native character files automatically. The generated avatar will appear automatically in the client.

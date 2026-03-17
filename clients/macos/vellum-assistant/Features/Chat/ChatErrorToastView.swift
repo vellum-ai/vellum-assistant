@@ -73,7 +73,7 @@ struct ChatConversationErrorToast: View {
             VStack(alignment: .leading, spacing: VSpacing.xxs) {
                 Text(message)
                     .font(VFont.body)
-                    .lineLimit(4)
+                    .lineLimit(nil)
                     .textSelection(.enabled)
 
                 if let subtitle {
@@ -86,7 +86,7 @@ struct ChatConversationErrorToast: View {
             }
 
             if actionLabel != nil || showCopyDebug || onDismiss != nil {
-                Spacer(minLength: 100)
+                Spacer(minLength: VSpacing.xl)
             }
 
             if let actionLabel, let onAction {

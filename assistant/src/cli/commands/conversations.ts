@@ -10,12 +10,14 @@ import {
   createConversation,
   getConversation,
   getMessages,
+  wipeConversation,
 } from "../../memory/conversation-crud.js";
 import { listConversations } from "../../memory/conversation-queries.js";
 import {
   selectEmbeddingBackend,
   SPARSE_EMBEDDING_VERSION,
 } from "../../memory/embedding-backend.js";
+import { enqueueMemoryJob } from "../../memory/jobs-store.js";
 import { initQdrantClient } from "../../memory/qdrant-client.js";
 import { timeAgo } from "../../util/time.js";
 import { initializeDb } from "../db.js";
@@ -252,5 +254,88 @@ Examples:
       }
 
       log.info("Done.");
+    });
+
+  conversations
+    .command("wipe <conversationId>")
+    .description("Wipe a conversation and revert all memory changes it made")
+    .option("-y, --yes", "Skip confirmation prompt")
+    .addHelpText(
+      "after",
+      `
+Arguments:
+  conversationId   Conversation ID (or unique prefix). Supports prefix matching.
+
+Permanently wipes the conversation and reverts all memory changes it caused:
+restores superseded memory items, deletes conversation summaries, and cancels
+pending memory jobs. This action cannot be undone.
+
+Examples:
+  $ assistant conversations wipe abc123
+  $ assistant conversations wipe abc123 --yes`,
+    )
+    .action(async (conversationId: string, opts?: { yes?: boolean }) => {
+      initializeDb();
+
+      // Resolve conversation with prefix matching (same pattern as `export`)
+      let conversation = getConversation(conversationId);
+      if (!conversation) {
+        const all = listConversations(Number.MAX_SAFE_INTEGER);
+        const match = all.find((c) => c.id.startsWith(conversationId));
+        if (match) {
+          conversation = match;
+        } else {
+          log.error(`Conversation not found: ${conversationId}`);
+          process.exit(1);
+        }
+      }
+
+      if (!opts?.yes) {
+        const readline = await import("node:readline");
+        const rl = readline.createInterface({
+          input: process.stdin,
+          output: process.stdout,
+        });
+        const answer = await new Promise<string>((resolve) => {
+          rl.question(
+            `Wipe conversation "${conversation!.title ?? "Untitled"}" and revert all memory changes? (y/N) `,
+            resolve,
+          );
+        });
+        rl.close();
+        if (answer.toLowerCase() !== "y") {
+          log.info("Cancelled");
+          return;
+        }
+      }
+
+      const result = wipeConversation(conversation.id);
+
+      // Enqueue Qdrant cleanup
+      for (const segId of result.segmentIds) {
+        enqueueMemoryJob("delete_qdrant_vectors", {
+          targetType: "segment",
+          targetId: segId,
+        });
+      }
+      for (const itemId of result.orphanedItemIds) {
+        enqueueMemoryJob("delete_qdrant_vectors", {
+          targetType: "item",
+          targetId: itemId,
+        });
+      }
+      for (const summaryId of result.deletedSummaryIds) {
+        enqueueMemoryJob("delete_qdrant_vectors", {
+          targetType: "summary",
+          targetId: summaryId,
+        });
+      }
+
+      log.info(
+        `Wiped conversation "${conversation.title ?? "Untitled"}". ` +
+          `Restored ${result.unsupersededItemIds.length} memory items, ` +
+          `deleted ${result.deletedSummaryIds.length} summaries, ` +
+          `cancelled ${result.cancelledJobCount} jobs.`,
+      );
     });
 }

@@ -124,6 +124,9 @@ public struct VToast: View {
             UIAccessibility.post(notification: .announcement, argument: "\(style): \(message)")
             #endif
         }
+        .onDisappear {
+            copiedResetTask?.cancel()
+        }
     }
 
     /// Use danger style for error toasts, primary for everything else.
