@@ -1,6 +1,8 @@
 import { and, eq } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 
+import { isAssistantFeatureFlagEnabled } from "../config/assistant-feature-flags.js";
+import { getConfig } from "../config/loader.js";
 import { getDb } from "../memory/db.js";
 import { computeMemoryFingerprint } from "../memory/fingerprint.js";
 import { enqueueMemoryJob } from "../memory/jobs-store.js";
@@ -171,9 +173,19 @@ export function deleteSkillCapabilityMemory(skillId: string): void {
 export async function seedCatalogSkillMemories(): Promise<void> {
   try {
     const catalog = await resolveCatalog();
+    const config = getConfig();
     const catalogIds = new Set<string>();
 
     for (const entry of catalog) {
+      // Skip skills whose feature flag is disabled
+      const flagId = entry.metadata?.vellum?.["feature-flag"];
+      if (flagId) {
+        const flagKey = `feature_flags.${flagId}.enabled`;
+        if (!isAssistantFeatureFlagEnabled(flagKey, config)) {
+          continue;
+        }
+      }
+
       catalogIds.add(entry.id);
       upsertSkillCapabilityMemory(entry.id, entry);
     }
