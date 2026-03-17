@@ -19,6 +19,7 @@ import {
   mkdirSync,
   readFileSync,
   rmSync,
+  unlinkSync,
   writeFileSync,
 } from "node:fs";
 import { dirname } from "node:path";
@@ -162,25 +163,12 @@ export function commitImport(options: ImportCommitOptions): ImportCommitResult {
     f.path.startsWith("skills/"),
   );
   if (hasSkillsEntries) {
-    // Derive the skills directory from the resolver by resolving a known
-    // skills path prefix and stripping the relative portion.
-    const firstSkillsEntry = manifest.files.find((f) =>
-      f.path.startsWith("skills/"),
-    )!;
-    const resolvedSkillPath = pathResolver.resolve(firstSkillsEntry.path);
-    if (resolvedSkillPath) {
-      // The resolver maps "skills/<relative>" → "<skillsDir>/<relative>",
-      // so strip the relative suffix to get the skills root directory.
-      const relativeSuffix = firstSkillsEntry.path.slice("skills/".length);
-      const skillsRoot = resolvedSkillPath.slice(
-        0,
-        resolvedSkillPath.length - relativeSuffix.length,
-      );
-      // Remove trailing slash if present (unless it's the root "/")
-      const skillsDirPath =
-        skillsRoot.length > 1 && skillsRoot.endsWith("/")
-          ? skillsRoot.slice(0, -1)
-          : skillsRoot;
+    // Derive the skills root safely: resolve a synthetic single-segment
+    // path and use dirname() to strip the filename. This avoids fragile
+    // string-length slicing that breaks when paths are normalized.
+    const probe = pathResolver.resolve("skills/sentinel");
+    if (probe) {
+      const skillsDirPath = dirname(probe);
 
       if (existsSync(skillsDirPath)) {
         try {
@@ -205,20 +193,9 @@ export function commitImport(options: ImportCommitOptions): ImportCommitResult {
     f.path.startsWith("hooks/"),
   );
   if (hasHooksEntries) {
-    const firstHooksEntry = manifest.files.find((f) =>
-      f.path.startsWith("hooks/"),
-    )!;
-    const resolvedHookPath = pathResolver.resolve(firstHooksEntry.path);
-    if (resolvedHookPath) {
-      const relativeSuffix = firstHooksEntry.path.slice("hooks/".length);
-      const hooksRoot = resolvedHookPath.slice(
-        0,
-        resolvedHookPath.length - relativeSuffix.length,
-      );
-      const hooksDirPath =
-        hooksRoot.length > 1 && hooksRoot.endsWith("/")
-          ? hooksRoot.slice(0, -1)
-          : hooksRoot;
+    const probe = pathResolver.resolve("hooks/sentinel");
+    if (probe) {
+      const hooksDirPath = dirname(probe);
 
       if (existsSync(hooksDirPath)) {
         try {
@@ -231,6 +208,26 @@ export function commitImport(options: ImportCommitOptions): ImportCommitResult {
               err instanceof Error ? err.message : String(err)
             }`,
           };
+        }
+      }
+    }
+  }
+
+  // Step 1d: Clear stale prompt files if the bundle contains prompts entries.
+  // Only the known prompt filenames are accepted, so delete each one that
+  // currently exists to avoid stale prompts surviving a restore.
+  const hasPromptsEntries = manifest.files.some((f) =>
+    f.path.startsWith("prompts/"),
+  );
+  if (hasPromptsEntries) {
+    const PROMPT_FILENAMES = ["IDENTITY.md", "SOUL.md", "USER.md", "UPDATES.md"];
+    for (const filename of PROMPT_FILENAMES) {
+      const diskPath = pathResolver.resolve(`prompts/${filename}`);
+      if (diskPath && existsSync(diskPath)) {
+        try {
+          unlinkSync(diskPath);
+        } catch {
+          // Non-fatal — the file will be overwritten or left as-is
         }
       }
     }

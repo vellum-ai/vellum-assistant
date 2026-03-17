@@ -20,10 +20,10 @@ import { clearCache as clearTrustCache } from "../../permissions/trust-store.js"
 import { getLogger } from "../../util/logger.js";
 import {
   getDbPath,
+  getHooksDir,
   getRootDir,
   getWorkspaceConfigPath,
   getWorkspaceDir,
-  getWorkspaceHooksDir,
   getWorkspaceSkillsDir,
 } from "../../util/platform.js";
 import { httpError } from "../http-errors.js";
@@ -149,7 +149,7 @@ export async function handleMigrationExport(req: Request): Promise<Response> {
       trustPath: join(getRootDir(), "protected", "trust.json"),
       skillsDir: getWorkspaceSkillsDir(),
       workspaceDir: getWorkspaceDir(),
-      hooksDir: getWorkspaceHooksDir(),
+      hooksDir: getHooksDir(),
       source: "runtime-export",
       description,
       checkpoint: () => {
@@ -307,7 +307,7 @@ export async function handleMigrationImportPreflight(
       join(getRootDir(), "protected"),
       getWorkspaceSkillsDir(),
       getWorkspaceDir(),
-      getWorkspaceHooksDir(),
+      getHooksDir(),
     );
 
     const report = analyzeImport({
@@ -393,7 +393,7 @@ export async function handleMigrationImport(req: Request): Promise<Response> {
       join(getRootDir(), "protected"),
       getWorkspaceSkillsDir(),
       getWorkspaceDir(),
-      getWorkspaceHooksDir(),
+      getHooksDir(),
     );
 
     // Close the live SQLite connection before overwriting assistant.db on disk.
