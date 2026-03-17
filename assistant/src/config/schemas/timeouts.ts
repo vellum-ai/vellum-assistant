@@ -53,16 +53,6 @@ export const RateLimitConfigSchema = z
       )
       .default(0)
       .describe("Maximum number of LLM requests per minute (0 = unlimited)"),
-    maxTokensPerSession: z
-      .number({ error: "rateLimit.maxTokensPerSession must be a number" })
-      .int("rateLimit.maxTokensPerSession must be an integer")
-      .nonnegative(
-        "rateLimit.maxTokensPerSession must be a non-negative integer",
-      )
-      .default(0)
-      .describe(
-        "Maximum total tokens (input + output) per conversation session (0 = unlimited)",
-      ),
   })
   .describe("Rate limiting for LLM provider requests");
 

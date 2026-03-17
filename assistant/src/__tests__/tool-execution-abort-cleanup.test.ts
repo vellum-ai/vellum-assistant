@@ -32,7 +32,7 @@ mock.module("../config/loader.js", () => ({
       shellMaxTimeoutSec: 600,
       permissionTimeoutSec: 300,
     },
-    rateLimit: { maxRequestsPerMinute: 0, maxTokensPerSession: 0 },
+    rateLimit: { maxRequestsPerMinute: 0 },
     secretDetection: {
       enabled: false,
       action: "warn" as const,

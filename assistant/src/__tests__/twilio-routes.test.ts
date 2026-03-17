@@ -121,7 +121,7 @@ const mockConfigObj = {
   model: "test",
   provider: "test",
   memory: { enabled: false },
-  rateLimit: { maxRequestsPerMinute: 0, maxTokensPerSession: 0 },
+  rateLimit: { maxRequestsPerMinute: 0 },
   secretDetection: { enabled: false },
   elevenlabs: { voiceId: DEFAULT_ELEVENLABS_VOICE_ID },
   calls: {

@@ -53,7 +53,7 @@ mock.module("../config/loader.js", () => ({
     model: "test",
     provider: "test",
     memory: { enabled: false },
-    rateLimit: { maxRequestsPerMinute: 0, maxTokensPerSession: 0 },
+    rateLimit: { maxRequestsPerMinute: 0 },
     timeouts: { shellDefaultTimeoutSec: 30, shellMaxTimeoutSec: 60 },
     sandbox: { enabled: false, backend: "native" },
   }),

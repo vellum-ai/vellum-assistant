@@ -29,7 +29,7 @@ mock.module("../config/loader.js", () => ({
     model: "claude-opus-4-6",
     provider: "anthropic",
     memory: { enabled: false },
-    rateLimit: { maxRequestsPerMinute: 0, maxTokensPerSession: 0 },
+    rateLimit: { maxRequestsPerMinute: 0 },
     secretDetection: { enabled: false },
     contextWindow: { maxInputTokens: 200000 },
     services: {

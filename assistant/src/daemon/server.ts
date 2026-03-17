@@ -758,10 +758,7 @@ export class DaemonServer {
           config.providerOrder,
         );
         const { rateLimit } = config;
-        if (
-          rateLimit.maxRequestsPerMinute > 0 ||
-          rateLimit.maxTokensPerSession > 0
-        ) {
+        if (rateLimit.maxRequestsPerMinute > 0) {
           provider = new RateLimitProvider(
             provider,
             rateLimit,

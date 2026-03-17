@@ -35,7 +35,7 @@ mock.module("../config/loader.js", () => ({
       compactThreshold: 0.8,
       summaryBudgetRatio: 0.05,
     },
-    rateLimit: { maxRequestsPerMinute: 0, maxTokensPerSession: 0 },
+    rateLimit: { maxRequestsPerMinute: 0 },
     memory: { enabled: false },
   }),
   loadRawConfig: () => ({}),

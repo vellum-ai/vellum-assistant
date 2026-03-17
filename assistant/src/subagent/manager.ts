@@ -134,10 +134,7 @@ export class SubagentManager {
       appConfig.providerOrder,
     );
     const { rateLimit } = appConfig;
-    if (
-      rateLimit.maxRequestsPerMinute > 0 ||
-      rateLimit.maxTokensPerSession > 0
-    ) {
+    if (rateLimit.maxRequestsPerMinute > 0) {
       provider = new RateLimitProvider(
         provider,
         rateLimit,

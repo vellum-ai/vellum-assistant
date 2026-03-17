@@ -78,7 +78,7 @@ mock.module("../config/loader.js", () => ({
       summaryModel: "mock-model",
       maxSummaryTokens: 512,
     },
-    rateLimit: { maxRequestsPerMinute: 0, maxTokensPerSession: 0 },
+    rateLimit: { maxRequestsPerMinute: 0 },
     timeouts: { permissionTimeoutSec: 1 },
     skills: { entries: {}, allowBundled: true },
     permissions: { mode: "workspace" },

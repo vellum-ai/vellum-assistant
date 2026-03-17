@@ -37,7 +37,7 @@ const mockConfig = {
       network: "none" as const,
     },
   },
-  rateLimit: { maxRequestsPerMinute: 0, maxTokensPerSession: 0 },
+  rateLimit: { maxRequestsPerMinute: 0 },
   secretDetection: {
     enabled: false,
     action: "warn" as const,

@@ -47,7 +47,7 @@ mock.module("../config/loader.js", () => ({
         nonInteractiveLatestTurnCompression: "truncate",
       },
     },
-    rateLimit: { maxRequestsPerMinute: 0, maxTokensPerSession: 0 },
+    rateLimit: { maxRequestsPerMinute: 0 },
     daemon: {
       startupSocketWaitMs: 5000,
       stopTimeoutMs: 5000,

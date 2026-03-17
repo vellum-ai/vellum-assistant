@@ -20,7 +20,7 @@ const mockConfig = {
     shellMaxTimeoutSec: 600,
     permissionTimeoutSec: 300,
   },
-  rateLimit: { maxRequestsPerMinute: 0, maxTokensPerSession: 0 },
+  rateLimit: { maxRequestsPerMinute: 0 },
   secretDetection: {
     enabled: true,
     action: "warn" as "redact" | "warn" | "block",

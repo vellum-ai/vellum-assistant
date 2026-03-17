@@ -15,7 +15,6 @@ export class RateLimitProvider implements Provider {
   public readonly name: string;
 
   private requestTimestamps: number[];
-  private sessionTokens = 0;
 
   constructor(
     private readonly inner: Provider,
@@ -33,7 +32,6 @@ export class RateLimitProvider implements Provider {
     options?: SendMessageOptions,
   ): Promise<ProviderResponse> {
     this.enforceRequestRate();
-    this.enforceTokenBudget();
 
     // Record the request timestamp before the await to prevent concurrent
     // calls from bypassing the rate limit during the async gap.
@@ -45,8 +43,6 @@ export class RateLimitProvider implements Provider {
       systemPrompt,
       options,
     );
-
-    this.recordTokens(response.usage.inputTokens + response.usage.outputTokens);
 
     return response;
   }
@@ -89,39 +85,8 @@ export class RateLimitProvider implements Provider {
     }
   }
 
-  private enforceTokenBudget(): void {
-    const limit = this.config.maxTokensPerSession;
-    if (limit <= 0) return;
-
-    if (this.sessionTokens >= limit) {
-      log.warn(
-        {
-          provider: this.name,
-          sessionTokens: this.sessionTokens,
-          limit,
-        },
-        `Session token budget exhausted for ${this.name}: ${this.sessionTokens.toLocaleString()}/${limit.toLocaleString()}`,
-      );
-      throw new RateLimitError(
-        `Session token budget exhausted: ${this.sessionTokens.toLocaleString()}/${limit.toLocaleString()} tokens used. Start a new session to continue.`,
-      );
-    }
-  }
-
   private recordRequest(): void {
     if (this.config.maxRequestsPerMinute <= 0) return;
     this.requestTimestamps.push(Date.now());
-  }
-
-  private recordTokens(tokens: number): void {
-    if (this.config.maxTokensPerSession <= 0) return;
-    this.sessionTokens += tokens;
-    log.debug(
-      {
-        sessionTokens: this.sessionTokens,
-        limit: this.config.maxTokensPerSession,
-      },
-      "Token usage updated",
-    );
   }
 }

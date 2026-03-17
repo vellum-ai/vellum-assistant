@@ -129,7 +129,6 @@ describe("AssistantConfigSchema", () => {
     });
     expect(result.rateLimit).toEqual({
       maxRequestsPerMinute: 0,
-      maxTokensPerSession: 0,
     });
     expect(result.secretDetection).toEqual({
       enabled: true,
@@ -153,7 +152,7 @@ describe("AssistantConfigSchema", () => {
         shellMaxTimeoutSec: 300,
         permissionTimeoutSec: 60,
       },
-      rateLimit: { maxRequestsPerMinute: 10, maxTokensPerSession: 100000 },
+      rateLimit: { maxRequestsPerMinute: 10 },
       secretDetection: {
         enabled: false,
         action: "block" as const,
@@ -350,13 +349,6 @@ describe("AssistantConfigSchema", () => {
     expect(result.success).toBe(false);
   });
 
-  test("rejects non-integer rateLimit values", () => {
-    const result = AssistantConfigSchema.safeParse({
-      rateLimit: { maxTokensPerSession: 3.5 },
-    });
-    expect(result.success).toBe(false);
-  });
-
   test("rejects negative auditLog.retentionDays", () => {
     const result = AssistantConfigSchema.safeParse({
       auditLog: { retentionDays: -7 },
@@ -375,11 +367,10 @@ describe("AssistantConfigSchema", () => {
 
   test("accepts zero for non-negative fields", () => {
     const result = AssistantConfigSchema.parse({
-      rateLimit: { maxRequestsPerMinute: 0, maxTokensPerSession: 0 },
+      rateLimit: { maxRequestsPerMinute: 0 },
       auditLog: { retentionDays: 0 },
     });
     expect(result.rateLimit.maxRequestsPerMinute).toBe(0);
-    expect(result.rateLimit.maxTokensPerSession).toBe(0);
     expect(result.auditLog.retentionDays).toBe(0);
   });
 
@@ -1131,11 +1122,10 @@ describe("loadConfig with schema validation", () => {
 
   test("falls back for invalid rateLimit values", () => {
     writeConfig({
-      rateLimit: { maxRequestsPerMinute: -1, maxTokensPerSession: 3.5 },
+      rateLimit: { maxRequestsPerMinute: -1 },
     });
     const config = loadConfig();
     expect(config.rateLimit.maxRequestsPerMinute).toBe(0);
-    expect(config.rateLimit.maxTokensPerSession).toBe(0);
   });
 
   test("falls back for invalid auditLog.retentionDays", () => {
