@@ -250,7 +250,7 @@ The recall pipeline runs on every turn that passes the `needsMemory` gate (skips
 9. **Two-layer XML injection** (`formatting.ts`): Budget-aware rendering into four XML sections:
 
    ```xml
-   <memory_context>
+   <memory_context __injected>
 
    <user_identity>
    <!-- identity-kind tier 1 items (plain statements) -->
@@ -273,7 +273,7 @@ The recall pipeline runs on every turn that passes the `needsMemory` gate (skips
 
    Empty sections are omitted. Each section has a per-item token budget (150 tokens for tier 1, 100 for tier 2). Tier 1 sections consume budget first; tier 2 uses the remainder.
 
-10. **Injection strategy**: The rendered `<memory_context>` block is prepended as a text content block to the last user message (`injectMemoryRecallAsUserBlock`), following the same pattern as workspace, temporal, and other runtime injections. Stripping is handled by the generic `stripUserTextBlocksByPrefix` mechanism matching the `<memory_context>` prefix. This avoids synthetic message pairs and preserves prompt prefix caching between turns.
+10. **Injection strategy**: The rendered `<memory_context __injected>` block is prepended as a text content block to the last user message (`injectMemoryRecallAsUserBlock`), following the same pattern as workspace, temporal, and other runtime injections. Stripping is handled by the generic `stripUserTextBlocksByPrefix` mechanism matching the `<memory_context __injected>` prefix (with a backward-compat entry for the legacy `<memory_context>` prefix from older history). This avoids synthetic message pairs and preserves prompt prefix caching between turns.
 
 ### Internal-Only Trust Gating
 
