@@ -94,10 +94,10 @@ extension AppDelegate {
         }
 
         guard let assistant, assistant.isRemote, let runtimeUrl = assistant.runtimeUrl else {
-            // Local assistant or no assistant — use HTTP transport to the local daemon.
+            // Local assistant or no assistant — route through the local gateway.
             // Bearer token is nil; resolved lazily at connect time.
-            let port = assistant?.resolvedDaemonPort(environment: launchEnvironment)
-                ?? (Int(launchEnvironment["RUNTIME_HTTP_PORT"] ?? "") ?? 7821)
+            let port = assistant?.gatewayPort
+                ?? LockfilePaths.resolveGatewayPort(connectedAssistantId: assistant?.assistantId)
             let baseURL = "http://localhost:\(port)"
             let conversationKey = assistant?.assistantId ?? UUID().uuidString
             let instanceDir = assistant?.instanceDir
@@ -108,7 +108,7 @@ extension AppDelegate {
                 conversationKey: conversationKey
             ), instanceDir: instanceDir, featureFlagToken: featureFlagToken)
             services.reconfigureDaemonClient(config: config)
-            log.info("Configured local HTTP transport on port \(port)")
+            log.info("Configured local HTTP transport via gateway on port \(port)")
             return
         }
 

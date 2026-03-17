@@ -103,8 +103,7 @@ public struct DaemonConfig {
 
     #if os(macOS)
     public static var `default`: DaemonConfig {
-        let portString = ProcessInfo.processInfo.environment["RUNTIME_HTTP_PORT"] ?? "7821"
-        let port = Int(portString) ?? 7821
+        let port = LockfilePaths.resolveGatewayPort()
         let baseURL = "http://localhost:\(port)"
         return DaemonConfig(transport: .http(
             baseURL: baseURL,
