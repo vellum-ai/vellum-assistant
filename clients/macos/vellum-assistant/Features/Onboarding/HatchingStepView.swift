@@ -141,8 +141,11 @@ struct HatchingStepView: View {
                 Text("Your assistant will ask a few quick questions to get started.\nThis usually takes less than a minute.")
                     .font(.system(size: 13))
                     .foregroundColor(VColor.contentTertiary)
+                    .multilineTextAlignment(.center)
             }
         }
+        .multilineTextAlignment(.center)
+        .frame(maxWidth: 320)
     }
 
     // MARK: - Failure Buttons
