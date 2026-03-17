@@ -116,6 +116,7 @@ async function handleBtw(
             ? conversation.systemPrompt
             : buildSystemPrompt({ excludeBootstrap: true });
 
+          let textDeltaCount = 0;
           await conversation.provider.sendMessage(
             messages,
             tools,
@@ -128,6 +129,7 @@ async function handleBtw(
               },
               onEvent: (event) => {
                 if (event.type === "text_delta") {
+                  textDeltaCount++;
                   controller.enqueue(
                     encoder.encode(
                       `event: btw_text_delta\ndata: ${JSON.stringify({ text: event.text })}\n\n`,
@@ -138,6 +140,13 @@ async function handleBtw(
               signal: combinedSignal,
             },
           );
+
+          if (textDeltaCount === 0) {
+            log.warn(
+              { conversationKey, messageCount: messages.length },
+              "btw side-chain completed with no text deltas",
+            );
+          }
 
           controller.enqueue(
             encoder.encode(`event: btw_complete\ndata: {}\n\n`),

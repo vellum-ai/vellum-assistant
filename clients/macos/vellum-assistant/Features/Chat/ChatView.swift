@@ -425,10 +425,20 @@ struct ChatView: View {
                     .accessibilityLabel("Dismiss btw response")
                 }
 
-                Text(btwText.isEmpty && btwLoading ? "Thinking..." : btwText)
-                    .font(VFont.body)
-                    .foregroundColor(VColor.contentDefault)
-                    .textSelection(.enabled)
+                if btwLoading && btwText.isEmpty {
+                    Text("Thinking...")
+                        .font(VFont.body)
+                        .foregroundColor(VColor.contentTertiary)
+                } else if !btwLoading && btwText.isEmpty {
+                    Text("No response received.")
+                        .font(VFont.body)
+                        .foregroundColor(VColor.contentTertiary)
+                } else {
+                    Text(btwText)
+                        .font(VFont.body)
+                        .foregroundColor(VColor.contentDefault)
+                        .textSelection(.enabled)
+                }
 
                 if !btwLoading {
                     Text("Press Escape to dismiss")
