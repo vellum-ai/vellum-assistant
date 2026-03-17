@@ -2,27 +2,12 @@ import SwiftUI
 import VellumAssistantShared
 
 /// A badge pill showing a contact's classification (Guardian, Assistant, Human)
-/// with a distinguishing icon. Styled to match VBadge neutral/subtle appearance.
+/// with a distinguishing icon. Thin wrapper around VBadge.
 struct ContactTypeBadge: View {
     let role: String?
 
     var body: some View {
-        HStack(spacing: VSpacing.xxs) {
-            VIconView(icon, size: 12)
-                .foregroundColor(VColor.primaryBase)
-            Text(label)
-                .font(VFont.caption)
-                .foregroundColor(VColor.contentSecondary)
-        }
-        .padding(.horizontal, VSpacing.sm)
-        .padding(.vertical, VSpacing.xxs)
-        .background(VColor.surfaceBase)
-        .overlay(
-            Capsule()
-                .stroke(VColor.borderBase.opacity(0.55), lineWidth: 1)
-        )
-        .clipShape(Capsule())
-        .accessibilityLabel(label)
+        VBadge(label: label, icon: icon, iconColor: VColor.primaryBase, tone: .neutral)
     }
 
     private var label: String {

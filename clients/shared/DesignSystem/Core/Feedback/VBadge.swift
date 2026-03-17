@@ -24,17 +24,21 @@ public struct VBadge: View {
     public var color: Color = VColor.primaryBase
     public var tone: Tone?
     public var emphasis: Emphasis = .solid
+    public var icon: VIcon?
+    public var iconColor: Color?
 
     public init(style: Style, color: Color = VColor.primaryBase) {
         self.style = style
         self.color = color
     }
 
-    public init(label: String, tone: Tone = .accent, emphasis: Emphasis = .subtle) {
+    public init(label: String, icon: VIcon? = nil, iconColor: Color? = nil, tone: Tone = .accent, emphasis: Emphasis = .subtle) {
         self.style = .label(label)
         self.color = VColor.primaryBase
         self.tone = tone
         self.emphasis = emphasis
+        self.icon = icon
+        self.iconColor = iconColor
     }
 
     public var body: some View {
@@ -55,18 +59,24 @@ public struct VBadge: View {
                 .frame(width: 8, height: 8)
 
         case .label(let text):
-            Text(text)
-                .font(VFont.caption)
-                .foregroundColor(labelForegroundColor)
-                .padding(.horizontal, VSpacing.sm)
-                .padding(.vertical, VSpacing.xxs)
-                .background(labelBackgroundColor)
-                .overlay(
-                    Capsule()
-                        .stroke(labelBorderColor, lineWidth: labelBorderWidth)
-                )
-                .clipShape(Capsule())
-                .accessibilityLabel(text)
+            HStack(spacing: VSpacing.xxs) {
+                if let icon {
+                    VIconView(icon, size: 12)
+                        .foregroundColor(iconColor ?? labelForegroundColor)
+                }
+                Text(text)
+                    .font(VFont.caption)
+                    .foregroundColor(labelForegroundColor)
+            }
+            .padding(.horizontal, VSpacing.sm)
+            .padding(.vertical, VSpacing.xxs)
+            .background(labelBackgroundColor)
+            .overlay(
+                Capsule()
+                    .stroke(labelBorderColor, lineWidth: labelBorderWidth)
+            )
+            .clipShape(Capsule())
+            .accessibilityLabel(text)
         }
     }
 
