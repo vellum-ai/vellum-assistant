@@ -217,7 +217,24 @@ extension AppDelegate {
 
     /// Performs the initial actor token bootstrap with exponential backoff.
     /// Called only when no actor token exists (first launch or after credential wipe).
+    ///
+    /// Before hitting the network, checks whether the CLI already persisted a
+    /// guardian token to disk (e.g. during a Docker or cloud hatch). If found,
+    /// imports it directly and skips the HTTP bootstrap entirely.
     func performInitialBootstrap() async {
+        // Try importing a CLI-persisted guardian token first. During non-local
+        // hatches the CLI calls /v1/guardian/init and saves the result to
+        // ~/.config/vellum/assistants/<id>/guardian-token.json. Importing from
+        // this file avoids a redundant (and often 403-failing) HTTP bootstrap.
+        if let assistantId = UserDefaults.standard.string(forKey: "connectedAssistantId"),
+           GuardianTokenFileReader.importIfAvailable(assistantId: assistantId) {
+            log.info("Imported guardian token from CLI file — skipping HTTP bootstrap")
+            if let token = ActorTokenManager.getToken(), !token.isEmpty {
+                daemonClient.updateTransportBearerToken(token)
+            }
+            return
+        }
+
         let deviceId = PairingQRCodeSheet.computeHostId()
         var delay: UInt64 = 2_000_000_000
         let maxDelay: UInt64 = 60_000_000_000
