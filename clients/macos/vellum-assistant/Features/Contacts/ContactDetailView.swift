@@ -100,7 +100,8 @@ struct ContactDetailView: View {
         }
         .onChange(of: contact.id) { _, _ in
             currentContact = nil
-            editedName = contact.displayName
+            let name = contact.displayName
+            editedName = (name == "New Contact") ? "" : name
             editedNotes = contact.notes ?? ""
             inviteCodeRevealed = false
             inviteHandleInput = ""
@@ -111,7 +112,8 @@ struct ContactDetailView: View {
         }
         .onChange(of: contact) { _, _ in
             currentContact = nil
-            editedName = contact.displayName
+            let name = contact.displayName
+            editedName = (name == "New Contact") ? "" : name
             editedNotes = contact.notes ?? ""
         }
         .onDisappear {
@@ -139,7 +141,9 @@ struct ContactDetailView: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .onAppear {
-            editedName = displayContact.displayName
+            // Leave name empty for placeholder contacts so the placeholder text shows
+            let name = displayContact.displayName
+            editedName = (name == "New Contact") ? "" : name
             editedNotes = displayContact.notes ?? ""
         }
     }
