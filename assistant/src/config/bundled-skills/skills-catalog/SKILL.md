@@ -1,19 +1,20 @@
 ---
 name: skills-catalog
 description: Discover bundled skills and search/install community skills from the skills.sh registry
-activation-hints:
-  - "what can you do"
-  - "find a skill"
-  - "install a skill"
-  - "community skills"
-  - "skills.sh"
-  - "search for skills"
-avoid-when: User is asking about a specific bundled skill already visible in the catalog
 compatibility: "Designed for Vellum personal assistants"
 metadata:
   emoji: "\U0001F9E9"
   vellum:
     display-name: "Skills Catalog"
+    activation-hints:
+      - "what can you do"
+      - "find a skill"
+      - "install a skill"
+      - "community skills"
+      - "skills.sh"
+      - "search for skills"
+    avoid-when:
+      - "User is asking about a specific bundled skill already visible in the catalog"
 ---
 
 You can help the user discover what skills are available and find community skills to extend the assistant's capabilities.
