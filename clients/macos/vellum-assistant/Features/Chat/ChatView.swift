@@ -50,6 +50,8 @@ struct ChatView: View {
     var onSurfaceRefetch: ((String, String) -> Void)?
     /// Called when the user taps "Retry" on a per-message send failure.
     var onRetryFailedMessage: ((UUID) -> Void)?
+    /// Called when the user taps "Retry" on an inline conversation error.
+    var onRetryConversationError: (() -> Void)?
     var subagentDetailStore: SubagentDetailStore
     /// Resolves the daemon HTTP port at call time so lazy-loaded video
     /// attachments always use the latest port after daemon restarts.
@@ -238,6 +240,7 @@ struct ChatView: View {
                             onRehydrateMessage: onRehydrateMessage,
                             onSurfaceRefetch: onSurfaceRefetch,
                             onRetryFailedMessage: onRetryFailedMessage,
+                            onRetryConversationError: onRetryConversationError,
                             subagentDetailStore: subagentDetailStore,
                             creditsExhaustedError: creditsExhaustedError,
                             onAddFunds: onAddFunds,

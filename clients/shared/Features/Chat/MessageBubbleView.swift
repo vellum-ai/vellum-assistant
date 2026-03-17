@@ -20,6 +20,8 @@ public struct MessageBubbleView: View {
     public let onSurfaceRefetch: ((String, String) -> Void)?
     /// Called when the user taps "Retry" on a per-message send failure.
     public let onRetryFailedMessage: ((UUID) -> Void)?
+    /// Called when the user taps "Retry" on an inline conversation error.
+    public let onRetryConversationError: (() -> Void)?
 
     public init(
         message: ChatMessage,
@@ -29,7 +31,8 @@ public struct MessageBubbleView: View {
         onAlwaysAllow: ((String, String, String, String) -> Void)? = nil,
         onGuardianAction: ((String, String) -> Void)? = nil,
         onSurfaceRefetch: ((String, String) -> Void)? = nil,
-        onRetryFailedMessage: ((UUID) -> Void)? = nil
+        onRetryFailedMessage: ((UUID) -> Void)? = nil,
+        onRetryConversationError: (() -> Void)? = nil
     ) {
         self.message = message
         self.onConfirmationResponse = onConfirmationResponse
@@ -39,6 +42,7 @@ public struct MessageBubbleView: View {
         self.onGuardianAction = onGuardianAction
         self.onSurfaceRefetch = onSurfaceRefetch
         self.onRetryFailedMessage = onRetryFailedMessage
+        self.onRetryConversationError = onRetryConversationError
     }
 
     public var body: some View {
@@ -254,7 +258,8 @@ public struct MessageBubbleView: View {
         } else if message.isError {
             InlineChatErrorAlert(
                 message: text,
-                conversationError: message.conversationError
+                conversationError: message.conversationError,
+                onRetry: onRetryConversationError
             )
             .contextMenu {
                 if let onRegenerate {

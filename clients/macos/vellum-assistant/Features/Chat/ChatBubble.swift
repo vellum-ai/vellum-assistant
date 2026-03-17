@@ -28,6 +28,8 @@ struct ChatBubble: View {
     var activeConfirmationRequestId: String? = nil
     /// Called when the user taps "Retry" on a failed message.
     var onRetryFailedMessage: ((UUID) -> Void)?
+    /// Called when the user taps "Retry" on an inline conversation error.
+    var onRetryConversationError: (() -> Void)?
 
     var isLatestAssistantMessage: Bool = false
     /// When true, the assistant is still processing after tool calls completed.
@@ -179,7 +181,8 @@ struct ChatBubble: View {
                         if message.isError && hasText {
                             InlineChatErrorAlert(
                                 message: message.text,
-                                conversationError: message.conversationError
+                                conversationError: message.conversationError,
+                                onRetry: onRetryConversationError
                             )
                             .scaleEffect(conversationZoomScale, anchor: .topLeading)
                         } else if shouldShowBubble {

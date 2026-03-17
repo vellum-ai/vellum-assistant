@@ -86,6 +86,8 @@ struct MessageListView: View {
     var onSurfaceRefetch: ((String, String) -> Void)?
     /// Called when the user taps "Retry" on a per-message send failure.
     var onRetryFailedMessage: ((UUID) -> Void)?
+    /// Called when the user taps "Retry" on an inline conversation error.
+    var onRetryConversationError: (() -> Void)?
     var subagentDetailStore: SubagentDetailStore
 
     // MARK: - Credits Exhausted (inline banner)
@@ -681,6 +683,7 @@ struct MessageListView: View {
                             onRehydrateMessage: onRehydrateMessage,
                             onSurfaceRefetch: onSurfaceRefetch,
                             onRetryFailedMessage: onRetryFailedMessage,
+                            onRetryConversationError: onRetryConversationError,
                             onAbortSubagent: onAbortSubagent,
                             onSubagentTap: onSubagentTap,
                             onModelPickerSelect: onModelPickerSelect,
@@ -1259,6 +1262,8 @@ private struct MessageCellView: View, Equatable {
     var onSurfaceRefetch: ((String, String) -> Void)?
     /// Called when the user taps "Retry" on a per-message send failure.
     var onRetryFailedMessage: ((UUID) -> Void)?
+    /// Called when the user taps "Retry" on an inline conversation error.
+    var onRetryConversationError: (() -> Void)?
     var onAbortSubagent: ((String) -> Void)?
     var onSubagentTap: ((String) -> Void)?
     var onModelPickerSelect: ((UUID, String) -> Void)?
@@ -1410,6 +1415,7 @@ private struct MessageCellView: View, Equatable {
                 onTemporaryAllow: onTemporaryAllow,
                 activeConfirmationRequestId: activePendingRequestId,
                 onRetryFailedMessage: onRetryFailedMessage,
+                onRetryConversationError: message.isError ? onRetryConversationError : nil,
                 isLatestAssistantMessage: message.role == .assistant && message.id == latestAssistantId,
                 isProcessingAfterTools: canInlineProcessing && message.id == latestAssistantId,
                 processingStatusText: canInlineProcessing && message.id == latestAssistantId ? assistantStatusText : nil,

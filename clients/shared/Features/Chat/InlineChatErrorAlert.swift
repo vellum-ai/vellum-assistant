@@ -12,10 +12,12 @@ import SwiftUI
 public struct InlineChatErrorAlert: View {
     let message: String
     let conversationError: ConversationError?
+    let onRetry: (() -> Void)?
 
-    public init(message: String, conversationError: ConversationError? = nil) {
+    public init(message: String, conversationError: ConversationError? = nil, onRetry: (() -> Void)? = nil) {
         self.message = message
         self.conversationError = conversationError
+        self.onRetry = onRetry
     }
 
     private var category: ConversationErrorCategory {
@@ -99,6 +101,24 @@ public struct InlineChatErrorAlert: View {
                         .font(VFont.caption)
                         .foregroundColor(VColor.contentTertiary)
                         .fixedSize(horizontal: false, vertical: true)
+                }
+
+                // Retry button
+                if conversationError?.isRetryable == true, let onRetry {
+                    Button(action: onRetry) {
+                        HStack(spacing: VSpacing.xs) {
+                            VIconView(.rotateCcw, size: 11)
+                            Text("Retry")
+                        }
+                        .font(VFont.captionMedium)
+                        .foregroundColor(accentColor)
+                        .padding(.horizontal, VSpacing.sm)
+                        .padding(.vertical, VSpacing.xs)
+                        .background(accentColor.opacity(0.1))
+                        .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Retry")
                 }
             }
             .padding(.leading, VSpacing.md)
