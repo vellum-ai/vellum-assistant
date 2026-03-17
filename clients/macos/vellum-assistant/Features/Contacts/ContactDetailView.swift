@@ -85,9 +85,7 @@ struct ContactDetailView: View {
                 .padding(VSpacing.lg)
                 .vCard(radius: VRadius.lg, background: VColor.surfaceOverlay)
             }
-            .padding(VSpacing.lg)
         }
-        .background(VColor.surfaceOverlay)
         .confirmationDialog(
             "Delete \(displayContact.displayName)?",
             isPresented: $showDeleteConfirmation,

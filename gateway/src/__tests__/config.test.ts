@@ -13,7 +13,7 @@ describe("config: hardcoded defaults", () => {
       telegram: 20 * 1024 * 1024,
       slack: 100 * 1024 * 1024,
       whatsapp: 16 * 1024 * 1024,
-      default: 50 * 1024 * 1024,
+      default: 100 * 1024 * 1024,
     });
     expect(config.maxAttachmentConcurrency).toBe(3);
     expect(config.runtimeProxyEnabled).toBe(false);

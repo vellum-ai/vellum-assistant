@@ -199,8 +199,8 @@ const log = getLogger("runtime-http");
 const DEFAULT_PORT = 7821;
 const DEFAULT_HOSTNAME = "127.0.0.1";
 
-/** Global hard cap on request body size (50 MB). */
-const MAX_REQUEST_BODY_BYTES = 50 * 1024 * 1024;
+/** Global hard cap on request body size (150 MB — accommodates base64-encoded 100 MB attachments). */
+const MAX_REQUEST_BODY_BYTES = 150 * 1024 * 1024;
 
 export class RuntimeHttpServer {
   private server: ReturnType<typeof Bun.serve> | null = null;

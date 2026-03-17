@@ -30,18 +30,14 @@ struct ContactsContainerView: View {
     }
 
     var body: some View {
-        HStack(alignment: .top, spacing: 0) {
+        HStack(alignment: .top, spacing: VSpacing.lg) {
             // Left pane: contacts list (full height, internal scrolling)
             ContactsListView(
                 viewModel: viewModel,
                 selection: $selection
             )
-            .padding(.leading, VSpacing.lg)
-            .padding(.vertical, VSpacing.lg)
             .frame(width: 320)
             .frame(maxHeight: .infinity, alignment: .top)
-            .background(VColor.surfaceOverlay)
-
             // Right pane: detail, loading, or placeholder
             if viewModel.isLoading && viewModel.contacts.isEmpty {
                 // Loading state — contacts are being fetched
@@ -182,9 +178,7 @@ struct ContactsContainerView: View {
                 .padding(VSpacing.lg)
                 .vCard(radius: VRadius.lg, background: VColor.surfaceOverlay)
             }
-            .padding(VSpacing.lg)
         }
-        .background(VColor.surfaceOverlay)
         .id(contact.id)
         .onAppear {
             guardianEditedName = contact.displayName
@@ -241,9 +235,7 @@ struct ContactsContainerView: View {
                         .vCard(radius: VRadius.lg, background: VColor.surfaceOverlay)
                 }
             }
-            .padding(VSpacing.lg)
         }
-        .background(VColor.surfaceOverlay)
         .task {
             cachedAssistantName = AssistantDisplayName.firstUserFacing(from: [IdentityInfo.load()?.name]) ?? AssistantDisplayName.placeholder
         }

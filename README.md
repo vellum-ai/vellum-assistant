@@ -411,7 +411,7 @@ The assistant creates attachments from two sources:
 1. **Directives**: `<vellum-attachment source="sandbox|host" path="..." />` tags in response text. Sandbox paths are relative to the working directory; host paths require user approval.
 2. **Tool output**: Image and file content blocks from tool results are automatically converted into attachments.
 
-Limits: 20 MB per attachment.
+Limits: 100 MB per attachment (20 MB for Telegram).
 
 </details>
 
