@@ -464,7 +464,7 @@ The Anthropic provider places `cache_control: { type: 'ephemeral' }` on the **la
 
 ## Temporal Context Injection — Date Grounding
 
-The session injects a `<temporal_context>` block into every user message at runtime, giving the model awareness of the current date, current local time, current UTC time, timezone source metadata, upcoming weekend/work week windows, and a 14-day horizon of labelled future dates. This enables reliable reasoning about future dates (e.g. "plan a trip for next weekend") without persisting volatile temporal data in conversation history.
+The session injects a `<temporal_context>` block into every user message at runtime, giving the model awareness of the current date, current local time, current UTC time, and timezone source metadata. This enables reliable reasoning about dates and times without persisting volatile temporal data in conversation history.
 
 ### Per-turn flow
 
@@ -488,7 +488,6 @@ graph TB
 - **Clock source invariant**: Absolute time (`now`) always comes from the assistant host clock (`Date.now()`), never from channel/client clocks.
 - **Timezone precedence**: If `ui.userTimezone` is configured, temporal context uses it for local-date interpretation. Otherwise it falls back to memory-stored timezone, then assistant host timezone.
 - **Timezone-aware**: Uses `Intl.DateTimeFormat` APIs for DST-safe date arithmetic and timezone validation/canonicalization.
-- **Bounded output**: Hard-capped at 1500 characters and 14 horizon entries to prevent prompt bloat.
 - **Runtime-only**: The injected `<temporal_context>` block is stripped from `this.messages` after the agent loop completes via `stripTemporalContext`. It never persists in conversation history.
 - **Specific strip prefix**: The strip function matches the exact injected prefix (`<temporal_context>\nToday:`) to avoid accidentally removing user-authored text that starts with `<temporal_context>`.
 - **Retry paths**: Temporal context is included in all three `applyRuntimeInjections` call sites (main path, compact retry, media-trim retry).

@@ -164,7 +164,7 @@ Scan tools (`gmail_sender_digest`, `gmail_outreach_scan`) return a `scan_id` tha
 
 Before composing any email that references a date or time:
 
-1. Check the `<temporal_context>` block in the current turn for today's date and upcoming dates
+1. Check the `<temporal_context>` block in the current turn for today's date and timezone
 2. Verify that "tomorrow" means the day after today's date, "next week" means the upcoming Monday–Friday, etc.
 3. If the email references a date from another message, cross-check it against the temporal context to ensure it's in the future
 
