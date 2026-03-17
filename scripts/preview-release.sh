@@ -202,28 +202,28 @@ echo "Uploading DMG to ${SCP_HOST}..."
 remote_scp "$LOCAL_DMG" "${SCP_HOST}:${REMOTE_DMG}"
 
 echo "Installing into /Applications on ${SCP_HOST}..."
-remote_ssh "${SCP_HOST}" bash -s -- "$REMOTE_DMG" "$APP_DISPLAY_NAME" <<'REMOTE_SCRIPT'
+remote_ssh "${SCP_HOST}" bash -s <<REMOTE_SCRIPT
 set -euo pipefail
-DMG="$1"
-APP_NAME="$2"
+DMG="${REMOTE_DMG}"
+APP_NAME="${APP_DISPLAY_NAME}"
 
 # Kill running preview instance if any
-pkill -x "$APP_NAME" 2>/dev/null || true
+pkill -x "\$APP_NAME" 2>/dev/null || true
 sleep 1
 
 # Mount, copy to /Applications, unmount
-MOUNT_POINT=$(hdiutil attach "$DMG" -nobrowse -noverify | grep -o '/Volumes/.*')
-if [ -z "$MOUNT_POINT" ]; then
+MOUNT_POINT=\$(hdiutil attach "\$DMG" -nobrowse -noverify | grep -o '/Volumes/.*')
+if [ -z "\$MOUNT_POINT" ]; then
   echo "ERROR: Failed to mount DMG"
   exit 1
 fi
 
-rm -rf "/Applications/${APP_NAME}.app"
-cp -R "$MOUNT_POINT/${APP_NAME}.app" "/Applications/${APP_NAME}.app"
-hdiutil detach "$MOUNT_POINT" -quiet 2>/dev/null || true
-rm -f "$DMG"
+rm -rf "/Applications/\${APP_NAME}.app"
+cp -R "\$MOUNT_POINT/\${APP_NAME}.app" "/Applications/\${APP_NAME}.app"
+hdiutil detach "\$MOUNT_POINT" -quiet 2>/dev/null || true
+rm -f "\$DMG"
 
-echo "Installed: /Applications/${APP_NAME}.app"
+echo "Installed: /Applications/\${APP_NAME}.app"
 REMOTE_SCRIPT
 
 rm -rf "$LOCAL_DMG_DIR"
