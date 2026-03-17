@@ -1,6 +1,84 @@
 import SwiftUI
 import VellumAssistantShared
 
+// MARK: - YAML Frontmatter
+
+/// Parsed YAML frontmatter from a Markdown file.
+private struct MarkdownFrontmatter {
+    var name: String?
+    var description: String?
+    var compatibility: String?
+    var emoji: String?
+    var displayName: String?
+}
+
+/// Strips YAML frontmatter from markdown content, returning the parsed frontmatter and remaining body.
+private func parseFrontmatter(_ text: String) -> (frontmatter: MarkdownFrontmatter?, body: String) {
+    let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard trimmed.hasPrefix("---") else { return (nil, text) }
+
+    // Find the closing ---
+    let afterOpening = trimmed.index(trimmed.startIndex, offsetBy: 3)
+    let rest = trimmed[afterOpening...]
+    guard let closingRange = rest.range(of: "\n---") else { return (nil, text) }
+
+    let yamlContent = String(rest[rest.startIndex..<closingRange.lowerBound])
+    let bodyStart = closingRange.upperBound
+    let body = String(rest[bodyStart...]).trimmingCharacters(in: .newlines)
+
+    // Simple line-by-line YAML parsing for known keys
+    var fm = MarkdownFrontmatter()
+    var inMetadata = false
+    var inVellum = false
+
+    for line in yamlContent.components(separatedBy: "\n") {
+        let stripped = line.trimmingCharacters(in: .whitespaces)
+        if stripped.isEmpty { continue }
+
+        let indent = line.prefix(while: { $0 == " " }).count
+
+        if indent == 0 {
+            inMetadata = stripped == "metadata:"
+            inVellum = false
+            if !inMetadata {
+                if let value = extractYAMLValue(stripped, key: "name") {
+                    fm.name = value
+                } else if let value = extractYAMLValue(stripped, key: "description") {
+                    fm.description = value
+                } else if let value = extractYAMLValue(stripped, key: "compatibility") {
+                    fm.compatibility = value
+                }
+            }
+        } else if inMetadata && indent >= 2 {
+            if stripped == "vellum:" {
+                inVellum = true
+            } else if let value = extractYAMLValue(stripped, key: "emoji") {
+                fm.emoji = value
+            } else if inVellum, let value = extractYAMLValue(stripped, key: "display-name") {
+                fm.displayName = value
+            }
+        }
+    }
+
+    // Only return frontmatter if we found at least a name or display-name
+    if fm.name != nil || fm.displayName != nil {
+        return (fm, body)
+    }
+    return (nil, text)
+}
+
+/// Extracts a YAML value for a given key from a "key: value" line, stripping quotes.
+private func extractYAMLValue(_ line: String, key: String) -> String? {
+    let prefix = "\(key):"
+    guard line.hasPrefix(prefix) else { return nil }
+    var value = String(line.dropFirst(prefix.count)).trimmingCharacters(in: .whitespaces)
+    // Strip surrounding quotes
+    if (value.hasPrefix("\"") && value.hasSuffix("\"")) || (value.hasPrefix("'") && value.hasSuffix("'")) {
+        value = String(value.dropFirst().dropLast())
+    }
+    return value.isEmpty ? nil : value
+}
+
 // MARK: - Block-level data model
 
 /// Represents a parsed block-level Markdown element with a stable index-based identity.
@@ -287,10 +365,18 @@ struct MarkdownPreviewView: View {
     let content: String
 
     @State private var blocks: [MarkdownBlock] = []
+    @State private var frontmatter: MarkdownFrontmatter?
 
     var body: some View {
         ScrollView(.vertical) {
             LazyVStack(alignment: .leading, spacing: VSpacing.sm) {
+                if let fm = frontmatter {
+                    frontmatterHeader(fm)
+                    if !blocks.isEmpty {
+                        Divider()
+                            .padding(.vertical, VSpacing.xs)
+                    }
+                }
                 ForEach(blocks) { block in
                     blockView(for: block)
                 }
@@ -300,7 +386,34 @@ struct MarkdownPreviewView: View {
         .tint(VColor.primaryBase)
         .textSelection(.enabled)
         .task(id: content) {
-            blocks = parseMarkdown(content)
+            let (fm, body) = parseFrontmatter(content)
+            frontmatter = fm
+            blocks = parseMarkdown(body)
+        }
+    }
+
+    @ViewBuilder
+    private func frontmatterHeader(_ fm: MarkdownFrontmatter) -> some View {
+        VStack(alignment: .leading, spacing: VSpacing.sm) {
+            HStack(spacing: VSpacing.sm) {
+                if let emoji = fm.emoji {
+                    Text(emoji)
+                        .font(VFont.cardEmoji)
+                }
+                Text(fm.displayName ?? fm.name ?? "")
+                    .font(VFont.largeTitle)
+                    .foregroundColor(VColor.contentEmphasized)
+            }
+            if let description = fm.description {
+                Text(description)
+                    .font(VFont.body)
+                    .foregroundColor(VColor.contentSecondary)
+            }
+            if let compatibility = fm.compatibility {
+                Text(compatibility)
+                    .font(VFont.caption)
+                    .foregroundColor(VColor.contentTertiary)
+            }
         }
     }
 
