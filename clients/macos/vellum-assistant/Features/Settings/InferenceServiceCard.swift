@@ -136,7 +136,7 @@ struct InferenceServiceCard: View {
 
     private var managedLoginPrompt: some View {
         VStack(alignment: .leading, spacing: VSpacing.md) {
-            Text("Log in to Vellum to use the managed inference service.")
+            Text("Log in to Vellum to use managed inference.")
                 .font(VFont.body)
                 .foregroundColor(VColor.contentDefault)
             VButton(
