@@ -23,22 +23,13 @@ final class AvatarAppearanceManager {
     /// doesn't fire an observation notification and trigger another SwiftUI
     /// view-update pass (which would create a re-render loop).
     @ObservationIgnored private var cachedFallbackAvatar: NSImage?
-    /// The name used to build the cached fallback, so we can invalidate when identity changes.
-    @ObservationIgnored private var cachedFallbackName: String?
     /// Cached chat-size avatar (56pt for 2x Retina).
     @ObservationIgnored private var cachedChatAvatar: NSImage?
     /// Cached full-size fallback avatar for larger displays (identity panel, constellation).
     @ObservationIgnored private var cachedFullFallbackAvatar: NSImage?
-    @ObservationIgnored private var cachedFullFallbackName: String?
-
-    /// Bundled initial avatar loaded once from Resources.
-    private static let bundledInitialAvatar: NSImage? = {
-        guard let url = ResourceBundle.bundle.url(forResource: "initial-avatar", withExtension: "png") else { return nil }
-        return NSImage(contentsOf: url)
-    }()
 
     /// Returns the custom avatar resized for chat (56pt for 2x Retina) if available,
-    /// otherwise the bundled initial avatar, or an initial-letter placeholder as last resort.
+    /// otherwise the character avatar from saved traits (or randomly generated traits).
     var chatAvatarImage: NSImage {
         if let custom = customAvatarImage {
             if let cached = cachedChatAvatar { return cached }
@@ -47,34 +38,19 @@ final class AvatarAppearanceManager {
             return resized
         }
 
-        if let bundled = Self.bundledInitialAvatar {
-            if let cached = cachedFallbackAvatar { return cached }
-            let resized = Self.resizedImage(bundled, to: 56)
-            cachedFallbackAvatar = resized
-            return resized
-        }
-
-        let name = assistantName
-        let avatar = Self.buildInitialLetterAvatar(name: name)
+        if let cached = cachedFallbackAvatar { return cached }
+        let avatar = characterFallbackAvatar(size: 56)
         cachedFallbackAvatar = avatar
-        cachedFallbackName = name
         return avatar
     }
 
     /// Returns the full-size custom avatar for large displays (identity panel, constellation node),
-    /// or falls back to the bundled initial avatar, or a larger initial-letter circle.
+    /// or falls back to the character avatar from saved traits (or randomly generated traits).
     var fullAvatarImage: NSImage {
         if let custom = customAvatarImage { return custom }
-        if let bundled = Self.bundledInitialAvatar { return bundled }
-
-        let name = assistantName
-        if let cached = cachedFullFallbackAvatar, cachedFullFallbackName == name {
-            return cached
-        }
-
-        let avatar = Self.buildInitialLetterAvatar(name: name, size: 240)
+        if let cached = cachedFullFallbackAvatar { return cached }
+        let avatar = characterFallbackAvatar(size: 240)
         cachedFullFallbackAvatar = avatar
-        cachedFullFallbackName = name
         return avatar
     }
 
@@ -147,9 +123,7 @@ final class AvatarAppearanceManager {
                     fallback: "V"
                 )
                 self.cachedFallbackAvatar = nil
-                self.cachedFallbackName = nil
                 self.cachedFullFallbackAvatar = nil
-                self.cachedFullFallbackName = nil
             }
         }
     }
@@ -253,9 +227,7 @@ final class AvatarAppearanceManager {
         characterColor = nil
         cachedChatAvatar = nil
         cachedFallbackAvatar = nil
-        cachedFallbackName = nil
         cachedFullFallbackAvatar = nil
-        cachedFullFallbackName = nil
         updateDockIcon()
     }
 
@@ -453,13 +425,10 @@ final class AvatarAppearanceManager {
 
     /// Updates the application dock icon to match the current avatar.
     /// When a custom avatar exists, renders it inside a macOS-style squircle mask.
-    /// When cleared, reverts to the default bundle icon.
+    /// When cleared, shows the character avatar, or reverts to the default bundle icon
+    /// as a last resort.
     private func updateDockIcon() {
-        guard let avatar = customAvatarImage else {
-            NSApplication.shared.applicationIconImage = nil
-            NSApp.dockTile.display()
-            return
-        }
+        let avatar = customAvatarImage ?? characterFallbackAvatar(size: 512)
 
         // Standard macOS icons have ~10% padding so the artwork doesn't crowd
         // the dock running-indicator dot or produce edge fringe artifacts.
@@ -477,6 +446,24 @@ final class AvatarAppearanceManager {
 
         NSApplication.shared.applicationIconImage = icon
         NSApp.dockTile.display()
+    }
+
+    /// Returns a character avatar rendered from the current traits. If no traits are saved,
+    /// generates random ones (matching the onboarding behavior) and persists them.
+    private func characterFallbackAvatar(size: CGFloat) -> NSImage {
+        if characterBodyShape == nil || characterEyeStyle == nil || characterColor == nil {
+            characterBodyShape = AvatarBodyShape.allCases.randomElement()!
+            characterEyeStyle = AvatarEyeStyle.allCases.randomElement()!
+            characterColor = AvatarColor.allCases.randomElement()!
+            saveAvatarComponents()
+        }
+
+        return AvatarCompositor.render(
+            bodyShape: characterBodyShape!,
+            eyeStyle: characterEyeStyle!,
+            color: characterColor!,
+            size: size
+        )
     }
 
     /// Renders the source image inside a macOS-style squircle mask at the given point size.
