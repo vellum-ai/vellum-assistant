@@ -33,10 +33,6 @@ export interface ChannelCapabilities {
   supportsDynamicUi: boolean;
   /** Whether the channel supports voice/microphone input. */
   supportsVoiceInput: boolean;
-  /** Push-to-talk activation key (e.g. 'fn', 'ctrl', 'fn_shift', 'none'). Only present on desktop clients. */
-  pttActivationKey?: string;
-  /** Whether the client has been granted microphone permission by the OS. */
-  microphonePermissionGranted?: boolean;
   /** Chat type from the gateway (e.g. "private", "group", "supergroup", "channel", "im", "mpim"). */
   chatType?: string;
 }
@@ -165,46 +161,10 @@ export function inboundActorContextFromTrust(
   };
 }
 
-/**
- * Validate a PTT activation key string. Accepts JSON PTTActivator payloads
- * from the custom key feature. Returns the key as-is if valid, undefined otherwise.
- */
-export function sanitizePttActivationKey(
-  key: string | undefined | null,
-): string | undefined {
-  if (key == null) return undefined;
-
-  // Parse as a JSON PTTActivator payload
-  if (key.startsWith("{")) {
-    try {
-      const parsed = JSON.parse(key) as { kind?: string };
-      if (
-        parsed.kind &&
-        ["modifierOnly", "key", "modifierKey", "mouseButton", "none"].includes(
-          parsed.kind,
-        )
-      ) {
-        return key;
-      }
-    } catch {
-      // fall through
-    }
-  }
-
-  return undefined;
-}
-
-/** Optional PTT metadata provided by the client alongside each message. */
-export interface PttMetadata {
-  pttActivationKey?: string;
-  microphonePermissionGranted?: boolean;
-}
-
 /** Derive channel capabilities from source channel + interface identifiers. */
 export function resolveChannelCapabilities(
   sourceChannel?: string | null,
   sourceInterface?: string | null,
-  pttMetadata?: PttMetadata | null,
   chatType?: string | null,
 ): ChannelCapabilities {
   // Normalise legacy pseudo-channel IDs to canonical ChannelId values.
@@ -250,10 +210,6 @@ export function resolveChannelCapabilities(
         dashboardCapable: supportsDesktopUi,
         supportsDynamicUi: supportsDesktopUi || iface === "vellum",
         supportsVoiceInput: supportsDesktopUi,
-        pttActivationKey: sanitizePttActivationKey(
-          pttMetadata?.pttActivationKey,
-        ),
-        microphonePermissionGranted: pttMetadata?.microphonePermissionGranted,
         chatType: resolvedChatType,
       };
     }
