@@ -156,7 +156,7 @@ function handleListConversationStarters(url: URL): Response {
   // If starters exist, return them immediately.
   if (total > 0) {
     return Response.json({
-      starters: rawItems,
+      starters: orderStrongestFirst(rawItems),
       total,
       status: "ready",
     });
