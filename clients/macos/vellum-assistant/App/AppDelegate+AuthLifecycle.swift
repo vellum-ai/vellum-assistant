@@ -396,7 +396,8 @@ extension AppDelegate {
                 NotificationCenter.default.post(name: .localBootstrapCompleted, object: nil)
                 self.mainWindow?.windowState.showToast(
                     message: "Failed to set up Vellum credentials. You may need to log out and log in again.",
-                    style: .error
+                    style: .error,
+                    copyableDetail: error.localizedDescription
                 )
             }
         }
