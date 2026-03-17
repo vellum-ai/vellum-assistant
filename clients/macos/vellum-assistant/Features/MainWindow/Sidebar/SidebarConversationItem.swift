@@ -222,6 +222,8 @@ struct SidebarConversationItem: View {
         }
         .onDrag {
             sidebar.draggingConversationId = conversation.id
+            // Clear hover so icon-swap and archive-button animations stop during drag.
+            sidebar.isHoveredConversation = nil
             return NSItemProvider(object: conversation.id.uuidString as NSString)
         } preview: {
             HStack(spacing: VSpacing.xs) {
