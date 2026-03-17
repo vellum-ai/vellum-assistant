@@ -48,8 +48,6 @@ final class WorkspaceBrowserState {
         let ext = (targetPath as NSString).pathExtension.lowercased()
         if ext == "md" || ext == "markdown" {
             viewMode = .preview
-        } else if ext == "json" {
-            viewMode = .tree
         } else {
             viewMode = .source
         }
