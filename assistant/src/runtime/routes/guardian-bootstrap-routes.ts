@@ -19,6 +19,7 @@ import { getLogger } from "../../util/logger.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../assistant-scope.js";
 import { mintCredentialPair } from "../auth/credential-service.js";
 import { httpError } from "../http-errors.js";
+import { isPrivateAddress } from "../middleware/auth.js";
 
 /** Bun server shape needed for requestIP -- avoids importing the full Bun type. */
 type ServerWithRequestIP = {
@@ -71,30 +72,32 @@ function ensureGuardianPrincipal(assistantId: string): {
   return { guardianPrincipalId, isNew: true };
 }
 
-/** Loopback addresses — used to gate the bootstrap endpoint to local-only. */
-const LOOPBACK_ADDRESSES = new Set(["127.0.0.1", "::1", "::ffff:127.0.0.1"]);
-
 /**
  * Handle POST /v1/guardian/init
  *
  * Body: { platform: 'macos', deviceId: string }
  * Returns: { guardianPrincipalId, accessToken, isNew }
  *
- * This endpoint is loopback-only (macOS local use only). iOS devices
- * obtain actor tokens exclusively through the QR pairing flow.
+ * This endpoint is restricted to private-network peers (loopback, RFC 1918,
+ * Docker bridge, etc.). iOS devices obtain actor tokens exclusively through
+ * the QR pairing flow.
  */
 export async function handleGuardianBootstrap(
   req: Request,
   server: ServerWithRequestIP,
 ): Promise<Response> {
-  // Reject proxied requests — bootstrap is local-only
-  if (req.headers.get("x-forwarded-for") && !isHttpAuthDisabled()) {
+  // Reject requests forwarded from public networks. The gateway sets
+  // x-forwarded-for to the real client IP; if that IP is on a private
+  // network (loopback, Docker bridge, RFC 1918) the request is still
+  // considered local. Only reject when the forwarded IP is public.
+  const forwarded = req.headers.get("x-forwarded-for");
+  if (forwarded && !isPrivateAddress(forwarded) && !isHttpAuthDisabled()) {
     return httpError("FORBIDDEN", "Bootstrap endpoint is local-only", 403);
   }
 
-  // Reject non-loopback peers
+  // Reject non-private-network peers (allows loopback, Docker bridge, etc.)
   const peerIp = server.requestIP(req)?.address;
-  if ((!peerIp || !LOOPBACK_ADDRESSES.has(peerIp)) && !isHttpAuthDisabled()) {
+  if ((!peerIp || !isPrivateAddress(peerIp)) && !isHttpAuthDisabled()) {
     return httpError("FORBIDDEN", "Bootstrap endpoint is local-only", 403);
   }
 
