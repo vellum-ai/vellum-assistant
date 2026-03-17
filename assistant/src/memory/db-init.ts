@@ -84,6 +84,7 @@ import {
   migrateReminderRoutingIntent,
   migrateRemindersToSchedules,
   migrateRenameConversationTypeColumn,
+  migrateRenameCreatedBySessionIdColumns,
   migrateRenameFollowupsThreadIdColumn,
   migrateRenameGmailProviderKeyToGoogle,
   migrateRenameGuardianVerificationValues,
@@ -431,6 +432,9 @@ export function initializeDb(): void {
 
   // 74. Add capability card columns to thread_starters + category relevance table
   migrateCapabilityCardColumns(database);
+
+  // 75. Rename created_by_session_id → source_conversation_id in verification sessions and invites
+  migrateRenameCreatedBySessionIdColumns(database);
 
   validateMigrationState(database);
 

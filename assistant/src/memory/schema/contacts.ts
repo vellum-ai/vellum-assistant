@@ -69,7 +69,7 @@ export const assistantIngressInvites = sqliteTable(
     id: text("id").primaryKey(),
     sourceChannel: text("source_channel").notNull(),
     tokenHash: text("token_hash").notNull(),
-    createdByConversationId: text("created_by_session_id"),
+    sourceConversationId: text("source_conversation_id"),
     note: text("note"),
     maxUses: integer("max_uses").notNull().default(1),
     useCount: integer("use_count").notNull().default(0),
