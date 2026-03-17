@@ -286,7 +286,8 @@ private struct TrustRuleFormView: View {
                     tool: tool,
                     pattern: trimmedPattern,
                     scope: resolvedScope,
-                    decision: decision
+                    decision: decision,
+                    priority: nil
                 )
             } else {
                 try? await trustRuleClient.addTrustRule(
