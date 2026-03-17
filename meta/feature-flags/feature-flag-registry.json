@@ -232,6 +232,14 @@
       "label": "Recommended Starts",
       "description": "Show a curated row of recommended starting actions on the empty conversation page, ordered by relevance as confident first-click options",
       "defaultEnabled": false
+    },
+    {
+      "id": "deploy-to-vercel",
+      "scope": "assistant",
+      "key": "feature_flags.deploy-to-vercel.enabled",
+      "label": "Deploy to Vercel",
+      "description": "Enable the Deploy to Vercel / Publish option in the app workspace header share menu",
+      "defaultEnabled": false
     }
   ]
 }
