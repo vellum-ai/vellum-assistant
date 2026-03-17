@@ -232,6 +232,14 @@
       "label": "Thread Starters",
       "description": "Show personalized thread starter suggestions on the empty conversation page",
       "defaultEnabled": false
+    },
+    {
+      "id": "capability-feed",
+      "scope": "macos",
+      "key": "capability_feed_enabled",
+      "label": "Capability Feed",
+      "description": "Show the scrollable capability cards feed below the hero on the new thread page",
+      "defaultEnabled": false
     }
   ]
 }
