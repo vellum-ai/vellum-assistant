@@ -90,6 +90,10 @@ struct SettingsPanel: View {
             let visibleTabs = SettingsTab.primaryTabs(contactsEnabled: false, billingEnabled: canShowBilling)
             if visibleTabs.contains(pending) {
                 _selectedTab = State(initialValue: pending)
+            } else {
+                // Tab may become visible once feature flags load (e.g. .contacts, .developer).
+                // Preserve it for deferred evaluation in loadFeatureFlags().
+                _deferredDeepLinkTab = State(initialValue: pending)
             }
         }
     }
@@ -108,6 +112,9 @@ struct SettingsPanel: View {
     @State private var notificationBadgesGranted: Bool = false
     @State private var permissionCheckTask: Task<Void, Never>?
     @State private var selectedTab: SettingsTab = .general
+    /// Deep-linked tab that wasn't visible at init (feature flags not yet loaded).
+    /// Re-evaluated after loadFeatureFlags() completes.
+    @State private var deferredDeepLinkTab: SettingsTab?
     @State private var isContactsEnabled: Bool = false
     @State private var isBillingEnabled: Bool = false
     @State private var isDeveloperEnabled: Bool = false
@@ -551,6 +558,7 @@ struct SettingsPanel: View {
                 if let emailFlag = flags.first(where: { $0.key == Self.emailFeatureFlagKey }) {
                     isEmailEnabled = emailFlag.enabled
                 }
+                consumeDeferredDeepLinkIfVisible()
                 return
             } catch {
                 // Fall through to local config fallback.
@@ -574,6 +582,19 @@ struct SettingsPanel: View {
         if let emailEnabled = resolved[Self.emailFeatureFlagKey] {
             isEmailEnabled = emailEnabled
         }
+
+        consumeDeferredDeepLinkIfVisible()
+    }
+
+    /// If a deep-linked tab was deferred at init because its feature flag
+    /// hadn't loaded, check whether it's now visible and navigate to it.
+    private func consumeDeferredDeepLinkIfVisible() {
+        guard let deferred = deferredDeepLinkTab else { return }
+        let visibleTabs = allVisibleTabs
+        if visibleTabs.contains(deferred) {
+            selectedTab = deferred
+        }
+        deferredDeepLinkTab = nil
     }
 
     private func startPermissionPolling() {
