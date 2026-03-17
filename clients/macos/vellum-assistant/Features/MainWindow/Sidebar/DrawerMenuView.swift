@@ -3,7 +3,6 @@ import VellumAssistantShared
 
 struct DrawerMenuView: View {
     let authManager: AuthManager
-    let settingsStore: SettingsStore
     let onSettings: () -> Void
     let onUsage: () -> Void
     let onDebug: () -> Void
@@ -15,7 +14,6 @@ struct DrawerMenuView: View {
     @State private var isLowBalance = false
     @State private var isZeroBalance = false
     @State private var bootstrapGeneration: Int = 0
-    @State private var showLogoutAlert = false
     @AppStorage("connectedOrganizationId") private var connectedOrgId: String?
 
     private var isBillingVisible: Bool {
@@ -73,13 +71,7 @@ struct DrawerMenuView: View {
                 SidebarPrimaryRow(icon: VIcon.scrollText.rawValue, label: String(localized: "Logs"), action: onDebug)
 
                 if authManager.isAuthenticated {
-                    SidebarPrimaryRow(icon: VIcon.logOut.rawValue, label: String(localized: "Log Out")) {
-                        if settingsStore.hasManagedServices {
-                            showLogoutAlert = true
-                        } else {
-                            onLogOut()
-                        }
-                    }
+                    SidebarPrimaryRow(icon: VIcon.logOut.rawValue, label: String(localized: "Log Out"), action: onLogOut)
                 } else {
                     SidebarPrimaryRow(icon: VIcon.logOut.rawValue, label: String(localized: "Log In"), action: onSignIn)
                 }
@@ -90,17 +82,6 @@ struct DrawerMenuView: View {
         .clipShape(RoundedRectangle(cornerRadius: VRadius.lg))
         .shadow(color: VColor.auxBlack.opacity(0.1), radius: 1.5, x: 0, y: 1)
         .shadow(color: VColor.auxBlack.opacity(0.1), radius: 6, x: 0, y: 4)
-        .alert("Heads up", isPresented: $showLogoutAlert) {
-            Button("Cancel", role: .cancel) {}
-            Button("Log Out", role: .destructive) {
-                onLogOut()
-            }
-        } message: {
-            Text(
-                "Some of your services rely on being logged in."
-                    + " They won't work until you log back in or switch them to use your own API keys."
-            )
-        }
         .onReceive(NotificationCenter.default.publisher(for: .localBootstrapCompleted)) { _ in
             bootstrapGeneration += 1
         }
