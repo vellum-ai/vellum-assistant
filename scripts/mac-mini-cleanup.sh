@@ -15,7 +15,7 @@ echo "⚠️  WARNING: This script performs destructive operations."
 echo "   Only run on environments you are comfortable completely resetting."
 echo ""
 
-TOTAL_STEPS=13
+TOTAL_STEPS=16
 
 # 1. Kill any processes running via "bun run"
 echo "1/$TOTAL_STEPS — Killing bun run processes..."
@@ -190,6 +190,85 @@ if [ -f "$DOCK_PLIST" ]; then
     fi
 else
     echo "       ⏭️  No Dock plist found, skipping"
+fi
+
+# 14. Uninstall Docker
+echo "14/$TOTAL_STEPS — Uninstalling Docker..."
+DOCKER_REMOVED=false
+if [ -d "/Applications/Docker.app" ]; then
+    # Quit Docker if running
+    osascript -e 'quit app "Docker"' 2>/dev/null || true
+    sleep 2
+    rm -rf /Applications/Docker.app
+    echo "       ✅ Removed /Applications/Docker.app"
+    DOCKER_REMOVED=true
+fi
+# Remove Docker data and config directories
+for docker_dir in "$HOME/Library/Group Containers/group.com.docker" \
+                   "$HOME/Library/Containers/com.docker.docker" \
+                   "$HOME/Library/Application Support/Docker Desktop" \
+                   "$HOME/.docker"; do
+    if [ -d "$docker_dir" ]; then
+        rm -rf "$docker_dir"
+        echo "       ✅ Removed $docker_dir"
+        DOCKER_REMOVED=true
+    fi
+done
+# Remove Docker CLI symlinks
+for docker_bin in docker docker-compose docker-credential-desktop docker-credential-ecr-login docker-credential-osxkeychain; do
+    if [ -L "/usr/local/bin/$docker_bin" ]; then
+        rm -f "/usr/local/bin/$docker_bin"
+        echo "       ✅ Removed /usr/local/bin/$docker_bin symlink"
+        DOCKER_REMOVED=true
+    fi
+done
+if [ "$DOCKER_REMOVED" = false ]; then
+    echo "       ⏭️  Docker not found, skipping"
+fi
+
+# 15. Uninstall Colima
+echo "15/$TOTAL_STEPS — Uninstalling Colima..."
+COLIMA_REMOVED=false
+if command -v colima &>/dev/null; then
+    colima stop 2>/dev/null || true
+    colima delete --force 2>/dev/null || true
+    echo "       ✅ Stopped and deleted Colima VM"
+    COLIMA_REMOVED=true
+fi
+if [ -d "$HOME/.colima" ]; then
+    rm -rf "$HOME/.colima"
+    echo "       ✅ Removed ~/.colima"
+    COLIMA_REMOVED=true
+fi
+# Remove colima binary (may be in brew or standalone)
+if [ -f "/usr/local/bin/colima" ]; then
+    rm -f /usr/local/bin/colima
+    echo "       ✅ Removed /usr/local/bin/colima"
+    COLIMA_REMOVED=true
+elif [ -f "$HOMEBREW_PREFIX/bin/colima" ] 2>/dev/null; then
+    rm -f "$HOMEBREW_PREFIX/bin/colima"
+    echo "       ✅ Removed $HOMEBREW_PREFIX/bin/colima"
+    COLIMA_REMOVED=true
+fi
+if [ "$COLIMA_REMOVED" = false ]; then
+    echo "       ⏭️  Colima not found, skipping"
+fi
+
+# 16. Uninstall Homebrew
+echo "16/$TOTAL_STEPS — Uninstalling Homebrew..."
+if command -v brew &>/dev/null; then
+    # Use Homebrew's official uninstall script
+    NONINTERACTIVE=1 /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/uninstall.sh)" 2>/dev/null || true
+    # Clean up any remaining Homebrew directories
+    for brew_dir in /usr/local/Homebrew /usr/local/Caskroom /usr/local/Cellar /opt/homebrew; do
+        if [ -d "$brew_dir" ]; then
+            rm -rf "$brew_dir"
+            echo "       ✅ Removed $brew_dir"
+        fi
+    done
+    echo "       ✅ Uninstalled Homebrew"
+else
+    echo "       ⏭️  Homebrew not found, skipping"
 fi
 
 echo ""
