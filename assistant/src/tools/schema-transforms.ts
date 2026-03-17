@@ -98,7 +98,7 @@ export function schemaDefinesProperty(
     const arr = s[keyword];
     if (Array.isArray(arr)) {
       for (const member of arr) {
-        if (schemaDefinesProperty(member, propertyName)) {
+        if (schemaDefinesProperty(member, propertyName, options)) {
           return true;
         }
       }
