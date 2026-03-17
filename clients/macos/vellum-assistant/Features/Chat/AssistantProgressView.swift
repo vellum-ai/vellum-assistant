@@ -689,11 +689,11 @@ private struct StepDetailRow: View {
                     if isTruncated {
                         Text("truncated")
                             .font(VFont.caption)
-                            .foregroundColor(VColor.systemNegativeHover)
+                            .foregroundColor(VColor.systemMidStrong)
                             .padding(.horizontal, VSpacing.xs)
                             .background(
                                 RoundedRectangle(cornerRadius: VRadius.xs)
-                                    .fill(VColor.systemNegativeHover.opacity(0.12))
+                                    .fill(VColor.systemMidStrong.opacity(0.12))
                             )
                     }
                 }
