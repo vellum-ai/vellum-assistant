@@ -74,7 +74,7 @@ struct MarkdownSegmentView: View {
                                 .padding(VSpacing.sm)
                         }
                     }
-                    .frame(maxWidth: maxContentWidth ?? VSpacing.chatBubbleMaxWidth, alignment: .leading)
+                    .optionalMaxWidth(maxContentWidth)
                     .background(codeBackgroundColor)
                     .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
 
