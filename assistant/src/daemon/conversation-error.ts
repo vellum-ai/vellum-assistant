@@ -28,6 +28,7 @@ const NETWORK_PATTERNS = [
   /connection.*refused/i,
   /connection.*reset/i,
   /connection.*timeout/i,
+  /socket.*closed/i,
 ];
 
 // Rate limit patterns (HTTP 429 or explicit rate limit messages)
