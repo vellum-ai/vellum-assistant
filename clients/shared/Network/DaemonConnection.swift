@@ -72,19 +72,21 @@ extension DaemonClient {
             #if os(macOS)
             // Auto-wake: if the gateway is unreachable and a wake handler is
             // configured, try waking the daemon and retrying the connection once.
-            let gatewayReachable = await DaemonClient.isGatewayReachable(instanceDir: config.instanceDir)
-            if let wakeHandler, config.transportMetadata.routeMode == .runtimeFlat, !gatewayReachable {
-                log.info("connect: gateway unreachable — attempting auto-wake before retry")
-                do {
-                    try await wakeHandler()
-                    log.info("connect: auto-wake succeeded, retrying connection to \(baseURL, privacy: .public)")
-                    try await transport.connect()
-                    isAuthenticated = true
-                    isConnecting = false
-                    log.info("connect: retry after auto-wake succeeded for \(baseURL, privacy: .public)")
-                    return
-                } catch {
-                    log.error("connect: auto-wake or retry failed for \(baseURL, privacy: .public): \(error)")
+            if let wakeHandler, config.transportMetadata.routeMode == .runtimeFlat {
+                let gatewayReachable = await DaemonClient.isGatewayReachable(instanceDir: config.instanceDir)
+                if !gatewayReachable {
+                    log.info("connect: gateway unreachable — attempting auto-wake before retry")
+                    do {
+                        try await wakeHandler()
+                        log.info("connect: auto-wake succeeded, retrying connection to \(baseURL, privacy: .public)")
+                        try await transport.connect()
+                        isAuthenticated = true
+                        isConnecting = false
+                        log.info("connect: retry after auto-wake succeeded for \(baseURL, privacy: .public)")
+                        return
+                    } catch {
+                        log.error("connect: auto-wake or retry failed for \(baseURL, privacy: .public): \(error)")
+                    }
                 }
             }
             #endif
