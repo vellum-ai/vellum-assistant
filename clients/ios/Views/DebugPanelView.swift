@@ -11,9 +11,13 @@ struct DebugPanelView: View {
     let conversationId: String?
     var onClose: () -> Void
 
-    @State private var isLoadingHistory = false
+    @State private var loadingConversationId: String?
     @State private var hydrationTask: Task<Void, Never>?
     private let traceEventClient: any TraceEventClientProtocol = TraceEventClient()
+
+    private var isLoadingHistory: Bool {
+        loadingConversationId != nil && loadingConversationId == conversationId
+    }
 
     private var hasEvents: Bool {
         guard let conversationId else { return false }
@@ -66,7 +70,7 @@ struct DebugPanelView: View {
         .onChange(of: conversationId) { _, _ in
             hydrationTask?.cancel()
             hydrationTask = nil
-            isLoadingHistory = false
+            loadingConversationId = nil
             hydrateIfNeeded()
         }
     }
@@ -75,12 +79,12 @@ struct DebugPanelView: View {
 
     private func hydrateIfNeeded() {
         guard let conversationId else { return }
-        guard !hasEvents, !isLoadingHistory else { return }
-        isLoadingHistory = true
+        guard loadingConversationId != conversationId else { return }
+        loadingConversationId = conversationId
         hydrationTask = Task {
             defer {
                 if !Task.isCancelled {
-                    isLoadingHistory = false
+                    loadingConversationId = nil
                     hydrationTask = nil
                 }
             }
