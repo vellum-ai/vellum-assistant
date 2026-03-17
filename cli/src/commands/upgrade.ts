@@ -53,6 +53,17 @@ function parseArgs(): UpgradeArgs {
       console.log(
         "  --version <version>  Target version to upgrade to (default: latest)",
       );
+      console.log("");
+      console.log("Examples:");
+      console.log(
+        "  vellum upgrade                              # Upgrade the active assistant to the latest version",
+      );
+      console.log(
+        "  vellum upgrade my-assistant                  # Upgrade a specific assistant by name",
+      );
+      console.log(
+        "  vellum upgrade my-assistant --version v1.2.3 # Upgrade to a specific version",
+      );
       process.exit(0);
     } else if (arg === "--version") {
       const next = args[i + 1];
@@ -274,7 +285,7 @@ async function upgradePlatform(
 
   const orgId = await fetchOrganizationId(token);
 
-  const url = `${getPlatformUrl()}/v1/assistants/upgrade/`;
+  const url = `${getPlatformUrl()}/v1/assistants/${encodeURIComponent(entry.assistantId)}/upgrade/`;
   const body: { version?: string } = {};
   if (version) {
     body.version = version;
@@ -321,7 +332,7 @@ export async function upgrade(): Promise<void> {
   }
 
   console.error(
-    `Error: Upgrade is not supported for '${cloud}' assistants. Only 'docker' and 'platform' assistants can be upgraded via the CLI.`,
+    `Error: Upgrade is not supported for '${cloud}' assistants. Only 'docker' and 'vellum' assistants can be upgraded via the CLI.`,
   );
   process.exit(1);
 }
