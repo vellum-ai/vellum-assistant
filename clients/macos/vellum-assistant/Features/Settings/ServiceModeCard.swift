@@ -21,12 +21,13 @@ struct ServiceModeCard<ManagedContent: View, YourOwnContent: View>: View {
     @ViewBuilder let yourOwnContent: () -> YourOwnContent
 
     var body: some View {
-        VStack(alignment: .leading, spacing: VSpacing.md) {
+        VStack(alignment: .leading, spacing: VSpacing.lg) {
             // Header: title + subtitle + mode toggle
             header
 
-            Divider()
-                .background(VColor.borderBase)
+            Rectangle()
+                .fill(VColor.surfaceBase)
+                .frame(height: 1)
 
             // Mode-specific content
             if draftMode == "managed" {
@@ -40,7 +41,7 @@ struct ServiceModeCard<ManagedContent: View, YourOwnContent: View>: View {
         }
         .padding(VSpacing.lg)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .vCard(background: VColor.surfaceOverlay)
+        .vCard(radius: VRadius.xl, background: VColor.surfaceOverlay)
     }
 
     // MARK: - Header
@@ -49,8 +50,8 @@ struct ServiceModeCard<ManagedContent: View, YourOwnContent: View>: View {
         VStack(alignment: .leading, spacing: VSpacing.xs) {
             HStack {
                 Text(title)
-                    .font(VFont.sectionTitle)
-                    .foregroundColor(VColor.contentDefault)
+                    .font(.custom("Inter-SemiBold", size: 18))
+                    .foregroundColor(VColor.contentEmphasized)
                 Spacer()
                 VSegmentedControl(
                     items: [
@@ -63,7 +64,7 @@ struct ServiceModeCard<ManagedContent: View, YourOwnContent: View>: View {
                 .frame(width: 220)
             }
             Text(subtitle)
-                .font(VFont.sectionDescription)
+                .font(.custom("Inter-Medium", size: 14))
                 .foregroundColor(VColor.contentTertiary)
         }
     }

@@ -143,33 +143,22 @@ struct WebSearchServiceCard: View {
     // MARK: - Managed Content
 
     private var managedIncludedMessage: some View {
-        VStack(spacing: VSpacing.md) {
-            Text("Web search is included with managed inference.")
-                .font(VFont.body)
-                .foregroundColor(VColor.contentTertiary)
-                .multilineTextAlignment(.center)
-        }
-        .frame(maxWidth: .infinity)
-        .padding(.vertical, VSpacing.lg)
+        Text("Web search is included with managed inference.")
+            .font(VFont.body)
+            .foregroundColor(VColor.contentDefault)
     }
 
     private var managedUnavailableMessage: some View {
-        VStack(spacing: VSpacing.md) {
-            Text("Managed web search is not yet available when using your own inference provider.")
-                .font(VFont.body)
-                .foregroundColor(VColor.contentTertiary)
-                .multilineTextAlignment(.center)
-        }
-        .frame(maxWidth: .infinity)
-        .padding(.vertical, VSpacing.lg)
+        Text("Managed web search requires managed inference.")
+            .font(VFont.body)
+            .foregroundColor(VColor.contentDefault)
     }
 
     private var managedLoginPrompt: some View {
-        VStack(spacing: VSpacing.md) {
-            Text("In order to use the managed web search service, you must be logged in to Vellum.")
+        VStack(alignment: .leading, spacing: VSpacing.md) {
+            Text("Log in to Vellum to use managed web search.")
                 .font(VFont.body)
-                .foregroundColor(VColor.contentTertiary)
-                .multilineTextAlignment(.center)
+                .foregroundColor(VColor.contentDefault)
             VButton(
                 label: authManager.isSubmitting ? "Logging in..." : "Log In",
                 style: .primary,
@@ -184,8 +173,6 @@ struct WebSearchServiceCard: View {
                 }
             }
         }
-        .frame(maxWidth: .infinity)
-        .padding(.vertical, VSpacing.lg)
     }
 
     // MARK: - Provider Picker
@@ -224,13 +211,10 @@ struct WebSearchServiceCard: View {
             .font(VFont.body)
             .foregroundColor(VColor.contentDefault)
 
-            if hasKey && keyText.isEmpty {
-                HStack(spacing: VSpacing.xs) {
-                    VIconView(.circleCheck, size: 12)
-                    Text("Key saved")
-                }
-                .font(VFont.caption)
-                .foregroundColor(VColor.systemPositiveStrong)
+            if let error = isPerplexity ? store.perplexityKeySaveError : store.braveKeySaveError {
+                Text(error)
+                    .font(VFont.caption)
+                    .foregroundColor(VColor.systemNegativeStrong)
             }
         }
     }
