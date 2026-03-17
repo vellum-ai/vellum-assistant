@@ -89,13 +89,9 @@ struct ImproveExperienceStepView: View {
                     saveAndContinue()
                 }
 
-                Button(action: { goBack() }) {
-                    Text("Back")
-                        .font(.system(size: 13))
-                        .foregroundColor(VColor.contentTertiary)
+                OnboardingButton(title: "Back", style: .ghost) {
+                    goBack()
                 }
-                .buttonStyle(.plain)
-                .pointerCursor()
                 .padding(.top, VSpacing.xs)
             }
         }
