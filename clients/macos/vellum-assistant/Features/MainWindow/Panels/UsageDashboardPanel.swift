@@ -116,12 +116,13 @@ struct UsageDashboardPanel: View {
 
     @ViewBuilder
     private func dailyBarChart(_ buckets: [UsageDayBucket]) -> some View {
-        let maxCost = buckets.map(\.totalEstimatedCostUsd).max() ?? 1.0
+        let sorted = buckets.sorted { $0.totalEstimatedCostUsd > $1.totalEstimatedCostUsd }
+        let maxCost = sorted.first?.totalEstimatedCostUsd ?? 1.0
 
         VStack(alignment: .leading, spacing: VSpacing.xs) {
             // Bar chart — left-aligned
             HStack(alignment: .bottom, spacing: VSpacing.xs) {
-                ForEach(buckets, id: \.date) { bucket in
+                ForEach(sorted, id: \.date) { bucket in
                     let fraction = maxCost > 0 ? bucket.totalEstimatedCostUsd / maxCost : 0
                     VStack(spacing: VSpacing.xxs) {
                         Spacer(minLength: 0)
@@ -135,7 +136,7 @@ struct UsageDashboardPanel: View {
 
             // Cost + date labels — left-aligned
             HStack(alignment: .top, spacing: VSpacing.xs) {
-                ForEach(buckets, id: \.date) { bucket in
+                ForEach(sorted, id: \.date) { bucket in
                     VStack(spacing: VSpacing.xxs) {
                         Text(formatCost(bucket.totalEstimatedCostUsd))
                             .font(VFont.small)
