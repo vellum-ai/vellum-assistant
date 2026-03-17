@@ -14,7 +14,7 @@ export const IMAGE_EXTENSIONS = new Set([
   ".webp",
 ]);
 
-const MAX_SIZE_BYTES = 20 * 1024 * 1024; // 20 MB
+const MAX_SIZE_BYTES = 100 * 1024 * 1024; // 100 MB
 
 // Images above this threshold get auto-optimized via sips (macOS) to avoid
 // sending multi-MB base64 payloads to the LLM API.
@@ -123,7 +123,7 @@ export function readImageFile(resolvedPath: string): ToolExecutionResult {
   if (stat.size > MAX_SIZE_BYTES) {
     const sizeMB = (stat.size / (1024 * 1024)).toFixed(1);
     return {
-      content: `Error: image too large (${sizeMB} MB). Maximum is 20 MB.`,
+      content: `Error: image too large (${sizeMB} MB). Maximum is 100 MB.`,
       isError: true,
     };
   }

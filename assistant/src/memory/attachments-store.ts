@@ -48,8 +48,8 @@ function formatBytes(bytes: number): string {
 // Size and encoding limits
 // ---------------------------------------------------------------------------
 
-/** Hard ceiling on a single uploaded attachment (50 MB, matching assistant limits). */
-export const MAX_UPLOAD_BYTES = 50 * 1024 * 1024;
+/** Hard ceiling on a single uploaded attachment (100 MB, matching assistant limits). */
+export const MAX_UPLOAD_BYTES = 100 * 1024 * 1024;
 
 /** Attachments larger than this are stored on disk instead of inline in SQLite. */
 export const FILE_BACKED_THRESHOLD_BYTES = 5 * 1024 * 1024;
@@ -226,7 +226,7 @@ function computeContentHash(dataBase64: string): string {
 /**
  * Store a file-backed attachment by path reference, without reading the file
  * into memory. This avoids OOM risk for large recordings that exceed the
- * normal 50 MB upload limit.
+ * normal 100 MB upload limit.
  *
  * The file stays on disk; the attachment row stores an empty dataBase64 and
  * records the on-disk path in a `file_path` column (added via DB migration

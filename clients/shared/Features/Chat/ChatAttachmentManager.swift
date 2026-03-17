@@ -54,14 +54,14 @@ public final class ChatAttachmentManager: ObservableObject {
     }
 
     /// Limits concurrent attachment I/O to avoid unbounded memory spikes when
-    /// many files are selected at once (each can read up to 20 MB).
+    /// many files are selected at once (each can read up to 100 MB).
     private static let maxConcurrentLoads = 4
     private let loadSemaphore = AsyncSemaphore(value: maxConcurrentLoads)
 
     // MARK: - Limits
 
-    /// Maximum file size per attachment (20 MB).
-    nonisolated static let maxFileSize = 20 * 1024 * 1024
+    /// Maximum file size per attachment (100 MB).
+    nonisolated static let maxFileSize = 100 * 1024 * 1024
     /// Maximum image size before compression (4 MB - leaves headroom for base64 encoding).
     /// Anthropic has a 5 MB limit per image; base64 encoding adds ~33% overhead.
     nonisolated static let maxImageSize = 4 * 1024 * 1024
@@ -86,7 +86,7 @@ public final class ChatAttachmentManager: ObservableObject {
     public func addAttachment(url: URL) {
         // Move file reading, compression, and thumbnail generation off the main
         // thread — Data(contentsOf:) is a blocking syscall that can stall the UI
-        // for up to 20 MB worth of I/O before we even begin image processing.
+        // for up to 100 MB worth of I/O before we even begin image processing.
         loadingCount += 1
         Task {
             defer { self.loadingCount -= 1 }
@@ -173,7 +173,7 @@ public final class ChatAttachmentManager: ObservableObject {
 
             // Belt-and-suspenders: validate the actual byte count after reading.
             guard data.count <= Self.maxFileSize else {
-                return .failure(.message("File exceeds 20 MB limit."))
+                return .failure(.message("File exceeds 100 MB limit."))
             }
 
             let filename = url.lastPathComponent
@@ -283,7 +283,7 @@ public final class ChatAttachmentManager: ObservableObject {
             #endif
 
             guard pngData.count <= Self.maxFileSize else {
-                return .failure(.message("Image exceeds 20 MB limit."))
+                return .failure(.message("Image exceeds 100 MB limit."))
             }
 
             // Compress image if needed

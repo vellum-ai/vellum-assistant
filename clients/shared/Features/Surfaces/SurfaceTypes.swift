@@ -1041,7 +1041,7 @@ public extension Surface {
         guard let prompt = dict["prompt"] as? String else { return nil }
         let acceptedTypes = dict["acceptedTypes"] as? [String]
         let maxFiles = dict["maxFiles"] as? Int ?? 1
-        let maxSizeBytes = dict["maxSizeBytes"] as? Int ?? (50 * 1024 * 1024)
+        let maxSizeBytes = dict["maxSizeBytes"] as? Int ?? (100 * 1024 * 1024)
         return FileUploadSurfaceData(
             prompt: prompt,
             acceptedTypes: acceptedTypes,

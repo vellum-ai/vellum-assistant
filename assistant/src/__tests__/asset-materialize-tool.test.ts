@@ -263,7 +263,7 @@ describe("AssetMaterializeTool materialization", () => {
 describe("AssetMaterializeTool size limit", () => {
   beforeEach(resetTables);
 
-  test("rejects attachment exceeding 50MB limit", async () => {
+  test("rejects attachment exceeding 100MB limit", async () => {
     // Simulate a large attachment by inserting directly into the DB
     // with a sizeBytes value over the limit
     const db = getDb();
@@ -271,7 +271,7 @@ describe("AssetMaterializeTool size limit", () => {
     db.run(
       `INSERT INTO attachments (id, original_filename, mime_type, size_bytes, kind, data_base64, created_at)
        VALUES ('${fakeId}', 'huge.bin', 'application/octet-stream', ${
-         51 * 1024 * 1024
+         101 * 1024 * 1024
        }, 'document', 'AAAA', ${Date.now()})`,
     );
 

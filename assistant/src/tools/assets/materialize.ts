@@ -34,8 +34,8 @@ import { getAttachmentSourceConversations } from "./search.js";
 // Size limit - prevent materializing excessively large attachments
 // ---------------------------------------------------------------------------
 
-/** 50 MB ceiling for materialized files. */
-export const MAX_MATERIALIZE_BYTES = 50 * 1024 * 1024;
+/** 100 MB ceiling for materialized files. */
+export const MAX_MATERIALIZE_BYTES = 100 * 1024 * 1024;
 
 // ---------------------------------------------------------------------------
 // Helpers

@@ -32,7 +32,7 @@ final class AttachmentFlowIOSTests: XCTestCase {
     // MARK: - Attachment Constants
 
     func testMaxFileSizeConstant() {
-        XCTAssertEqual(ChatViewModel.maxFileSize, 20 * 1024 * 1024, "Max file size should be 20 MB")
+        XCTAssertEqual(ChatViewModel.maxFileSize, 100 * 1024 * 1024, "Max file size should be 100 MB")
     }
 
     func testMaxImageSizeConstant() {

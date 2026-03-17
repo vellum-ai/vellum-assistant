@@ -193,11 +193,11 @@ describe("validateDrafts", () => {
     expect(result.warnings).toHaveLength(0);
   });
 
-  test("accepts a 25 MB attachment (under 50 MB limit)", () => {
+  test("accepts a 75 MB attachment (under 100 MB limit)", () => {
     const drafts = [
       makeDraft({
         filename: "video.mov",
-        sizeBytes: 25 * 1024 * 1024,
+        sizeBytes: 75 * 1024 * 1024,
       }),
     ];
     const result = validateDrafts(drafts);
@@ -205,18 +205,18 @@ describe("validateDrafts", () => {
     expect(result.warnings).toHaveLength(0);
   });
 
-  test("rejects a 51 MB attachment with warning mentioning 50.0 MB limit", () => {
+  test("rejects a 101 MB attachment with warning mentioning 100.0 MB limit", () => {
     const drafts = [
       makeDraft({
         filename: "huge.mov",
-        sizeBytes: 51 * 1024 * 1024,
+        sizeBytes: 101 * 1024 * 1024,
       }),
     ];
     const result = validateDrafts(drafts);
     expect(result.accepted).toHaveLength(0);
     expect(result.warnings).toHaveLength(1);
     expect(result.warnings[0]).toContain("huge.mov");
-    expect(result.warnings[0]).toContain("50.0 MB");
+    expect(result.warnings[0]).toContain("100.0 MB");
     expect(result.warnings[0]).toContain("limit");
   });
 });

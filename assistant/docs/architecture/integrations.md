@@ -542,7 +542,7 @@ sequenceDiagram
     Materialize->>DB: load attachment (including base64 data)
     Materialize->>Visibility: isAttachmentVisible(attachmentCtx, currentCtx)
     Note over Visibility: Second visibility check at materialize time<br/>prevents TOCTOU between search and materialize
-    Materialize->>Materialize: size check (max 50 MB)
+    Materialize->>Materialize: size check (max 100 MB)
     Materialize->>Sandbox: write decoded bytes to destination
     Materialize-->>Model: "Materialized 'photo.jpg' to /workspace/media/photo.jpg"
 ```
@@ -586,7 +586,7 @@ graph TB
 ### Materialize Safeguards
 
 - **Sandbox path enforcement**: Destination path must resolve inside the sandbox working directory
-- **Size limit**: 50 MB ceiling prevents materializing excessively large attachments
+- **Size limit**: 100 MB ceiling prevents materializing excessively large attachments
 - **Double visibility check**: Both `asset_search` and `asset_materialize` independently verify visibility, preventing TOCTOU races between search and use
 - **Risk level**: Both tools are `RiskLevel.Low` since they read existing data and write only within the sandbox
 

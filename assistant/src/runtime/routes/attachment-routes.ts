@@ -12,8 +12,8 @@ import {
 import { httpError } from "../http-errors.js";
 import type { RouteDefinition } from "../http-router.js";
 
-/** 75 MB — base64-encoded 50 MB attachment ≈ 67 MB plus JSON wrapper overhead. */
-const MAX_UPLOAD_BODY_BYTES = 75 * 1024 * 1024;
+/** 150 MB — base64-encoded 100 MB attachment ≈ 134 MB plus JSON wrapper overhead. */
+const MAX_UPLOAD_BODY_BYTES = 150 * 1024 * 1024;
 
 export async function handleUploadAttachment(req: Request): Promise<Response> {
   const rawBody = await req.arrayBuffer();
