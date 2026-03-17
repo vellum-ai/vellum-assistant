@@ -99,8 +99,9 @@ export function invalidateAssistantInferredItemsForConversation(
 
 /**
  * Cancel all pending/running memory jobs referencing the given conversation.
- * Covers every job type: `extract_items`, `embed_segment`, `embed_attachment`
- * (keyed by messageId), `build_conversation_summary` (keyed by conversationId),
+ * Covers every job type: `extract_items`, `embed_attachment` (keyed by messageId),
+ * `embed_segment` (keyed by segmentId via memory_segments),
+ * `build_conversation_summary` (keyed by conversationId),
  * and `embed_item` (keyed by itemId sourced from the conversation's messages).
  */
 export function cancelPendingJobsForConversation(
@@ -110,7 +111,7 @@ export function cancelPendingJobsForConversation(
   const now = Date.now();
   let total = 0;
 
-  // Jobs keyed by messageId: extract_items, embed_segment, embed_attachment
+  // Jobs keyed by messageId: extract_items, embed_attachment
   total += rawRun(
     `UPDATE memory_jobs
         SET status = 'failed',
@@ -133,6 +134,21 @@ export function cancelPendingJobsForConversation(
             updated_at = ?
       WHERE status IN ('pending', 'running')
         AND json_extract(payload, '$.conversationId') = ?`,
+    reason,
+    now,
+    conversationId,
+  );
+
+  // Jobs keyed by segmentId: embed_segment (segments belong to the conversation)
+  total += rawRun(
+    `UPDATE memory_jobs
+        SET status = 'failed',
+            last_error = ?,
+            updated_at = ?
+      WHERE status IN ('pending', 'running')
+        AND json_extract(payload, '$.segmentId') IN (
+          SELECT id FROM memory_segments WHERE conversation_id = ?
+        )`,
     reason,
     now,
     conversationId,
