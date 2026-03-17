@@ -6,6 +6,7 @@ metadata:
   emoji: "🔑"
   vellum:
     display-name: "Notion Setup"
+    feature-flag: "integration-notion"
     includes: ["collaborative-oauth-flow"]
 ---
 

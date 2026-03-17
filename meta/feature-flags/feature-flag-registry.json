@@ -218,6 +218,14 @@
       "defaultEnabled": false
     },
     {
+      "id": "integration-notion",
+      "scope": "assistant",
+      "key": "feature_flags.integration-notion.enabled",
+      "label": "Notion Integration",
+      "description": "Enable the Notion setup skill for connecting to Notion",
+      "defaultEnabled": false
+    },
+    {
       "id": "conversation-starters",
       "scope": "assistant",
       "key": "feature_flags.conversation-starters.enabled",
