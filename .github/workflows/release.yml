@@ -1256,14 +1256,22 @@ jobs:
 
           ED_KEY_FILE=$(mktemp)
           echo "$SPARKLE_ED_PRIVATE_KEY" > "$ED_KEY_FILE"
-          SIGNATURE=$(sign_update dist/vellum-assistant.zip --ed-key-file "$ED_KEY_FILE") || {
+          SIGN_OUTPUT=$(sign_update dist/vellum-assistant.zip --ed-key-file "$ED_KEY_FILE") || {
             echo "sign_update failed with exit code $?"
             rm -f "$ED_KEY_FILE"
             exit 1
           }
           rm -f "$ED_KEY_FILE"
-          echo "Signature obtained: ${SIGNATURE:0:20}..."
-          SIZE=$(stat -f%z dist/vellum-assistant.zip)
+          echo "sign_update output: ${SIGN_OUTPUT:0:40}..."
+          SIGNATURE=$(echo "$SIGN_OUTPUT" | sed -n 's/.*sparkle:edSignature="\([^"]*\)".*/\1/p')
+          SIZE=$(echo "$SIGN_OUTPUT" | sed -n 's/.*length="\([^"]*\)".*/\1/p')
+          if [ -z "$SIGNATURE" ]; then
+            echo "ERROR: Failed to parse edSignature from sign_update output"
+            exit 1
+          fi
+          if [ -z "$SIZE" ]; then
+            SIZE=$(stat -f%z dist/vellum-assistant.zip)
+          fi
 
           REPO="vellum-ai/velly"
           FILENAME="appcast.xml"
