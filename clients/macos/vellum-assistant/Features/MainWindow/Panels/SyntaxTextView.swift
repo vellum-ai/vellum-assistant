@@ -106,20 +106,17 @@ struct SyntaxTextView: NSViewRepresentable {
             return scrollView
         }
 
-        // Appearance
+        // Appearance — use concrete colors to rule out dynamic color resolution issues
         textView.font = SyntaxTheme.nsMonoFont
-        textView.textColor = SyntaxTheme.nsContentDefault
-        textView.backgroundColor = NSColor(VColor.surfaceOverlay)
-        textView.insertionPointColor = SyntaxTheme.nsContentDefault
-        textView.selectedTextAttributes = [
-            .backgroundColor: NSColor(VColor.primaryBase.opacity(0.3))
-        ]
+        textView.textColor = .white
+        textView.backgroundColor = .black
+        textView.insertionPointColor = .white
         textView.textContainerInset = NSSize(width: VSpacing.md, height: VSpacing.sm)
 
-        // Behavior
+        // Behavior — plain text mode (no rich text attributes)
         textView.isEditable = true
         textView.isSelectable = true
-        textView.isRichText = true
+        textView.isRichText = false
         textView.isAutomaticQuoteSubstitutionEnabled = false
         textView.isAutomaticDashSubstitutionEnabled = false
         textView.isAutomaticTextReplacementEnabled = false
@@ -166,9 +163,6 @@ struct SyntaxTextView: NSViewRepresentable {
             object: scrollView.contentView
         )
 
-        // Apply initial highlighting
-        SyntaxTheme.applyHighlighting(to: textView.textStorage!, language: language)
-
         // Store reference in coordinator
         context.coordinator.textView = textView
 
@@ -196,23 +190,8 @@ struct SyntaxTextView: NSViewRepresentable {
         // Only update text if it changed externally (not from user editing)
         if text != coordinator.lastKnownText {
             coordinator.isUpdatingFromSwiftUI = true
-            let selectedRanges = textView.selectedRanges
             textView.string = text
             coordinator.lastKnownText = text
-            coordinator.rehighlight(textView)
-
-            // Clamp restored selectedRanges to new text length to avoid
-            // NSRangeException when text is externally updated to a shorter value
-            let maxLen = (textView.string as NSString).length
-            let clampedRanges = selectedRanges.map { rangeValue -> NSValue in
-                let range = rangeValue.rangeValue
-                let clampedLocation = min(range.location, maxLen)
-                let clampedEnd = min(range.location + range.length, maxLen)
-                let clampedLength = clampedEnd > clampedLocation ? clampedEnd - clampedLocation : 0
-                return NSValue(range: NSRange(location: clampedLocation, length: clampedLength))
-            }
-            textView.selectedRanges = clampedRanges
-
             coordinator.isUpdatingFromSwiftUI = false
         }
     }
