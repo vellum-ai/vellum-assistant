@@ -378,39 +378,34 @@ struct AssistantChannelsDetailView: View {
 
                 // Right: status or action
                 if let status, status == .connected {
-                    VButton(label: "Connected", leftIcon: VIcon.check.rawValue, style: .outlined, isDisabled: true) {}
+                    VButton(label: "Connected", leftIcon: VIcon.check.rawValue, style: .outlined) {}
                 } else if let setupAction {
                     VButton(label: "Set up", style: .outlined) {
                         setupAction()
                     }
                 }
 
-                // Trailing column — fixed width for alignment across all rows
-                Group {
-                    if hasDisconnect, let channelKey {
-                        Menu {
-                            Button(role: .destructive) {
-                                onDisconnect?(channelKey)
-                            } label: {
-                                Label("Disconnect", systemImage: "trash")
-                            }
-                            .disabled(isDisconnectDisabled)
+                // Trailing kebab menu — only takes space when disconnect is available
+                if hasDisconnect, let channelKey {
+                    Menu {
+                        Button(role: .destructive) {
+                            onDisconnect?(channelKey)
                         } label: {
-                            VIconView(.ellipsis, size: 14)
-                                .foregroundColor(VColor.contentTertiary)
-                                .frame(width: 24, height: 24)
-                                .contentShape(Rectangle())
+                            Label("Disconnect", systemImage: "trash")
                         }
-                        .menuStyle(.borderlessButton)
-                        .menuIndicator(.hidden)
-                        .fixedSize()
-                        .opacity(isHovered ? 1 : 0)
-                        .animation(VAnimation.fast, value: isHovered)
-                    } else {
-                        Color.clear
+                        .disabled(isDisconnectDisabled)
+                    } label: {
+                        VIconView(.ellipsis, size: 14)
+                            .foregroundColor(VColor.contentTertiary)
+                            .frame(width: 24, height: 24)
+                            .contentShape(Rectangle())
                     }
+                    .menuStyle(.borderlessButton)
+                    .menuIndicator(.hidden)
+                    .fixedSize()
+                    .opacity(isHovered ? 1 : 0)
+                    .animation(VAnimation.fast, value: isHovered)
                 }
-                .frame(width: 24)
             }
             .frame(minHeight: 36)
             .contentShape(Rectangle())
