@@ -630,7 +630,7 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
             // and then clean up. Use cancelPendingMessage() instead of
             // stopGenerating() to discard the queued message without clearing the
             // correlation ID — this prevents the VM from claiming an unrelated
-            // session_info from another conversation.
+            // conversation_info from another conversation.
             chatViewModels[id]?.cancelPendingMessage()
         }
 

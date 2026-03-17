@@ -262,7 +262,7 @@ final class HTTPDaemonClientUnreadTests: XCTestCase {
                 confidence: "explicit",
                 source: "ui-navigation",
                 metadata: [
-                    "threadOrigin": AnyCodable("inbox"),
+                    "conversationOrigin": AnyCodable("inbox"),
                     "badgeCount": AnyCodable(3),
                     "userInitiated": AnyCodable(true),
                 ]
@@ -278,7 +278,7 @@ final class HTTPDaemonClientUnreadTests: XCTestCase {
         )
         let metadata = try XCTUnwrap(json["metadata"] as? [String: Any])
 
-        XCTAssertEqual(metadata["threadOrigin"] as? String, "inbox")
+        XCTAssertEqual(metadata["conversationOrigin"] as? String, "inbox")
         XCTAssertEqual(metadata["badgeCount"] as? Int, 3)
         XCTAssertEqual(metadata["userInitiated"] as? Bool, true)
     }

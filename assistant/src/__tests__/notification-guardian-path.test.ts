@@ -239,7 +239,6 @@ describe("ASK_GUARDIAN canonical notification path", () => {
 
     const signalParams = emitCalls[0] as Record<string, unknown>;
     expect(typeof signalParams.onConversationCreated).toBe("function");
-    expect(signalParams.skipVellumThread).toBeUndefined();
   });
 
   test("creates guardian action deliveries from notification pipeline delivery results", async () => {

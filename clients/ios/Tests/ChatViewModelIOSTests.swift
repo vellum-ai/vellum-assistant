@@ -146,8 +146,8 @@ final class ChatViewModelIOSTests: XCTestCase {
         viewModel.sendMessage()
         XCTAssertTrue(viewModel.isSending)
 
-        // Poll until session_create appears in sentMessages (message-driven wait)
-        let expectation = XCTestExpectation(description: "session_create sent")
+        // Poll until conversation_create appears in sentMessages (message-driven wait)
+        let expectation = XCTestExpectation(description: "conversation_create sent")
         var cancelled = false
         func poll() {
             guard !cancelled else { return }
