@@ -915,7 +915,6 @@ export class DaemonServer {
       resolveChannelCapabilities(
         sourceChannel,
         sourceInterface,
-        null,
         options?.transport?.chatType,
       ),
     );

@@ -15,7 +15,6 @@ import {
   injectTemporalContext,
   isGroupChatType,
   resolveChannelCapabilities,
-  sanitizePttActivationKey,
   stripChannelCapabilityContext,
   stripChannelTurnContext,
   stripInboundActorContext,
@@ -135,7 +134,7 @@ describe("resolveChannelCapabilities", () => {
   });
 
   test("propagates chatType when provided", () => {
-    const caps = resolveChannelCapabilities("telegram", null, null, "group");
+    const caps = resolveChannelCapabilities("telegram", null, "group");
     expect(caps.chatType).toBe("group");
   });
 
@@ -1250,73 +1249,6 @@ describe("applyRuntimeInjections with channelTurnContext", () => {
 
     expect(result.length).toBe(1);
     expect(result[0].content.length).toBe(1);
-  });
-});
-
-// ---------------------------------------------------------------------------
-// sanitizePttActivationKey
-// ---------------------------------------------------------------------------
-
-describe("sanitizePttActivationKey", () => {
-  test("returns undefined for null/undefined input", () => {
-    expect(sanitizePttActivationKey(null)).toBeUndefined();
-    expect(sanitizePttActivationKey(undefined)).toBeUndefined();
-  });
-
-  test("passes through valid JSON PTTActivator payloads", () => {
-    const modifierOnly = JSON.stringify({
-      kind: "modifierOnly",
-      modifierFlags: 8388608,
-    });
-    expect(sanitizePttActivationKey(modifierOnly)).toBe(modifierOnly);
-    const keyPayload = JSON.stringify({ kind: "key", keyCode: 49 });
-    expect(sanitizePttActivationKey(keyPayload)).toBe(keyPayload);
-    const nonePayload = JSON.stringify({ kind: "none" });
-    expect(sanitizePttActivationKey(nonePayload)).toBe(nonePayload);
-  });
-
-  test("returns undefined for invalid keys", () => {
-    expect(
-      sanitizePttActivationKey("malicious\nprompt injection"),
-    ).toBeUndefined();
-    expect(sanitizePttActivationKey("arbitrary_value")).toBeUndefined();
-    expect(sanitizePttActivationKey("")).toBeUndefined();
-  });
-});
-
-// ---------------------------------------------------------------------------
-// resolveChannelCapabilities sanitizes pttActivationKey
-// ---------------------------------------------------------------------------
-
-describe("resolveChannelCapabilities with PTT metadata", () => {
-  test("sanitizes valid JSON PTTActivator pttActivationKey", () => {
-    const key = JSON.stringify({
-      kind: "modifierOnly",
-      modifierFlags: 8388608,
-    });
-    const caps = resolveChannelCapabilities("macos", "macos", {
-      pttActivationKey: key,
-    });
-    expect(caps.pttActivationKey).toBe(key);
-  });
-
-  test("sanitizes invalid pttActivationKey to undefined", () => {
-    const caps = resolveChannelCapabilities("macos", "macos", {
-      pttActivationKey: "evil\nprompt",
-    });
-    expect(caps.pttActivationKey).toBeUndefined();
-  });
-
-  test("passes through microphonePermissionGranted", () => {
-    const key = JSON.stringify({
-      kind: "modifierOnly",
-      modifierFlags: 8388608,
-    });
-    const caps = resolveChannelCapabilities("macos", "macos", {
-      pttActivationKey: key,
-      microphonePermissionGranted: true,
-    });
-    expect(caps.microphonePermissionGranted).toBe(true);
   });
 });
 
