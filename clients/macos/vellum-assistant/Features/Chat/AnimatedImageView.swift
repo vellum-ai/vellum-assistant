@@ -85,6 +85,15 @@ struct AnimatedImageView: View {
             return
         }
 
+        // Resolve relative workspace paths (e.g. "data/avatar/avatar-image.png")
+        if !urlString.contains("://") {
+            let workspaceDir = NSHomeDirectory() + "/.vellum/workspace"
+            let fileURL = URL(fileURLWithPath: workspaceDir + "/" + urlString)
+            imageData = try? Data(contentsOf: fileURL)
+            loadedImage = imageData.flatMap { NSImage(data: $0) }
+            return
+        }
+
         guard let url = URL(string: urlString) else { return }
 
         do {
