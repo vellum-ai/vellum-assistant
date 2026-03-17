@@ -128,7 +128,6 @@ export function buildSystemPrompt(options?: BuildSystemPromptOptions): string {
   const staticParts: string[] = [];
   if (getIsContainerized()) staticParts.push(buildContainerizedSection());
   staticParts.push(buildCliReferenceSection());
-  staticParts.push(buildPostToolResponseSection());
   staticParts.push(buildChannelAwarenessSection());
   if (!hasNoClient) staticParts.push(buildToolPermissionSection());
   staticParts.push(buildTaskScheduleReminderRoutingSection());
@@ -637,32 +636,6 @@ function buildContainerizedSection(): string {
     "- Never write persistent data to system directories, `/tmp`, or paths outside the mounted volume",
     "- When in doubt, prefer paths nested under the data directory",
     "- If you create a file that is only needed temporarily (scratch files, intermediate outputs, download staging), delete it when you are done — disk space on the persistent volume is finite and will grow unboundedly if temp files are not cleaned up",
-  ].join("\n");
-}
-
-function buildPostToolResponseSection(): string {
-  return [
-    "## Tool Call Timing",
-    "",
-    "**Call tools FIRST, explain AFTER:**",
-    "- When a user request requires a tool, call it immediately at the start of your response",
-    "- If the request needs multiple tool steps, stay silent while you work and respond once you have concrete results",
-    '- Do NOT narrate retries or internal process chatter (for example: "hmm", "that didn\'t work", "let me try...")',
-    "- Speak mid-workflow only when you need user input (permission, clarification, or blocker)",
-    "- Do NOT provide conversational preamble before calling tools",
-    "",
-    "Example (CORRECT):",
-    "  → Call document_create",
-    "  → Call document_update",
-    '  → Text: "Drafted and filled your blog post. Review and tell me what to change."',
-    "",
-    "Example (WRONG):",
-    '  → Text: "I\'ll try one approach... hmm not that... trying again..."',
-    "  → Call document_create",
-    "",
-    "For permission-gated tools, send one short context sentence immediately before the tool call so the user can make an informed allow/deny decision.",
-    "",
-    '**Reason field:** For every tool call, include a `reason` parameter — a brief, non-technical explanation of what you are doing and why. This is shown to the user as a live status update. Use simple language a non-technical person would understand (e.g. "Checking your project settings" not "file_read config.ts").',
   ].join("\n");
 }
 
