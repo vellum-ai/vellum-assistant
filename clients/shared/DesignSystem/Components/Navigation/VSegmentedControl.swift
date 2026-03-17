@@ -88,7 +88,7 @@ public struct VSegmentedControl<SelectionValue: Hashable>: View {
         .padding(2)
         .background(
             RoundedRectangle(cornerRadius: size == .compact ? VRadius.sm + 1 : VRadius.md)
-                .fill(VColor.surfaceActive)
+                .fill(VColor.surfaceBase)
         )
         .animation(VAnimation.fast, value: selection)
     }
@@ -126,7 +126,7 @@ private struct PillSegment: View {
                         .foregroundColor(isSelected ? VColor.contentDefault : VColor.contentTertiary)
                 } else {
                     Text(label)
-                        .font(size == .compact ? VFont.captionMedium : VFont.body)
+                        .font(size == .compact ? VFont.captionMedium : VFont.bodyMedium)
                         .fixedSize()
                         .foregroundColor(isSelected ? selectedTextColor : VColor.contentSecondary)
                 }
@@ -135,7 +135,7 @@ private struct PillSegment: View {
             .frame(maxWidth: .infinity)
             .frame(height: size == .compact ? 24 : 32)
             .background(
-                RoundedRectangle(cornerRadius: size == .compact ? VRadius.sm : VRadius.md - 1)
+                RoundedRectangle(cornerRadius: size == .compact ? VRadius.sm : VRadius.md - 2)
                     .fill(segmentBackground)
                     .shadow(color: isSelected ? VColor.auxBlack.opacity(0.08) : .clear, radius: 2, x: 0, y: 1)
             )
@@ -149,12 +149,15 @@ private struct PillSegment: View {
     }
 
     private var selectedTextColor: Color {
-        VColor.contentDefault
+        VColor.contentEmphasized
     }
 
     private var segmentBackground: Color {
         if isSelected {
-            return VColor.surfaceLift
+            return adaptiveColor(
+                light: Color(hex: 0xFFFFFF),
+                dark: Color(hex: 0x3A3A37)
+            )
         } else if isHovered {
             return VColor.surfaceActive
         } else {
