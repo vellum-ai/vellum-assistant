@@ -452,8 +452,10 @@ struct GuardianChannelsDetailView: View {
 
     /// Skeleton placeholder rows matching the number of channels the assistant has set up.
     private func channelSkeletonRows() -> some View {
-        let configuredCount = store?.channelSetupStatus.values
-            .filter { $0 == "ready" || $0 == "incomplete" }.count ?? 0
+        let configuredCount = Self.allChannelTypes.filter { type in
+            let status = store?.channelSetupStatus[type]
+            return status == "ready"
+        }.count
         let rowCount = max(configuredCount, 1)
         return VStack(alignment: .leading, spacing: 0) {
             ForEach(0..<rowCount, id: \.self) { index in

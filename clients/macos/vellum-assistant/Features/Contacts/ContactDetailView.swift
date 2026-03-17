@@ -899,8 +899,10 @@ struct ContactDetailView: View {
     // MARK: - Skeleton Loading
 
     private func channelSkeletonRows() -> some View {
-        let configuredCount = store?.channelSetupStatus.values
-            .filter { $0 == "ready" || $0 == "incomplete" }.count ?? 0
+        let channelTypes = ["slack", "telegram", "phone"]
+        let configuredCount = channelTypes.filter { type in
+            store?.channelSetupStatus[type] == "ready"
+        }.count
         let rowCount = max(configuredCount, 1)
         return VStack(alignment: .leading, spacing: 0) {
             ForEach(0..<rowCount, id: \.self) { index in
