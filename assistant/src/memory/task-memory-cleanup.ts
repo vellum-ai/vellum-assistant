@@ -45,7 +45,7 @@ export function invalidateAssistantInferredItemsForConversation(
   // Cancel pending memory jobs for this conversation's messages
   // so the worker never processes them. Jobs already running will be
   // caught by the isConversationFailed check in the extraction handler.
-  cancelPendingJobsForConversation(conversationId);
+  cancelPendingJobsForConversation(conversationId, "conversation_failed");
 
   const affected = rawRun(
     `UPDATE memory_items
@@ -101,6 +101,7 @@ export function invalidateAssistantInferredItemsForConversation(
  */
 export function cancelPendingJobsForConversation(
   conversationId: string,
+  reason: string = "conversation_wiped",
 ): number {
   const now = Date.now();
   let total = 0;
@@ -109,12 +110,13 @@ export function cancelPendingJobsForConversation(
   total += rawRun(
     `UPDATE memory_jobs
         SET status = 'failed',
-            last_error = 'conversation_wiped',
+            last_error = ?,
             updated_at = ?
       WHERE status IN ('pending', 'running')
         AND json_extract(payload, '$.messageId') IN (
           SELECT id FROM messages WHERE conversation_id = ?
         )`,
+    reason,
     now,
     conversationId,
   );
@@ -123,10 +125,11 @@ export function cancelPendingJobsForConversation(
   total += rawRun(
     `UPDATE memory_jobs
         SET status = 'failed',
-            last_error = 'conversation_wiped',
+            last_error = ?,
             updated_at = ?
       WHERE status IN ('pending', 'running')
         AND json_extract(payload, '$.conversationId') = ?`,
+    reason,
     now,
     conversationId,
   );
@@ -135,7 +138,7 @@ export function cancelPendingJobsForConversation(
   total += rawRun(
     `UPDATE memory_jobs
         SET status = 'failed',
-            last_error = 'conversation_wiped',
+            last_error = ?,
             updated_at = ?
       WHERE status IN ('pending', 'running')
         AND json_extract(payload, '$.itemId') IN (
@@ -144,6 +147,7 @@ export function cancelPendingJobsForConversation(
             JOIN messages m ON m.id = mis.message_id
            WHERE m.conversation_id = ?
         )`,
+    reason,
     now,
     conversationId,
   );
