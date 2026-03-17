@@ -624,7 +624,7 @@ public final class SettingsStore: ObservableObject {
         // save a new key, so any prior clear is superseded. Deferring this until
         // after async validation creates a race: if the daemon reconnects before
         // validation completes, replayDeletionTombstones would DELETE the new key.
-        removeDeletionTombstone(type: "api_key", name: "anthropic")
+        let hadTombstone = removeDeletionTombstone(type: "api_key", name: "anthropic")
 
         Task {
             let result = await syncKeyToDaemonWithValidation(provider: "anthropic", value: trimmed)
@@ -640,6 +640,11 @@ public final class SettingsStore: ObservableObject {
                     APIKeyManager.deleteKey(for: "anthropic")
                     hasKey = false
                     maskedKey = ""
+                    // Restore the deletion tombstone if one existed before we
+                    // removed it, so pending offline clears are not lost.
+                    if hadTombstone {
+                        addDeletionTombstone(type: "api_key", name: "anthropic")
+                    }
                 }
                 // For transient errors (daemon unreachable), keep the local
                 // key so it survives for retry on reconnect.
@@ -941,11 +946,15 @@ public final class SettingsStore: ObservableObject {
     }
 
     /// Remove a tombstone when the user re-saves a key, making the pending deletion moot.
-    private func removeDeletionTombstone(type: String, name: String) {
+    /// Returns `true` if a matching tombstone was present and removed.
+    @discardableResult
+    private func removeDeletionTombstone(type: String, name: String) -> Bool {
         var tombstones = UserDefaults.standard.array(forKey: kPendingKeyDeletionTombstones)
             as? [[String: String]] ?? []
+        let countBefore = tombstones.count
         tombstones.removeAll { $0["type"] == type && $0["name"] == name }
         UserDefaults.standard.set(tombstones, forKey: kPendingKeyDeletionTombstones)
+        return tombstones.count < countBefore
     }
 
     /// Replay pending deletion tombstones, clearing only those successfully dispatched.
