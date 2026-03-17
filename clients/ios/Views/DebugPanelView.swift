@@ -8,7 +8,6 @@ import VellumAssistantShared
 /// the developer toggle is enabled. Gated behind `UserDefaultsKeys.developerModeEnabled`.
 struct DebugPanelView: View {
     @ObservedObject var traceStore: TraceStore
-    let daemonClient: DaemonClient
     let conversationId: String?
     var onClose: () -> Void
 
@@ -461,6 +460,6 @@ struct TraceTimelineIOSView: View {
 }
 
 #Preview {
-    DebugPanelView(traceStore: TraceStore(), daemonClient: DaemonClient(), conversationId: nil, onClose: {})
+    DebugPanelView(traceStore: TraceStore(), conversationId: nil, onClose: {})
 }
 #endif
