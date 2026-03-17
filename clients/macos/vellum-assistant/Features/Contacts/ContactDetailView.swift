@@ -166,14 +166,12 @@ struct ContactDetailView: View {
             Spacer()
             VButton(
                 label: "Delete Contact",
-                iconOnly: VIcon.trash.rawValue,
+                leftIcon: VIcon.trash.rawValue,
                 style: .dangerGhost,
-                isDisabled: isDeleting || actionInProgress != nil || verificationInProgress != nil,
-                tooltip: "Delete Contact"
+                isDisabled: isDeleting || actionInProgress != nil || verificationInProgress != nil
             ) {
                 showDeleteConfirmation = true
             }
-            .accessibilityLabel("Delete contact")
         }
     }
 
