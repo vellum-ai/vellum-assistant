@@ -27,8 +27,8 @@ A field is resolved when the user gave an explicit answer, you inferred it from 
 
 Save as you go using `file_edit`. Don't mention tool names or which files you're editing.
 
-- **IDENTITY.md** - name, nature, emoji, role.
-- **SOUL.md** - personality, conversational style, behavioral preferences.
+- **IDENTITY.md** - name, nature, personality, emoji, role.
+- **SOUL.md** - personality (detailed), conversational style, behavioral preferences.
 - **USER.md** - their name, goals, locale, work role, hobbies, daily tools.
 
 ## Completion Gate
