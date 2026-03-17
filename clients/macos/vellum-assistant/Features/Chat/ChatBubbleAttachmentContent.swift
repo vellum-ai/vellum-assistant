@@ -45,7 +45,7 @@ private struct InlineToolCallImageView: View {
 /// pre-decoded NSImage values or a placeholder.
 private struct AttachmentImageGrid<Fallback: View>: View {
     let imageAttachments: [ChatAttachment]
-    let onTap: (ChatAttachment) -> Void
+    let onTap: (ChatAttachment, NSImage) -> Void
     /// Rendered in place of the gray placeholder when all decode paths fail for an attachment.
     @ViewBuilder let fallback: (ChatAttachment) -> Fallback
 
@@ -70,8 +70,8 @@ private struct AttachmentImageGrid<Fallback: View>: View {
                             .frame(width: 60, height: 60)
                             .clipped()
                             .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
-                            .onTapGesture(count: 2) {
-                                onTap(attachment)
+                            .onTapGesture {
+                                onTap(attachment, nsImage)
                             }
                             .pointerCursor()
                     } else if failedIds.contains(attachment.id) {
@@ -164,7 +164,9 @@ extension ChatBubble {
     }
 
     func attachmentImageGrid(_ images: [ChatAttachment]) -> some View {
-        AttachmentImageGrid(imageAttachments: images, onTap: openImageInPreview) { attachment in
+        AttachmentImageGrid(imageAttachments: images, onTap: { attachment, image in
+            openImageInPreview(attachment, image: image)
+        }) { attachment in
             fileAttachmentChip(attachment)
         }
     }
@@ -198,15 +200,29 @@ extension ChatBubble {
         .pointerCursor()
     }
 
-    func openImageInPreview(_ attachment: ChatAttachment) {
-        guard !attachment.data.isEmpty,
-              let data = Data(base64Encoded: attachment.data),
-              !data.isEmpty else { return }
+    func openImageInPreview(_ attachment: ChatAttachment, image: NSImage? = nil) {
         let tempDir = FileManager.default.temporaryDirectory
         let sanitized = (attachment.filename as NSString).lastPathComponent
-        let fileURL = tempDir.appendingPathComponent(sanitized.isEmpty ? "image" : sanitized)
+        let fileURL = tempDir.appendingPathComponent(sanitized.isEmpty ? "image.png" : sanitized)
+
+        // Prefer the original base64 data when available (full resolution).
+        // Fall back to the in-memory NSImage (thumbnail) when data has been cleared.
+        let fileData: Data? = {
+            if !attachment.data.isEmpty,
+               let decoded = Data(base64Encoded: attachment.data),
+               !decoded.isEmpty {
+                return decoded
+            }
+            if let image, let tiff = image.tiffRepresentation,
+               let rep = NSBitmapImageRep(data: tiff) {
+                return rep.representation(using: .png, properties: [:])
+            }
+            return nil
+        }()
+
+        guard let fileData else { return }
         do {
-            try data.write(to: fileURL)
+            try fileData.write(to: fileURL)
             NSWorkspace.shared.open(fileURL)
         } catch {
             // Silently fail — not critical
