@@ -6,7 +6,6 @@ import { getBaseDataDir, getIsContainerized } from "../config/env-registry.js";
 import { getConfig } from "../config/loader.js";
 import { skillFlagKey } from "../config/skill-state.js";
 import { loadSkillCatalog, type SkillSummary } from "../config/skills.js";
-import { isPlatformManaged } from "../inbound/platform-callback-registration.js";
 import { listConnections } from "../oauth/oauth-store.js";
 import { resolveBundledDir } from "../util/bundled-asset.js";
 import { getLogger } from "../util/logger.js";
@@ -216,24 +215,7 @@ function buildInChatConfigurationSection(): string {
   return [
     "## In-Chat Configuration",
     "",
-    "When the user needs to configure a value (API keys, OAuth credentials, webhook URLs, or any setting that can be changed from the Settings page), **always collect it conversationally in the chat first** rather than directing them to the Settings page.",
-    "",
-    "**How to collect credentials and secrets:**",
-    ...(isPlatformManaged()
-      ? [
-          "- Secrets and API keys are managed through the platform's credential system. Users connect credentials via OAuth or platform-managed secrets.",
-          "- For OAuth flows, guide the user to connect through the platform.",
-          "- For non-secret config values (e.g. a public URL, a webhook URL), ask the user directly in the conversation and use the appropriate config tool to persist the value.",
-        ]
-      : [
-          '- Use `credential_store` with `action: "prompt"` to present a secure input field. The value never appears in the conversation.',
-          '- For OAuth flows, use `credential_store` with `action: "oauth2_connect"` to handle the authorization in-browser. Some services (e.g. Twitter/X) define their own auth flow via dedicated skill instructions.',
-          "- For non-secret config values (e.g. a public URL, a webhook URL), ask the user directly in the conversation and use the appropriate config tool to persist the value.",
-        ]),
-    "",
-    '**After saving a value**, confirm success with a message like: "Great, saved! You can always update this from the Settings page."',
-    "",
-    "**Never tell the user to go to Settings to enter a value.** The Settings page is for reviewing and updating existing configuration, not for initial setup. Always prefer the in-chat flow for first-time configuration.",
+    "When the user needs to configure a value, collect it conversationally in the chat. Never direct the user to the Settings page for initial setup — Settings is for reviewing and updating existing configuration.",
     "",
     "### Avatar Customisation",
     "",
