@@ -709,7 +709,7 @@ struct AssistantChannelsDetailView: View {
     private var voiceCard: some View {
         let status = store.channelSetupStatus["phone"]
         return SettingsCard(title: "Phone Calling", subtitle: "Receive and make phone calls via Twilio", showBorder: showCardBorders) {
-            if status == "ready" {
+            if status == "ready" || (status == "incomplete" && store.twilioHasCredentials) {
                 VBadge(label: "Connected", tone: .positive)
             }
         } content: {
@@ -732,14 +732,12 @@ struct AssistantChannelsDetailView: View {
                     )
                     .frame(maxWidth: 360)
                 }
-            }
 
-            if status == "ready" {
                 VButton(label: "Disconnect", style: .dangerGhost, isDisabled: store.twilioSaveInProgress) {
                     store.clearTwilioCredentials()
                     store.channelSetupStatus["phone"] = "not_configured"
                 }
-            } else if (status == "incomplete" && store.twilioHasCredentials) || voiceSetupExpanded {
+            } else if voiceSetupExpanded {
                 voiceCredentialEntry
             } else {
                 VButton(label: "Set Up", style: .outlined) {
