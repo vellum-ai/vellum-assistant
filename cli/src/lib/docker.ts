@@ -1,4 +1,3 @@
-import { spawn as nodeSpawn } from "child_process";
 import { existsSync, watch as fsWatch } from "fs";
 import { dirname, join } from "path";
 
@@ -134,37 +133,6 @@ async function ensureDockerInstalled(): Promise<void> {
       );
     }
   }
-}
-
-/**
- * Creates a line-buffered output prefixer that prepends a tag to each
- * line from a container's stdout/stderr. Calls `onLine` for each complete
- * line so the caller can detect sentinel output (e.g. hatch completion).
- */
-function createLinePrefixer(
-  stream: NodeJS.WritableStream,
-  prefix: string,
-  onLine?: (line: string) => void,
-): { write(data: Buffer): void; flush(): void } {
-  let remainder = "";
-  return {
-    write(data: Buffer) {
-      const text = remainder + data.toString();
-      const lines = text.split("\n");
-      remainder = lines.pop() ?? "";
-      for (const line of lines) {
-        stream.write(`   [${prefix}] ${line}\n`);
-        onLine?.(line);
-      }
-    },
-    flush() {
-      if (remainder) {
-        stream.write(`   [${prefix}] ${remainder}\n`);
-        onLine?.(remainder);
-        remainder = "";
-      }
-    },
-  };
 }
 
 /** Derive the Docker resource names from the instance name. */
@@ -696,13 +664,12 @@ export async function hatchDocker(
     saveAssistantEntry(dockerEntry);
     setActiveAssistant(instanceName);
 
-    const { ready } = await tailContainerUntilReady({
+    const { ready } = await waitForGatewayAndLease({
       containerName: res.assistantContainer,
       detached: watch ? false : detached,
       instanceName,
       logFd,
       runtimeUrl,
-      sentinel: "DaemonServer started",
     });
 
     if (!ready && !(watch && repoRoot)) {
@@ -751,19 +718,17 @@ export async function hatchDocker(
 
 /**
  * In detached mode, print instance details and return immediately.
- * Otherwise, tail the given container's logs until the sentinel string
- * appears, then attempt to lease a guardian token and report readiness.
+ * Otherwise, poll the gateway health check until it responds, then
+ * lease a guardian token.
  */
-async function tailContainerUntilReady(opts: {
+async function waitForGatewayAndLease(opts: {
   containerName: string;
   detached: boolean;
   instanceName: string;
   logFd: number | "ignore";
   runtimeUrl: string;
-  sentinel: string;
 }): Promise<{ ready: boolean }> {
-  const { containerName, detached, instanceName, logFd, runtimeUrl, sentinel } =
-    opts;
+  const { containerName, detached, instanceName, logFd, runtimeUrl } = opts;
 
   const log = (msg: string): void => {
     console.log(msg);
@@ -784,114 +749,57 @@ async function tailContainerUntilReady(opts: {
   log(`  Container: ${containerName}`);
   log(`  Runtime: ${runtimeUrl}`);
   log("");
+  log("Waiting for gateway to become healthy...");
 
-  return await new Promise<{ ready: boolean }>((resolve, reject) => {
-    let settled = false;
-    const child = nodeSpawn("docker", ["logs", "-f", containerName], {
-      stdio: ["ignore", "pipe", "pipe"],
-    });
+  const healthUrl = `${runtimeUrl}/healthz`;
+  const start = Date.now();
+  let healthy = false;
 
-    function settle(fn: () => void) {
-      if (settled) return;
-      settled = true;
-      clearTimeout(timeout);
-      fn();
-    }
-
-    const timeout = setTimeout(() => {
-      settle(() => {
-        child.kill();
-        log("");
-        log(
-          `   \u26a0\ufe0f  Timed out waiting for assistant to become ready.`,
-        );
-        log(`   The container is still running.`);
-        log(`   Check logs with: docker logs -f ${containerName}`);
-        log("");
-        resolve({ ready: false });
+  while (Date.now() - start < DOCKER_READY_TIMEOUT_MS) {
+    try {
+      const resp = await fetch(healthUrl, {
+        signal: AbortSignal.timeout(2000),
       });
-    }, DOCKER_READY_TIMEOUT_MS);
-
-    const handleLine = (line: string): void => {
-      writeToLogFile(logFd, `${new Date().toISOString()} [docker] ${line}\n`);
-      if (line.includes(sentinel)) {
-        // Mark settled synchronously so the `close` event handler cannot
-        // race and resolve the promise before the token lease completes.
-        if (settled) return;
-        settled = true;
-        clearTimeout(timeout);
-
-        (async () => {
-          log(
-            `Guardian token lease: starting for ${instanceName} at ${runtimeUrl}`,
-          );
-          try {
-            const tokenData = await leaseGuardianToken(
-              runtimeUrl,
-              instanceName,
-            );
-            log(
-              `Guardian token lease: success (principalId=${tokenData.guardianPrincipalId}, expiresAt=${tokenData.accessTokenExpiresAt})`,
-            );
-          } catch (err) {
-            const detail =
-              err instanceof Error ? (err.stack ?? err.message) : String(err);
-            log(`\u26a0\ufe0f  Guardian token lease: FAILED — ${detail}`);
-          }
-
-          log("");
-          log(`\u2705 Docker containers are up and running!`);
-          log(`   Name: ${instanceName}`);
-          log(`   Runtime: ${runtimeUrl}`);
-          log("");
-          child.kill();
-          resolve({ ready: true });
-        })();
+      if (resp.ok) {
+        healthy = true;
+        break;
       }
-    };
+      log(`Gateway health check: ${resp.status} (retrying...)`);
+    } catch {
+      // Connection refused / timeout — gateway not up yet
+    }
+    await new Promise((r) => setTimeout(r, 1000));
+  }
 
-    const stdoutPrefixer = createLinePrefixer(
-      process.stdout,
-      "docker",
-      handleLine,
+  if (!healthy) {
+    log("");
+    log(`   \u26a0\ufe0f  Timed out waiting for gateway to become healthy.`);
+    log(`   The container is still running.`);
+    log(`   Check logs with: docker logs -f ${containerName}`);
+    log("");
+    return { ready: false };
+  }
+
+  const elapsedSec = ((Date.now() - start) / 1000).toFixed(1);
+  log(`Gateway healthy after ${elapsedSec}s`);
+
+  // Lease guardian token now that the gateway is ready to proxy
+  log(`Guardian token lease: starting for ${instanceName} at ${runtimeUrl}`);
+  try {
+    const tokenData = await leaseGuardianToken(runtimeUrl, instanceName);
+    log(
+      `Guardian token lease: success (principalId=${tokenData.guardianPrincipalId}, expiresAt=${tokenData.accessTokenExpiresAt})`,
     );
-    const stderrPrefixer = createLinePrefixer(
-      process.stderr,
-      "docker",
-      handleLine,
-    );
+  } catch (err) {
+    const detail =
+      err instanceof Error ? (err.stack ?? err.message) : String(err);
+    log(`\u26a0\ufe0f  Guardian token lease: FAILED — ${detail}`);
+  }
 
-    child.stdout?.on("data", (data: Buffer) => stdoutPrefixer.write(data));
-    child.stderr?.on("data", (data: Buffer) => stderrPrefixer.write(data));
-    child.stdout?.on("end", () => stdoutPrefixer.flush());
-    child.stderr?.on("end", () => stderrPrefixer.flush());
-
-    child.on("close", (code) => {
-      settle(() => {
-        if (
-          code === 0 ||
-          code === null ||
-          code === 130 ||
-          code === 137 ||
-          code === 143
-        ) {
-          resolve({ ready: true });
-        } else {
-          reject(new Error(`Docker container exited with code ${code}`));
-        }
-      });
-    });
-    child.on("error", (err) => {
-      settle(() => {
-        reject(err);
-      });
-    });
-
-    process.on("SIGINT", () => {
-      settle(() => {
-        child.kill();
-        resolve({ ready: true });
-      });
-    });
-  });
+  log("");
+  log(`\u2705 Docker containers are up and running!`);
+  log(`   Name: ${instanceName}`);
+  log(`   Runtime: ${runtimeUrl}`);
+  log("");
+  return { ready: true };
 }

@@ -110,8 +110,7 @@ function buildRotatingLogger(config: LogFileConfig): pino.Logger {
   // write to the rotating file only — the hatch log already captured early
   // startup output and echoing pino output there is unnecessary duplication.
   // Exception: in containers, always write to stdout so `docker logs` can
-  // capture sentinel messages (e.g. "DaemonServer started") that the CLI
-  // watches for during hatch.
+  // capture daemon output for debugging.
   if (!process.stdout.isTTY && !process.env.IS_CONTAINERIZED) {
     return pino(
       { name: "assistant", level: "info", serializers: logSerializers },
