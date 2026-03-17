@@ -511,15 +511,55 @@ public struct ToolConfirmationBubble: View {
 
     @ViewBuilder
     private var alwaysAllowMenuItems: some View {
-        Button("Always allow") {
-            markCommandExplanationSeen()
-            preferredAllowAction = "always_allow"
-            let pattern = confirmation.allowlistOptions.first?.pattern ?? ""
-            let scope = confirmation.scopeOptions.first?.scope ?? "everywhere"
-            if pattern.isEmpty {
-                onAllow()
+        let options = confirmation.allowlistOptions
+        let scopes = confirmation.scopeOptions
+
+        if options.count > 1 {
+            // Multiple patterns — show each, with scope submenus if needed
+            Menu("Always allow") {
+                ForEach(Array(options.enumerated()), id: \.element.pattern) { _, option in
+                    if scopes.isEmpty {
+                        Button(option.label) {
+                            markCommandExplanationSeen()
+                            preferredAllowAction = "always_allow"
+                            onAlwaysAllow(confirmation.requestId, option.pattern, "everywhere", alwaysAllowDecision)
+                        }
+                    } else {
+                        Menu(option.label) {
+                            ForEach(Array(scopes.enumerated()), id: \.element.scope) { _, scopeOption in
+                                Button(scopeOption.label) {
+                                    markCommandExplanationSeen()
+                                    preferredAllowAction = "always_allow"
+                                    onAlwaysAllow(confirmation.requestId, option.pattern, scopeOption.scope, alwaysAllowDecision)
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        } else if let option = options.first {
+            // Single pattern
+            if scopes.isEmpty {
+                Button("Always allow") {
+                    markCommandExplanationSeen()
+                    preferredAllowAction = "always_allow"
+                    if option.pattern.isEmpty {
+                        onAllow()
+                    } else {
+                        onAlwaysAllow(confirmation.requestId, option.pattern, "everywhere", alwaysAllowDecision)
+                    }
+                }
             } else {
-                onAlwaysAllow(confirmation.requestId, pattern, scope, alwaysAllowDecision)
+                // Single pattern with scope choice
+                Menu("Always allow") {
+                    ForEach(Array(scopes.enumerated()), id: \.element.scope) { _, scopeOption in
+                        Button(scopeOption.label) {
+                            markCommandExplanationSeen()
+                            preferredAllowAction = "always_allow"
+                            onAlwaysAllow(confirmation.requestId, option.pattern, scopeOption.scope, alwaysAllowDecision)
+                        }
+                    }
+                }
             }
         }
     }
