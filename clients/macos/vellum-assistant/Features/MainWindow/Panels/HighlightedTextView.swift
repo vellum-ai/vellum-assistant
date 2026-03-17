@@ -233,11 +233,13 @@ struct HighlightedTextView: View {
         .background(Self.gutterBackground)
     }
 
-    /// Approximate line height for the mono font to align line numbers with text lines.
-    private var lineHeight: CGFloat {
-        // DMMono-Regular at 13pt has ~16pt line height in SwiftUI's default rendering
-        16
-    }
+    /// Line height for the text content font, computed from actual NSFont metrics
+    /// so the gutter stays aligned even if the font or size changes.
+    private static let lineHeight: CGFloat = {
+        let nsFont = NSFont(name: "DMMono-Regular", size: 13)
+            ?? NSFont.monospacedSystemFont(ofSize: 13, weight: .regular)
+        return ceil(nsFont.lineHeight)
+    }()
 
     private func gutterWidth(for lineCount: Int) -> CGFloat {
         let digitCount = max(3, "\(lineCount)".count)
