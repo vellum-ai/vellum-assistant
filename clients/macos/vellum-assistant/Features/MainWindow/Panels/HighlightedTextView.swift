@@ -3,8 +3,9 @@ import VellumAssistantShared
 
 /// A code viewer with line numbers, horizontal scrolling, and syntax highlighting.
 ///
-/// Uses pure SwiftUI rendering (TextEditor with line number gutter for editable mode,
-/// Text with syntax highlighting for read-only) to avoid AppKit compositing issues.
+/// Read-only mode uses pure SwiftUI (Text with syntax highlighting). Editable mode
+/// uses a custom NSTextView wrapper (CodeTextView) for precise textContainerInset
+/// control, ensuring line numbers stay aligned with text content.
 struct HighlightedTextView: View {
     @Binding var text: String
     let language: SyntaxLanguage
@@ -48,16 +49,13 @@ struct HighlightedTextView: View {
 
     // MARK: - Editable Mode
 
-    /// TextEditor-based editable view with a pure SwiftUI line number gutter.
-    /// Reuses the same gutter pattern as the read-only view for consistency.
-    /// Wraps the editor in a horizontal ScrollView to prevent text wrapping,
-    /// which would misalign line numbers with their corresponding lines.
+    /// NSTextView-based editable view with a line number gutter. Uses CodeTextView
+    /// (NSViewRepresentable) instead of SwiftUI's TextEditor to control
+    /// textContainerInset precisely, ensuring the gutter stays aligned.
     private var editableView: some View {
         let lines = text.components(separatedBy: "\n")
         let lineCount = lines.count
         let gutterWidth = gutterWidth(for: lineCount)
-        let maxLineLength = lines.map(\.count).max() ?? 0
-        let contentMinWidth = CGFloat(maxLineLength) * Self.charWidth + VSpacing.md * 2
 
         return VStack(spacing: 0) {
             if isSearchVisible {
@@ -70,45 +68,28 @@ struct HighlightedTextView: View {
             }
 
             GeometryReader { geometry in
-                let availableWidth = geometry.size.width - gutterWidth
                 ScrollView([.vertical]) {
                     HStack(alignment: .top, spacing: 0) {
                         lineNumberGutter(lineCount: lineCount, width: gutterWidth)
 
-                        ScrollView(.horizontal, showsIndicators: true) {
-                            TextEditor(text: editableBinding)
-                                .font(VFont.mono)
-                                .foregroundStyle(VColor.contentDefault)
-                                .scrollContentBackground(.hidden)
-                                .scrollDisabled(true)
-                                .background(Self.editorBackground)
-                                .frame(
-                                    minWidth: max(availableWidth, contentMinWidth),
-                                    minHeight: geometry.size.height
-                                )
-                        }
-                        .frame(minWidth: availableWidth)
+                        CodeTextView(
+                            text: $text,
+                            onTextChange: onTextChange,
+                            onEscape: {
+                                if isSearchVisible {
+                                    dismissSearch()
+                                } else {
+                                    isActivelyEditing = false
+                                }
+                            },
+                            onCommandF: { isSearchVisible = true }
+                        )
+                        .frame(minWidth: geometry.size.width - gutterWidth)
                     }
                     .frame(minHeight: geometry.size.height, alignment: .topLeading)
                 }
                 .background(Self.editorBackground)
             }
-        }
-        .onKeyPress("f", phases: .down) { press in
-            guard press.modifiers == .command else { return .ignored }
-            isSearchVisible = true
-            return .handled
-        }
-        .onKeyPress(.escape) {
-            if isSearchVisible {
-                dismissSearch()
-                return .handled
-            }
-            if isActivelyEditing {
-                isActivelyEditing = false
-                return .handled
-            }
-            return .ignored
         }
         .onChange(of: text) { _, _ in
             let count = searchMatchCount
@@ -118,16 +99,6 @@ struct HighlightedTextView: View {
                 currentMatchIndex = max(0, count - 1)
             }
         }
-    }
-
-    private var editableBinding: Binding<String> {
-        Binding(
-            get: { text },
-            set: { newValue in
-                text = newValue
-                onTextChange?(newValue)
-            }
-        )
     }
 
     // MARK: - Read-Only Mode
@@ -271,15 +242,6 @@ struct HighlightedTextView: View {
         return layoutManager.defaultLineHeight(for: nsFont)
     }()
 
-    /// Width of a single monospace character, used to calculate the minimum editor
-    /// width that prevents text wrapping and keeps line numbers aligned.
-    private static let charWidth: CGFloat = {
-        let nsFont = NSFont(name: "DMMono-Regular", size: 13)
-            ?? NSFont.monospacedSystemFont(ofSize: 13, weight: .regular)
-        let attributes: [NSAttributedString.Key: Any] = [.font: nsFont]
-        return ("M" as NSString).size(withAttributes: attributes).width
-    }()
-
     private func gutterWidth(for lineCount: Int) -> CGFloat {
         let digitCount = max(3, "\(lineCount)".count)
         return CGFloat(digitCount * 8 + 16)
@@ -360,5 +322,154 @@ private struct SourceSearchBar: View {
     private func goToNextMatch() {
         guard matchCount > 0 else { return }
         currentMatchIndex = currentMatchIndex < matchCount - 1 ? currentMatchIndex + 1 : 0
+    }
+}
+
+// MARK: - Code Text Editor (NSViewRepresentable)
+
+/// NSTextView wrapper for the editable mode. Using NSTextView directly gives
+/// precise control over `textContainerInset`, ensuring line numbers in the
+/// adjacent gutter stay perfectly aligned with text content. Uses TextKit 1
+/// (NSLayoutManager) so line heights match the gutter's `lineHeight` computation.
+private struct CodeTextView: NSViewRepresentable {
+    @Binding var text: String
+    var onTextChange: ((String) -> Void)?
+    var onEscape: (() -> Void)?
+    var onCommandF: (() -> Void)?
+
+    func makeNSView(context: Context) -> HorizontalOnlyScrollView {
+        // TextKit 1 stack — matches the gutter's NSLayoutManager.defaultLineHeight computation
+        let textStorage = NSTextStorage()
+        let layoutManager = NSLayoutManager()
+        textStorage.addLayoutManager(layoutManager)
+        let textContainer = NSTextContainer(size: NSSize(
+            width: CGFloat.greatestFiniteMagnitude,
+            height: CGFloat.greatestFiniteMagnitude
+        ))
+        textContainer.widthTracksTextView = false
+        textContainer.heightTracksTextView = false
+        textContainer.lineFragmentPadding = VSpacing.md
+        layoutManager.addTextContainer(textContainer)
+
+        let textView = CodeNSTextView(frame: .zero, textContainer: textContainer)
+        textView.delegate = context.coordinator
+        textView.isEditable = true
+        textView.isSelectable = true
+        textView.allowsUndo = true
+        textView.isRichText = false
+        textView.usesFontPanel = false
+        textView.isHorizontallyResizable = true
+        textView.isVerticallyResizable = true
+        textView.maxSize = NSSize(
+            width: CGFloat.greatestFiniteMagnitude,
+            height: CGFloat.greatestFiniteMagnitude
+        )
+        textView.autoresizingMask = [.width]
+
+        // Font — DMMono-Regular 13pt with ss05 stylistic set (conventional "f")
+        let baseFont = NSFont(name: "DMMono-Regular", size: 13)
+            ?? NSFont.monospacedSystemFont(ofSize: 13, weight: .regular)
+        let descriptor = baseFont.fontDescriptor.addingAttributes([
+            .featureSettings: [[
+                NSFontDescriptor.FeatureKey.typeIdentifier: kStylisticAlternativesType,
+                NSFontDescriptor.FeatureKey.selectorIdentifier: kStylisticAltFiveOnSelector,
+            ]]
+        ])
+        textView.font = NSFont(descriptor: descriptor, size: 13) ?? baseFont
+        textView.textColor = NSColor(VColor.contentDefault)
+        textView.backgroundColor = .clear
+        textView.drawsBackground = false
+        textView.insertionPointColor = NSColor(VColor.contentDefault)
+
+        // Match gutter's .padding(.top, VSpacing.sm) exactly
+        textView.textContainerInset = NSSize(width: 0, height: VSpacing.sm)
+
+        textView.onEscape = onEscape
+        textView.onCommandF = onCommandF
+        textView.string = text
+
+        let scrollView = HorizontalOnlyScrollView()
+        scrollView.documentView = textView
+        scrollView.hasVerticalScroller = false
+        scrollView.hasHorizontalScroller = true
+        scrollView.autohidesScrollers = true
+        scrollView.drawsBackground = false
+        scrollView.borderType = .noBorder
+
+        return scrollView
+    }
+
+    func updateNSView(_ scrollView: HorizontalOnlyScrollView, context: Context) {
+        guard let textView = scrollView.documentView as? CodeNSTextView else { return }
+        if textView.string != text {
+            let selectedRanges = textView.selectedRanges
+            textView.string = text
+            textView.selectedRanges = selectedRanges
+        }
+        textView.onEscape = onEscape
+        textView.onCommandF = onCommandF
+    }
+
+    func sizeThatFits(
+        _ proposal: ProposedViewSize,
+        nsView: HorizontalOnlyScrollView,
+        context: Context
+    ) -> CGSize? {
+        guard let textView = nsView.documentView as? CodeNSTextView,
+              let layoutManager = textView.layoutManager,
+              let textContainer = textView.textContainer else { return nil }
+        layoutManager.ensureLayout(for: textContainer)
+        let usedRect = layoutManager.usedRect(for: textContainer)
+        let height = usedRect.height + textView.textContainerInset.height * 2
+        return CGSize(width: proposal.width ?? 400, height: height)
+    }
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(parent: self)
+    }
+
+    class Coordinator: NSObject, NSTextViewDelegate {
+        var parent: CodeTextView
+
+        init(parent: CodeTextView) {
+            self.parent = parent
+        }
+
+        func textDidChange(_ notification: Notification) {
+            guard let textView = notification.object as? NSTextView else { return }
+            parent.text = textView.string
+            parent.onTextChange?(textView.string)
+        }
+    }
+}
+
+/// NSTextView subclass that forwards Escape and Cmd+F to closures so the
+/// SwiftUI layer can handle search toggling and edit mode exit.
+private class CodeNSTextView: NSTextView {
+    var onEscape: (() -> Void)?
+    var onCommandF: (() -> Void)?
+
+    override func keyDown(with event: NSEvent) {
+        if event.keyCode == 53 { // Escape
+            onEscape?()
+            return
+        }
+        if event.modifierFlags.contains(.command) && event.charactersIgnoringModifiers == "f" {
+            onCommandF?()
+            return
+        }
+        super.keyDown(with: event)
+    }
+}
+
+/// NSScrollView that only handles horizontal scrolling, forwarding vertical
+/// scroll events to the parent responder chain (SwiftUI's vertical ScrollView).
+private class HorizontalOnlyScrollView: NSScrollView {
+    override func scrollWheel(with event: NSEvent) {
+        if abs(event.scrollingDeltaX) > abs(event.scrollingDeltaY) {
+            super.scrollWheel(with: event)
+        } else {
+            nextResponder?.scrollWheel(with: event)
+        }
     }
 }
