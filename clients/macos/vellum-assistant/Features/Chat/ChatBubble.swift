@@ -358,7 +358,7 @@ struct ChatBubble: View {
                     // content truncation and footer overlap.
                     MarkdownSegmentView(
                         segments: segments,
-                        maxContentWidth: isUser ? nil : nil,
+                        maxContentWidth: nil,
                         textColor: isUser ? VColor.contentDefault : VColor.contentDefault,
                         secondaryTextColor: isUser ? VColor.contentSecondary : VColor.contentSecondary,
                         mutedTextColor: isUser ? VColor.contentSecondary : VColor.contentTertiary,
@@ -473,12 +473,6 @@ struct ChatBubble: View {
     @MainActor static var lruCounter: UInt64 = 0
 
     @MainActor static var segmentCache = [String: (value: [MarkdownSegment], accessTime: UInt64)]()
-    @MainActor static var markdownCache = [String: (value: AttributedString, accessTime: UInt64)]()
-    /// Separate cache for inline markdown (used by interleaved text segments).
-    /// Kept distinct from `markdownCache` because `markdownText` applies
-    /// slash-command highlighting before caching, which would contaminate
-    /// inline results (and vice versa) if they shared a dictionary.
-    @MainActor static var inlineMarkdownCache = [String: (value: AttributedString, accessTime: UInt64)]()
     static let maxCacheSize = 100
 
     // MARK: - Cache Guardrails
@@ -490,8 +484,7 @@ struct ChatBubble: View {
 
     static let maxCacheableTextLength = 10_000
     static let maxCacheBytes = 5_000_000
-    /// Rough byte estimate of all entries across segmentCache, markdownCache,
-    /// and inlineMarkdownCache.  Updated on insert/evict.
+    /// Rough byte estimate of all entries in segmentCache.  Updated on insert/evict.
     @MainActor static var estimatedCacheBytes: Int = 0
 
     /// Estimate the in-memory cost of caching the given text's parsed result.
@@ -502,38 +495,16 @@ struct ChatBubble: View {
         text.utf8.count * 10
     }
 
-    /// Evicts the oldest entries across all three caches until
+    /// Evicts the oldest entries from segmentCache until
     /// `estimatedCacheBytes` drops below `maxCacheBytes`.
     @MainActor static func evictIfOverBudget() {
         while estimatedCacheBytes > maxCacheBytes {
-            // Find the LRU entry across all three caches.
-            var oldestKey: String?
-            var oldestTime = UInt64.max
-            var oldestCache: CacheKind?
-
-            for (key, entry) in markdownCache where entry.accessTime < oldestTime {
-                oldestKey = key; oldestTime = entry.accessTime; oldestCache = .markdown
-            }
-            for (key, entry) in segmentCache where entry.accessTime < oldestTime {
-                oldestKey = key; oldestTime = entry.accessTime; oldestCache = .segment
-            }
-            for (key, entry) in inlineMarkdownCache where entry.accessTime < oldestTime {
-                oldestKey = key; oldestTime = entry.accessTime; oldestCache = .inlineMarkdown
-            }
-
-            guard let key = oldestKey, let cache = oldestCache else { break }
-
-            let cost = estimatedBytes(for: key)
-            switch cache {
-            case .markdown:       markdownCache.removeValue(forKey: key)
-            case .segment:        segmentCache.removeValue(forKey: key)
-            case .inlineMarkdown: inlineMarkdownCache.removeValue(forKey: key)
-            }
+            guard let lruKey = segmentCache.min(by: { $0.value.accessTime < $1.value.accessTime })?.key else { break }
+            let cost = estimatedBytes(for: lruKey)
+            segmentCache.removeValue(forKey: lruKey)
             estimatedCacheBytes -= cost
         }
     }
-
-    private enum CacheKind { case markdown, segment, inlineMarkdown }
 
     // MARK: - Streaming Dedup Caches
     //
@@ -544,8 +515,6 @@ struct ChatBubble: View {
     // redundant reevaluations return instantly without re-parsing.
 
     @MainActor static var lastStreamingSegments: (text: String, value: [MarkdownSegment])?
-    @MainActor static var lastStreamingInlineMarkdown: (text: String, value: AttributedString)?
-    @MainActor static var lastStreamingMarkdown: (text: String, value: AttributedString)?
 }
 
 /// Applies `.compositingGroup()` only when active, to avoid re-compositing during streaming.

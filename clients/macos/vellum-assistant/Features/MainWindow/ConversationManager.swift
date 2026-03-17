@@ -877,12 +877,8 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
     /// growth of cached `AttributedString` / segment data across conversations.
     private static func clearRenderCaches() {
         ChatBubble.segmentCache.removeAll()
-        ChatBubble.markdownCache.removeAll()
-        ChatBubble.inlineMarkdownCache.removeAll()
         ChatBubble.estimatedCacheBytes = 0
         ChatBubble.lastStreamingSegments = nil
-        ChatBubble.lastStreamingInlineMarkdown = nil
-        ChatBubble.lastStreamingMarkdown = nil
         MarkdownSegmentView.clearAttributedStringCache()
     }
 
