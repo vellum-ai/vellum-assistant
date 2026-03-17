@@ -384,7 +384,7 @@ struct AssistantChannelsDetailView: View {
 
                 // Right: status or action
                 if isConnected {
-                    VBadge(label: "Connected", tone: .positive)
+                    VButton(label: "Connected", leftIcon: VIcon.check.rawValue, style: .primary) {}
 
                     // Inline disconnect X button
                     if let channelKey {
@@ -486,7 +486,7 @@ struct AssistantChannelsDetailView: View {
         let status = store.channelSetupStatus["telegram"]
         return SettingsCard(title: "Telegram", subtitle: "Message your assistant from Telegram", showBorder: showCardBorders) {
             if status == "ready" {
-                VBadge(label: "Connected", tone: .positive)
+                VButton(label: "Connected", leftIcon: VIcon.check.rawValue, style: .primary) {}
             }
         } content: {
             if status == "ready" {
@@ -583,7 +583,7 @@ struct AssistantChannelsDetailView: View {
         let status = store.channelSetupStatus["slack"]
         return SettingsCard(title: "Slack", subtitle: "Message your assistant from Slack", showBorder: showCardBorders) {
             if status == "ready" {
-                VBadge(label: "Connected", tone: .positive)
+                VButton(label: "Connected", leftIcon: VIcon.check.rawValue, style: .primary) {}
             }
         } content: {
             if status == "ready" {
@@ -697,7 +697,7 @@ struct AssistantChannelsDetailView: View {
         let status = store.channelSetupStatus["phone"]
         return SettingsCard(title: "Phone Calling", subtitle: "Receive and make phone calls via Twilio", showBorder: showCardBorders) {
             if store.twilioHasCredentials {
-                VBadge(label: "Connected", tone: .positive)
+                VButton(label: "Connected", leftIcon: VIcon.check.rawValue, style: .primary) {}
             }
         } content: {
             if store.twilioHasCredentials {
