@@ -1,8 +1,11 @@
 import SwiftUI
 
 /// A generic dropdown that looks pixel-identical to VTextField with a trailing chevron.
-/// Uses a ZStack: the visual layer is a plain styled HStack (no Menu chrome),
-/// and the interactive layer is a transparent Menu overlay on top.
+///
+/// Uses a `Menu` containing an inline `Picker` for proper selection semantics
+/// (automatic checkmarks, accessibility). The visual label is fully custom and
+/// the `.frame(maxWidth: .infinity)` is applied inside the label closure so the
+/// borderless button style expands to fill the parent width.
 public struct VDropdown<T: Hashable>: View {
     public let placeholder: String
     @Binding public var selection: T
@@ -30,8 +33,15 @@ public struct VDropdown<T: Hashable>: View {
     }
 
     public var body: some View {
-        ZStack {
-            // Visual layer — identical to VTextField(trailingIcon: "chevron.down")
+        Menu {
+            Picker("", selection: $selection) {
+                ForEach(options, id: \.value) { option in
+                    Text(option.label).tag(option.value)
+                }
+            }
+            .pickerStyle(.inline)
+            .labelsHidden()
+        } label: {
             HStack(spacing: VSpacing.md) {
                 Group {
                     if let label = selectedLabel {
@@ -51,6 +61,7 @@ public struct VDropdown<T: Hashable>: View {
             }
             .padding(.horizontal, VSpacing.md)
             .padding(.vertical, VSpacing.xs)
+            .frame(maxWidth: .infinity)
             .frame(height: 32)
             .background(VColor.surfaceActive)
             .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
@@ -58,29 +69,10 @@ public struct VDropdown<T: Hashable>: View {
                 RoundedRectangle(cornerRadius: VRadius.md)
                     .stroke(VColor.borderBase.opacity(0.5), lineWidth: 1)
             )
-
-            // Interaction layer — transparent Menu, no visual chrome
-            Menu {
-                ForEach(options, id: \.value) { option in
-                    Button {
-                        selection = option.value
-                    } label: {
-                        HStack {
-                            Text(option.label)
-                            if option.value == selection {
-                                VIconView(.check, size: 12)
-                            }
-                        }
-                    }
-                }
-            } label: {
-                Color.clear.contentShape(Rectangle())
-            }
-            .menuStyle(.borderlessButton)
-            .menuIndicator(.hidden)
-            .accessibilityLabel(selectedLabel ?? placeholder)
         }
-        .frame(maxWidth: .infinity)
+        .menuStyle(.borderlessButton)
+        .menuIndicator(.hidden)
+        .accessibilityLabel(selectedLabel ?? placeholder)
     }
 }
 

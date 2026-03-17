@@ -139,7 +139,6 @@ struct ImageGenerationServiceCard: View {
                     (label: SettingsStore.imageGenModelDisplayNames[model] ?? model, value: model)
                 }
             )
-            .frame(width: 400)
         }
     }
 
