@@ -1586,27 +1586,6 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
         }
     }
 
-    /// Request the list of all contacts from the daemon, optionally filtered by role.
-    public func sendListContacts(role: String? = nil, limit: Int? = nil) throws {
-        try send(ContactsRequestMessage(action: "list", role: role, limit: limit))
-    }
-
-    /// Request a single contact by ID.
-    public func sendGetContact(contactId: String) throws {
-        try send(ContactsRequestMessage(action: "get", contactId: contactId))
-    }
-
-    /// Update a contact channel's status and/or policy.
-    public func sendUpdateContactChannel(channelId: String, status: String? = nil, policy: String? = nil, reason: String? = nil) throws {
-        try send(ContactsRequestMessage(action: "update_channel", channelId: channelId, status: status, policy: policy, reason: reason))
-    }
-
-    /// Request deletion of a contact by ID.
-    public func sendDeleteContact(contactId: String) throws {
-        try send(ContactsRequestMessage(action: "delete", contactId: contactId))
-    }
-
-
     // MARK: - Actor Token Bootstrap
 
     /// Response from `POST /v1/guardian/init`.

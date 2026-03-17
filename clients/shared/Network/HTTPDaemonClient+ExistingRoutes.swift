@@ -78,9 +78,6 @@ extension HTTPTransport {
             } else if let msg = message as? UpdateTrustRuleMessage {
                 Task { await self.sendUpdateTrustRule(msg) }
                 return true
-            } else if let msg = message as? ContactsRequestMessage {
-                Task { await self.handleContactsRequest(msg) }
-                return true
             } else if message is PingMessage {
                 // No-op for HTTP transport — SSE keepalive is handled by the connection
                 return true

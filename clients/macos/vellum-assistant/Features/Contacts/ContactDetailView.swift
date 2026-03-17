@@ -1178,81 +1178,40 @@ struct ContactDetailView: View {
     }
 
     private func updateChannelStatus(channelId: String, status: String) {
-        guard let daemonClient else { return }
         guard actionInProgress == nil else { return }
         actionInProgress = channelId
         errorMessage = nil
 
         Task {
-            // Subscribe before sending so we don't miss fast daemon responses
-            let stream = daemonClient.subscribe()
-
             do {
-                try daemonClient.sendUpdateContactChannel(channelId: channelId, status: status)
+                _ = try await contactClient.updateContactChannel(channelId: channelId, status: status, policy: nil, reason: nil)
+                let refreshed = try await contactClient.fetchContact(contactId: displayContact.id)
+                if let refreshed {
+                    currentContact = refreshed
+                }
             } catch {
                 errorMessage = "Failed to update channel: \(error.localizedDescription)"
-                actionInProgress = nil
-                return
             }
-
-            for await message in stream {
-                if case .contactsResponse(let response) = message {
-                    if response.success {
-                        // Refresh the contact data
-                        try? daemonClient.sendGetContact(contactId: displayContact.id)
-                    } else {
-                        errorMessage = response.error ?? "Failed to update channel"
-                        actionInProgress = nil
-                        return
-                    }
-                    break
-                }
-            }
-
-            // Wait for the refresh response
-            for await message in stream {
-                if case .contactsResponse(let response) = message {
-                    if let updatedContact = response.contact {
-                        currentContact = updatedContact
-                    }
-                    actionInProgress = nil
-                    return
-                }
-            }
-
             actionInProgress = nil
         }
     }
 
     private func deleteContact() {
-        guard let daemonClient else { return }
         guard actionInProgress == nil, verificationInProgress == nil else { return }
         isDeleting = true
         errorMessage = nil
 
         Task {
-            let stream = daemonClient.subscribe()
-
             do {
-                try daemonClient.sendDeleteContact(contactId: displayContact.id)
+                let success = try await contactClient.deleteContact(contactId: displayContact.id)
+                if success {
+                    onDelete?()
+                } else {
+                    errorMessage = "Failed to delete contact"
+                }
             } catch {
                 errorMessage = "Failed to delete contact: \(error.localizedDescription)"
-                isDeleting = false
-                return
             }
-
-            for await message in stream {
-                if case .contactsResponse(let response) = message {
-                    if response.success {
-                        onDelete?()
-                    } else {
-                        errorMessage = response.error ?? "Failed to delete contact"
-                    }
-                    isDeleting = false
-                    return
-                }
-            }
-
             isDeleting = false
         }
     }
