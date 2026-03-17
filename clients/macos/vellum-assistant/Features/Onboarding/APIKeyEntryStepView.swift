@@ -39,23 +39,13 @@ struct APIKeyEntryStepView: View {
                     saveAndHatch()
                 }
 
-                HStack(spacing: VSpacing.lg) {
-                    Link(destination: URL(string: "https://console.anthropic.com/settings/keys")!) {
-                        Text("Get an API key")
-                            .font(.system(size: 13))
-                            .foregroundColor(VColor.primaryBase)
-                    }
-                    .pointerCursor()
-
-                    Button(action: { goBack() }) {
-                        Text("Back")
-                            .font(.system(size: 13))
-                            .foregroundColor(VColor.contentTertiary)
-                    }
-                    .buttonStyle(.plain)
-                    .pointerCursor()
+                OnboardingButton(title: "Get an API key", style: .primary) {
+                    NSWorkspace.shared.open(URL(string: "https://console.anthropic.com/settings/keys")!)
                 }
-                .padding(.top, VSpacing.xs)
+
+                OnboardingButton(title: "Back", style: .ghost) {
+                    goBack()
+                }
             }
         }
         .padding(.horizontal, VSpacing.xxl)

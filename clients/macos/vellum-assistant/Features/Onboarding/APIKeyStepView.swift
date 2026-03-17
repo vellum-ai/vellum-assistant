@@ -42,14 +42,8 @@ struct APIKeyStepView: View {
                 }
 
                 if !isAuthenticated {
-                    HStack(spacing: VSpacing.lg) {
-                        Button(action: { goBack() }) {
-                            Text("Back")
-                                .font(.system(size: 13))
-                                .foregroundColor(VColor.contentTertiary)
-                        }
-                        .buttonStyle(.plain)
-                        .pointerCursor()
+                    OnboardingButton(title: "Back", style: .ghost) {
+                        goBack()
                     }
                     .padding(.top, VSpacing.xs)
                 }

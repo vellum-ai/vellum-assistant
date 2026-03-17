@@ -157,7 +157,7 @@ struct HatchingStepView: View {
                     meetExistingAssistant()
                 }
 
-                OnboardingButton(title: "Go Back", style: .tertiary) {
+                OnboardingButton(title: "Go Back", style: .ghost) {
                     goBack()
                 }
             } else {
@@ -165,7 +165,7 @@ struct HatchingStepView: View {
                     retryHatch()
                 }
 
-                OnboardingButton(title: "Go Back", style: .tertiary) {
+                OnboardingButton(title: "Go Back", style: .ghost) {
                     goBack()
                 }
             }
