@@ -476,9 +476,7 @@ export function wipeConversation(id: string): WipeConversationResult {
   // don't accidentally restore items superseded by unrelated conversations.
   let orphanedSuperseded: Array<{ id: string }> = [];
   if (orphanedKindSubjects.length > 0) {
-    const placeholders = orphanedKindSubjects
-      .map(() => "(?, ?)")
-      .join(", ");
+    const placeholders = orphanedKindSubjects.map(() => "(?, ?)").join(", ");
     const params: Array<string> = [scopeId];
     for (const { kind, subject } of orphanedKindSubjects) {
       params.push(kind, subject);
