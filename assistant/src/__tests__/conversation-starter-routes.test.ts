@@ -447,14 +447,16 @@ function insertCard(overrides: {
   getSqlite().run(
     `INSERT INTO conversation_starters (id, label, prompt, category, generation_batch, scope_id, card_type, tags, icon, description, created_at)
      VALUES (?, ?, ?, ?, ?, ?, 'card', ?, 'lucide-sparkles', 'desc', ?)`,
-    uuid(),
-    overrides.label,
-    overrides.prompt,
-    overrides.category,
-    overrides.batch ?? 1,
-    overrides.scopeId ?? "default",
-    overrides.tags ?? "Quick win",
-    overrides.createdAt ?? now,
+    [
+      uuid(),
+      overrides.label,
+      overrides.prompt,
+      overrides.category,
+      overrides.batch ?? 1,
+      overrides.scopeId ?? "default",
+      overrides.tags ?? "Quick win",
+      overrides.createdAt ?? now,
+    ],
   );
 }
 
@@ -466,10 +468,7 @@ function insertCategoryRelevance(
   getSqlite().run(
     `INSERT OR REPLACE INTO capability_card_categories (scope_id, category, relevance, generation_batch, created_at)
      VALUES (?, ?, ?, 1, ?)`,
-    scopeId,
-    category,
-    relevance,
-    Date.now(),
+    [scopeId, category, relevance, Date.now()],
   );
 }
 
