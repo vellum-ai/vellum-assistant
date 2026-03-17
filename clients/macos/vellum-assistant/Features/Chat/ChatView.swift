@@ -835,7 +835,7 @@ struct ScrollWheelPassthrough: NSViewRepresentable {
                 }
             }
 
-            if let sv = view as? NSScrollView { return sv }
+            if let sv = view as? NSScrollView, sv.hasVerticalScroller { return sv }
             return nil
         }
     }
