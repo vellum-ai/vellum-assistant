@@ -118,13 +118,8 @@ describe("onboarding template contracts", () => {
       expect(identity).toContain("**Emoji:**");
     });
 
-    test("contains the emoji overwrite instruction", () => {
-      const lower = identity.toLowerCase();
-      expect(lower).toContain("change their emoji");
-    });
-
-    test("contains the style tendency field", () => {
-      expect(identity).toContain("**Style tendency:**");
+    test("contains parsed field format guidance", () => {
+      expect(identity).toContain("parsed by the app");
     });
   });
 
