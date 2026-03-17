@@ -584,7 +584,9 @@ struct MainWindowView: View {
                             onSignIn: {
                                 sidebar.showPreferencesDrawer = false
                                 Task {
-                                    await authManager.startWorkOSLogin()
+                                    await authManager.loginWithToast(showToast: { msg, style in
+                                        windowState.showToast(message: msg, style: style)
+                                    })
                                 }
                             },
                             onOpenBilling: {

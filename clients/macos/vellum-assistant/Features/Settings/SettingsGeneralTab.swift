@@ -8,6 +8,7 @@ struct SettingsGeneralTab: View {
     var daemonClient: DaemonClient?
     var authManager: AuthManager
     var onClose: () -> Void
+    var showToast: ((String, ToastInfo.Style) -> Void)?
     var onSignIn: (() -> Void)?
 
     @State private var showingPairingQR: Bool = false
@@ -99,18 +100,14 @@ struct SettingsGeneralTab: View {
                     isDisabled: authManager.isSubmitting
                 ) {
                     Task {
-                        await authManager.startWorkOSLogin()
-                        if authManager.isAuthenticated {
-                            onSignIn?()
+                        if let showToast {
+                            await authManager.loginWithToast(showToast: showToast, onSuccess: { onSignIn?() })
+                        } else {
+                            await authManager.startWorkOSLogin()
+                            if authManager.isAuthenticated { onSignIn?() }
                         }
                     }
                 }
-            }
-
-            if let error = authManager.errorMessage {
-                Text(error)
-                    .font(VFont.caption)
-                    .foregroundColor(VColor.systemNegativeStrong)
             }
         }
     }

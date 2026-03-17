@@ -55,6 +55,7 @@ struct SettingsPanel: View {
     var daemonClient: DaemonClient?
     @ObservedObject var conversationManager: ConversationManager
     var authManager: AuthManager
+    var showToast: ((String, ToastInfo.Style) -> Void)?
     var featureFlagClient: FeatureFlagClientProtocol = FeatureFlagClient()
 
     @State private var apiKeyText: String = ""
@@ -314,7 +315,7 @@ struct SettingsPanel: View {
     private var selectedTabContent: some View {
         switch selectedTab {
         case .account:
-            SettingsGeneralTab(store: store, daemonClient: daemonClient, authManager: authManager, onClose: onClose, onSignIn: {
+            SettingsGeneralTab(store: store, daemonClient: daemonClient, authManager: authManager, onClose: onClose, showToast: showToast, onSignIn: {
                 // Re-bootstrap actor credentials first so the actor token is
                 // available when ensureLocalAssistantApiKey() waits for it.
                 // This mirrors the pattern in proceedToApp() and
@@ -360,7 +361,8 @@ struct SettingsPanel: View {
             InferenceServiceCard(
                 store: store,
                 authManager: authManager,
-                apiKeyText: $apiKeyText
+                apiKeyText: $apiKeyText,
+                showToast: showToast
             )
 
             // WEB SEARCH
@@ -374,7 +376,8 @@ struct SettingsPanel: View {
             ImageGenerationServiceCard(
                 store: store,
                 authManager: authManager,
-                apiKeyText: $imageGenKeyText
+                apiKeyText: $imageGenKeyText,
+                showToast: showToast
             )
         }
         .frame(maxWidth: .infinity, alignment: .leading)
