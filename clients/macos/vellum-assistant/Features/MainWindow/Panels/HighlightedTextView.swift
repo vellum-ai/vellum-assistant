@@ -223,7 +223,7 @@ struct HighlightedTextView: View {
                 Text("\(num)")
                     .font(VFont.monoSmall)
                     .foregroundStyle(Self.gutterTextColor)
-                    .frame(height: lineHeight)
+                    .frame(height: Self.lineHeight)
             }
         }
         .padding(.top, VSpacing.sm)
@@ -238,7 +238,7 @@ struct HighlightedTextView: View {
     private static let lineHeight: CGFloat = {
         let nsFont = NSFont(name: "DMMono-Regular", size: 13)
             ?? NSFont.monospacedSystemFont(ofSize: 13, weight: .regular)
-        return ceil(nsFont.lineHeight)
+        return ceil(nsFont.ascender - nsFont.descender + nsFont.leading)
     }()
 
     private func gutterWidth(for lineCount: Int) -> CGFloat {
