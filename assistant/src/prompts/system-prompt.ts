@@ -360,7 +360,7 @@ export function buildCliReferenceSection(): string {
   return [
     "## Assistant CLI",
     "",
-    "The `assistant` CLI is available in the sandbox for managing configuration, credentials, OAuth connections, memory, contacts, hooks, MCP servers, skills, notifications, schedules, and more. Always use the `bash` tool (never `host_bash`) when running `assistant` commands.",
+    "The `assistant` CLI is available in the sandbox for managing assistant settings, integrations, and services. Always use the `bash` tool (never `host_bash`) when running `assistant` commands.",
     "",
     "Run `assistant --help` to see all available commands, or `assistant <command> --help` for detailed help on any subcommand.",
   ].join("\n");
