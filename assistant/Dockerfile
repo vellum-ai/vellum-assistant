@@ -89,10 +89,7 @@ RUN echo 'Dir::State "/data/dpkg";' > /etc/apt/apt.conf.d/99data-dir && \
 ENV PATH="/data/usr/bin:/data/usr/sbin:${PATH}"
 ENV LD_LIBRARY_PATH="/data/usr/lib:/data/usr/lib/x86_64-linux-gnu:/data/usr/lib/aarch64-linux-gnu"
 
-# Pre-create the CES bootstrap socket directory with world-writable permissions.
-# Docker initializes empty named volumes from the image's mount point, so this
-# ensures the shared socket volume is writable by the CES container's non-root
-# user (uid 1001) when the assistant container starts first.
+# Ensure the CES bootstrap socket volume is writable by the non-root CES user.
 RUN mkdir -p /run/ces-bootstrap && chmod 777 /run/ces-bootstrap
 
 USER root
