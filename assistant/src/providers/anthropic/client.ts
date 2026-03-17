@@ -16,6 +16,37 @@ import type {
 
 const log = getLogger("anthropic-client");
 
+/**
+ * Validate an Anthropic API key by making a lightweight GET /v1/models call.
+ * Returns `{ valid: true }` on success or `{ valid: false, reason: string }` on failure.
+ */
+export async function validateAnthropicApiKey(
+  apiKey: string,
+): Promise<{ valid: true } | { valid: false; reason: string }> {
+  try {
+    const client = new Anthropic({ apiKey });
+    await client.models.list({ limit: 1 });
+    return { valid: true };
+  } catch (error) {
+    if (error instanceof Anthropic.APIError) {
+      if (error.status === 401) {
+        return { valid: false, reason: "API key is invalid or expired." };
+      }
+      return {
+        valid: false,
+        reason: `Anthropic API error (${error.status}): ${error.message}`,
+      };
+    }
+    return {
+      valid: false,
+      reason:
+        error instanceof Error
+          ? error.message
+          : "Failed to validate API key.",
+    };
+  }
+}
+
 const TOOL_ID_RE = /[^a-wyzA-Z0-9_-]/g;
 
 const ANTHROPIC_SUPPORTED_IMAGE_TYPES = new Set([

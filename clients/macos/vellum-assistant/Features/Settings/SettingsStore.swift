@@ -29,6 +29,8 @@ public final class SettingsStore: ObservableObject {
     @Published var hasElevenLabsKey: Bool
     @Published var hasVercelKey: Bool = false
     @Published var maskedKey: String = ""
+    @Published var apiKeySaveError: String?
+    @Published var apiKeySaving: Bool = false
     @Published var maskedBraveKey: String = ""
     @Published var maskedPerplexityKey: String = ""
     @Published var maskedImageGenKey: String = ""
@@ -710,15 +712,25 @@ public final class SettingsStore: ObservableObject {
 
     // MARK: - API Key Actions
 
-    func saveAPIKey(_ raw: String) {
+    func saveAPIKey(_ raw: String, onSuccess: (() -> Void)? = nil) {
         let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
-        APIKeyManager.setKey(trimmed, for: "anthropic")
-        removeDeletionTombstone(type: "api_key", name: "anthropic")
-        syncKeyToDaemon(provider: "anthropic", value: trimmed)
-        hasKey = true
-        maskedKey = Self.maskKey(trimmed)
-        scheduleRoutingSourceRefresh()
+        apiKeySaveError = nil
+        apiKeySaving = true
+        Task {
+            let result = await syncKeyToDaemonWithValidation(provider: "anthropic", value: trimmed)
+            apiKeySaving = false
+            if let error = result.error {
+                apiKeySaveError = error
+                return
+            }
+            APIKeyManager.setKey(trimmed, for: "anthropic")
+            removeDeletionTombstone(type: "api_key", name: "anthropic")
+            hasKey = true
+            maskedKey = Self.maskKey(trimmed)
+            scheduleRoutingSourceRefresh()
+            onSuccess?()
+        }
     }
 
     func clearAPIKey() {
@@ -935,6 +947,32 @@ public final class SettingsStore: ObservableObject {
         guard let bodyData = try? JSONSerialization.data(withJSONObject: body) else { return }
         Task {
             _ = try? await GatewayHTTPClient.post(path: "assistants/\(assistantId)/secrets", body: bodyData)
+        }
+    }
+
+    /// Sync an API key to the daemon with server-side validation.
+    /// Returns a result indicating success or a validation error message.
+    private func syncKeyToDaemonWithValidation(provider: String, value: String) async -> (success: Bool, error: String?) {
+        guard let assistantId = UserDefaults.standard.string(forKey: "connectedAssistantId") else {
+            return (false, "No connected assistant. Please restart the app.")
+        }
+        let body: [String: String] = ["type": "api_key", "name": provider, "value": value]
+        guard let bodyData = try? JSONSerialization.data(withJSONObject: body) else {
+            return (false, "Failed to encode request.")
+        }
+        do {
+            let response = try await GatewayHTTPClient.post(path: "assistants/\(assistantId)/secrets", body: bodyData)
+            if response.isSuccess {
+                return (true, nil)
+            }
+            // Try to parse error message from response body
+            if let parsed = try? JSONSerialization.jsonObject(with: response.data) as? [String: Any],
+               let errorMsg = parsed["error"] as? String {
+                return (false, errorMsg)
+            }
+            return (false, "Failed to save API key (HTTP \(response.statusCode)).")
+        } catch {
+            return (false, "Could not reach assistant. Please check that it is running.")
         }
     }
 

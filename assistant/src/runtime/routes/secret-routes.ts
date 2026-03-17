@@ -11,6 +11,7 @@ import {
 } from "../../config/loader.js";
 import type { CesClient } from "../../credential-execution/client.js";
 import { setSentryOrganizationId } from "../../instrument.js";
+import { validateAnthropicApiKey } from "../../providers/anthropic/client.js";
 import { initializeProviders } from "../../providers/registry.js";
 import { credentialKey } from "../../security/credential-key.js";
 import {
@@ -129,6 +130,21 @@ export async function handleAddSecret(
           400,
         );
       }
+      // Validate Anthropic API keys before storing
+      if (name === "anthropic") {
+        const validation = await validateAnthropicApiKey(value);
+        if (!validation.valid) {
+          log.warn(
+            { provider: name, reason: validation.reason },
+            "API key validation failed",
+          );
+          return Response.json(
+            { success: false, error: validation.reason },
+            { status: 422 },
+          );
+        }
+      }
+
       const stored = await setSecureKeyAsync(name, value);
       if (!stored) {
         return httpError(

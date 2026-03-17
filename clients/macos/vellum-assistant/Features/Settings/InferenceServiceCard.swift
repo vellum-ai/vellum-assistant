@@ -142,6 +142,13 @@ struct InferenceServiceCard: View {
                 .vInputStyle()
                 .font(VFont.body)
                 .foregroundColor(VColor.contentDefault)
+                .disabled(store.apiKeySaving)
+
+                if let error = store.apiKeySaveError {
+                    Text(error)
+                        .font(VFont.caption)
+                        .foregroundColor(VColor.systemNegativeStrong)
+                }
             }
 
             // Model picker
@@ -177,11 +184,15 @@ struct InferenceServiceCard: View {
             if draftMode == "managed" && !isLoggedIn {
                 EmptyView()
             } else {
-                VButton(label: "Save", style: .primary, isDisabled: !hasChanges) {
+                VButton(
+                    label: store.apiKeySaving ? "Validating..." : "Save",
+                    style: .primary,
+                    isDisabled: !hasChanges || store.apiKeySaving
+                ) {
                     save()
                 }
                 if draftMode == "your-own" && isConnected {
-                    VButton(label: "Reset", style: .danger) {
+                    VButton(label: "Reset", style: .danger, isDisabled: store.apiKeySaving) {
                         store.clearAPIKey()
                         apiKeyText = ""
                     }
@@ -193,16 +204,22 @@ struct InferenceServiceCard: View {
     // MARK: - Save
 
     private func save() {
+        store.apiKeySaveError = nil
+
         // Persist mode if changed
         if draftMode != store.inferenceMode {
             store.setInferenceMode(draftMode)
         }
 
-        // Persist API key if entered and in your-own mode
+        // Persist API key if entered and in your-own mode.
+        // saveAPIKey is async (validates with the provider before storing).
+        // The key text is kept until validation succeeds so the user can retry.
         let trimmedKey = apiKeyText.trimmingCharacters(in: .whitespacesAndNewlines)
         if draftMode == "your-own" && !trimmedKey.isEmpty {
-            store.saveAPIKey(trimmedKey)
-            apiKeyText = ""
+            let keyTextBinding = $apiKeyText
+            store.saveAPIKey(trimmedKey, onSuccess: {
+                keyTextBinding.wrappedValue = ""
+            })
         }
 
         // Persist model selection
