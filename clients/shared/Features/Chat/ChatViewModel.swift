@@ -1161,6 +1161,7 @@ public final class ChatViewModel: ObservableObject {
                 pendingSuggestionRequestId = nil
                 errorText = nil
                 conversationError = nil
+                errorManager.isConversationErrorDisplayedInline = false
                 lastFailedMessageText = nil
                 lastFailedMessageDisplayText = nil
                 lastFailedMessageAttachments = nil
@@ -1215,6 +1216,7 @@ public final class ChatViewModel: ObservableObject {
         pendingSuggestionRequestId = nil
         errorText = nil
         conversationError = nil
+        errorManager.isConversationErrorDisplayedInline = false
         lastFailedMessageText = nil
         lastFailedMessageDisplayText = nil
         lastFailedMessageAttachments = nil
@@ -1971,6 +1973,7 @@ public final class ChatViewModel: ObservableObject {
         }
         errorText = nil
         conversationError = nil
+        errorManager.isConversationErrorDisplayedInline = false
         isSending = true
         isThinking = true
         suggestion = nil
@@ -2099,6 +2102,7 @@ public final class ChatViewModel: ObservableObject {
     public func dismissError() {
         conversationError = nil
         errorText = nil
+        errorManager.isConversationErrorDisplayedInline = false
         lastFailedMessageText = nil
         lastFailedMessageDisplayText = nil
         lastFailedMessageAttachments = nil
@@ -2113,12 +2117,15 @@ public final class ChatViewModel: ObservableObject {
 
     /// Dismiss the typed conversation error state. Clears both the typed error
     /// and any corresponding `errorText` so the UI can return to normal.
-    /// Also removes inline error messages from the message list.
+    /// Also removes the most recent inline error message from the message list.
     public func dismissConversationError() {
         conversationError = nil
         errorText = nil
-        // Remove inline error cards so the message list is cleaned up on retry/dismiss.
-        messages.removeAll(where: { $0.isError })
+        errorManager.isConversationErrorDisplayedInline = false
+        // Remove only the most recent inline error card (not all historical ones).
+        if let lastErrorIndex = messages.lastIndex(where: { $0.isError }) {
+            messages.remove(at: lastErrorIndex)
+        }
     }
 
     /// Copy conversation error details to the clipboard for debugging.

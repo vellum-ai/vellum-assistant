@@ -24,6 +24,12 @@ public final class ChatErrorManager: ObservableObject {
     /// Typed conversation error, richer than `errorText` and used for structured retry UI.
     @Published public var conversationError: ConversationError?
 
+    /// Whether the conversation error is already displayed as an inline error card
+    /// in the message list. When true, the toast overlay suppresses its duplicate
+    /// display while downstream consumers (credits-exhausted recovery, sidebar state,
+    /// iOS banner) continue to see the typed error state.
+    @Published public var isConversationErrorDisplayedInline: Bool = false
+
     /// Supplemental diagnostic hint shown alongside a daemon connection error.
     /// Nil when no connection error is active or the error has been dismissed.
     @Published public var connectionDiagnosticHint: String? = nil
