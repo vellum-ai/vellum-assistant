@@ -1,8 +1,13 @@
 import { v4 as uuid } from "uuid";
 
+import type { TraceEvent } from "./message-types/messages.js";
 import type { ServerMessage, TraceEventKind } from "./message-protocol.js";
+import { persistTraceEvent } from "../memory/trace-event-store.js";
+import { getLogger } from "../util/logger.js";
 
 export type TraceEventStatus = "info" | "success" | "warning" | "error";
+
+const log = getLogger("trace-emitter");
 
 const SUMMARY_MAX_LENGTH = 200;
 const ATTRIBUTE_VALUE_MAX_LENGTH = 500;
@@ -49,6 +54,12 @@ export class TraceEmitter {
       summary: truncatedSummary,
       attributes,
     };
+
+    try {
+      persistTraceEvent(event as TraceEvent);
+    } catch (err) {
+      log.warn({ err, eventId }, "Failed to persist trace event");
+    }
 
     this.sendToClient(event);
   }
