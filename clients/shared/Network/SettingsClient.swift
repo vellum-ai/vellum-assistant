@@ -61,13 +61,13 @@ public struct SettingsClient: SettingsClientProtocol {
             )
             guard response.isSuccess else {
                 log.error("fetchTelegramConfig failed (HTTP \(response.statusCode))")
-                return syntheticTelegramError("HTTP \(response.statusCode)", from: response.data)
+                return nil
             }
             let patched = injectType("telegram_config_response", into: response.data)
             return try JSONDecoder().decode(TelegramConfigResponseMessage.self, from: patched)
         } catch {
             log.error("fetchTelegramConfig error: \(error.localizedDescription)")
-            return syntheticTelegramError(error.localizedDescription)
+            return nil
         }
     }
 
@@ -80,13 +80,13 @@ public struct SettingsClient: SettingsClientProtocol {
             )
             guard response.isSuccess else {
                 log.error("fetchChannelVerificationStatus(\(channel)) failed (HTTP \(response.statusCode))")
-                return syntheticVerificationError(channel: channel, message: "HTTP \(response.statusCode)", from: response.data)
+                return nil
             }
             let patched = injectType("channel_verification_session_response", into: response.data)
             return try JSONDecoder().decode(ChannelVerificationSessionResponseMessage.self, from: patched)
         } catch {
             log.error("fetchChannelVerificationStatus(\(channel)) error: \(error.localizedDescription)")
-            return syntheticVerificationError(channel: channel, message: error.localizedDescription)
+            return nil
         }
     }
 
@@ -102,40 +102,4 @@ public struct SettingsClient: SettingsClientProtocol {
         return (try? JSONSerialization.data(withJSONObject: json)) ?? data
     }
 
-    /// Extracts an error message string from a JSON error response body.
-    private func extractErrorMessage(from data: Data) -> String? {
-        guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return nil }
-        if let error = json["error"] as? [String: Any], let message = error["message"] as? String {
-            return message
-        }
-        if let error = json["error"] as? String {
-            return error
-        }
-        return nil
-    }
-
-    /// Builds a synthetic error response so callers still receive a typed
-    /// message with `success: false` instead of `nil`, keeping UI state
-    /// consistent (e.g. clearing loading spinners).
-    private func syntheticTelegramError(_ fallback: String, from data: Data? = nil) -> TelegramConfigResponseMessage {
-        let message = data.flatMap { extractErrorMessage(from: $0) } ?? fallback
-        return TelegramConfigResponseMessage(
-            type: "telegram_config_response",
-            success: false,
-            hasBotToken: false,
-            connected: false,
-            hasWebhookSecret: false,
-            error: message
-        )
-    }
-
-    private func syntheticVerificationError(channel: String, message: String, from data: Data? = nil) -> ChannelVerificationSessionResponseMessage {
-        let errorMessage = data.flatMap { extractErrorMessage(from: $0) } ?? message
-        return ChannelVerificationSessionResponseMessage(
-            type: "channel_verification_session_response",
-            success: false,
-            channel: channel,
-            error: errorMessage
-        )
-    }
 }
