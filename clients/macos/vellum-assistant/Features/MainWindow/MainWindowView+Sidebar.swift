@@ -188,7 +188,7 @@ extension MainWindowView {
                 }
                 .drawingGroup() // Isolate into Metal layer to prevent re-renders from sibling hover
 
-                sidebarSectionDivider(isExpanded: true)
+                sidebarSectionDivider()
             }
 
             // MARK: Nav Items (fixed)
@@ -199,7 +199,7 @@ extension MainWindowView {
                 windowState.showPanel(.apps)
             }
             // Divider between nav items and conversations
-            sidebarSectionDivider(isExpanded: true)
+            sidebarSectionDivider()
 
             // MARK: Conversations (scrollable)
             SidebarConversationsHeader(
@@ -424,7 +424,7 @@ extension MainWindowView {
 
             Spacer(minLength: VSpacing.sm)
 
-            sidebarSectionDivider(isExpanded: true)
+            sidebarSectionDivider()
 
             // Preferences row (fixed)
             PreferencesRow(
@@ -451,7 +451,7 @@ extension MainWindowView {
                 }
                 .drawingGroup() // Isolate into Metal layer to prevent re-renders from sibling hover
 
-                sidebarSectionDivider(isExpanded: false)
+                sidebarSectionDivider()
             }
 
             SidebarNavRow(icon: VIcon.brain.rawValue, label: "Intelligence", isActive: windowState.selection == .panel(.intelligence), isExpanded: false) {
@@ -460,7 +460,7 @@ extension MainWindowView {
             SidebarNavRow(icon: VIcon.layoutGrid.rawValue, label: "Library", isActive: windowState.selection == .panel(.apps), isExpanded: false) {
                 windowState.showPanel(.apps)
             }
-            sidebarSectionDivider(isExpanded: false)
+            sidebarSectionDivider()
 
             SidebarNavRow(icon: VIcon.squarePen.rawValue, label: "New Chat", isActive: false, isExpanded: false) {
                 startNewConversation()
@@ -517,7 +517,7 @@ extension MainWindowView {
 
             Spacer()
 
-            sidebarSectionDivider(isExpanded: false)
+            sidebarSectionDivider()
 
             PreferencesRow(
                 isActive: sidebar.showPreferencesDrawer,
@@ -534,7 +534,7 @@ extension MainWindowView {
     // MARK: - Section Divider
 
     @ViewBuilder
-    func sidebarSectionDivider(isExpanded: Bool) -> some View {
+    func sidebarSectionDivider() -> some View {
         VColor.surfaceBase
             .frame(height: 1)
             .padding(.vertical, SidebarLayoutMetrics.dividerVerticalPadding)
