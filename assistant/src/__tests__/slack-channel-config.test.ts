@@ -153,8 +153,10 @@ mock.module("../oauth/manual-token-connection.js", () => ({
     accountInfo?: string,
   ) => {
     if (providerKey !== "slack_channel") return;
-    const hasBotToken = !!secureKeyStore[credentialKey("slack_channel", "bot_token")];
-    const hasAppToken = !!secureKeyStore[credentialKey("slack_channel", "app_token")];
+    const hasBotToken =
+      !!secureKeyStore[credentialKey("slack_channel", "bot_token")];
+    const hasAppToken =
+      !!secureKeyStore[credentialKey("slack_channel", "app_token")];
     if (hasBotToken && hasAppToken) {
       oauthConnectionStore[providerKey] = {
         id: `conn-${providerKey}`,

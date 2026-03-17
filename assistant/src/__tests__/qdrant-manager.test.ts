@@ -36,9 +36,9 @@ import { QdrantManager } from "../memory/qdrant-manager.js";
 
 /** Short timeouts so tests complete fast but with enough headroom for CI. */
 const FAST_TIMEOUTS = {
-  readyzPollIntervalMs: 10,
-  readyzTimeoutMs: 1_000,
-  shutdownGraceMs: 200,
+  readyzPollIntervalMs: 5,
+  readyzTimeoutMs: 100,
+  shutdownGraceMs: 50,
 } as const;
 
 function placeFakeBinary(script: string): string {
@@ -248,7 +248,7 @@ describe("QdrantManager", () => {
       const startPromise = mgr.start();
 
       // Wait for spawn to happen
-      await Bun.sleep(300);
+      await Bun.sleep(50);
 
       // PID file should be written
       expect(existsSync(pidPath)).toBe(true);
@@ -277,7 +277,7 @@ describe("QdrantManager", () => {
       });
 
       const startPromise = mgr.start();
-      await Bun.sleep(300);
+      await Bun.sleep(50);
 
       expect(existsSync(pidPath)).toBe(true);
 
@@ -285,8 +285,8 @@ describe("QdrantManager", () => {
       await mgr.stop();
       const stopElapsed = Date.now() - stopStart;
 
-      // Grace period is 200ms with FAST_TIMEOUTS — should wait at least that long
-      expect(stopElapsed).toBeGreaterThanOrEqual(100);
+      // Grace period is 50ms with FAST_TIMEOUTS — should wait at least that long
+      expect(stopElapsed).toBeGreaterThanOrEqual(30);
       expect(existsSync(pidPath)).toBe(false);
 
       await expect(startPromise).rejects.toThrow("did not become ready");

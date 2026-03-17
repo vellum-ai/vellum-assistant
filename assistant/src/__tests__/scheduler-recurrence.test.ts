@@ -1,7 +1,15 @@
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
+import {
+  afterAll,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  mock,
+  test,
+} from "bun:test";
 
 const testDir = mkdtempSync(join(tmpdir(), "scheduler-recurrence-test-"));
 
@@ -86,7 +94,28 @@ function buildEndedRrule(): string {
 
 // ── RRULE schedule fires through the scheduler ──────────────────────
 
+// Replace setTimeout with a zero-delay version so the 500ms scheduler
+// wait calls fire instantly instead of waiting real time.
+let origSetTimeout: typeof globalThis.setTimeout;
+
 describe("scheduler RRULE execution", () => {
+  beforeAll(() => {
+    origSetTimeout = globalThis.setTimeout;
+    globalThis.setTimeout = ((
+      fn: TimerHandler,
+      _ms?: number,
+      ...args: unknown[]
+    ) => {
+      // Use a small real delay so fire-and-forget async ticks have time to
+      // settle, while still cutting the 500ms waits down dramatically.
+      return origSetTimeout(fn, 50, ...args);
+    }) as typeof setTimeout;
+  });
+
+  afterAll(() => {
+    globalThis.setTimeout = origSetTimeout;
+  });
+
   beforeEach(() => {
     const db = getDb();
     db.run("DELETE FROM cron_runs");
