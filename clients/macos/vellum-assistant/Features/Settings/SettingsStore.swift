@@ -1305,6 +1305,10 @@ public final class SettingsStore: ObservableObject {
                 method: "DELETE",
                 path: "integrations/twilio/credentials"
             )
+            // Clear any warning/error set by the response — "credentials not
+            // configured" is obvious after the user just disconnected.
+            twilioWarning = nil
+            twilioError = nil
             twilioSaveInProgress = false
             self.fetchChannelSetupStatus()
         }
