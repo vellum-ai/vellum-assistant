@@ -204,25 +204,11 @@ function buildAttachmentSection(): string {
   return [
     "## Sending Files to the User",
     "",
-    "To deliver any file you create or download (images, videos, PDFs, audio, etc.) to the user, you MUST include a self-closing XML tag in your response text:",
+    "To deliver files to the user, include `<vellum-attachment source=\"sandbox\" path=\"scratch/output.png\" />` in your response text. This tag is the ONLY way files reach the user — omitting it means the user won't see the file.",
     "",
-    "```",
-    '<vellum-attachment source="sandbox" path="scratch/output.png" />',
-    "```",
+    'Use `source="host"` with an absolute path for host filesystem files. Optional attributes: `filename` (display name override), `mime_type` (override auto-detection).',
     "",
-    "**CRITICAL:** This tag is the ONLY way files reach the user. If you save a file to disk but do not include the tag, the user will NOT see it. Always emit the tag after creating or downloading a file.",
-    "",
-    "- `source`: `sandbox` (default, files inside the sandbox working directory) or `host` (absolute paths on the host filesystem — requires user approval).",
-    "- `path`: Required. Relative path for sandbox, absolute path for host.",
-    "- `filename`: Optional override for the delivered filename (defaults to the basename of the path).",
-    "- `mime_type`: Optional MIME type override (inferred from the file extension if omitted).",
-    "",
-    'Example: `<vellum-attachment source="sandbox" path="scratch/chart.png" />`',
-    "",
-    "Limits: 50 MB per attachment. Tool outputs that produce image or file content blocks are also automatically converted into attachments.",
-    "",
-    "### Inline Images and GIFs",
-    "Embed images/GIFs inline using markdown: `![description](URL)`. Do NOT wrap in code fences.",
+    "Embed images/GIFs inline using markdown: `![description](URL)`.",
   ].join("\n");
 }
 
