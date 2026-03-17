@@ -45,59 +45,58 @@ export function orderStrongestFirst<T extends StarterItem>(items: T[]): T[] {
     group.push(item);
   }
 
-  // Round-robin pick from categories sorted by group size (largest first)
-  // to spread diversity across the top positions.
+  // Prefer categories with the most remaining items so the row stays varied
+  // early without burying the dominant themes entirely.
   const sortedGroups = [...byCategory.entries()]
     .sort((a, b) => b[1].length - a[1].length)
     .map(([, group]) => ({ items: group, idx: 0 }));
 
   const result: T[] = [];
-  let lastCategory: string | null = null;
   const seenCategories = new Set<string>();
+  let lastCategory: string | null = null;
 
   while (result.length < items.length) {
     let picked = false;
+    const availableGroups = sortedGroups.filter(
+      (group) => group.idx < group.items.length,
+    );
 
-    // First pass: prefer categories not yet seen at all (maximizes diversity in
-    // top positions), skipping only the immediately preceding category.
-    for (const group of sortedGroups) {
+    const unseenGroups = availableGroups.filter((group) => {
+      const category = group.items[group.idx]?.category ?? "other";
+      return category !== lastCategory && !seenCategories.has(category);
+    });
+
+    const nextGroups =
+      unseenGroups.length > 0
+        ? unseenGroups
+        : availableGroups.filter((group) => {
+            const category = group.items[group.idx]?.category ?? "other";
+            return category !== lastCategory;
+          });
+
+    // First pass: prefer unseen categories, then avoid adjacent duplicates.
+    for (const group of nextGroups) {
       if (group.idx >= group.items.length) continue;
       const candidate = group.items[group.idx];
       const cat = candidate.category ?? "other";
-      if (cat !== lastCategory && !seenCategories.has(cat)) {
-        result.push(candidate);
-        group.idx++;
-        lastCategory = cat;
-        seenCategories.add(cat);
-        picked = true;
-        break;
-      }
-    }
-
-    // Second pass: pick from any group whose category differs from last
-    if (!picked) {
-      for (const group of sortedGroups) {
-        if (group.idx >= group.items.length) continue;
-        const candidate = group.items[group.idx];
-        const cat = candidate.category ?? "other";
-        if (cat !== lastCategory) {
-          result.push(candidate);
-          group.idx++;
-          lastCategory = cat;
-          seenCategories.add(cat);
-          picked = true;
-          break;
-        }
-      }
+      result.push(candidate);
+      group.idx++;
+      seenCategories.add(cat);
+      lastCategory = cat;
+      picked = true;
+      break;
     }
 
     // Fallback: if all remaining items share the same category, just pick next
     if (!picked) {
-      for (const group of sortedGroups) {
+      for (const group of availableGroups) {
         if (group.idx < group.items.length) {
-          result.push(group.items[group.idx]);
+          const candidate = group.items[group.idx];
+          const cat = candidate.category ?? "other";
+          result.push(candidate);
           group.idx++;
-          lastCategory = group.items[group.idx - 1].category ?? "other";
+          seenCategories.add(cat);
+          lastCategory = cat;
           picked = true;
           break;
         }

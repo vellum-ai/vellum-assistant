@@ -5,6 +5,9 @@ import UniformTypeIdentifiers
 // MARK: - Panel Coordination Extension
 
 extension MainWindowView {
+    fileprivate static let conversationStartersFeatureFlagKey =
+        "feature_flags.conversation-starters.enabled"
+
     // MARK: - Config-Driven Slot Rendering
 
     @ViewBuilder
@@ -586,6 +589,10 @@ struct ActiveChatViewWrapper: View {
     private var isBootstrapTimedOut: Bool { bootstrapStateRaw == "timedOut" }
 
     var body: some View {
+        let conversationStartersEnabled = AssistantFeatureFlagResolver.isEnabled(
+            MainWindowView.conversationStartersFeatureFlagKey
+        )
+
         ChatView(
             messages: viewModel.messages,
             inputText: Binding(
@@ -690,8 +697,8 @@ struct ActiveChatViewWrapper: View {
             conversationId: conversationId,
             daemonGreeting: viewModel.emptyStateGreeting,
             onRequestGreeting: { [weak viewModel] in viewModel?.generateGreeting() },
-            conversationStarters: MacOSClientFeatureFlagManager.shared.isEnabled("conversation_starters_enabled") ? viewModel.conversationStarters : [],
-            conversationStartersLoading: MacOSClientFeatureFlagManager.shared.isEnabled("conversation_starters_enabled") && viewModel.conversationStartersLoading,
+            conversationStarters: conversationStartersEnabled ? viewModel.conversationStarters : [],
+            conversationStartersLoading: conversationStartersEnabled && viewModel.conversationStartersLoading,
             onSelectStarter: { [weak viewModel] starter in
                 viewModel?.inputText = starter.prompt
             },
