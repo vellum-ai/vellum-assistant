@@ -413,7 +413,8 @@ async function listAllAssistants(): Promise<void> {
         if (!alive) {
           health = { status: "sleeping", detail: null };
         } else {
-          health = await checkHealth(a.localUrl ?? a.runtimeUrl, a.bearerToken);
+          const token = loadGuardianToken(a.assistantId)?.accessToken;
+          health = await checkHealth(a.localUrl ?? a.runtimeUrl, token);
         }
       } else if (a.cloud === "docker") {
         const res = dockerResourceNames(a.assistantId);
@@ -421,13 +422,13 @@ async function listAllAssistants(): Promise<void> {
         if (!state || state !== "running") {
           health = { status: "sleeping", detail: null };
         } else {
-          const token = a.bearerToken ?? loadGuardianToken(a.assistantId)?.accessToken;
+          const token = loadGuardianToken(a.assistantId)?.accessToken;
           health = await checkHealth(a.localUrl ?? a.runtimeUrl, token);
         }
       } else if (a.cloud === "vellum") {
         health = await checkManagedHealth(a.runtimeUrl, a.assistantId);
       } else {
-        const token = a.bearerToken ?? loadGuardianToken(a.assistantId)?.accessToken;
+        const token = loadGuardianToken(a.assistantId)?.accessToken;
         health = await checkHealth(a.localUrl ?? a.runtimeUrl, token);
       }
 

@@ -104,7 +104,7 @@ async function tryLaunchClient(): Promise<boolean> {
   const url = entry.localUrl || entry.runtimeUrl;
   if (!url) return false;
 
-  const token = entry.bearerToken ?? loadGuardianToken(entry.assistantId)?.accessToken;
+  const token = loadGuardianToken(entry.assistantId)?.accessToken;
   const result = await checkHealth(url, token);
   if (result.status !== "healthy") return false;
 

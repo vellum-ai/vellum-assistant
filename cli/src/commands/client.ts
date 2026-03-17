@@ -84,7 +84,7 @@ function parseArgs(): ParsedArgs {
 
   let runtimeUrl = entry?.localUrl || entry?.runtimeUrl || FALLBACK_RUNTIME_URL;
   let assistantId = entry?.assistantId || DAEMON_INTERNAL_ASSISTANT_ID;
-  const bearerToken = entry?.bearerToken || loadGuardianToken(entry?.assistantId ?? "")?.accessToken || undefined;
+  const bearerToken = loadGuardianToken(entry?.assistantId ?? "")?.accessToken ?? undefined;
   const species: Species = (entry?.species as Species) ?? "vellum";
 
   for (let i = 0; i < flagArgs.length; i++) {
