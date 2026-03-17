@@ -326,6 +326,7 @@ case "$CMD" in
     clean)
         echo "Cleaning..."
         rm -rf "$SCRIPT_DIR/dist" "$SCRIPT_DIR/../.build"
+        rm -rf "$SCRIPT_DIR/daemon-bin" "$SCRIPT_DIR/assistant-bin" "$SCRIPT_DIR/cli-bin" "$SCRIPT_DIR/gateway-bin"
         echo "Done."
         exit 0
         ;;
@@ -365,6 +366,12 @@ if [ "$CMD" = "release" ] || [ "$CMD" = "release-application" ]; then
         # Force clean for release builds to prevent stale artifacts in production
         echo "Release build: forcing clean to ensure no stale artifacts..."
         rm -rf "$SCRIPT_DIR/dist" "$SCRIPT_DIR/../.build"
+        # Also clean compiled Bun binaries to prevent architecture mismatches
+        # (e.g. arm64 binaries from a previous build being bundled into an x86_64 release).
+        # Skip when SKIP_BUN_REBUILD=1, since pre-built binaries are intentionally provided.
+        if [ "${SKIP_BUN_REBUILD:-}" != "1" ]; then
+            rm -rf "$SCRIPT_DIR/daemon-bin" "$SCRIPT_DIR/assistant-bin" "$SCRIPT_DIR/cli-bin" "$SCRIPT_DIR/gateway-bin"
+        fi
     fi
 fi
 
