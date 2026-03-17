@@ -276,6 +276,37 @@ describe("classifyConversationError", () => {
     });
   });
 
+  describe("streaming corruption errors", () => {
+    const cases = [
+      "Unexpected event order, got message_start before receiving message_stop",
+      "Anthropic request failed: Unexpected event order, got message_start before receiving \"message_stop\"",
+      "stream ended without producing a Message",
+      "request ended without sending any chunks",
+      "stream has ended, this shouldn't happen",
+    ];
+
+    for (const msg of cases) {
+      it(`classifies "${msg}" as PROVIDER_API (retryable)`, () => {
+        const result = classifyConversationError(new Error(msg), baseCtx);
+        expect(result.code).toBe("PROVIDER_API");
+        expect(result.retryable).toBe(true);
+        expect(result.userMessage).toContain("interrupted");
+        expect(result.errorCategory).toBe("stream_corruption");
+      });
+    }
+
+    it("classifies ProviderError without statusCode with streaming message as PROVIDER_API", () => {
+      const err = new ProviderError(
+        "Unexpected event order, got message_start before receiving message_stop",
+        "anthropic",
+      );
+      const result = classifyConversationError(err, baseCtx);
+      expect(result.code).toBe("PROVIDER_API");
+      expect(result.retryable).toBe(true);
+      expect(result.errorCategory).toBe("stream_corruption");
+    });
+  });
+
   describe("abort/cancel errors (non-user-initiated)", () => {
     it('classifies "aborted" as CONVERSATION_ABORTED', () => {
       const result = classifyConversationError(

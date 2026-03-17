@@ -85,6 +85,14 @@ const WEB_SEARCH_ORDERING_PATTERNS = [
   /web_search.*tool_result/i,
 ];
 
+// Streaming corruption patterns (Anthropic SDK throws non-HTTP errors for SSE issues)
+const STREAMING_ERROR_PATTERNS = [
+  /unexpected event order/i,
+  /stream ended without producing/i,
+  /request ended without sending any chunks/i,
+  /stream has ended.*this shouldn't happen/i,
+];
+
 // User-initiated cancellation patterns — these should NOT produce conversation_error
 const CANCEL_PATTERNS = [/abort/i, /cancel/i];
 
@@ -288,6 +296,11 @@ export function isOrderingError(message: string): boolean {
   return ORDERING_ERROR_PATTERNS.some((p) => p.test(message));
 }
 
+/** Check whether an error message indicates an Anthropic SDK streaming corruption. */
+export function isStreamingError(message: string): boolean {
+  return STREAMING_ERROR_PATTERNS.some((p) => p.test(message));
+}
+
 function classifyByMessage(
   message: string,
 ): Omit<ClassifiedConversationError, "debugDetails"> {
@@ -370,6 +383,16 @@ function classifyByMessage(
         errorCategory: "provider_timeout",
       };
     }
+  }
+
+  // Streaming corruption errors (Anthropic SDK SSE issues — transient, retryable)
+  if (isStreamingError(message)) {
+    return {
+      code: "PROVIDER_API",
+      userMessage: "The AI provider's response was interrupted. Please try again.",
+      retryable: true,
+      errorCategory: "stream_corruption",
+    };
   }
 
   // Non-user abort/failure (e.g. AbortError from internal logic, not user cancel)
