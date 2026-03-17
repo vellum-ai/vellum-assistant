@@ -149,8 +149,10 @@ declare -a SAFE_LINE_PATTERNS=(
     "case[[:space:]]+[a-zA-Z][a-zA-Z0-9]*[[:space:]]*=[[:space:]]*['\"][a-z][a-z_]*_[a-z_]*['\"][[:space:]]*$"
     # Bash: password variable assigned from a shell parameter expansion, not a
     # hardcoded value. E.g. `MAC_MINI_PASSWORD="${MAC_MINI_PASSWORD:-}"` or
-    # `ACTIVE_PASSWORD="${INTEL_PASSWORD}"`.
-    "[Pp][Aa][Ss][Ss][Ww][Oo][Rr][Dd][[:space:]]*=[[:space:]]*['\"]\\\$\\{[^}]+\\}['\"]"
+    # `ACTIVE_PASSWORD="${INTEL_PASSWORD}"`. Only allows a variable name with
+    # an optional empty default (:-), rejecting expansions that embed a
+    # hardcoded fallback like `${VAR:-secret}`.
+    "[Pp][Aa][Ss][Ss][Ww][Oo][Rr][Dd][[:space:]]*=[[:space:]]*['\"]\\\$\\{[A-Za-z_][A-Za-z0-9_]*(:-)?\\}['\"]"
     # AWS well-known example key used in documentation
     "AKIAIOSFODNN7EXAMPLE"
     # Swift let/var constants used as UserDefaults key names (not secrets).
@@ -335,6 +337,8 @@ if [ "${1:-}" = "--self-test" ]; then
     SAFE_BASH_PASSWORD_EXPANSION2='  ACTIVE_PASSWORD="${INTEL_PASSWORD}"'
     # Bash: password variable with hardcoded value (dangerous — must NOT be whitelisted)
     UNSAFE_BASH_PASSWORD_HARDCODED='MAC_MINI_PASSWORD="hunter2"'
+    # Bash: password variable with hardcoded fallback in expansion (dangerous — must NOT be whitelisted)
+    UNSAFE_BASH_PASSWORD_EXPANSION_FALLBACK='MAC_MINI_PASSWORD="${MAC_MINI_PASSWORD:-hunter2}"'
     # Swift CodingKeys enum case mapping property to snake_case JSON key (false positive to whitelist)
     SAFE_SWIFT_CODING_KEY='        case assistantApiKey = "assistant_api_key"'
     # Swift CodingKeys with a real secret value (dangerous — must NOT be whitelisted)
@@ -686,6 +690,10 @@ if [ "${1:-}" = "--self-test" ]; then
     fi
     if matches_secret_pattern "$UNSAFE_BASH_PASSWORD_HARDCODED" && matches_safe_line_pattern "$UNSAFE_BASH_PASSWORD_HARDCODED"; then
         echo -e "${RED}Self-test failed:${NC} bash hardcoded password was incorrectly whitelisted"
+        exit 1
+    fi
+    if matches_secret_pattern "$UNSAFE_BASH_PASSWORD_EXPANSION_FALLBACK" && matches_safe_line_pattern "$UNSAFE_BASH_PASSWORD_EXPANSION_FALLBACK"; then
+        echo -e "${RED}Self-test failed:${NC} bash password expansion with hardcoded fallback was incorrectly whitelisted"
         exit 1
     fi
 
