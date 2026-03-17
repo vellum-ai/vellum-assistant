@@ -99,7 +99,6 @@ struct SkillDetailView: View {
                         } else {
                             skillsStore.enableSkill(name: skill.name)
                         }
-                        skillsStore.fetchSkills(force: true)
                     } label: {
                         HStack {
                             VIconView(.circlePlay, size: 16)

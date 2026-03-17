@@ -141,6 +141,26 @@ public struct AppsClient: AppsClientProtocol {
         }
     }
 
+    /// Open an app and dispatch the resulting surface through the daemon's
+    /// message router so the workspace pipeline is triggered.
+    public static func openAppAndDispatchSurface(id: String, daemonClient: DaemonClient) async {
+        let result = await AppsClient().openApp(id: id)
+        guard let result else { return }
+        let surfaceMsg = UiSurfaceShowMessage(
+            conversationId: "app-open",
+            surfaceId: "app-open-\(result.appId)",
+            surfaceType: "dynamic_page",
+            title: result.name,
+            data: AnyCodable(["html": result.html, "appId": result.appId]),
+            actions: nil,
+            display: "panel",
+            messageId: nil
+        )
+        await MainActor.run {
+            daemonClient.handleServerMessage(.uiSurfaceShow(surfaceMsg))
+        }
+    }
+
     public func deleteApp(id: String) async -> AppDeleteResponse? {
         do {
             let response = try await GatewayHTTPClient.post(

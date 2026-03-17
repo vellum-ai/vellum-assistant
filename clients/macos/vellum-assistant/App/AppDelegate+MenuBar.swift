@@ -350,7 +350,7 @@ extension AppDelegate {
         let storedIcon = info["icon"]
         let appIcon = cachedApp?.icon ?? (storedIcon?.isEmpty == false ? storedIcon : nil)
         mainWindow?.appListManager.recordAppOpen(id: appId, name: appName, icon: appIcon)
-        Task { await AppsClient().openApp(id: appId) }
+        Task { await AppsClient.openAppAndDispatchSurface(id: appId, daemonClient: daemonClient) }
     }
 
     @objc func toggleSkill(_ sender: NSMenuItem) {

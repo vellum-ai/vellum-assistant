@@ -577,7 +577,7 @@ struct GeneratedPanel: View {
             // When onOpenApp is set, the daemon's response will be intercepted
             // by SurfaceManager and routed to the workspace (see PR 5).
             onRecordAppOpen?(localId, item.name, item.icon, item.appType)
-            Task { await AppsClient().openApp(id: localId) }
+            Task { await AppsClient.openAppAndDispatchSurface(id: localId, daemonClient: daemonClient) }
         } else if let uuid = item.sharedUUID {
             // Shared apps: construct surface from unpacked files on disk
             // Sanitize to prevent XSS — name comes from external bundle metadata

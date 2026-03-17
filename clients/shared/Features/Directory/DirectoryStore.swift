@@ -56,7 +56,8 @@ public final class DirectoryStore: ObservableObject {
 
     /// Open a local app by ID (fire-and-forget).
     public func openApp(id: String) {
-        Task { await appsClient.openApp(id: id) }
+        guard let daemonClient else { return }
+        Task { await AppsClient.openAppAndDispatchSurface(id: id, daemonClient: daemonClient) }
     }
 
     /// Open a local app by ID, returning the result for callers that need to
@@ -91,7 +92,9 @@ public final class DirectoryStore: ObservableObject {
         Task {
             let response = await appsClient.fetchSharedAppsList()
             if let response {
-                self.sharedApps = response.apps
+                if !response.apps.isEmpty || self.sharedApps.isEmpty {
+                    self.sharedApps = response.apps
+                }
             }
             isLoadingSharedApps = false
         }

@@ -269,11 +269,17 @@ public final class SkillsStore: ObservableObject {
     // MARK: - Enable / Disable
 
     public func enableSkill(name: String) {
-        Task { _ = await skillsClient.enableSkill(name: name) }
+        Task {
+            _ = await skillsClient.enableSkill(name: name)
+            fetchSkills(force: true)
+        }
     }
 
     public func disableSkill(name: String) {
-        Task { _ = await skillsClient.disableSkill(name: name) }
+        Task {
+            _ = await skillsClient.disableSkill(name: name)
+            fetchSkills(force: true)
+        }
     }
 
     // MARK: - Configure Skill

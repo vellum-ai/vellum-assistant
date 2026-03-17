@@ -49,7 +49,6 @@ struct InstalledSkillsView: View {
                     if skill.state == "enabled" {
                         Button {
                             skillsStore.disableSkill(name: skill.name)
-                            skillsStore.fetchSkills(force: true)
                         } label: {
                             Label { Text("Disable") } icon: { VIconView(.circlePlay, size: 12) }
                         }
@@ -57,7 +56,6 @@ struct InstalledSkillsView: View {
                     } else {
                         Button {
                             skillsStore.enableSkill(name: skill.name)
-                            skillsStore.fetchSkills(force: true)
                         } label: {
                             Label { Text("Enable") } icon: { VIconView(.circlePlay, size: 12) }
                         }
