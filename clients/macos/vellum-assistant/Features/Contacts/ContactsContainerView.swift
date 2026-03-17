@@ -192,7 +192,7 @@ struct ContactsContainerView: View {
 
                 // Channels section in bordered card
                 if let store {
-                    AssistantChannelsDetailView(store: store, daemonClient: daemonClient, isEmailEnabled: isEmailEnabled)
+                    AssistantChannelsDetailView(store: store, daemonClient: daemonClient, isEmailEnabled: isEmailEnabled, showCardBorders: false)
                         .padding(VSpacing.lg)
                         .overlay(
                             RoundedRectangle(cornerRadius: VRadius.xl)
