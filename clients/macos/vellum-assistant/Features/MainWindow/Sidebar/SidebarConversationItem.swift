@@ -118,7 +118,7 @@ struct SidebarConversationItem: View {
                     .foregroundColor(isSelected ? VColor.contentEmphasized : VColor.contentSecondary)
                     .lineLimit(1)
                     .truncationMode(.tail)
-                    .help(conversation.title)
+                    .nativeTooltip(conversation.title)
 
             }
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -169,6 +169,7 @@ struct SidebarConversationItem: View {
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
+                .nativeTooltip("Archive")
                 .padding(.trailing, VSpacing.xs)
                 .accessibilityLabel("Archive \(conversation.title)")
             }
