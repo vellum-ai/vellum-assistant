@@ -76,6 +76,8 @@ export interface ImportDryRunReport {
  */
 export interface PathResolver {
   resolve(archivePath: string): string | null;
+  /** Resolves the root directory for a given archive path prefix (e.g. "skills/", "hooks/"). */
+  resolveRoot?(prefix: string): string | null;
 }
 
 export class DefaultPathResolver implements PathResolver {
@@ -87,6 +89,19 @@ export class DefaultPathResolver implements PathResolver {
     private workspaceDir?: string,
     private hooksDir?: string,
   ) {}
+
+  resolveRoot(prefix: string): string | null {
+    switch (prefix) {
+      case "skills/":
+        return this.skillsDir ? resolve(this.skillsDir) : null;
+      case "hooks/":
+        return this.hooksDir ? resolve(this.hooksDir) : null;
+      case "prompts/":
+        return this.workspaceDir ? resolve(this.workspaceDir) : null;
+      default:
+        return null;
+    }
+  }
 
   resolve(archivePath: string): string | null {
     switch (archivePath) {

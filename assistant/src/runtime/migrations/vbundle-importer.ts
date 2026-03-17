@@ -18,7 +18,7 @@ import {
   existsSync,
   mkdirSync,
   readFileSync,
-  rmSync,
+  renameSync,
   writeFileSync,
 } from "node:fs";
 import { dirname } from "node:path";
@@ -155,84 +155,29 @@ export function commitImport(options: ImportCommitOptions): ImportCommitResult {
     entryMap = validation.entries;
   }
 
-  // Step 1b: Clear skills directory if the bundle contains skills entries.
-  // This ensures the restored skills match the backup exactly — no stale
-  // skills left behind from the current assistant state.
-  const hasSkillsEntries = manifest.files.some((f) =>
-    f.path.startsWith("skills/"),
-  );
-  if (hasSkillsEntries) {
-    // Derive the skills directory from the resolver by resolving a known
-    // skills path prefix and stripping the relative portion.
-    const firstSkillsEntry = manifest.files.find((f) =>
-      f.path.startsWith("skills/"),
-    )!;
-    const resolvedSkillPath = pathResolver.resolve(firstSkillsEntry.path);
-    if (resolvedSkillPath) {
-      // The resolver maps "skills/<relative>" → "<skillsDir>/<relative>",
-      // so strip the relative suffix to get the skills root directory.
-      const relativeSuffix = firstSkillsEntry.path.slice("skills/".length);
-      const skillsRoot = resolvedSkillPath.slice(
-        0,
-        resolvedSkillPath.length - relativeSuffix.length,
-      );
-      // Remove trailing slash if present (unless it's the root "/")
-      const skillsDirPath =
-        skillsRoot.length > 1 && skillsRoot.endsWith("/")
-          ? skillsRoot.slice(0, -1)
-          : skillsRoot;
+  // Step 1b: Back up and clear directories that will be fully restored from
+  // the bundle. We rename (not delete) to preserve a recoverable backup in
+  // case a later write fails — this prevents irrecoverable data loss.
+  for (const prefix of ["skills/", "hooks/"] as const) {
+    const hasEntries = manifest.files.some((f) => f.path.startsWith(prefix));
+    if (!hasEntries) continue;
 
-      if (existsSync(skillsDirPath)) {
-        try {
-          rmSync(skillsDirPath, { recursive: true, force: true });
-        } catch (err) {
-          return {
-            ok: false,
-            reason: "write_failed",
-            message: `Failed to clear skills directory "${skillsDirPath}": ${
-              err instanceof Error ? err.message : String(err)
-            }`,
-          };
-        }
-      }
-    }
-  }
+    const dirRoot = pathResolver.resolveRoot?.(prefix);
+    if (!dirRoot || !existsSync(dirRoot)) continue;
 
-  // Step 1c: Clear hooks directory if the bundle contains hooks entries.
-  // This ensures the restored hooks match the backup exactly — no stale
-  // hooks left behind from the current assistant state.
-  const hasHooksEntries = manifest.files.some((f) =>
-    f.path.startsWith("hooks/"),
-  );
-  if (hasHooksEntries) {
-    const firstHooksEntry = manifest.files.find((f) =>
-      f.path.startsWith("hooks/"),
-    )!;
-    const resolvedHookPath = pathResolver.resolve(firstHooksEntry.path);
-    if (resolvedHookPath) {
-      const relativeSuffix = firstHooksEntry.path.slice("hooks/".length);
-      const hooksRoot = resolvedHookPath.slice(
-        0,
-        resolvedHookPath.length - relativeSuffix.length,
-      );
-      const hooksDirPath =
-        hooksRoot.length > 1 && hooksRoot.endsWith("/")
-          ? hooksRoot.slice(0, -1)
-          : hooksRoot;
-
-      if (existsSync(hooksDirPath)) {
-        try {
-          rmSync(hooksDirPath, { recursive: true, force: true });
-        } catch (err) {
-          return {
-            ok: false,
-            reason: "write_failed",
-            message: `Failed to clear hooks directory "${hooksDirPath}": ${
-              err instanceof Error ? err.message : String(err)
-            }`,
-          };
-        }
-      }
+    const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
+    const backupPath = `${dirRoot}.pre-import-backup-${timestamp}`;
+    try {
+      renameSync(dirRoot, backupPath);
+    } catch (err) {
+      const label = prefix.slice(0, -1); // "skills" or "hooks"
+      return {
+        ok: false,
+        reason: "write_failed",
+        message: `Failed to backup ${label} directory "${dirRoot}": ${
+          err instanceof Error ? err.message : String(err)
+        }`,
+      };
     }
   }
 
