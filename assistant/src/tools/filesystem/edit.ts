@@ -9,7 +9,7 @@ import type { Tool, ToolContext, ToolExecutionResult } from "../types.js";
 class FileEditTool implements Tool {
   name = "file_edit";
   description =
-    "Replace an exact string in a file with a new string. Use this for surgical edits instead of rewriting entire files.";
+    "Replace an exact string in a file with a new string. Use this for surgical edits instead of rewriting entire files. To delete a file, use bash with rm instead.";
   category = "filesystem";
   defaultRiskLevel = RiskLevel.Medium;
 
