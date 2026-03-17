@@ -250,6 +250,7 @@ describe("Invariant 2: no generic plaintext secret read API", () => {
       "daemon/providers-setup.ts", // provider initialization API key lookup
       "tools/claude-code/claude-code.ts", // Claude Code tool API key lookup
       "workspace/migrations/006-services-config.ts", // services config migration reads provider API keys
+      "cli/commands/avatar.ts", // CLI avatar generation API key lookup
     ]);
 
     const thisDir = dirname(fileURLToPath(import.meta.url));
