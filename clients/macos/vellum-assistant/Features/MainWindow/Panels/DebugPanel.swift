@@ -8,6 +8,7 @@ struct DebugPanel: View {
     var onClose: () -> Void
 
     @State private var isLoadingHistory = false
+    @State private var hydrationTask: Task<Void, Never>?
     private let traceEventClient: any TraceEventClientProtocol = TraceEventClient()
 
     private var hasEvents: Bool {
@@ -66,6 +67,9 @@ struct DebugPanel: View {
         }
         .onDisappear { traceStore.isObserved = false }
         .onChange(of: activeSessionId) { _, _ in
+            hydrationTask?.cancel()
+            hydrationTask = nil
+            isLoadingHistory = false
             hydrateIfNeeded()
         }
     }
@@ -76,10 +80,15 @@ struct DebugPanel: View {
         guard let conversationId = activeSessionId else { return }
         guard !hasEvents, !isLoadingHistory else { return }
         isLoadingHistory = true
-        Task {
-            defer { isLoadingHistory = false }
+        hydrationTask = Task {
+            defer {
+                guard !Task.isCancelled else { return }
+                isLoadingHistory = false
+                hydrationTask = nil
+            }
             do {
                 let events = try await traceEventClient.fetchHistory(conversationId: conversationId)
+                guard !Task.isCancelled else { return }
                 traceStore.loadHistory(events)
             } catch {
                 // Fetch failed — fall back to the existing "No trace events yet" empty state.
