@@ -67,6 +67,7 @@ import {
   type RouteDefinition,
   type GetClientIp,
 } from "./http/router.js";
+import { SleepWakeDetector } from "./sleep-wake-detector.js";
 import { callTelegramApi } from "./telegram/api.js";
 import { reconcileTelegramWebhook } from "./telegram/webhook-manager.js";
 
@@ -983,11 +984,34 @@ async function main() {
 
   configFileWatcher.start();
 
+  // ── Sleep/wake detection ──
+  // Detect system sleep/wake transitions and force-reconnect channels
+  // that may have stale connections after the OS suspended the process.
+  const sleepWakeDetector = new SleepWakeDetector(() => {
+    log.info("System wake detected — reconnecting channels");
+
+    // Force-reconnect Slack WebSocket (may be half-open after sleep)
+    slackSocketClient?.forceReconnect();
+
+    // Invalidate caches so next read picks up any config changes (e.g. new ngrok URL)
+    configFileCache.invalidate();
+    credentialCache.invalidate();
+
+    // Re-register Telegram webhook with current ingress URL
+    if (telegramReady) {
+      reconcileTelegramWebhook(telegramCaches).catch((err) => {
+        log.error({ err }, "Failed to reconcile Telegram webhook after wake");
+      });
+    }
+  });
+  sleepWakeDetector.start();
+
   const drainMs = config.shutdownDrainMs;
 
   process.on("SIGTERM", () => {
     log.info("SIGTERM received, starting graceful shutdown");
     draining = true;
+    sleepWakeDetector.stop();
     credentialWatcher.stop();
     configFileWatcher.stop();
     telegramDedupCache.stopCleanup();

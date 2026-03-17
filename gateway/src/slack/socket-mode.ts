@@ -149,6 +149,36 @@ export class SlackSocketModeClient {
   }
 
   /**
+   * Force-close the current WebSocket and reconnect immediately.
+   * Used by the sleep/wake detector to recover from half-open connections
+   * that survive system sleep.
+   */
+  forceReconnect(): void {
+    if (!this.running) return;
+
+    log.info("Force-reconnecting Slack Socket Mode (sleep/wake recovery)");
+
+    if (this.reconnectTimer) {
+      clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = null;
+    }
+
+    if (this.ws) {
+      try {
+        this.ws.close(1000, "force reconnect");
+      } catch {
+        // ignore close errors
+      }
+      this.ws = null;
+    }
+
+    this.reconnectAttempt = 0;
+    this.connect().catch((err) => {
+      log.error({ err }, "Force reconnect failed");
+    });
+  }
+
+  /**
    * Register a thread as active so future replies (without @mention) are forwarded.
    */
   trackThread(threadTs: string): void {
