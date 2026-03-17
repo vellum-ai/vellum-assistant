@@ -200,9 +200,12 @@ public final class SettingsStore: ObservableObject {
     /// Current web search mode. Values: "managed" or "your-own".
     @Published var webSearchMode: String = "your-own"
 
+    /// Current Google OAuth mode. Values: "managed" or "your-own".
+    @Published var googleOAuthMode: String = "managed"
+
     /// True when any service is configured to use managed mode.
     var hasManagedServices: Bool {
-        inferenceMode == "managed" || webSearchMode == "managed" || imageGenMode == "managed"
+        inferenceMode == "managed" || webSearchMode == "managed" || imageGenMode == "managed" || googleOAuthMode == "managed"
     }
 
     static let availableWebSearchProviders = ["inference-provider-native", "perplexity", "brave"]
@@ -1965,6 +1968,10 @@ public final class SettingsStore: ObservableObject {
            let mode = webSearch["mode"] as? String {
             self.webSearchMode = mode
         }
+        if let googleOAuth = services["google-oauth"] as? [String: Any],
+           let mode = googleOAuth["mode"] as? String {
+            self.googleOAuthMode = mode
+        }
     }
 
     func setInferenceMode(_ mode: String) {
@@ -2013,6 +2020,21 @@ public final class SettingsStore: ObservableObject {
             log.error("Failed to merge workspace config for web search mode: \(error)")
         }
         scheduleRoutingSourceRefresh()
+    }
+
+    func setGoogleOAuthMode(_ mode: String) {
+        googleOAuthMode = mode
+        guard !isCurrentAssistantRemote else { return }
+        let existingConfig = WorkspaceConfigIO.read(from: configPath)
+        var services = existingConfig["services"] as? [String: Any] ?? [:]
+        var googleOAuth = services["google-oauth"] as? [String: Any] ?? [:]
+        googleOAuth["mode"] = mode
+        services["google-oauth"] = googleOAuth
+        do {
+            try WorkspaceConfigIO.merge(["services": services], into: configPath)
+        } catch {
+            log.error("Failed to merge workspace config for google-oauth mode: \(error)")
+        }
     }
 
     func setWebSearchProvider(_ provider: String) {

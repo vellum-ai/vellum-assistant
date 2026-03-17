@@ -130,6 +130,13 @@ public enum WorkspaceConfigIO {
             changed = true
         }
 
+        var googleOAuth = services["google-oauth"] as? [String: Any] ?? [:]
+        if googleOAuth["mode"] == nil {
+            googleOAuth["mode"] = mode
+            services["google-oauth"] = googleOAuth
+            changed = true
+        }
+
         if changed {
             try? merge(["services": services], into: path)
         }
