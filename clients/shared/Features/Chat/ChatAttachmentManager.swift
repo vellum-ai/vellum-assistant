@@ -59,7 +59,7 @@ public final class ChatAttachmentManager: ObservableObject {
 
     /// Memory safety limit to avoid OOM from loading extremely large files.
     /// This is NOT a business rule — the server enforces its own size limits.
-    nonisolated private static let memorySafetyLimit = 100 * 1024 * 1024
+    nonisolated private static var memorySafetyLimit: Int { 100 * 1024 * 1024 }
 
     /// Maximum image size before compression (4 MB). Images above this threshold
     /// are JPEG-compressed, not rejected. Anthropic has a 5 MB limit per image;
