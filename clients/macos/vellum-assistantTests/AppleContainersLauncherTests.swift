@@ -130,6 +130,57 @@ final class AppleContainersLauncherFlagGateTests: XCTestCase {
     }
 }
 
+// MARK: - ObjC Bridge Tests
+
+@MainActor
+final class PodRuntimeHandleBridgeTests: XCTestCase {
+
+    func testHatchInvokesObjCBlockCompletion() async throws {
+        let adapter = FakePodRuntimeAdapter()
+        let handle = PodRuntimeHandle(adapter: adapter)
+
+        try await handle.hatch()
+
+        XCTAssertTrue(adapter.didHatch)
+    }
+
+    func testRetirePropagatesObjCBlockError() async {
+        let adapter = FakePodRuntimeAdapter()
+        adapter.retireError = NSError(
+            domain: "PodRuntimeHandleBridgeTests",
+            code: 42,
+            userInfo: [NSLocalizedDescriptionKey: "boom"]
+        )
+        let handle = PodRuntimeHandle(adapter: adapter)
+
+        do {
+            try await handle.retire()
+            XCTFail("Expected retire() to throw")
+        } catch let error as NSError {
+            XCTAssertEqual(error.domain, "PodRuntimeHandleBridgeTests")
+            XCTAssertEqual(error.code, 42)
+        } catch {
+            XCTFail("Expected NSError, got \(error)")
+        }
+    }
+}
+
+private final class FakePodRuntimeAdapter: NSObject {
+    var didHatch = false
+    var retireError: NSError?
+
+    @objc(hatchAsync:)
+    func hatchAsync(completionHandler: @escaping (NSError?) -> Void) {
+        didHatch = true
+        completionHandler(nil)
+    }
+
+    @objc(retireAsync:)
+    func retireAsync(completionHandler: @escaping (NSError?) -> Void) {
+        completionHandler(retireError)
+    }
+}
+
 // MARK: - LocalRuntimeBackend Lockfile Decoding Tests
 
 final class LocalRuntimeBackendLockfileDecodingTests: XCTestCase {

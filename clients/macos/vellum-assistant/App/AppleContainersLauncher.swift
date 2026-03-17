@@ -103,46 +103,42 @@ enum AppleContainersLauncherError: LocalizedError {
 /// ObjC-compatible `hatchAsync:` / `retireAsync:` methods on the
 /// `AppleContainersPodRuntimeAdapter` that lives in the runtime module.
 @MainActor
-private final class PodRuntimeHandle {
+final class PodRuntimeHandle {
     private let adapter: NSObject
+    private typealias ObjCErrorCompletion = @convention(block) (NSError?) -> Void
+    private typealias ObjCAsyncMethod = @convention(c) (AnyObject, Selector, ObjCErrorCompletion) -> Void
 
     init(adapter: NSObject) {
         self.adapter = adapter
     }
 
     func hatch() async throws {
-        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
-            let sel = NSSelectorFromString("hatchAsync:")
-            guard self.adapter.responds(to: sel) else {
-                continuation.resume(throwing: AppleContainersLauncherError.runtimeUnavailable)
-                return
-            }
-            let handler: (Error?) -> Void = { error in
-                if let error {
-                    continuation.resume(throwing: error)
-                } else {
-                    continuation.resume()
-                }
-            }
-            _ = self.adapter.perform(sel, with: handler)
-        }
+        try await invokeAsync(selectorName: "hatchAsync:")
     }
 
     func retire() async throws {
+        try await invokeAsync(selectorName: "retireAsync:")
+    }
+
+    private func invokeAsync(selectorName: String) async throws {
         try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
-            let sel = NSSelectorFromString("retireAsync:")
+            let sel = NSSelectorFromString(selectorName)
             guard self.adapter.responds(to: sel) else {
                 continuation.resume(throwing: AppleContainersLauncherError.runtimeUnavailable)
                 return
             }
-            let handler: (Error?) -> Void = { error in
+
+            let imp = self.adapter.method(for: sel)
+            let method = unsafeBitCast(imp, to: ObjCAsyncMethod.self)
+            let handler: ObjCErrorCompletion = { error in
                 if let error {
                     continuation.resume(throwing: error)
                 } else {
                     continuation.resume()
                 }
             }
-            _ = self.adapter.perform(sel, with: handler)
+
+            method(self.adapter, sel, handler)
         }
     }
 }

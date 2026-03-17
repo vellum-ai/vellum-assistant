@@ -19,13 +19,14 @@ let package = Package(
         )
     ],
     dependencies: [
-        .package(url: "https://github.com/apple/containerization.git", from: "0.12.1")
+        .package(url: "https://github.com/apple/containerization.git", exact: "0.28.0")
     ],
     targets: [
         .target(
             name: "AppleContainersRuntime",
             dependencies: [
                 .product(name: "Containerization", package: "containerization"),
+                .product(name: "ContainerizationArchive", package: "containerization"),
                 .product(name: "ContainerizationOCI", package: "containerization"),
             ],
             path: "Sources/AppleContainersRuntime",

@@ -34,6 +34,8 @@ private let runtimeLog = Logger(
     category: "AppleContainersPodRuntime"
 )
 
+private typealias ContainerMount = Containerization.Mount
+
 // MARK: - Errors
 
 /// Errors emitted by `AppleContainersPodRuntime`.
@@ -137,8 +139,7 @@ public final class AppleContainersPodRuntime: @unchecked Sendable {
         try await kernelStore.ensureImagesReady()
 
         runtimeLog.info(
-            "Hatching pod for '\(self.definition.instanceName, privacy: .private)' " +
-            "version \(self.definition.version, privacy: .public)"
+            "Hatching pod for '\(self.definition.instanceName, privacy: .private)' version \(self.definition.version, privacy: .public)"
         )
 
         // Ensure host-side shared directories exist.
@@ -152,9 +153,9 @@ public final class AppleContainersPodRuntime: @unchecked Sendable {
         runtimeLog.info("Assembling and starting LinuxPod...")
         let pod = try await buildAndStartPod()
 
-        lock.lock()
-        _pod = pod
-        lock.unlock()
+        lock.withLock {
+            _pod = pod
+        }
 
         // Wait for the assistant to signal readiness.
         // If readiness fails (timeout or early container exit), retire the VM
@@ -177,10 +178,11 @@ public final class AppleContainersPodRuntime: @unchecked Sendable {
 
     /// Stops all service processes and shuts down the pod VM.
     public func retire() async throws {
-        lock.lock()
-        let pod = _pod
-        _pod = nil
-        lock.unlock()
+        let pod = lock.withLock { () -> LinuxPod? in
+            let pod = _pod
+            _pod = nil
+            return pod
+        }
 
         guard let pod else {
             runtimeLog.info("retire() called but no pod is running — no-op")
@@ -239,7 +241,7 @@ public final class AppleContainersPodRuntime: @unchecked Sendable {
 
     /// Unpacks a service container image as an ext4 rootfs block device and
     /// returns the resulting `Mount`.
-    private func unpackRootfs(for service: VellumServiceName) async throws -> Mount {
+    private func unpackRootfs(for service: VellumServiceName) async throws -> ContainerMount {
         let ref = definition.imageReference(for: service)
 
         // Unpack destination: a per-instance, per-service subdirectory inside
@@ -274,14 +276,18 @@ public final class AppleContainersPodRuntime: @unchecked Sendable {
         let initialFilesystem = try await ks.initFilesystem(at: initFsUnpackDir)
 
         // Unpack container rootfs images concurrently.
-        async let assistantRootfs = unpackRootfs(for: .assistant)
-        async let gatewayRootfs = unpackRootfs(for: .gateway)
-        async let cesRootfs = unpackRootfs(for: .credentialExecutor)
+        async let assistantRootfs = unpackRootfs(for: VellumServiceName.assistant)
+        async let gatewayRootfs = unpackRootfs(for: VellumServiceName.gateway)
+        async let cesRootfs = unpackRootfs(for: VellumServiceName.credentialExecutor)
 
-        let rootfsMounts = try await [
-            VellumServiceName.assistant: assistantRootfs,
-            .gateway: gatewayRootfs,
-            .credentialExecutor: cesRootfs,
+        let resolvedAssistantRootfs = try await assistantRootfs
+        let resolvedGatewayRootfs = try await gatewayRootfs
+        let resolvedCesRootfs = try await cesRootfs
+
+        let rootfsMounts: [VellumServiceName: ContainerMount] = [
+            VellumServiceName.assistant: resolvedAssistantRootfs,
+            .gateway: resolvedGatewayRootfs,
+            .credentialExecutor: resolvedCesRootfs,
         ]
 
         // Build the VMM with the kata kernel and init image.
@@ -298,7 +304,7 @@ public final class AppleContainersPodRuntime: @unchecked Sendable {
 
         // Virtiofs mounts shared across the assistant and gateway containers.
         // Both services need read-write access to /data.
-        let sharedMounts: [Mount] = [
+        let sharedMounts: [ContainerMount] = [
             .share(source: def.hostDataDirectory.path,
                    destination: VellumPodMount.dataDirectory),
             .share(source: def.hostCesBootstrapDirectory.path,
@@ -307,7 +313,7 @@ public final class AppleContainersPodRuntime: @unchecked Sendable {
 
         // The credential-executor container mounts /data read-only to match
         // the Docker topology (docker.ts mounts the data volume `:ro` for CES).
-        let cesMounts: [Mount] = [
+        let cesMounts: [ContainerMount] = [
             .share(source: def.hostDataDirectory.path,
                    destination: VellumPodMount.dataDirectory,
                    options: ["ro"]),
@@ -324,7 +330,7 @@ public final class AppleContainersPodRuntime: @unchecked Sendable {
         )
         try await pod.addContainer(
             "\(def.instanceName)-assistant",
-            rootfs: rootfsMounts[.assistant]!
+            rootfs: rootfsMounts[VellumServiceName.assistant]!
         ) { containerConfig in
             containerConfig.mounts = sharedMounts + LinuxContainer.defaultMounts()
             containerConfig.process.environmentVariables = buildEnv(def.assistantEnvironment())
@@ -335,7 +341,7 @@ public final class AppleContainersPodRuntime: @unchecked Sendable {
         // Register the gateway container.
         try await pod.addContainer(
             "\(def.instanceName)-gateway",
-            rootfs: rootfsMounts[.gateway]!
+            rootfs: rootfsMounts[VellumServiceName.gateway]!
         ) { containerConfig in
             containerConfig.mounts = sharedMounts + LinuxContainer.defaultMounts()
             containerConfig.process.environmentVariables = buildEnv(def.gatewayEnvironment())
@@ -345,7 +351,7 @@ public final class AppleContainersPodRuntime: @unchecked Sendable {
         // /data is mounted read-only to match the Docker topology.
         try await pod.addContainer(
             "\(def.instanceName)-credential-executor",
-            rootfs: rootfsMounts[.credentialExecutor]!
+            rootfs: rootfsMounts[VellumServiceName.credentialExecutor]!
         ) { containerConfig in
             containerConfig.mounts = cesMounts + LinuxContainer.defaultMounts()
             containerConfig.process.environmentVariables = buildEnv(def.cesEnvironment())
@@ -362,9 +368,9 @@ public final class AppleContainersPodRuntime: @unchecked Sendable {
         }
 
         // Store the reader for readiness checking.
-        lock.lock()
-        _assistantLogReader = assistantReader
-        lock.unlock()
+        lock.withLock {
+            _assistantLogReader = assistantReader
+        }
 
         return pod
     }
@@ -378,9 +384,7 @@ public final class AppleContainersPodRuntime: @unchecked Sendable {
     /// Waits until the assistant process emits `assistantReadinessSentinel`
     /// or the timeout expires.
     private func waitForReadiness() async throws {
-        lock.lock()
-        let reader = _assistantLogReader
-        lock.unlock()
+        let reader = lock.withLock { _assistantLogReader }
 
         guard let reader else { return }
 
