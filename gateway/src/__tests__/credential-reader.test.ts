@@ -78,18 +78,10 @@ function getMachineEntropy(): string {
   return parts.join(":");
 }
 
-function writeEncryptedStore(entries: Record<string, string>): void {
-  const storePath = join(testDir, ".vellum", "protected", "keys.enc");
-  mkdirSync(join(testDir, ".vellum", "protected"), { recursive: true });
-
-  const salt = randomBytes(16);
-  const key = pbkdf2Sync(
-    getMachineEntropy(),
-    salt,
-    PBKDF2_ITERATIONS,
-    KEY_LENGTH,
-    "sha512",
-  );
+function encryptEntries(
+  entries: Record<string, string>,
+  key: Buffer,
+): Record<string, { iv: string; tag: string; data: string }> {
   const encryptedEntries: Record<
     string,
     { iv: string; tag: string; data: string }
@@ -110,13 +102,46 @@ function writeEncryptedStore(entries: Record<string, string>): void {
       data: encrypted.toString("hex"),
     };
   }
+  return encryptedEntries;
+}
+
+function writeEncryptedStore(entries: Record<string, string>): void {
+  const storePath = join(testDir, ".vellum", "protected", "keys.enc");
+  mkdirSync(join(testDir, ".vellum", "protected"), { recursive: true });
+
+  const salt = randomBytes(16);
+  const key = pbkdf2Sync(
+    getMachineEntropy(),
+    salt,
+    PBKDF2_ITERATIONS,
+    KEY_LENGTH,
+    "sha512",
+  );
 
   const store = {
     version: 1,
     salt: salt.toString("hex"),
-    entries: encryptedEntries,
+    entries: encryptEntries(entries, key),
   };
   writeFileSync(storePath, JSON.stringify(store));
+}
+
+/**
+ * Write a v2 encrypted store with a random store.key file.
+ * The store.key is used directly as the AES-256-GCM key (no PBKDF2).
+ */
+function writeEncryptedStoreV2(entries: Record<string, string>): void {
+  const protectedDir = join(testDir, ".vellum", "protected");
+  mkdirSync(protectedDir, { recursive: true });
+
+  const storeKey = randomBytes(KEY_LENGTH);
+  writeFileSync(join(protectedDir, "store.key"), storeKey);
+
+  const store = {
+    version: 2,
+    entries: encryptEntries(entries, storeKey),
+  };
+  writeFileSync(join(protectedDir, "keys.enc"), JSON.stringify(store));
 }
 
 // ---------------------------------------------------------------------------
@@ -261,6 +286,74 @@ describe("readTelegramCredentials", () => {
       botToken: "enc-bot-token",
       webhookSecret: "enc-webhook-secret",
     });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Tests: v2 encrypted store (store.key)
+// ---------------------------------------------------------------------------
+
+describe("v2 encrypted store with store.key", () => {
+  test("reads credential from v2 store when store.key exists", async () => {
+    writeEncryptedStoreV2({
+      [credentialKey("test", "key")]: "v2-secret-value",
+    });
+
+    const result = await readCredential(credentialKey("test", "key"));
+    expect(result).toBe("v2-secret-value");
+  });
+
+  test("returns undefined for v2 store when store.key is missing", async () => {
+    // Write a v2 store but without the store.key file
+    const protectedDir = join(testDir, ".vellum", "protected");
+    mkdirSync(protectedDir, { recursive: true });
+
+    const storeKey = randomBytes(KEY_LENGTH);
+    const store = {
+      version: 2,
+      entries: encryptEntries(
+        { [credentialKey("test", "key")]: "v2-secret-value" },
+        storeKey,
+      ),
+    };
+    writeFileSync(join(protectedDir, "keys.enc"), JSON.stringify(store));
+    // Deliberately do NOT write store.key
+
+    const result = await readCredential(credentialKey("test", "key"));
+    expect(result).toBeUndefined();
+  });
+
+  test("returns Telegram credentials from v2 store", async () => {
+    writeMetadata([
+      { service: "telegram", field: "bot_token" },
+      { service: "telegram", field: "webhook_secret" },
+    ]);
+
+    writeEncryptedStoreV2({
+      [credentialKey("telegram", "bot_token")]: "v2-bot-token",
+      [credentialKey("telegram", "webhook_secret")]: "v2-webhook-secret",
+    });
+
+    const result = await readTelegramCredentials();
+    expect(result).toEqual({
+      botToken: "v2-bot-token",
+      webhookSecret: "v2-webhook-secret",
+    });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Tests: v1 encrypted store backward compatibility
+// ---------------------------------------------------------------------------
+
+describe("v1 encrypted store backward compatibility", () => {
+  test("v1 store continues to work with entropy-based key derivation", async () => {
+    writeEncryptedStore({
+      [credentialKey("test", "key")]: "v1-secret-value",
+    });
+
+    const result = await readCredential(credentialKey("test", "key"));
+    expect(result).toBe("v1-secret-value");
   });
 });
 

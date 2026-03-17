@@ -26,11 +26,20 @@ interface EncryptedEntry {
   data: string;
 }
 
-interface StoreFile {
+interface StoreFileV1 {
   version: 1;
   salt: string;
   entries: Record<string, EncryptedEntry>;
 }
+
+interface StoreFileV2 {
+  version: 2;
+  entries: Record<string, EncryptedEntry>;
+}
+
+type StoreFile = StoreFileV1 | StoreFileV2;
+
+const STORE_KEY_FILENAME = "store.key";
 
 function getPlatformName(): string {
   // Must match assistant/src/util/platform.ts#getPlatformName exactly.
@@ -66,6 +75,22 @@ function deriveKey(salt: Buffer): Buffer {
   return pbkdf2Sync(entropy, salt, PBKDF2_ITERATIONS, KEY_LENGTH, "sha512");
 }
 
+/**
+ * Read the v2 store key file (~/.vellum/protected/store.key).
+ * Returns null if the file doesn't exist or isn't exactly 32 bytes.
+ */
+function readStoreKey(): Buffer | null {
+  const keyPath = join(getRootDir(), "protected", STORE_KEY_FILENAME);
+  if (!existsSync(keyPath)) return null;
+  try {
+    const buf = readFileSync(keyPath);
+    if (buf.length !== KEY_LENGTH) return null;
+    return buf;
+  } catch {
+    return null;
+  }
+}
+
 function decrypt(entry: EncryptedEntry, key: Buffer): string {
   const iv = Buffer.from(entry.iv, "hex");
   const tag = Buffer.from(entry.tag, "hex");
@@ -83,17 +108,26 @@ function readStore(storePath: string): StoreFile | null {
 
   const raw = readFileSync(storePath, "utf-8");
   const parsed = JSON.parse(raw);
-  if (
-    parsed.version !== 1 ||
-    typeof parsed.salt !== "string" ||
-    typeof parsed.entries !== "object"
-  ) {
-    throw new Error("Encrypted store has invalid format");
+
+  if (parsed.version === 2 && typeof parsed.entries === "object") {
+    const safeEntries: Record<string, EncryptedEntry> = Object.create(null);
+    Object.assign(safeEntries, parsed.entries);
+    parsed.entries = safeEntries;
+    return parsed as StoreFileV2;
   }
-  const safeEntries: Record<string, EncryptedEntry> = Object.create(null);
-  Object.assign(safeEntries, parsed.entries);
-  parsed.entries = safeEntries;
-  return parsed as StoreFile;
+
+  if (
+    parsed.version === 1 &&
+    typeof parsed.salt === "string" &&
+    typeof parsed.entries === "object"
+  ) {
+    const safeEntries: Record<string, EncryptedEntry> = Object.create(null);
+    Object.assign(safeEntries, parsed.entries);
+    parsed.entries = safeEntries;
+    return parsed as StoreFileV1;
+  }
+
+  throw new Error("Encrypted store has invalid format");
 }
 
 export function getRootDir(): string {
@@ -125,6 +159,9 @@ export function getMetadataPath(): string {
  * Read a single credential from the encrypted store.
  * Returns `undefined` if the store doesn't exist, the key is missing,
  * or decryption fails.
+ *
+ * For v2 stores, uses the store.key file directly as the AES key.
+ * For v1 stores, derives the key from machine entropy via PBKDF2.
  */
 function readEncryptedCredential(account: string): string | undefined {
   try {
@@ -134,8 +171,15 @@ function readEncryptedCredential(account: string): string | undefined {
     const entry = store.entries[account];
     if (!entry) return undefined;
 
-    const salt = Buffer.from(store.salt, "hex");
-    const key = deriveKey(salt);
+    let key: Buffer;
+    if (store.version === 2) {
+      const storeKey = readStoreKey();
+      if (!storeKey) return undefined;
+      key = storeKey;
+    } else {
+      const salt = Buffer.from(store.salt, "hex");
+      key = deriveKey(salt);
+    }
     return decrypt(entry, key);
   } catch (err) {
     log.debug({ err, account }, "Failed to read from encrypted store");

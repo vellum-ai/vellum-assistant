@@ -114,6 +114,31 @@ function writeEncryptedStore(botToken: string, webhookSecret: string): void {
   writeFileSync(storePath, JSON.stringify(store));
 }
 
+/**
+ * Write Telegram credentials into a v2 encrypted store using a random
+ * store.key file (no PBKDF2 derivation).
+ */
+function writeEncryptedStoreV2(
+  botToken: string,
+  webhookSecret: string,
+): void {
+  const protectedDir = join(testDir, ".vellum", "protected");
+  mkdirSync(protectedDir, { recursive: true });
+
+  const storeKey = cryptoRandomBytes(KEY_LENGTH);
+  writeFileSync(join(protectedDir, "store.key"), storeKey);
+
+  const store = {
+    version: 2,
+    entries: {
+      "credential/telegram/bot_token": encrypt(botToken, storeKey),
+      "credential/telegram/webhook_secret": encrypt(webhookSecret, storeKey),
+    },
+  };
+
+  writeFileSync(join(protectedDir, "keys.enc"), JSON.stringify(store));
+}
+
 function metadataRecord(
   credentialId: string,
   service: string,
@@ -284,6 +309,40 @@ describe("gateway telegram hot-reload (e2e)", () => {
 
     await new Promise((resolve) => setTimeout(resolve, 2000));
 
+    const after = await fetch(`${base}/webhooks/telegram`, {
+      method: "POST",
+    });
+    expect(after.status).toBe(401);
+  }, 15_000);
+
+  test("gateway hot-reloads v2 encrypted store credentials written after startup", async () => {
+    // --- Setup: no credentials directory exists (fresh hatch) ---
+    mkdirSync(testDir, { recursive: true });
+
+    // Start the real gateway process
+    await startGateway();
+
+    const base = `http://localhost:${port}`;
+
+    // --- Step 1: confirm Telegram is NOT configured ---
+    const before = await fetch(`${base}/webhooks/telegram`, {
+      method: "POST",
+    });
+    expect(before.status).toBe(503);
+    const beforeBody = (await before.json()) as { error: string };
+    expect(beforeBody.error).toBe("Telegram integration not configured");
+
+    // --- Step 2: simulate daemon writing v2 credentials ---
+    writeEncryptedStoreV2("fake-v2-bot-token:XYZ", "fake-v2-webhook-secret");
+    writeCredentialMetadata();
+
+    // Wait for credential watcher debounce (500ms) + generous margin
+    await new Promise((resolve) => setTimeout(resolve, 2000));
+
+    // --- Step 3: query again — gateway should now recognize Telegram is configured.
+    // We expect 401 (webhook secret verification failed) rather than 503
+    // (not configured). Getting past the 503 gate proves the gateway
+    // hot-reloaded the v2 credentials from the credential store.
     const after = await fetch(`${base}/webhooks/telegram`, {
       method: "POST",
     });
