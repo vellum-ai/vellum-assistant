@@ -1031,7 +1031,7 @@ describe("applyRuntimeInjections with inboundActorContext", () => {
 // ---------------------------------------------------------------------------
 
 describe("buildChannelTurnContextBlock", () => {
-  test("formats block with all three channel fields", () => {
+  test("collapses to single field when all channels match", () => {
     const block = buildChannelTurnContextBlock({
       turnContext: {
         userMessageChannel: "telegram",
@@ -1041,9 +1041,7 @@ describe("buildChannelTurnContextBlock", () => {
     });
     expect(block).toBe(
       "<channel_turn_context>\n" +
-        "user_message_channel: telegram\n" +
-        "assistant_message_channel: telegram\n" +
-        "conversation_origin_channel: telegram\n" +
+        "channel: telegram\n" +
         "</channel_turn_context>",
     );
   });
@@ -1097,7 +1095,7 @@ describe("injectChannelTurnContext", () => {
     expect(injected.type).toBe("text");
     const text = (injected as { type: "text"; text: string }).text;
     expect(text).toContain("<channel_turn_context>");
-    expect(text).toContain("user_message_channel: telegram");
+    expect(text).toContain("channel: telegram");
     expect(text).toContain("</channel_turn_context>");
   });
 

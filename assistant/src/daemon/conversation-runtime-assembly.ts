@@ -652,14 +652,18 @@ export function buildChannelTurnContextBlock(
   params: ChannelTurnContextParams,
 ): string {
   const { turnContext, conversationOriginChannel } = params;
+  const user = turnContext.userMessageChannel;
+  const assistant = turnContext.assistantMessageChannel;
+  const origin = conversationOriginChannel ?? "unknown";
+
   const lines: string[] = ["<channel_turn_context>"];
-  lines.push(`user_message_channel: ${turnContext.userMessageChannel}`);
-  lines.push(
-    `assistant_message_channel: ${turnContext.assistantMessageChannel}`,
-  );
-  lines.push(
-    `conversation_origin_channel: ${conversationOriginChannel ?? "unknown"}`,
-  );
+  if (user === assistant && user === origin) {
+    lines.push(`channel: ${user}`);
+  } else {
+    lines.push(`user_message_channel: ${user}`);
+    lines.push(`assistant_message_channel: ${assistant}`);
+    lines.push(`conversation_origin_channel: ${origin}`);
+  }
   lines.push("</channel_turn_context>");
   return lines.join("\n");
 }
@@ -956,14 +960,18 @@ export function buildInterfaceTurnContextBlock(
   params: InterfaceTurnContextParams,
 ): string {
   const { turnContext, conversationOriginInterface } = params;
+  const user = turnContext.userMessageInterface;
+  const assistant = turnContext.assistantMessageInterface;
+  const origin = conversationOriginInterface ?? "unknown";
+
   const lines: string[] = ["<interface_turn_context>"];
-  lines.push(`user_message_interface: ${turnContext.userMessageInterface}`);
-  lines.push(
-    `assistant_message_interface: ${turnContext.assistantMessageInterface}`,
-  );
-  lines.push(
-    `conversation_origin_interface: ${conversationOriginInterface ?? "unknown"}`,
-  );
+  if (user === assistant && user === origin) {
+    lines.push(`interface: ${user}`);
+  } else {
+    lines.push(`user_message_interface: ${user}`);
+    lines.push(`assistant_message_interface: ${assistant}`);
+    lines.push(`conversation_origin_interface: ${origin}`);
+  }
   lines.push("</interface_turn_context>");
   return lines.join("\n");
 }
