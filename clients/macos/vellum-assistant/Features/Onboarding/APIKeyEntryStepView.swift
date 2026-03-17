@@ -39,7 +39,7 @@ struct APIKeyEntryStepView: View {
                     saveAndHatch()
                 }
 
-                OnboardingButton(title: "Get an API key", style: .primary) {
+                OnboardingButton(title: "Get an API key", style: .ghostPrimary) {
                     NSWorkspace.shared.open(URL(string: "https://console.anthropic.com/settings/keys")!)
                 }
 
