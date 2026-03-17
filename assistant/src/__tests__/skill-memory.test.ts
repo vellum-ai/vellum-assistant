@@ -53,6 +53,15 @@ mock.module("../skills/catalog-install.js", () => ({
   resolveCatalog: (..._args: unknown[]) => mockResolveCatalog(),
 }));
 
+// Controllable mock for isAssistantFeatureFlagEnabled used by seedCatalogSkillMemories
+let mockIsFeatureFlagEnabled: (key: string) => boolean = () => true;
+
+mock.module("../config/assistant-feature-flags.js", () => ({
+  isAssistantFeatureFlagEnabled: (key: string, _config: unknown) =>
+    mockIsFeatureFlagEnabled(key),
+  getAssistantFeatureFlagDefaults: () => ({}),
+}));
+
 import { DEFAULT_CONFIG } from "../config/defaults.js";
 
 const TEST_CONFIG = {
@@ -332,8 +341,9 @@ describe("deleteSkillCapabilityMemory", () => {
 describe("seedCatalogSkillMemories", () => {
   beforeEach(() => {
     resetTables();
-    // Reset the mock to return empty catalog by default
+    // Reset mocks to defaults
     mockResolveCatalog = async () => [];
+    mockIsFeatureFlagEnabled = () => true;
   });
 
   test("upserts capability memories for all catalog entries", async () => {
@@ -439,6 +449,83 @@ describe("seedCatalogSkillMemories", () => {
 
     // Best-effort: should not propagate the error
     await expect(seedCatalogSkillMemories()).resolves.toBeUndefined();
+  });
+
+  test("skips skills whose feature flag is disabled", async () => {
+    const skills: CatalogSkill[] = [
+      makeSkill({ id: "unflagged-skill", name: "Unflagged", description: "No flag" }),
+      makeSkill({
+        id: "flagged-skill",
+        name: "Flagged",
+        description: "Has flag",
+        metadata: { vellum: { "feature-flag": "my_gated_feature" } },
+      }),
+    ];
+    mockResolveCatalog = async () => skills;
+
+    // Disable the feature flag for the flagged skill
+    mockIsFeatureFlagEnabled = (key: string) =>
+      key !== "feature_flags.my_gated_feature.enabled";
+
+    await seedCatalogSkillMemories();
+
+    const db = getDb();
+    const items = db
+      .select()
+      .from(memoryItems)
+      .where(eq(memoryItems.kind, "capability"))
+      .all();
+
+    // Only the unflagged skill should have a capability row
+    expect(items).toHaveLength(1);
+    expect(items[0].subject).toBe("skill:unflagged-skill");
+    expect(items[0].status).toBe("active");
+  });
+
+  test("prunes pre-existing capability for a skill whose flag becomes disabled", async () => {
+    // First seed with both skills, all flags enabled
+    const skills: CatalogSkill[] = [
+      makeSkill({ id: "unflagged-skill", name: "Unflagged", description: "No flag" }),
+      makeSkill({
+        id: "flagged-skill",
+        name: "Flagged",
+        description: "Has flag",
+        metadata: { vellum: { "feature-flag": "my_gated_feature" } },
+      }),
+    ];
+    mockResolveCatalog = async () => skills;
+    mockIsFeatureFlagEnabled = () => true;
+    await seedCatalogSkillMemories();
+
+    const db = getDb();
+    const beforeItems = db
+      .select()
+      .from(memoryItems)
+      .where(eq(memoryItems.kind, "capability"))
+      .all();
+    expect(beforeItems).toHaveLength(2);
+    expect(beforeItems.every((i) => i.status === "active")).toBe(true);
+
+    // Now disable the flag — the flagged skill should be pruned
+    mockIsFeatureFlagEnabled = (key: string) =>
+      key !== "feature_flags.my_gated_feature.enabled";
+    await seedCatalogSkillMemories();
+
+    const afterItems = db
+      .select()
+      .from(memoryItems)
+      .where(eq(memoryItems.kind, "capability"))
+      .all();
+    expect(afterItems).toHaveLength(2); // still 2 rows, but one soft-deleted
+
+    const active = afterItems.filter((i) => i.status === "active");
+    const deleted = afterItems.filter((i) => i.status === "deleted");
+
+    expect(active).toHaveLength(1);
+    expect(active[0].subject).toBe("skill:unflagged-skill");
+
+    expect(deleted).toHaveLength(1);
+    expect(deleted[0].subject).toBe("skill:flagged-skill");
   });
 
   test("does not throw on DB error during pruning", async () => {
