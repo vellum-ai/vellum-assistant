@@ -43,9 +43,12 @@ mock.module("../util/platform.js", () => ({
   readSessionToken: () => null,
 }));
 
-const noopLogger = new Proxy({} as Record<string, unknown>, {
-  get: (_target, prop) => (prop === "child" ? () => noopLogger : () => {}),
-});
+const noopLogger: Record<string, unknown> = new Proxy(
+  {} as Record<string, unknown>,
+  {
+    get: (_target, prop) => (prop === "child" ? () => noopLogger : () => {}),
+  },
+);
 
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const realLogger = require("../util/logger.js");
