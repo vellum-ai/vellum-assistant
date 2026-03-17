@@ -533,53 +533,18 @@ final class AvatarAppearanceManager {
     }()
 
     /// Persists the dock label so `build.sh` can embed it into
-    /// `CFBundleDisplayName` at build time.  Also updates the running
-    /// app bundle's Info.plist and re-registers with LaunchServices so
-    /// the change takes effect on the next launch without a rebuild.
+    /// `CFBundleDisplayName` at build time.
+    ///
+    /// NOTE: We intentionally do NOT modify the running bundle's Info.plist
+    /// at runtime — doing so invalidates the app's code signature, breaking
+    /// TCC permissions (Accessibility, Screen Recording, Microphone) and
+    /// Gatekeeper. The dock label only takes effect after a rebuild.
     private func updateDockLabel() {
-        let label = assistantName.count > 1 ? assistantName : Self.defaultDockLabel
+        let label = assistantName != "V" ? assistantName : Self.defaultDockLabel
 
-        // 1. Persist for build.sh
         let dir = Self.dockDisplayNameURL.deletingLastPathComponent()
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         try? label.write(to: Self.dockDisplayNameURL, atomically: true, encoding: .utf8)
-
-        // 2. Update the running bundle's Info.plist (takes effect next launch)
-        guard let bundleURL = Bundle.main.bundleURL as URL?,
-              bundleURL.pathExtension == "app" else { return }
-
-        let plistURL = bundleURL.appendingPathComponent("Contents/Info.plist")
-        guard FileManager.default.isWritableFile(atPath: plistURL.path),
-              let data = FileManager.default.contents(atPath: plistURL.path),
-              var plist = try? PropertyListSerialization.propertyList(
-                  from: data, format: nil
-              ) as? [String: Any] else { return }
-
-        if plist["CFBundleDisplayName"] as? String == label { return }
-
-        plist["CFBundleDisplayName"] = label
-
-        guard let updated = try? PropertyListSerialization.data(
-            fromPropertyList: plist, format: .xml, options: 0
-        ) else { return }
-
-        do {
-            try updated.write(to: plistURL)
-        } catch {
-            log.warning("Failed to update dock label: \(error.localizedDescription)")
-            return
-        }
-
-        // Force LaunchServices to re-read the bundle.
-        let lsregister = "/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister"
-        if FileManager.default.fileExists(atPath: lsregister) {
-            let process = Process()
-            process.executableURL = URL(fileURLWithPath: lsregister)
-            process.arguments = ["-f", bundleURL.path]
-            process.standardOutput = FileHandle.nullDevice
-            process.standardError = FileHandle.nullDevice
-            try? process.run()
-        }
     }
 
     // MARK: - Image Utilities
