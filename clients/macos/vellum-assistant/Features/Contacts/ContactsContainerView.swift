@@ -36,8 +36,6 @@ struct ContactsContainerView: View {
                 viewModel: viewModel,
                 selection: $selection
             )
-            .padding(.leading, VSpacing.lg)
-            .padding(.vertical, VSpacing.lg)
             .frame(width: 320)
             .frame(maxHeight: .infinity, alignment: .top)
             .background(VColor.surfaceOverlay)
@@ -182,9 +180,7 @@ struct ContactsContainerView: View {
                 .padding(VSpacing.lg)
                 .vCard(radius: VRadius.lg, background: VColor.surfaceOverlay)
             }
-            .padding(VSpacing.lg)
         }
-        .background(VColor.surfaceOverlay)
         .id(contact.id)
         .onAppear {
             guardianEditedName = contact.displayName
@@ -241,9 +237,7 @@ struct ContactsContainerView: View {
                         .vCard(radius: VRadius.lg, background: VColor.surfaceOverlay)
                 }
             }
-            .padding(VSpacing.lg)
         }
-        .background(VColor.surfaceOverlay)
         .task {
             cachedAssistantName = AssistantDisplayName.firstUserFacing(from: [IdentityInfo.load()?.name]) ?? AssistantDisplayName.placeholder
         }
