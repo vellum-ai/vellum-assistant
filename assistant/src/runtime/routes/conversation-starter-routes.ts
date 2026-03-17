@@ -1,7 +1,7 @@
 /**
  * Route handlers for conversation starter endpoints.
  *
- * GET /v1/thread-starters — list conversation starters (chips) or capability cards
+ * GET /v1/conversation-starters — list conversation starters (chips) or capability cards
  */
 
 import { and, desc, eq, inArray, like } from "drizzle-orm";
@@ -18,7 +18,7 @@ import {
 import type { RouteDefinition } from "../http-router.js";
 
 // ---------------------------------------------------------------------------
-// GET /v1/thread-starters?card_type=chip (default, backwards-compat)
+// GET /v1/conversation-starters?card_type=chip (default, backwards-compat)
 // ---------------------------------------------------------------------------
 
 function handleListConversationStarters(url: URL): Response {
@@ -102,7 +102,7 @@ function handleListConversationStarters(url: URL): Response {
 }
 
 // ---------------------------------------------------------------------------
-// GET /v1/thread-starters?card_type=card — capability cards feed
+// GET /v1/conversation-starters?card_type=card — capability cards feed
 // ---------------------------------------------------------------------------
 
 function handleListCapabilityCards(url: URL): Response {
@@ -286,7 +286,7 @@ function enqueueCapabilityCardJobs(scopeId: string): void {
 export function conversationStarterRouteDefinitions(): RouteDefinition[] {
   return [
     {
-      endpoint: "thread-starters",
+      endpoint: "conversation-starters",
       method: "GET",
       handler: (ctx) => handleListConversationStarters(ctx.url),
     },

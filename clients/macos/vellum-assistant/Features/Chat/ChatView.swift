@@ -66,10 +66,10 @@ struct ChatView: View {
     var conversationId: UUID?
     var daemonGreeting: String? = nil
     var onRequestGreeting: (() -> Void)? = nil
-    var threadStarters: [ThreadStarter] = []
-    var threadStartersLoading: Bool = false
-    var onSelectStarter: ((ThreadStarter) -> Void)? = nil
-    var onFetchThreadStarters: (() -> Void)? = nil
+    var conversationStarters: [ConversationStarter] = []
+    var conversationStartersLoading: Bool = false
+    var onSelectStarter: ((ConversationStarter) -> Void)? = nil
+    var onFetchConversationStarters: (() -> Void)? = nil
     var capabilityCards: [CapabilityCard] = []
     var capabilityCardsLoading: Bool = false
     var cardCategoryStatuses: [String: CategoryStatus] = [:]
@@ -207,10 +207,10 @@ struct ChatView: View {
                             conversationId: conversationId,
                             daemonGreeting: daemonGreeting,
                             onRequestGreeting: onRequestGreeting,
-                            threadStarters: threadStarters,
-                            threadStartersLoading: threadStartersLoading,
+                            conversationStarters: conversationStarters,
+                            conversationStartersLoading: conversationStartersLoading,
                             onSelectStarter: onSelectStarter,
-                            onFetchThreadStarters: onFetchThreadStarters,
+                            onFetchConversationStarters: onFetchConversationStarters,
                             capabilityCards: capabilityCards,
                             capabilityCardsLoading: capabilityCardsLoading,
                             cardCategoryStatuses: cardCategoryStatuses,

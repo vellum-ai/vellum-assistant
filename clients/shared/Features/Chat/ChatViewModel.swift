@@ -14,9 +14,9 @@ import UIKit
 
 private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "ChatViewModel")
 
-// MARK: - Thread Starter Types
+// MARK: - Conversation Starter Types
 
-public struct ThreadStarter: Identifiable, Codable {
+public struct ConversationStarter: Identifiable, Codable {
     public let id: String
     public let label: String
     public let prompt: String
@@ -24,27 +24,27 @@ public struct ThreadStarter: Identifiable, Codable {
     public let batch: Int
 }
 
-struct ThreadStartersResponse: Codable {
-    let starters: [ThreadStarter]
+struct ConversationStartersResponse: Codable {
+    let starters: [ConversationStarter]
     let total: Int
     let status: String  // "ready", "generating", "empty"
 }
 
 @MainActor
-protocol ThreadStarterClientProtocol {
-    func fetchThreadStarters(limit: Int) async -> ThreadStartersResponse?
+protocol ConversationStarterClientProtocol {
+    func fetchConversationStarters(limit: Int) async -> ConversationStartersResponse?
 }
 
 @MainActor
-struct ThreadStarterClient: ThreadStarterClientProtocol {
+struct ConversationStarterClient: ConversationStarterClientProtocol {
     nonisolated init() {}
 
-    func fetchThreadStarters(limit: Int) async -> ThreadStartersResponse? {
+    func fetchConversationStarters(limit: Int) async -> ConversationStartersResponse? {
         guard let response = try? await GatewayHTTPClient.get(
-            path: "thread-starters",
+            path: "conversation-starters",
             params: ["limit": String(limit)]
         ), response.isSuccess else { return nil }
-        return try? JSONDecoder().decode(ThreadStartersResponse.self, from: response.data)
+        return try? JSONDecoder().decode(ConversationStartersResponse.self, from: response.data)
     }
 }
 
@@ -96,7 +96,7 @@ struct CapabilityCardClient: CapabilityCardClientProtocol {
 
     func fetchCapabilityCards(limit: Int) async -> CapabilityCardsResponse? {
         guard let response = try? await GatewayHTTPClient.get(
-            path: "thread-starters",
+            path: "conversation-starters",
             params: ["card_type": "card", "limit": String(limit)]
         ), response.isSuccess else { return nil }
         return try? JSONDecoder().decode(CapabilityCardsResponse.self, from: response.data)
@@ -406,7 +406,7 @@ public final class ChatViewModel: ObservableObject {
     public let subagentDetailStore = SubagentDetailStore()
     let daemonClient: any DaemonClientProtocol
     private let surfaceClient: any SurfaceClientProtocol = SurfaceClient()
-    private let threadStarterClient: any ThreadStarterClientProtocol = ThreadStarterClient()
+    private let conversationStarterClient: any ConversationStarterClientProtocol = ConversationStarterClient()
     private let capabilityCardClient: any CapabilityCardClientProtocol = CapabilityCardClient()
     /// Tracks the action submitted for each guardian decision requestId so the
     /// response handler can display the correct resolved state (the server does
@@ -686,11 +686,11 @@ public final class ChatViewModel: ObservableObject {
     /// The in-flight greeting streaming task, stored for cancellation.
     private var greetingTask: Task<Void, Never>?
 
-    // MARK: - Thread Starters
+    // MARK: - Conversation Starters
 
     /// Personalized suggestion chips shown on the empty conversation page.
-    @Published public var threadStarters: [ThreadStarter] = []
-    @Published public var threadStartersLoading: Bool = false
+    @Published public var conversationStarters: [ConversationStarter] = []
+    @Published public var conversationStartersLoading: Bool = false
 
     // MARK: - Capability Cards
 
@@ -1391,42 +1391,42 @@ public final class ChatViewModel: ObservableObject {
         isGeneratingGreeting = false
     }
 
-    private var threadStarterPollTask: Task<Void, Never>?
+    private var conversationStarterPollTask: Task<Void, Never>?
 
-    /// Fetch personalized thread starters from the daemon for the empty conversation state.
-    public func fetchThreadStarters() {
-        threadStarterPollTask?.cancel()
-        threadStarterPollTask = Task { @MainActor [weak self] in
+    /// Fetch personalized conversation starters from the daemon for the empty conversation state.
+    public func fetchConversationStarters() {
+        conversationStarterPollTask?.cancel()
+        conversationStarterPollTask = Task { @MainActor [weak self] in
             guard let self else { return }
-            let response = await self.threadStarterClient.fetchThreadStarters(limit: 4)
+            let response = await self.conversationStarterClient.fetchConversationStarters(limit: 4)
             guard !Task.isCancelled else { return }
 
             if let response, !response.starters.isEmpty {
-                self.threadStarters = response.starters
-                self.threadStartersLoading = false
+                self.conversationStarters = response.starters
+                self.conversationStartersLoading = false
                 return
             }
 
             if response?.status == "generating" {
-                self.threadStartersLoading = true
+                self.conversationStartersLoading = true
                 // Poll every 3 seconds until ready
                 while !Task.isCancelled {
                     try? await Task.sleep(nanoseconds: 3_000_000_000)
                     guard !Task.isCancelled else { return }
-                    let poll = await self.threadStarterClient.fetchThreadStarters(limit: 4)
+                    let poll = await self.conversationStarterClient.fetchConversationStarters(limit: 4)
                     guard !Task.isCancelled else { return }
                     if let poll, !poll.starters.isEmpty {
-                        self.threadStarters = poll.starters
-                        self.threadStartersLoading = false
+                        self.conversationStarters = poll.starters
+                        self.conversationStartersLoading = false
                         return
                     }
                     if poll?.status != "generating" {
-                        self.threadStartersLoading = false
+                        self.conversationStartersLoading = false
                         return
                     }
                 }
             } else {
-                self.threadStartersLoading = false
+                self.conversationStartersLoading = false
             }
         }
     }
