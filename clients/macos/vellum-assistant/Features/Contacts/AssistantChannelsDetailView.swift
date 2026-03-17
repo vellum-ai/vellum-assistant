@@ -399,10 +399,10 @@ struct AssistantChannelsDetailView: View {
 
         var body: some View {
             HStack(spacing: VSpacing.sm) {
-                // Left: chevron (when connected and expandable) + channel icon + name
-                if isConnected && isExpandable {
+                // Left: chevron (when connected) + channel icon + name
+                if isConnected {
                     VIconView(isExpanded ? .chevronUp : .chevronDown, size: 12)
-                        .foregroundColor(VColor.contentTertiary)
+                        .foregroundColor(isExpandable ? VColor.contentTertiary : VColor.contentDisabled)
                 }
                 VIconView(icon, size: 16)
                     .foregroundColor(VColor.contentSecondary)
