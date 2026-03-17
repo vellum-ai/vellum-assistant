@@ -179,6 +179,8 @@ struct ContactsContainerView: View {
                                 .font(VFont.inputLabel)
                                 .foregroundColor(VColor.contentSecondary)
                             VTextField(placeholder: "Your name", text: $guardianEditedName)
+                                .disabled(true)
+                                .opacity(0.6)
                         }
 
                         VStack(alignment: .leading, spacing: VSpacing.xs) {
