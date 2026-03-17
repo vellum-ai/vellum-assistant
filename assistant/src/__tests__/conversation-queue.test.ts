@@ -73,7 +73,6 @@ mock.module("../config/loader.js", () => ({
     timeouts: { permissionTimeoutSec: 1 },
     skills: { entries: {}, allowBundled: true },
     permissions: { mode: "workspace" },
-    sandbox: { enabled: false },
     daemon: {
       startupSocketWaitMs: 5000,
       stopTimeoutMs: 5000,

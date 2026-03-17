@@ -153,7 +153,6 @@ describe("AssistantConfigSchema", () => {
         shellMaxTimeoutSec: 300,
         permissionTimeoutSec: 60,
       },
-      sandbox: { enabled: true },
       rateLimit: { maxRequestsPerMinute: 10, maxTokensPerSession: 100000 },
       secretDetection: {
         enabled: false,

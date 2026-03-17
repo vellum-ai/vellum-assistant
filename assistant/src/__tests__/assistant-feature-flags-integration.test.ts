@@ -29,7 +29,6 @@ const TEST_DIR = join(
 );
 
 let currentConfig: Record<string, unknown> = {
-  sandbox: { enabled: false, backend: "native" },
   services: {
     inference: {
       mode: "your-own",
@@ -132,7 +131,6 @@ const { skillFlagKey } = await import("../config/skill-state.js");
 beforeEach(() => {
   mkdirSync(TEST_DIR, { recursive: true });
   currentConfig = {
-    sandbox: { enabled: false, backend: "native" },
     services: {
       inference: {
         mode: "your-own",
@@ -201,7 +199,6 @@ describe("buildSystemPrompt assistant feature flag filtering", () => {
     );
 
     currentConfig = {
-      sandbox: { enabled: false, backend: "native" },
       assistantFeatureFlagValues: {
         [DECLARED_FLAG_KEY]: false,
         "feature_flags.browser.enabled": true,
@@ -243,7 +240,6 @@ describe("buildSystemPrompt assistant feature flag filtering", () => {
     );
 
     currentConfig = {
-      sandbox: { enabled: false, backend: "native" },
       services: {
         inference: {
           mode: "your-own",
@@ -281,7 +277,6 @@ describe("buildSystemPrompt assistant feature flag filtering", () => {
     );
 
     currentConfig = {
-      sandbox: { enabled: false, backend: "native" },
       assistantFeatureFlagValues: {
         [DECLARED_FLAG_KEY]: false,
         "feature_flags.email-channel.enabled": false,
@@ -316,7 +311,6 @@ describe("buildSystemPrompt assistant feature flag filtering", () => {
     );
 
     currentConfig = {
-      sandbox: { enabled: false, backend: "native" },
       assistantFeatureFlagValues: { [DECLARED_FLAG_KEY]: true },
       services: {
         inference: {
@@ -347,7 +341,6 @@ describe("buildSystemPrompt assistant feature flag filtering", () => {
     );
 
     currentConfig = {
-      sandbox: { enabled: false, backend: "native" },
       assistantFeatureFlagValues: { "feature_flags.browser.enabled": false },
       services: {
         inference: {
@@ -380,7 +373,6 @@ describe("buildSystemPrompt assistant feature flag filtering", () => {
     );
 
     currentConfig = {
-      sandbox: { enabled: false, backend: "native" },
       services: {
         inference: {
           mode: "your-own",
@@ -406,7 +398,6 @@ describe("buildSystemPrompt assistant feature flag filtering", () => {
     createSkillOnDisk("my-skill", "My Skill", "A skill without feature flag");
 
     currentConfig = {
-      sandbox: { enabled: false, backend: "native" },
       services: {
         inference: {
           mode: "your-own",

@@ -58,14 +58,12 @@ mock.module("../util/logger.js", () => ({
 interface TestConfig {
   permissions: { mode: "strict" | "workspace" };
   skills: { load: { extraDirs: string[] } };
-  sandbox: { enabled: boolean };
   [key: string]: unknown;
 }
 
 const testConfig: TestConfig = {
   permissions: { mode: "workspace" },
   skills: { load: { extraDirs: [] } },
-  sandbox: { enabled: true },
 };
 
 mock.module("../config/loader.js", () => ({

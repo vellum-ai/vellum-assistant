@@ -29,7 +29,6 @@ const mockConfig = {
     shellMaxTimeoutSec: 600,
     permissionTimeoutSec: 300,
   },
-  sandbox: { enabled: true },
   rateLimit: { maxRequestsPerMinute: 0, maxTokensPerSession: 0 },
   secretDetection: {
     enabled: true,

@@ -53,7 +53,6 @@ mock.module("../util/logger.js", () => ({
 
 mock.module("../config/loader.js", () => ({
   getConfig: () => ({
-    sandbox: { enabled: false, backend: "native" },
     assistantFeatureFlagValues: {
       "feature_flags.browser.enabled": true,
     },

@@ -136,7 +136,6 @@ mock.module("../util/logger.js", () => ({
 const mockConfig = {
   model: "mock-model",
   provider: "mock",
-  sandbox: { enabled: false, backend: "native" },
   contextWindow: {
     enabled: true,
     maxInputTokens: 180000,
