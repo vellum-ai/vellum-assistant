@@ -10,7 +10,7 @@ Bun + TypeScript monorepo with multiple packages:
 - `gateway/` — Channel ingress gateway (Bun + TypeScript)
 - `packages/` — Shared internal packages (e.g. `ces-contracts` for CES wire-protocol schemas)
 - `scripts/` — Utility scripts
-- `skills/` — First-party skill catalog (portable skill packages). See `skills/AGENTS.md`.
+- `skills/` — First-party skill catalog (portable skill packages). See `skills/AGENTS.md` for contribution rules and portability requirements.
 - `.claude/` — Claude Code slash commands and helper scripts (see `.claude/README.md`). Most commands are shared from [`claude-skills`](https://github.com/vellum-ai/claude-skills) via symlinks; repo-local commands (`/update`, `/release`) live in `.claude/skills/<name>/` as local skill directories. The `/update` command uses `vellum ps`, `vellum sleep`, and `vellum wake` to manage assistant lifecycle.
 
 ## Development
@@ -97,7 +97,7 @@ Use `modelIntent` (`'latency-optimized'`, `'quality-optimized'`, `'vision-optimi
 
 ## Tooling Direction
 
-Do not add new tool registrations using the `class ____Tool implements Tool` pattern. Prefer skills in `assistant/src/config/bundled-skills/` that teach the model CLI tools. When touching existing tool-based flows, migrate toward skill-driven CLI usage.
+Do not add new tool registrations. See `assistant/src/tools/AGENTS.md` for the full no-new-tools policy, approved CES exceptions, and what to do instead.
 
 ## System Prompt Minimalism
 
@@ -109,13 +109,7 @@ Adding content to the system prompt is a **last resort**. The system prompt is t
 
 Only add to the system prompt when the behavior cannot be achieved any other way. When you must, keep additions minimal and look for existing content to condense or remove to offset the addition.
 
-**Exception — Credential Execution Service (CES) tools**: The three CES tools (`run_authenticated_command`, `make_authenticated_request`, `manage_secure_command_tool`) are approved exceptions to the no-new-tools policy. They are thin RPC stubs that forward execution to the `credential-executor/` package across a hard process boundary. Skills cannot provide this isolation because they run inside the assistant process. CES grants and audit logs are CES-owned durable state — the assistant never reads or writes them directly. `host_bash` is outside the CES strong secrecy guarantee; secure generic authenticated HTTP must not run through `run_authenticated_command`. See [`assistant/docs/credential-execution-service.md`](assistant/docs/credential-execution-service.md).
-
-## Skill Independence
-
-Skills must be self-contained and portable — no coupling to daemon tools, internals, or repo-specific modules. Use `scripts/` for supporting logic with inline dependencies. No interactive prompts. Relative paths only. Ask: "Could this skill be copied into a different project and still work?"
-
-Follow the [Agent Skills specification](https://agentskills.io/specification) for SKILL.md format, directory structure, and naming conventions.
+CES tools are the only approved exception — see `assistant/src/tools/AGENTS.md` for details.
 
 ## User-Facing Terminology: "daemon" vs "assistant"
 
