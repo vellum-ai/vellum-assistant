@@ -51,8 +51,11 @@ public enum GuardianTokenFileReader {
         let token: GuardianTokenFile
         do {
             token = try JSONDecoder().decode(GuardianTokenFile.self, from: data)
+        } catch let decodingError as DecodingError {
+            log.error("Failed to decode guardian token file at \(path, privacy: .public): \(Self.describeDecodingError(decodingError), privacy: .public)")
+            return false
         } catch {
-            log.error("Failed to decode guardian token file: \(error.localizedDescription)")
+            log.error("Failed to read guardian token file at \(path, privacy: .public): \(String(describing: error), privacy: .public)")
             return false
         }
 
@@ -61,7 +64,12 @@ public enum GuardianTokenFileReader {
         guard let accessExpiresEpoch = epochMillis(from: token.accessTokenExpiresAt),
               let refreshExpiresEpoch = epochMillis(from: token.refreshTokenExpiresAt),
               let refreshAfterEpoch = epochMillis(from: token.refreshAfter) else {
-            log.warning("Guardian token file has unparseable timestamps — skipping import")
+            log.warning("""
+                Guardian token file at \(path, privacy: .public) has unparseable timestamps — skipping import. \
+                accessTokenExpiresAt=\(token.accessTokenExpiresAt, privacy: .public), \
+                refreshTokenExpiresAt=\(token.refreshTokenExpiresAt, privacy: .public), \
+                refreshAfter=\(token.refreshAfter, privacy: .public)
+                """)
             return false
         }
 
@@ -98,6 +106,33 @@ public enum GuardianTokenFileReader {
             configHome = NSHomeDirectory() + "/.config"
         }
         return "\(configHome)/vellum/assistants/\(assistantId)/guardian-token.json"
+    }
+
+    // MARK: - Error Descriptions
+
+    /// Produces a human-readable summary of a `DecodingError`, including the
+    /// JSON key path and expected type so schema mismatches are easy to diagnose.
+    private static func describeDecodingError(_ error: DecodingError) -> String {
+        switch error {
+        case .keyNotFound(let key, let context):
+            let path = Self.codingPath(context.codingPath)
+            return "missing key '\(key.stringValue)' at \(path.isEmpty ? "root" : path)"
+        case .typeMismatch(let type, let context):
+            let path = Self.codingPath(context.codingPath)
+            return "type mismatch for \(type) at \(path.isEmpty ? "root" : path): \(context.debugDescription)"
+        case .valueNotFound(let type, let context):
+            let path = Self.codingPath(context.codingPath)
+            return "null value for \(type) at \(path.isEmpty ? "root" : path)"
+        case .dataCorrupted(let context):
+            return "corrupted data: \(context.debugDescription)"
+        @unknown default:
+            return String(describing: error)
+        }
+    }
+
+    /// Joins a coding-key path into a dot-separated string like `"refreshToken.expiresAt"`.
+    private static func codingPath(_ keys: [CodingKey]) -> String {
+        keys.map(\.stringValue).joined(separator: ".")
     }
 
     // MARK: - Timestamp Parsing
