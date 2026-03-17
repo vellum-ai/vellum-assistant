@@ -11,7 +11,7 @@ export const CK_CONVERSATION_STARTERS_LAST_GEN_AT =
 export const CK_CONVERSATION_STARTERS_LAST_ATTEMPT_AT =
   "conversation_starters:last_attempt_at";
 
-export const CONVERSATION_STARTERS_MIN_REGEN_INTERVAL_MS = 12 * 60 * 60 * 1000;
+export const CONVERSATION_STARTERS_MIN_REGEN_INTERVAL_MS = 5 * 60 * 1000;
 export const CONVERSATION_STARTERS_ATTEMPT_COOLDOWN_MS = 15 * 60 * 1000;
 
 export function conversationStartersCheckpointKey(
