@@ -90,6 +90,7 @@ export class DefaultPathResolver implements PathResolver {
   constructor(
     private protectedDir?: string,
     private workspaceDir?: string,
+    private hooksDir?: string,
   ) {}
 
   resolve(archivePath: string): string | null {
@@ -144,13 +145,12 @@ export class DefaultPathResolver implements PathResolver {
       }
       return resolved;
     }
-    if (archivePath.startsWith("hooks/") && this.workspaceDir) {
+    if (archivePath.startsWith("hooks/") && this.hooksDir) {
       const resolved = resolve(
-        this.workspaceDir,
-        "hooks",
+        this.hooksDir,
         archivePath.slice("hooks/".length),
       );
-      const hooksRoot = resolve(this.workspaceDir, "hooks");
+      const hooksRoot = resolve(this.hooksDir);
       if (resolved !== hooksRoot && !resolved.startsWith(hooksRoot + "/")) {
         return null;
       }

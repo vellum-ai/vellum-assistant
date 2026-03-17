@@ -766,13 +766,13 @@ describe("commitImport — workspace clearing", () => {
     }
   });
 
-  test("clears stale skills via workspace clearing", () => {
+  test("clears stale files via workspace clearing (new-format workspace/ entries)", () => {
     mkdirSync(join(skillsDir, "stale-skill"), { recursive: true });
     writeFileSync(join(skillsDir, "stale-skill", "SKILL.md"), "stale");
 
     const skillData = new TextEncoder().encode("# New Skill");
     const vbundle = createValidVBundle([
-      { path: "skills/new-skill/SKILL.md", data: skillData },
+      { path: "workspace/skills/new-skill/SKILL.md", data: skillData },
     ]);
 
     const resolver = new DefaultPathResolver(undefined, testDir);
@@ -795,13 +795,13 @@ describe("commitImport — workspace clearing", () => {
     expect(existsSync(join(skillsDir, "stale-skill"))).toBe(false);
   });
 
-  test("clears stale hooks via workspace clearing", () => {
-    mkdirSync(join(hooksDir, "stale-hook"), { recursive: true });
-    writeFileSync(join(hooksDir, "stale-hook", "hook.sh"), "stale");
+  test("old-format skills/ entries do not trigger workspace clearing", () => {
+    mkdirSync(join(skillsDir, "stale-skill"), { recursive: true });
+    writeFileSync(join(skillsDir, "stale-skill", "SKILL.md"), "stale");
 
-    const hookData = new TextEncoder().encode("#!/bin/sh\necho new");
+    const skillData = new TextEncoder().encode("# New Skill");
     const vbundle = createValidVBundle([
-      { path: "hooks/new-hook/hook.sh", data: hookData },
+      { path: "skills/new-skill/SKILL.md", data: skillData },
     ]);
 
     const resolver = new DefaultPathResolver(undefined, testDir);
@@ -814,8 +814,41 @@ describe("commitImport — workspace clearing", () => {
     expect(result.ok).toBe(true);
     if (!result.ok) return;
 
-    expect(existsSync(join(hooksDir, "new-hook", "hook.sh"))).toBe(true);
-    expect(existsSync(join(hooksDir, "stale-hook"))).toBe(false);
+    // New skill written
+    expect(existsSync(join(skillsDir, "new-skill", "SKILL.md"))).toBe(true);
+
+    // Stale skill survives — old-format bundles don't trigger workspace clearing
+    expect(existsSync(join(skillsDir, "stale-skill", "SKILL.md"))).toBe(true);
+  });
+
+  test("hooks/ entries import to hooksDir (not workspace/hooks/)", () => {
+    // Use a separate hooks dir outside the workspace, like production layout
+    const externalHooksDir = join(testDir, ".hooks-external");
+    mkdirSync(externalHooksDir, { recursive: true });
+
+    const hookData = new TextEncoder().encode("#!/bin/sh\necho new");
+    const vbundle = createValidVBundle([
+      { path: "hooks/new-hook/hook.sh", data: hookData },
+    ]);
+
+    const resolver = new DefaultPathResolver(undefined, testDir, externalHooksDir);
+    const result = commitImport({
+      archiveData: vbundle,
+      pathResolver: resolver,
+      workspaceDir: testDir,
+    });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+
+    // Hook written to the external hooks dir, not workspace/hooks/
+    expect(existsSync(join(externalHooksDir, "new-hook", "hook.sh"))).toBe(true);
+    expect(
+      readFileSync(join(externalHooksDir, "new-hook", "hook.sh"), "utf8"),
+    ).toBe("#!/bin/sh\necho new");
+
+    // Cleanup
+    rmSync(externalHooksDir, { recursive: true, force: true });
   });
 
   test("without workspaceDir, no clearing happens", () => {

@@ -169,26 +169,22 @@ export function commitImport(options: ImportCommitOptions): ImportCommitResult {
   const DATA_SKIP_DIRS = new Set(["qdrant"]);
 
   // Step 1b: Clear the workspace directory before restore if the bundle
-  // contains workspace/ entries. This ensures an exact-match restore with
-  // no stale files left behind. Skips embedding-models/ and data/qdrant/
-  // (large, regenerable). Also handles old-format bundles that use skills/
-  // or hooks/ prefixes.
+  // contains new-format workspace/ entries. This ensures an exact-match
+  // restore with no stale files left behind. Skips embedding-models/ and
+  // data/qdrant/ (large, regenerable).
   //
-  // Gate on resolution: only clear when at least one manifest entry with a
-  // workspace-scoped prefix actually resolves to a valid disk path. This
-  // prevents malformed paths (e.g. "skills/../x") from triggering a
-  // workspace purge while resolving to nothing — which would delete local
-  // data without restoring anything.
-  const hasWorkspaceEntries = manifest.files.some((f) => {
-    const isWorkspaceScoped =
-      f.path.startsWith("workspace/") ||
-      f.path.startsWith("skills/") ||
-      f.path.startsWith("hooks/") ||
-      f.path.startsWith("prompts/") ||
-      f.path === "data/db/assistant.db" ||
-      f.path === "config/settings.json";
-    return isWorkspaceScoped && !!pathResolver.resolve(f.path);
-  });
+  // Only new-format bundles (workspace/ prefix) trigger clearing. Old-format
+  // bundles (skills/, hooks/, data/db/*, config/*) wrote specific files
+  // without clearing — preserving that behavior avoids wiping workspace
+  // data when importing legacy bundles.
+  //
+  // Gate on resolution: at least one workspace/ entry must resolve to a
+  // valid disk path. This prevents path-traversal entries (e.g.
+  // "workspace/../../etc/passwd") from triggering a workspace purge while
+  // resolving to nothing.
+  const hasWorkspaceEntries = manifest.files.some(
+    (f) => f.path.startsWith("workspace/") && !!pathResolver.resolve(f.path),
+  );
 
   if (hasWorkspaceEntries && workspaceDir && existsSync(workspaceDir)) {
     try {

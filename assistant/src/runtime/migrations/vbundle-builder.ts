@@ -344,6 +344,17 @@ function walkDirectory(
         }
         walk(fullPath);
       } else if (stat.isFile()) {
+        // Skip SQLite auxiliary files — these are ephemeral and race-prone
+        // with the live DB connection. The WAL is checkpointed before the
+        // walk, so the main .db file has all committed rows.
+        if (
+          entry.name.endsWith("-wal") ||
+          entry.name.endsWith("-shm") ||
+          entry.name.endsWith("-journal")
+        ) {
+          continue;
+        }
+
         const data = new Uint8Array(readFileSync(fullPath));
 
         // Skip binary files unless explicitly included
@@ -384,6 +395,12 @@ export interface BuildExportVBundleOptions {
   /** Absolute path to trust.json. If provided and the file exists, it is included in the archive. */
   trustPath?: string;
   /**
+   * Absolute path to the hooks directory (~/.vellum/hooks/).
+   * Hooks live outside the workspace, so they must be included explicitly.
+   * Included in the archive under the "hooks/" prefix for backward compat.
+   */
+  hooksDir?: string;
+  /**
    * Absolute path to the workspace directory (~/.vellum/workspace/).
    * When provided and exists, the entire directory tree is walked and
    * included in the archive under the "workspace/" prefix, skipping
@@ -416,7 +433,8 @@ export interface BuildExportVBundleOptions {
 export function buildExportVBundle(
   options: BuildExportVBundleOptions,
 ): BuildVBundleResult {
-  const { source, description, checkpoint, trustPath, workspaceDir } = options;
+  const { source, description, checkpoint, trustPath, workspaceDir, hooksDir } =
+    options;
 
   // Flush WAL to the main database file before reading so the export
   // captures all committed rows (SQLite WAL mode keeps recent writes
@@ -436,6 +454,11 @@ export function buildExportVBundle(
         skipDirs: ["embedding-models", "data/qdrant"],
       }),
     );
+  }
+
+  // Include hooks directory if it exists (lives at ~/.vellum/hooks/, outside workspace).
+  if (hooksDir && existsSync(hooksDir) && lstatSync(hooksDir).isDirectory()) {
+    files.push(...walkDirectory(hooksDir, "hooks"));
   }
 
   // Include trust rules if the file exists (lives in protected/, outside workspace).
