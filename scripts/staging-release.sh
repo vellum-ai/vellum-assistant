@@ -10,15 +10,15 @@
 # Configuration is read from scripts/.env (see scripts/.env.example).
 #
 # Usage:
-#   ./scripts/staging-release.sh [--cleanup] [--intel <user@host>]
+#   ./scripts/staging-release.sh [--cleanup] [--intel]
 #
 # Options:
 #   --cleanup   Before installing, SCP the mac-mini-cleanup.sh script to the
 #               mini, run it, then remove it. Resets the environment to a
 #               clean state before installing the staging app.
-#   --intel <user@host>
-#               Build for x86_64 (Intel) instead of arm64 (Apple Silicon)
-#               and deploy to the specified Mac via SSH.
+#   --intel     Build for x86_64 (Intel) instead of arm64 (Apple Silicon)
+#               and deploy to the Intel Mac specified by INTEL_HOST in
+#               scripts/.env. Uses INTEL_PASSWORD for SSH auth if set.
 
 set -euo pipefail
 
@@ -28,23 +28,13 @@ set -euo pipefail
 
 RUN_CLEANUP=false
 INTEL_BUILD=false
-INTEL_HOST=""
 
-while [ $# -gt 0 ]; do
-  case "$1" in
+for arg in "$@"; do
+  case "$arg" in
     --cleanup) RUN_CLEANUP=true ;;
-    --intel)
-      INTEL_BUILD=true
-      if [ -z "${2:-}" ] || [[ "$2" == --* ]]; then
-        echo "ERROR: --intel requires a <user@host> argument"
-        exit 1
-      fi
-      INTEL_HOST="$2"
-      shift
-      ;;
-    *) echo "Unknown option: $1"; exit 1 ;;
+    --intel) INTEL_BUILD=true ;;
+    *) echo "Unknown option: $arg"; exit 1 ;;
   esac
-  shift
 done
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -61,7 +51,7 @@ fi
 # Configuration (override via scripts/.env or environment)
 # ---------------------------------------------------------------------------
 
-# SSH host of the Mac mini (required unless --intel provides its own target).
+# SSH host of the Mac mini (required unless --intel is used).
 if [ "$INTEL_BUILD" = true ]; then
   MAC_MINI_HOST="${MAC_MINI_HOST:-}"
 else
@@ -77,42 +67,57 @@ MAC_MINI_PASSWORD="${MAC_MINI_PASSWORD:-}"
 # Path to an SSH private key for the Mac mini (optional).
 MAC_MINI_SSH_KEY="${MAC_MINI_SSH_KEY:-}"
 
+# Intel Mac SSH host (required when --intel is used).
+INTEL_HOST="${INTEL_HOST:-}"
+
+# Password for the Intel Mac (optional). When set, sshpass is used for SSH.
+INTEL_PASSWORD="${INTEL_PASSWORD:-}"
+
+if [ "$INTEL_BUILD" = true ] && [ -z "$INTEL_HOST" ]; then
+  echo "ERROR: --intel requires INTEL_HOST to be set in scripts/.env"
+  exit 1
+fi
+
 # ---------------------------------------------------------------------------
 # Derived values
 # ---------------------------------------------------------------------------
 
 if [ "$INTEL_BUILD" = true ]; then
   SCP_HOST="${INTEL_HOST}"
+  ACTIVE_PASSWORD="${INTEL_PASSWORD}"
+  ACTIVE_SSH_KEY=""
 else
   if [ -n "$MAC_MINI_USER" ]; then
     SCP_HOST="${MAC_MINI_USER}@${MAC_MINI_HOST}"
   else
     SCP_HOST="${MAC_MINI_HOST}"
   fi
+  ACTIVE_PASSWORD="${MAC_MINI_PASSWORD}"
+  ACTIVE_SSH_KEY="${MAC_MINI_SSH_KEY}"
 fi
 
 # If a password is configured, make sure sshpass is available.
-if [ -n "$MAC_MINI_PASSWORD" ] && ! command -v sshpass &>/dev/null; then
+if [ -n "$ACTIVE_PASSWORD" ] && ! command -v sshpass &>/dev/null; then
   echo "sshpass is required for password-based SSH but was not found. Installing via Homebrew..."
   brew install hudochenkov/sshpass/sshpass
 fi
 
 # Build auth-aware wrappers so every scp/ssh call inherits credentials.
 remote_scp() {
-  if [ -n "$MAC_MINI_PASSWORD" ]; then
-    SSHPASS="$MAC_MINI_PASSWORD" sshpass -e scp -o StrictHostKeyChecking=no "$@"
-  elif [ -n "$MAC_MINI_SSH_KEY" ]; then
-    scp -i "$MAC_MINI_SSH_KEY" -o StrictHostKeyChecking=no "$@"
+  if [ -n "$ACTIVE_PASSWORD" ]; then
+    SSHPASS="$ACTIVE_PASSWORD" sshpass -e scp -o StrictHostKeyChecking=no "$@"
+  elif [ -n "$ACTIVE_SSH_KEY" ]; then
+    scp -i "$ACTIVE_SSH_KEY" -o StrictHostKeyChecking=no "$@"
   else
     scp "$@"
   fi
 }
 
 remote_ssh() {
-  if [ -n "$MAC_MINI_PASSWORD" ]; then
-    SSHPASS="$MAC_MINI_PASSWORD" sshpass -e ssh -o StrictHostKeyChecking=no "$@"
-  elif [ -n "$MAC_MINI_SSH_KEY" ]; then
-    ssh -i "$MAC_MINI_SSH_KEY" -o StrictHostKeyChecking=no "$@"
+  if [ -n "$ACTIVE_PASSWORD" ]; then
+    SSHPASS="$ACTIVE_PASSWORD" sshpass -e ssh -o StrictHostKeyChecking=no "$@"
+  elif [ -n "$ACTIVE_SSH_KEY" ]; then
+    ssh -i "$ACTIVE_SSH_KEY" -o StrictHostKeyChecking=no "$@"
   else
     ssh "$@"
   fi
