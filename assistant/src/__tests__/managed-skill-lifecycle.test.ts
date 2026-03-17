@@ -141,7 +141,7 @@ describe("managed skill lifecycle: scaffold → catalog → prompt → delete", 
     // Step 4: Verify skill appears in system prompt (markdown bullet: **id**: description)
     const prompt = buildSystemPrompt();
     expect(prompt).toContain("**lifecycle-test**");
-    expect(prompt).toContain("Integration test skill.");
+    expect(prompt).toContain("Integration test skill");
     // Dynamic Skill Authoring section moved to tool descriptions; prompt should not contain it
     expect(prompt).not.toContain("## Dynamic Skill Authoring Workflow");
 

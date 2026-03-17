@@ -210,7 +210,7 @@ describe("buildSystemPrompt", () => {
     const result = buildSystemPrompt();
     expect(result).toContain("Custom identity");
     expect(result).toContain("## Available Skills");
-    expect(result).toContain("**release-checklist**: Deployment checks.");
+    expect(result).toContain("**release-checklist**: Deployment checks");
   });
 
   test("keeps SOUL.md and IDENTITY.md additive with skills", () => {
