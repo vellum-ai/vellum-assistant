@@ -866,17 +866,28 @@ export function enforceRoutingIntent(
   }
 
   if (routingIntent === "single_channel") {
-    if (!decision.shouldNotify || decision.selectedChannels.length <= 1) {
+    if (!decision.shouldNotify) {
       return decision;
     }
 
-    // Prefer the source channel if it's among the selected channels;
-    // otherwise keep the first selected channel.
-    const preferred =
+    // Force delivery to the source channel only. If the source channel
+    // is among the connected channels, use it regardless of what the LLM
+    // picked (even if the LLM picked exactly one wrong channel).
+    // Otherwise fall back to capping at the first selected channel.
+    const sourceIsConnected =
       sourceChannel &&
-      decision.selectedChannels.includes(sourceChannel as NotificationChannel)
-        ? (sourceChannel as NotificationChannel)
-        : decision.selectedChannels[0];
+      connectedChannels.includes(sourceChannel as NotificationChannel);
+    const preferred = sourceIsConnected
+      ? (sourceChannel as NotificationChannel)
+      : decision.selectedChannels[0];
+
+    // No change needed if the decision already matches.
+    if (
+      decision.selectedChannels.length === 1 &&
+      decision.selectedChannels[0] === preferred
+    ) {
+      return decision;
+    }
 
     const enforced = { ...decision };
     enforced.selectedChannels = [preferred];

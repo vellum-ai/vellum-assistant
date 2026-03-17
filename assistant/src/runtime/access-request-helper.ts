@@ -200,12 +200,18 @@ export function notifyGuardianOfAccessRequest(
   });
 
   let vellumDeliveryId: string | null = null;
-  // When the access request originates from a specific channel (Slack,
-  // Telegram, etc.), route the guardian notification to that same channel
-  // only. Delivering on the macOS client as well is noisy and approving
-  // from there doesn't work because the desktop path lacks the channel
-  // delivery context needed to deliver the verification code.
-  const sameChannelOnly = sourceChannel !== "vellum";
+  // When the access request originates from a text channel with
+  // notification delivery support (Slack, Telegram), route the guardian
+  // notification to that same channel only. Delivering on the macOS
+  // client as well is noisy and approving from there doesn't work
+  // because the desktop path lacks the channel delivery context needed
+  // to deliver the verification code. Phone is excluded because it is
+  // not a deliverable notification channel.
+  const TEXT_CHANNELS_WITH_DELIVERY: ReadonlySet<string> = new Set([
+    "slack",
+    "telegram",
+  ]);
+  const sameChannelOnly = TEXT_CHANNELS_WITH_DELIVERY.has(sourceChannel);
 
   void emitNotificationSignal({
     sourceEventName: "ingress.access_request",
@@ -266,7 +272,7 @@ export function notifyGuardianOfAccessRequest(
         applyDeliveryStatus(delivery.id, result);
       }
 
-      if (!vellumDeliveryId) {
+      if (!vellumDeliveryId && !sameChannelOnly) {
         const fallback = createCanonicalGuardianDelivery({
           requestId: canonicalRequest.id,
           destinationChannel: "vellum",
