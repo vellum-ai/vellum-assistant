@@ -20,7 +20,7 @@ struct APIKeyEntryStepView: View {
             .offset(y: showTitle ? 0 : 8)
             .padding(.bottom, VSpacing.md)
 
-        Text("Enter your Anthropic API key to get started.")
+        Text("Vellum needs an Anthropic API key to work.\nEnter yours to connect.")
             .font(.system(size: 16))
             .foregroundColor(VColor.contentSecondary)
             .opacity(showTitle ? 1 : 0)

@@ -46,7 +46,7 @@ struct WakeUpStepView: View {
             .padding(.bottom, VSpacing.xs)
 
         // Subtitle
-        Text("The safest way to create your\npersonal assistant.")
+        Text("Your personal AI assistant,\nrunning on your terms.")
             .font(.system(size: 16))
             .foregroundColor(VColor.contentSecondary)
             .multilineTextAlignment(.center)
@@ -82,11 +82,11 @@ struct WakeUpStepView: View {
                 }
                 .accessibilityLabel("Log In")
 
-                OnboardingButton(title: "Skip", style: .ghost) {
+                OnboardingButton(title: "Continue without account", style: .ghost) {
                     state?.skippedAuth = true
                     onStartWithAPIKey()
                 }
-                .accessibilityLabel("Skip")
+                .accessibilityLabel("Continue without account")
             } else {
                 OnboardingButton(title: "Get Started", style: .primary) {
                     onStartWithAPIKey()

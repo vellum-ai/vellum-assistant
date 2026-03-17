@@ -15,14 +15,14 @@ struct APIKeyStepView: View {
     }
 
     var body: some View {
-        Text("Setup")
+        Text("Hosting")
             .font(.system(size: 32, weight: .regular, design: .serif))
             .foregroundColor(VColor.contentDefault)
             .opacity(showTitle ? 1 : 0)
             .offset(y: showTitle ? 0 : 8)
             .padding(.bottom, VSpacing.md)
 
-        Text("Choose how to run your assistant.")
+        Text("Where do you want your assistant to run?")
             .font(.system(size: 16))
             .foregroundColor(VColor.contentSecondary)
             .opacity(showTitle ? 1 : 0)
