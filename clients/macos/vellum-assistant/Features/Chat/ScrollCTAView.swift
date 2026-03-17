@@ -12,7 +12,7 @@ struct ScrollCTAView: View {
     var body: some View {
         Button(action: onTap) {
             VStack(spacing: VSpacing.sm) {
-                Text("See what else you could do")
+                Text(FeedFraming.scrollCTA)
                     .font(.custom("Fraunces", size: 14).italic())
                     .foregroundColor(VColor.contentTertiary)
 
