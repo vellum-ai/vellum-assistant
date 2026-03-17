@@ -26,8 +26,12 @@ mock.module("node:fs", () => ({
 }));
 
 // Import after mocks are in place
-const { resolveUserReference, resolveGuardianName, DEFAULT_USER_REFERENCE } =
-  await import("../prompts/user-reference.js");
+const {
+  resolveUserReference,
+  resolveUserPronouns,
+  resolveGuardianName,
+  DEFAULT_USER_REFERENCE,
+} = await import("../prompts/user-reference.js");
 
 describe("resolveUserReference", () => {
   beforeEach(() => {
@@ -68,6 +72,82 @@ describe("resolveUserReference", () => {
     mockFileExists = true;
     mockFileContent = "- Preferred name/reference:   Alice   \n";
     expect(resolveUserReference()).toBe("Alice");
+  });
+});
+
+describe("resolveUserPronouns", () => {
+  beforeEach(() => {
+    mockFileExists = false;
+    mockFileContent = "";
+  });
+
+  test("returns null when USER.md does not exist", () => {
+    mockFileExists = false;
+    expect(resolveUserPronouns()).toBeNull();
+  });
+
+  test("returns pronouns from flat USER.md (no Onboarding Snapshot)", () => {
+    mockFileExists = true;
+    mockFileContent = [
+      "# USER.md",
+      "",
+      "- Preferred name/reference: Alice",
+      "- Pronouns: she/her",
+      "- Locale: en-US",
+    ].join("\n");
+    expect(resolveUserPronouns()).toBe("she/her");
+  });
+
+  test("returns null when pronouns field is empty in flat format", () => {
+    mockFileExists = true;
+    mockFileContent = [
+      "# USER.md",
+      "",
+      "- Preferred name/reference: Alice",
+      "- Pronouns:",
+      "- Locale: en-US",
+    ].join("\n");
+    expect(resolveUserPronouns()).toBeNull();
+  });
+
+  test("returns pronouns from legacy Onboarding Snapshot section", () => {
+    mockFileExists = true;
+    mockFileContent = [
+      "## Onboarding Snapshot",
+      "",
+      "- Pronouns: they/them",
+    ].join("\n");
+    expect(resolveUserPronouns()).toBe("they/them");
+  });
+
+  test("prefers pronouns above Onboarding Snapshot over inside it", () => {
+    mockFileExists = true;
+    mockFileContent = [
+      "Pronouns: he/him",
+      "",
+      "## Onboarding Snapshot",
+      "",
+      "- Pronouns: she/her",
+    ].join("\n");
+    expect(resolveUserPronouns()).toBe("he/him");
+  });
+
+  test("returns null for declined_by_user", () => {
+    mockFileExists = true;
+    mockFileContent = [
+      "- Preferred name/reference: Alice",
+      "- Pronouns: declined_by_user",
+    ].join("\n");
+    expect(resolveUserPronouns()).toBeNull();
+  });
+
+  test("strips inferred: prefix", () => {
+    mockFileExists = true;
+    mockFileContent = [
+      "- Preferred name/reference: Alice",
+      "- Pronouns: inferred: she/her",
+    ].join("\n");
+    expect(resolveUserPronouns()).toBe("she/her");
   });
 });
 

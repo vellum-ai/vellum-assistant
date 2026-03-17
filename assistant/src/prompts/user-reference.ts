@@ -24,9 +24,9 @@ function readPreferredNameFromUserMd(): string | null {
  * Resolve the name/reference the assistant uses when referring to
  * the human it represents in external communications.
  *
- * Reads the "Preferred name/reference:" field from the Onboarding
- * Snapshot section of USER.md.  Falls back to "my human" when the
- * file is missing, unreadable, or the field is empty.
+ * Reads the "Preferred name/reference:" field from USER.md.
+ * Falls back to "my human" when the file is missing, unreadable,
+ * or the field is empty.
  */
 export function resolveUserReference(): string {
   const preferredName = readPreferredNameFromUserMd();
@@ -41,10 +41,10 @@ export function resolveUserReference(): string {
  * file is missing, the field is empty, or the value is a sentinel like
  * `declined_by_user`.
  *
- * Priority order:
- *   1. Any `Pronouns:` line outside the Onboarding Snapshot section
- *      (explicit user update post-onboarding takes precedence).
- *   2. The structured `- Pronouns:` field inside the Onboarding Snapshot.
+ * When a legacy `## Onboarding Snapshot` section exists, a `Pronouns:`
+ * line *above* that section takes priority (explicit post-onboarding edit).
+ * Otherwise falls back to the structured `- Pronouns:` field anywhere
+ * in the file.
  */
 export function resolveUserPronouns(): string | null {
   const content = readTextFileSync(getWorkspacePromptPath("USER.md"));
@@ -52,8 +52,8 @@ export function resolveUserPronouns(): string | null {
 
   const snapshotIdx = content.indexOf("## Onboarding Snapshot");
 
-  // 1. Check for a Pronouns line outside the Onboarding Snapshot section.
-  //    This represents an explicit post-onboarding update and takes priority.
+  // 1. Legacy format: check for a Pronouns line outside the Onboarding
+  //    Snapshot section (explicit post-onboarding update takes priority).
   if (snapshotIdx >= 0) {
     const beforeSnapshot = content.slice(0, snapshotIdx);
     const outsideMatch = beforeSnapshot.match(/Pronouns:[ \t]*(.*)/);
@@ -62,13 +62,11 @@ export function resolveUserPronouns(): string | null {
     }
   }
 
-  // 2. Fall back to the structured field in the Onboarding Snapshot.
-  if (snapshotIdx >= 0) {
-    const section = content.slice(snapshotIdx);
-    const match = section.match(/^- Pronouns:[ \t]*(.*)/m);
-    if (match && match[1].trim()) {
-      return cleanPronounValue(match[1].trim());
-    }
+  // 2. Search the entire file for the structured `- Pronouns:` field.
+  //    Handles both legacy (inside Onboarding Snapshot) and new flat format.
+  const match = content.match(/^- Pronouns:[ \t]*(.*)/m);
+  if (match && match[1].trim()) {
+    return cleanPronounValue(match[1].trim());
   }
 
   return null;
