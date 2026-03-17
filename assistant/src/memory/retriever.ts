@@ -354,6 +354,15 @@ export async function buildMemoryRecall(
     if (c.text.length > existing.text.length) {
       existing.text = c.text;
     }
+    // Propagate metadata that the first source may lack (e.g. legacy
+    // Qdrant points missing conversation_id / message_id). The recency
+    // source always has these from the DB, so merging fills the gap.
+    if (c.conversationId && !existing.conversationId) {
+      existing.conversationId = c.conversationId;
+    }
+    if (c.messageId && !existing.messageId) {
+      existing.messageId = c.messageId;
+    }
   }
 
   // ── Step 5b: Filter out current-conversation segments still in context ──
