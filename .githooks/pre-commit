@@ -147,6 +147,10 @@ declare -a SAFE_LINE_PATTERNS=(
     # This prevents single-word lowercase values (potential secrets) from
     # being whitelisted.
     "case[[:space:]]+[a-zA-Z][a-zA-Z0-9]*[[:space:]]*=[[:space:]]*['\"][a-z][a-z_]*_[a-z_]*['\"][[:space:]]*$"
+    # Bash: password variable assigned from a shell parameter expansion, not a
+    # hardcoded value. E.g. `MAC_MINI_PASSWORD="${MAC_MINI_PASSWORD:-}"` or
+    # `ACTIVE_PASSWORD="${INTEL_PASSWORD}"`.
+    "[Pp][Aa][Ss][Ss][Ww][Oo][Rr][Dd][[:space:]]*=[[:space:]]*['\"]\\\$\\{[^}]+\\}['\"]"    
     # AWS well-known example key used in documentation
     "AKIAIOSFODNN7EXAMPLE"
     # Swift let/var constants used as UserDefaults key names (not secrets).
@@ -326,6 +330,11 @@ if [ "${1:-}" = "--self-test" ]; then
     UNSAFE_SWIFT_API_STORAGE_KEY='let apiStorageKey = "abcdefghijklmnopqrstuvwxyz"'
     # Swift compound key with "db" sensitive prefix (dangerous — must NOT be whitelisted)
     UNSAFE_SWIFT_DB_STORAGE_KEY='let dbStorageKey = "abcdefghijklmnopqrstuvwxyz"'
+    # Bash: password variable with shell expansion value (false positive to whitelist)
+    SAFE_BASH_PASSWORD_EXPANSION='MAC_MINI_PASSWORD="${MAC_MINI_PASSWORD:-}"'
+    SAFE_BASH_PASSWORD_EXPANSION2='  ACTIVE_PASSWORD="${INTEL_PASSWORD}"'
+    # Bash: password variable with hardcoded value (dangerous — must NOT be whitelisted)
+    UNSAFE_BASH_PASSWORD_HARDCODED='MAC_MINI_PASSWORD="hunter2"'
     # Swift CodingKeys enum case mapping property to snake_case JSON key (false positive to whitelist)
     SAFE_SWIFT_CODING_KEY='        case assistantApiKey = "assistant_api_key"'
     # Swift CodingKeys with a real secret value (dangerous — must NOT be whitelisted)
@@ -664,6 +673,19 @@ if [ "${1:-}" = "--self-test" ]; then
     fi
     if matches_safe_line_pattern "$UNSAFE_SWIFT_CODING_KEY_CREDENTIAL"; then
         echo -e "${RED}Self-test failed:${NC} Swift CodingKeys enum case with sensitive name (credential) was incorrectly whitelisted"
+        exit 1
+    fi
+
+    if matches_secret_pattern "$SAFE_BASH_PASSWORD_EXPANSION" && ! matches_safe_line_pattern "$SAFE_BASH_PASSWORD_EXPANSION"; then
+        echo -e "${RED}Self-test failed:${NC} bash password shell expansion false positive"
+        exit 1
+    fi
+    if matches_secret_pattern "$SAFE_BASH_PASSWORD_EXPANSION2" && ! matches_safe_line_pattern "$SAFE_BASH_PASSWORD_EXPANSION2"; then
+        echo -e "${RED}Self-test failed:${NC} bash password shell expansion (indented) false positive"
+        exit 1
+    fi
+    if matches_secret_pattern "$UNSAFE_BASH_PASSWORD_HARDCODED" && matches_safe_line_pattern "$UNSAFE_BASH_PASSWORD_HARDCODED"; then
+        echo -e "${RED}Self-test failed:${NC} bash hardcoded password was incorrectly whitelisted"
         exit 1
     fi
 
