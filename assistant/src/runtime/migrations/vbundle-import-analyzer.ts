@@ -19,6 +19,14 @@ import { join, resolve } from "node:path";
 
 import type { ManifestType } from "./vbundle-validator.js";
 
+/** Only these prompt filenames are accepted during import. */
+const ALLOWED_PROMPT_FILENAMES = new Set([
+  "IDENTITY.md",
+  "SOUL.md",
+  "USER.md",
+  "UPDATES.md",
+]);
+
 // ---------------------------------------------------------------------------
 // Public types
 // ---------------------------------------------------------------------------
@@ -123,10 +131,13 @@ export class DefaultPathResolver implements PathResolver {
     if (archivePath.startsWith("prompts/") && this.workspaceDir) {
       // Old bundles stored prompts as prompts/IDENTITY.md etc — these map
       // to the workspace root (e.g. workspace/IDENTITY.md).
-      const resolved = resolve(
-        this.workspaceDir,
-        archivePath.slice("prompts/".length),
-      );
+      // Only accepted prompt filenames resolve — unknown entries are
+      // skipped so they cannot trigger workspace clearing.
+      const filename = archivePath.slice("prompts/".length);
+      if (!ALLOWED_PROMPT_FILENAMES.has(filename)) {
+        return null;
+      }
+      const resolved = resolve(this.workspaceDir, filename);
       const wsRoot = resolve(this.workspaceDir);
       if (resolved !== wsRoot && !resolved.startsWith(wsRoot + "/")) {
         return null;
