@@ -1101,6 +1101,18 @@ public final class HTTPTransport {
         startSSE()
     }
 
+    /// Begin periodic health monitoring and SSE without an initial health check.
+    ///
+    /// Use when the caller has already verified reachability (e.g. via
+    /// ``HealthClient``) and only needs the transport to maintain the
+    /// ongoing health-check loop and event stream.
+    func startMonitoring() {
+        shouldReconnect = true
+        setConnected(true)
+        startHealthCheckLoop()
+        startSSE()
+    }
+
     /// Run a single health check against the gateway.
     private func performHealthCheck() async throws {
         guard let healthURL = buildURL(for: .healthz) else {

@@ -12,6 +12,8 @@ extension DaemonClient {
     /// Connect to the daemon via HTTP transport. If already connected, disconnects first.
     /// SSE is managed separately via `startSSE()` / `stopSSE()`.
     public func connect() async throws {
+        let healthClient: HealthClientProtocol = HealthClient()
+
         // Disconnect any existing connection without triggering reconnect.
         disconnectInternal(triggerReconnect: false)
 
@@ -59,8 +61,9 @@ extension DaemonClient {
         self.httpTransport = transport
 
         do {
-            try await transport.connect()
-            isAuthenticated = true  // HTTP transport uses bearer token, no additional auth needed
+            try await healthClient.checkHealth()
+            transport.startMonitoring()
+            isAuthenticated = true
             isConnecting = false
             log.info("connect: transport connected successfully to \(baseURL, privacy: .public), SSE should be running")
         } catch {
@@ -72,7 +75,8 @@ extension DaemonClient {
                 do {
                     try await wakeHandler()
                     log.info("connect: auto-wake succeeded, retrying connection to \(baseURL, privacy: .public)")
-                    try await transport.connect()
+                    try await healthClient.checkHealth()
+                    transport.startMonitoring()
                     isAuthenticated = true
                     isConnecting = false
                     log.info("connect: retry after auto-wake succeeded for \(baseURL, privacy: .public)")
