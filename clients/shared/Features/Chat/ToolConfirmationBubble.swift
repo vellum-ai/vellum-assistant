@@ -16,13 +16,8 @@ public struct ToolConfirmationBubble: View {
     public let isKeyboardActive: Bool
 
     @State private var showDiff = false
-    @State private var showAlwaysAllowMenu = false
     @State private var showTechnicalDetails = false
-    /// Tracks a selected pattern while waiting for the user to pick a scope.
-    @State private var pendingPattern: String?
-    @State private var showScopePickerMenu = false
     @State private var keyboardModel: ToolConfirmationKeyboardModel?
-    @State private var popoverKeyboardModel: ToolConfirmationPopoverKeyboardModel?
     @AppStorage("hasSeenCommandExplanation") private var hasSeenCommandExplanation = false
     @AppStorage("preferredAllowAction") private var preferredAllowAction: String = "allow_once"
     #if os(macOS)
@@ -294,7 +289,6 @@ public struct ToolConfirmationBubble: View {
             }
         }
         .onDisappear {
-            popoverKeyboardModel = nil
             #if os(macOS)
             removeKeyMonitor()
             #endif
@@ -311,10 +305,6 @@ public struct ToolConfirmationBubble: View {
                 removeKeyMonitor()
                 #endif
                 keyboardModel = nil
-                popoverKeyboardModel = nil
-                showAlwaysAllowMenu = false
-                showScopePickerMenu = false
-                pendingPattern = nil
             }
         }
     }
