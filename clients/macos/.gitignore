@@ -12,3 +12,7 @@ Local.xcconfig
 daemon-bin/
 cli-bin/
 gateway-bin/
+*.o
+*.d
+*.swiftdeps
+*.swiftdeps~
