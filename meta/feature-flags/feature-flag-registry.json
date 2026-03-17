@@ -42,14 +42,6 @@
       "defaultEnabled": false
     },
     {
-      "id": "sentry-testing",
-      "scope": "macos",
-      "key": "sentry_testing_enabled",
-      "label": "Sentry Testing",
-      "description": "Show the Sentry Testing tab in Settings for triggering test crash reports and error events",
-      "defaultEnabled": false
-    },
-    {
       "id": "mobile-pairing",
       "scope": "macos",
       "key": "mobile_pairing_enabled",
