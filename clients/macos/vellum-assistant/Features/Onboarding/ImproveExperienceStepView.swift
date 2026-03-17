@@ -36,10 +36,10 @@ struct ImproveExperienceStepView: View {
                     // Usage analytics toggle
                     HStack {
                         VStack(alignment: .leading, spacing: VSpacing.xs) {
-                            Text("Share usage analytics")
+                            Text("Share Analytics")
                                 .font(VFont.body)
                                 .foregroundColor(VColor.contentSecondary)
-                            Text("Send anonymized usage metrics (e.g. token counts, feature adoption) to help us improve the product. No personal data or message content is included.")
+                            Text("Send anonymous product usage data. Your conversations and personal data are never included.")
                                 .font(VFont.caption)
                                 .foregroundColor(VColor.contentTertiary)
                         }
@@ -52,10 +52,10 @@ struct ImproveExperienceStepView: View {
                     // Diagnostics toggle
                     HStack {
                         VStack(alignment: .leading, spacing: VSpacing.xs) {
-                            Text("Send diagnostics")
+                            Text("Share Diagnostics")
                                 .font(VFont.body)
                                 .foregroundColor(VColor.contentSecondary)
-                            Text("Share crash reports, error diagnostics, and performance metrics (hang rate, responsiveness) to help us improve stability. No personal data or message content is included.")
+                            Text("Send crash reports and performance metrics. Your conversations and personal data are never included.")
                                 .font(VFont.caption)
                                 .foregroundColor(VColor.contentTertiary)
                         }
