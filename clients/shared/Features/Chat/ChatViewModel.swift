@@ -48,6 +48,61 @@ struct ThreadStarterClient: ThreadStarterClientProtocol {
     }
 }
 
+// MARK: - Capability Card Types
+
+public struct CapabilityCard: Identifiable, Codable, Sendable {
+    public let id: String
+    public let icon: String?       // Lucide icon name (e.g. "lucide-mail")
+    public let label: String       // title
+    public let description: String?
+    public let prompt: String
+    public let category: String?
+    public let tags: [String]
+    public let batch: Int
+
+    /// Card size computed from content characteristics.
+    public var computedSize: CardSize {
+        let desc = description ?? ""
+        if tags.count >= 3 || desc.count > 80 { return .wide }
+        if desc.count > 120 { return .tall }
+        return .normal
+    }
+
+    public enum CardSize: String, Sendable {
+        case normal, wide, tall
+    }
+}
+
+public struct CategoryStatus: Codable, Sendable {
+    public let status: String       // "ready", "generating"
+    public let relevance: Double?   // 0.0–1.0, nil while generating
+}
+
+struct CapabilityCardsResponse: Codable {
+    let cards: [CapabilityCard]
+    let total: Int
+    let status: String
+    let categories: [String: CategoryStatus]?
+}
+
+@MainActor
+protocol CapabilityCardClientProtocol {
+    func fetchCapabilityCards(limit: Int) async -> CapabilityCardsResponse?
+}
+
+@MainActor
+struct CapabilityCardClient: CapabilityCardClientProtocol {
+    nonisolated init() {}
+
+    func fetchCapabilityCards(limit: Int) async -> CapabilityCardsResponse? {
+        guard let response = try? await GatewayHTTPClient.get(
+            path: "thread-starters",
+            params: ["card_type": "card", "limit": String(limit)]
+        ), response.isSuccess else { return nil }
+        return try? JSONDecoder().decode(CapabilityCardsResponse.self, from: response.data)
+    }
+}
+
 @MainActor
 protocol SurfaceClientProtocol {
     func fetchSurfaceData(surfaceId: String, conversationId: String) async -> SurfaceData?
@@ -352,6 +407,7 @@ public final class ChatViewModel: ObservableObject {
     let daemonClient: any DaemonClientProtocol
     private let surfaceClient: any SurfaceClientProtocol = SurfaceClient()
     private let threadStarterClient: any ThreadStarterClientProtocol = ThreadStarterClient()
+    private let capabilityCardClient: any CapabilityCardClientProtocol = CapabilityCardClient()
     /// Tracks the action submitted for each guardian decision requestId so the
     /// response handler can display the correct resolved state (the server does
     /// not echo back the action in its acknowledgement).
@@ -635,6 +691,13 @@ public final class ChatViewModel: ObservableObject {
     /// Personalized suggestion chips shown on the empty conversation page.
     @Published public var threadStarters: [ThreadStarter] = []
     @Published public var threadStartersLoading: Bool = false
+
+    // MARK: - Capability Cards
+
+    /// Capability cards shown in the feed below the hero on the empty conversation page.
+    @Published public var capabilityCards: [CapabilityCard] = []
+    @Published public var capabilityCardsLoading: Bool = false
+    @Published public var cardCategoryStatuses: [String: CategoryStatus] = [:]
 
     private static let fallbackGreetings = [
         "What are we working on?",
@@ -1364,6 +1427,80 @@ public final class ChatViewModel: ObservableObject {
                 }
             } else {
                 self.threadStartersLoading = false
+            }
+        }
+    }
+
+    // MARK: - Capability Cards Fetching
+
+    private static let relevanceThreshold: Double = 0.7
+
+    private var capabilityCardPollTask: Task<Void, Never>?
+
+    /// Fetch capability cards from the daemon for the feed below the hero.
+    public func fetchCapabilityCards() {
+        capabilityCardPollTask?.cancel()
+        capabilityCardPollTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            let response = await self.capabilityCardClient.fetchCapabilityCards(limit: 24)
+            guard !Task.isCancelled else { return }
+
+            if let response {
+                // Update category statuses
+                self.cardCategoryStatuses = response.categories ?? [:]
+
+                // Filter cards to only include those from relevant categories
+                let relevantCategories = Set(
+                    (response.categories ?? [:])
+                        .filter { ($0.value.relevance ?? 0) >= Self.relevanceThreshold }
+                        .map(\.key)
+                )
+                let relevant = response.cards.filter { card in
+                    guard let cat = card.category else { return false }
+                    return relevantCategories.contains(cat)
+                }
+
+                if !relevant.isEmpty {
+                    self.capabilityCards = relevant
+                    self.capabilityCardsLoading = false
+                    return
+                }
+
+                // Still generating — poll
+                if response.status == "generating" {
+                    self.capabilityCardsLoading = true
+                    while !Task.isCancelled {
+                        try? await Task.sleep(nanoseconds: 3_000_000_000)
+                        guard !Task.isCancelled else { return }
+                        let poll = await self.capabilityCardClient.fetchCapabilityCards(limit: 24)
+                        guard !Task.isCancelled else { return }
+                        if let poll {
+                            self.cardCategoryStatuses = poll.categories ?? [:]
+                            let updatedRelevant = Set(
+                                (poll.categories ?? [:])
+                                    .filter { ($0.value.relevance ?? 0) >= Self.relevanceThreshold }
+                                    .map(\.key)
+                            )
+                            let filtered = poll.cards.filter { card in
+                                guard let cat = card.category else { return false }
+                                return updatedRelevant.contains(cat)
+                            }
+                            if !filtered.isEmpty {
+                                self.capabilityCards = filtered
+                                self.capabilityCardsLoading = false
+                                return
+                            }
+                            if poll.status != "generating" {
+                                self.capabilityCardsLoading = false
+                                return
+                            }
+                        }
+                    }
+                } else {
+                    self.capabilityCardsLoading = false
+                }
+            } else {
+                self.capabilityCardsLoading = false
             }
         }
     }
