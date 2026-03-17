@@ -587,6 +587,14 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     /// Called when the daemon broadcasts a `contacts_changed` event (contact table mutated).
     public var onContactsChanged: ((ContactsChanged) -> Void)?
 
+    // MARK: - Auto-Wake
+
+    /// Optional closure invoked when a connection attempt fails because the daemon process
+    /// is not alive. The macOS app sets this to call `assistantCli.wake(name:)` so the
+    /// daemon is automatically restarted before retrying the connection.
+    /// Set by the app layer — `DaemonClient` never imports platform-specific types.
+    public var wakeHandler: (@MainActor @Sendable () async throws -> Void)?
+
     // MARK: - Broadcast Subscribers
 
     /// Creates a new message stream for the caller. Each subscriber receives all messages
