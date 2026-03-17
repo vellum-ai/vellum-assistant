@@ -97,27 +97,34 @@ public enum WorkspaceConfigIO {
     /// Sets the service mode for services that don't already have one configured.
     /// Called during onboarding (BYOK → "your-own") and managed-proxy bootstrap (→ "managed").
     /// Existing user-chosen modes are preserved so that app restarts don't reset preferences.
-    public static func initializeServiceDefaults(defaultMode mode: String, into path: String? = nil) {
+    ///
+    /// - Parameters:
+    ///   - mode: The service mode to set (e.g. "managed", "your-own").
+    ///   - force: When `true`, overwrites existing modes unconditionally. Use this
+    ///     for the managed bootstrap path where daemon-materialized schema defaults
+    ///     ("your-own") must be replaced with the correct managed mode.
+    ///   - path: Override the file path (useful for testing).
+    public static func initializeServiceDefaults(defaultMode mode: String, force: Bool = false, into path: String? = nil) {
         let existingConfig = read(from: path)
         var services = existingConfig["services"] as? [String: Any] ?? [:]
         var changed = false
 
         var inference = services["inference"] as? [String: Any] ?? [:]
-        if inference["mode"] == nil {
+        if force || inference["mode"] == nil {
             inference["mode"] = mode
             services["inference"] = inference
             changed = true
         }
 
         var imageGen = services["image-generation"] as? [String: Any] ?? [:]
-        if imageGen["mode"] == nil {
+        if force || imageGen["mode"] == nil {
             imageGen["mode"] = mode
             services["image-generation"] = imageGen
             changed = true
         }
 
         var webSearch = services["web-search"] as? [String: Any] ?? [:]
-        if webSearch["mode"] == nil {
+        if force || webSearch["mode"] == nil {
             webSearch["mode"] = mode
             services["web-search"] = webSearch
             changed = true
