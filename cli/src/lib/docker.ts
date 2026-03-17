@@ -32,6 +32,9 @@ const DOCKERHUB_IMAGES: Record<ServiceName, string> = {
 const ASSISTANT_INTERNAL_PORT = 3001;
 const GATEWAY_INTERNAL_PORT = 7830;
 
+/** Max time to wait for the assistant container to emit the readiness sentinel. */
+const DOCKER_READY_TIMEOUT_MS = 3 * 60 * 1000;
+
 /**
  * Checks whether the `docker` CLI and daemon are available on the system.
  * Installs Colima and Docker via Homebrew if the CLI is missing, and starts
@@ -764,9 +767,34 @@ async function tailContainerUntilReady(opts: {
   const logFd = openLogFile("hatch.log");
 
   await new Promise<void>((resolve, reject) => {
+    let settled = false;
     const child = nodeSpawn("docker", ["logs", "-f", containerName], {
       stdio: ["ignore", "pipe", "pipe"],
     });
+
+    function settle(fn: () => void) {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timeout);
+      fn();
+    }
+
+    const timeout = setTimeout(() => {
+      settle(() => {
+        child.kill();
+        closeLogFile(logFd);
+        console.log("");
+        console.log(
+          `   \u26a0\ufe0f  Timed out waiting for assistant to become ready.`,
+        );
+        console.log(`   The container is still running.`);
+        console.log(
+          `   Check logs with: docker logs -f ${containerName}`,
+        );
+        console.log("");
+        resolve();
+      });
+    }, DOCKER_READY_TIMEOUT_MS);
 
     const handleLine = (line: string): void => {
       writeToLogFile(
@@ -786,14 +814,16 @@ async function tailContainerUntilReady(opts: {
             );
           }
 
-          console.log("");
-          console.log(`\u2705 Docker containers are up and running!`);
-          console.log(`   Name: ${instanceName}`);
-          console.log(`   Runtime: ${runtimeUrl}`);
-          console.log("");
-          child.kill();
-          closeLogFile(logFd);
-          resolve();
+          settle(() => {
+            console.log("");
+            console.log(`\u2705 Docker containers are up and running!`);
+            console.log(`   Name: ${instanceName}`);
+            console.log(`   Runtime: ${runtimeUrl}`);
+            console.log("");
+            child.kill();
+            closeLogFile(logFd);
+            resolve();
+          });
         });
       }
     };
@@ -815,28 +845,34 @@ async function tailContainerUntilReady(opts: {
     child.stderr?.on("end", () => stderrPrefixer.flush());
 
     child.on("close", (code) => {
-      closeLogFile(logFd);
-      if (
-        code === 0 ||
-        code === null ||
-        code === 130 ||
-        code === 137 ||
-        code === 143
-      ) {
-        resolve();
-      } else {
-        reject(new Error(`Docker container exited with code ${code}`));
-      }
+      settle(() => {
+        closeLogFile(logFd);
+        if (
+          code === 0 ||
+          code === null ||
+          code === 130 ||
+          code === 137 ||
+          code === 143
+        ) {
+          resolve();
+        } else {
+          reject(new Error(`Docker container exited with code ${code}`));
+        }
+      });
     });
     child.on("error", (err) => {
-      closeLogFile(logFd);
-      reject(err);
+      settle(() => {
+        closeLogFile(logFd);
+        reject(err);
+      });
     });
 
     process.on("SIGINT", () => {
-      child.kill();
-      closeLogFile(logFd);
-      resolve();
+      settle(() => {
+        child.kill();
+        closeLogFile(logFd);
+        resolve();
+      });
     });
   });
 }
