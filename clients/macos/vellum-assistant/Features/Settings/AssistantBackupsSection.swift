@@ -399,7 +399,7 @@ extension AssistantBackupsSection {
                     // Auto-restart the assistant so restored state takes effect
                     let assistantName = assistant.assistantId
                     Task {
-                        AppDelegate.shared?.assistantCli.stop(name: nil)
+                        AppDelegate.shared?.assistantCli.stop(name: assistantName)
                         try? await Task.sleep(nanoseconds: 500_000_000)
                         try? await AppDelegate.shared?.assistantCli.wake(name: assistantName)
                     }
