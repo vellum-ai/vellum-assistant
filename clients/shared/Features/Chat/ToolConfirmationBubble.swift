@@ -24,7 +24,7 @@ public struct ToolConfirmationBubble: View {
     @State private var keyboardModel: ToolConfirmationKeyboardModel?
     @State private var popoverKeyboardModel: ToolConfirmationPopoverKeyboardModel?
     @AppStorage("hasSeenCommandExplanation") private var hasSeenCommandExplanation = false
-    @AppStorage("preferredAllowAction") private var preferredAllowAction: String = "allow_10m"
+    @AppStorage("preferredAllowAction") private var preferredAllowAction: String = "allow_once"
     #if os(macOS)
     @State private var keyMonitor: Any?
     #endif
@@ -425,7 +425,6 @@ public struct ToolConfirmationBubble: View {
         case "allow_conversation" where hasAllowConversation: return "allow_conversation"
         case "allow_once": return "allow_once"
         default:
-            if hasAllow10m { return "allow_10m" }
             return "allow_once"
         }
     }
