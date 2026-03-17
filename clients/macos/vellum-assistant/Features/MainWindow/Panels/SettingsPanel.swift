@@ -18,7 +18,7 @@ enum SettingsTab: String {
 
     /// Primary tabs shown in the main nav list (excludes feature-flagged bottom tabs).
     static func primaryTabs(contactsEnabled: Bool = false, billingEnabled: Bool = false) -> [SettingsTab] {
-        var tabs: [SettingsTab] = [.account, .channels, .modelsAndServices, .automation]
+        var tabs: [SettingsTab] = [.account, .channels, .modelsAndServices, .voice, .automation]
         if contactsEnabled {
             tabs.append(.contacts)
         }
