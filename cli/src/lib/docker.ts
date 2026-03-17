@@ -23,21 +23,21 @@ import {
   writeToLogFile,
 } from "./xdg-log";
 
-type ServiceName = "assistant" | "credential-executor" | "gateway";
+export type ServiceName = "assistant" | "credential-executor" | "gateway";
 
 const DOCKERHUB_ORG = "vellumai";
-const DOCKERHUB_IMAGES: Record<ServiceName, string> = {
+export const DOCKERHUB_IMAGES: Record<ServiceName, string> = {
   assistant: `${DOCKERHUB_ORG}/vellum-assistant`,
   "credential-executor": `${DOCKERHUB_ORG}/vellum-credential-executor`,
   gateway: `${DOCKERHUB_ORG}/vellum-gateway`,
 };
 
 /** Internal ports exposed by each service's Dockerfile. */
-const ASSISTANT_INTERNAL_PORT = 3001;
-const GATEWAY_INTERNAL_PORT = 7830;
+export const ASSISTANT_INTERNAL_PORT = 3001;
+export const GATEWAY_INTERNAL_PORT = 7830;
 
 /** Max time to wait for the assistant container to emit the readiness sentinel. */
-const DOCKER_READY_TIMEOUT_MS = 3 * 60 * 1000;
+export const DOCKER_READY_TIMEOUT_MS = 3 * 60 * 1000;
 
 /**
  * Checks whether the `docker` CLI and daemon are available on the system.
@@ -148,7 +148,7 @@ export function dockerResourceNames(instanceName: string) {
 }
 
 /** Silently attempt to stop and remove a Docker container. */
-async function removeContainer(containerName: string): Promise<void> {
+export async function removeContainer(containerName: string): Promise<void> {
   try {
     await exec("docker", ["stop", containerName]);
   } catch {
@@ -310,13 +310,14 @@ async function buildAllImages(
  * service. Each container joins a shared Docker bridge network so they
  * can be restarted independently.
  */
-function serviceDockerRunArgs(opts: {
+export function serviceDockerRunArgs(opts: {
+  extraAssistantEnv?: Record<string, string>;
   gatewayPort: number;
   imageTags: Record<ServiceName, string>;
   instanceName: string;
   res: ReturnType<typeof dockerResourceNames>;
 }): Record<ServiceName, () => string[]> {
-  const { gatewayPort, imageTags, instanceName, res } = opts;
+  const { extraAssistantEnv, gatewayPort, imageTags, instanceName, res } = opts;
   return {
     assistant: () => {
       const args: string[] = [
@@ -338,6 +339,11 @@ function serviceDockerRunArgs(opts: {
       for (const envVar of ["ANTHROPIC_API_KEY", "VELLUM_PLATFORM_URL"]) {
         if (process.env[envVar]) {
           args.push("-e", `${envVar}=${process.env[envVar]}`);
+        }
+      }
+      if (extraAssistantEnv) {
+        for (const [key, value] of Object.entries(extraAssistantEnv)) {
+          args.push("-e", `${key}=${value}`);
         }
       }
       args.push(imageTags.assistant);
@@ -389,15 +395,16 @@ function serviceDockerRunArgs(opts: {
 }
 
 /** The order in which services must be started. */
-const SERVICE_START_ORDER: ServiceName[] = [
+export const SERVICE_START_ORDER: ServiceName[] = [
   "assistant",
   "gateway",
   "credential-executor",
 ];
 
 /** Start all three containers in dependency order. */
-async function startContainers(
+export async function startContainers(
   opts: {
+    extraAssistantEnv?: Record<string, string>;
     gatewayPort: number;
     imageTags: Record<ServiceName, string>;
     instanceName: string;
@@ -413,7 +420,7 @@ async function startContainers(
 }
 
 /** Stop and remove all three containers (ignoring errors). */
-async function stopContainers(
+export async function stopContainers(
   res: ReturnType<typeof dockerResourceNames>,
 ): Promise<void> {
   await removeContainer(res.cesContainer);
