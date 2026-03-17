@@ -98,7 +98,7 @@ final class AvatarAppearanceManager {
             .appendingPathComponent("custom-avatar.png")
     }
 
-    private var customAvatarURL: URL {
+    var customAvatarURL: URL {
         // Resolve from the connected assistant's workspace dir so multi-instance
         // setups (e.g. XDG-based paths) find the correct avatar file.
         if let assistantId = UserDefaults.standard.string(forKey: "connectedAssistantId"),
@@ -456,29 +456,29 @@ final class AvatarAppearanceManager {
     /// When cleared, reverts to the default bundle icon.
     private func updateDockIcon() {
         guard let avatar = customAvatarImage else {
-            NSApplication.shared.applicationIconImage = nil
+            NSApplication.shared.applicationIconImage =
+                NSWorkspace.shared.icon(forFile: Bundle.main.bundlePath)
             NSApp.dockTile.display()
             return
         }
 
-        let size: CGFloat = 512
-        let square = Self.resizedImage(avatar, to: size)
-        let iconSize = NSSize(width: size, height: size)
-        let icon = NSImage(size: iconSize)
-        icon.lockFocus()
-
-        let rect = NSRect(origin: .zero, size: iconSize)
-        let radius = size * 0.23
-        let path = NSBezierPath(roundedRect: rect, xRadius: radius, yRadius: radius)
-        path.addClip()
-
-        square.draw(in: rect, from: NSRect(origin: .zero, size: square.size),
-                    operation: .copy, fraction: 1.0)
-
-        icon.unlockFocus()
-
-        NSApplication.shared.applicationIconImage = icon
+        NSApplication.shared.applicationIconImage = Self.squircleIcon(avatar, size: 512)
         NSApp.dockTile.display()
+    }
+
+    /// Renders the source image inside a macOS-style squircle mask at the given point size.
+    /// Resolution-independent: the drawing handler is re-invoked at the correct pixel density
+    /// for each display context (e.g. 2x on Retina).
+    nonisolated static func squircleIcon(_ source: NSImage, size: CGFloat) -> NSImage {
+        let square = resizedImage(source, to: size)
+        let iconSize = NSSize(width: size, height: size)
+        return NSImage(size: iconSize, flipped: false) { rect in
+            let radius = size * 0.23
+            NSBezierPath(roundedRect: rect, xRadius: radius, yRadius: radius).addClip()
+            square.draw(in: rect, from: NSRect(origin: .zero, size: square.size),
+                        operation: .copy, fraction: 1.0)
+            return true
+        }
     }
 
     // MARK: - Image Utilities
@@ -486,7 +486,7 @@ final class AvatarAppearanceManager {
     /// Resize an NSImage to a square of the given point size using aspect-fill:
     /// scales the source to fully cover the target square, then crops the excess
     /// so non-square images are centered rather than stretched.
-    static func resizedImage(_ source: NSImage, to size: CGFloat) -> NSImage {
+    nonisolated static func resizedImage(_ source: NSImage, to size: CGFloat) -> NSImage {
         let targetSize = NSSize(width: size, height: size)
         let srcW = source.size.width
         let srcH = source.size.height
@@ -506,31 +506,16 @@ final class AvatarAppearanceManager {
             cropRect = NSRect(x: 0, y: originY, width: srcW, height: cropH)
         }
 
-        let resized = NSImage(size: targetSize)
-        resized.lockFocus()
-        source.draw(
-            in: NSRect(origin: .zero, size: targetSize),
-            from: cropRect,
-            operation: .copy,
-            fraction: 1.0
-        )
-        resized.unlockFocus()
-        return resized
+        return NSImage(size: targetSize, flipped: false) { rect in
+            source.draw(in: rect, from: cropRect, operation: .copy, fraction: 1.0)
+            return true
+        }
     }
 
     // MARK: - Initial Letter Avatar
 
     /// Build a colored-circle NSImage with the assistant's initial letter as fallback avatar.
     static func buildInitialLetterAvatar(name: String, size: CGFloat = 56) -> NSImage {
-        let image = NSImage(size: NSSize(width: size, height: size))
-        image.lockFocus()
-
-        // Draw circle with accent color (VColor.primaryBase equivalent)
-        let path = NSBezierPath(ovalIn: NSRect(x: 0, y: 0, width: size, height: size))
-        NSColor(VColor.primaryBase).setFill()
-        path.fill()
-
-        // Draw initial letter
         let initial = String(name.prefix(1)).uppercased()
         let attrs: [NSAttributedString.Key: Any] = [
             .font: NSFont.systemFont(ofSize: size * 0.45, weight: .semibold),
@@ -538,10 +523,16 @@ final class AvatarAppearanceManager {
         ]
         let attrStr = NSAttributedString(string: initial, attributes: attrs)
         let textSize = attrStr.size()
-        let textPoint = NSPoint(x: (size - textSize.width) / 2, y: (size - textSize.height) / 2)
-        attrStr.draw(at: textPoint)
 
-        image.unlockFocus()
-        return image
+        return NSImage(size: NSSize(width: size, height: size), flipped: false) { rect in
+            NSColor(VColor.primaryBase).setFill()
+            NSBezierPath(ovalIn: rect).fill()
+            let textPoint = NSPoint(
+                x: (size - textSize.width) / 2,
+                y: (size - textSize.height) / 2
+            )
+            attrStr.draw(at: textPoint)
+            return true
+        }
     }
 }

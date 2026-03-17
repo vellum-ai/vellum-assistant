@@ -13,6 +13,8 @@ private let notificationIconCacheURL: URL = {
 
 /// Tracks the avatar source mod-date so we know when to re-render.
 private var cachedAvatarModDate: Date?
+/// Tracks the avatar source path so cache invalidates on assistant switch.
+private var cachedAvatarPath: String?
 
 extension UNMutableNotificationContent {
     /// Attaches the assistant's avatar (with squircle mask matching the dock icon)
@@ -51,43 +53,45 @@ extension UNMutableNotificationContent {
         let manager = AvatarAppearanceManager.shared
         guard let avatar = manager.customAvatarImage else { return nil }
 
-        // Check if the cached file is still valid by comparing the avatar source mod-date.
-        let avatarURL = AvatarAppearanceManager.workspaceCustomAvatarURL()
-        let currentModDate = (try? FileManager.default.attributesOfItem(atPath: avatarURL.path))?[.modificationDate] as? Date
+        // Use the assistant-specific resolved path so cache invalidation works
+        // correctly after switching assistants.
+        let avatarURL = manager.customAvatarURL
+        let currentModDate = (try? FileManager.default.attributesOfItem(
+            atPath: avatarURL.path))?[.modificationDate] as? Date
 
+        // Cache on both resolved avatar path AND mod-date to prevent collisions
+        // when two assistants have avatar files with the same modification timestamp.
         if FileManager.default.fileExists(atPath: notificationIconCacheURL.path),
            let currentModDate, let cachedDate = cachedAvatarModDate,
-           currentModDate == cachedDate {
+           currentModDate == cachedDate,
+           avatarURL.path == cachedAvatarPath {
             return notificationIconCacheURL
         }
 
-        // Render the avatar with the same squircle mask as the dock icon.
         let size: CGFloat = 256
-        let square = AvatarAppearanceManager.resizedImage(avatar, to: size)
-        let iconSize = NSSize(width: size, height: size)
-        let icon = NSImage(size: iconSize)
-        icon.lockFocus()
+        let icon = AvatarAppearanceManager.squircleIcon(avatar, size: size)
 
-        let rect = NSRect(origin: .zero, size: iconSize)
-        let radius = size * 0.23
-        let path = NSBezierPath(roundedRect: rect, xRadius: radius, yRadius: radius)
-        path.addClip()
+        // Render directly into a 2x bitmap — no TIFF intermediate.
+        let px = Int(size) * 2
+        guard let bitmap = NSBitmapImageRep(
+            bitmapDataPlanes: nil, pixelsWide: px, pixelsHigh: px,
+            bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true, isPlanar: false,
+            colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0
+        ) else { return nil }
+        bitmap.size = NSSize(width: size, height: size)
 
-        square.draw(in: rect, from: NSRect(origin: .zero, size: square.size),
-                    operation: .copy, fraction: 1.0)
+        NSGraphicsContext.saveGraphicsState()
+        NSGraphicsContext.current = NSGraphicsContext(bitmapImageRep: bitmap)
+        icon.draw(in: NSRect(origin: .zero, size: NSSize(width: size, height: size)),
+                  from: .zero, operation: .copy, fraction: 1.0)
+        NSGraphicsContext.restoreGraphicsState()
 
-        icon.unlockFocus()
-
-        // Write to a temp file (UNNotificationAttachment requires a file URL).
-        guard let tiffData = icon.tiffRepresentation,
-              let bitmap = NSBitmapImageRep(data: tiffData),
-              let pngData = bitmap.representation(using: .png, properties: [:]) else {
-            return nil
-        }
+        guard let pngData = bitmap.representation(using: .png, properties: [:]) else { return nil }
 
         do {
             try pngData.write(to: notificationIconCacheURL)
             cachedAvatarModDate = currentModDate
+            cachedAvatarPath = avatarURL.path
             return notificationIconCacheURL
         } catch {
             return nil

@@ -136,22 +136,20 @@ extension AppDelegate {
         let dotColor = status.statusColor
         let dotAlpha = status.shouldPulse ? pulsePhase : 1.0
 
-        let composited = NSImage(size: NSSize(width: iconSize, height: iconSize))
-        composited.lockFocus()
-        appIcon.draw(
-            in: NSRect(x: 0, y: 0, width: iconSize, height: iconSize),
-            from: NSRect(origin: .zero, size: appIcon.size),
-            operation: .copy,
-            fraction: 1.0
-        )
-        let dotX = iconSize - dotSize - dotPadding
-        let dotY = dotPadding
-        let dotRect = NSRect(x: dotX, y: dotY, width: dotSize, height: dotSize)
-        NSColor(VColor.auxBlack).withAlphaComponent(0.5).setFill()
-        NSBezierPath(ovalIn: dotRect.insetBy(dx: -0.5, dy: -0.5)).fill()
-        dotColor.withAlphaComponent(dotAlpha).setFill()
-        NSBezierPath(ovalIn: dotRect).fill()
-        composited.unlockFocus()
+        let composited = NSImage(
+            size: NSSize(width: iconSize, height: iconSize), flipped: false
+        ) { rect in
+            appIcon.draw(in: rect, from: NSRect(origin: .zero, size: appIcon.size),
+                         operation: .copy, fraction: 1.0)
+            let dotX = iconSize - dotSize - dotPadding
+            let dotY = dotPadding
+            let dotRect = NSRect(x: dotX, y: dotY, width: dotSize, height: dotSize)
+            NSColor(VColor.auxBlack).withAlphaComponent(0.5).setFill()
+            NSBezierPath(ovalIn: dotRect.insetBy(dx: -0.5, dy: -0.5)).fill()
+            dotColor.withAlphaComponent(dotAlpha).setFill()
+            NSBezierPath(ovalIn: dotRect).fill()
+            return true
+        }
         composited.isTemplate = false
         button.image = composited
 
