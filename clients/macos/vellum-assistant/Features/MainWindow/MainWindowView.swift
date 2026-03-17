@@ -1048,7 +1048,10 @@ private struct DaemonLoadingOverlayContent: View {
                     .clipShape(RoundedRectangle(cornerRadius: VRadius.xl))
                 DaemonStartupErrorView(
                     error: error,
-                    onRetry: onRetry,
+                    onRetry: {
+                        timedOut = false
+                        onRetry()
+                    },
                     onSendLogs: onSendLogs
                 )
             }
