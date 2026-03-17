@@ -340,7 +340,7 @@ struct SettingsPanel: View {
         case .accessibility:
             accessibilityContent
         case .privacy:
-            SettingsPrivacyTab(daemonClient: daemonClient, store: store)
+            SettingsPrivacyTab(store: store)
         case .voice:
             VoiceSettingsView(store: store)
         case .billing:

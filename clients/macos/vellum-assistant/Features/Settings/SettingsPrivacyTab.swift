@@ -5,7 +5,6 @@ import VellumAssistantShared
 /// crash/error diagnostics independently.
 @MainActor
 struct SettingsPrivacyTab: View {
-    var daemonClient: DaemonClient?
     @ObservedObject var store: SettingsStore
     var featureFlagClient: FeatureFlagClientProtocol = FeatureFlagClient()
 
