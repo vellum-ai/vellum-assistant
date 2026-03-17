@@ -94,6 +94,10 @@ public enum WorkspaceConfigIO {
         }
     }
 
+    /// All known service keys. Add new services here to automatically include
+    /// them in `initializeServiceDefaults`.
+    static let serviceKeys = ["inference", "image-generation", "web-search", "google-oauth"]
+
     /// Sets the service mode for services that don't already have one configured.
     /// Called during onboarding (BYOK → "your-own") and managed-proxy bootstrap (→ "managed").
     /// Existing user-chosen modes are preserved so that app restarts don't reset preferences.
@@ -109,32 +113,13 @@ public enum WorkspaceConfigIO {
         var services = existingConfig["services"] as? [String: Any] ?? [:]
         var changed = false
 
-        var inference = services["inference"] as? [String: Any] ?? [:]
-        if force || inference["mode"] == nil {
-            inference["mode"] = mode
-            services["inference"] = inference
-            changed = true
-        }
-
-        var imageGen = services["image-generation"] as? [String: Any] ?? [:]
-        if force || imageGen["mode"] == nil {
-            imageGen["mode"] = mode
-            services["image-generation"] = imageGen
-            changed = true
-        }
-
-        var webSearch = services["web-search"] as? [String: Any] ?? [:]
-        if force || webSearch["mode"] == nil {
-            webSearch["mode"] = mode
-            services["web-search"] = webSearch
-            changed = true
-        }
-
-        var googleOAuth = services["google-oauth"] as? [String: Any] ?? [:]
-        if googleOAuth["mode"] == nil {
-            googleOAuth["mode"] = mode
-            services["google-oauth"] = googleOAuth
-            changed = true
+        for key in serviceKeys {
+            var service = services[key] as? [String: Any] ?? [:]
+            if force || service["mode"] == nil {
+                service["mode"] = mode
+                services[key] = service
+                changed = true
+            }
         }
 
         if changed {
