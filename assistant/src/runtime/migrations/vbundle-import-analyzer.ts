@@ -15,6 +15,7 @@
 
 import { createHash } from "node:crypto";
 import { existsSync, readFileSync, statSync } from "node:fs";
+import { join } from "node:path";
 
 import type { ManifestType } from "./vbundle-validator.js";
 
@@ -81,6 +82,8 @@ export class DefaultPathResolver implements PathResolver {
   constructor(
     private dbPath: string,
     private configPath: string,
+    private protectedDir?: string,
+    private skillsDir?: string,
   ) {}
 
   resolve(archivePath: string): string | null {
@@ -90,6 +93,12 @@ export class DefaultPathResolver implements PathResolver {
       case "config/settings.json":
         return this.configPath;
       default:
+        if (archivePath === "trust/trust.json" && this.protectedDir) {
+          return join(this.protectedDir, "trust.json");
+        }
+        if (archivePath.startsWith("skills/") && this.skillsDir) {
+          return join(this.skillsDir, archivePath.slice("skills/".length));
+        }
         return null;
     }
   }
