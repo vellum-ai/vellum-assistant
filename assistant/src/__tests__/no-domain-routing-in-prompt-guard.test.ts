@@ -5,7 +5,7 @@ import { describe, expect, test } from "bun:test";
 /**
  * Guard test: domain-specific routing sections must NOT appear in the system
  * prompt source file. Routing cues now live in skill frontmatter
- * (`activation-hints` / `avoid-when`) and are projected into `<available_skills>` XML.
+ * (`activation-hints` / `avoid-when`) and are projected into the skills catalog.
  *
  * If this test fails, you are re-introducing hardcoded routing into the system
  * prompt. Instead, add `activation-hints` to the skill's SKILL.md frontmatter.

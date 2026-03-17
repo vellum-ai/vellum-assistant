@@ -227,10 +227,10 @@ describe("cross-tool routing consistency", () => {
 });
 
 // =====================================================================
-// 4. Activation hints in <available_skills> XML (replaces domain routing sections)
+// 4. Activation hints in skills catalog (replaces domain routing sections)
 // =====================================================================
 
-describe("Activation hints in available_skills XML", () => {
+describe("Activation hints in skills catalog", () => {
   beforeEach(() => {
     mkdirSync(TEST_DIR, { recursive: true });
   });
@@ -241,61 +241,28 @@ describe("Activation hints in available_skills XML", () => {
     }
   });
 
-  test("available_skills XML does NOT contain location attribute", () => {
+  test("phone-calls skill includes hints and avoid-when in catalog line", () => {
     const prompt = buildSystemPrompt();
-    const start = prompt.indexOf("<available_skills>");
-    const end = prompt.indexOf("</available_skills>");
-    expect(start).not.toBe(-1);
-    expect(end).not.toBe(-1);
-    const skillsXml = prompt.substring(start, end);
-    expect(skillsXml).not.toContain("location=");
+    const line = prompt.split("\n").find((l) => l.includes("**phone-calls**"));
+    expect(line).toBeDefined();
+    // Activation hints and avoid-when are folded into the description
+    expect(line).toContain("Twilio");
+    expect(line).toContain("voice-setup");
   });
 
-  test("phone-calls bundled skill has hints and avoid-when attributes in XML", () => {
+  test("orchestration skill includes hints and avoid-when in catalog line", () => {
     const prompt = buildSystemPrompt();
-    const start = prompt.indexOf("<available_skills>");
-    const end = prompt.indexOf("</available_skills>");
-    expect(start).not.toBe(-1);
-    expect(end).not.toBe(-1);
-    const skillsXml = prompt.substring(start, end);
-    expect(skillsXml).toContain('id="phone-calls"');
-    const skillLine = skillsXml
-      .split("\n")
-      .find((l) => l.includes('id="phone-calls"'));
-    expect(skillLine).toBeDefined();
-    expect(skillLine).toContain("hints=");
-    expect(skillLine).toContain("avoid-when=");
+    const line = prompt.split("\n").find((l) => l.includes("**orchestration**"));
+    expect(line).toBeDefined();
+    expect(line).toContain("parallel");
+    expect(line).toContain("Single-focus");
   });
 
-  test("orchestration bundled skill has hints and avoid-when attributes in XML", () => {
+  test("browser skill includes hints in catalog line", () => {
     const prompt = buildSystemPrompt();
-    const start = prompt.indexOf("<available_skills>");
-    const end = prompt.indexOf("</available_skills>");
-    expect(start).not.toBe(-1);
-    expect(end).not.toBe(-1);
-    const skillsXml = prompt.substring(start, end);
-    expect(skillsXml).toContain('id="orchestration"');
-    const skillLine = skillsXml
-      .split("\n")
-      .find((l) => l.includes('id="orchestration"'));
-    expect(skillLine).toBeDefined();
-    expect(skillLine).toContain("hints=");
-    expect(skillLine).toContain("avoid-when=");
-  });
-
-  test("browser bundled skill has hints attribute in XML", () => {
-    const prompt = buildSystemPrompt();
-    const start = prompt.indexOf("<available_skills>");
-    const end = prompt.indexOf("</available_skills>");
-    expect(start).not.toBe(-1);
-    expect(end).not.toBe(-1);
-    const skillsXml = prompt.substring(start, end);
-    expect(skillsXml).toContain('id="browser"');
-    const skillLine = skillsXml
-      .split("\n")
-      .find((l) => l.includes('id="browser"'));
-    expect(skillLine).toBeDefined();
-    expect(skillLine).toContain("hints=");
+    const line = prompt.split("\n").find((l) => l.includes("**browser**"));
+    expect(line).toBeDefined();
+    expect(line).toContain("browser_*");
   });
 
   test("domain routing sections are no longer in system prompt", () => {

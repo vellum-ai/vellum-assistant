@@ -186,7 +186,7 @@ function createSkillOnDisk(
 // ---------------------------------------------------------------------------
 
 describe("buildSystemPrompt assistant feature flag filtering", () => {
-  test("flag OFF skill does not appear in <available_skills> section", () => {
+  test("flag OFF skill does not appear in skills catalog", () => {
     createSkillOnDisk(
       DECLARED_SKILL_ID,
       "Contacts",
@@ -224,8 +224,8 @@ describe("buildSystemPrompt assistant feature flag filtering", () => {
     const result = buildSystemPrompt();
 
     // browser is explicitly enabled, declared flagged skill is explicitly off
-    expect(result).toContain('id="browser"');
-    expect(result).not.toContain(`id="${DECLARED_SKILL_ID}"`);
+    expect(result).toContain("**browser**");
+    expect(result).not.toContain(`**${DECLARED_SKILL_ID}**`);
   });
 
   test("declared skills hidden when no flag overrides set (registry defaults to false)", () => {
@@ -262,8 +262,8 @@ describe("buildSystemPrompt assistant feature flag filtering", () => {
     const result = buildSystemPrompt();
 
     // Both skills declare feature flags with registry defaultEnabled: false
-    expect(result).not.toContain(`id="${DECLARED_SKILL_ID}"`);
-    expect(result).not.toContain('id="email-channel"');
+    expect(result).not.toContain(`**${DECLARED_SKILL_ID}**`);
+    expect(result).not.toContain("**email-channel**");
   });
 
   test("flagged-off skills hidden when all flags are OFF", () => {
@@ -303,8 +303,8 @@ describe("buildSystemPrompt assistant feature flag filtering", () => {
 
     const result = buildSystemPrompt();
 
-    expect(result).not.toContain(`id="${DECLARED_SKILL_ID}"`);
-    expect(result).not.toContain('id="email-channel"');
+    expect(result).not.toContain(`**${DECLARED_SKILL_ID}**`);
+    expect(result).not.toContain("**email-channel**");
   });
 
   test("assistantFeatureFlagValues overrides control visibility", () => {
@@ -335,7 +335,7 @@ describe("buildSystemPrompt assistant feature flag filtering", () => {
 
     const result = buildSystemPrompt();
 
-    expect(result).toContain(`id="${DECLARED_SKILL_ID}"`);
+    expect(result).toContain(`**${DECLARED_SKILL_ID}**`);
   });
 
   test("persisted overrides for undeclared flags are respected", () => {
@@ -368,7 +368,7 @@ describe("buildSystemPrompt assistant feature flag filtering", () => {
 
     // browser declares featureFlag: "browser" and the user
     // explicitly disabled it — that override must be honored.
-    expect(result).not.toContain('id="browser"');
+    expect(result).not.toContain("**browser**");
   });
 
   test("declared flags with no persisted override use registry default", () => {
@@ -399,7 +399,7 @@ describe("buildSystemPrompt assistant feature flag filtering", () => {
     const result = buildSystemPrompt();
 
     // browser is declared in the registry with defaultEnabled: true
-    expect(result).toContain('id="browser"');
+    expect(result).toContain("**browser**");
   });
 
   test("skill without featureFlag is never flag-gated", () => {

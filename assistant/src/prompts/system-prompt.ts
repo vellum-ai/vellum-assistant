@@ -396,15 +396,6 @@ function buildDynamicSkillWorkflowSection(
   return lines.join("\n");
 }
 
-function escapeXml(str: string): string {
-  return str
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&apos;");
-}
-
 /**
  * Build a dynamic description for the mcp-setup skill that includes
  * configured MCP server names, so the model knows which servers exist.
@@ -413,44 +404,33 @@ function getMcpSetupDescription(): string {
   const config = getConfig();
   const servers = config.mcp?.servers;
   if (!servers || Object.keys(servers).length === 0) {
-    return "Add, authenticate, list, and remove MCP (Model Context Protocol) servers";
+    return "Add, authenticate, list, and remove MCP servers";
   }
 
   const serverNames = Object.keys(servers).sort();
-  return `Manage MCP servers. Configured: ${serverNames.join(", ")}. Load this skill to check status, authenticate, or add/remove servers.`;
+  return `Manage MCP servers. Configured: ${serverNames.join(", ")}. Load to check status, authenticate, or add/remove servers.`;
 }
 
 function formatSkillsCatalog(skills: SkillSummary[]): string {
-  const visible = skills;
-  if (visible.length === 0) return "";
+  if (skills.length === 0) return "";
 
-  const lines = ["<available_skills>"];
-  for (const skill of visible) {
-    const idAttr = escapeXml(skill.id);
-    const nameAttr = escapeXml(skill.displayName);
-    const descAttr =
+  const lines = ["## Available Skills", ""];
+  for (const skill of skills) {
+    const desc =
       skill.id === "mcp-setup"
-        ? escapeXml(getMcpSetupDescription())
-        : escapeXml(skill.description);
-    const hintsAttr =
-      skill.activationHints && skill.activationHints.length > 0
-        ? ` hints="${escapeXml(skill.activationHints.join("; "))}"`
-        : "";
-    const avoidAttr =
-      skill.avoidWhen && skill.avoidWhen.length > 0
-        ? ` avoid-when="${escapeXml(skill.avoidWhen.join("; "))}"`
-        : "";
-    lines.push(
-      `<skill id="${idAttr}" name="${nameAttr}" description="${descAttr}"${hintsAttr}${avoidAttr} />`,
-    );
-  }
-  lines.push("</available_skills>");
+        ? getMcpSetupDescription()
+        : skill.description;
 
-  return [
-    "## Available Skills",
-    "The following skills are available. Before executing one, call `skill_load` to load the full instructions, then use `skill_execute` to invoke the skill's tools.",
-    "",
-    lines.join("\n"),
-    "",
-  ].join("\n");
+    // Build a single line: - **id**: description. Hints. Avoid-when.
+    const parts = [desc];
+    if (skill.activationHints && skill.activationHints.length > 0) {
+      parts.push(skill.activationHints.join(". "));
+    }
+    if (skill.avoidWhen && skill.avoidWhen.length > 0) {
+      parts.push(skill.avoidWhen.join(". "));
+    }
+    lines.push(`- **${skill.id}**: ${parts.join(". ")}`);
+  }
+
+  return lines.join("\n");
 }
