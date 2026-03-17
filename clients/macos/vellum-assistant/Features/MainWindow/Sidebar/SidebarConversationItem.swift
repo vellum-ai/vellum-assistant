@@ -64,32 +64,42 @@ struct SidebarConversationItem: View {
                     }
                     .buttonStyle(.plain)
                     .transition(.opacity)
+                    .nativeTooltip(conversation.isPinned ? "Unpin" : "Pin")
                     .accessibilityLabel(conversation.isPinned ? "Unpin \(conversation.title)" : "Pin \(conversation.title)")
                 } else {
                     switch interactionState {
                     case .processing:
                         VBusyIndicator()
                             .frame(width: 20, height: 20)
+                            .nativeTooltip("Processing")
+                            .accessibilityLabel("Processing")
                     case .waitingForInput:
                         VIconView(.circleAlert, size: 12)
                             .foregroundColor(VColor.systemNegativeHover)
                             .frame(width: 20, height: 20)
+                            .nativeTooltip("Waiting for input")
+                            .accessibilityLabel("Waiting for input")
                     case .error:
                         VIconView(.circleAlert, size: 12)
                             .foregroundColor(VColor.systemNegativeStrong)
                             .frame(width: 20, height: 20)
+                            .nativeTooltip("Error")
+                            .accessibilityLabel("Error")
                             .transition(.opacity)
                     case .idle:
                         if conversation.hasUnseenLatestAssistantMessage {
                             VBadge(style: .dot, color: VColor.systemNegativeHover)
                                 .accessibilityLabel("Unread")
                                 .frame(width: 20, height: 20)
+                                .nativeTooltip("Unread")
                                 .transition(.opacity)
                         } else if conversation.isPinned {
                             VIconView(.pin, size: 13)
                                 .foregroundColor(VColor.contentTertiary)
                                 .rotationEffect(.degrees(-45))
                                 .frame(width: 20, height: 20)
+                                .nativeTooltip("Pinned")
+                                .accessibilityLabel("Pinned")
                                 .transition(.opacity)
                         } else {
                             Color.clear
@@ -100,6 +110,8 @@ struct SidebarConversationItem: View {
                 if conversation.kind == .private {
                     VIconView(.lock, size: 13)
                         .foregroundColor(VColor.primaryBase.opacity(0.7))
+                        .nativeTooltip("Private conversation")
+                        .accessibilityLabel("Private conversation")
                 }
                 Text(conversation.title)
                     .font(.system(size: 13))

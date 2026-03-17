@@ -129,6 +129,45 @@ struct ModifiersGallerySection: View {
 
             Divider().background(VColor.borderBase).padding(.vertical, VSpacing.md)
 
+            // MARK: - .nativeTooltip()
+            GallerySectionHeader(
+                title: ".nativeTooltip(_:)",
+                description: "Attaches a native macOS tooltip via AppKit's NSView.toolTip. Use instead of .help() in views where gesture recognizers prevent .help() tooltips from appearing. Falls back to .help() on non-macOS platforms."
+            )
+
+            VCard {
+                VStack(alignment: .leading, spacing: VSpacing.md) {
+                    Text("Hover over the items below to see native tooltips:")
+                        .font(VFont.caption)
+                        .foregroundColor(VColor.contentSecondary)
+
+                    HStack(spacing: VSpacing.lg) {
+                        VIconView(.pin, size: 16)
+                            .foregroundColor(VColor.contentSecondary)
+                            .frame(width: 32, height: 32)
+                            .background(VColor.surfaceBase)
+                            .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
+                            .nativeTooltip("Pinned")
+
+                        VIconView(.circleAlert, size: 16)
+                            .foregroundColor(VColor.systemNegativeStrong)
+                            .frame(width: 32, height: 32)
+                            .background(VColor.surfaceBase)
+                            .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
+                            .nativeTooltip("Error")
+
+                        VIconView(.lock, size: 16)
+                            .foregroundColor(VColor.primaryBase)
+                            .frame(width: 32, height: 32)
+                            .background(VColor.surfaceBase)
+                            .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
+                            .nativeTooltip("Private conversation")
+                    }
+                }
+            }
+
+            Divider().background(VColor.borderBase).padding(.vertical, VSpacing.md)
+
             // MARK: - .vPanelBackground()
             GallerySectionHeader(
                 title: ".vPanelBackground()",
