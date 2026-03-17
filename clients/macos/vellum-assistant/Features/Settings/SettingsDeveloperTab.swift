@@ -62,7 +62,7 @@ struct SettingsDeveloperTab: View {
     var body: some View {
         VStack(alignment: .leading, spacing: VSpacing.lg) {
             // Platform URL (dev mode only)
-            if store.isDevMode {
+            if DevModeManager.shared.isDevMode {
                 platformUrlSection
             }
             // Assistant Info
@@ -266,9 +266,9 @@ struct SettingsDeveloperTab: View {
                     .onTapGesture {
                         devModeTapCount += 1
                         if devModeTapCount >= 7 {
-                            store.toggleDevMode()
+                            DevModeManager.shared.toggle()
                             devModeTapCount = 0
-                            devModeMessage = store.isDevMode
+                            devModeMessage = DevModeManager.shared.isDevMode
                                 ? "Dev mode enabled"
                                 : "Dev mode disabled"
                             Task {

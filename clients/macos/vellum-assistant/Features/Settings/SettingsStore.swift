@@ -236,10 +236,6 @@ public final class SettingsStore: ObservableObject {
     @Published var isCheckingTunnel: Bool = false
     @Published var tunnelLastChecked: Date?
 
-    // MARK: - Dev Mode
-
-    @Published var isDevMode: Bool
-
     // MARK: - Trust Rules Coordination
 
     /// Whether any settings surface currently has a trust rules sheet open.
@@ -373,12 +369,6 @@ public final class SettingsStore: ObservableObject {
         let storedQIKeyCode = UserDefaults.standard.object(forKey: "quickInputHotkeyKeyCode") as? Int
         self.quickInputHotkeyKeyCode = storedQIKeyCode ?? kVK_ANSI_Slash
 
-        #if DEBUG
-        self.isDevMode = UserDefaults.standard.object(forKey: "devModeEnabled") as? Bool ?? true
-        #else
-        self.isDevMode = UserDefaults.standard.bool(forKey: "devModeEnabled")
-        #endif
-
         // Load media embed settings from workspace config
         let mediaSettings = Self.loadMediaEmbedSettings(from: configPath)
         self.mediaEmbedsEnabled = mediaSettings.enabled
@@ -495,11 +485,6 @@ public final class SettingsStore: ObservableObject {
         $quickInputHotkeyKeyCode
             .dropFirst()
             .sink { value in UserDefaults.standard.set(value, forKey: "quickInputHotkeyKeyCode") }
-            .store(in: &cancellables)
-
-        $isDevMode
-            .dropFirst()
-            .sink { value in UserDefaults.standard.set(value, forKey: "devModeEnabled") }
             .store(in: &cancellables)
 
         // Mirror DaemonClient's trust-rules-open flag so views can disable their buttons
@@ -2191,12 +2176,6 @@ public final class SettingsStore: ObservableObject {
         guard let ip = LANIPHelper.currentLANAddress() else { return nil }
         let connectedId = UserDefaults.standard.string(forKey: "connectedAssistantId")
         return "http://\(ip):\(LockfilePaths.resolveGatewayPort(connectedAssistantId: connectedId))"
-    }
-
-    // MARK: - Dev Mode Actions
-
-    func toggleDevMode() {
-        isDevMode.toggle()
     }
 
     // MARK: - Model Actions

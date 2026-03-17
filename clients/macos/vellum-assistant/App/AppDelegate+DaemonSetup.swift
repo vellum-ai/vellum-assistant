@@ -537,7 +537,7 @@ extension AppDelegate {
     /// or when `vellum` already resolves to a different executable
     /// (avoids overwriting a developer's locally-built binary).
     func installCLISymlinkIfNeeded() {
-        guard !services.settingsStore.isDevMode else { return }
+        guard !DevModeManager.shared.isDevMode else { return }
 
         guard let execURL = Bundle.main.executableURL else { return }
         let macosDir = execURL.deletingLastPathComponent()
