@@ -42,6 +42,7 @@ import { startMemoryJobsWorker } from "../memory/jobs-worker.js";
 import { initQdrantClient } from "../memory/qdrant-client.js";
 import { QdrantManager } from "../memory/qdrant-manager.js";
 import { rotateToolInvocations } from "../memory/tool-usage-store.js";
+import { deleteOldTraceEvents } from "../memory/trace-event-store.js";
 import {
   emitNotificationSignal,
   registerBroadcastFn,
@@ -829,6 +830,20 @@ export async function runDaemon(): Promise<void> {
       } catch (err) {
         log.warn({ err }, "Audit log rotation failed");
       }
+    }
+
+    // Prune trace events older than 7 days to keep the database lean.
+    // Fire-and-forget — cleanup failure must not prevent startup.
+    try {
+      const deletedTraceEvents = deleteOldTraceEvents(7);
+      if (deletedTraceEvents > 0) {
+        log.debug(
+          { deletedTraceEvents },
+          `Pruned ${deletedTraceEvents} trace event(s) older than 7 days`,
+        );
+      }
+    } catch (err) {
+      log.warn({ err }, "Trace event cleanup failed — continuing startup");
     }
 
     const workspaceHeartbeat = new WorkspaceHeartbeatService();
