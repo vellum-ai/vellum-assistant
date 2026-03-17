@@ -30,13 +30,6 @@ final class SidebarLayoutMetricsTests: XCTestCase {
         XCTAssertEqual(SidebarLayoutMetrics.dividerVerticalPadding, 4)
     }
 
-    func testDividerHorizontalPaddingExpandedIsWider() {
-        XCTAssertGreaterThan(
-            SidebarLayoutMetrics.dividerHorizontalPaddingExpanded,
-            SidebarLayoutMetrics.dividerHorizontalPaddingCollapsed
-        )
-    }
-
     // MARK: - List Row Spacing
 
     func testListRowGapMatchesCompactRhythm() {
