@@ -825,6 +825,25 @@ async function main() {
       // ── Pre-router: health/readiness probes ──
       // These bypass rate limiting and tracing for minimal overhead.
       if (url.pathname === "/healthz") {
+        // Check that the upstream assistant is also reachable so callers
+        // know the full stack is ready, not just the gateway process.
+        try {
+          const upstream = await fetch(
+            `${config.assistantRuntimeBaseUrl}/v1/health`,
+            { signal: AbortSignal.timeout(3000) },
+          );
+          if (!upstream.ok) {
+            return Response.json(
+              { status: "upstream_unhealthy", upstream: upstream.status },
+              { status: 503 },
+            );
+          }
+        } catch {
+          return Response.json(
+            { status: "upstream_unreachable" },
+            { status: 503 },
+          );
+        }
         return Response.json({ status: "ok" });
       }
 
