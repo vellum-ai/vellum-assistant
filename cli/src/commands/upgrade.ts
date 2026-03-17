@@ -2,30 +2,25 @@ import cliPkg from "../../package.json";
 
 import {
   findAssistantByName,
-  loadAllAssistants,
   getActiveAssistant,
+  loadAllAssistants,
 } from "../lib/assistant-config";
 import type { AssistantEntry } from "../lib/assistant-config";
-import { dockerResourceNames } from "../lib/docker";
+import {
+  DOCKERHUB_IMAGES,
+  DOCKER_READY_TIMEOUT_MS,
+  GATEWAY_INTERNAL_PORT,
+  dockerResourceNames,
+  startContainers,
+  stopContainers,
+} from "../lib/docker";
+import type { ServiceName } from "../lib/docker";
 import {
   fetchOrganizationId,
   getPlatformUrl,
   readPlatformToken,
 } from "../lib/platform-client";
-import { exec } from "../lib/step-runner";
-
-type ServiceName = "assistant" | "credential-executor" | "gateway";
-
-const DOCKERHUB_ORG = "vellumai";
-const DOCKERHUB_IMAGES: Record<ServiceName, string> = {
-  assistant: `${DOCKERHUB_ORG}/vellum-assistant`,
-  "credential-executor": `${DOCKERHUB_ORG}/vellum-credential-executor`,
-  gateway: `${DOCKERHUB_ORG}/vellum-gateway`,
-};
-
-/** Internal ports exposed by each service's Dockerfile. */
-const ASSISTANT_INTERNAL_PORT = 3001;
-const GATEWAY_INTERNAL_PORT = 7830;
+import { exec, execOutput } from "../lib/step-runner";
 
 interface UpgradeArgs {
   name: string | null;
@@ -132,6 +127,72 @@ function resolveTargetAssistant(nameArg: string | null): AssistantEntry {
   process.exit(1);
 }
 
+/**
+ * Capture environment variables from a running Docker container so they
+ * can be replayed onto the replacement container after upgrade.
+ */
+async function captureContainerEnv(
+  containerName: string,
+): Promise<Record<string, string>> {
+  const captured: Record<string, string> = {};
+  try {
+    const raw = await execOutput("docker", [
+      "inspect",
+      "--format",
+      "{{json .Config.Env}}",
+      containerName,
+    ]);
+    const entries = JSON.parse(raw) as string[];
+    for (const entry of entries) {
+      const eqIdx = entry.indexOf("=");
+      if (eqIdx > 0) {
+        captured[entry.slice(0, eqIdx)] = entry.slice(eqIdx + 1);
+      }
+    }
+  } catch {
+    // Container may not exist or not be inspectable
+  }
+  return captured;
+}
+
+/**
+ * Poll the gateway `/readyz` endpoint until it returns 200 or the timeout
+ * elapses. Returns whether the assistant became ready.
+ */
+async function waitForReady(runtimeUrl: string): Promise<boolean> {
+  const readyUrl = `${runtimeUrl}/readyz`;
+  const start = Date.now();
+
+  while (Date.now() - start < DOCKER_READY_TIMEOUT_MS) {
+    try {
+      const resp = await fetch(readyUrl, {
+        signal: AbortSignal.timeout(5000),
+      });
+      if (resp.ok) {
+        const elapsedSec = ((Date.now() - start) / 1000).toFixed(1);
+        console.log(`Assistant ready after ${elapsedSec}s`);
+        return true;
+      }
+      let detail = "";
+      try {
+        const body = await resp.text();
+        const json = JSON.parse(body);
+        const parts = [json.status];
+        if (json.upstream != null) parts.push(`upstream=${json.upstream}`);
+        detail = ` — ${parts.join(", ")}`;
+      } catch {
+        // ignore parse errors
+      }
+      console.log(`Readiness check: ${resp.status}${detail} (retrying...)`);
+    } catch {
+      // Connection refused / timeout — not up yet
+    }
+    await new Promise((r) => setTimeout(r, 1000));
+  }
+
+  return false;
+}
+
 async function upgradeDocker(
   entry: AssistantEntry,
   version: string | null,
@@ -157,26 +218,15 @@ async function upgradeDocker(
   await exec("docker", ["pull", imageTags["credential-executor"]]);
   console.log("✅ Docker images pulled\n");
 
-  console.log("🛑 Stopping existing containers...");
-  for (const container of [
-    res.cesContainer,
-    res.gatewayContainer,
-    res.assistantContainer,
-  ]) {
-    try {
-      await exec("docker", ["stop", container]);
-    } catch {
-      // container may not be running
-    }
-    try {
-      await exec("docker", ["rm", container]);
-    } catch {
-      // container may not exist
-    }
-  }
-  console.log("✅ Containers stopped\n");
+  console.log("💾 Capturing existing container environment...");
+  const capturedEnv = await captureContainerEnv(res.assistantContainer);
+  console.log(
+    `   Captured ${Object.keys(capturedEnv).length} env var(s) from ${res.assistantContainer}\n`,
+  );
 
-  console.log("🚀 Starting upgraded containers...");
+  console.log("🛑 Stopping existing containers...");
+  await stopContainers(res);
+  console.log("✅ Containers stopped\n");
 
   // Parse gateway port from entry's runtimeUrl, fall back to default
   let gatewayPort = GATEWAY_INTERNAL_PORT;
@@ -190,76 +240,48 @@ async function upgradeDocker(
     // use default
   }
 
-  await exec("docker", [
-    "run",
-    "--init",
-    "-d",
-    "--name",
-    res.assistantContainer,
-    `--network=${res.network}`,
-    "-v",
-    `${res.dataVolume}:/data`,
-    "-v",
-    `${res.socketVolume}:/run/ces-bootstrap`,
-    "-e",
-    `VELLUM_ASSISTANT_NAME=${instanceName}`,
-    "-e",
-    "RUNTIME_HTTP_HOST=0.0.0.0",
-    ...(process.env.ANTHROPIC_API_KEY
-      ? ["-e", `ANTHROPIC_API_KEY=${process.env.ANTHROPIC_API_KEY}`]
-      : []),
-    ...(process.env.VELLUM_PLATFORM_URL
-      ? ["-e", `VELLUM_PLATFORM_URL=${process.env.VELLUM_PLATFORM_URL}`]
-      : []),
-    imageTags.assistant,
+  // Build the set of extra env vars to replay on the new assistant container.
+  // Captured env vars serve as the base; keys already managed by
+  // serviceDockerRunArgs are excluded to avoid duplicates.
+  const envKeysSetByRunArgs = new Set([
+    "VELLUM_ASSISTANT_NAME",
+    "RUNTIME_HTTP_HOST",
+    "ANTHROPIC_API_KEY",
+    "VELLUM_PLATFORM_URL",
+    "PATH",
   ]);
+  const extraAssistantEnv: Record<string, string> = {};
+  for (const [key, value] of Object.entries(capturedEnv)) {
+    if (!envKeysSetByRunArgs.has(key)) {
+      extraAssistantEnv[key] = value;
+    }
+  }
 
-  await exec("docker", [
-    "run",
-    "--init",
-    "-d",
-    "--name",
-    res.gatewayContainer,
-    `--network=${res.network}`,
-    "-p",
-    `${gatewayPort}:${GATEWAY_INTERNAL_PORT}`,
-    "-v",
-    `${res.dataVolume}:/data`,
-    "-e",
-    "BASE_DATA_DIR=/data",
-    "-e",
-    `GATEWAY_PORT=${GATEWAY_INTERNAL_PORT}`,
-    "-e",
-    `ASSISTANT_HOST=${res.assistantContainer}`,
-    "-e",
-    `RUNTIME_HTTP_PORT=${ASSISTANT_INTERNAL_PORT}`,
-    imageTags.gateway,
-  ]);
-
-  await exec("docker", [
-    "run",
-    "--init",
-    "-d",
-    "--name",
-    res.cesContainer,
-    `--network=${res.network}`,
-    "-v",
-    `${res.socketVolume}:/run/ces-bootstrap`,
-    "-v",
-    `${res.dataVolume}:/data:ro`,
-    "-e",
-    "CES_MODE=managed",
-    "-e",
-    "CES_BOOTSTRAP_SOCKET_DIR=/run/ces-bootstrap",
-    "-e",
-    "CES_ASSISTANT_DATA_MOUNT=/data",
-    imageTags["credential-executor"],
-  ]);
-
-  console.log("✅ Containers started\n");
-  console.log(
-    `✅ Docker assistant '${instanceName}' upgraded to ${versionTag}.`,
+  console.log("🚀 Starting upgraded containers...");
+  await startContainers(
+    {
+      extraAssistantEnv,
+      gatewayPort,
+      imageTags,
+      instanceName,
+      res,
+    },
+    (msg) => console.log(msg),
   );
+  console.log("✅ Containers started\n");
+
+  console.log("Waiting for assistant to become ready...");
+  const ready = await waitForReady(entry.runtimeUrl);
+  if (ready) {
+    console.log(
+      `\n✅ Docker assistant '${instanceName}' upgraded to ${versionTag}.`,
+    );
+  } else {
+    console.log(
+      `\n⚠️  Containers are running but the assistant did not become ready within the timeout.`,
+    );
+    console.log(`   Check logs with: docker logs -f ${res.assistantContainer}`);
+  }
 }
 
 interface UpgradeApiResponse {
@@ -286,7 +308,9 @@ async function upgradePlatform(
   const orgId = await fetchOrganizationId(token);
 
   const url = `${getPlatformUrl()}/v1/assistants/upgrade/`;
-  const body: { version?: string } = {};
+  const body: { assistant_id?: string; version?: string } = {
+    assistant_id: entry.assistantId,
+  };
   if (version) {
     body.version = version;
   }
