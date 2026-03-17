@@ -226,11 +226,11 @@
       "defaultEnabled": false
     },
     {
-      "id": "thread-starters",
+      "id": "conversation-starters",
       "scope": "macos",
-      "key": "thread_starters_enabled",
-      "label": "Thread Starters",
-      "description": "Show personalized thread starter suggestions on the empty conversation page",
+      "key": "conversation_starters_enabled",
+      "label": "Conversation Starters",
+      "description": "Show personalized conversation starter suggestions on the empty conversation page",
       "defaultEnabled": false
     },
     {
@@ -238,7 +238,7 @@
       "scope": "macos",
       "key": "capability_feed_enabled",
       "label": "Capability Feed",
-      "description": "Show the scrollable capability cards feed below the hero on the new thread page",
+      "description": "Show the scrollable capability cards feed below the hero on the new conversation page",
       "defaultEnabled": false
     }
   ]

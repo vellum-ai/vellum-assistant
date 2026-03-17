@@ -29,10 +29,10 @@ struct ChatEmptyStateView: View {
     var conversationId: UUID?
     var daemonGreeting: String? = nil
     var onRequestGreeting: (() -> Void)? = nil
-    var threadStarters: [ThreadStarter] = []
-    var threadStartersLoading: Bool = false
-    var onSelectStarter: ((ThreadStarter) -> Void)? = nil
-    var onFetchThreadStarters: (() -> Void)? = nil
+    var conversationStarters: [ConversationStarter] = []
+    var conversationStartersLoading: Bool = false
+    var onSelectStarter: ((ConversationStarter) -> Void)? = nil
+    var onFetchConversationStarters: (() -> Void)? = nil
     var capabilityCards: [CapabilityCard] = []
     var capabilityCardsLoading: Bool = false
     var cardCategoryStatuses: [String: CategoryStatus] = [:]
@@ -89,7 +89,7 @@ struct ChatEmptyStateView: View {
 
             composerSection
 
-            threadStartersSection
+            conversationStartersSection
 
             Spacer()
             Spacer()
@@ -116,7 +116,7 @@ struct ChatEmptyStateView: View {
 
                         composerSection
 
-                        threadStartersSection
+                        conversationStartersSection
 
                         // Scroll CTA
                         if !capabilityCards.isEmpty || capabilityCardsLoading {
@@ -245,11 +245,11 @@ struct ChatEmptyStateView: View {
     }
 
     @ViewBuilder
-    private var threadStartersSection: some View {
-        if !threadStarters.isEmpty {
+    private var conversationStartersSection: some View {
+        if !conversationStarters.isEmpty {
             LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: VSpacing.sm) {
-                ForEach(threadStarters.prefix(4)) { starter in
-                    ThreadStarterChip(label: starter.label, fullPrompt: starter.prompt) {
+                ForEach(conversationStarters.prefix(4)) { starter in
+                    ConversationStarterChip(label: starter.label, fullPrompt: starter.prompt) {
                         onSelectStarter?(starter)
                     }
                 }
@@ -258,7 +258,7 @@ struct ChatEmptyStateView: View {
             .padding(.top, VSpacing.xxxl)
             .opacity(visible ? 1 : 0)
             .offset(y: visible ? 0 : 10)
-        } else if threadStartersLoading {
+        } else if conversationStartersLoading {
             HStack(spacing: VSpacing.sm) {
                 Group {
                     if let body = appearance.characterBodyShape,
@@ -286,7 +286,7 @@ struct ChatEmptyStateView: View {
         if soulGreeting == nil {
             onRequestGreeting?()
         }
-        onFetchThreadStarters?()
+        onFetchConversationStarters?()
         if showCapabilityFeed {
             onFetchCapabilityCards?()
         }
@@ -297,9 +297,9 @@ struct ChatEmptyStateView: View {
 
 }
 
-// MARK: - Thread Starter Chip
+// MARK: - Conversation Starter Chip
 
-struct ThreadStarterChip: View {
+struct ConversationStarterChip: View {
     let label: String
     let fullPrompt: String
     let action: () -> Void
