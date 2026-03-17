@@ -227,7 +227,7 @@
     },
     {
       "name": "computer_use_open_app",
-      "description": "Open or switch to a macOS application by name. Preferred over cmd+tab for switching apps \u2014 more reliable and explicit.",
+      "description": "Open or switch to a macOS application by name. Preferred over cmd+tab for switching apps - more reliable and explicit.",
       "category": "computer-use",
       "risk": "low",
       "input_schema": {
