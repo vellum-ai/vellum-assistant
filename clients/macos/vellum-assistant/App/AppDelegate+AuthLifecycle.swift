@@ -362,6 +362,21 @@ extension AppDelegate {
                 }
             }
 
+            // Wait for the daemon (and gateway) to be reachable. The bootstrap
+            // injects credentials via GatewayHTTPClient which connects to the
+            // local gateway — if we proceed before it's listening we get
+            // "Could not connect to the server."
+            if !self.daemonClient.isConnected {
+                log.info("Waiting for daemon connection before credential bootstrap...")
+                for attempt in 1...20 {
+                    if self.daemonClient.isConnected { break }
+                    try? await Task.sleep(nanoseconds: 500_000_000)
+                    if attempt == 20 {
+                        log.warning("Daemon not connected after 10s — proceeding with credential bootstrap anyway")
+                    }
+                }
+            }
+
             do {
                 #if DEBUG
                 let credentialStorage = FileCredentialStorage()
