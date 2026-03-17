@@ -1,6 +1,6 @@
 ---
 name: transcribe
-description: Transcribe audio and video files using Whisper (cloud API or local)
+description: Transcribe audio and video files using Whisper
 compatibility: "Designed for Vellum personal assistants"
 metadata:
   emoji: "🎙️"
