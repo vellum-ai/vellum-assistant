@@ -1,7 +1,7 @@
 /**
- * Route handlers for thread starter endpoints.
+ * Route handlers for conversation starter endpoints.
  *
- * GET /v1/thread-starters — list thread starters (chips) or capability cards
+ * GET /v1/thread-starters — list conversation starters (chips) or capability cards
  */
 
 import { and, desc, eq, inArray, like } from "drizzle-orm";
@@ -12,8 +12,8 @@ import { enqueueMemoryJob } from "../../memory/jobs-store.js";
 import { rawAll, rawGet } from "../../memory/raw-query.js";
 import {
   capabilityCardCategories,
+  conversationStarters,
   memoryJobs,
-  threadStarters,
 } from "../../memory/schema.js";
 import type { RouteDefinition } from "../http-router.js";
 
@@ -21,7 +21,7 @@ import type { RouteDefinition } from "../http-router.js";
 // GET /v1/thread-starters?card_type=chip (default, backwards-compat)
 // ---------------------------------------------------------------------------
 
-function handleListThreadStarters(url: URL): Response {
+function handleListConversationStarters(url: URL): Response {
   const cardType = url.searchParams.get("card_type") ?? "chip";
 
   if (cardType === "card") {
@@ -39,29 +39,29 @@ function handleListThreadStarters(url: URL): Response {
 
   const items = db
     .select({
-      id: threadStarters.id,
-      label: threadStarters.label,
-      prompt: threadStarters.prompt,
-      category: threadStarters.category,
-      batch: threadStarters.generationBatch,
+      id: conversationStarters.id,
+      label: conversationStarters.label,
+      prompt: conversationStarters.prompt,
+      category: conversationStarters.category,
+      batch: conversationStarters.generationBatch,
     })
-    .from(threadStarters)
+    .from(conversationStarters)
     .where(
       and(
-        eq(threadStarters.scopeId, scopeId),
-        eq(threadStarters.cardType, "chip"),
+        eq(conversationStarters.scopeId, scopeId),
+        eq(conversationStarters.cardType, "chip"),
       ),
     )
     .orderBy(
-      desc(threadStarters.generationBatch),
-      desc(threadStarters.createdAt),
+      desc(conversationStarters.generationBatch),
+      desc(conversationStarters.createdAt),
     )
     .limit(limitParam)
     .offset(offsetParam)
     .all();
 
   const countRow = rawGet<{ c: number }>(
-    `SELECT COUNT(*) AS c FROM thread_starters WHERE scope_id = ? AND card_type = 'chip'`,
+    `SELECT COUNT(*) AS c FROM conversation_starters WHERE scope_id = ? AND card_type = 'chip'`,
     scopeId,
   );
   const total = countRow?.c ?? 0;
@@ -87,7 +87,7 @@ function handleListThreadStarters(url: URL): Response {
     .from(memoryJobs)
     .where(
       and(
-        eq(memoryJobs.type, "generate_thread_starters"),
+        eq(memoryJobs.type, "generate_conversation_starters"),
         inArray(memoryJobs.status, ["pending", "running"]),
         like(memoryJobs.payload, `%"scopeId":"${scopeId}"%`),
       ),
@@ -95,7 +95,7 @@ function handleListThreadStarters(url: URL): Response {
     .get();
 
   if (!existing) {
-    enqueueMemoryJob("generate_thread_starters", { scopeId });
+    enqueueMemoryJob("generate_conversation_starters", { scopeId });
   }
 
   return Response.json({ starters: [], total: 0, status: "generating" });
@@ -117,29 +117,29 @@ function handleListCapabilityCards(url: URL): Response {
 
   // Build WHERE conditions for cards
   const conditions = [
-    eq(threadStarters.scopeId, scopeId),
-    eq(threadStarters.cardType, "card"),
+    eq(conversationStarters.scopeId, scopeId),
+    eq(conversationStarters.cardType, "card"),
   ];
   if (categoryFilter) {
-    conditions.push(eq(threadStarters.category, categoryFilter));
+    conditions.push(eq(conversationStarters.category, categoryFilter));
   }
 
   const cards = db
     .select({
-      id: threadStarters.id,
-      icon: threadStarters.icon,
-      label: threadStarters.label,
-      description: threadStarters.description,
-      prompt: threadStarters.prompt,
-      category: threadStarters.category,
-      tags: threadStarters.tags,
-      batch: threadStarters.generationBatch,
+      id: conversationStarters.id,
+      icon: conversationStarters.icon,
+      label: conversationStarters.label,
+      description: conversationStarters.description,
+      prompt: conversationStarters.prompt,
+      category: conversationStarters.category,
+      tags: conversationStarters.tags,
+      batch: conversationStarters.generationBatch,
     })
-    .from(threadStarters)
+    .from(conversationStarters)
     .where(and(...conditions))
     .orderBy(
-      desc(threadStarters.generationBatch),
-      desc(threadStarters.createdAt),
+      desc(conversationStarters.generationBatch),
+      desc(conversationStarters.createdAt),
     )
     .limit(limitParam)
     .all();
@@ -157,7 +157,7 @@ function handleListCapabilityCards(url: URL): Response {
   const countCondition = categoryFilter ? `AND category = ?` : ``;
   const countParams = categoryFilter ? [scopeId, categoryFilter] : [scopeId];
   const countRow = rawGet<{ c: number }>(
-    `SELECT COUNT(*) AS c FROM thread_starters WHERE scope_id = ? AND card_type = 'card' ${countCondition}`,
+    `SELECT COUNT(*) AS c FROM conversation_starters WHERE scope_id = ? AND card_type = 'card' ${countCondition}`,
     ...countParams,
   );
   const total = countRow?.c ?? 0;
@@ -283,12 +283,12 @@ function enqueueCapabilityCardJobs(scopeId: string): void {
 // Route definitions
 // ---------------------------------------------------------------------------
 
-export function threadStarterRouteDefinitions(): RouteDefinition[] {
+export function conversationStarterRouteDefinitions(): RouteDefinition[] {
   return [
     {
       endpoint: "thread-starters",
       method: "GET",
-      handler: (ctx) => handleListThreadStarters(ctx.url),
+      handler: (ctx) => handleListConversationStarters(ctx.url),
     },
   ];
 }

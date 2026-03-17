@@ -26,7 +26,7 @@ export type MemoryJobType =
   | "media_processing"
   | "embed_media"
   | "embed_attachment"
-  | "generate_thread_starters"
+  | "generate_conversation_starters"
   | "generate_capability_cards";
 
 const EMBED_JOB_TYPES: MemoryJobType[] = [

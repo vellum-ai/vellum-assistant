@@ -1,8 +1,8 @@
 /**
- * Job handler for generating thread starters.
+ * Job handler for generating conversation starters.
  *
  * Crosses user memory items with the skill catalog to produce personalized
- * suggestion chips shown on the empty thread page.
+ * suggestion chips shown on the empty conversation page.
  */
 
 import { and, desc, eq } from "drizzle-orm";
@@ -21,17 +21,17 @@ import { getDb } from "../db.js";
 import { asString } from "../job-utils.js";
 import type { MemoryJob } from "../jobs-store.js";
 import { rawAll, rawGet } from "../raw-query.js";
-import { memoryCheckpoints, memoryItems, threadStarters } from "../schema.js";
+import { conversationStarters, memoryCheckpoints, memoryItems } from "../schema.js";
 
-const log = getLogger("thread-starters-gen");
+const log = getLogger("conversation-starters-gen");
 
 function checkpointKey(base: string, scopeId: string): string {
   return `${base}:${scopeId}`;
 }
 
-const CK_ITEM_COUNT = "thread_starters:item_count_at_last_gen";
-const CK_BATCH = "thread_starters:generation_batch";
-const CK_LAST_GEN_AT = "thread_starters:last_gen_at";
+const CK_ITEM_COUNT = "conversation_starters:item_count_at_last_gen";
+const CK_BATCH = "conversation_starters:generation_batch";
+const CK_LAST_GEN_AT = "conversation_starters:last_gen_at";
 
 // ── Rollup construction ───────────────────────────────────────────
 
@@ -126,7 +126,7 @@ export function buildSkillsSummary(): string {
 // ── LLM generation ────────────────────────────────────────────────
 
 /** Capability categories matching the Intelligence page taxonomy. */
-export const THREAD_STARTER_CATEGORIES = [
+export const CONVERSATION_STARTER_CATEGORIES = [
   "communication",
   "productivity",
   "development",
@@ -137,7 +137,7 @@ export const THREAD_STARTER_CATEGORIES = [
   "integration",
 ] as const;
 
-export type ThreadStarterCategory = (typeof THREAD_STARTER_CATEGORIES)[number];
+export type ConversationStarterCategory = (typeof CONVERSATION_STARTER_CATEGORIES)[number];
 
 interface GeneratedStarter {
   label: string;
@@ -148,24 +148,24 @@ interface GeneratedStarter {
 async function generateStarters(scopeId: string): Promise<GeneratedStarter[]> {
   const provider = await getConfiguredProvider();
   if (!provider) {
-    log.info("No configured provider for thread starters generation");
+    log.info("No configured provider for conversation starters generation");
     return [];
   }
 
   const rollup = buildMemoryRollup(scopeId);
   if (!rollup) {
-    log.info("No memory items to generate thread starters from");
+    log.info("No memory items to generate conversation starters from");
     return [];
   }
   const diff = buildNewItemsDiff(scopeId);
   const skills = buildSkillsSummary();
 
-  const systemPrompt = `You are generating thread starter suggestions for a personal AI assistant's empty conversation page. These are clickable chips that help the user discover what the assistant can do, personalized to their context.
+  const systemPrompt = `You are generating conversation starter suggestions for a personal AI assistant's empty conversation page. These are clickable chips that help the user discover what the assistant can do, personalized to their context.
 
-Given the user's accumulated memories and the assistant's available skills, generate 4-6 thread starters. Each starter has:
+Given the user's accumulated memories and the assistant's available skills, generate 4-6 conversation starters. Each starter has:
 - label: Short chip text (max 50 chars). Start with a verb. Be specific and actionable.
 - prompt: The full message that will be sent when clicked (1-2 natural sentences).
-- category: One of: ${THREAD_STARTER_CATEGORIES.join(", ")}. Pick the best-fit capability category.
+- category: One of: ${CONVERSATION_STARTER_CATEGORIES.join(", ")}. Pick the best-fit capability category.
 
 Rules:
 - Cross user context (who they are, what they work on) with assistant capabilities (skills).
@@ -183,13 +183,13 @@ ${skills}`;
     const response = await provider.sendMessage(
       [
         userMessage(
-          "Generate personalized thread starters based on my context.",
+          "Generate personalized conversation starters based on my context.",
         ),
       ],
       [
         {
-          name: "store_thread_starters",
-          description: "Store generated thread starter suggestions",
+          name: "store_conversation_starters",
+          description: "Store generated conversation starter suggestions",
           input_schema: {
             type: "object" as const,
             properties: {
@@ -209,7 +209,7 @@ ${skills}`;
                     },
                     category: {
                       type: "string",
-                      enum: [...THREAD_STARTER_CATEGORIES],
+                      enum: [...CONVERSATION_STARTER_CATEGORIES],
                       description: "Capability category for grouping",
                     },
                   },
@@ -226,7 +226,7 @@ ${skills}`;
         config: {
           modelIntent: "quality-optimized",
           max_tokens: 1024,
-          tool_choice: { type: "tool" as const, name: "store_thread_starters" },
+          tool_choice: { type: "tool" as const, name: "store_conversation_starters" },
         },
         signal,
       },
@@ -235,7 +235,7 @@ ${skills}`;
 
     const toolBlock = extractToolUse(response);
     if (!toolBlock) {
-      log.warn("No tool_use block in thread starters generation response");
+      log.warn("No tool_use block in conversation starters generation response");
       return [];
     }
 
@@ -258,7 +258,7 @@ ${skills}`;
         prompt: truncate(s.prompt, 500, ""),
         category:
           typeof s.category === "string" &&
-          (THREAD_STARTER_CATEGORIES as readonly string[]).includes(s.category)
+          (CONVERSATION_STARTER_CATEGORIES as readonly string[]).includes(s.category)
             ? s.category
             : "productivity",
       }));
@@ -270,12 +270,12 @@ ${skills}`;
 
 // ── Job handler ───────────────────────────────────────────────────
 
-export async function generateThreadStartersJob(job: MemoryJob): Promise<void> {
+export async function generateConversationStartersJob(job: MemoryJob): Promise<void> {
   const scopeId = asString(job.payload.scopeId) ?? "default";
 
   const starters = await generateStarters(scopeId);
   if (starters.length === 0) {
-    log.info({ scopeId }, "No thread starters generated");
+    log.info({ scopeId }, "No conversation starters generated");
     return;
   }
 
@@ -305,7 +305,7 @@ export async function generateThreadStartersJob(job: MemoryJob): Promise<void> {
 
   // Insert starters
   for (const starter of starters) {
-    db.insert(threadStarters)
+    db.insert(conversationStarters)
       .values({
         id: uuid(),
         label: starter.label,
@@ -343,6 +343,6 @@ export async function generateThreadStartersJob(job: MemoryJob): Promise<void> {
 
   log.info(
     { scopeId, batch: nextBatch, count: starters.length },
-    "Generated thread starters",
+    "Generated conversation starters",
   );
 }

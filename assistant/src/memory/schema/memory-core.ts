@@ -150,7 +150,7 @@ export const memoryCheckpoints = sqliteTable("memory_checkpoints", {
   updatedAt: integer("updated_at").notNull(),
 });
 
-export const threadStarters = sqliteTable(
+export const conversationStarters = sqliteTable(
   "conversation_starters",
   {
     id: text("id").primaryKey(),

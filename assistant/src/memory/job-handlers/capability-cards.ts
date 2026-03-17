@@ -22,10 +22,13 @@ import { asString } from "../job-utils.js";
 import type { MemoryJob } from "../jobs-store.js";
 import {
   capabilityCardCategories,
+  conversationStarters,
   memoryCheckpoints,
-  threadStarters,
 } from "../schema.js";
-import { buildMemoryRollup, buildSkillsSummary } from "./thread-starters.js";
+import {
+  buildMemoryRollup,
+  buildSkillsSummary,
+} from "./conversation-starters.js";
 
 const log = getLogger("capability-cards-gen");
 
@@ -162,7 +165,7 @@ async function generateCardsForCategory(
     "lucide-briefcase",
   ];
 
-  const systemPrompt = `You are generating capability cards for a personal AI assistant's new thread page. These cards showcase what the assistant can do, personalized to the user's context.
+  const systemPrompt = `You are generating capability cards for a personal AI assistant's new conversation page. These cards showcase what the assistant can do, personalized to the user's context.
 
 You are generating cards for the "${category}" category: ${CATEGORY_DESCRIPTIONS[category]}.
 
@@ -364,19 +367,19 @@ export async function generateCapabilityCardsJob(
     .run();
 
   // Delete old cards for this category+scope, then insert new ones
-  db.delete(threadStarters)
+  db.delete(conversationStarters)
     .where(
       and(
-        eq(threadStarters.scopeId, scopeId),
-        eq(threadStarters.category, category),
-        eq(threadStarters.cardType, "card"),
+        eq(conversationStarters.scopeId, scopeId),
+        eq(conversationStarters.category, category),
+        eq(conversationStarters.cardType, "card"),
       ),
     )
     .run();
 
   // Insert new cards
   for (const card of result.cards) {
-    db.insert(threadStarters)
+    db.insert(conversationStarters)
       .values({
         id: uuid(),
         label: card.title,
