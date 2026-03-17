@@ -437,7 +437,7 @@ enum LogExporter {
     // MARK: - Daemon Log Fallback
 
     /// Maximum total bytes to read when collecting fallback daemon logs.
-    private static let fallbackLogSizeLimit = 10 * 1024 * 1024 // 10 MB
+    private nonisolated static let fallbackLogSizeLimit = 10 * 1024 * 1024 // 10 MB
 
     /// When the daemon is unreachable, reads log files directly from the
     /// filesystem and copies them into `directory/daemon-logs-fallback/`.
