@@ -186,8 +186,11 @@ describe("scheduler RRULE execution", () => {
     forceScheduleDue(schedule.id);
 
     const directCalls: { conversationId: string; message: string }[] = [];
+    let onMessage: (() => void) | undefined;
+    const messageReceived = new Promise<void>((r) => (onMessage = r));
     const processMessage = async (conversationId: string, message: string) => {
       directCalls.push({ conversationId, message });
+      onMessage?.();
     };
 
     const scheduler = startScheduler(
@@ -195,7 +198,17 @@ describe("scheduler RRULE execution", () => {
       () => {},
       () => {},
     );
-    await new Promise((resolve) => setTimeout(resolve, 500));
+    // The run_task path involves a dynamic import which can take >50ms in CI,
+    // exceeding the patched setTimeout delay. Await the actual callback instead
+    // of relying on a fixed timeout.
+    await Promise.race([
+      messageReceived,
+      new Promise((r) => origSetTimeout(r, 2000)),
+    ]);
+    // Yield to the macrotask queue so all pending microtasks settle —
+    // the scheduler tick still needs to create the schedule run after
+    // processMessage returns.
+    await new Promise((r) => origSetTimeout(r, 0));
     scheduler.stop();
 
     // runTask renders the template, so processMessage gets the template text
