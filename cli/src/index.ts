@@ -13,6 +13,7 @@ import { setup } from "./commands/setup";
 import { sleep } from "./commands/sleep";
 import { ssh } from "./commands/ssh";
 import { tunnel } from "./commands/tunnel";
+import { upgrade } from "./commands/upgrade";
 import { use } from "./commands/use";
 import { wake } from "./commands/wake";
 import {
@@ -38,6 +39,7 @@ const commands = {
   sleep,
   ssh,
   tunnel,
+  upgrade,
   use,
   wake,
   whoami,
@@ -64,6 +66,7 @@ function printHelp(): void {
   console.log("  sleep    Stop the assistant process");
   console.log("  ssh      SSH into a remote assistant instance");
   console.log("  tunnel   Create a tunnel for a locally hosted assistant");
+  console.log("  upgrade  Upgrade an assistant to the latest version");
   console.log("  use      Set the active assistant for commands");
   console.log("  wake     Start the assistant and gateway");
   console.log("  whoami   Show current logged-in user");
