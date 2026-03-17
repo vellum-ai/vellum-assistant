@@ -38,13 +38,21 @@ final class AvatarAppearanceManager {
     }()
 
     /// Returns the custom avatar resized for chat (56pt for 2x Retina) if available,
-    /// otherwise the bundled initial avatar, or an initial-letter placeholder as last resort.
+    /// then character avatar from saved traits, then bundled V logo, then initial letter.
     var chatAvatarImage: NSImage {
         if let custom = customAvatarImage {
             if let cached = cachedChatAvatar { return cached }
             let resized = Self.resizedImage(custom, to: 56)
             cachedChatAvatar = resized
             return resized
+        }
+
+        // Use character avatar from saved traits if available.
+        if let body = characterBodyShape, let eyes = characterEyeStyle, let color = characterColor {
+            if let cached = cachedFallbackAvatar { return cached }
+            let avatar = AvatarCompositor.render(bodyShape: body, eyeStyle: eyes, color: color, size: 56)
+            cachedFallbackAvatar = avatar
+            return avatar
         }
 
         if let bundled = Self.bundledInitialAvatar {
@@ -62,9 +70,18 @@ final class AvatarAppearanceManager {
     }
 
     /// Returns the full-size custom avatar for large displays (identity panel, constellation node),
-    /// or falls back to the bundled initial avatar, or a larger initial-letter circle.
+    /// then character avatar from saved traits, then bundled V logo, then initial letter.
     var fullAvatarImage: NSImage {
         if let custom = customAvatarImage { return custom }
+
+        // Use character avatar from saved traits if available.
+        if let body = characterBodyShape, let eyes = characterEyeStyle, let color = characterColor {
+            if let cached = cachedFullFallbackAvatar { return cached }
+            let avatar = AvatarCompositor.render(bodyShape: body, eyeStyle: eyes, color: color, size: 240)
+            cachedFullFallbackAvatar = avatar
+            return avatar
+        }
+
         if let bundled = Self.bundledInitialAvatar { return bundled }
 
         let name = assistantName
