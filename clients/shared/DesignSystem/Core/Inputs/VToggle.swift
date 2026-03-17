@@ -4,6 +4,7 @@ public struct VToggle: View {
     @Binding public var isOn: Bool
     public var label: String? = nil
     public var helperText: String? = nil
+    public var interactive: Bool
     @Environment(\.isEnabled) private var isEnabled
 
     private let trackWidth: CGFloat = 36
@@ -11,13 +12,40 @@ public struct VToggle: View {
     private let knobSize: CGFloat = 20
     private let knobPadding: CGFloat = 2
 
-    public init(isOn: Binding<Bool>, label: String? = nil, helperText: String? = nil) {
+    public init(isOn: Binding<Bool>, label: String? = nil, helperText: String? = nil, interactive: Bool = true) {
         self._isOn = isOn
         self.label = label
         self.helperText = helperText
+        self.interactive = interactive
     }
 
     public var body: some View {
+        content
+            .accessibilityElement(children: .combine)
+            .accessibilityAddTraits(.isButton)
+            .accessibilityValue(isOn ? "On" : "Off")
+            .accessibilityLabel(label ?? "Toggle")
+    }
+
+    private var content: some View {
+        Group {
+            if interactive {
+                rowContent
+                    .contentShape(Rectangle())
+                    .onTapGesture {
+                        guard isEnabled else { return }
+                        withAnimation(VAnimation.fast) {
+                            isOn.toggle()
+                        }
+                    }
+                    .pointerCursor()
+            } else {
+                rowContent
+            }
+        }
+    }
+
+    private var rowContent: some View {
         HStack(alignment: helperText != nil ? .top : .center, spacing: 10) {
             toggleTrack
                 .padding(.top, helperText != nil ? 2 : 0)
@@ -37,18 +65,6 @@ public struct VToggle: View {
                 }
             }
         }
-        .contentShape(Rectangle())
-        .onTapGesture {
-            guard isEnabled else { return }
-            withAnimation(VAnimation.fast) {
-                isOn.toggle()
-            }
-        }
-        .pointerCursor()
-        .accessibilityElement(children: .combine)
-        .accessibilityAddTraits(.isButton)
-        .accessibilityValue(isOn ? "On" : "Off")
-        .accessibilityLabel(label ?? "Toggle")
     }
 
     // MARK: - Track
