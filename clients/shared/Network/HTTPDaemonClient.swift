@@ -272,6 +272,7 @@ public final class HTTPTransport {
         case guardianActionsDecision
         case conversationsSeen
         case conversationsUnread
+        case identity
         case featureFlags
         case featureFlagUpdate(key: String)
         case privacyConfig
@@ -489,6 +490,8 @@ public final class HTTPTransport {
             return ("/v1/conversations/seen", nil)
         case .conversationsUnread:
             return ("/v1/conversations/unread", nil)
+        case .identity:
+            return ("/v1/identity", nil)
         case .featureFlags:
             return ("/v1/feature-flags", nil)
         case .featureFlagUpdate(let key):
@@ -846,6 +849,8 @@ public final class HTTPTransport {
             return ("\(prefix)/conversations/seen/", nil)
         case .conversationsUnread:
             return ("\(prefix)/conversations/unread/", nil)
+        case .identity:
+            return ("\(prefix)/identity/", nil)
         case .featureFlags:
             return ("\(prefix)/feature-flags/", nil)
         case .featureFlagUpdate(let key):
