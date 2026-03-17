@@ -2,7 +2,7 @@ name: PR Gateway Checks
 
 on:
   pull_request:
-    types: [labeled, synchronize, opened, reopened]
+    types: [synchronize, opened, reopened]
     paths:
       - 'gateway/**'
       - 'meta/feature-flags/**'
@@ -14,7 +14,6 @@ concurrency:
 
 jobs:
   checks:
-    if: contains(github.event.pull_request.labels.*.name, 'preview')
     name: Lint, Type Check & Test
     runs-on: ubuntu-latest
     defaults:
