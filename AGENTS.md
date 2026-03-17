@@ -97,7 +97,17 @@ Use `modelIntent` (`'latency-optimized'`, `'quality-optimized'`, `'vision-optimi
 
 ## Tooling Direction
 
-Do not add new tool registrations using the `class ____Tool implements Tool` pattern. Prefer skills in `assistant/src/config/bundled-skills/` that teach the model CLI tools. When touching existing tool-based flows, migrate toward skill-driven CLI usage. Keep the system prompt minimal.
+Do not add new tool registrations using the `class ____Tool implements Tool` pattern. Prefer skills in `assistant/src/config/bundled-skills/` that teach the model CLI tools. When touching existing tool-based flows, migrate toward skill-driven CLI usage.
+
+## System Prompt Minimalism
+
+Adding content to the system prompt is a **last resort**. The system prompt is the most expensive real estate in every request — every token added increases latency, cost, and crowds out user context. Before adding anything to the system prompt, exhaust these alternatives first:
+
+1. **Skills** — Encode behavior in a SKILL.md that the assistant loads on demand.
+2. **Config / feature flags** — Use runtime configuration instead of prompt-level instructions.
+3. **Code** — If a behavior can be enforced programmatically, enforce it in code.
+
+Only add to the system prompt when the behavior cannot be achieved any other way. When you must, keep additions minimal and look for existing content to condense or remove to offset the addition.
 
 **Exception — Credential Execution Service (CES) tools**: The three CES tools (`run_authenticated_command`, `make_authenticated_request`, `manage_secure_command_tool`) are approved exceptions to the no-new-tools policy. They are thin RPC stubs that forward execution to the `credential-executor/` package across a hard process boundary. Skills cannot provide this isolation because they run inside the assistant process. CES grants and audit logs are CES-owned durable state — the assistant never reads or writes them directly. `host_bash` is outside the CES strong secrecy guarantee; secure generic authenticated HTTP must not run through `run_authenticated_command`. See [`assistant/docs/credential-execution-service.md`](assistant/docs/credential-execution-service.md).
 
