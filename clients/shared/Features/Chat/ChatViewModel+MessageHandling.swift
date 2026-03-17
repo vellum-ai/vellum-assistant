@@ -1527,7 +1527,7 @@ extension ChatViewModel {
                 }
             }
             if let msgIndex = targetMsgIndex, let tcIndex = targetTcIndex {
-                let truncatedResult = msg.result.count > 2000 ? String(msg.result.prefix(2000)) + "...[truncated]" : msg.result
+                let truncatedResult = msg.result.count > 20000 ? String(msg.result.prefix(20000)) + "...[truncated]" : msg.result
                 messages[msgIndex].toolCalls[tcIndex].result = truncatedResult
                 messages[msgIndex].toolCalls[tcIndex].isError = msg.isError ?? false
                 messages[msgIndex].toolCalls[tcIndex].isComplete = true

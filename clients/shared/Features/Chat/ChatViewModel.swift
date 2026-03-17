@@ -2555,7 +2555,7 @@ public final class ChatViewModel: ObservableObject {
                     // Truncate tool result for memory safety
                     let truncatedResult: String? = {
                         guard let result = tc.result else { return nil }
-                        return result.count > 2000 ? String(result.prefix(2000)) + "...[truncated]" : result
+                        return result.count > 20000 ? String(result.prefix(20000)) + "...[truncated]" : result
                     }()
 
                     // Decode image once — pass decoded image directly to avoid double-decode

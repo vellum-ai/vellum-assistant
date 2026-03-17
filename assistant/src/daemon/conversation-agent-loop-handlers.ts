@@ -168,12 +168,12 @@ export function emitLlmCallStartedIfNeeded(
 }
 
 // ── Client Payload Size Caps ─────────────────────────────────────────
-// The client truncates tool results anyway (2 000 chars in ChatViewModel),
+// The client truncates tool results anyway (20 000 chars in ChatViewModel),
 // but the full string can be megabytes (file_read, bash output). Capping
 // here avoids sending oversized payloads which get decoded on the
 // client's main thread.
 
-const TOOL_RESULT_MAX_CHARS = 2_000;
+const TOOL_RESULT_MAX_CHARS = 20_000;
 const TOOL_RESULT_TRUNCATION_SUFFIX = "...[truncated]";
 
 // tool_input_delta streams accumulated JSON as tools run. For non-app
