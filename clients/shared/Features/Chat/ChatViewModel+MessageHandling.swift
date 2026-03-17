@@ -1901,12 +1901,11 @@ extension ChatViewModel {
                     }
                 }
 
-                // Clean up the native notification path when the daemon resolves
-                // the confirmation independently (timeout, new-message auto-deny,
-                // system cascade). Skip when source is "button" or "inline_nl"
-                // because respondToConfirmation / respondToAlwaysAllow already
-                // called onInlineConfirmationResponse for those paths.
-                if msg.source != "button" && msg.source != "inline_nl" {
+                // Clean up the native notification path. If respondToConfirmation /
+                // respondToAlwaysAllow already called onInlineConfirmationResponse
+                // for this requestId, skip the duplicate call; otherwise forward
+                // so externally-resolved confirmations still dismiss notifications.
+                if inlineResponseHandledRequestIds.remove(msg.requestId) == nil {
                     let decisionString = msg.state == "approved" ? "allow" : "deny"
                     onInlineConfirmationResponse?(msg.requestId, decisionString)
                 }
