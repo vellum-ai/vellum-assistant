@@ -13,6 +13,7 @@ struct ContactDetailView: View {
     var channelClient: ChannelClientProtocol = ChannelClient()
     var store: SettingsStore?
     var onDelete: (() -> Void)?
+    var onSelectAssistant: (() -> Void)?
     var guardianName: String?
 
     @State var currentContact: ContactPayload?
@@ -79,7 +80,7 @@ struct ContactDetailView: View {
                     contact: displayContact,
                     daemonClient: daemonClient,
                     store: store,
-                    onSelectAssistant: nil,
+                    onSelectAssistant: onSelectAssistant,
                     showCardBorders: false
                 )
                 .padding(VSpacing.lg)

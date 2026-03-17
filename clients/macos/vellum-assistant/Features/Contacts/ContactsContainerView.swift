@@ -69,6 +69,7 @@ struct ContactsContainerView: View {
                                     selection = .assistant
                                     viewModel.loadContacts()
                                 },
+                                onSelectAssistant: { selection = .assistant },
                                 guardianName: viewModel.guardianContact?.displayName
                             )
                             .id(contactId)
