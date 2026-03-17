@@ -88,7 +88,10 @@ struct AssistantChannelsDetailView: View {
         .onChange(of: store.channelSetupStatus["phone"]) { _, status in
             if status == nil || status == "not_configured" {
                 voiceSetupExpanded = false
-            } else if status == "ready" || status == "incomplete" {
+            } else if status == "ready" {
+                voiceSetupExpanded = false
+                store.refreshTwilioNumbers()
+            } else if status == "incomplete" {
                 store.refreshTwilioNumbers()
             }
         }
