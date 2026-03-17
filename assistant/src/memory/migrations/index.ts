@@ -114,6 +114,7 @@ export { migrateRenameGmailProviderKeyToGoogle } from "./169-rename-gmail-provid
 export { migrateCreateThreadStartersTable } from "./170-thread-starters-table.js";
 export { migrateCapabilityCardColumns } from "./171-capability-card-columns.js";
 export { migrateRenameCreatedBySessionIdColumns } from "./172-rename-created-by-session-id.js";
+export { migrateRenameSourceSessionIdColumn } from "./173-rename-source-session-id.js";
 export {
   MIGRATION_REGISTRY,
   type MigrationRegistryEntry,

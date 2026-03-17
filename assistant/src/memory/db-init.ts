@@ -92,6 +92,7 @@ import {
   migrateRenameNotificationThreadColumns,
   migrateRenameSequenceEnrollmentsThreadIdColumn,
   migrateRenameSequenceStepsReplyKey,
+  migrateRenameSourceSessionIdColumn,
   migrateRenameVerificationSessionIdColumn,
   migrateRenameVerificationTable,
   migrateRenameVoiceToPhone,
@@ -435,6 +436,9 @@ export function initializeDb(): void {
 
   // 75. Rename created_by_session_id → source_conversation_id in verification sessions and invites
   migrateRenameCreatedBySessionIdColumns(database);
+
+  // 76. Rename source_session_id → source_context_id in notification_events
+  migrateRenameSourceSessionIdColumn(database);
 
   validateMigrationState(database);
 
