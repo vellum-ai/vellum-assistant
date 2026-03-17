@@ -1,7 +1,6 @@
 import { copyFileSync, existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
-import { CLI_HELP_REFERENCE } from "../cli/reference.js";
 import { isAssistantFeatureFlagEnabled } from "../config/assistant-feature-flags.js";
 import { getBaseDataDir, getIsContainerized } from "../config/env-registry.js";
 import { getConfig } from "../config/loader.js";
@@ -21,13 +20,6 @@ import { resolveUserPronouns, resolveUserReference } from "./user-reference.js";
 const log = getLogger("system-prompt");
 
 const PROMPT_FILES = ["SOUL.md", "IDENTITY.md", "USER.md"] as const;
-
-let cachedCliHelp: string | undefined;
-
-/** @internal Reset the CLI help cache — exposed for testing only. */
-export function _resetCliHelpCache(): void {
-  cachedCliHelp = undefined;
-}
 
 /**
  * Copy template prompt files into the data directory if they don't already exist.
@@ -278,13 +270,13 @@ function buildInChatConfigurationSection(): string {
     "**How to collect credentials and secrets:**",
     ...(isPlatformManaged()
       ? [
-          "- Secrets and API keys are managed through the platform's credential system. Users connect credentials via OAuth or platform-managed secrets — the `credential_store` prompt flow for API keys is not available in managed deployments.",
-          "- For OAuth flows, guide the user to connect through the platform. After connecting, run `assistant oauth connections list` to find the connection ID, and use the `platform_oauth:<connectionId>` handle with CES tools (`make_authenticated_request`, `run_authenticated_command`) for authenticated work.",
+          "- Secrets and API keys are managed through the platform's credential system. Users connect credentials via OAuth or platform-managed secrets.",
+          "- For OAuth flows, guide the user to connect through the platform.",
           "- For non-secret config values (e.g. a public URL, a webhook URL), ask the user directly in the conversation and use the appropriate config tool to persist the value.",
         ]
       : [
-          '- Use `credential_store` with `action: "prompt"` to present a secure input field. The value never appears in the conversation. Once stored, run `assistant credentials list` to find the service:field identifiers, construct the CES handle as `local_static:<service>/<field>`, and use CES tools (`make_authenticated_request`, `run_authenticated_command`) for authenticated work.',
-          '- For OAuth flows, use `credential_store` with `action: "oauth2_connect"` to handle the authorization in-browser. Some services (e.g. Twitter/X) define their own auth flow via dedicated skill instructions — check the service\'s skill documentation for provider-specific setup steps. After connecting, run `assistant oauth connections list` to find the provider key, construct the CES handle, and use CES tools.',
+          '- Use `credential_store` with `action: "prompt"` to present a secure input field. The value never appears in the conversation.',
+          '- For OAuth flows, use `credential_store` with `action: "oauth2_connect"` to handle the authorization in-browser. Some services (e.g. Twitter/X) define their own auth flow via dedicated skill instructions.',
           "- For non-secret config values (e.g. a public URL, a webhook URL), ask the user directly in the conversation and use the appropriate config tool to persist the value.",
         ]),
     "",
@@ -505,25 +497,19 @@ function buildAccessPreferenceSection(hasNoClient: boolean): string {
     "   Only fall back to host tools when you genuinely need access to the user's local files,",
     "   environment, or host-specific resources (e.g. their local git repos, host-installed CLIs",
     "   with existing auth, macOS-specific apps).",
-    "2. **CES tools for authenticated work** — When a task requires credentials (API keys, OAuth tokens),",
-    "   discover available handles with `assistant credentials list` or `assistant oauth connections list`,",
-    "   then use CES tools (`make_authenticated_request`, `run_authenticated_command`). CES injects",
-    "   credentials securely without exposing raw secrets to the assistant.",
-    "3. **CLI tools via host_bash** — If you need access to the user's host environment and a CLI",
+    "2. **CLI tools via host_bash** — If you need access to the user's host environment and a CLI",
     "   is installed on their machine (gh, slack, linear, jira, aws, gcloud, etc.), use it.",
     "   CLIs handle auth, pagination, and output formatting.",
     "   Use --json or equivalent flags for structured output when available.",
-    "   Note: `host_bash` is approval-gated and outside the CES secrecy boundary.",
-    "4. **web_fetch** — For public endpoints or simple API calls that don't need auth.",
-    "5. **Browser automation as last resort** — Only when the task genuinely requires a browser",
+    "3. **web_fetch** — For public endpoints or simple API calls that don't need auth.",
+    "4. **Browser automation as last resort** — Only when the task genuinely requires a browser",
     "   (e.g., no API exists, visual interaction needed, or OAuth consent screen).",
     "",
     "Before reaching for host tools or browser automation, ask yourself:",
     "- Can I do this entirely in my sandbox? (install tools, clone repos, run commands)",
-    "- Can I use CES tools for authenticated requests instead of extracting raw tokens?",
     "- Do I actually need something from the user's host machine?",
     "",
-    "If you can do it in your sandbox or through CES, do it there. Only use host tools when you need the user's",
+    "If you can do it in your sandbox, do it there. Only use host tools when you need the user's",
     "local files or host-specific capabilities.",
     ...(isMacOS()
       ? [
@@ -744,54 +730,12 @@ function buildConfigSection(hasNoClient: boolean): string {
 }
 
 export function buildCliReferenceSection(): string {
-  if (cachedCliHelp === undefined) {
-    cachedCliHelp = CLI_HELP_REFERENCE.trim();
-  }
-
   return [
     "## Assistant CLI",
     "",
-    "The `assistant` CLI is available in the sandbox. Always use the `bash` tool (never `host_bash`) when running `assistant` commands.",
+    "The `assistant` CLI is available in the sandbox for managing configuration, credentials, OAuth connections, memory, contacts, hooks, MCP servers, skills, notifications, schedules, and more. Always use the `bash` tool (never `host_bash`) when running `assistant` commands.",
     "",
-    "### Credential Discovery and Authenticated Work",
-    "",
-    "When you need to make authenticated requests or run commands that require credentials, follow this workflow:",
-    "",
-    "1. **Discover available credentials** by running:",
-    "   - `assistant credentials list` — lists local credentials with their service:field identifiers",
-    "   - `assistant oauth connections list` — lists OAuth connections with provider keys",
-    "   - `assistant credentials list --search <query>` — filter by service, field, or description",
-    ...(isPlatformManaged()
-      ? [
-          "   In managed deployments, credential handles use the `platform_oauth:<connectionId>` format (shown in the `handle` field of `assistant oauth connections list`). Local credential handles (`local_static`, `local_oauth`) are not available in managed mode.",
-        ]
-      : [
-          "   For local credentials, construct the CES handle as `local_static:<service>/<field>` from the listed identifiers. For local OAuth connections, the handle is `local_oauth:<providerKey>/<connectionId>` (shown in the `handle` field of `assistant oauth connections list`). Platform-managed entries use `platform_oauth:<connectionId>` handles, also shown in their `handle` field.",
-        ]),
-    "",
-    "2. **Use CES tools** with the handle to perform authenticated work:",
-    "   - `make_authenticated_request` — authenticated HTTP requests (API calls, webhooks). CES injects the credential and returns the response; the assistant never sees raw secrets.",
-    "   - `run_authenticated_command` — run a command with credential environment variables injected by CES. The command runs inside the CES sandbox.",
-    "   - `manage_secure_command_tool` — install, update, or remove secure command tool bundles. Accepts only bundle metadata for guardian review.",
-    "",
-    "3. **Never reveal raw secrets.** Do not use `assistant credentials reveal` or `assistant oauth connections token` to extract raw token values and pass them to `bash` or `host_bash`. Always route authenticated work through CES tools.",
-    "",
-    "For account setup and credential management (not execution), use:",
-    "- `assistant credentials set ...` — store a new credential",
-    "- `assistant oauth connections connect <provider>` — initiate an OAuth flow",
-    "- `assistant mcp auth <name>` — when an MCP server needs OAuth login",
-    "- `assistant platform status` — platform-linked deployment and auth context",
-    "- If a bundled skill documents a service-specific `assistant <service>` auth or session flow, follow that CLI exactly.",
-    "",
-    "### host_bash and Credentials",
-    "",
-    "`host_bash` is approval-gated and runs on the user's host machine. It is outside the CES secrecy boundary. Do not use `host_bash` to run commands with injected credentials or tokens. If you need authenticated command execution, use `run_authenticated_command` (CES tool) instead.",
-    "",
-    "```",
-    cachedCliHelp,
-    "```",
-    "",
-    "Run `assistant <command> --help` for detailed help on any subcommand.",
+    "Run `assistant --help` to see all available commands, or `assistant <command> --help` for detailed help on any subcommand.",
   ].join("\n");
 }
 
