@@ -36,7 +36,8 @@ struct ContactsContainerView: View {
                 viewModel: viewModel,
                 selection: $selection
             )
-            .padding(VSpacing.lg)
+            .padding(.leading, VSpacing.lg)
+            .padding(.vertical, VSpacing.lg)
             .frame(width: 320)
             .frame(maxHeight: .infinity, alignment: .top)
             .background(VColor.surfaceOverlay)
