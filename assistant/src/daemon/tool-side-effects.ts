@@ -235,24 +235,31 @@ registerHook("bash", (_name, input, result) => {
   const command = (input.command ?? "") as string;
   if (!command.includes("channel-verification-sessions")) return;
   if (!result.content.includes("_pendingSlackDm")) return;
-  // Output may contain multiple JSON objects (e.g. cancel + create).
-  // Try each line as JSON to find the one with _pendingSlackDm.
+
+  type PendingDm = { userId: string; text: string; assistantId: string };
+  type Parsed = { _pendingSlackDm?: PendingDm };
+
+  const dispatch = (parsed: Parsed) => {
+    if (parsed._pendingSlackDm) {
+      const { userId, text, assistantId } = parsed._pendingSlackDm;
+      deliverVerificationSlack(userId, text, assistantId);
+      return true;
+    }
+    return false;
+  };
+
+  // Try full content first (handles pretty-printed single-object JSON)
+  try {
+    if (dispatch(JSON.parse(result.content.trim()) as Parsed)) return;
+  } catch {
+    // Not a single JSON object — fall back to line-by-line for
+    // multi-object output (e.g. cancel + create chained with &&).
+  }
   for (const line of result.content.split("\n")) {
     const trimmed = line.trim();
     if (!trimmed.startsWith("{")) continue;
     try {
-      const parsed = JSON.parse(trimmed) as {
-        _pendingSlackDm?: {
-          userId: string;
-          text: string;
-          assistantId: string;
-        };
-      };
-      if (parsed._pendingSlackDm) {
-        const { userId, text, assistantId } = parsed._pendingSlackDm;
-        deliverVerificationSlack(userId, text, assistantId);
-        return;
-      }
+      if (dispatch(JSON.parse(trimmed) as Parsed)) return;
     } catch {
       continue;
     }
