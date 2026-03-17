@@ -84,6 +84,8 @@ export class DefaultPathResolver implements PathResolver {
     private configPath: string,
     private protectedDir?: string,
     private skillsDir?: string,
+    private workspaceDir?: string,
+    private hooksDir?: string,
   ) {}
 
   resolve(archivePath: string): string | null {
@@ -100,6 +102,22 @@ export class DefaultPathResolver implements PathResolver {
           const resolved = resolve(this.skillsDir, archivePath.slice("skills/".length));
           const skillsRoot = resolve(this.skillsDir);
           if (resolved !== skillsRoot && !resolved.startsWith(skillsRoot + "/")) {
+            return null;
+          }
+          return resolved;
+        }
+        if (archivePath.startsWith("prompts/") && this.workspaceDir) {
+          const resolved = resolve(this.workspaceDir, archivePath.slice("prompts/".length));
+          const workspaceRoot = resolve(this.workspaceDir);
+          if (resolved !== workspaceRoot && !resolved.startsWith(workspaceRoot + "/")) {
+            return null;
+          }
+          return resolved;
+        }
+        if (archivePath.startsWith("hooks/") && this.hooksDir) {
+          const resolved = resolve(this.hooksDir, archivePath.slice("hooks/".length));
+          const hooksRoot = resolve(this.hooksDir);
+          if (resolved !== hooksRoot && !resolved.startsWith(hooksRoot + "/")) {
             return null;
           }
           return resolved;

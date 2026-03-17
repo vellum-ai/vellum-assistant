@@ -198,6 +198,44 @@ export function commitImport(options: ImportCommitOptions): ImportCommitResult {
     }
   }
 
+  // Step 1c: Clear hooks directory if the bundle contains hooks entries.
+  // This ensures the restored hooks match the backup exactly — no stale
+  // hooks left behind from the current assistant state.
+  const hasHooksEntries = manifest.files.some((f) =>
+    f.path.startsWith("hooks/"),
+  );
+  if (hasHooksEntries) {
+    const firstHooksEntry = manifest.files.find((f) =>
+      f.path.startsWith("hooks/"),
+    )!;
+    const resolvedHookPath = pathResolver.resolve(firstHooksEntry.path);
+    if (resolvedHookPath) {
+      const relativeSuffix = firstHooksEntry.path.slice("hooks/".length);
+      const hooksRoot = resolvedHookPath.slice(
+        0,
+        resolvedHookPath.length - relativeSuffix.length,
+      );
+      const hooksDirPath =
+        hooksRoot.length > 1 && hooksRoot.endsWith("/")
+          ? hooksRoot.slice(0, -1)
+          : hooksRoot;
+
+      if (existsSync(hooksDirPath)) {
+        try {
+          rmSync(hooksDirPath, { recursive: true, force: true });
+        } catch (err) {
+          return {
+            ok: false,
+            reason: "write_failed",
+            message: `Failed to clear hooks directory "${hooksDirPath}": ${
+              err instanceof Error ? err.message : String(err)
+            }`,
+          };
+        }
+      }
+    }
+  }
+
   // Step 2: Write files to disk with backups
   const importedFiles: ImportedFileReport[] = [];
   const warnings: string[] = [];

@@ -7,6 +7,8 @@
  * - config/settings.json: the assistant configuration
  * - trust/trust.json: trust rules (optional)
  * - skills/: workspace skills (optional)
+ * - prompts/: workspace prompt files — IDENTITY.md, SOUL.md, USER.md, UPDATES.md (optional)
+ * - hooks/: workspace hooks directory (optional)
  */
 
 import { createHash } from "node:crypto";
@@ -299,6 +301,10 @@ export interface BuildExportVBundleOptions {
   trustPath?: string;
   /** Absolute path to the workspace skills directory. If provided and exists, all non-binary files are included. */
   skillsDir?: string;
+  /** Absolute path to the workspace directory. If provided and exists, prompt files (IDENTITY.md, SOUL.md, USER.md, UPDATES.md) are included. */
+  workspaceDir?: string;
+  /** Absolute path to the workspace hooks directory. If provided and exists, all hook files are included. */
+  hooksDir?: string;
   /**
    * Optional callback to checkpoint the WAL before reading the database file.
    * In WAL mode, committed rows may live in the -wal file and not yet be
@@ -322,7 +328,7 @@ export interface BuildExportVBundleOptions {
 export function buildExportVBundle(
   options: BuildExportVBundleOptions,
 ): BuildVBundleResult {
-  const { dbPath, configPath, source, description, checkpoint, trustPath, skillsDir } = options;
+  const { dbPath, configPath, source, description, checkpoint, trustPath, skillsDir, workspaceDir, hooksDir } = options;
 
   // Flush WAL to the main database file before reading so the export
   // captures all committed rows (SQLite WAL mode keeps recent writes
@@ -354,6 +360,23 @@ export function buildExportVBundle(
   // Include workspace skills if the directory exists.
   if (skillsDir && existsSync(skillsDir)) {
     files.push(...walkDirectory(skillsDir, "skills"));
+  }
+
+  // Include workspace prompt files if the directory exists.
+  if (workspaceDir && existsSync(workspaceDir)) {
+    const promptFiles = ["IDENTITY.md", "SOUL.md", "USER.md", "UPDATES.md"];
+    for (const filename of promptFiles) {
+      const filePath = join(workspaceDir, filename);
+      if (existsSync(filePath)) {
+        const data = new Uint8Array(readFileSync(filePath));
+        files.push({ path: `prompts/${filename}`, data });
+      }
+    }
+  }
+
+  // Include workspace hooks if the directory exists.
+  if (hooksDir && existsSync(hooksDir)) {
+    files.push(...walkDirectory(hooksDir, "hooks"));
   }
 
   return buildVBundle({
