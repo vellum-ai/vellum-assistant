@@ -13,11 +13,11 @@ import {
   wipeConversation,
 } from "../../memory/conversation-crud.js";
 import { listConversations } from "../../memory/conversation-queries.js";
-import { enqueueMemoryJob } from "../../memory/jobs-store.js";
 import {
   selectEmbeddingBackend,
   SPARSE_EMBEDDING_VERSION,
 } from "../../memory/embedding-backend.js";
+import { enqueueMemoryJob } from "../../memory/jobs-store.js";
 import { initQdrantClient } from "../../memory/qdrant-client.js";
 import { timeAgo } from "../../util/time.js";
 import { initializeDb } from "../db.js";

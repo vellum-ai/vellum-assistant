@@ -30,8 +30,8 @@ import {
   getMessages,
   wipeConversation,
 } from "../memory/conversation-crud.js";
-import { enqueueMemoryJob } from "../memory/jobs-store.js";
 import { getDb, initializeDb, resetDb } from "../memory/db.js";
+import { enqueueMemoryJob } from "../memory/jobs-store.js";
 
 // Initialize db once before all tests
 initializeDb();
@@ -236,7 +236,6 @@ describe("wipeConversation", () => {
     const conv = createConversation("test");
     await addMessage(conv.id, "user", "hello");
 
-    const db = getDb();
     const now = Date.now();
 
     const raw = (
