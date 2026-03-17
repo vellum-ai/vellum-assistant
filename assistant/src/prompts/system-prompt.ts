@@ -17,6 +17,9 @@ import {
 } from "../util/platform.js";
 import { resolveUserPronouns, resolveUserReference } from "./user-reference.js";
 
+import { SYSTEM_PROMPT_CACHE_BOUNDARY } from "./cache-boundary.js";
+export { SYSTEM_PROMPT_CACHE_BOUNDARY };
+
 const log = getLogger("system-prompt");
 
 const PROMPT_FILES = ["SOUL.md", "IDENTITY.md", "USER.md"] as const;
@@ -115,9 +118,6 @@ export interface BuildSystemPromptOptions {
  * cache blocks so that static instructions stay cached even when workspace
  * files change between turns.
  */
-export const SYSTEM_PROMPT_CACHE_BOUNDARY =
-  "\n<!-- SYSTEM_PROMPT_CACHE_BOUNDARY -->\n";
-
 export function buildSystemPrompt(options?: BuildSystemPromptOptions): string {
   const hasNoClient = options?.hasNoClient ?? false;
 

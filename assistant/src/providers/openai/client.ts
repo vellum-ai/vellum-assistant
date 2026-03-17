@@ -1,6 +1,6 @@
 import OpenAI from "openai";
 
-import { SYSTEM_PROMPT_CACHE_BOUNDARY } from "../../prompts/system-prompt.js";
+import { SYSTEM_PROMPT_CACHE_BOUNDARY } from "../../prompts/cache-boundary.js";
 import { ProviderError } from "../../util/errors.js";
 import { extractRetryAfterMs } from "../../util/retry.js";
 import { escapeXmlAttr } from "../../util/xml.js";
