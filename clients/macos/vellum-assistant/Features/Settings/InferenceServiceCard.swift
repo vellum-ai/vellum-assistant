@@ -1,10 +1,10 @@
 import SwiftUI
 import VellumAssistantShared
 
-/// Card for the Anthropic inference service with Managed/Your Own mode toggle.
+/// Card for the inference service with Managed/Your Own mode toggle.
 ///
 /// Shows different content based on mode and auth state:
-/// - **Managed + logged in**: Token usage notice, model picker, Save button
+/// - **Managed + logged in**: Model picker, Save button
 /// - **Managed + not logged in**: "Log in to select" tooltip on Managed segment, falls back to Your Own content
 /// - **Your Own**: API key field, model picker, Save + Reset buttons
 @MainActor
@@ -95,7 +95,7 @@ struct InferenceServiceCard: View {
     private var header: some View {
         VStack(alignment: .leading, spacing: VSpacing.xs) {
             HStack(spacing: VSpacing.sm) {
-                Text("Anthropic")
+                Text("Inference")
                     .font(VFont.sectionTitle)
                     .foregroundColor(VColor.contentDefault)
 
@@ -112,7 +112,7 @@ struct InferenceServiceCard: View {
                     .clipShape(Capsule())
                 }
             }
-            Text("Required for AI responses")
+            Text("Used to power your assistant's intelligence")
                 .font(VFont.sectionDescription)
                 .foregroundColor(VColor.contentTertiary)
         }
@@ -171,25 +171,7 @@ struct InferenceServiceCard: View {
     // MARK: - Managed Content
 
     private var managedContent: some View {
-        VStack(alignment: .leading, spacing: VSpacing.md) {
-            // Token usage notice
-            HStack(spacing: VSpacing.xs) {
-                VIconView(.info, size: 14)
-                Text("Using a managed Anthropic integration will use the tokens bought with your Vellum subscription.")
-                    .font(VFont.body)
-            }
-            .foregroundColor(VColor.systemMidStrong)
-            .padding(.horizontal, VSpacing.sm)
-            .padding(.vertical, VSpacing.sm)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(
-                RoundedRectangle(cornerRadius: VRadius.md)
-                    .fill(VColor.systemMidWeak)
-            )
-
-            // Model picker (available in managed mode too)
-            modelPicker
-        }
+        modelPicker
     }
 
     // MARK: - Your Own Content
