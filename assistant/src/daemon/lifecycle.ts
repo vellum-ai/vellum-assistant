@@ -833,18 +833,20 @@ export async function runDaemon(): Promise<void> {
     }
 
     // Prune trace events older than 7 days to keep the database lean.
-    // Fire-and-forget — cleanup failure must not prevent startup.
-    try {
-      const deletedTraceEvents = deleteOldTraceEvents(7);
-      if (deletedTraceEvents > 0) {
-        log.debug(
-          { deletedTraceEvents },
-          `Pruned ${deletedTraceEvents} trace event(s) older than 7 days`,
-        );
+    // Deferred so synchronous cleanup doesn't block the startup path.
+    setTimeout(() => {
+      try {
+        const deletedTraceEvents = deleteOldTraceEvents(7);
+        if (deletedTraceEvents > 0) {
+          log.debug(
+            { deletedTraceEvents },
+            `Pruned ${deletedTraceEvents} trace event(s) older than 7 days`,
+          );
+        }
+      } catch (err) {
+        log.warn({ err }, "Trace event cleanup failed");
       }
-    } catch (err) {
-      log.warn({ err }, "Trace event cleanup failed — continuing startup");
-    }
+    }, 0);
 
     const workspaceHeartbeat = new WorkspaceHeartbeatService();
     workspaceHeartbeat.start();
