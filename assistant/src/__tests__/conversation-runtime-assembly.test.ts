@@ -7,10 +7,10 @@ import type {
 } from "../daemon/conversation-runtime-assembly.js";
 import {
   applyRuntimeInjections,
-  buildChannelTurnContextBlock,
+  buildTurnContextBlock,
   injectChannelCapabilityContext,
   injectChannelCommandContext,
-  injectChannelTurnContext,
+  injectTurnContext,
   injectInboundActorContext,
   injectTemporalContext,
   isGroupChatType,
@@ -1050,18 +1050,18 @@ describe("applyRuntimeInjections with inboundActorContext", () => {
 });
 
 // ---------------------------------------------------------------------------
-// buildChannelTurnContextBlock
+// buildTurnContextBlock (channel-only)
 // ---------------------------------------------------------------------------
 
-describe("buildChannelTurnContextBlock", () => {
+describe("buildTurnContextBlock (channel-only)", () => {
   test("collapses to single field when all channels match", () => {
-    const block = buildChannelTurnContextBlock({
+    const block = buildTurnContextBlock({
       turnContext: {
         userMessageChannel: "telegram",
         assistantMessageChannel: "telegram",
       },
       conversationOriginChannel: "telegram",
-    });
+    }, undefined);
     expect(block).toBe(
       "<turn_context>\n" +
         "channel: telegram\n" +
@@ -1070,24 +1070,24 @@ describe("buildChannelTurnContextBlock", () => {
   });
 
   test('uses "unknown" when conversationOriginChannel is null', () => {
-    const block = buildChannelTurnContextBlock({
+    const block = buildTurnContextBlock({
       turnContext: {
         userMessageChannel: "vellum",
         assistantMessageChannel: "vellum",
       },
       conversationOriginChannel: null,
-    });
+    }, undefined);
     expect(block).toContain("conversation_origin_channel: unknown");
   });
 
   test("handles mixed channels", () => {
-    const block = buildChannelTurnContextBlock({
+    const block = buildTurnContextBlock({
       turnContext: {
         userMessageChannel: "telegram",
         assistantMessageChannel: "vellum",
       },
       conversationOriginChannel: "vellum",
-    });
+    }, undefined);
     expect(block).toContain("user_message_channel: telegram");
     expect(block).toContain("assistant_message_channel: vellum");
     expect(block).toContain("conversation_origin_channel: vellum");
@@ -1095,10 +1095,10 @@ describe("buildChannelTurnContextBlock", () => {
 });
 
 // ---------------------------------------------------------------------------
-// injectChannelTurnContext
+// injectTurnContext (channel-only)
 // ---------------------------------------------------------------------------
 
-describe("injectChannelTurnContext", () => {
+describe("injectTurnContext (channel-only)", () => {
   const baseUserMessage: Message = {
     role: "user",
     content: [{ type: "text", text: "Hello from telegram" }],
@@ -1112,7 +1112,7 @@ describe("injectChannelTurnContext", () => {
       },
       conversationOriginChannel: "telegram",
     };
-    const result = injectChannelTurnContext(baseUserMessage, params);
+    const result = injectTurnContext(baseUserMessage, params, undefined);
     expect(result.content.length).toBe(2);
     const injected = result.content[0];
     expect(injected.type).toBe("text");
@@ -1130,7 +1130,7 @@ describe("injectChannelTurnContext", () => {
       },
       conversationOriginChannel: "vellum",
     };
-    const result = injectChannelTurnContext(baseUserMessage, params);
+    const result = injectTurnContext(baseUserMessage, params, undefined);
     const lastBlock = result.content[result.content.length - 1];
     expect((lastBlock as { type: "text"; text: string }).text).toBe(
       "Hello from telegram",
