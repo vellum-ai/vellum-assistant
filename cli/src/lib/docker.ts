@@ -362,6 +362,8 @@ function serviceDockerRunArgs(opts: {
       `ASSISTANT_HOST=${res.assistantContainer}`,
       "-e",
       `RUNTIME_HTTP_PORT=${ASSISTANT_INTERNAL_PORT}`,
+      "-e",
+      "RUNTIME_PROXY_ENABLED=true",
       imageTags.gateway,
     ],
     "credential-executor": () => [

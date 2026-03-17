@@ -98,7 +98,9 @@ export function loadConfig(): GatewayConfig {
   const gw = (wsConfig.gateway ?? {}) as Record<string, unknown>;
 
   const runtimeProxyEnabled =
-    gw.runtimeProxyEnabled === true || gw.runtimeProxyEnabled === "true";
+    gw.runtimeProxyEnabled === true ||
+    gw.runtimeProxyEnabled === "true" ||
+    process.env.RUNTIME_PROXY_ENABLED === "true";
   const runtimeProxyRequireAuth =
     gw.runtimeProxyRequireAuth !== false &&
     gw.runtimeProxyRequireAuth !== "false";
