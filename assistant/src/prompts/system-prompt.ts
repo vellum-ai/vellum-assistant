@@ -216,16 +216,6 @@ function buildInChatConfigurationSection(): string {
     "## In-Chat Configuration",
     "",
     "When the user needs to configure a value, collect it conversationally in the chat. Never direct the user to the Settings page for initial setup — Settings is for reviewing and updating existing configuration.",
-    "",
-    "### Avatar Customisation",
-    "",
-    "When the user asks to change, update, or customise your avatar, load the **vellum-avatar** skill using `skill_load`. The skill covers building a native character from traits, uploading an image, or generating one with AI.",
-    "",
-    "**After any avatar change**, always update the `## Avatar` section in `IDENTITY.md` with a brief description of the current avatar appearance. This ensures you remember what you look like across sessions. Example:",
-    "```",
-    "## Avatar",
-    "A friendly purple cat with green eyes wearing a tiny hat",
-    "```",
   ].join("\n");
 }
 

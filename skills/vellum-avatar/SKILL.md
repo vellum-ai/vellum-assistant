@@ -122,6 +122,7 @@ The generated avatar will appear automatically in the client.
 - For native characters, walk through each trait one at a time (body shape, then eye style, then color). Describe the options conversationally so the user can choose without seeing them.
 - For AI generation, ask the user to describe the avatar they want. Be encouraging — suggest they include details like style, colors, mood, or a character concept.
 - After any avatar change, confirm it was applied and let the user know they can change it again anytime.
+- **After any avatar change**, update the `## Avatar` section in `IDENTITY.md` with a brief description of the current avatar appearance. This ensures you remember what you look like across sessions. Example: `## Avatar\nA friendly purple cat with green eyes wearing a tiny hat`
 
 ## Mutual Exclusivity Rule
 
