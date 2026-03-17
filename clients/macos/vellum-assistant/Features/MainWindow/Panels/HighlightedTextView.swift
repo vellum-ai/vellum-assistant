@@ -169,11 +169,18 @@ struct HighlightedTextView: View {
 
                         // Text content — scrolls both directions
                         ScrollView(.horizontal, showsIndicators: true) {
-                            Text(highlightedText)
-                                .textSelection(.enabled)
-                                .fixedSize(horizontal: true, vertical: false)
-                                .padding(.vertical, VSpacing.sm)
-                                .padding(.horizontal, VSpacing.md)
+                            Group {
+                                if isEditable {
+                                    Text(highlightedText)
+                                        .textSelection(.disabled)
+                                } else {
+                                    Text(highlightedText)
+                                        .textSelection(.enabled)
+                                }
+                            }
+                            .fixedSize(horizontal: true, vertical: false)
+                            .padding(.vertical, VSpacing.sm)
+                            .padding(.horizontal, VSpacing.md)
                         }
                         .frame(minWidth: geometry.size.width - gutterWidth)
                     }
