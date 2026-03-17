@@ -224,9 +224,9 @@ struct ConversationStarterPill: View {
     @State private var isPressed = false
 
     private var fillColor: Color {
-        if isPressed { return VColor.borderBase.opacity(0.5) }
-        if isHovered { return VColor.borderBase.opacity(0.4) }
-        return VColor.borderBase.opacity(0.3)
+        if isPressed { return VColor.surfaceOverlay.opacity(0.9) }
+        if isHovered { return VColor.surfaceOverlay.opacity(0.8) }
+        return VColor.surfaceOverlay
     }
 
     private var borderColor: Color {
