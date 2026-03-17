@@ -43,8 +43,8 @@ import {
 } from "../../tools/execution-target.js";
 import { getAllTools, getTool } from "../../tools/registry.js";
 import {
-  injectActivityField,
   ACTIVITY_SKIP_SET,
+  injectActivityField,
 } from "../../tools/schema-transforms.js";
 import { isSideEffectTool } from "../../tools/side-effects.js";
 import { generateAndSaveAvatar } from "../../tools/system/avatar-generator.js";

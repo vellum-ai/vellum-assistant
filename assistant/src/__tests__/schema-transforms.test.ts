@@ -2,8 +2,8 @@ import { describe, expect, test } from "bun:test";
 
 import type { ToolDefinition } from "../providers/types.js";
 import {
-  injectActivityField,
   ACTIVITY_SKIP_SET,
+  injectActivityField,
   schemaDefinesProperty,
 } from "../tools/schema-transforms.js";
 

@@ -32,8 +32,8 @@ import {
   getMcpToolDefinitions,
 } from "../tools/registry.js";
 import {
-  injectActivityField,
   ACTIVITY_SKIP_SET,
+  injectActivityField,
 } from "../tools/schema-transforms.js";
 import type {
   ProxyApprovalCallback,
