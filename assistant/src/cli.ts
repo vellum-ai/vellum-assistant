@@ -842,6 +842,11 @@ export async function startCli(): Promise<void> {
         renderConfirmationPrompt(msg);
         break;
 
+      case "conversation_error":
+        spinner.stop();
+        process.stdout.write(`\n[Error: ${msg.userMessage}]\n`);
+        break;
+
       case "error":
         spinner.stop();
         generating = false;
