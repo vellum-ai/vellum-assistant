@@ -154,10 +154,7 @@ private struct PillSegment: View {
 
     private var segmentBackground: Color {
         if isSelected {
-            return adaptiveColor(
-                light: Color(hex: 0xFFFFFF),
-                dark: Color(hex: 0x3A3A37)
-            )
+            return VColor.surfaceRaised
         } else if isHovered {
             return VColor.surfaceActive
         } else {
