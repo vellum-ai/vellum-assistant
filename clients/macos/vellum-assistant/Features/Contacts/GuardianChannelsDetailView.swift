@@ -12,13 +12,14 @@ struct GuardianChannelsDetailView: View {
 
     let contact: ContactPayload
     var daemonClient: DaemonClient?
+    var channelClient: ChannelClientProtocol = ChannelClient()
     var store: SettingsStore?
     var onSelectAssistant: (() -> Void)?
     var showCardBorders: Bool = true
 
     @State var currentContact: ContactPayload?
     @State private var isLoadingReadiness: Bool = true
-    @State private var channelReadiness: [String: DaemonClient.ChannelReadinessInfo] = [:]
+    @State private var channelReadiness: [String: ChannelReadinessInfo] = [:]
     @State private var verificationDestinationTexts: [String: String] = [:]
     @State private var verificationCountdownNow: Date = Date()
     @State private var verificationCountdownTimer: Timer?
@@ -56,7 +57,7 @@ struct GuardianChannelsDetailView: View {
             stopVerificationCountdownTimer()
         }
         .task {
-            channelReadiness = (try? await daemonClient?.fetchChannelReadiness()) ?? [:]
+            channelReadiness = await channelClient.fetchChannelReadiness()
             isLoadingReadiness = false
         }
         .onReceive(store?.objectWillChange.map { _ in () }.eraseToAnyPublisher() ?? Empty().eraseToAnyPublisher()) { _ in

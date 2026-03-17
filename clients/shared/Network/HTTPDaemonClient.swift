@@ -284,8 +284,6 @@ public final class HTTPTransport {
         case contactsGet(id: String)
         case contactsDelete(id: String)
         case contactChannelUpdate(contactChannelId: String)
-        case contactsInvitesCall(id: String)
-        case channelsReadiness
         // Apps
         case appsList
         case appData(id: String)
@@ -530,11 +528,6 @@ public final class HTTPTransport {
         case .contactChannelUpdate(let contactChannelId):
             let encoded = contactChannelId.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? contactChannelId
             return ("/v1/contact-channels/\(encoded)", nil)
-        case .contactsInvitesCall(let id):
-            let encoded = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
-            return ("/v1/contacts/invites/\(encoded)/call", nil)
-        case .channelsReadiness:
-            return ("/v1/channels/readiness", nil)
         // Apps
         case .appsList:
             return ("/v1/apps", nil)
@@ -894,11 +887,6 @@ public final class HTTPTransport {
         case .contactChannelUpdate(let contactChannelId):
             let encoded = contactChannelId.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? contactChannelId
             return ("\(prefix)/contact-channels/\(encoded)/", nil)
-        case .contactsInvitesCall(let id):
-            let encoded = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
-            return ("\(prefix)/contacts/invites/\(encoded)/call/", nil)
-        case .channelsReadiness:
-            return ("\(prefix)/channels/readiness/", nil)
         // Apps
         case .appsList:
             return ("\(prefix)/apps/", nil)
@@ -2329,84 +2317,6 @@ public final class HTTPTransport {
         let contact: ContactPayload?
     }
 
-    /// Response wrapper for `GET /v1/channels/readiness`.
-    private struct HTTPChannelReadinessResponse: Decodable {
-        let success: Bool
-        let snapshots: [ChannelReadinessSnapshot]
-
-        struct ChannelReadinessSnapshot: Decodable {
-            let channel: String
-            let ready: Bool
-            let setupStatus: String?
-            let channelHandle: String?
-            let localChecks: [CheckResult]?
-            let remoteChecks: [CheckResult]?
-        }
-        struct CheckResult: Decodable {
-            let name: String
-            let passed: Bool
-            let message: String
-        }
-    }
-
-    // MARK: - Invite Call
-
-    func triggerInviteCall(inviteId: String, isRetry: Bool = false) async throws -> Bool {
-        guard let url = buildURL(for: .contactsInvitesCall(id: inviteId)) else { return false }
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        applyAuth(&request)
-        request.httpBody = try JSONSerialization.data(withJSONObject: [:] as [String: Any])
-        let (data, response) = try await URLSession.shared.data(for: request)
-        if let http = response as? HTTPURLResponse {
-            if http.statusCode == 401 && !isRetry {
-                let refreshResult = await handleAuthenticationFailureAsync(responseData: data)
-                if case .success = refreshResult { return try await triggerInviteCall(inviteId: inviteId, isRetry: true) }
-                return false
-            }
-            guard (200...201).contains(http.statusCode) else { return false }
-        }
-        return true
-    }
-
-    // MARK: - Channel Readiness
-
-    /// Fetch per-channel readiness from `GET /v1/channels/readiness`.
-    /// Returns a dictionary mapping channel type strings to their readiness state.
-    func fetchChannelReadiness(isRetry: Bool = false) async throws -> [String: DaemonClient.ChannelReadinessInfo] {
-        guard let url = buildURL(for: .channelsReadiness) else { return [:] }
-        var request = URLRequest(url: url)
-        request.httpMethod = "GET"
-        applyAuth(&request)
-
-        let (data, response) = try await URLSession.shared.data(for: request)
-        if let http = response as? HTTPURLResponse {
-            if http.statusCode == 401 && !isRetry {
-                let refreshResult = await handleAuthenticationFailureAsync(responseData: data)
-                if case .success = refreshResult {
-                    return try await fetchChannelReadiness(isRetry: true)
-                }
-                return [:]
-            }
-            guard (200...299).contains(http.statusCode) else { return [:] }
-        }
-
-        let decoded = try decoder.decode(HTTPChannelReadinessResponse.self, from: data)
-        var result: [String: DaemonClient.ChannelReadinessInfo] = [:]
-        for snapshot in decoded.snapshots {
-            let checks = ((snapshot.localChecks ?? []) + (snapshot.remoteChecks ?? []))
-                .map { DaemonClient.ReadinessCheck(name: $0.name, passed: $0.passed, message: $0.message) }
-            result[snapshot.channel] = DaemonClient.ChannelReadinessInfo(
-                ready: snapshot.ready,
-                setupStatus: snapshot.setupStatus,
-                channelHandle: snapshot.channelHandle,
-                checks: checks
-            )
-        }
-        return result
-    }
-
     // MARK: - Surface Actions
 
     func sendSurfaceAction(_ action: UiSurfaceActionMessage, isRetry: Bool = false) async {
@@ -2871,31 +2781,6 @@ public final class HTTPTransport {
 
         let decoded = try JSONDecoder().decode(FlagsResponse.self, from: data)
         return decoded.flags
-    }
-
-    // MARK: - Remote Identity
-
-    /// Fetch identity info from the remote daemon's `GET /v1/identity` endpoint.
-    func fetchRemoteIdentity() async -> RemoteIdentityInfo? {
-        guard let url = buildURL(for: .identity) else { return nil }
-
-        var request = URLRequest(url: url)
-        request.timeoutInterval = 10
-        applyAuth(&request)
-
-        do {
-            let (data, response) = try await URLSession.shared.data(for: request)
-            guard let http = response as? HTTPURLResponse, http.statusCode == 200 else { return nil }
-            do {
-                return try JSONDecoder().decode(RemoteIdentityInfo.self, from: data)
-            } catch {
-                log.error("Failed to decode remote identity response: \(error)")
-                return nil
-            }
-        } catch {
-            log.error("fetchRemoteIdentity failed: \(error.localizedDescription)")
-            return nil
-        }
     }
 
     // MARK: - Conversation Management HTTP Handlers

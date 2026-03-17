@@ -262,6 +262,8 @@ public final class SettingsStore: ObservableObject {
     // MARK: - Private
 
     private weak var daemonClient: DaemonClient?
+    private let channelClient: ChannelClientProtocol
+    private let integrationClient: IntegrationClientProtocol
     private var cancellables = Set<AnyCancellable>()
     private let configPath: String?
 
@@ -308,12 +310,16 @@ public final class SettingsStore: ObservableObject {
 
     init(
         daemonClient: DaemonClient? = nil,
+        channelClient: ChannelClientProtocol = ChannelClient(),
+        integrationClient: IntegrationClientProtocol = IntegrationClient(),
         configPath: String? = nil,
         verificationSessionTimeoutDuration: TimeInterval = 12,
         verificationStatusPollInterval: TimeInterval = 2,
         verificationStatusPollWindow: TimeInterval = 600
     ) {
         self.daemonClient = daemonClient
+        self.channelClient = channelClient
+        self.integrationClient = integrationClient
         self.configPath = configPath
         self.verificationSessionTimeoutDuration = max(0.05, verificationSessionTimeoutDuration)
         self.verificationStatusPollInterval = max(0.05, verificationStatusPollInterval)
@@ -1843,10 +1849,8 @@ public final class SettingsStore: ObservableObject {
     // MARK: - Email Integration
 
     func refreshAssistantEmail() {
-        guard let daemonClient else { return }
-        let gatewayURL = localGatewayTarget
         Task {
-            let status = await daemonClient.fetchIntegrationsStatus(gatewayBaseURL: gatewayURL)
+            let status = await integrationClient.fetchIntegrationsStatus()
             self.assistantEmail = status?.email.address
         }
     }
@@ -1855,14 +1859,9 @@ public final class SettingsStore: ObservableObject {
 
     func fetchChannelSetupStatus() {
         Task {
-            do {
-                guard let daemonClient else { return }
-                let readiness = try await daemonClient.fetchChannelReadiness()
-                for (channel, info) in readiness {
-                    self.channelSetupStatus[channel] = info.setupStatus ?? "not_configured"
-                }
-            } catch {
-                log.error("Failed to fetch channel setup status: \(error)")
+            let readiness = await channelClient.fetchChannelReadiness()
+            for (channel, info) in readiness {
+                self.channelSetupStatus[channel] = info.setupStatus ?? "not_configured"
             }
         }
     }

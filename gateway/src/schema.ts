@@ -1633,6 +1633,32 @@ export function buildSchema(): Record<string, unknown> {
           },
         },
       },
+      "/v1/assistants/{assistantId}/channels/readiness/": {
+        get: {
+          summary: "Get channel readiness (scoped)",
+          description:
+            "Authenticated gateway endpoint that returns the readiness status of all configured channels from the assistant runtime. The assistantId path segment is used for routing but does not affect the response.",
+          operationId: "channelReadinessScopedGet",
+          parameters: [
+            {
+              name: "assistantId",
+              in: "path",
+              required: true,
+              schema: { type: "string" },
+            },
+          ],
+          security: [{ BearerAuth: [] }],
+          responses: {
+            "200": { description: "Channel readiness status returned" },
+            "401": {
+              description: "Unauthorized — missing or invalid bearer token",
+            },
+            "503": { description: "Bearer token not configured" },
+            "502": { description: "Failed to reach assistant runtime" },
+            "504": { description: "Assistant runtime request timed out" },
+          },
+        },
+      },
       "/v1/channels/readiness/refresh": {
         post: {
           summary: "Refresh channel readiness",
@@ -1764,6 +1790,51 @@ export function buildSchema(): Record<string, unknown> {
           description:
             "Returns the current status of configured integrations, including the assistant's email address. Requires a valid bearer token.",
           operationId: "integrationsStatus",
+          security: [{ BearerAuth: [] }],
+          responses: {
+            "200": {
+              description: "Integration status",
+              content: {
+                "application/json": {
+                  schema: {
+                    $ref: "#/components/schemas/IntegrationsStatusResponse",
+                  },
+                },
+              },
+            },
+            "401": {
+              description: "Unauthorized — missing or invalid bearer token",
+              content: {
+                "application/json": {
+                  schema: { $ref: "#/components/schemas/ErrorResponse" },
+                },
+              },
+            },
+            "503": {
+              description: "Bearer token not configured",
+              content: {
+                "application/json": {
+                  schema: { $ref: "#/components/schemas/ErrorResponse" },
+                },
+              },
+            },
+          },
+        },
+      },
+      "/v1/assistants/{assistantId}/integrations/status/": {
+        get: {
+          summary: "Integration status (scoped)",
+          description:
+            "Returns the current status of configured integrations, including the assistant's email address. Requires a valid bearer token. The assistantId path segment is used for routing but does not affect the response.",
+          operationId: "integrationsStatusScoped",
+          parameters: [
+            {
+              name: "assistantId",
+              in: "path",
+              required: true,
+              schema: { type: "string" },
+            },
+          ],
           security: [{ BearerAuth: [] }],
           responses: {
             "200": {

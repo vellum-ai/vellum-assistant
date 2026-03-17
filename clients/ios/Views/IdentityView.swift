@@ -69,10 +69,11 @@ final class IdentityViewModel {
         memoriesCount = 0
     }
 
+    var identityClient: IdentityClientProtocol = IdentityClient()
+
     func fetchIdentity(client: any DaemonClientProtocol) async {
-        guard let daemonClient = client as? DaemonClient else { return }
         isLoading = true
-        identity = await daemonClient.fetchRemoteIdentity()
+        identity = await identityClient.fetchRemoteIdentity()
         isLoading = false
         generateIntro(client: client)
     }

@@ -1316,14 +1316,6 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
         try send(LinkOpenRequestMessage(url: url, metadata: metadata))
     }
 
-    // MARK: - Remote Identity
-
-    /// Fetch identity info from the daemon via HTTP transport.
-    public func fetchRemoteIdentity() async -> RemoteIdentityInfo? {
-        guard let httpTransport else { return nil }
-        return await httpTransport.fetchRemoteIdentity()
-    }
-
     /// Request identity info via HTTP.
     public func sendIdentityGet() throws {
         try send(IdentityGetRequestMessage())
@@ -1451,50 +1443,6 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
             return try JSONDecoder().decode(T.self, from: data)
         } catch {
             log.warning("Local HTTP error for \(path, privacy: .public): \(error.localizedDescription, privacy: .public)")
-            return nil
-        }
-    }
-
-    // MARK: - Integrations Status
-
-    public struct IntegrationsStatusResponse: Decodable {
-        public struct Email: Decodable {
-            public let address: String?
-        }
-        public let email: Email
-    }
-
-    /// Fetches integration status (e.g. assigned email) from the gateway via HTTP.
-    /// For remote connections, uses `httpTransport` (which points at the gateway).
-    /// For local connections, uses the provided `gatewayBaseURL` since
-    /// `/integrations/status` is served by the gateway, not the daemon HTTP server.
-    /// Returns `nil` when the gateway is unreachable or the request fails.
-    public func fetchIntegrationsStatus(gatewayBaseURL: String? = nil) async -> IntegrationsStatusResponse? {
-        let baseURL: String
-        let bearerToken: String?
-
-        if let httpTransport {
-            baseURL = httpTransport.baseURL
-            bearerToken = httpTransport.bearerToken
-        } else if let gatewayBaseURL {
-            baseURL = gatewayBaseURL
-            bearerToken = ActorTokenManager.getToken().flatMap { $0.isEmpty ? nil : $0 }
-        } else {
-            return nil
-        }
-
-        guard let url = URL(string: "\(baseURL)/integrations/status") else { return nil }
-        var request = URLRequest(url: url)
-        request.timeoutInterval = 5
-        if let token = bearerToken, !token.isEmpty {
-            request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
-        }
-
-        do {
-            let (data, response) = try await URLSession.shared.data(for: request)
-            guard let http = response as? HTTPURLResponse, http.statusCode == 200 else { return nil }
-            return try JSONDecoder().decode(IntegrationsStatusResponse.self, from: data)
-        } catch {
             return nil
         }
     }
@@ -1658,93 +1606,6 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
         try send(ContactsRequestMessage(action: "delete", contactId: contactId))
     }
 
-
-    /// Trigger an invite call via `POST /v1/contacts/invites/:id/call`.
-    public func triggerInviteCall(inviteId: String) async throws -> Bool {
-        if let httpTransport { return try await httpTransport.triggerInviteCall(inviteId: inviteId) }
-        #if os(macOS)
-        guard var request = buildLocalRequest(target: .gateway, path: "v1/contacts/invites/\(inviteId)/call", method: "POST") else { return false }
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.httpBody = try JSONSerialization.data(withJSONObject: [:] as [String: Any])
-        let (_, response) = try await URLSession.shared.data(for: request)
-        guard let http = response as? HTTPURLResponse, (200...201).contains(http.statusCode) else { return false }
-        return true
-        #else
-        return false
-        #endif
-    }
-
-    /// A single readiness check result from the API.
-    public struct ReadinessCheck {
-        public let name: String
-        public let passed: Bool
-        public let message: String
-    }
-
-    /// Rich channel readiness information returned by `fetchChannelReadiness()`.
-    public struct ChannelReadinessInfo {
-        public let ready: Bool
-        public let setupStatus: String?
-        public let channelHandle: String?
-        public let checks: [ReadinessCheck]
-
-        /// Human-readable reason why this channel is not ready, derived from
-        /// the first failing check. Returns `nil` when the channel is ready.
-        public var reasonSummary: String? {
-            guard !ready else { return nil }
-            return checks.first(where: { !$0.passed })?.message
-        }
-    }
-
-    /// Fetch per-channel readiness state from the gateway.
-    /// Routes through `HTTPTransport` when available. Falls back to the
-    /// local gateway for local connections.
-    public func fetchChannelReadiness() async throws -> [String: ChannelReadinessInfo] {
-        if let httpTransport {
-            return try await httpTransport.fetchChannelReadiness()
-        }
-
-        #if os(macOS)
-        guard let request = buildLocalRequest(target: .gateway, path: "v1/channels/readiness", method: "GET") else { return [:] }
-
-        let (data, response) = try await URLSession.shared.data(for: request)
-        guard let http = response as? HTTPURLResponse,
-              (200...299).contains(http.statusCode) else { return [:] }
-
-        struct ReadinessResponse: Decodable {
-            let success: Bool
-            let snapshots: [Snapshot]
-            struct Snapshot: Decodable {
-                let channel: String
-                let ready: Bool
-                let setupStatus: String?
-                let channelHandle: String?
-                let localChecks: [CheckResult]?
-                let remoteChecks: [CheckResult]?
-            }
-            struct CheckResult: Decodable {
-                let name: String
-                let passed: Bool
-                let message: String
-            }
-        }
-        let decoded = try JSONDecoder().decode(ReadinessResponse.self, from: data)
-        var result: [String: ChannelReadinessInfo] = [:]
-        for snapshot in decoded.snapshots {
-            let checks = ((snapshot.localChecks ?? []) + (snapshot.remoteChecks ?? []))
-                .map { ReadinessCheck(name: $0.name, passed: $0.passed, message: $0.message) }
-            result[snapshot.channel] = ChannelReadinessInfo(
-                ready: snapshot.ready,
-                setupStatus: snapshot.setupStatus,
-                channelHandle: snapshot.channelHandle,
-                checks: checks
-            )
-        }
-        return result
-        #else
-        return [:]
-        #endif
-    }
 
     // MARK: - Feature Flags
 

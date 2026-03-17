@@ -10,6 +10,7 @@ struct ContactDetailView: View {
     let contact: ContactPayload
     var daemonClient: DaemonClient?
     var contactClient: ContactClientProtocol = ContactClient()
+    var channelClient: ChannelClientProtocol = ChannelClient()
     var store: SettingsStore?
     var onDelete: (() -> Void)?
     var guardianName: String?
@@ -50,7 +51,7 @@ struct ContactDetailView: View {
     @State private var inviteExpanded: Set<String> = []
     @State private var inviteHandleInput = ""
     @State private var inviteCodeRevealed = false
-    @State private var channelReadiness: [String: DaemonClient.ChannelReadinessInfo] = [:]
+    @State private var channelReadiness: [String: ChannelReadinessInfo] = [:]
     @State private var channelReadinessLoaded = false
     /// Monotonically increasing counter that correlates a verification attempt
     /// with its one-shot response / timeout so stale callbacks are ignored.
@@ -292,13 +293,7 @@ struct ContactDetailView: View {
             }
         }
         .task {
-            do {
-                channelReadiness = try await daemonClient?.fetchChannelReadiness() ?? [:]
-            } catch {
-                // Channel readiness fetch failed — fall back to showing only
-                // channels the contact already has configured (channelReadiness
-                // stays empty so no unconfigured channel cards appear).
-            }
+            channelReadiness = await channelClient.fetchChannelReadiness()
             channelReadinessLoaded = true
         }
     }
@@ -1170,12 +1165,12 @@ struct ContactDetailView: View {
     }
 
     private func triggerInviteCallAction(inviteId: String) {
-        guard let daemonClient, !inviteCallInProgress else { return }
+        guard !inviteCallInProgress else { return }
         inviteCallInProgress = true
         inviteCallInviteId = inviteId
         Task {
             do {
-                let success = try await daemonClient.triggerInviteCall(inviteId: inviteId)
+                let success = try await contactClient.triggerInviteCall(inviteId: inviteId)
                 // Only apply success if the currently displayed invite still
                 // matches the one we triggered the call for. If the user
                 // switched to a different invite before this async request

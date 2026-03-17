@@ -664,9 +664,27 @@ async function main() {
         channelReadinessProxy.handleRefreshChannelReadiness(req),
     },
 
+    {
+      path: /^\/v1\/assistants\/([^/]+)\/channels\/readiness\/$/,
+      method: "GET",
+      auth: "edge",
+      handler: (req) => channelReadinessProxy.handleGetChannelReadiness(req),
+    },
+
     // ── Integration status ──
     {
       path: "/integrations/status",
+      method: "GET",
+      auth: "edge",
+      handler: () =>
+        Response.json({
+          email: {
+            address: configFileCache.getString("email", "address") ?? null,
+          },
+        }),
+    },
+    {
+      path: /^\/v1\/assistants\/([^/]+)\/integrations\/status\/$/,
       method: "GET",
       auth: "edge",
       handler: () =>
