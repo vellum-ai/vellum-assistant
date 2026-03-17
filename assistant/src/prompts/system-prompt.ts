@@ -115,6 +115,7 @@ export function buildSystemPrompt(options?: BuildSystemPromptOptions): string {
   // the first cache block so they remain cached even when workspace files
   // (IDENTITY.md, SOUL.md, USER.md, etc.) are edited between turns.
   const staticParts: string[] = [];
+  staticParts.push(buildParallelToolCallsSection());
   if (getIsContainerized()) staticParts.push(buildContainerizedSection());
   staticParts.push(buildCliReferenceSection());
   // Tool Permissions section removed — guidance lives in tool descriptions.
@@ -268,6 +269,14 @@ function buildContainerizedSection(): string {
     "- Never write persistent data to system directories, `/tmp`, or paths outside the mounted volume",
     "- When in doubt, prefer paths nested under the data directory",
     "- If you create a file that is only needed temporarily (scratch files, intermediate outputs, download staging), delete it when you are done - disk space on the persistent volume is finite and will grow unboundedly if temp files are not cleaned up",
+  ].join("\n");
+}
+
+function buildParallelToolCallsSection(): string {
+  return [
+    "<use_parallel_tool_calls>",
+    "For maximum efficiency, whenever you perform multiple independent operations, invoke all relevant tools simultaneously rather than sequentially. Prioritize calling tools in parallel whenever possible. For example, when reading 3 files, run 3 tool calls in parallel to read all 3 files into context at the same time. When running multiple read-only commands like `ls` or `list_dir`, always run all of the commands in parallel. Err on the side of maximizing parallel tool calls rather than running too many tools sequentially.",
+    "</use_parallel_tool_calls>",
   ].join("\n");
 }
 
