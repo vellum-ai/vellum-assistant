@@ -54,7 +54,17 @@ final class SidebarInteractionState {
     /// icon-swap animations and unnecessary re-renders across sibling rows.
     func setConversationHover(conversationId: UUID?, hovering: Bool) {
         // Suppress hover changes while dragging to prevent visual jank.
-        if draggingConversationId != nil { return }
+        // When a hover-in arrives while dragging, the drag session must have
+        // ended (SwiftUI resumes hover tracking only after the drag completes).
+        // Clean up stale drag state so hover interactions resume.
+        if draggingConversationId != nil {
+            if hovering {
+                draggingConversationId = nil
+                dropTargetConversationId = nil
+            } else {
+                return
+            }
+        }
 
         if hovering {
             // Moving to a new conversation clears pending archive of the old one
