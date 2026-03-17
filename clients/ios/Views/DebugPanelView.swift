@@ -13,6 +13,7 @@ struct DebugPanelView: View {
     var onClose: () -> Void
 
     @State private var isLoadingHistory = false
+    private let traceEventClient: any TraceEventClientProtocol = TraceEventClient()
 
     private var hasEvents: Bool {
         guard let conversationId else { return false }
@@ -73,7 +74,7 @@ struct DebugPanelView: View {
         Task {
             defer { isLoadingHistory = false }
             do {
-                let events = try await daemonClient.fetchTraceEventHistory(conversationId: conversationId)
+                let events = try await traceEventClient.fetchHistory(conversationId: conversationId)
                 traceStore.loadHistory(events)
             } catch {
                 // Fetch failed — fall back to the existing "No trace events yet" empty state.
