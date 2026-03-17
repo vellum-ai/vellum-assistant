@@ -8,7 +8,8 @@
  */
 
 import { createHash } from "node:crypto";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, lstatSync, readFileSync, readdirSync } from "node:fs";
+import { join, relative } from "node:path";
 import { gzipSync } from "node:zlib";
 
 import type {
@@ -231,6 +232,55 @@ export function buildVBundle(options: BuildVBundleOptions): BuildVBundleResult {
 }
 
 // ---------------------------------------------------------------------------
+// Directory walker — recursively collects files for archive inclusion
+// ---------------------------------------------------------------------------
+
+/**
+ * Recursively walk a directory and return all non-binary, non-symlink files
+ * as VBundleFileEntry objects with paths prefixed by `archivePrefix`.
+ */
+function walkDirectory(dir: string, archivePrefix: string): VBundleFileEntry[] {
+  const entries: VBundleFileEntry[] = [];
+
+  function walk(currentDir: string): void {
+    const dirEntries = readdirSync(currentDir, { withFileTypes: true });
+    for (const entry of dirEntries) {
+      const fullPath = join(currentDir, entry.name);
+
+      // Skip symlinks
+      const stat = lstatSync(fullPath);
+      if (stat.isSymbolicLink()) continue;
+
+      if (stat.isDirectory()) {
+        walk(fullPath);
+      } else if (stat.isFile()) {
+        const data = new Uint8Array(readFileSync(fullPath));
+
+        // Skip binary files: check first 8KB for null bytes
+        const checkLength = Math.min(data.length, 8192);
+        let isBinary = false;
+        for (let i = 0; i < checkLength; i++) {
+          if (data[i] === 0) {
+            isBinary = true;
+            break;
+          }
+        }
+        if (isBinary) continue;
+
+        const relativePath = relative(dir, fullPath);
+        entries.push({
+          path: `${archivePrefix}/${relativePath}`,
+          data,
+        });
+      }
+    }
+  }
+
+  walk(dir);
+  return entries;
+}
+
+// ---------------------------------------------------------------------------
 // Export builder — reads real data from disk
 // ---------------------------------------------------------------------------
 
@@ -243,6 +293,10 @@ export interface BuildExportVBundleOptions {
   source?: string;
   /** Human-readable description. */
   description?: string;
+  /** Absolute path to trust.json. If provided and the file exists, it is included in the archive. */
+  trustPath?: string;
+  /** Absolute path to the workspace skills directory. If provided and exists, all non-binary files are included. */
+  skillsDir?: string;
   /**
    * Optional callback to checkpoint the WAL before reading the database file.
    * In WAL mode, committed rows may live in the -wal file and not yet be
@@ -266,7 +320,7 @@ export interface BuildExportVBundleOptions {
 export function buildExportVBundle(
   options: BuildExportVBundleOptions,
 ): BuildVBundleResult {
-  const { dbPath, configPath, source, description, checkpoint } = options;
+  const { dbPath, configPath, source, description, checkpoint, trustPath, skillsDir } = options;
 
   // Flush WAL to the main database file before reading so the export
   // captures all committed rows (SQLite WAL mode keeps recent writes
@@ -284,11 +338,24 @@ export function buildExportVBundle(
     ? new Uint8Array(readFileSync(configPath))
     : new TextEncoder().encode("{}");
 
+  const files: VBundleFileEntry[] = [
+    { path: "data/db/assistant.db", data: dbData },
+    { path: "config/settings.json", data: configData },
+  ];
+
+  // Include trust rules if the file exists.
+  if (trustPath && existsSync(trustPath)) {
+    const trustData = new Uint8Array(readFileSync(trustPath));
+    files.push({ path: "trust/trust.json", data: trustData });
+  }
+
+  // Include workspace skills if the directory exists.
+  if (skillsDir && existsSync(skillsDir)) {
+    files.push(...walkDirectory(skillsDir, "skills"));
+  }
+
   return buildVBundle({
-    files: [
-      { path: "data/db/assistant.db", data: dbData },
-      { path: "config/settings.json", data: configData },
-    ],
+    files,
     source: source ?? "runtime-export",
     description: description ?? "Runtime export bundle",
   });
