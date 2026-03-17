@@ -729,14 +729,14 @@ async function main() {
       },
     },
     {
-      path: /^\/v1\/assistants\/([^/]+)\/feature-flags\/([^/]+)\/?$/,
+      path: /^\/v1\/assistants\/([^/]+)\/feature-flags\/(.+)$/,
       method: "PATCH",
       auth: "edge-scoped",
       scope: "feature_flags.write",
       handler: (req, params) => {
         let flagKey: string;
         try {
-          flagKey = decodeURIComponent(params[1]);
+          flagKey = decodeURIComponent(params[1].replace(/\/$/, ""));
         } catch {
           return Response.json(
             { error: "Invalid flag key encoding" },
