@@ -16,7 +16,13 @@ struct UsageDashboardPanel: View {
         }
         .onAppear {
             refreshTask = Task {
-                if store.needsRefresh {
+                await store.refresh()
+            }
+        }
+        .onChange(of: store.needsRefresh) {
+            if store.needsRefresh {
+                refreshTask?.cancel()
+                refreshTask = Task {
                     await store.refresh()
                 }
             }
