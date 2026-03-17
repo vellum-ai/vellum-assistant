@@ -28,6 +28,8 @@ public protocol ContactClientProtocol {
         friendName: String?,
         guardianName: String?
     ) async throws -> (inviteId: String, token: String?, shareUrl: String?, inviteCode: String?, voiceCode: String?, guardianInstruction: String?, channelHandle: String?)?
+
+    func triggerInviteCall(inviteId: String) async throws -> Bool
 }
 
 /// Gateway-backed implementation of ``ContactClientProtocol``.
@@ -136,5 +138,16 @@ public struct ContactClient: ContactClientProtocol {
             guardianInstruction: invite.guardianInstruction,
             channelHandle: invite.channelHandle
         )
+    }
+
+    public func triggerInviteCall(inviteId: String) async throws -> Bool {
+        let response = try await GatewayHTTPClient.post(
+            path: "assistants/{assistantId}/contacts/invites/\(inviteId)/call", json: [:], timeout: 10
+        )
+        guard response.isSuccess else {
+            log.error("triggerInviteCall failed (HTTP \(response.statusCode))")
+            return false
+        }
+        return true
     }
 }

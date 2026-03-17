@@ -4,6 +4,7 @@ import VellumAssistantShared
 struct IdentityPanel: View {
     let onClose: () -> Void
     let daemonClient: DaemonClient
+    var identityClient: IdentityClientProtocol = IdentityClient()
     @State private var appearance = AvatarAppearanceManager.shared
 
     @State private var identity: IdentityInfo?
@@ -169,7 +170,7 @@ struct IdentityPanel: View {
                 // For remote assistants without local IDENTITY.md, fetch from daemon
                 if identity == nil, lockfileAssistant?.isRemote == true {
                     Task {
-                        remoteIdentity = await daemonClient.fetchRemoteIdentity()
+                        remoteIdentity = await identityClient.fetchRemoteIdentity()
                     }
                 }
 

@@ -10,6 +10,7 @@ import VellumAssistantShared
 struct SettingsDeveloperTab: View {
     @ObservedObject var store: SettingsStore
     var daemonClient: DaemonClient?
+    var identityClient: IdentityClientProtocol = IdentityClient()
     var authManager: AuthManager
     var onClose: () -> Void
 
@@ -126,7 +127,7 @@ struct SettingsDeveloperTab: View {
                let assistant = lockfileAssistants.first(where: { $0.assistantId == selectedAssistantId }),
                assistant.isRemote {
                 Task {
-                    remoteIdentity = await daemonClient?.fetchRemoteIdentity()
+                    remoteIdentity = await identityClient.fetchRemoteIdentity()
                 }
             }
             resolvePlatformUuid()
