@@ -40,7 +40,7 @@ struct SidebarConversationItem: View {
 
     var body: some View {
         // Always reserve 20pt leading slot so text never shifts.
-        // Use a tap gesture instead of Button so .draggable() can coexist —
+        // Use a tap gesture instead of Button so .onDrag can coexist —
         // Button captures mouse-down and prevents drag initiation on macOS.
         Group {
             HStack(spacing: VSpacing.xs) {
@@ -215,8 +215,7 @@ struct SidebarConversationItem: View {
             }
             .disabled(conversation.conversationId == nil || LogExporter.isManagedAssistant)
         }
-        .pointerCursor()
-        .onHover { hovering in
+        .pointerCursor { hovering in
             withAnimation(VAnimation.fast) {
                 sidebar.setConversationHover(conversationId: conversation.id, hovering: hovering)
             }
