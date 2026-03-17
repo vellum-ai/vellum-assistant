@@ -147,7 +147,6 @@ struct SettingsPanel: View {
                         .padding(.top, VSpacing.lg)
                         .padding(.trailing, VSpacing.xl)
                         .padding(.bottom, VSpacing.xl)
-                        .frame(maxWidth: 900, alignment: .top)
                         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: selectedTab == .contacts ? .top : .center)
                 } else {
                     ScrollView {
