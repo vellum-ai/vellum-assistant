@@ -240,12 +240,17 @@ public final class MainWindowState: ObservableObject {
         LayoutConfigStore.save(layoutConfig)
     }
 
+    func clearDynamicWorkspaceState() {
+        activeDynamicSurface = nil
+        activeDynamicParsedSurface = nil
+        activeDynamicUserAppsDirectory = nil
+    }
+
     /// Reset all dynamic workspace state. Callers should also reset
     /// view-local state like `showSharePicker` separately.
     func closeDynamicPanel() {
         selection = nil
-        activeDynamicSurface = nil
-        activeDynamicParsedSurface = nil
+        clearDynamicWorkspaceState()
     }
 
     /// Transition to appEditing with a specific conversation

@@ -64,6 +64,7 @@ extension MainWindowView {
                     windowState.selection = .app(appId)
                 },
                 onOpenSharedApp: { surfaceMsg in
+                    windowState.activeDynamicUserAppsDirectory = nil
                     windowState.activeDynamicSurface = surfaceMsg
                     windowState.activeDynamicParsedSurface = Surface.from(surfaceMsg)
                     if let surface = windowState.activeDynamicParsedSurface,
@@ -263,6 +264,7 @@ extension MainWindowView {
                         windowState.selection = .app(appId)
                     },
                     onOpenSharedApp: { surfaceMsg in
+                        windowState.activeDynamicUserAppsDirectory = nil
                         windowState.activeDynamicSurface = surfaceMsg
                         windowState.activeDynamicParsedSurface = Surface.from(surfaceMsg)
                         if let surface = windowState.activeDynamicParsedSurface,
@@ -438,6 +440,7 @@ extension MainWindowView {
                     windowState.selection = .app(appId)
                 },
                 onOpenSharedApp: { surfaceMsg in
+                    windowState.activeDynamicUserAppsDirectory = nil
                     windowState.activeDynamicSurface = surfaceMsg
                     windowState.activeDynamicParsedSurface = Surface.from(surfaceMsg)
                     if let surface = windowState.activeDynamicParsedSurface,
@@ -849,8 +852,7 @@ struct DynamicWorkspaceWrapper: View {
 
                     VButton(label: "Close workspace", iconOnly: VIcon.x.rawValue, style: .outlined, iconSize: 32, tooltip: "Close workspace") {
                         sharing.showSharePicker = false
-                        windowState.activeDynamicSurface = nil
-                        windowState.activeDynamicParsedSurface = nil
+                        windowState.clearDynamicWorkspaceState()
                         windowState.dismissOverlay()
                     }
                 }

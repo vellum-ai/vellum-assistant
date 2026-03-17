@@ -295,8 +295,7 @@ struct MainWindowView: View {
                 }()
                 if oldIsApp && !newIsApp {
                     sharing.showSharePicker = false
-                    windowState.activeDynamicSurface = nil
-                    windowState.activeDynamicParsedSurface = nil
+                    windowState.clearDynamicWorkspaceState()
                 }
 
                 // Reset publish state when switching to a different app so new/different
