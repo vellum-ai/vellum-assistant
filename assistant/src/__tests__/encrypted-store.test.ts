@@ -14,7 +14,7 @@ import {
   unlinkSync,
   writeFileSync,
 } from "node:fs";
-import { hostname, tmpdir, userInfo } from "node:os";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   afterAll,
@@ -42,8 +42,8 @@ import {
   _setStoreKeyPath,
   _setStorePath,
   deleteKey,
-  getMachineEntropy,
   getKey,
+  getMachineEntropy,
   listKeys,
   setKey,
 } from "../security/encrypted-store.js";
