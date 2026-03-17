@@ -11,6 +11,7 @@ import {
 import {
   ensureManualTokenConnection,
   removeManualTokenConnection,
+  syncManualTokenConnection,
 } from "../../oauth/manual-token-connection.js";
 import { getConnectionByProvider } from "../../oauth/oauth-store.js";
 import { credentialKey } from "../../security/credential-key.js";
@@ -69,6 +70,7 @@ export type TelegramConfigResult = Omit<TelegramConfigResponse, "type">;
 // -- Extracted business logic functions --
 
 export async function getTelegramConfig(): Promise<TelegramConfigResult> {
+  await syncManualTokenConnection("telegram");
   const hasBotToken = !!(await getSecureKeyAsync(
     credentialKey("telegram", "bot_token"),
   ));
