@@ -121,28 +121,34 @@ struct APIKeyStepView: View {
         }) {
             HStack(spacing: VSpacing.md) {
                 VIconView(icon, size: 18)
-                    .foregroundColor(isDisabled ? VColor.contentDisabled : (isSelected ? VColor.primaryBase : VColor.contentSecondary))
+                    .foregroundColor(isDisabled ? VColor.contentTertiary : (isSelected ? VColor.primaryBase : VColor.contentSecondary))
 
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(title)
-                        .font(.system(size: 15, weight: .medium))
-                        .foregroundColor(isDisabled ? VColor.contentDisabled : VColor.contentDefault)
+                    HStack(spacing: VSpacing.sm) {
+                        Text(title)
+                            .font(.system(size: 15, weight: .medium))
+                            .foregroundColor(isDisabled ? VColor.contentTertiary : VColor.contentDefault)
+
+                        Spacer()
+
+                        if let chipLabel {
+                            Text(chipLabel)
+                                .font(VFont.captionMedium)
+                                .foregroundColor(VColor.contentTertiary)
+                                .padding(.horizontal, VSpacing.sm)
+                                .padding(.vertical, VSpacing.xxs)
+                                .background(VColor.surfaceActive)
+                                .clipShape(Capsule())
+                        }
+                    }
                     Text(subtitle)
                         .font(.system(size: 12))
-                        .foregroundColor(isDisabled ? VColor.contentDisabled : VColor.contentSecondary)
+                        .foregroundColor(isDisabled ? VColor.contentTertiary : VColor.contentSecondary)
                 }
 
-                Spacer()
+                if chipLabel == nil {
+                    Spacer()
 
-                if let chipLabel {
-                    Text(chipLabel)
-                        .font(VFont.captionMedium)
-                        .foregroundColor(VColor.contentTertiary)
-                        .padding(.horizontal, VSpacing.sm)
-                        .padding(.vertical, VSpacing.xxs)
-                        .background(VColor.surfaceActive)
-                        .clipShape(Capsule())
-                } else {
                     Circle()
                         .fill(isSelected ? VColor.primaryBase : Color.clear)
                         .overlay(
@@ -171,7 +177,7 @@ struct APIKeyStepView: View {
                             )
                     )
             )
-            .opacity(isDisabled ? 0.7 : 1.0)
+            .opacity(isDisabled ? 0.85 : 1.0)
         }
         .buttonStyle(.plain)
         .disabled(isDisabled)
