@@ -119,6 +119,7 @@ struct SettingsPanel: View {
     @State private var isBillingEnabled: Bool = false
     @State private var isDeveloperEnabled: Bool = false
     @State private var isEmailEnabled: Bool = false
+    @State private var isGoogleOAuthEnabled: Bool = false
     @State private var showingDevUnlock: Bool = false
     @State private var devUnlockText: String = ""
     @State private var devUnlockMonitor: Any?
@@ -128,6 +129,7 @@ struct SettingsPanel: View {
     private static let billingFeatureFlagKey = "settings_billing_enabled"
     private static let developerFeatureFlagKey = "feature_flags.settings-developer-nav.enabled"
     private static let emailFeatureFlagKey = "feature_flags.email-channel.enabled"
+    private static let googleOAuthFeatureFlagKey = "feature_flags.managed-google-oauth.enabled"
 
     var body: some View {
         VStack(spacing: 0) {
@@ -250,6 +252,8 @@ struct SettingsPanel: View {
                     isBillingEnabled = enabled
                 } else if key == Self.emailFeatureFlagKey {
                     isEmailEnabled = enabled
+                } else if key == Self.googleOAuthFeatureFlagKey {
+                    isGoogleOAuthEnabled = enabled
                 }
             }
         }
@@ -421,6 +425,15 @@ struct SettingsPanel: View {
                 apiKeyText: $imageGenKeyText,
                 showToast: showToast
             )
+
+            // GOOGLE OAUTH (feature-flagged)
+            if isGoogleOAuthEnabled {
+                Divider()
+                    .background(VColor.borderBase)
+                    .padding(.vertical, VSpacing.sm)
+
+                GoogleOAuthServiceCard(store: store)
+            }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
@@ -558,6 +571,9 @@ struct SettingsPanel: View {
                 if let emailFlag = flags.first(where: { $0.key == Self.emailFeatureFlagKey }) {
                     isEmailEnabled = emailFlag.enabled
                 }
+                if let googleOAuthFlag = flags.first(where: { $0.key == Self.googleOAuthFeatureFlagKey }) {
+                    isGoogleOAuthEnabled = googleOAuthFlag.enabled
+                }
                 consumeDeferredDeepLinkIfVisible()
                 return
             } catch {
@@ -581,6 +597,9 @@ struct SettingsPanel: View {
         }
         if let emailEnabled = resolved[Self.emailFeatureFlagKey] {
             isEmailEnabled = emailEnabled
+        }
+        if let googleOAuthEnabled = resolved[Self.googleOAuthFeatureFlagKey] {
+            isGoogleOAuthEnabled = googleOAuthEnabled
         }
 
         consumeDeferredDeepLinkIfVisible()
