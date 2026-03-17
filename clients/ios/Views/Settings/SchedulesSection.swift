@@ -6,6 +6,7 @@ struct SchedulesSection: View {
     @EnvironmentObject var clientProvider: ClientProvider
     @State private var schedules: [ScheduleItem] = []
     @State private var loading = false
+    private let scheduleClient: ScheduleClientProtocol = ScheduleClient()
 
     /// Filter to only show recurring schedules (exclude one-shot/reminders).
     private var recurringSchedules: [ScheduleItem] {
@@ -43,11 +44,6 @@ struct SchedulesSection: View {
         .onAppear { loadSchedules() }
         .onChange(of: clientProvider.isConnected) { _, connected in
             if connected { loadSchedules() }
-        }
-        .onDisappear {
-            if let daemon = clientProvider.client as? DaemonClient {
-                daemon.onSchedulesListResponse = nil
-            }
         }
     }
 
@@ -93,31 +89,30 @@ struct SchedulesSection: View {
     }
 
     private func loadSchedules() {
-        guard let daemon = clientProvider.client as? DaemonClient else { return }
         loading = true
-        daemon.onSchedulesListResponse = { items in
-            schedules = items
-            loading = false
-        }
-        do {
-            try daemon.sendListSchedules()
-        } catch {
+        Task {
+            do {
+                let items = try await scheduleClient.fetchSchedulesList()
+                schedules = items
+            } catch {
+                // Silently handle errors; the list remains unchanged.
+            }
             loading = false
         }
     }
 
     private func toggleSchedule(_ id: String, enabled: Bool) {
-        guard let daemon = clientProvider.client as? DaemonClient else { return }
-        try? daemon.sendToggleSchedule(id: id, enabled: enabled)
-        if schedules.firstIndex(where: { $0.id == id }) != nil {
-            loadSchedules()
+        Task {
+            let items = try? await scheduleClient.toggleSchedule(id: id, enabled: enabled)
+            if let items { schedules = items }
         }
     }
 
     private func deleteSchedule(_ id: String) {
-        guard let daemon = clientProvider.client as? DaemonClient else { return }
-        try? daemon.sendRemoveSchedule(id: id)
         schedules.removeAll { $0.id == id }
+        Task {
+            _ = try? await scheduleClient.deleteSchedule(id: id)
+        }
     }
 
     private func formatTimestamp(_ ms: Int) -> String? {

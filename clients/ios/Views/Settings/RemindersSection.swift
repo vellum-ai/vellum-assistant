@@ -6,6 +6,7 @@ struct RemindersSection: View {
     @EnvironmentObject var clientProvider: ClientProvider
     @State private var schedules: [ScheduleItem] = []
     @State private var loading = false
+    private let scheduleClient: ScheduleClientProtocol = ScheduleClient()
 
     /// Filter to only show one-shot schedules (reminders).
     private var oneShotSchedules: [ScheduleItem] {
@@ -43,11 +44,6 @@ struct RemindersSection: View {
         .onAppear { loadSchedules() }
         .onChange(of: clientProvider.isConnected) { _, connected in
             if connected { loadSchedules() }
-        }
-        .onDisappear {
-            if let daemon = clientProvider.client as? DaemonClient {
-                daemon.onSchedulesListResponse = nil
-            }
         }
     }
 
@@ -92,24 +88,23 @@ struct RemindersSection: View {
     }
 
     private func loadSchedules() {
-        guard let daemon = clientProvider.client as? DaemonClient else { return }
         loading = true
-        daemon.onSchedulesListResponse = { items in
-            schedules = items
-            loading = false
-        }
-        do {
-            try daemon.sendListSchedules()
-        } catch {
+        Task {
+            do {
+                let items = try await scheduleClient.fetchSchedulesList()
+                schedules = items
+            } catch {
+                // Silently handle errors; the list remains unchanged.
+            }
             loading = false
         }
     }
 
     private func cancelSchedule(_ id: String) {
-        guard let daemon = clientProvider.client as? DaemonClient else { return }
-        try? daemon.sendCancelSchedule(id: id)
-        // Reload so the cancelled status is reflected in the list.
-        loadSchedules()
+        Task {
+            let items = try? await scheduleClient.cancelSchedule(id: id)
+            if let items { schedules = items }
+        }
     }
 
     private func formatTimestamp(_ ms: Int) -> String? {

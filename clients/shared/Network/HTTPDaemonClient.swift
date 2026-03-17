@@ -355,13 +355,6 @@ public final class HTTPTransport {
         case settingsAvatarGenerate
         case settingsClient
 
-        // Schedules
-        case schedules
-        case scheduleToggle(id: String)
-        case scheduleDelete(id: String)
-        case scheduleCancel(id: String)
-        case scheduleRunNow(id: String)
-
         // Diagnostics
         case diagnosticsExport
         case diagnosticsEnvVars
@@ -683,21 +676,6 @@ public final class HTTPTransport {
             return ("/v1/settings/avatar/generate", nil)
         case .settingsClient:
             return ("/v1/settings/client", nil)
-        // Schedules
-        case .schedules:
-            return ("/v1/schedules", nil)
-        case .scheduleToggle(let id):
-            let encoded = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
-            return ("/v1/schedules/\(encoded)/toggle", nil)
-        case .scheduleDelete(let id):
-            let encoded = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
-            return ("/v1/schedules/\(encoded)", nil)
-        case .scheduleCancel(let id):
-            let encoded = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
-            return ("/v1/schedules/\(encoded)/cancel", nil)
-        case .scheduleRunNow(let id):
-            let encoded = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
-            return ("/v1/schedules/\(encoded)/run", nil)
         // Diagnostics
         case .diagnosticsExport:
             return ("/v1/diagnostics/export", nil)
@@ -1017,21 +995,6 @@ public final class HTTPTransport {
             return ("\(prefix)/settings/avatar/generate/", nil)
         case .settingsClient:
             return ("\(prefix)/settings/client/", nil)
-        // Schedules
-        case .schedules:
-            return ("\(prefix)/schedules/", nil)
-        case .scheduleToggle(let id):
-            let encoded = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
-            return ("\(prefix)/schedules/\(encoded)/toggle/", nil)
-        case .scheduleDelete(let id):
-            let encoded = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
-            return ("\(prefix)/schedules/\(encoded)/", nil)
-        case .scheduleCancel(let id):
-            let encoded = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
-            return ("\(prefix)/schedules/\(encoded)/cancel/", nil)
-        case .scheduleRunNow(let id):
-            let encoded = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
-            return ("\(prefix)/schedules/\(encoded)/run/", nil)
         // Diagnostics
         case .diagnosticsExport:
             return ("\(prefix)/diagnostics/export/", nil)

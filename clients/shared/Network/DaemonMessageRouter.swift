@@ -98,8 +98,8 @@ extension DaemonClient {
             onToolPermissionSimulateResponse?(msg)
         case .toolNamesListResponse(let msg):
             onToolNamesListResponse?(msg)
-        case .schedulesListResponse(let msg):
-            onSchedulesListResponse?(msg.schedules)
+        case .schedulesListResponse:
+            break // Handled by ScheduleClient via GatewayHTTPClient.
         case .skillStateChanged(let msg):
             onSkillStateChanged?(msg)
         case .skillsOperationResponse(let msg):

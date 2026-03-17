@@ -36,28 +36,6 @@ extension HTTPTransport {
                 return true
             }
 
-            // --- Schedules ---
-            if message is SchedulesListMessage {
-                Task { await self.sendGenericPost(.schedules, method: "GET", label: "schedules_list") }
-                return true
-            }
-            if let msg = message as? ScheduleToggleMessage {
-                Task { await self.sendEncodablePost(.scheduleToggle(id: msg.id), body: msg, label: "schedule_toggle") }
-                return true
-            }
-            if let msg = message as? ScheduleRemoveMessage {
-                Task { await self.sendGenericPost(.scheduleDelete(id: msg.id), method: "DELETE", label: "schedule_remove") }
-                return true
-            }
-            if let msg = message as? ScheduleCancelMessage {
-                Task { await self.sendGenericPost(.scheduleCancel(id: msg.id), label: "schedule_cancel") }
-                return true
-            }
-            if let msg = message as? ScheduleRunNowMessage {
-                Task { await self.sendGenericPost(.scheduleRunNow(id: msg.id), label: "schedule_run_now") }
-                return true
-            }
-
             // --- Diagnostics ---
             if let msg = message as? DiagnosticsExportRequestMessage {
                 Task { await self.sendDiagnosticsExport(msg) }

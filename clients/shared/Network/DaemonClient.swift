@@ -374,9 +374,6 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     /// Called when the daemon sends a `tool_names_list_response` message.
     public var onToolNamesListResponse: ((ToolNamesListResponseMessage) -> Void)?
 
-    /// Called when the daemon sends a `schedules_list_response` message.
-    public var onSchedulesListResponse: (([ScheduleItem]) -> Void)?
-
     /// Called when the daemon sends a `skills_state_changed` push event.
     public var onSkillStateChanged: ((SkillStateChangedMessage) -> Void)?
 
@@ -974,33 +971,6 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     /// Request the sorted list of all registered tool names from the daemon.
     public func sendToolNamesList() throws {
         try send(ToolNamesListMessage())
-    }
-
-    // MARK: - Schedules Management
-
-    /// Request the list of all scheduled tasks from the daemon.
-    public func sendListSchedules() throws {
-        try send(SchedulesListMessage())
-    }
-
-    /// Toggle a schedule's enabled state.
-    public func sendToggleSchedule(id: String, enabled: Bool) throws {
-        try send(ScheduleToggleMessage(id: id, enabled: enabled))
-    }
-
-    /// Remove a schedule by its ID.
-    public func sendRemoveSchedule(id: String) throws {
-        try send(ScheduleRemoveMessage(id: id))
-    }
-
-    /// Cancel a schedule (preserves the record with status 'cancelled').
-    public func sendCancelSchedule(id: String) throws {
-        try send(ScheduleCancelMessage(id: id))
-    }
-
-    /// Run a schedule immediately as a one-off execution.
-    public func sendRunScheduleNow(id: String) throws {
-        try send(ScheduleRunNowMessage(id: id))
     }
 
     // MARK: - Work Items (Task Queue)
