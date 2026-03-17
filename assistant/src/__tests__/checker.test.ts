@@ -201,18 +201,18 @@ describe("Permission Checker", () => {
       });
     });
 
-    // file_write is always medium
+    // file_write is always low (sandboxed)
     describe("file_write", () => {
-      test("file_write is always medium risk", async () => {
+      test("file_write is always low risk", async () => {
         const risk = await classifyRisk("file_write", {
           path: "/tmp/file.txt",
         });
-        expect(risk).toBe(RiskLevel.Medium);
+        expect(risk).toBe(RiskLevel.Low);
       });
 
-      test("file_write with any path is medium risk", async () => {
+      test("file_write with any path is low risk", async () => {
         const risk = await classifyRisk("file_write", { path: "/etc/passwd" });
-        expect(risk).toBe(RiskLevel.Medium);
+        expect(risk).toBe(RiskLevel.Low);
       });
     });
 
@@ -673,14 +673,13 @@ describe("Permission Checker", () => {
       expect(result.decision).toBe("allow");
     });
 
-    test("file_write → auto-allow (Low risk)", async () => {
+    test("file_write → auto-allow (workspace-scoped)", async () => {
       const result = await check(
         "file_write",
         { path: "/tmp/file.txt" },
         "/tmp",
       );
       expect(result.decision).toBe("allow");
-      expect(result.reason).toContain("Low risk");
     });
 
     test("file_write outside workspace → auto-allow (Low risk)", async () => {
@@ -1486,12 +1485,12 @@ describe("Permission Checker", () => {
       expect(result.matchedRule!.id).toBe("default:allow-file_edit-updates");
     });
 
-    test("file_write of non-workspace file is not auto-allowed", async () => {
+    test("file_write of non-workspace file is auto-allowed (Low risk)", async () => {
       const otherPath = join(checkerTestDir, "workspace", "OTHER.md");
       // Use a workingDir that doesn't contain the path so it's not workspace-scoped
       const result = await check("file_write", { path: otherPath }, "/home");
-      // Medium risk with no matching allow rule → prompt
-      expect(result.decision).toBe("prompt");
+      // Low risk → auto-allowed even outside workspace
+      expect(result.decision).toBe("allow");
     });
   });
 
@@ -4583,24 +4582,24 @@ describe("workspace mode — auto-allow workspace-scoped operations", () => {
     expect(result.reason).toContain("Workspace mode");
   });
 
-  test("file_write within workspace → allow (Low risk)", async () => {
+  test("file_write within workspace → allow (workspace-scoped)", async () => {
     const result = await check(
       "file_write",
       { file_path: "/home/user/my-project/src/index.ts" },
       workspaceDir,
     );
     expect(result.decision).toBe("allow");
-    expect(result.reason).toContain("Low risk");
+    expect(result.reason).toContain("Workspace mode");
   });
 
-  test("file_edit within workspace → allow (Low risk)", async () => {
+  test("file_edit within workspace → allow (workspace-scoped)", async () => {
     const result = await check(
       "file_edit",
       { file_path: "/home/user/my-project/src/index.ts" },
       workspaceDir,
     );
     expect(result.decision).toBe("allow");
-    expect(result.reason).toContain("Low risk");
+    expect(result.reason).toContain("Workspace mode");
   });
 
   // ── file operations outside workspace follow risk-based fallback ──

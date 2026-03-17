@@ -314,8 +314,8 @@ describe("AssetMaterializeTool metadata", () => {
     ).toHaveProperty("destination_path");
   });
 
-  test("tool has MEDIUM risk level", () => {
-    expect(assetMaterializeTool.defaultRiskLevel).toBe(RiskLevel.Medium);
+  test("tool has LOW risk level", () => {
+    expect(assetMaterializeTool.defaultRiskLevel).toBe(RiskLevel.Low);
   });
 
   test("tool category is assets", () => {

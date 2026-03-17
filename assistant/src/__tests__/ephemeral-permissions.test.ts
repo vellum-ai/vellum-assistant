@@ -37,6 +37,7 @@ mock.module("../util/logger.js", () => ({
 const testConfig: Record<string, any> = {
   permissions: { mode: "workspace" as "strict" | "workspace" },
   skills: { load: { extraDirs: [] as string[] } },
+  sandbox: { enabled: false },
 };
 
 mock.module("../config/loader.js", () => ({
@@ -327,20 +328,19 @@ describe("ephemeral-permissions", () => {
       testConfig.permissions.mode = "workspace";
     });
 
-    test("workspace mode prompts for workspace-scoped file_write (medium risk)", async () => {
+    test("workspace mode auto-allows workspace-scoped file_write (low risk)", async () => {
       const filePath = join(testDir, "workspace-test-file.txt");
       const result = await check("file_write", { path: filePath }, testDir);
-      expect(result.decision).toBe("prompt");
-      expect(result.reason).toContain("medium risk");
+      expect(result.decision).toBe("allow");
     });
 
-    test("workspace mode still prompts for file_write outside workspace", async () => {
+    test("workspace mode auto-allows file_write outside workspace (low risk)", async () => {
       const result = await check(
         "file_write",
         { path: "/etc/config" },
         testDir,
       );
-      expect(result.decision).toBe("prompt");
+      expect(result.decision).toBe("allow");
     });
 
     test("explicit deny rule overrides workspace mode auto-allow", async () => {
