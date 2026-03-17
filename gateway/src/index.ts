@@ -676,7 +676,7 @@ async function main() {
         }),
     },
     {
-      path: "/v1/integrations/status",
+      path: /^\/v1\/assistants\/([^/]+)\/integrations\/status\/$/,
       method: "GET",
       auth: "edge",
       handler: () =>

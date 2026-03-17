@@ -1795,12 +1795,20 @@ export function buildSchema(): Record<string, unknown> {
           },
         },
       },
-      "/v1/integrations/status": {
+      "/v1/assistants/{assistantId}/integrations/status/": {
         get: {
-          summary: "Integration status (v1)",
+          summary: "Integration status (scoped)",
           description:
-            "Returns the current status of configured integrations, including the assistant's email address. Requires a valid bearer token.",
-          operationId: "integrationsStatusV1",
+            "Returns the current status of configured integrations, including the assistant's email address. Requires a valid bearer token. The assistantId path segment is used for routing but does not affect the response.",
+          operationId: "integrationsStatusScoped",
+          parameters: [
+            {
+              name: "assistantId",
+              in: "path",
+              required: true,
+              schema: { type: "string" },
+            },
+          ],
           security: [{ BearerAuth: [] }],
           responses: {
             "200": {
