@@ -96,7 +96,6 @@ Computer use runs through the daemon's main session loop. The daemon sends `host
 CU execution dependencies are protocol-based for testability:
 - `AccessibilityTreeProviding` — AX enumeration (impl: `AccessibilityTreeEnumerator`)
 - `ScreenCaptureProviding` — screenshots (impl: `ScreenCapture`)
-- `ActionExecuting` — CGEvent injection (impl: `ActionExecutor`)
 
 </details>
 
