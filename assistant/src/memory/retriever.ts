@@ -25,6 +25,7 @@ import {
 } from "./schema.js";
 import {
   buildTwoLayerInjection,
+  CAPABILITY_KINDS,
   IDENTITY_KINDS,
   PREFERENCE_KINDS,
 } from "./search/formatting.js";
@@ -465,11 +466,15 @@ export async function buildMemoryRecall(
   const preferences = afterDemotion.filter(
     (c) => c.tier === 1 && PREFERENCE_KINDS.has(c.kind),
   );
+  const capabilities = afterDemotion.filter(
+    (c) => c.tier === 1 && CAPABILITY_KINDS.has(c.kind),
+  );
   const tier1Candidates = afterDemotion.filter(
     (c) =>
       c.tier === 1 &&
       !IDENTITY_KINDS.has(c.kind) &&
-      !PREFERENCE_KINDS.has(c.kind),
+      !PREFERENCE_KINDS.has(c.kind) &&
+      !CAPABILITY_KINDS.has(c.kind),
   );
   const tier2Candidates = afterDemotion.filter((c) => c.tier === 2);
 
@@ -478,6 +483,7 @@ export async function buildMemoryRecall(
     tier1Candidates,
     tier2Candidates,
     preferences,
+    capabilities,
     totalBudgetTokens: maxInjectTokens,
   });
 
@@ -486,7 +492,8 @@ export async function buildMemoryRecall(
     identityItems.length +
     tier1Candidates.length +
     tier2Candidates.length +
-    preferences.length;
+    preferences.length +
+    capabilities.length;
 
   const tier1Count = afterDemotion.filter((c) => c.tier === 1).length;
   const tier2Count = afterDemotion.filter((c) => c.tier === 2).length;
