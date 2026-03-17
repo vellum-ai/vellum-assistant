@@ -89,6 +89,9 @@ RUN echo 'Dir::State "/data/dpkg";' > /etc/apt/apt.conf.d/99data-dir && \
 ENV PATH="/data/usr/bin:/data/usr/sbin:${PATH}"
 ENV LD_LIBRARY_PATH="/data/usr/lib:/data/usr/lib/x86_64-linux-gnu:/data/usr/lib/aarch64-linux-gnu"
 
+# Ensure the CES bootstrap socket volume is writable by the non-root CES user.
+RUN mkdir -p /run/ces-bootstrap && chmod 777 /run/ces-bootstrap
+
 USER root
 
 EXPOSE 3001
