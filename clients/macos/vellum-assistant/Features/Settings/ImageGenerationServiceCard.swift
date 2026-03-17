@@ -99,11 +99,10 @@ struct ImageGenerationServiceCard: View {
     // MARK: - Managed Login Prompt
 
     private var managedLoginPrompt: some View {
-        VStack(spacing: VSpacing.md) {
-            Text("In order to use the managed image generation service, you must be logged in to Vellum.")
+        VStack(alignment: .leading, spacing: VSpacing.md) {
+            Text("Log in to Vellum to use managed image generation.")
                 .font(VFont.body)
-                .foregroundColor(VColor.contentTertiary)
-                .multilineTextAlignment(.center)
+                .foregroundColor(VColor.contentDefault)
             VButton(
                 label: authManager.isSubmitting ? "Logging in..." : "Log In",
                 style: .primary,
@@ -118,8 +117,6 @@ struct ImageGenerationServiceCard: View {
                 }
             }
         }
-        .frame(maxWidth: .infinity)
-        .padding(.vertical, VSpacing.lg)
     }
 
     // MARK: - Model Picker

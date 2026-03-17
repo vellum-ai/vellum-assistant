@@ -45,14 +45,9 @@ struct GoogleOAuthServiceCard: View {
     // MARK: - Coming Soon
 
     private var comingSoonState: some View {
-        VStack(spacing: VSpacing.md) {
-            Text("Coming Soon")
-                .font(VFont.body)
-                .foregroundColor(VColor.contentTertiary)
-                .multilineTextAlignment(.center)
-        }
-        .frame(maxWidth: .infinity)
-        .padding(.vertical, VSpacing.lg)
+        Text("Coming soon.")
+            .font(VFont.body)
+            .foregroundColor(VColor.contentDefault)
     }
 
     // MARK: - Save
