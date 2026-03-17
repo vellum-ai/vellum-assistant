@@ -493,16 +493,16 @@ function makeHubPublisher(
     }
 
     // ServerMessage is a large union; conversationId exists on most but not all variants.
-    const msgSessionId =
+    const msgConversationId =
       "conversationId" in msg &&
       typeof (msg as { conversationId?: unknown }).conversationId === "string"
         ? (msg as { conversationId: string }).conversationId
         : undefined;
-    const resolvedSessionId = msgSessionId ?? conversationId;
+    const resolvedConversationId = msgConversationId ?? conversationId;
     const event = buildAssistantEvent(
       DAEMON_INTERNAL_ASSISTANT_ID,
       msg,
-      resolvedSessionId,
+      resolvedConversationId,
     );
     hubChain = (async () => {
       await hubChain;
@@ -942,7 +942,7 @@ export async function handleSendMessage(
       );
 
       // Defer event publishing to next tick so the HTTP response reaches the
-      // client first. This ensures the client's serverToLocalSessionMap is
+      // client first. This ensures the client's serverToLocalConversationMap is
       // populated before SSE events arrive, preventing dropped events in new
       // desktop conversations.
       //
