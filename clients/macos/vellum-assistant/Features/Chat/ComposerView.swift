@@ -421,8 +421,7 @@ struct ComposerView: View {
             content()
         }
         .padding(.vertical, VSpacing.sm)
-        .padding(.leading, VSpacing.md)
-        .padding(.trailing, VSpacing.sm)
+        .padding(.horizontal, VSpacing.sm)
         .background(
             RoundedRectangle(cornerRadius: VRadius.window)
                 .fill(VColor.surfaceOverlay)
