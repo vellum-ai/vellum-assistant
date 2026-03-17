@@ -474,8 +474,12 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     #if os(macOS)
     /// Timestamp of the last auto-wake attempt from the health-check disconnect path.
     /// Used to prevent crash loops: if the daemon dies again within the cooldown window
-    /// after a wake, we stop retrying. Reset on successful reconnection or reconfigure.
+    /// after a wake, we stop retrying. Expires naturally after the cooldown period.
     var lastAutoWakeAttempt: Date?
+
+    /// The in-flight auto-wake task, stored so it can be cancelled on intentional
+    /// disconnect or reconfigure to prevent reconnecting after teardown.
+    var autoWakeTask: Task<Void, Never>?
     #endif
 
     // MARK: - Broadcast Subscribers
@@ -528,6 +532,10 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     /// and resets connection-specific state. Callers must call `connect()`
     /// after reconfiguring to establish the new connection.
     public func reconfigure(config newConfig: DaemonConfig) {
+        #if os(macOS)
+        autoWakeTask?.cancel()
+        autoWakeTask = nil
+        #endif
         disconnect()
         self.config = newConfig
         // Reset connection-specific state
@@ -545,6 +553,9 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     deinit {
         // Swift 5.9+: deinit on @MainActor class is NOT guaranteed to run on main actor.
         // Only call thread-safe cancellation methods here — Task.cancel() is safe from any thread.
+        #if os(macOS)
+        autoWakeTask?.cancel()
+        #endif
         //
         // We must finish subscriber continuations to prevent hanging `for await` loops.
         // deinit guarantees exclusive access (no other strong references exist), so

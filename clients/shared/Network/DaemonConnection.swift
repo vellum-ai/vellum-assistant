@@ -148,15 +148,22 @@ extension DaemonClient {
 
         lastAutoWakeAttempt = Date()
 
-        Task { @MainActor [weak self] in
+        autoWakeTask = Task { @MainActor [weak self] in
             guard let self else { return }
             log.info("auto-wake: daemon process died during session — attempting wake")
             do {
                 try await wakeHandler()
+                guard !Task.isCancelled else {
+                    log.info("auto-wake: cancelled after wake — skipping reconnect")
+                    return
+                }
                 log.info("auto-wake: wake succeeded, reconnecting")
                 try await self.connect()
+                guard !Task.isCancelled else {
+                    log.info("auto-wake: cancelled after connect — abandoning")
+                    return
+                }
                 log.info("auto-wake: reconnect succeeded")
-                self.lastAutoWakeAttempt = nil
             } catch {
                 log.error("auto-wake: failed: \(error)")
             }
@@ -166,6 +173,11 @@ extension DaemonClient {
 
     func disconnectInternal(triggerReconnect: Bool) {
         isAuthenticated = false
+
+        #if os(macOS)
+        autoWakeTask?.cancel()
+        autoWakeTask = nil
+        #endif
 
         httpTransport?.disconnect()
         httpTransport = nil
