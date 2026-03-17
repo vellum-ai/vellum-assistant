@@ -119,34 +119,36 @@ struct UsageDashboardPanel: View {
         let sorted = buckets.sorted { $0.totalEstimatedCostUsd > $1.totalEstimatedCostUsd }
         let maxCost = sorted.first?.totalEstimatedCostUsd ?? 1.0
 
-        VStack(alignment: .leading, spacing: VSpacing.xs) {
-            // Bar chart — left-aligned
-            HStack(alignment: .bottom, spacing: VSpacing.xs) {
-                ForEach(sorted, id: \.date) { bucket in
-                    let fraction = maxCost > 0 ? bucket.totalEstimatedCostUsd / maxCost : 0
-                    VStack(spacing: VSpacing.xxs) {
-                        Spacer(minLength: 0)
-                        RoundedRectangle(cornerRadius: VRadius.xs)
-                            .fill(VColor.systemPositiveStrong)
-                            .frame(width: maxBarWidth, height: max(2, barChartHeight * fraction))
+        ScrollView(.horizontal, showsIndicators: false) {
+            VStack(alignment: .leading, spacing: VSpacing.xs) {
+                // Bar chart — left-aligned
+                HStack(alignment: .bottom, spacing: VSpacing.xs) {
+                    ForEach(sorted, id: \.date) { bucket in
+                        let fraction = maxCost > 0 ? bucket.totalEstimatedCostUsd / maxCost : 0
+                        VStack(spacing: VSpacing.xxs) {
+                            Spacer(minLength: 0)
+                            RoundedRectangle(cornerRadius: VRadius.xs)
+                                .fill(VColor.systemPositiveStrong)
+                                .frame(width: maxBarWidth, height: max(2, barChartHeight * fraction))
+                        }
                     }
                 }
-            }
-            .frame(height: barChartHeight)
+                .frame(height: barChartHeight)
 
-            // Cost + date labels — left-aligned
-            HStack(alignment: .top, spacing: VSpacing.xs) {
-                ForEach(sorted, id: \.date) { bucket in
-                    VStack(spacing: VSpacing.xxs) {
-                        Text(formatCost(bucket.totalEstimatedCostUsd))
-                            .font(VFont.small)
-                            .foregroundColor(VColor.contentSecondary)
-                        Text(formatShortDate(bucket.date))
-                            .font(VFont.small)
-                            .foregroundColor(VColor.contentTertiary)
+                // Cost + date labels — left-aligned
+                HStack(alignment: .top, spacing: VSpacing.xs) {
+                    ForEach(sorted, id: \.date) { bucket in
+                        VStack(spacing: VSpacing.xxs) {
+                            Text(formatCost(bucket.totalEstimatedCostUsd))
+                                .font(VFont.small)
+                                .foregroundColor(VColor.contentSecondary)
+                            Text(formatShortDate(bucket.date))
+                                .font(VFont.small)
+                                .foregroundColor(VColor.contentTertiary)
+                        }
+                        .frame(width: maxBarWidth)
+                        .lineLimit(1)
                     }
-                    .frame(width: maxBarWidth)
-                    .lineLimit(1)
                 }
             }
         }
