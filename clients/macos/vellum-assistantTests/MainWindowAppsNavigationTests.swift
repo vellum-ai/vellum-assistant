@@ -55,6 +55,26 @@ final class MainWindowAppsNavigationTests: XCTestCase {
         XCTAssertFalse(state.isConversationVisible)
     }
 
+    // MARK: - Conversation selection from appEditing
+
+    /// Selecting a conversation while in appEditing mode should dismiss the app
+    /// panel and transition to the conversation, not keep the app open.
+    func testSelectingConversationFromAppEditingDismissesApp() {
+        // GIVEN the user is editing an app alongside a conversation
+        let state = MainWindowState(hasAPIKey: false)
+        let originalConversationId = UUID()
+        state.selection = .appEditing(appId: "test-app", conversationId: originalConversationId)
+
+        // WHEN the user selects a different conversation
+        let newConversationId = UUID()
+        state.selection = .conversation(newConversationId)
+
+        // THEN the selection should be the new conversation (app dismissed)
+        XCTAssertEqual(state.selection, .conversation(newConversationId))
+        XCTAssertFalse(state.isDynamicExpanded)
+        XCTAssertFalse(state.isChatDockOpen)
+    }
+
     // MARK: - closeDynamicPanel() clears sticky state
 
     func testCloseDynamicPanelClearsAppChatState() {
