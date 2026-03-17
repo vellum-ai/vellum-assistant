@@ -32,18 +32,26 @@ export async function validateAnthropicApiKey(
       if (error.status === 401) {
         return { valid: false, reason: "API key is invalid or expired." };
       }
-      return {
-        valid: false,
-        reason: `Anthropic API error (${error.status}): ${error.message}`,
-      };
+      if (error.status === 403) {
+        return {
+          valid: false,
+          reason: `Anthropic API error (${error.status}): ${error.message}`,
+        };
+      }
+      // Transient errors (429, 5xx, etc.) — validation is inconclusive,
+      // allow the key to be stored rather than blocking the user.
+      log.warn(
+        { status: error.status },
+        "Anthropic API returned a transient error during key validation — allowing key storage",
+      );
+      return { valid: true };
     }
-    return {
-      valid: false,
-      reason:
-        error instanceof Error
-          ? error.message
-          : "Failed to validate API key.",
-    };
+    // Network errors — validation is inconclusive, allow key storage.
+    log.warn(
+      { error: error instanceof Error ? error.message : String(error) },
+      "Network error during Anthropic key validation — allowing key storage",
+    );
+    return { valid: true };
   }
 }
 
