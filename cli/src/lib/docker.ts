@@ -783,17 +783,41 @@ async function waitForGatewayAndLease(opts: {
   const elapsedSec = ((Date.now() - start) / 1000).toFixed(1);
   log(`Gateway healthy after ${elapsedSec}s`);
 
-  // Lease guardian token now that the gateway is ready to proxy
+  // Lease guardian token. The gateway /healthz only confirms the gateway
+  // process itself is running — the upstream assistant container may not be
+  // ready to handle proxied requests yet (→ 502). Retry with backoff until
+  // the assistant is reachable or we hit the overall timeout.
   log(`Guardian token lease: starting for ${instanceName} at ${runtimeUrl}`);
-  try {
-    const tokenData = await leaseGuardianToken(runtimeUrl, instanceName);
+  const leaseStart = Date.now();
+  const leaseDeadline = start + DOCKER_READY_TIMEOUT_MS;
+  let leaseSuccess = false;
+  let lastLeaseError: string | undefined;
+
+  while (Date.now() < leaseDeadline) {
+    try {
+      const tokenData = await leaseGuardianToken(runtimeUrl, instanceName);
+      const leaseElapsed = ((Date.now() - leaseStart) / 1000).toFixed(1);
+      log(
+        `Guardian token lease: success after ${leaseElapsed}s (principalId=${tokenData.guardianPrincipalId}, expiresAt=${tokenData.accessTokenExpiresAt})`,
+      );
+      leaseSuccess = true;
+      break;
+    } catch (err) {
+      lastLeaseError =
+        err instanceof Error ? (err.stack ?? err.message) : String(err);
+      // Log periodically so the user knows we're still trying
+      const elapsed = ((Date.now() - leaseStart) / 1000).toFixed(0);
+      log(
+        `Guardian token lease: attempt failed after ${elapsed}s (${lastLeaseError.split("\n")[0]}), retrying...`,
+      );
+    }
+    await new Promise((r) => setTimeout(r, 2000));
+  }
+
+  if (!leaseSuccess) {
     log(
-      `Guardian token lease: success (principalId=${tokenData.guardianPrincipalId}, expiresAt=${tokenData.accessTokenExpiresAt})`,
+      `\u26a0\ufe0f  Guardian token lease: FAILED after ${((Date.now() - leaseStart) / 1000).toFixed(1)}s — ${lastLeaseError ?? "unknown error"}`,
     );
-  } catch (err) {
-    const detail =
-      err instanceof Error ? (err.stack ?? err.message) : String(err);
-    log(`\u26a0\ufe0f  Guardian token lease: FAILED — ${detail}`);
   }
 
   log("");
