@@ -146,13 +146,26 @@ struct AssistantChannelsDetailView: View {
 
             VStack(alignment: .leading, spacing: 0) {
                 // MOCK: all channels connected for visual preview
-                mockConnectedRow(name: "Slack", value: "@cartman-bot", icon: .hash, expandedBinding: $slackRowExpanded)
+                mockConnectedRow(name: "Slack", value: "@cartman-bot", icon: .hash, expandedBinding: $slackRowExpanded, expandContent: { slackChannelCredentialEntry })
                 SettingsDivider()
-                mockConnectedRow(name: "Telegram", value: "@CartmanAssistant", icon: .send, expandedBinding: $telegramRowExpanded)
+                mockConnectedRow(name: "Telegram", value: "@CartmanAssistant", icon: .send, expandedBinding: $telegramRowExpanded, expandContent: { telegramCredentialEntry })
                 SettingsDivider()
-                mockConnectedRow(name: "Phone Calling", value: "(914) 677-2270", icon: .phone, expandedBinding: $voiceRowExpanded)
+                mockConnectedRow(name: "Phone Calling", value: "(914) 677-2270", icon: .phone, expandedBinding: $voiceRowExpanded, expandContent: {
+                    HStack(spacing: VSpacing.sm) {
+                        Text("Phone Number")
+                            .font(VFont.caption)
+                            .foregroundColor(VColor.contentSecondary)
+                        VDropdown(
+                            placeholder: "Not Set",
+                            selection: .constant("(914) 677-2270"),
+                            options: [("(914) 677-2270", "(914) 677-2270")],
+                            emptyValue: ""
+                        )
+                        .frame(maxWidth: 280)
+                    }
+                })
                 SettingsDivider()
-                mockConnectedRow(name: "Email", value: "cartman@vellum.ai", icon: .mail, expandedBinding: $emailRowExpanded)
+                mockConnectedRow(name: "Email", value: "cartman@vellum.ai", icon: .mail, expandedBinding: $emailRowExpanded, expandContent: { EmptyView() })
             }
         }
     }
@@ -160,7 +173,7 @@ struct AssistantChannelsDetailView: View {
     // MARK: - Mock Connected Row (temporary preview)
 
     @ViewBuilder
-    private func mockConnectedRow(name: String, value: String, icon: VIcon, expandedBinding: Binding<Bool>) -> some View {
+    private func mockConnectedRow<Content: View>(name: String, value: String, icon: VIcon, expandedBinding: Binding<Bool>, @ViewBuilder expandContent: @escaping () -> Content) -> some View {
         VStack(alignment: .leading, spacing: VSpacing.sm) {
             ChannelRowHeader(
                 name: name,
@@ -175,12 +188,7 @@ struct AssistantChannelsDetailView: View {
             .padding(.vertical, VSpacing.sm)
 
             if expandedBinding.wrappedValue {
-                VStack(alignment: .leading, spacing: VSpacing.sm) {
-                    Text("Configuration options would appear here")
-                        .font(VFont.caption)
-                        .foregroundColor(VColor.contentTertiary)
-                }
-                .padding(.leading, 30)
+                expandContent()
             }
         }
     }

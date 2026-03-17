@@ -154,33 +154,49 @@ struct GuardianChannelsDetailView: View {
                 channelCardContent(type: type, existingChannels: existingChannels, activeChannel: activeChannel, isVerified: isVerified)
             }
         } else {
-            // MOCK: show all channels as verified with mock data
-            let mockValue: String = {
-                switch type {
-                case "telegram": return "@timur_k"
-                case "phone": return "+1 (914) 555-0123"
-                case "slack": return "@timur.k"
-                default: return type
-                }
-            }()
+            let needsSetup = !isVerified
+                && store?.channelVerificationState(for: type).verified != true
+                && (existingChannels.isEmpty || dismissedChannels.contains(type))
+                && !setupExpanded.contains(type)
 
             VStack(alignment: .leading, spacing: VSpacing.sm) {
                 HStack(spacing: VSpacing.sm) {
                     VIconView(channelIcon(for: type), size: 16)
-                        .foregroundColor(VColor.systemPositiveStrong)
+                        .foregroundColor(isVerified ? VColor.systemPositiveStrong : VColor.contentSecondary)
                     Text(channelLabel(for: type))
                         .font(VFont.bodyMedium)
                         .foregroundColor(VColor.contentDefault)
 
-                    Text(mockValue)
-                        .font(VFont.body)
-                        .foregroundColor(VColor.contentSecondary)
-                        .lineLimit(1)
+                    // Show address/identity for verified channels
+                    if isVerified, let channel = activeChannel {
+                        Text(channel.address)
+                            .font(VFont.body)
+                            .foregroundColor(VColor.contentSecondary)
+                            .lineLimit(1)
+                    }
 
                     Spacer()
-                    VBadge(label: "Verified", tone: .positive)
+
+                    if isVerified {
+                        VButton(label: "Verified", leftIcon: VIcon.circleCheck.rawValue, style: .primary) {}
+                        // Revoke button
+                        if let channel = activeChannel, daemonClient != nil {
+                            VButton(label: "Revoke", iconOnly: VIcon.x.rawValue, style: .danger, tooltip: "Revoke access") {
+                                disconnectChannel(channelId: channel.id, type: type)
+                            }
+                        }
+                    } else if needsSetup {
+                        VButton(label: "Set up", style: .outlined) {
+                            dismissedChannels.remove(type)
+                            setupExpanded.insert(type)
+                        }
+                    }
                 }
                 .frame(minHeight: 36)
+
+                if !needsSetup && !isVerified {
+                    channelCardContent(type: type, existingChannels: existingChannels, activeChannel: activeChannel, isVerified: isVerified)
+                }
             }
         }
     }

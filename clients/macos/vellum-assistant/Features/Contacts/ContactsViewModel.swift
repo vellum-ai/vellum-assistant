@@ -71,7 +71,7 @@ final class ContactsViewModel: ObservableObject {
     /// All contacts filtered by the current search query, matching
     /// against displayName and channel addresses.
     var filteredContacts: [ContactPayload] {
-        let base = deduplicatedContacts
+        let base = sortedContacts
         guard !searchQuery.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             return base
         }
@@ -83,6 +83,16 @@ final class ContactsViewModel: ObservableObject {
             return contact.channels.contains { channel in
                 channel.address.lowercased().contains(query)
             }
+        }
+    }
+
+    /// Contacts sorted: guardian first, then humans alphabetically.
+    private var sortedContacts: [ContactPayload] {
+        deduplicatedContacts.sorted { a, b in
+            let aOrder = a.role == "guardian" ? 0 : 1
+            let bOrder = b.role == "guardian" ? 0 : 1
+            if aOrder != bOrder { return aOrder < bOrder }
+            return a.displayName.localizedCaseInsensitiveCompare(b.displayName) == .orderedAscending
         }
     }
 
