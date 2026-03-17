@@ -12,7 +12,10 @@ public protocol SettingsClientProtocol {
     func fetchVercelConfig() async -> VercelApiConfigResponseMessage?
     func fetchModelInfo() async -> ModelInfoMessage?
     func setModel(model: String) async -> ModelInfoMessage?
+    func setImageGenModel(modelId: String) async -> ModelInfoMessage?
     func fetchTelegramConfig() async -> TelegramConfigResponseMessage?
+    func setTelegramConfig(action: String, botToken: String?, commands: [TelegramConfigRequestCommand]?) async -> TelegramConfigResponseMessage?
+    func setSlackWebhookConfig(action: String, webhookUrl: String?) async -> Bool
     func fetchChannelVerificationStatus(channel: String) async -> ChannelVerificationSessionResponseMessage?
 }
 
@@ -72,6 +75,23 @@ public struct SettingsClient: SettingsClientProtocol {
         }
     }
 
+    public func setImageGenModel(modelId: String) async -> ModelInfoMessage? {
+        do {
+            let response = try await GatewayHTTPClient.put(
+                path: "assistants/{assistantId}/model/image-gen", json: ["modelId": modelId], timeout: 10
+            )
+            guard response.isSuccess else {
+                log.error("setImageGenModel failed (HTTP \(response.statusCode))")
+                return nil
+            }
+            let patched = injectType("model_info", into: response.data)
+            return try JSONDecoder().decode(ModelInfoMessage.self, from: patched)
+        } catch {
+            log.error("setImageGenModel error: \(error.localizedDescription)")
+            return nil
+        }
+    }
+
     public func fetchTelegramConfig() async -> TelegramConfigResponseMessage? {
         do {
             let response = try await GatewayHTTPClient.get(
@@ -86,6 +106,59 @@ public struct SettingsClient: SettingsClientProtocol {
         } catch {
             log.error("fetchTelegramConfig error: \(error.localizedDescription)")
             return nil
+        }
+    }
+
+    public func setTelegramConfig(action: String, botToken: String? = nil, commands: [TelegramConfigRequestCommand]? = nil) async -> TelegramConfigResponseMessage? {
+        do {
+            var body: [String: Any] = ["type": "telegram_config_request", "action": action]
+            if let botToken { body["botToken"] = botToken }
+            if let commands {
+                let encoded = try JSONEncoder().encode(commands)
+                if let arr = try JSONSerialization.jsonObject(with: encoded) as? [[String: Any]] {
+                    body["commands"] = arr
+                }
+            }
+
+            let method = action == "clear" ? "DELETE" : "POST"
+            let response: GatewayHTTPClient.Response
+            if method == "DELETE" {
+                response = try await GatewayHTTPClient.delete(
+                    path: "assistants/{assistantId}/integrations/telegram/config", timeout: 10
+                )
+            } else {
+                response = try await GatewayHTTPClient.post(
+                    path: "assistants/{assistantId}/integrations/telegram/config", json: body, timeout: 10
+                )
+            }
+            guard response.isSuccess else {
+                log.error("setTelegramConfig failed (HTTP \(response.statusCode))")
+                return nil
+            }
+            let patched = injectType("telegram_config_response", into: response.data)
+            return try JSONDecoder().decode(TelegramConfigResponseMessage.self, from: patched)
+        } catch {
+            log.error("setTelegramConfig error: \(error.localizedDescription)")
+            return nil
+        }
+    }
+
+    public func setSlackWebhookConfig(action: String, webhookUrl: String? = nil) async -> Bool {
+        do {
+            var body: [String: Any] = ["type": "slack_webhook_config", "action": action]
+            if let webhookUrl { body["webhookUrl"] = webhookUrl }
+
+            let response = try await GatewayHTTPClient.post(
+                path: "assistants/{assistantId}/integrations/slack/config", json: body, timeout: 10
+            )
+            guard response.isSuccess else {
+                log.error("setSlackWebhookConfig failed (HTTP \(response.statusCode))")
+                return false
+            }
+            return true
+        } catch {
+            log.error("setSlackWebhookConfig error: \(error.localizedDescription)")
+            return false
         }
     }
 

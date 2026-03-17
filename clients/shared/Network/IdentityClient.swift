@@ -8,6 +8,7 @@ private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.
 public protocol IdentityClientProtocol {
     func fetchRemoteIdentity() async -> RemoteIdentityInfo?
     func fetchIdentity() async -> IdentityGetResponse?
+    func generateAvatar(description: String) async -> GenerateAvatarResponse?
 }
 
 /// Gateway-backed implementation of ``IdentityClientProtocol``.
@@ -44,6 +45,24 @@ public struct IdentityClient: IdentityClientProtocol {
             return try JSONDecoder().decode(IdentityGetResponse.self, from: patched)
         } catch {
             log.error("fetchIdentity error: \(error.localizedDescription)")
+            return nil
+        }
+    }
+
+    public func generateAvatar(description: String) async -> GenerateAvatarResponse? {
+        do {
+            let body: [String: Any] = ["type": "generate_avatar", "description": description]
+            let response = try await GatewayHTTPClient.post(
+                path: "assistants/{assistantId}/settings/avatar/generate", json: body, timeout: 30
+            )
+            guard response.isSuccess else {
+                log.error("generateAvatar failed (HTTP \(response.statusCode))")
+                return nil
+            }
+            let patched = injectType("generate_avatar_response", into: response.data)
+            return try JSONDecoder().decode(GenerateAvatarResponse.self, from: patched)
+        } catch {
+            log.error("generateAvatar error: \(error.localizedDescription)")
             return nil
         }
     }

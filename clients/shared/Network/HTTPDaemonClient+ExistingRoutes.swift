@@ -57,11 +57,9 @@ extension HTTPTransport {
                     }
                 }
                 return true
-            } else if let msg = message as? GuardianActionsPendingRequestMessage {
-                Task { await self.fetchGuardianActionsPending(conversationId: msg.conversationId) }
-                return true
-            } else if let msg = message as? GuardianActionDecisionMessage {
-                Task { await self.submitGuardianActionDecision(requestId: msg.requestId, action: msg.action, conversationId: msg.conversationId) }
+            } else if message is GuardianActionsPendingRequestMessage
+                        || message is GuardianActionDecisionMessage {
+                // Handled by GuardianClient via GatewayHTTPClient.
                 return true
             } else if let msg = message as? UiSurfaceActionMessage {
                 Task { await self.sendSurfaceAction(msg) }
