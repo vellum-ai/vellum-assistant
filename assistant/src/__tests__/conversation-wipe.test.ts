@@ -116,7 +116,9 @@ describe("wipeConversation", () => {
       }
     ).$client;
     const itemARow = raw
-      .query("SELECT status, superseded_by FROM memory_items WHERE id = 'itemA'")
+      .query(
+        "SELECT status, superseded_by FROM memory_items WHERE id = 'itemA'",
+      )
       .get() as { status: string; superseded_by: string | null } | null;
     expect(itemARow).not.toBeNull();
     expect(itemARow!.status).toBe("active");
@@ -238,7 +240,7 @@ describe("wipeConversation", () => {
     // with superseded_by = NULL. When we later wipe convB, Step F should NOT
     // restore that unrelated item.
     const convA = createConversation("conversation A");
-    const msgA = await addMessage(convA.id, "user", "I use dark theme");
+    await addMessage(convA.id, "user", "I use dark theme");
 
     const convB = createConversation("conversation B");
     const msgB = await addMessage(convB.id, "user", "I use vim");
