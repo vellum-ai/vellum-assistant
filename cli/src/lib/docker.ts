@@ -637,7 +637,8 @@ export async function hatchDocker(
       const localTag = `local-${instanceName}`;
       imageTags.assistant = `vellum-assistant:${localTag}`;
       imageTags.gateway = `vellum-gateway:${localTag}`;
-      imageTags["credential-executor"] = `vellum-credential-executor:${localTag}`;
+      imageTags["credential-executor"] =
+        `vellum-credential-executor:${localTag}`;
 
       log(`🥚 Hatching Docker assistant: ${instanceName}`);
       log(`   Species: ${species}`);
@@ -646,9 +647,7 @@ export async function hatchDocker(
       log(`   Images (local build):`);
       log(`     assistant:            ${imageTags.assistant}`);
       log(`     gateway:              ${imageTags.gateway}`);
-      log(
-        `     credential-executor:  ${imageTags["credential-executor"]}`,
-      );
+      log(`     credential-executor:  ${imageTags["credential-executor"]}`);
       log("");
 
       await buildAllImages(repoRoot, imageTags, log);
@@ -666,9 +665,7 @@ export async function hatchDocker(
       log(`   Images:`);
       log(`     assistant:            ${imageTags.assistant}`);
       log(`     gateway:              ${imageTags.gateway}`);
-      log(
-        `     credential-executor:  ${imageTags["credential-executor"]}`,
-      );
+      log(`     credential-executor:  ${imageTags["credential-executor"]}`);
       log("");
 
       log("📦 Pulling Docker images...");
@@ -752,14 +749,8 @@ async function tailContainerUntilReady(opts: {
   runtimeUrl: string;
   sentinel: string;
 }): Promise<void> {
-  const {
-    containerName,
-    detached,
-    instanceName,
-    logFd,
-    runtimeUrl,
-    sentinel,
-  } = opts;
+  const { containerName, detached, instanceName, logFd, runtimeUrl, sentinel } =
+    opts;
 
   const log = (msg: string): void => {
     console.log(msg);
@@ -802,30 +793,21 @@ async function tailContainerUntilReady(opts: {
           `   \u26a0\ufe0f  Timed out waiting for assistant to become ready.`,
         );
         log(`   The container is still running.`);
-        log(
-          `   Check logs with: docker logs -f ${containerName}`,
-        );
+        log(`   Check logs with: docker logs -f ${containerName}`);
         log("");
         resolve();
       });
     }, DOCKER_READY_TIMEOUT_MS);
 
     const handleLine = (line: string): void => {
-      writeToLogFile(
-        logFd,
-        `${new Date().toISOString()} [docker] ${line}\n`,
-      );
+      writeToLogFile(logFd, `${new Date().toISOString()} [docker] ${line}\n`);
       if (line.includes(sentinel)) {
         process.nextTick(async () => {
           try {
-            await leaseGuardianToken(
-              runtimeUrl,
-              instanceName,
-            );
+            await leaseGuardianToken(runtimeUrl, instanceName);
           } catch (err) {
-            console.warn(
-              `\u26a0\ufe0f  Could not lease guardian token: ${err instanceof Error ? err.message : err}`,
-            );
+            const msg = `\u26a0\ufe0f  Could not lease guardian token: ${err instanceof Error ? err.message : err}`;
+            log(msg);
           }
 
           settle(() => {

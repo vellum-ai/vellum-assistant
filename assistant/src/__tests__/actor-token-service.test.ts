@@ -93,8 +93,8 @@ function mockServer(address: string): ServerWithRequestIP {
 /** Mock loopback server -- returns 127.0.0.1 for all requests. */
 const loopbackServer = mockServer("127.0.0.1");
 
-/** Mock non-loopback server -- returns a LAN IP for all requests. */
-const nonLoopbackServer = mockServer("192.168.1.50");
+/** Mock non-loopback server -- returns a public IP for all requests. */
+const nonLoopbackServer = mockServer("203.0.113.50");
 
 initializeDb();
 
@@ -676,11 +676,11 @@ describe("pairing credential flow", () => {
 });
 
 // ---------------------------------------------------------------------------
-// Bootstrap loopback guard tests
+// Bootstrap private-network guard tests
 // ---------------------------------------------------------------------------
 
-describe("bootstrap loopback guard", () => {
-  test("rejects bootstrap request with X-Forwarded-For header", async () => {
+describe("bootstrap private-network guard", () => {
+  test("rejects bootstrap request with public X-Forwarded-For", async () => {
     const { handleGuardianBootstrap } =
       await import("../runtime/routes/guardian-bootstrap-routes.js");
 
@@ -688,7 +688,7 @@ describe("bootstrap loopback guard", () => {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        "X-Forwarded-For": "10.0.0.1",
+        "X-Forwarded-For": "203.0.113.1",
       },
       body: JSON.stringify({ platform: "macos", deviceId: "test-device" }),
     });
@@ -699,7 +699,7 @@ describe("bootstrap loopback guard", () => {
     expect(body.error.message).toContain("local-only");
   });
 
-  test("rejects bootstrap request from non-loopback IP", async () => {
+  test("rejects bootstrap request from public IP peer", async () => {
     const { handleGuardianBootstrap } =
       await import("../runtime/routes/guardian-bootstrap-routes.js");
 
