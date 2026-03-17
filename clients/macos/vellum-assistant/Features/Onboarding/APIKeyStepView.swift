@@ -81,7 +81,7 @@ struct APIKeyStepView: View {
         case .vellumCloud:
             return state.skippedAuth ? "Requires Account" : "Coming Soon"
         case .docker:
-            return "Coming Soon"
+            return userHostedEnabled ? nil : "Coming Soon"
         default:
             return nil
         }
