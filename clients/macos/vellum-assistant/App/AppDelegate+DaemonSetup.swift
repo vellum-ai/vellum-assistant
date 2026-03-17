@@ -518,6 +518,8 @@ extension AppDelegate {
     // MARK: - Auto-Update
 
     func setupAutoUpdate() {
+        guard !DevModeManager.shared.isDevMode else { return }
+
         updateManager.onWillInstallUpdate = { [weak self] in
             #if !DEBUG
             self?.keychainBroker?.stop()
