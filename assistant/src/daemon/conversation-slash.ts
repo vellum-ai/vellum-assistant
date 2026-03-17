@@ -81,35 +81,6 @@ const PROVIDER_MODEL_SHORTCUTS: Record<
     model: "claude-haiku-4-5-20251001",
     displayName: "Claude Haiku 4.5",
   },
-
-  // OpenAI
-  gpt4: { provider: "openai", model: "gpt-4", displayName: "GPT-4" },
-  gpt4o: { provider: "openai", model: "gpt-4o", displayName: "GPT-4o" },
-  gpt5: { provider: "openai", model: "gpt-5.2", displayName: "GPT-5.2" },
-
-  // Gemini
-  gemini: {
-    provider: "gemini",
-    model: "gemini-3-flash",
-    displayName: "Gemini 3 Flash",
-  },
-
-  // Ollama
-  ollama: { provider: "ollama", model: "llama3.2", displayName: "Llama 3.2" },
-
-  // Fireworks
-  fireworks: {
-    provider: "fireworks",
-    model: "accounts/fireworks/models/kimi-k2p5",
-    displayName: "Kimi K2.5",
-  },
-
-  // OpenRouter
-  openrouter: {
-    provider: "openrouter",
-    model: "x-ai/grok-4",
-    displayName: "Grok 4 (OpenRouter)",
-  },
   "grok-beta": {
     provider: "openrouter",
     model: "x-ai/grok-4.20-beta",
