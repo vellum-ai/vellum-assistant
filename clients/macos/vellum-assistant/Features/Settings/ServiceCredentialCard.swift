@@ -69,6 +69,9 @@ struct ServiceCredentialCard<ExtraContent: View>: View {
                     .foregroundColor(VColor.contentTertiary)
             }
 
+            Divider()
+                .background(VColor.borderBase)
+
             // API Key field — collapsed under disclosure when managed proxy without user key
             if isManagedProxy && !isConnected {
                 DisclosureGroup("Override with your own key", isExpanded: $showKeyOverride) {
