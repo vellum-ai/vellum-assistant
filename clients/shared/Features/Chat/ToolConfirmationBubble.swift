@@ -449,11 +449,16 @@ public struct ToolConfirmationBubble: View {
         }
     }
 
+    private var hasAlwaysAllow: Bool {
+        hasRuleOptions && confirmation.persistentDecisionsAllowed
+    }
+
     private var hasSecondaryAllowOptions: Bool {
         let primary = effectivePrimaryAction
         return (primary != "allow_once") ||
                (hasAllow10m && primary != "allow_10m") ||
-               (hasAllowConversation && primary != "allow_conversation")
+               (hasAllowConversation && primary != "allow_conversation") ||
+               hasAlwaysAllow
     }
 
     @ViewBuilder
@@ -486,10 +491,63 @@ public struct ToolConfirmationBubble: View {
                         onTemporaryAllow?(confirmation.requestId, "allow_conversation")
                     }
                 }
+
+                if hasAlwaysAllow {
+                    Divider()
+                    alwaysAllowMenuItems
+                }
             }
         } else {
             VButton(label: primaryAllowLabel, style: .primary, size: .compact) {
                 firePrimaryAllow()
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var alwaysAllowMenuItems: some View {
+        if confirmation.allowlistOptions.count > 1 {
+            // Multiple patterns — show each as a menu item or submenu
+            ForEach(Array(confirmation.allowlistOptions.enumerated()), id: \.element.pattern) { _, option in
+                if needsScopeChoice {
+                    Menu(option.label) {
+                        ForEach(Array(confirmation.scopeOptions.enumerated()), id: \.element.scope) { _, scopeOption in
+                            Button(scopeOption.label) {
+                                markCommandExplanationSeen()
+                                onAlwaysAllow(confirmation.requestId, option.pattern, scopeOption.scope, alwaysAllowDecision)
+                            }
+                        }
+                    }
+                } else {
+                    Button(option.label) {
+                        markCommandExplanationSeen()
+                        if option.pattern.isEmpty {
+                            onAllow()
+                        } else {
+                            onAlwaysAllow(confirmation.requestId, option.pattern, "everywhere", alwaysAllowDecision)
+                        }
+                    }
+                }
+            }
+        } else if let option = confirmation.allowlistOptions.first {
+            if needsScopeChoice {
+                Menu("Always allow") {
+                    ForEach(Array(confirmation.scopeOptions.enumerated()), id: \.element.scope) { _, scopeOption in
+                        Button(scopeOption.label) {
+                            markCommandExplanationSeen()
+                            onAlwaysAllow(confirmation.requestId, option.pattern, scopeOption.scope, alwaysAllowDecision)
+                        }
+                    }
+                }
+            } else {
+                Button("Always allow") {
+                    markCommandExplanationSeen()
+                    if option.pattern.isEmpty {
+                        onAllow()
+                    } else {
+                        onAlwaysAllow(confirmation.requestId, option.pattern, "everywhere", alwaysAllowDecision)
+                    }
+                }
             }
         }
     }
