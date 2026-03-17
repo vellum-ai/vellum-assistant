@@ -387,9 +387,24 @@ final class AssistantCli {
             }
         }
 
-        var env = ProcessInfo.processInfo.environment
-        env["HOME"] = FileManager.default.homeDirectoryForCurrentUser.path
-        env["VELLUM_DESKTOP_APP"] = "1"
+        // Build a minimal environment for the CLI child process. Passing
+        // the full macOS process environment causes the child to inherit
+        // paths into other apps' sandboxed containers (e.g. gcloud configs),
+        // which triggers the macOS "access data from other apps" consent dialog.
+        let fullEnv = ProcessInfo.processInfo.environment
+        var env: [String: String] = [
+            "HOME": FileManager.default.homeDirectoryForCurrentUser.path,
+            "PATH": fullEnv["PATH"] ?? "/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin",
+            "VELLUM_DESKTOP_APP": "1",
+        ]
+        // Forward optional config vars the CLI or daemon may need
+        for key in ["ANTHROPIC_API_KEY", "BASE_DATA_DIR",
+                    "VELLUM_PLATFORM_URL", "RUNTIME_HTTP_PORT",
+                    "SENTRY_DSN", "TMPDIR", "USER", "LANG"] {
+            if let val = fullEnv[key] {
+                env[key] = val
+            }
+        }
 
         if env["VELLUM_PLATFORM_URL"] == nil {
             #if DEBUG
@@ -526,9 +541,20 @@ final class AssistantCli {
         proc.standardOutput = stdoutPipe
         proc.standardError = stderrPipe
 
-        var env = ProcessInfo.processInfo.environment
-        env["HOME"] = FileManager.default.homeDirectoryForCurrentUser.path
-        env["VELLUM_DESKTOP_APP"] = "1"
+        // Build a minimal environment — see runRemoteHatch for rationale.
+        let fullEnv = ProcessInfo.processInfo.environment
+        var env: [String: String] = [
+            "HOME": FileManager.default.homeDirectoryForCurrentUser.path,
+            "PATH": fullEnv["PATH"] ?? "/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin",
+            "VELLUM_DESKTOP_APP": "1",
+        ]
+        for key in ["ANTHROPIC_API_KEY", "BASE_DATA_DIR",
+                    "VELLUM_PLATFORM_URL", "RUNTIME_HTTP_PORT",
+                    "SENTRY_DSN", "TMPDIR", "USER", "LANG"] {
+            if let val = fullEnv[key] {
+                env[key] = val
+            }
+        }
         proc.environment = env
 
         let stdoutHandle = stdoutPipe.fileHandleForReading
