@@ -176,7 +176,13 @@ struct ChatBubble: View {
                     if !isUser && hasInterleavedContent {
                         interleavedContent
                     } else {
-                        if shouldShowBubble {
+                        if message.isError && hasText {
+                            InlineChatErrorAlert(
+                                message: message.text,
+                                conversationError: message.conversationError
+                            )
+                            .scaleEffect(conversationZoomScale, anchor: .topLeading)
+                        } else if shouldShowBubble {
                             bubbleContent
                         }
 
@@ -334,23 +340,7 @@ struct ChatBubble: View {
                     SkillInvocationChip(data: skillInvocation)
                 }
 
-                if message.isError && hasText {
-                    HStack(alignment: .top, spacing: VSpacing.sm) {
-                        VIconView(.triangleAlert, size: 14 * conversationZoomScale)
-                            .foregroundColor(VColor.systemNegativeStrong)
-                            .padding(.top, 1)
-                        Text(message.text)
-                            .font(.system(size: 14 * conversationZoomScale))
-                            .lineSpacing(6)
-                            .foregroundColor(VColor.contentDefault)
-                            .textSelection(.enabled)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            // lineLimit(nil) lets text wrap naturally in a single measurement
-                            // pass, avoiding the double-measurement that fixedSize causes
-                            // (measure at ideal size, then constrain to proposed width).
-                            .lineLimit(nil)
-                    }
-                } else if hasText {
+                if hasText {
                     let segments = resolveSegments(for: message.text, isStreaming: message.isStreaming)
                     // Always render through MarkdownSegmentView to keep view
                     // identity stable across async segment parsing transitions.

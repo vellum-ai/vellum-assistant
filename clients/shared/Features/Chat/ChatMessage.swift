@@ -1611,6 +1611,7 @@ public struct ChatMessage: Identifiable, Equatable {
         && lhs.isStreaming == rhs.isStreaming
         && lhs.status == rhs.status
         && lhs.isError == rhs.isError
+        && lhs.conversationError == rhs.conversationError
         && lhs.toolCalls == rhs.toolCalls
         && lhs.attachments.count == rhs.attachments.count
         && lhs.inlineSurfaces == rhs.inlineSurfaces
@@ -1646,6 +1647,9 @@ public struct ChatMessage: Identifiable, Equatable {
     /// When true, this message represents a conversation error (rate limit, network failure, etc.)
     /// and should be rendered with distinct error styling (red box) instead of a normal bubble.
     public var isError: Bool
+    /// Typed error metadata for inline error display (category icon, recovery suggestion, etc.).
+    /// Populated when the error originates from a `ConversationErrorMessage`.
+    public var conversationError: ConversationError?
     /// The daemon's persisted message ID, populated from history responses.
     /// Nil for freshly streamed messages that haven't been loaded from history.
     /// Used for anchoring diagnostics exports so the daemon can locate the message.
@@ -1671,7 +1675,7 @@ public struct ChatMessage: Identifiable, Equatable {
         textSegments.joined(separator: "\n")
     }
 
-    public init(id: UUID = UUID(), role: ChatRole, text: String, timestamp: Date = Date(), isStreaming: Bool = false, status: ChatMessageStatus = .sent, confirmation: ToolConfirmationData? = nil, guardianDecision: GuardianDecisionData? = nil, skillInvocation: SkillInvocationData? = nil, attachments: [ChatAttachment] = [], toolCalls: [ToolCallData] = [], inlineSurfaces: [InlineSurfaceData] = [], isError: Bool = false) {
+    public init(id: UUID = UUID(), role: ChatRole, text: String, timestamp: Date = Date(), isStreaming: Bool = false, status: ChatMessageStatus = .sent, confirmation: ToolConfirmationData? = nil, guardianDecision: GuardianDecisionData? = nil, skillInvocation: SkillInvocationData? = nil, attachments: [ChatAttachment] = [], toolCalls: [ToolCallData] = [], inlineSurfaces: [InlineSurfaceData] = [], isError: Bool = false, conversationError: ConversationError? = nil) {
         self.id = id
         self.role = role
         self.textSegments = text.isEmpty ? [] : [text]
@@ -1686,6 +1690,7 @@ public struct ChatMessage: Identifiable, Equatable {
         self.toolCalls = toolCalls
         self.inlineSurfaces = inlineSurfaces
         self.isError = isError
+        self.conversationError = conversationError
     }
 
     /// Synthesize `ToolConfirmationData` entries from persisted per-tool-call confirmation data.

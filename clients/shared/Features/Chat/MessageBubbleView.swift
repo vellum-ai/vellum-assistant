@@ -252,22 +252,9 @@ public struct MessageBubbleView: View {
                 .clipShape(RoundedRectangle(cornerRadius: VRadius.lg))
                 .textSelection(.enabled)
         } else if message.isError {
-            HStack(alignment: .top, spacing: VSpacing.sm) {
-                VIconView(.triangleAlert, size: 13)
-                    .foregroundColor(VColor.systemNegativeStrong)
-                    .padding(.top, 1)
-                Text(text)
-                    .font(VFont.body)
-                    .foregroundColor(VColor.contentDefault)
-                    .textSelection(.enabled)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-            .padding(VSpacing.md)
-            .background(VColor.systemNegativeStrong.opacity(0.1))
-            .clipShape(RoundedRectangle(cornerRadius: VRadius.lg))
-            .overlay(
-                RoundedRectangle(cornerRadius: VRadius.lg)
-                    .strokeBorder(VColor.systemNegativeStrong.opacity(0.3), lineWidth: 1)
+            InlineChatErrorAlert(
+                message: text,
+                conversationError: message.conversationError
             )
             .contextMenu {
                 if let onRegenerate {

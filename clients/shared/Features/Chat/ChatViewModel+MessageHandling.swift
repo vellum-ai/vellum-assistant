@@ -1792,11 +1792,8 @@ extension ChatViewModel {
                    messages.last?.toolCalls.isEmpty == true {
                     messages.removeAll(where: { $0.id == existingId })
                 }
-                // macOS shows ChatConversationErrorToast; only append inline error on iOS where the toast is unavailable
-                #if os(iOS)
-                let errorMsg = ChatMessage(role: .assistant, text: msg.userMessage, isError: true)
+                let errorMsg = ChatMessage(role: .assistant, text: msg.userMessage, isError: true, conversationError: typedError)
                 messages.append(errorMsg)
-                #endif
             }
             for i in messages.indices {
                 if messages[i].role == .user && messages[i].status == .processing {
