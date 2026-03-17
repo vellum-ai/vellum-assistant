@@ -934,7 +934,7 @@ function getMcpSetupDescription(): string {
     return "Add, authenticate, list, and remove MCP (Model Context Protocol) servers";
   }
 
-  const serverNames = Object.keys(servers);
+  const serverNames = Object.keys(servers).sort();
   return `Manage MCP servers. Configured: ${serverNames.join(", ")}. Load this skill to check status, authenticate, or add/remove servers.`;
 }
 
