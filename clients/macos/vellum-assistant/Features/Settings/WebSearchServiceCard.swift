@@ -19,15 +19,17 @@ struct WebSearchServiceCard: View {
 
     /// Local draft of the mode selection — only persisted on Save.
     @State private var draftMode: String = "your-own"
+    /// Local draft of the provider selection — only persisted on Save.
+    @State private var draftProvider: String = "inference-provider-native"
     /// Snapshot of the provider at card appear — used to detect provider changes.
     @State private var initialProvider: String = ""
 
     private var isPerplexity: Bool {
-        store.webSearchProvider == "perplexity"
+        draftProvider == "perplexity"
     }
 
     private var isBrave: Bool {
-        store.webSearchProvider == "brave"
+        draftProvider == "brave"
     }
 
     private var needsAPIKey: Bool {
@@ -63,7 +65,7 @@ struct WebSearchServiceCard: View {
 
         // Your Own mode: detect mode, provider, and API key changes.
         let modeChanged = draftMode != store.webSearchMode
-        let providerChanged = store.webSearchProvider != initialProvider
+        let providerChanged = draftProvider != initialProvider
         let hasNewKey: Bool = {
             if isPerplexity {
                 return !perplexityKeyText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
@@ -115,10 +117,15 @@ struct WebSearchServiceCard: View {
         )
         .onAppear {
             draftMode = store.webSearchMode
+            draftProvider = store.webSearchProvider
             initialProvider = store.webSearchProvider
         }
         .onChange(of: store.webSearchMode) { _, newValue in
             draftMode = newValue
+        }
+        .onChange(of: store.webSearchProvider) { _, newValue in
+            draftProvider = newValue
+            initialProvider = newValue
         }
         .onChange(of: store.inferenceMode) { _, newValue in
             // Auto-correct invalid states when inference mode changes.
@@ -126,9 +133,9 @@ struct WebSearchServiceCard: View {
                 // Managed web search is not yet available without managed inference.
                 draftMode = "your-own"
             }
-            if newValue == "managed" && store.webSearchProvider == "inference-provider-native" {
+            if newValue == "managed" && draftProvider == "inference-provider-native" {
                 // Provider Native requires Your Own inference.
-                store.setWebSearchProvider("perplexity")
+                draftProvider = "perplexity"
             }
         }
     }
@@ -190,10 +197,7 @@ struct WebSearchServiceCard: View {
                 .foregroundColor(VColor.contentSecondary)
             VDropdown(
                 placeholder: "Select a provider\u{2026}",
-                selection: Binding(
-                    get: { store.webSearchProvider },
-                    set: { store.setWebSearchProvider($0) }
-                ),
+                selection: $draftProvider,
                 options: availableProviders.map { provider in
                     (label: SettingsStore.webSearchProviderDisplayNames[provider] ?? provider, value: provider)
                 }
@@ -238,7 +242,7 @@ struct WebSearchServiceCard: View {
 
         // In your-own mode, persist provider and API keys.
         if draftMode == "your-own" {
-            store.setWebSearchProvider(store.webSearchProvider)
+            store.setWebSearchProvider(draftProvider)
 
             if isPerplexity && !perplexityKeyText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                 store.savePerplexityKey(perplexityKeyText)
@@ -251,6 +255,6 @@ struct WebSearchServiceCard: View {
         }
 
         // Update initial provider to reflect persisted state
-        initialProvider = store.webSearchProvider
+        initialProvider = draftProvider
     }
 }
