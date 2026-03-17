@@ -246,10 +246,14 @@ async function upgradeDocker(
   const envKeysSetByRunArgs = new Set([
     "VELLUM_ASSISTANT_NAME",
     "RUNTIME_HTTP_HOST",
-    "ANTHROPIC_API_KEY",
-    "VELLUM_PLATFORM_URL",
     "PATH",
   ]);
+  // Only exclude keys that serviceDockerRunArgs will actually set
+  for (const envVar of ["ANTHROPIC_API_KEY", "VELLUM_PLATFORM_URL"]) {
+    if (process.env[envVar]) {
+      envKeysSetByRunArgs.add(envVar);
+    }
+  }
   const extraAssistantEnv: Record<string, string> = {};
   for (const [key, value] of Object.entries(capturedEnv)) {
     if (!envKeysSetByRunArgs.has(key)) {
