@@ -34,7 +34,7 @@ struct MarkdownSegmentView: View {
                         .foregroundColor(textColor)
                         .tint(tintColor)
                         .textSelection(.enabled)
-                        .frame(maxWidth: maxContentWidth ?? .infinity, alignment: .leading)
+                        .optionalMaxWidth(maxContentWidth)
                         // lineLimit(nil) wraps text in a single measurement pass, avoiding
                         // the double-measurement that fixedSize causes (measure at ideal
                         // size, then constrain to proposed width).
@@ -51,7 +51,7 @@ struct MarkdownSegmentView: View {
                         .font(headingFont)
                         .foregroundColor(textColor)
                         .textSelection(.enabled)
-                        .frame(maxWidth: maxContentWidth ?? .infinity, alignment: .leading)
+                        .optionalMaxWidth(maxContentWidth)
                         // lineLimit(nil) avoids the double-measurement from fixedSize.
                         .lineLimit(nil)
                         .padding(.top, level == 1 ? 4 : 2)
@@ -74,7 +74,7 @@ struct MarkdownSegmentView: View {
                                 .padding(VSpacing.sm)
                         }
                     }
-                    .frame(maxWidth: maxContentWidth ?? .infinity, alignment: .leading)
+                    .frame(maxWidth: maxContentWidth ?? VSpacing.chatBubbleMaxWidth, alignment: .leading)
                     .background(codeBackgroundColor)
                     .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
 
@@ -90,7 +90,7 @@ struct MarkdownSegmentView: View {
                     Rectangle()
                         .fill(hrColor)
                         .frame(height: 1)
-                        .frame(maxWidth: maxContentWidth ?? .infinity)
+                        .optionalMaxWidth(maxContentWidth)
                         .padding(.vertical, VSpacing.xs)
                 }
             }
@@ -98,6 +98,7 @@ struct MarkdownSegmentView: View {
     }
 
     // MARK: - Segment Grouping
+
 
     /// Groups of segments for rendering.
     private enum SegmentGroup {
@@ -355,5 +356,20 @@ private extension AttributedString {
         let ns = NSMutableAttributedString(self)
         ns.addAttribute(.paragraphStyle, value: style, range: NSRange(location: 0, length: ns.length))
         self = AttributedString(ns)
+    }
+}
+
+// MARK: - Optional Max Width
+
+private extension View {
+    /// Applies `.frame(maxWidth:alignment:)` only when a width is provided.
+    /// When `nil`, no frame is applied — the view shrink-wraps to its content.
+    @ViewBuilder
+    func optionalMaxWidth(_ width: CGFloat?) -> some View {
+        if let width {
+            self.frame(maxWidth: width, alignment: .leading)
+        } else {
+            self
+        }
     }
 }
