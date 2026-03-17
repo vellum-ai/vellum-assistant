@@ -103,7 +103,8 @@ export function loadConfig(): GatewayConfig {
     process.env.RUNTIME_PROXY_ENABLED === "true";
   const runtimeProxyRequireAuth =
     gw.runtimeProxyRequireAuth !== false &&
-    gw.runtimeProxyRequireAuth !== "false";
+    gw.runtimeProxyRequireAuth !== "false" &&
+    process.env.RUNTIME_PROXY_REQUIRE_AUTH !== "false";
   const unmappedPolicy = gw.unmappedPolicy === "default" ? "default" : "reject";
   const defaultAssistantId =
     typeof gw.defaultAssistantId === "string" && gw.defaultAssistantId
