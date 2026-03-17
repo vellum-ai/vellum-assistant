@@ -17,9 +17,8 @@ concurrency:
 
 jobs:
   lint:
-    if: contains(github.event.pull_request.labels.*.name, 'preview')
     name: Lint
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-latest-8-cores
     timeout-minutes: 10
     defaults:
       run:
@@ -57,9 +56,8 @@ jobs:
         run: bun run lint:unused
 
   typecheck:
-    if: contains(github.event.pull_request.labels.*.name, 'preview')
     name: Type Check
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-latest-8-cores
     timeout-minutes: 10
     defaults:
       run:
@@ -94,7 +92,6 @@ jobs:
         run: bunx tsc --noEmit
 
   test:
-    if: contains(github.event.pull_request.labels.*.name, 'preview')
     name: Test
     runs-on: ubuntu-latest-8-cores
     timeout-minutes: 15
