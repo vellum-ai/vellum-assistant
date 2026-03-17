@@ -306,13 +306,14 @@ function serviceImageConfigs(
 async function buildAllImages(
   repoRoot: string,
   imageTags: Record<ServiceName, string>,
+  log: (msg: string) => void,
 ): Promise<void> {
   const configs = serviceImageConfigs(repoRoot, imageTags);
-  console.log("🔨 Building all images in parallel...");
+  log("🔨 Building all images in parallel...");
   await Promise.all(
     Object.entries(configs).map(async ([name, config]) => {
       await buildImage(config);
-      console.log(`✅ ${name} built`);
+      log(`✅ ${name} built`);
     }),
   );
 }
@@ -598,140 +599,122 @@ export async function hatchDocker(
     writeToLogFile(logFd, `${new Date().toISOString()} ${msg}\n`);
   };
 
-  await ensureDockerInstalled();
+  try {
+    await ensureDockerInstalled();
 
-  const instanceName = generateInstanceName(species, name);
-  const gatewayPort = DEFAULT_GATEWAY_PORT;
+    const instanceName = generateInstanceName(species, name);
+    const gatewayPort = DEFAULT_GATEWAY_PORT;
 
-  const imageTags: Record<ServiceName, string> = {
-    assistant: "",
-    "credential-executor": "",
-    gateway: "",
-  };
+    const imageTags: Record<ServiceName, string> = {
+      assistant: "",
+      "credential-executor": "",
+      gateway: "",
+    };
 
-  let repoRoot: string | undefined;
+    let repoRoot: string | undefined;
 
-  if (watch) {
-    repoRoot = findRepoRoot();
-    const localTag = `local-${instanceName}`;
-    imageTags.assistant = `vellum-assistant:${localTag}`;
-    imageTags.gateway = `vellum-gateway:${localTag}`;
-    imageTags["credential-executor"] = `vellum-credential-executor:${localTag}`;
+    if (watch) {
+      repoRoot = findRepoRoot();
+      const localTag = `local-${instanceName}`;
+      imageTags.assistant = `vellum-assistant:${localTag}`;
+      imageTags.gateway = `vellum-gateway:${localTag}`;
+      imageTags["credential-executor"] = `vellum-credential-executor:${localTag}`;
 
-    log(`🥚 Hatching Docker assistant: ${instanceName}`);
-    log(`   Species: ${species}`);
-    log(`   Mode: development (watch)`);
-    log(`   Repo: ${repoRoot}`);
-    log(`   Images (local build):`);
-    log(`     assistant:            ${imageTags.assistant}`);
-    log(`     gateway:              ${imageTags.gateway}`);
-    log(
-      `     credential-executor:  ${imageTags["credential-executor"]}`,
-    );
-    log("");
-
-    try {
-      await buildAllImages(repoRoot, imageTags);
-    } catch (err) {
+      log(`🥚 Hatching Docker assistant: ${instanceName}`);
+      log(`   Species: ${species}`);
+      log(`   Mode: development (watch)`);
+      log(`   Repo: ${repoRoot}`);
+      log(`   Images (local build):`);
+      log(`     assistant:            ${imageTags.assistant}`);
+      log(`     gateway:              ${imageTags.gateway}`);
       log(
-        `[docker-build] ERROR: ${err instanceof Error ? err.message : String(err)}`,
+        `     credential-executor:  ${imageTags["credential-executor"]}`,
       );
-      closeLogFile(logFd);
-      logFd = "ignore";
-      throw err;
-    }
-    log("✅ Docker images built");
-  } else {
-    const version = cliPkg.version;
-    const versionTag = version ? `v${version}` : "latest";
-    imageTags.assistant = `${DOCKERHUB_IMAGES.assistant}:${versionTag}`;
-    imageTags.gateway = `${DOCKERHUB_IMAGES.gateway}:${versionTag}`;
-    imageTags["credential-executor"] =
-      `${DOCKERHUB_IMAGES["credential-executor"]}:${versionTag}`;
+      log("");
 
-    log(`🥚 Hatching Docker assistant: ${instanceName}`);
-    log(`   Species: ${species}`);
-    log(`   Images:`);
-    log(`     assistant:            ${imageTags.assistant}`);
-    log(`     gateway:              ${imageTags.gateway}`);
-    log(
-      `     credential-executor:  ${imageTags["credential-executor"]}`,
-    );
-    log("");
+      await buildAllImages(repoRoot, imageTags, log);
+      log("✅ Docker images built");
+    } else {
+      const version = cliPkg.version;
+      const versionTag = version ? `v${version}` : "latest";
+      imageTags.assistant = `${DOCKERHUB_IMAGES.assistant}:${versionTag}`;
+      imageTags.gateway = `${DOCKERHUB_IMAGES.gateway}:${versionTag}`;
+      imageTags["credential-executor"] =
+        `${DOCKERHUB_IMAGES["credential-executor"]}:${versionTag}`;
 
-    log("📦 Pulling Docker images...");
-    try {
+      log(`🥚 Hatching Docker assistant: ${instanceName}`);
+      log(`   Species: ${species}`);
+      log(`   Images:`);
+      log(`     assistant:            ${imageTags.assistant}`);
+      log(`     gateway:              ${imageTags.gateway}`);
+      log(
+        `     credential-executor:  ${imageTags["credential-executor"]}`,
+      );
+      log("");
+
+      log("📦 Pulling Docker images...");
       await exec("docker", ["pull", imageTags.assistant]);
       await exec("docker", ["pull", imageTags.gateway]);
       await exec("docker", ["pull", imageTags["credential-executor"]]);
-    } catch (err) {
-      log(
-        `[docker-pull] ERROR: ${err instanceof Error ? err.message : String(err)}`,
-      );
-      closeLogFile(logFd);
-      logFd = "ignore";
-      throw err;
+      log("✅ Docker images pulled");
     }
-    log("✅ Docker images pulled");
-  }
 
-  const res = dockerResourceNames(instanceName);
+    const res = dockerResourceNames(instanceName);
 
-  log("📁 Creating shared network and volumes...");
-  await exec("docker", ["network", "create", res.network]);
-  await exec("docker", ["volume", "create", res.dataVolume]);
-  await exec("docker", ["volume", "create", res.socketVolume]);
+    log("📁 Creating shared network and volumes...");
+    await exec("docker", ["network", "create", res.network]);
+    await exec("docker", ["volume", "create", res.dataVolume]);
+    await exec("docker", ["volume", "create", res.socketVolume]);
 
-  await startContainers({ gatewayPort, imageTags, instanceName, res }, log);
+    await startContainers({ gatewayPort, imageTags, instanceName, res }, log);
 
-  const runtimeUrl = `http://localhost:${gatewayPort}`;
-  const dockerEntry: AssistantEntry = {
-    assistantId: instanceName,
-    runtimeUrl,
-    cloud: "docker",
-    species,
-    hatchedAt: new Date().toISOString(),
-    volume: res.dataVolume,
-  };
-  saveAssistantEntry(dockerEntry);
-  setActiveAssistant(instanceName);
+    const runtimeUrl = `http://localhost:${gatewayPort}`;
+    const dockerEntry: AssistantEntry = {
+      assistantId: instanceName,
+      runtimeUrl,
+      cloud: "docker",
+      species,
+      hatchedAt: new Date().toISOString(),
+      volume: res.dataVolume,
+    };
+    saveAssistantEntry(dockerEntry);
+    setActiveAssistant(instanceName);
 
-  // The assistant image runs the daemon directly (not via the CLI hatch
-  // command), so we watch for the DaemonServer readiness message instead
-  // of the CLI's "Local assistant hatched!" sentinel.
-  await tailContainerUntilReady({
-    containerName: res.assistantContainer,
-    detached: watch ? false : detached,
-    instanceName,
-    logFd,
-    runtimeUrl,
-    sentinel: "DaemonServer started",
-  });
-
-  if (watch && repoRoot) {
-    const stopWatcher = startFileWatcher({
-      gatewayPort,
-      imageTags,
+    // The assistant image runs the daemon directly (not via the CLI hatch
+    // command), so we watch for the DaemonServer readiness message instead
+    // of the CLI's "Local assistant hatched!" sentinel.
+    await tailContainerUntilReady({
+      containerName: res.assistantContainer,
+      detached: watch ? false : detached,
       instanceName,
-      repoRoot,
-      res,
+      logFd,
+      runtimeUrl,
+      sentinel: "DaemonServer started",
     });
 
-    await new Promise<void>((resolve) => {
-      const cleanup = async () => {
-        log("\n🛑 Shutting down...");
-        stopWatcher();
-        await stopContainers(res);
-        log("✅ Docker instance stopped.");
-        closeLogFile(logFd);
-        logFd = "ignore";
-        resolve();
-      };
+    if (watch && repoRoot) {
+      const stopWatcher = startFileWatcher({
+        gatewayPort,
+        imageTags,
+        instanceName,
+        repoRoot,
+        res,
+      });
 
-      process.on("SIGINT", () => void cleanup());
-      process.on("SIGTERM", () => void cleanup());
-    });
-  } else {
+      await new Promise<void>((resolve) => {
+        const cleanup = async () => {
+          log("\n🛑 Shutting down...");
+          stopWatcher();
+          await stopContainers(res);
+          log("✅ Docker instance stopped.");
+          resolve();
+        };
+
+        process.on("SIGINT", () => void cleanup());
+        process.on("SIGTERM", () => void cleanup());
+      });
+    }
+  } finally {
     closeLogFile(logFd);
     logFd = "ignore";
   }
