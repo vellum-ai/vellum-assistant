@@ -22,6 +22,7 @@ struct APIKeyEntryStepView: View {
 
         Text("Vellum needs an Anthropic API key to work.\nEnter yours to connect.")
             .font(.system(size: 16))
+            .multilineTextAlignment(.center)
             .foregroundColor(VColor.contentSecondary)
             .opacity(showTitle ? 1 : 0)
             .offset(y: showTitle ? 0 : 8)

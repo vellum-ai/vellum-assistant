@@ -24,6 +24,7 @@ struct ImproveExperienceStepView: View {
 
         Text("Here\u{2019}s how Vellum handles your data.\nYou can change these anytime in Settings.")
             .font(.system(size: 16))
+            .multilineTextAlignment(.center)
             .foregroundColor(VColor.contentSecondary)
             .opacity(showTitle ? 1 : 0)
             .offset(y: showTitle ? 0 : 8)
