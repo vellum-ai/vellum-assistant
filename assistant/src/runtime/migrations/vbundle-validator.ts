@@ -124,6 +124,17 @@ function parseTar(buffer: Uint8Array): TarEntry[] {
       continue;
     }
 
+    // PAX extended header (type 'x') — extract path= attribute for next entry
+    if (typeFlag === "x") {
+      const paxText = new TextDecoder().decode(data);
+      const pathMatch = paxText.match(/\d+ path=([^\n]+)\n/);
+      if (pathMatch) {
+        longName = pathMatch[1];
+      }
+      offset = dataStart + dataBlocks * BLOCK_SIZE;
+      continue;
+    }
+
     // Regular file or hard link
     if (typeFlag === "0" || typeFlag === "\0" || typeFlag === "") {
       entries.push({ name: normalizePath(name), data, size });
