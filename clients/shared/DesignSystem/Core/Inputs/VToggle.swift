@@ -21,8 +21,8 @@ public struct VToggle: View {
 
     public var body: some View {
         content
-            .accessibilityElement(children: .combine)
-            .accessibilityAddTraits(.isButton)
+            .accessibilityElement(children: interactive ? .combine : .ignore)
+            .accessibilityAddTraits(interactive ? .isButton : [])
             .accessibilityValue(isOn ? "On" : "Off")
             .accessibilityLabel(label ?? "Toggle")
     }
