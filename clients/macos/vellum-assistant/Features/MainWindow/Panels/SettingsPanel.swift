@@ -214,7 +214,7 @@ struct SettingsPanel: View {
         .onReceive(NotificationCenter.default.publisher(for: .localBootstrapCompleted)) { _ in
             bootstrapGeneration += 1
         }
-        .sheet(isPresented: $showingTrustRules) {
+        .sheet(isPresented: $showingTrustRules, onDismiss: { daemonClient?.isTrustRulesSheetOpen = false }) {
             TrustRulesView(trustRuleClient: TrustRuleClient())
         }
         .onAppear {
