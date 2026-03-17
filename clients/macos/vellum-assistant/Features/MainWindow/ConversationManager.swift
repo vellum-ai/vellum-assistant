@@ -634,12 +634,9 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
             chatViewModels[id]?.cancelPendingMessage()
         }
 
-        // If all non-private conversations are now archived, sleep the assistant
-        // so it stops running and sending notifications, and enter draft mode so
+        // If all non-private conversations are now archived, enter draft mode so
         // the UI shows the new-conversation state instead of a stale loading view.
         if visibleConversations.isEmpty {
-            log.info("All conversations archived — sleeping assistant")
-            sleepAssistantAfterArchive()
             enterDraftMode()
         } else if activeConversationId == id {
             // The archived conversation was active — select an adjacent visible one.
@@ -678,21 +675,6 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
 
     func isConversationArchived(_ conversationId: String) -> Bool {
         archivedConversationIds.contains(conversationId)
-    }
-
-    /// Sleep the assistant after all conversations have been archived.
-    /// This stops the daemon process so it no longer sends notifications.
-    private func sleepAssistantAfterArchive() {
-        guard let assistantId = UserDefaults.standard.string(forKey: "connectedAssistantId"),
-              !assistantId.isEmpty else { return }
-        Task {
-            do {
-                try await AppDelegate.shared?.assistantCli.sleep(name: assistantId)
-                log.info("Assistant '\(assistantId, privacy: .private)' slept after all conversations archived")
-            } catch {
-                log.error("Failed to sleep assistant after archiving: \(error.localizedDescription)")
-            }
-        }
     }
 
     /// Load more conversations from the daemon (pagination).
