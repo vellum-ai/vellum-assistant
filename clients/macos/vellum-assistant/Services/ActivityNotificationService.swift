@@ -11,6 +11,11 @@ private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.
 public final class ActivityNotificationService {
     private let settingsStore: SettingsStore
 
+    /// Returns true when the conversation window is visible on screen.
+    /// Injected by the window owner — defaults to false so notifications
+    /// fire when no window has been created yet.
+    public var isConversationWindowVisible: () -> Bool = { false }
+
     public init(settingsStore: SettingsStore) {
         self.settingsStore = settingsStore
     }
@@ -33,11 +38,14 @@ public final class ActivityNotificationService {
             return
         }
 
-        // Check if app is in background
+        // Check if the user can already see the conversation — either the app
+        // is focused or the main window is visible (common for menu-bar apps where
+        // the window stays on screen after the user clicks another app).
         let isActive = NSApp.isActive
-        log.info("App isActive: \(isActive)")
-        guard !isActive else {
-            log.info("App is in foreground, skipping notification")
+        let windowVisible = isConversationWindowVisible()
+        log.info("App isActive: \(isActive), windowVisible: \(windowVisible)")
+        guard !isActive && !windowVisible else {
+            log.info("App is in foreground or window visible, skipping notification")
             return
         }
 
@@ -79,8 +87,8 @@ public final class ActivityNotificationService {
     /// Sends a notification when a quick input response completes.
     /// Only sends if the app is not active and notification permissions are granted.
     public func notifyQuickInputComplete(summary: String) async {
-        // Check if app is in background
-        guard !NSApp.isActive else { return }
+        // Check if app is in background or window is visible
+        guard !NSApp.isActive && !isConversationWindowVisible() else { return }
 
         // Check notification permissions
         let center = UNUserNotificationCenter.current()
