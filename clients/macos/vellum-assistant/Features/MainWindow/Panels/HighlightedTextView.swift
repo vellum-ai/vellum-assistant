@@ -3,8 +3,8 @@ import VellumAssistantShared
 
 /// A code viewer with line numbers, horizontal scrolling, and syntax highlighting.
 ///
-/// Uses pure SwiftUI rendering (TextEditor for editable mode, Text for read-only)
-/// to avoid NSTextView compositing issues inside SwiftUI view hierarchies.
+/// Uses pure SwiftUI rendering (TextEditor with line number gutter for editable mode,
+/// Text with syntax highlighting for read-only) to avoid AppKit compositing issues.
 struct HighlightedTextView: View {
     @Binding var text: String
     let language: SyntaxLanguage
@@ -48,10 +48,14 @@ struct HighlightedTextView: View {
 
     // MARK: - Editable Mode
 
-    /// Editable view with line number gutter, built on NSTextView + NSRulerView
-    /// for proper scroll synchronization between the gutter and text content.
+    /// TextEditor-based editable view with a pure SwiftUI line number gutter.
+    /// Reuses the same gutter pattern as the read-only view for consistency.
     private var editableView: some View {
-        VStack(spacing: 0) {
+        let lines = text.components(separatedBy: "\n")
+        let lineCount = lines.count
+        let gutterWidth = gutterWidth(for: lineCount)
+
+        return VStack(spacing: 0) {
             if isSearchVisible {
                 SourceSearchBar(
                     searchQuery: $searchQuery,
@@ -61,7 +65,23 @@ struct HighlightedTextView: View {
                 )
             }
 
-            LineNumberTextEditor(text: editableBinding)
+            GeometryReader { geometry in
+                ScrollView([.vertical]) {
+                    HStack(alignment: .top, spacing: 0) {
+                        lineNumberGutter(lineCount: lineCount, width: gutterWidth)
+
+                        TextEditor(text: editableBinding)
+                            .font(VFont.mono)
+                            .foregroundStyle(VColor.contentDefault)
+                            .scrollContentBackground(.hidden)
+                            .scrollDisabled(true)
+                            .background(Self.editorBackground)
+                            .frame(minWidth: geometry.size.width - gutterWidth)
+                    }
+                    .frame(minHeight: geometry.size.height, alignment: .topLeading)
+                }
+                .background(Self.editorBackground)
+            }
         }
         .onKeyPress("f", phases: .down) { press in
             guard press.modifiers == .command else { return .ignored }
@@ -234,234 +254,6 @@ struct HighlightedTextView: View {
     private func gutterWidth(for lineCount: Int) -> CGFloat {
         let digitCount = max(3, "\(lineCount)".count)
         return CGFloat(digitCount * 8 + 16)
-    }
-}
-
-// MARK: - Line Number Text Editor (NSViewRepresentable)
-
-/// An editable text view with a line number gutter, built on NSTextView + NSRulerView
-/// for proper scroll synchronization between the gutter and text content.
-private struct LineNumberTextEditor: NSViewRepresentable {
-    @Binding var text: String
-
-    func makeCoordinator() -> Coordinator {
-        Coordinator(self)
-    }
-
-    func makeNSView(context: Context) -> NSScrollView {
-        // Use TextKit 1 for reliable line enumeration in the ruler
-        let textStorage = NSTextStorage()
-        let layoutManager = NSLayoutManager()
-        textStorage.addLayoutManager(layoutManager)
-
-        let textContainer = NSTextContainer(
-            size: NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
-        )
-        textContainer.widthTracksTextView = false
-        layoutManager.addTextContainer(textContainer)
-
-        let scrollView = NSScrollView()
-        scrollView.hasVerticalScroller = true
-        scrollView.hasHorizontalScroller = true
-        scrollView.autohidesScrollers = true
-        scrollView.drawsBackground = false
-
-        let contentSize = scrollView.contentSize
-        let textView = NSTextView(frame: NSRect(origin: .zero, size: contentSize), textContainer: textContainer)
-        textView.isEditable = true
-        textView.isSelectable = true
-        textView.allowsUndo = true
-        textView.isRichText = false
-        textView.usesFindBar = false
-        textView.font = Self.textFont
-        textView.textColor = NSColor(VColor.contentDefault)
-        textView.backgroundColor = NSColor(VColor.surfaceOverlay)
-        textView.insertionPointColor = NSColor(VColor.contentDefault)
-        textView.textContainerInset = NSSize(width: 4, height: 8)
-        textView.isVerticallyResizable = true
-        textView.isHorizontallyResizable = true
-        textView.autoresizingMask = [.width]
-        textView.minSize = NSSize(width: contentSize.width, height: 0)
-        textView.maxSize = NSSize(
-            width: CGFloat.greatestFiniteMagnitude,
-            height: CGFloat.greatestFiniteMagnitude
-        )
-        textView.string = text
-        textView.delegate = context.coordinator
-
-        scrollView.documentView = textView
-
-        // Install the line number ruler
-        let ruler = LineNumberRulerView(textView: textView)
-        scrollView.hasVerticalRuler = true
-        scrollView.verticalRulerView = ruler
-        scrollView.rulersVisible = true
-
-        context.coordinator.textView = textView
-
-        // Make the text view first responder so the user can immediately type
-        DispatchQueue.main.async {
-            textView.window?.makeFirstResponder(textView)
-        }
-
-        return scrollView
-    }
-
-    func updateNSView(_ scrollView: NSScrollView, context: Context) {
-        guard let textView = scrollView.documentView as? NSTextView else { return }
-        if textView.string != text {
-            textView.string = text
-            (scrollView.verticalRulerView as? LineNumberRulerView)?.invalidateLineNumbers()
-        }
-    }
-
-    private static let textFont: NSFont = {
-        NSFont(name: "DMMono-Regular", size: 13)
-            ?? NSFont.monospacedSystemFont(ofSize: 13, weight: .regular)
-    }()
-
-    final class Coordinator: NSObject, NSTextViewDelegate {
-        var parent: LineNumberTextEditor
-        weak var textView: NSTextView?
-
-        init(_ parent: LineNumberTextEditor) {
-            self.parent = parent
-        }
-
-        func textDidChange(_ notification: Notification) {
-            guard let textView = notification.object as? NSTextView else { return }
-            parent.text = textView.string
-        }
-    }
-}
-
-// MARK: - Line Number Ruler View
-
-/// Custom ruler view that draws line numbers aligned with NSTextView line fragments.
-private final class LineNumberRulerView: NSRulerView {
-
-    private static let gutterFont: NSFont = {
-        NSFont(name: "DMMono-Regular", size: 11)
-            ?? NSFont.monospacedSystemFont(ofSize: 11, weight: .regular)
-    }()
-
-    private lazy var gutterAttributes: [NSAttributedString.Key: Any] = [
-        .font: Self.gutterFont,
-        .foregroundColor: NSColor(VColor.contentTertiary)
-    ]
-
-    init(textView: NSTextView) {
-        super.init(scrollView: textView.enclosingScrollView!, orientation: .verticalRuler)
-        self.clientView = textView
-        updateThickness()
-
-        NotificationCenter.default.addObserver(
-            self, selector: #selector(handleTextChange(_:)),
-            name: NSText.didChangeNotification, object: textView
-        )
-        NotificationCenter.default.addObserver(
-            self, selector: #selector(handleScroll(_:)),
-            name: NSView.boundsDidChangeNotification, object: scrollView?.contentView
-        )
-    }
-
-    @available(*, unavailable)
-    required init(coder: NSCoder) {
-        fatalError()
-    }
-
-    func invalidateLineNumbers() {
-        updateThickness()
-        needsDisplay = true
-    }
-
-    @objc private func handleTextChange(_ note: Notification) {
-        invalidateLineNumbers()
-    }
-
-    @objc private func handleScroll(_ note: Notification) {
-        needsDisplay = true
-    }
-
-    private func updateThickness() {
-        guard let textView = clientView as? NSTextView else { return }
-        let lineCount = max(1, textView.string.components(separatedBy: "\n").count)
-        let digitCount = max(3, "\(lineCount)".count)
-        let newThickness = CGFloat(digitCount * 8 + 16)
-        if ruleThickness != newThickness {
-            ruleThickness = newThickness
-        }
-    }
-
-    override func drawHashMarksAndLabels(in rect: NSRect) {
-        guard let textView = clientView as? NSTextView,
-              let layoutManager = textView.layoutManager,
-              textView.textContainer != nil else { return }
-
-        NSColor(VColor.surfaceBase).setFill()
-        rect.fill()
-
-        let string = textView.string as NSString
-        let relativePoint = convert(NSPoint.zero, from: textView)
-        let insetY = textView.textContainerInset.height
-
-        guard string.length > 0 else {
-            drawLineNumber(1, y: relativePoint.y + insetY, lineHeight: Self.gutterFont.pointSize * 1.4)
-            return
-        }
-
-        var lineNumber = 1
-        var charIndex = 0
-
-        while charIndex < string.length {
-            let lineRange = string.lineRange(for: NSRange(location: charIndex, length: 0))
-            let glyphRange = layoutManager.glyphRange(
-                forCharacterRange: lineRange, actualCharacterRange: nil
-            )
-
-            if glyphRange.location != NSNotFound && glyphRange.length > 0 {
-                let lineRect = layoutManager.lineFragmentRect(
-                    forGlyphAt: glyphRange.location, effectiveRange: nil
-                )
-                let y = relativePoint.y + insetY + lineRect.origin.y
-
-                if y > rect.maxY { break }
-                if y + lineRect.height >= rect.minY {
-                    drawLineNumber(lineNumber, y: y, lineHeight: lineRect.height)
-                }
-            }
-
-            lineNumber += 1
-            let nextIndex = NSMaxRange(lineRange)
-            if nextIndex <= charIndex { break }
-            charIndex = nextIndex
-        }
-
-        // Handle trailing newline — draw number for the empty last line
-        if string.length > 0 && string.character(at: string.length - 1) == 0x0A {
-            let glyphCount = layoutManager.numberOfGlyphs
-            if glyphCount > 0 {
-                let lastRect = layoutManager.lineFragmentRect(
-                    forGlyphAt: glyphCount - 1, effectiveRange: nil
-                )
-                let y = relativePoint.y + insetY + lastRect.maxY
-                if y + lastRect.height >= rect.minY && y <= rect.maxY {
-                    drawLineNumber(lineNumber, y: y, lineHeight: lastRect.height)
-                }
-            }
-        }
-    }
-
-    private func drawLineNumber(_ number: Int, y: CGFloat, lineHeight: CGFloat) {
-        let numStr = "\(number)" as NSString
-        let size = numStr.size(withAttributes: gutterAttributes)
-        numStr.draw(
-            at: NSPoint(
-                x: ruleThickness - size.width - 8,
-                y: y + (lineHeight - size.height) / 2
-            ),
-            withAttributes: gutterAttributes
-        )
     }
 }
 
