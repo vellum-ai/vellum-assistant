@@ -237,8 +237,8 @@
       "id": "capability-feed",
       "scope": "macos",
       "key": "capability_feed_enabled",
-      "label": "Capability Feed",
-      "description": "Show the scrollable capability cards feed below the hero on the new conversation page",
+      "label": "Action Concierge Feed",
+      "description": "Show the action concierge card feed on the new conversation page with hero-first layout, supporting cards, and expandable overflow",
       "defaultEnabled": false
     }
   ]
