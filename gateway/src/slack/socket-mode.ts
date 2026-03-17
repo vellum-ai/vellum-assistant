@@ -164,8 +164,6 @@ export class SlackSocketModeClient {
 
     log.info("Force-reconnecting Slack Socket Mode (sleep/wake recovery)");
 
-    this.connecting = false;
-
     if (this.reconnectTimer) {
       clearTimeout(this.reconnectTimer);
       this.reconnectTimer = null;
@@ -175,6 +173,24 @@ export class SlackSocketModeClient {
 
     const oldWs = this.ws;
     this.ws = null;
+
+    // If a connect() call is already in-flight (awaiting getWebSocketUrl),
+    // don't start another one — the in-flight attempt will complete and
+    // establish a fresh connection. We still tear down the old socket and
+    // cancel the reconnect timer above so there's no stale state.
+    if (this.connecting) {
+      log.info(
+        "Connect already in-flight, skipping duplicate — tearing down old socket only",
+      );
+      if (oldWs) {
+        try {
+          oldWs.close(1000, "force reconnect");
+        } catch {
+          // ignore
+        }
+      }
+      return;
+    }
 
     if (!oldWs || oldWs.readyState === WebSocket.CLOSED) {
       this.connect().catch((err) => {
