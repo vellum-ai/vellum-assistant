@@ -110,12 +110,72 @@ function computeHeaderChecksum(header: Uint8Array): number {
   return sum;
 }
 
-function createTarEntry(name: string, data: Uint8Array): Uint8Array {
-  const header = new Uint8Array(BLOCK_SIZE);
+/**
+ * Build a PAX extended header entry for paths that exceed the 100-byte ustar
+ * limit. The PAX entry is a special tar record (typeflag 'x') whose body
+ * contains "key=value" records. The following data entry uses a truncated name
+ * in its ustar header, but tar extractors use the PAX path attribute instead.
+ */
+function createPaxPathEntry(name: string): Uint8Array {
   const encoder = new TextEncoder();
 
-  // File name (0-99)
+  // Build PAX payload: "<length> path=<name>\n"
+  // The length field includes itself, the space, and the trailing newline.
+  const record = `path=${name}\n`;
+  // Start with a guess for the decimal length prefix
+  let prefix = `${record.length + 2} `; // +2 for prefix digit + space (min)
+  let full = `${prefix}${record}`;
+  // Iterate until the length prefix is self-consistent
+  while (new TextEncoder().encode(full).length !== Number.parseInt(prefix)) {
+    prefix = `${new TextEncoder().encode(full).length} `;
+    full = `${prefix}${record}`;
+  }
+  const paxData = encoder.encode(full);
+
+  // Build a ustar header for the PAX entry itself
+  const header = new Uint8Array(BLOCK_SIZE);
+
+  // Use a synthetic name for the PAX header entry
+  const paxName = encoder.encode("PaxHeader/entry");
+  header.set(paxName.subarray(0, 100), 0);
+
+  writeOctal(header, 100, 8, 0o644);
+  writeOctal(header, 108, 8, 0);
+  writeOctal(header, 116, 8, 0);
+  writeOctal(header, 124, 12, paxData.length);
+  writeOctal(header, 136, 12, Math.floor(Date.now() / 1000));
+
+  // Type flag 'x' = PAX extended header for the next entry
+  header[156] = "x".charCodeAt(0);
+
+  const magic = encoder.encode("ustar\0");
+  header.set(magic, 257);
+  header[263] = "0".charCodeAt(0);
+  header[264] = "0".charCodeAt(0);
+
+  const checksum = computeHeaderChecksum(header);
+  writeOctal(header, 148, 7, checksum);
+  header[155] = 0x20;
+
+  const paddedData = padToBlock(paxData);
+  const result = new Uint8Array(header.length + paddedData.length);
+  result.set(header, 0);
+  result.set(paddedData, header.length);
+  return result;
+}
+
+function createTarEntry(name: string, data: Uint8Array): Uint8Array {
+  const encoder = new TextEncoder();
   const nameBytes = encoder.encode(name);
+
+  // If the name exceeds 100 bytes, emit a PAX extended header first
+  // so that the full path is preserved in the archive.
+  const needsPax = nameBytes.length > 100;
+  const paxEntry = needsPax ? createPaxPathEntry(name) : null;
+
+  const header = new Uint8Array(BLOCK_SIZE);
+
+  // File name (0-99) — truncated if >100 bytes; PAX header carries the full name
   header.set(nameBytes.subarray(0, 100), 0);
 
   // File mode (100-107): 0644
@@ -151,10 +211,18 @@ function createTarEntry(name: string, data: Uint8Array): Uint8Array {
 
   // Combine header + padded data
   const paddedData = padToBlock(data);
-  const result = new Uint8Array(header.length + paddedData.length);
-  result.set(header, 0);
-  result.set(paddedData, header.length);
-  return result;
+  const fileEntry = new Uint8Array(header.length + paddedData.length);
+  fileEntry.set(header, 0);
+  fileEntry.set(paddedData, header.length);
+
+  if (paxEntry) {
+    const result = new Uint8Array(paxEntry.length + fileEntry.length);
+    result.set(paxEntry, 0);
+    result.set(fileEntry, paxEntry.length);
+    return result;
+  }
+
+  return fileEntry;
 }
 
 function createTarArchive(
@@ -351,8 +419,8 @@ export function buildExportVBundle(
     files.push({ path: "trust/trust.json", data: trustData });
   }
 
-  // Include workspace skills if the directory exists.
-  if (skillsDir && existsSync(skillsDir)) {
+  // Include workspace skills if the path exists and is a directory.
+  if (skillsDir && existsSync(skillsDir) && lstatSync(skillsDir).isDirectory()) {
     files.push(...walkDirectory(skillsDir, "skills"));
   }
 
