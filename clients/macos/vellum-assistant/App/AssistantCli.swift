@@ -96,7 +96,7 @@ final class AssistantCli {
     /// process environment causes the child to inherit paths into other
     /// apps' containers, triggering the "access data from other apps"
     /// consent dialog.
-    private static func makeBaseEnvironment() -> [String: String] {
+    nonisolated private static func makeBaseEnvironment() -> [String: String] {
         let fullEnv = ProcessInfo.processInfo.environment
         var env: [String: String] = [
             "HOME": FileManager.default.homeDirectoryForCurrentUser.path,
