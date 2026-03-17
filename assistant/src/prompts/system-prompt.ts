@@ -14,7 +14,6 @@ import {
   isMacOS,
 } from "../util/platform.js";
 import { SYSTEM_PROMPT_CACHE_BOUNDARY } from "./cache-boundary.js";
-import { resolveUserPronouns, resolveUserReference } from "./user-reference.js";
 
 export { SYSTEM_PROMPT_CACHE_BOUNDARY };
 
@@ -176,7 +175,8 @@ export function buildSystemPrompt(options?: BuildSystemPromptOptions): string {
   }
   // Configuration section removed — workspace files are self-describing,
   // tool routing lives in tool descriptions.
-  dynamicParts.push(buildExternalCommsIdentitySection());
+  // External Communications Identity removed — guidance lives in messaging
+  // and phone-calls skill SKILL.md files.
   dynamicParts.push(buildIntegrationSection());
 
   const dynamicWithSkills = appendSkillsCatalog(dynamicParts.join("\n\n"));
@@ -208,29 +208,6 @@ function buildInChatConfigurationSection(): string {
 }
 
 
-
-export function buildExternalCommsIdentitySection(): string {
-  const userRef = resolveUserReference();
-  const userPronouns = resolveUserPronouns();
-  const lines = [
-    "## External Communications Identity",
-    "",
-    "When communicating with people outside your user's household (phone calls, messages to non-guardian contacts, emails to third parties, etc.):",
-    "",
-    `- Refer to yourself as an **assistant**, not an "AI assistant" or "artificial intelligence". Keep identity framing simple and natural.`,
-    `- When introducing who you represent, say you are acting on behalf of **${userRef}**.`,
-  ];
-  if (userPronouns) {
-    lines.push(
-      `- Your user's pronouns are **${userPronouns}**. Use these when referring to your user in the third person.`,
-    );
-  }
-  lines.push(
-    "- Do not volunteer that you are an AI unless directly asked. If asked, answer honestly.",
-    "- This is guidance for natural, human-like communication — not a hard constraint. Occasional variations are acceptable.",
-  );
-  return lines.join("\n");
-}
 
 function buildAccessPreferenceSection(hasNoClient: boolean): string {
   if (hasNoClient) {
