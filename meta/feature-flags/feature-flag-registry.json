@@ -227,18 +227,10 @@
     },
     {
       "id": "conversation-starters",
-      "scope": "macos",
-      "key": "conversation_starters_enabled",
+      "scope": "assistant",
+      "key": "feature_flags.conversation-starters.enabled",
       "label": "Recommended Starts",
       "description": "Show a curated row of recommended starting actions on the empty conversation page, ordered by relevance as confident first-click options",
-      "defaultEnabled": false
-    },
-    {
-      "id": "capability-feed",
-      "scope": "macos",
-      "key": "capability_feed_enabled",
-      "label": "Action Concierge Feed",
-      "description": "Show the action concierge card feed on the new conversation page with hero-first layout, supporting cards, and expandable overflow",
       "defaultEnabled": false
     }
   ]

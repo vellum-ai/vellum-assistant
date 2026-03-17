@@ -14,6 +14,7 @@ struct MainWindowView: View {
     let traceStore: TraceStore
     let usageDashboardStore: UsageDashboardStore
     @ObservedObject var windowState: MainWindowState
+    @StateObject var assistantFeatureFlagStore: AssistantFeatureFlagStore
     @State private var selectedConversationId: UUID?
     @State var sharing = SharingState()
     @State var sidebar = SidebarInteractionState()
@@ -77,6 +78,9 @@ struct MainWindowView: View {
         self.settingsStore = settingsStore
         self.authManager = authManager
         self.windowState = windowState
+        self._assistantFeatureFlagStore = StateObject(
+            wrappedValue: AssistantFeatureFlagStore()
+        )
         self.documentManager = documentManager
         self.onMicrophoneToggle = onMicrophoneToggle
         self.voiceModeManager = voiceModeManager

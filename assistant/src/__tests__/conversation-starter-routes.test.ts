@@ -185,7 +185,7 @@ describe("GET /v1/conversation-starters", () => {
     expect(body.total).toBe(6);
   });
 
-  test("surfaces non-repetitive starters early when alternatives exist", async () => {
+  test("surfaces category-diverse starters first", async () => {
     const now = Date.now();
     insertStarter({
       label: "Dev 1",
@@ -217,7 +217,10 @@ describe("GET /v1/conversation-starters", () => {
       starters: Array<{ label: string; category: string }>;
     };
 
-    expect(body.starters[0]?.category).not.toBe(body.starters[1]?.category);
+    const firstThreeCategories = body.starters
+      .slice(0, 3)
+      .map((starter) => starter.category);
+    expect(new Set(firstThreeCategories).size).toBe(3);
   });
 });
 
@@ -272,7 +275,7 @@ describe("orderStrongestFirst", () => {
     ]);
   });
 
-  test("avoids adjacent duplicates when alternatives exist", () => {
+  test("maximizes early category diversity when alternatives exist", () => {
     const items = [
       makeItem("Dev 1", "development"),
       makeItem("Dev 2", "development"),

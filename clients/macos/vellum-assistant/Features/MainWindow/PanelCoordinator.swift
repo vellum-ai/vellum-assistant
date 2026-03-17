@@ -5,6 +5,9 @@ import UniformTypeIdentifiers
 // MARK: - Panel Coordination Extension
 
 extension MainWindowView {
+    fileprivate static let conversationStartersFeatureFlagKey =
+        "feature_flags.conversation-starters.enabled"
+
     // MARK: - Config-Driven Slot Rendering
 
     @ViewBuilder
@@ -360,9 +363,13 @@ extension MainWindowView {
     var chatView: some View {
         if let viewModel = conversationManager.activeViewModel {
             let activeConversation = conversationManager.activeConversation
+            let conversationStartersEnabled = assistantFeatureFlagStore.isEnabled(
+                Self.conversationStartersFeatureFlagKey
+            )
             ActiveChatViewWrapper(
                 viewModel: viewModel,
                 windowState: windowState,
+                conversationStartersEnabled: conversationStartersEnabled,
                 daemonClient: daemonClient,
                 ambientAgent: ambientAgent,
                 settingsStore: settingsStore,
@@ -565,6 +572,7 @@ func openFilePicker(viewModel: ChatViewModel) {
 struct ActiveChatViewWrapper: View {
     @ObservedObject var viewModel: ChatViewModel
     @ObservedObject var windowState: MainWindowState
+    let conversationStartersEnabled: Bool
     let daemonClient: DaemonClient
     @ObservedObject var ambientAgent: AmbientAgent
     @ObservedObject var settingsStore: SettingsStore
@@ -690,8 +698,8 @@ struct ActiveChatViewWrapper: View {
             conversationId: conversationId,
             daemonGreeting: viewModel.emptyStateGreeting,
             onRequestGreeting: { [weak viewModel] in viewModel?.generateGreeting() },
-            conversationStarters: MacOSClientFeatureFlagManager.shared.isEnabled("conversation_starters_enabled") ? viewModel.conversationStarters : [],
-            conversationStartersLoading: MacOSClientFeatureFlagManager.shared.isEnabled("conversation_starters_enabled") && viewModel.conversationStartersLoading,
+            conversationStarters: conversationStartersEnabled ? viewModel.conversationStarters : [],
+            conversationStartersLoading: conversationStartersEnabled && viewModel.conversationStartersLoading,
             onSelectStarter: { [weak viewModel] starter in
                 viewModel?.inputText = starter.prompt
             },
