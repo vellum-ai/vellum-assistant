@@ -21,6 +21,7 @@ import { httpError } from "../http-errors.js";
 import type { RouteDefinition } from "../http-router.js";
 import {
   cancelOutbound,
+  deliverVerificationSlack,
   normalizeTelegramDestination,
   resendOutbound,
   startOutbound,
@@ -118,12 +119,20 @@ export async function handleCreateVerificationSession(
       verificationRateLimiter.recordFailure(rateLimitKey);
     }
 
+    // Dispatch Slack DM delivery from the daemon process (not sandboxed).
+    if (result._pendingSlackDm) {
+      const { userId, text, assistantId: aid } = result._pendingSlackDm;
+      deliverVerificationSlack(userId, text, aid);
+    }
+
     const status = result.success
       ? 200
       : result.error === "rate_limited"
         ? 429
         : 400;
-    return Response.json(result, { status });
+    // Strip internal field from the response
+    const { _pendingSlackDm: _, ...publicResult } = result;
+    return Response.json(publicResult, { status });
   }
 
   // Inbound challenge path
@@ -167,12 +176,20 @@ export async function handleResendVerificationSession(
     channel: body.channel,
     originConversationId: body.originConversationId,
   });
+
+  // Dispatch Slack DM delivery from the daemon process (not sandboxed).
+  if (result._pendingSlackDm) {
+    const { userId, text, assistantId: aid } = result._pendingSlackDm;
+    deliverVerificationSlack(userId, text, aid);
+  }
+
   const status = result.success
     ? 200
     : result.error === "rate_limited"
       ? 429
       : 400;
-  return Response.json(result, { status });
+  const { _pendingSlackDm: _, ...publicResult } = result;
+  return Response.json(publicResult, { status });
 }
 
 /**

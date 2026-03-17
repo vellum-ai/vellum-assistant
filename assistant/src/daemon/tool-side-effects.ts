@@ -12,6 +12,7 @@ import { join } from "node:path";
 import { compileApp } from "../bundler/app-compiler.js";
 import { generateAppIcon } from "../media/app-icon-generator.js";
 import { getApp, getAppsDir, isMultifileApp } from "../memory/app-store.js";
+import { deliverVerificationSlack } from "../runtime/verification-outbound-actions.js";
 import { updatePublishedAppDeployment } from "../services/published-app-updater.js";
 import type { ToolExecutionResult } from "../tools/types.js";
 import { getLogger } from "../util/logger.js";
@@ -225,6 +226,45 @@ registerHook(
     } as unknown as ServerMessage);
   },
 );
+
+// Dispatch pending Slack DM delivery when a CLI verification command
+// completes.  The CLI subprocess is sandboxed and cannot reach the
+// gateway, so it includes a `_pendingSlackDm` field in its JSON output.
+// This hook runs in the unsandboxed daemon process and delivers the DM.
+registerHook("bash", (_name, input, result) => {
+  const command = (input.command ?? "") as string;
+  if (!command.includes("channel-verification-sessions")) return;
+  if (!result.content.includes("_pendingSlackDm")) return;
+
+  type PendingDm = { userId: string; text: string; assistantId: string };
+  type Parsed = { _pendingSlackDm?: PendingDm };
+
+  const dispatch = (parsed: Parsed) => {
+    if (parsed._pendingSlackDm) {
+      const { userId, text, assistantId } = parsed._pendingSlackDm;
+      deliverVerificationSlack(userId, text, assistantId);
+      return true;
+    }
+    return false;
+  };
+
+  // Try full content first (handles pretty-printed single-object JSON)
+  try {
+    if (dispatch(JSON.parse(result.content.trim()) as Parsed)) return;
+  } catch {
+    // Not a single JSON object — fall back to line-by-line for
+    // multi-object output (e.g. cancel + create chained with &&).
+  }
+  for (const line of result.content.split("\n")) {
+    const trimmed = line.trim();
+    if (!trimmed.startsWith("{")) continue;
+    try {
+      if (dispatch(JSON.parse(trimmed) as Parsed)) return;
+    } catch {
+      continue;
+    }
+  }
+});
 
 // ── Runner ───────────────────────────────────────────────────────────
 
