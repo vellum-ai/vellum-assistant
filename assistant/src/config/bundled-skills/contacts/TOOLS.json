@@ -150,6 +150,10 @@
           "reason": {
             "type": "string",
             "description": "Brief non-technical explanation of why this tool is being called"
+          },
+          "account": {
+            "type": "string",
+            "description": "Email address of the Gmail account to use. Required when multiple Gmail accounts are connected. If omitted, uses the most recently connected account."
           }
         },
         "required": ["action"]
