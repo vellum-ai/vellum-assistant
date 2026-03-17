@@ -345,7 +345,11 @@ extension HTTPTransport {
         applyAuth(&request)
 
         do {
-            request.httpBody = try encoder.encode(body)
+            // Only set body for methods that support it — GET requests with
+            // a body cause URLError.dataLengthExceedsMaximum on macOS.
+            if method != "GET" {
+                request.httpBody = try encoder.encode(body)
+            }
             let (_, response) = try await URLSession.shared.data(for: request)
             if let http = response as? HTTPURLResponse, (200...299).contains(http.statusCode) {
                 log.debug("\(label) succeeded via HTTP")
@@ -384,7 +388,11 @@ extension HTTPTransport {
         applyAuth(&request)
 
         do {
-            request.httpBody = try encoder.encode(body)
+            // Only set body for methods that support it — GET requests with
+            // a body cause URLError.dataLengthExceedsMaximum on macOS.
+            if method != "GET" {
+                request.httpBody = try encoder.encode(body)
+            }
             let (data, response) = try await URLSession.shared.data(for: request)
             guard let http = response as? HTTPURLResponse else { return }
 
