@@ -24,6 +24,7 @@ struct ContactDetailView: View {
     @State private var editedName = ""
     @State private var editedNotes = ""
     @FocusState private var isNameFocused: Bool
+    @State private var focusTask: Task<Void, Never>?
     @State private var isSaving = false
     @State private var verificationInProgress: String?
     @State private var verificationSuccessChannelId: String?
@@ -100,6 +101,8 @@ struct ContactDetailView: View {
             Text("This will permanently delete this contact and all their channels. This action cannot be undone.")
         }
         .onChange(of: contact.id) { _, _ in
+            focusTask?.cancel()
+            focusTask = nil
             currentContact = nil
             let name = contact.displayName
             editedName = (name == "New Contact") ? "" : name
@@ -118,6 +121,8 @@ struct ContactDetailView: View {
             editedNotes = contact.notes ?? ""
         }
         .onDisappear {
+            focusTask?.cancel()
+            focusTask = nil
             verificationTimeoutTask?.cancel()
             verificationTimeoutTask = nil
             verificationSuccessAnimationTask?.cancel()
@@ -148,7 +153,9 @@ struct ContactDetailView: View {
             editedName = isNewContact ? "" : name
             editedNotes = displayContact.notes ?? ""
             if isNewContact {
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                focusTask?.cancel()
+                focusTask = Task { @MainActor in
+                    try? await Task.sleep(nanoseconds: 300_000_000)
                     isNameFocused = true
                 }
             }
