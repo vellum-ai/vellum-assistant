@@ -1,6 +1,6 @@
 ---
 name: claude-code
-description: Delegate coding tasks to Claude Code, an AI-powered coding agent
+description: Delegate coding tasks to Claude Code
 compatibility: "Designed for Vellum personal assistants"
 metadata:
   emoji: "💻"
