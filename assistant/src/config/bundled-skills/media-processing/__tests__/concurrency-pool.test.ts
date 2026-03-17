@@ -23,7 +23,7 @@ describe("ConcurrencyPool", () => {
     expect(thirdResolved).toBe(false);
     expect(pool.waitingCount).toBe(1);
 
-    // Release one slot — third should now resolve
+    // Release one slot - third should now resolve
     pool.release();
     await thirdPromise;
     expect(thirdResolved).toBe(true);
@@ -62,7 +62,7 @@ describe("ConcurrencyPool", () => {
   it("defaults to maxConcurrency of 10", async () => {
     const pool = new ConcurrencyPool();
 
-    // Acquire 10 slots — all should resolve immediately
+    // Acquire 10 slots - all should resolve immediately
     for (let i = 0; i < 10; i++) {
       await pool.acquire();
     }

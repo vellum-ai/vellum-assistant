@@ -1,5 +1,5 @@
 /**
- * Reduce service — sends Map output to Claude as text-only for analysis.
+ * Reduce service - sends Map output to Claude as text-only for analysis.
  *
  * Two modes:
  * - One-shot merge: assembles all Map results into a single document,
@@ -75,7 +75,7 @@ async function loadMapOutput(assetId: string): Promise<MapOutput> {
 
 /**
  * Format map output segments into a text document for Claude.
- * Strips image data — text only.
+ * Strips image data - text only.
  */
 function formatMapOutputAsText(mapOutput: MapOutput): string {
   const lines: string[] = [];
@@ -151,7 +151,7 @@ async function persistReduceCost(
     const raw = await readFile(costPath, "utf-8");
     existing = JSON.parse(raw) as ReduceCostData;
   } catch {
-    // First query — start fresh
+    // First query - start fresh
   }
 
   existing.entries.push({

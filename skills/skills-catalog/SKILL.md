@@ -12,7 +12,7 @@ You can help the user discover what skills are available and find community skil
 
 ## Bundled skills (first-party)
 
-First-party skills are **bundled** with the assistant — they are compiled in and always available. They do not need to be installed or downloaded. To activate a bundled skill, use the `skill_load` tool:
+First-party skills are **bundled** with the assistant - they are compiled in and always available. They do not need to be installed or downloaded. To activate a bundled skill, use the `skill_load` tool:
 
 ```
 skill_load skill=<skill-id>
@@ -34,10 +34,10 @@ Returns matching skills with their slug, source, install counts, and security au
 
 ### Installing a community skill
 
-**Trust model — check the source owner before installing:**
+**Trust model - check the source owner before installing:**
 
-- **Vellum-owned** (`vellum-ai/*`): First-party skills published by the Vellum team. Install these directly without prompting — they are vetted and trusted.
-- **Third-party** (any other owner): Ask the user for permission first. Present the skill name, source, audit results, and install count. Say something like: "I found a community skill that could help, but it's published by a third party — we haven't vetted it. Want to install it anyway?"
+- **Vellum-owned** (`vellum-ai/*`): First-party skills published by the Vellum team. Install these directly without prompting - they are vetted and trusted.
+- **Third-party** (any other owner): Ask the user for permission first. Present the skill name, source, audit results, and install count. Say something like: "I found a community skill that could help, but it's published by a third party - we haven't vetted it. Want to install it anyway?"
 
 ```bash
 assistant skills add <owner>/<repo>@<skill-name>
@@ -52,19 +52,19 @@ Once installed, the skill appears in the workspace skills directory and can be l
 
 ## Typical flow
 
-1. **User asks about capabilities** — "Can you order food?" or "What can you do?"
+1. **User asks about capabilities** - "Can you order food?" or "What can you do?"
    - Check the bundled skills list in the system prompt
    - Present relevant skills to the user
    - Load any that match with `skill_load`
 
-2. **User wants a capability not covered by bundled skills** — "Can you do X?"
+2. **User wants a capability not covered by bundled skills** - "Can you do X?"
    - Search with `assistant skills search "<query>"`
    - Present matching results with descriptions, install counts, and audit badges
    - Check the source owner to determine trust level (see trust model above)
    - Install with `assistant skills add <owner>/<repo>@<skill-name>`
    - Load it with `skill_load`
 
-3. **Skill has dependencies** — if `includes` lists other skill IDs, load those first with `skill_load`
+3. **Skill has dependencies** - if `includes` lists other skill IDs, load those first with `skill_load`
 
 ## Notes
 

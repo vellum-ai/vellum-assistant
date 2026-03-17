@@ -1,5 +1,5 @@
 /**
- * Clip generation tool — extract a video segment from a media asset.
+ * Clip generation tool - extract a video segment from a media asset.
  *
  * Uses ffmpeg to cut a segment with configurable pre/post-roll padding,
  * then registers the resulting clip as an attachment for in-chat delivery.
@@ -199,7 +199,7 @@ export async function run(
     const result = await spawnWithTimeout(ffmpegArgs, FFMPEG_CLIP_TIMEOUT_MS);
 
     if (result.exitCode !== 0) {
-      // Stream copy failed — fall back to re-encoding (handles high-bitrate
+      // Stream copy failed - fall back to re-encoding (handles high-bitrate
       // sources, incompatible codecs, and missing keyframes at cut points)
       context.onOutput?.("Stream copy failed, re-encoding clip...\n");
       // Select codecs based on output format (WebM needs VP9/Opus, MP4/MOV use H.264/AAC)

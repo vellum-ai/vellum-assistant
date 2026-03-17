@@ -35,7 +35,7 @@ Tell the user:
 > 3. Select your workspace from the **Associated workspace** dropdown
 > 4. Click **Create**
 >
-> The integration will be created as Internal by default — that's exactly what we want.
+> The integration will be created as Internal by default - that's exactly what we want.
 >
 > Let me know when the integration is created.
 

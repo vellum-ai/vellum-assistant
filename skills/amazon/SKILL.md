@@ -18,40 +18,40 @@ The Amazon scripts are bundled with this skill. Run them via `bun run {baseDir}/
 
 All Amazon interaction goes through the bundled scripts below, not browser automation.
 
-## Typical Flow — Regular Amazon Shopping
+## Typical Flow - Regular Amazon Shopping
 
 When the user asks you to order something from Amazon:
 
-1. **Check session** — run `bun run {baseDir}/scripts/amazon.ts status --json`. If `loggedIn` is false or the session is expired, tell the user: "A Chrome window will open to the Amazon login page. Please sign in there — I'll detect your login automatically and minimize the window." Then run `bun run {baseDir}/scripts/amazon.ts refresh --json`. This captures your session via the browser extension and auto-stops once it detects you've signed in. The session is imported automatically. **This command blocks until login is complete — just wait for it.**
+1. **Check session** - run `bun run {baseDir}/scripts/amazon.ts status --json`. If `loggedIn` is false or the session is expired, tell the user: "A Chrome window will open to the Amazon login page. Please sign in there - I'll detect your login automatically and minimize the window." Then run `bun run {baseDir}/scripts/amazon.ts refresh --json`. This captures your session via the browser extension and auto-stops once it detects you've signed in. The session is imported automatically. **This command blocks until login is complete - just wait for it.**
 
-2. **Search** — run `bun run {baseDir}/scripts/amazon.ts search "<query>" --json` to find matching products. Present the top results with ASIN, title, price, and Prime status. If the user named a specific product, pick the best match. If ambiguous, ask.
+2. **Search** - run `bun run {baseDir}/scripts/amazon.ts search "<query>" --json` to find matching products. Present the top results with ASIN, title, price, and Prime status. If the user named a specific product, pick the best match. If ambiguous, ask.
 
-3. **Product details** (if needed) — run `bun run {baseDir}/scripts/amazon.ts product <asin> --json` to get full details including price and variations. For products with variants (size, color, etc.), see the Variations section below.
+3. **Product details** (if needed) - run `bun run {baseDir}/scripts/amazon.ts product <asin> --json` to get full details including price and variations. For products with variants (size, color, etc.), see the Variations section below.
 
-4. **Add to cart** — run `bun run {baseDir}/scripts/amazon.ts cart add --asin <asin> [--quantity <n>] --json`. The response includes the updated cart with all items.
+4. **Add to cart** - run `bun run {baseDir}/scripts/amazon.ts cart add --asin <asin> [--quantity <n>] --json`. The response includes the updated cart with all items.
 
-5. **Review cart** — run `bun run {baseDir}/scripts/amazon.ts cart view --json` and show the user what's in their cart with prices. Ask if they want to add anything else or proceed.
+5. **Review cart** - run `bun run {baseDir}/scripts/amazon.ts cart view --json` and show the user what's in their cart with prices. Ask if they want to add anything else or proceed.
 
-6. **Payment methods** — run `bun run {baseDir}/scripts/amazon.ts payment-methods --json` to see saved cards.
+6. **Payment methods** - run `bun run {baseDir}/scripts/amazon.ts payment-methods --json` to see saved cards.
 
-7. **Checkout summary** — run `bun run {baseDir}/scripts/amazon.ts checkout --json` to get order totals (subtotal, shipping, tax, total).
+7. **Checkout summary** - run `bun run {baseDir}/scripts/amazon.ts checkout --json` to get order totals (subtotal, shipping, tax, total).
 
-8. **Place order** — after the user explicitly confirms, run `bun run {baseDir}/scripts/amazon.ts order place [--payment-method-id <id>] --json`. The response contains `orderId` on success.
+8. **Place order** - after the user explicitly confirms, run `bun run {baseDir}/scripts/amazon.ts order place [--payment-method-id <id>] --json`. The response contains `orderId` on success.
 
-## Typical Flow — Amazon Fresh Groceries
+## Typical Flow - Amazon Fresh Groceries
 
 Amazon Fresh delivers groceries. The flow is the same as regular Amazon, with these additions:
 
-1. **Search Fresh** — use the `--fresh` flag: `bun run {baseDir}/scripts/amazon.ts search "<query>" --fresh --json`
+1. **Search Fresh** - use the `--fresh` flag: `bun run {baseDir}/scripts/amazon.ts search "<query>" --fresh --json`
 
-2. **Add Fresh items** — use the `--fresh` flag: `bun run {baseDir}/scripts/amazon.ts cart add --asin <asin> --fresh --json`
+2. **Add Fresh items** - use the `--fresh` flag: `bun run {baseDir}/scripts/amazon.ts cart add --asin <asin> --fresh --json`
 
-3. **Select delivery slot** — Fresh orders require a delivery window:
-   - `bun run {baseDir}/scripts/amazon.ts fresh delivery-slots --json` — list available slots
-   - `bun run {baseDir}/scripts/amazon.ts fresh select-slot --slot-id <id> --json` — select a slot
+3. **Select delivery slot** - Fresh orders require a delivery window:
+   - `bun run {baseDir}/scripts/amazon.ts fresh delivery-slots --json` - list available slots
+   - `bun run {baseDir}/scripts/amazon.ts fresh select-slot --slot-id <id> --json` - select a slot
    - Do this BEFORE checkout.
 
-4. **Checkout and order** — same as regular Amazon.
+4. **Checkout and order** - same as regular Amazon.
 
 ## Handling Variations
 
@@ -65,13 +65,13 @@ Alternatively, run `bun run {baseDir}/scripts/amazon.ts variations <asin> --json
 
 ## Session Storage
 
-Session cookies are stored in the encrypted credential store under the key `amazon:session:cookies`. Session capture (`bun run {baseDir}/scripts/amazon.ts refresh`) and session checks (`bun run {baseDir}/scripts/amazon.ts status`) use the credential store automatically — no manual file management is needed.
+Session cookies are stored in the encrypted credential store under the key `amazon:session:cookies`. Session capture (`bun run {baseDir}/scripts/amazon.ts refresh`) and session checks (`bun run {baseDir}/scripts/amazon.ts status`) use the credential store automatically - no manual file management is needed.
 
 ## Important Behavior
 
-- **Chrome extension relay required.** The Amazon scripts use `assistant browser chrome relay` internally for browser automation. The Chrome extension must be connected before Amazon commands will work. If a command fails with a connection error, tell the user: "Please open Chrome, click the Vellum extension icon, and click Connect — then I'll retry."
+- **Chrome extension relay required.** The Amazon scripts use `assistant browser chrome relay` internally for browser automation. The Chrome extension must be connected before Amazon commands will work. If a command fails with a connection error, tell the user: "Please open Chrome, click the Vellum extension icon, and click Connect - then I'll retry."
 - **Always confirm before placing order.** Never call `order place` without explicit user approval. Show the cart and total first.
-- **Be proactive.** If the user says "order AA batteries", don't ask clarifying questions upfront — search, find the product, and suggest it. Only ask when you need a choice the user hasn't specified.
+- **Be proactive.** If the user says "order AA batteries", don't ask clarifying questions upfront - search, find the product, and suggest it. Only ask when you need a choice the user hasn't specified.
 - **Handle expired sessions gracefully.** If any command returns `"error": "session_expired"`, run `bun run {baseDir}/scripts/amazon.ts refresh --json` to re-capture the session.
 - **Show prices.** Always show prices when presenting products or the cart summary.
 - **Use `--json` flag** on all commands for reliable parsing.

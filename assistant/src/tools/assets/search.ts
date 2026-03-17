@@ -1,9 +1,9 @@
 /**
- * asset_search — cross-conversation attachment metadata search.
+ * asset_search - cross-conversation attachment metadata search.
  *
  * Queries the attachments store for matching assets by MIME type,
  * filename, recency, or conversation scope. Returns metadata and
- * attachment IDs only — never base64 payloads. The IDs can be
+ * attachment IDs only - never base64 payloads. The IDs can be
  * passed to asset_materialize (PR 35) to retrieve actual content.
  */
 
@@ -33,7 +33,7 @@ import { registerTool } from "../registry.js";
 import type { Tool, ToolContext, ToolExecutionResult } from "../types.js";
 
 // ---------------------------------------------------------------------------
-// Recency presets — map human-readable labels to epoch-ms cutoff offsets
+// Recency presets - map human-readable labels to epoch-ms cutoff offsets
 // ---------------------------------------------------------------------------
 
 const RECENCY_MS: Record<string, number> = {
@@ -113,7 +113,7 @@ function isAttachmentVisibleFromContext(
     return true;
   }
 
-  // All sources are private — visible only if the caller is in one of those conversations
+  // All sources are private - visible only if the caller is in one of those conversations
   return sources.some((s) =>
     isAttachmentVisible(
       { conversationId: s.conversationId, isPrivate: true },
@@ -143,13 +143,13 @@ export function searchAttachments(
   const db = getDb();
   const conditions = [];
 
-  // MIME type filter — supports wildcards like 'image/*' via LIKE
+  // MIME type filter - supports wildcards like 'image/*' via LIKE
   if (params.mime_type) {
     const mimePattern = params.mime_type.replace(/\*/g, "%");
     conditions.push(like(attachments.mimeType, mimePattern));
   }
 
-  // Filename filter — case-insensitive substring match (escape LIKE wildcards)
+  // Filename filter - case-insensitive substring match (escape LIKE wildcards)
   if (params.filename) {
     conditions.push(
       like(
@@ -159,7 +159,7 @@ export function searchAttachments(
     );
   }
 
-  // Recency filter — computed cutoff timestamp
+  // Recency filter - computed cutoff timestamp
   if (params.recency) {
     const offsetMs = RECENCY_MS[params.recency];
     if (offsetMs) {
@@ -168,7 +168,7 @@ export function searchAttachments(
     }
   }
 
-  // Conversation scope — join through message_attachments + messages
+  // Conversation scope - join through message_attachments + messages
   if (params.conversation_id) {
     const linkedIds = db
       .select({ attachmentId: messageAttachments.attachmentId })
@@ -239,7 +239,7 @@ export function searchAttachments(
     }));
   }
 
-  // No conversation constraint — query attachments table directly
+  // No conversation constraint - query attachments table directly
   const limit = Math.min(params.limit ?? DEFAULT_LIMIT, MAX_RESULTS);
   const where = conditions.length > 0 ? and(...conditions) : undefined;
 
@@ -271,7 +271,7 @@ const definition: ToolDefinition = {
   name: "asset_search",
   description:
     "Search for previously uploaded media assets (images, documents, etc.) by metadata. " +
-    "Returns attachment IDs and metadata — not file content. Use the returned IDs with " +
+    "Returns attachment IDs and metadata - not file content. Use the returned IDs with " +
     "asset_materialize to retrieve actual file data.",
   input_schema: {
     type: "object",

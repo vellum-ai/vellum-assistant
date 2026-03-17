@@ -13,7 +13,7 @@
  * @returns true if the tool is explicitly listed in allowedTools
  *
  * Semantics:
- * 1. Explicit allowlist — tool must be listed by exact name
+ * 1. Explicit allowlist - tool must be listed by exact name
  * 2. No wildcard support in v1
  * 3. Fail-closed on empty or missing list
  */

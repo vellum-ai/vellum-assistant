@@ -9,11 +9,11 @@ metadata:
     feature-flag: "email-channel"
 ---
 
-You are setting up your own personal email address. This is a one-time operation — once you have an email, you do not need to run this again.
+You are setting up your own personal email address. This is a one-time operation - once you have an email, you do not need to run this again.
 
 ## Prerequisites
 
-Only proceed if the user explicitly asks you to create or set up **your own** (the assistant's) email address — e.g., "set up your email", "create your email address", "I want you to have your own email". Generic email requests like "send an email", "check my email", or "set up email" are about the **user's Gmail** and should be handled by the Messaging skill, not this one. Do NOT proactively run this skill.
+Only proceed if the user explicitly asks you to create or set up **your own** (the assistant's) email address - e.g., "set up your email", "create your email address", "I want you to have your own email". Generic email requests like "send an email", "check my email", or "set up email" are about the **user's Gmail** and should be handled by the Messaging skill, not this one. Do NOT proactively run this skill.
 
 ## Step 1: Check if Email Already Exists
 
@@ -23,7 +23,7 @@ Before doing anything, check whether you already have an email address configure
 assistant email status
 ```
 
-Inspect `health.inboxes` in the response. If at least one inbox exists, tell the user the existing address and stop — do NOT create another one.
+Inspect `health.inboxes` in the response. If at least one inbox exists, tell the user the existing address and stop - do NOT create another one.
 
 ## Step 2: Create Your Email
 

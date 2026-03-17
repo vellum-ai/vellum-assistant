@@ -165,7 +165,7 @@ function buildBlockKitOutput(
     type: "header",
     text: {
       type: "plain_text",
-      text: `Slack Digest — ${digests.length} channel${digests.length !== 1 ? "s" : ""} scanned`,
+      text: `Slack Digest - ${digests.length} channel${digests.length !== 1 ? "s" : ""} scanned`,
     },
   });
 
@@ -185,7 +185,7 @@ function buildBlockKitOutput(
         type: "section",
         text: {
           type: "mrkdwn",
-          text: `${digest.isPrivate ? "\ud83d\udd12 " : ""}*#${digest.channelName}* — _Error: ${digest.error}_`,
+          text: `${digest.isPrivate ? "\ud83d\udd12 " : ""}*#${digest.channelName}* - _Error: ${digest.error}_`,
         },
       });
       blocks.push({ type: "divider" });
@@ -198,7 +198,7 @@ function buildBlockKitOutput(
       type: "section",
       text: {
         type: "mrkdwn",
-        text: `${privacyIcon}*#${digest.channelName}* — ${digest.messageCount} message${digest.messageCount !== 1 ? "s" : ""}`,
+        text: `${privacyIcon}*#${digest.channelName}* - ${digest.messageCount} message${digest.messageCount !== 1 ? "s" : ""}`,
       },
     });
 

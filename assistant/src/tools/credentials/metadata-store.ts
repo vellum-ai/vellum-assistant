@@ -22,7 +22,7 @@ import type { CredentialInjectionTemplate } from "./policy-types.js";
 /**
  * CredentialMetadata extends the shared StaticCredentialRecord with
  * assistant-specific injection template fields (composeWith, valueTransform).
- * Structurally compatible — the shared store persists all fields as-is.
+ * Structurally compatible - the shared store persists all fields as-is.
  */
 export interface CredentialMetadata {
   credentialId: string;
@@ -60,7 +60,7 @@ function getStore(): StaticCredentialMetadataStore {
 }
 
 // ---------------------------------------------------------------------------
-// Public API — unchanged signatures, delegates to shared store
+// Public API - unchanged signatures, delegates to shared store
 // ---------------------------------------------------------------------------
 
 /**

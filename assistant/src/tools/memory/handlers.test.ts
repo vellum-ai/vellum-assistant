@@ -305,7 +305,7 @@ describe("handleMemoryRecall", () => {
   // ── Empty results ─────────────────────────────────────────────────
 
   test("returns empty result when no memories match", async () => {
-    // No items seeded — tables cleared in beforeEach
+    // No items seeded - tables cleared in beforeEach
     const result = await handleMemoryRecall(
       { query: "quantum physics" },
       TEST_CONFIG,

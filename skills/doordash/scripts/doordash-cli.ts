@@ -43,7 +43,7 @@ const execFileAsync = promisify(execFile);
 //
 // These call the `assistant browser chrome` CLI and parse the structured JSON
 // response. The CLI writes {ok, error, ...} to stdout and exits with code 1
-// on failure — execFileAsync rejects on non-zero exit, so we extract stdout
+// on failure - execFileAsync rejects on non-zero exit, so we extract stdout
 // from the error object to surface the real error message.
 // ---------------------------------------------------------------------------
 
@@ -146,7 +146,7 @@ function getJson(cmd: Command): boolean {
 }
 
 const SESSION_EXPIRED_MSG =
-  "Your DoorDash session has expired. Please sign in to DoorDash in Chrome — " +
+  "Your DoorDash session has expired. Please sign in to DoorDash in Chrome - " +
   "the assistant will capture your session automatically.";
 
 async function run(cmd: Command, fn: () => Promise<unknown>): Promise<void> {
@@ -179,7 +179,7 @@ export function registerDoordashCommand(program: Command): void {
     .option("--json", "Machine-readable JSON output");
 
   // =========================================================================
-  // logout — clear saved session
+  // logout - clear saved session
   // =========================================================================
   dd.command("logout")
     .description("Clear the saved DoorDash session")
@@ -189,12 +189,12 @@ export function registerDoordashCommand(program: Command): void {
     });
 
   // =========================================================================
-  // refresh — capture fresh cookies via browser recording
+  // refresh - capture fresh cookies via browser recording
   // =========================================================================
   dd.command("refresh")
     .description(
       "Capture fresh DoorDash cookies via browser recording. " +
-        "Opens doordash.com in a separate Chrome window — sign in when prompted. " +
+        "Opens doordash.com in a separate Chrome window - sign in when prompted. " +
         "Your existing Chrome and tabs are not affected.",
     )
     .option("--duration <seconds>", "Recording duration in seconds", "180")
@@ -236,7 +236,7 @@ export function registerDoordashCommand(program: Command): void {
     });
 
   // =========================================================================
-  // record — standalone CDP network recording
+  // record - standalone CDP network recording
   // =========================================================================
   dd.command("record")
     .description(
@@ -384,7 +384,7 @@ export function registerDoordashCommand(program: Command): void {
     );
 
   // =========================================================================
-  // inspect — inspect a recording's GraphQL operations
+  // inspect - inspect a recording's GraphQL operations
   // =========================================================================
   dd.command("inspect")
     .description("Inspect GraphQL operations in a recording")
@@ -560,7 +560,7 @@ export function registerDoordashCommand(program: Command): void {
     );
 
   // =========================================================================
-  // status — check session status
+  // status - check session status
   // =========================================================================
   dd.command("status")
     .description("Check if a DoorDash session is active")
@@ -583,7 +583,7 @@ export function registerDoordashCommand(program: Command): void {
     });
 
   // =========================================================================
-  // search — search for restaurants/stores
+  // search - search for restaurants/stores
   // =========================================================================
   dd.command("search")
     .description("Search for restaurants on DoorDash")
@@ -596,7 +596,7 @@ export function registerDoordashCommand(program: Command): void {
     });
 
   // =========================================================================
-  // store-search — search for items within a specific retail/convenience store
+  // store-search - search for items within a specific retail/convenience store
   // =========================================================================
   dd.command("store-search")
     .description(
@@ -622,7 +622,7 @@ export function registerDoordashCommand(program: Command): void {
     );
 
   // =========================================================================
-  // search-items — search for items across all stores (works for convenience/retail)
+  // search-items - search for items across all stores (works for convenience/retail)
   // =========================================================================
   dd.command("search-items")
     .description(
@@ -638,7 +638,7 @@ export function registerDoordashCommand(program: Command): void {
     });
 
   // =========================================================================
-  // menu — get a store's menu
+  // menu - get a store's menu
   // =========================================================================
   dd.command("menu")
     .description("Get a restaurant's menu by store ID")
@@ -661,7 +661,7 @@ export function registerDoordashCommand(program: Command): void {
     );
 
   // =========================================================================
-  // item — get item details
+  // item - get item details
   // =========================================================================
   dd.command("item")
     .description("Get details for a specific menu item")
@@ -677,7 +677,7 @@ export function registerDoordashCommand(program: Command): void {
     );
 
   // =========================================================================
-  // cart — cart operations (subcommand group)
+  // cart - cart operations (subcommand group)
   // =========================================================================
   const cart = dd.command("cart").description("Cart operations");
 
@@ -766,12 +766,12 @@ export function registerDoordashCommand(program: Command): void {
       });
     });
 
-  // cart learn — capture customization options via CDP recording
+  // cart learn - capture customization options via CDP recording
   cart
     .command("learn")
     .description(
       "Learn item customization options by recording a browser interaction. " +
-        "Opens Chrome and watches you customize an item — when you add it to cart, " +
+        "Opens Chrome and watches you customize an item - when you add it to cart, " +
         "the nestedOptions and specialInstructions are extracted and output.",
     )
     .option("--duration <seconds>", "Max recording duration in seconds", "120")
@@ -895,7 +895,7 @@ export function registerDoordashCommand(program: Command): void {
     });
 
   // =========================================================================
-  // checkout — get checkout / dropoff options
+  // checkout - get checkout / dropoff options
   // =========================================================================
   dd.command("checkout")
     .description("Get delivery/dropoff options for a cart")
@@ -911,7 +911,7 @@ export function registerDoordashCommand(program: Command): void {
     );
 
   // =========================================================================
-  // order — order operations (subcommand group)
+  // order - order operations (subcommand group)
   // =========================================================================
   const order = dd.command("order").description("Order operations");
 
@@ -964,7 +964,7 @@ export function registerDoordashCommand(program: Command): void {
     );
 
   // =========================================================================
-  // payment-methods — list saved payment methods
+  // payment-methods - list saved payment methods
   // =========================================================================
   dd.command("payment-methods")
     .description("List saved payment methods")
@@ -1058,7 +1058,7 @@ async function startLearnSession(durationSeconds: number): Promise<void> {
           return;
         }
       } catch {
-        // Status query failed — continue polling
+        // Status query failed - continue polling
       }
 
       setTimeout(pollOnce, pollIntervalMs);

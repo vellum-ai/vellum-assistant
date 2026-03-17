@@ -371,7 +371,7 @@ export class SecretDetectionHandler {
       };
     }
 
-    // User allowed — pass content through unchanged
+    // User allowed - pass content through unchanged
     return { result: execResult, earlyReturn: false };
   }
 }

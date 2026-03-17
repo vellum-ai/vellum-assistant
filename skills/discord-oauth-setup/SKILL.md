@@ -28,7 +28,7 @@ The flow has 9 steps total, takes about 3-5 minutes.
 
 ### Step 0: Prerequisite Check
 
-> Before we start — do you have a Discord account? You don't need any special permissions; any Discord user can create applications in the Developer Portal.
+> Before we start - do you have a Discord account? You don't need any special permissions; any Discord user can create applications in the Developer Portal.
 
 If no account, direct them to `https://discord.com/register` first.
 
@@ -38,7 +38,7 @@ If no account, direct them to `https://discord.com/register` first.
 
 Open: `https://discord.com/developers/applications`
 
-> I've opened the Discord Developer Portal. If it's asking you to sign in, go ahead and do that first — then let me know.
+> I've opened the Discord Developer Portal. If it's asking you to sign in, go ahead and do that first - then let me know.
 
 ---
 
@@ -55,7 +55,7 @@ After the user clicks:
 - If the user already has an application named "Vellum Assistant", they can either reuse it or pick a different name
 - Discord may show a CAPTCHA during creation
 
-**Milestone (2 of 9):** "Application created — now let's head to the OAuth2 settings."
+**Milestone (2 of 9):** "Application created - now let's head to the OAuth2 settings."
 
 ---
 
@@ -65,7 +65,7 @@ After the user clicks:
 
 Open: the application's **OAuth2** page via the left sidebar.
 
-**Milestone (3 of 9):** "OAuth2 page open — let's grab the Client ID."
+**Milestone (3 of 9):** "OAuth2 page open - let's grab the Client ID."
 
 ---
 
@@ -79,7 +79,7 @@ Wait for the user to provide the Client ID.
 
 ### Step 5: Reset and Copy the App Secret
 
-> Now we need the app secret. Click the **Reset Secret** button. Discord will ask you to confirm — go ahead and confirm it.
+> Now we need the app secret. Click the **Reset Secret** button. Discord will ask you to confirm - go ahead and confirm it.
 
 > **Important:** Once the secret is shown, you'll only be able to see it this once. I'll prompt you to paste it securely in a moment.
 
@@ -88,7 +88,7 @@ Wait for the user to provide the Client ID.
 - If the user has 2FA enabled, Discord will ask for a 2FA code before revealing the secret
 - The old secret (if any) will stop working immediately after reset
 
-**Milestone (5 of 9):** "Credentials in hand — now let's set up the redirect URL."
+**Milestone (5 of 9):** "Credentials in hand - now let's set up the redirect URL."
 
 ---
 
@@ -100,7 +100,7 @@ Wait for the user to provide the Client ID.
 >
 > Then click **Save Changes** at the bottom.
 
-**Milestone (6 of 9):** "Redirect URL is set — time to save the credentials."
+**Milestone (6 of 9):** "Redirect URL is set - time to save the credentials."
 
 ---
 
@@ -128,7 +128,7 @@ bash:
     ) --client-secret-credential-path "integration:discord:oauth_secret"
 ```
 
-**Milestone (7 of 9):** "Credentials saved — just the authorization step left."
+**Milestone (7 of 9):** "Credentials saved - just the authorization step left."
 
 ---
 
@@ -172,6 +172,6 @@ For non-interactive channels, see [references/path-b-manual-setup.md](references
 
 Key Discord-specific differences for Path B:
 
-- Loopback callback won't work from a remote channel — need public ingress configured
+- Loopback callback won't work from a remote channel - need public ingress configured
 - Add the ingress-based redirect URI under **Redirects** on the OAuth2 page
 - Discord app secrets don't have a known prefix that triggers scanners, but still use `credential_store prompt` or `credential_store store` for security

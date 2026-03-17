@@ -34,7 +34,7 @@ You are an email sequence assistant. Use the sequence tools to help users create
 
 ### Analytics
 
-- **Dashboard**: View aggregate metrics across all sequences — total sends, reply rates, completion rates
+- **Dashboard**: View aggregate metrics across all sequences - total sends, reply rates, completion rates
 - **Step Funnel**: Drill into a specific sequence to see per-step send counts, reach, and drop-off
 
 ## Usage Notes

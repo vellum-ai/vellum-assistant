@@ -36,7 +36,7 @@ export async function run(
 
   const meta = PANES[pane as PaneName];
 
-  // Send open_url to the client — the x-apple.systempreferences: scheme
+  // Send open_url to the client - the x-apple.systempreferences: scheme
   // opens System Settings directly without a browser confirmation dialog.
   if (context.sendToClient) {
     context.sendToClient({

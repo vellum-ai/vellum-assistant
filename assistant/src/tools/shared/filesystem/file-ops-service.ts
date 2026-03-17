@@ -132,7 +132,7 @@ export class FileSystemOps {
         try {
           oldContent = readFileSync(filePath, "utf-8");
         } catch {
-          // Unreadable existing file — keep oldContent as empty string.
+          // Unreadable existing file - keep oldContent as empty string.
         }
       }
 
@@ -167,14 +167,14 @@ export class FileSystemOps {
     }
     const filePath = pathCheck.resolved;
 
-    // Size-check the file on disk (swallow ENOENT — readFileSync gives a clearer error)
+    // Size-check the file on disk (swallow ENOENT - readFileSync gives a clearer error)
     try {
       const sizeErr = checkFileSizeOnDisk(filePath, this.sizeLimit);
       if (sizeErr) {
         return { ok: false, error: Err.sizeLimitExceeded(filePath, sizeErr) };
       }
     } catch {
-      // Fall through — the readFileSync below will surface NOT_FOUND.
+      // Fall through - the readFileSync below will surface NOT_FOUND.
     }
 
     let content: string;

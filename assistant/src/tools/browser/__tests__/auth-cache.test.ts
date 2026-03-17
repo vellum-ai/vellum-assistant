@@ -157,7 +157,7 @@ describe("AuthSessionCache", () => {
     ];
     writeSessionsFile(tmpDir, sessions);
 
-    // Create a fresh cache — load() has NOT been called
+    // Create a fresh cache - load() has NOT been called
     const cache = new AuthSessionCache(tmpDir);
 
     // markAuthenticated should ensureLoaded first, so existing sessions
@@ -192,7 +192,7 @@ describe("AuthSessionCache", () => {
     ];
     writeSessionsFile(tmpDir, sessions);
 
-    // Create a fresh cache — load() has NOT been called
+    // Create a fresh cache - load() has NOT been called
     const cache = new AuthSessionCache(tmpDir);
 
     // invalidate should ensureLoaded first, so unrelated sessions

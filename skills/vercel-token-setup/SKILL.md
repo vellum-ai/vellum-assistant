@@ -22,7 +22,7 @@ Determine whether the user has browser automation available (macOS desktop app) 
 
 # Path A: Manual Setup for Channels (Telegram, Slack, etc.)
 
-When the user is on Telegram or any non-macOS client, walk them through a text-based setup. No browser automation is used — the user follows links and performs each action manually.
+When the user is on Telegram or any non-macOS client, walk them through a text-based setup. No browser automation is used - the user follows links and performs each action manually.
 
 ### Channel Step 1: Confirm and Explain
 
@@ -54,7 +54,7 @@ Tell the user:
 > 4. Set expiration to the longest option available (or **"No Expiration"** if offered)
 > 5. Click **"Create Token"**
 >
-> A token value will appear — **copy it now**, as it's only shown once.
+> A token value will appear - **copy it now**, as it's only shown once.
 
 ### Channel Step 3: Store the Token
 
@@ -116,12 +116,12 @@ Each step has a **retry budget of 3 attempts**. An attempt is one try at the ste
 
 If **two or more steps** require manual fallback, abandon the automated flow entirely and switch to giving the user the remaining steps as clear text instructions with links.
 
-## Things That Do Not Work — Do Not Attempt
+## Things That Do Not Work - Do Not Attempt
 
 These actions are technically impossible in the browser automation environment:
 
 - **Downloading files.** `browser_click` on a Download button does not save files to disk.
-- **Reading the token value from a screenshot.** The token IS visible in the creation dialog, but you MUST NOT attempt to read it from a screenshot — it is too easy to misread characters, and the value must be exact. Always use the `credential_store prompt` approach to let the user copy-paste it accurately.
+- **Reading the token value from a screenshot.** The token IS visible in the creation dialog, but you MUST NOT attempt to read it from a screenshot - it is too easy to misread characters, and the value must be exact. Always use the `credential_store prompt` approach to let the user copy-paste it accurately.
 - **Clipboard operations.** You cannot copy/paste via browser automation.
 
 ## Step 1: Single Upfront Confirmation
@@ -134,8 +134,8 @@ Tell the user:
 >
 > 1. **A browser opens** to your Vercel account settings
 > 2. **You sign in** (if not already signed in)
-> 3. **I create the token** — you just watch
-> 4. **One quick copy-paste** — I'll ask you to copy the token value into a secure prompt
+> 3. **I create the token** - you just watch
+> 4. **One quick copy-paste** - I'll ask you to copy the token value into a secure prompt
 >
 > Takes about a minute. Ready?
 
@@ -149,8 +149,8 @@ Navigate to `https://vercel.com/account/tokens`.
 
 Take a screenshot and snapshot to check the page state:
 
-- **Sign-in page:** Tell the user: "Please sign in to your Vercel account in the browser." Then auto-detect sign-in completion by polling screenshots every 5-10 seconds. Check if the current URL has moved away from the login/sign-in page to the tokens page. Do NOT ask the user to "let me know when you're done" — detect it automatically. Once sign-in is detected, tell the user: "Signed in! Creating your API token now..."
-- **Already signed in:** Tell the user: "Already signed in — creating your API token now..." and continue immediately.
+- **Sign-in page:** Tell the user: "Please sign in to your Vercel account in the browser." Then auto-detect sign-in completion by polling screenshots every 5-10 seconds. Check if the current URL has moved away from the login/sign-in page to the tokens page. Do NOT ask the user to "let me know when you're done" - detect it automatically. Once sign-in is detected, tell the user: "Signed in! Creating your API token now..."
+- **Already signed in:** Tell the user: "Already signed in - creating your API token now..." and continue immediately.
 
 **Verify:** URL contains `vercel.com/account/tokens` and no sign-in overlay is visible.
 
@@ -173,9 +173,9 @@ On the creation form:
 
 **Goal:** The token value is securely captured and stored.
 
-### CRITICAL — Token Capture Protocol
+### CRITICAL - Token Capture Protocol
 
-After token creation, Vercel shows the token value **once**. You MUST follow this exact sequence — **no improvisation**:
+After token creation, Vercel shows the token value **once**. You MUST follow this exact sequence - **no improvisation**:
 
 1. Tell the user: "Your token has been created! Please copy the token value shown on screen and paste it into the secure prompt below."
 2. **IMMEDIATELY** present a `credential_store prompt` for the token. This is your ONLY next action.
@@ -219,5 +219,5 @@ credential_store store:
 
 - **Page load failures:** Retry navigation once. If it still fails, tell the user and ask them to check their internet connection.
 - **Element not found:** Take a fresh screenshot to re-assess. The Vercel UI may have changed. Describe what you see and try alternative approaches. If stuck after 2 attempts, ask the user for guidance.
-- **Token already exists with same name:** This is fine — Vercel allows multiple tokens with the same name. Proceed with creation.
+- **Token already exists with same name:** This is fine - Vercel allows multiple tokens with the same name. Proceed with creation.
 - **Any unexpected state:** Take a `browser_screenshot`, describe what you see, and ask the user for guidance.

@@ -3,10 +3,10 @@
 - **Skills must be self-contained and portable**
   - Use `scripts/` for supporting logic with inline dependencies
   - When including code assets, utilities, or tools, load the [scripts best practices specification](https://agentskills.io/skill-creation/using-scripts.md) first
-  - **External dependencies in Bun/TypeScript scripts**: pin versions directly in the import path (e.g., `import { Command } from "commander@13.1.0"`). Bun auto-installs missing packages at runtime when no `node_modules` directory is found. Do NOT add a `package.json` or `bun.lock` to skill directories — this disables Bun's auto-install behavior and breaks portability.
+  - **External dependencies in Bun/TypeScript scripts**: pin versions directly in the import path (e.g., `import { Command } from "commander@13.1.0"`). Bun auto-installs missing packages at runtime when no `node_modules` directory is found. Do NOT add a `package.json` or `bun.lock` to skill directories - this disables Bun's auto-install behavior and breaks portability.
   - Do not install CLIs into Vellum or the host system; provide instructions for users to install external packages if needed
-  - Do not create new assistant tools and reference them from SKILL.md — this couples skills to Vellum internals and breaks compatibility with other agent systems
-  - Do not include a TOOLS.json file in skill directories — skills should rely on CLI tools in `scripts/`, not custom tool definitions
+  - Do not create new assistant tools and reference them from SKILL.md - this couples skills to Vellum internals and breaks compatibility with other agent systems
+  - Do not include a TOOLS.json file in skill directories - skills should rely on CLI tools in `scripts/`, not custom tool definitions
 
 - **Follow the [Agent Skills specification](https://agentskills.io/specification)**
   - All skills must conform to the spec's SKILL.md format: required YAML frontmatter (`name`, `description`), optional fields (`license`, `compatibility`, `metadata`, `allowed-tools`), and Markdown body
@@ -22,7 +22,7 @@
 - **Write portable instructions**
   - Avoid referring to tools by specific names (prefer "Take a browser screenshot" over "Use browser_screen_grab")
   - It is fine to refer to tools/utils/etc. directly by name if it is bundled with the skill (likely in `scripts/`)
-  - Use standard frontmatter according to the [Agent Skills specification](https://agentskills.io/specification) — linters validate this
+  - Use standard frontmatter according to the [Agent Skills specification](https://agentskills.io/specification) - linters validate this
 
 - **Vellum-specific extensions**
   - If you must do something Vellum-system specific, use the `metadata` field to connect the skill in a structured way

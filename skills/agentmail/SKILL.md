@@ -11,8 +11,8 @@ metadata:
 
 ## How to run
 
-`vellum` is your own CLI binary — it is already installed and available on the PATH.
-Run all commands via `bash`. Do NOT attempt to install, build, or locate the CLI — just execute it directly.
+`vellum` is your own CLI binary - it is already installed and available on the PATH.
+Run all commands via `bash`. Do NOT attempt to install, build, or locate the CLI - just execute it directly.
 
 Example: `bash("assistant email status --json")`
 
@@ -20,13 +20,13 @@ Never use browser/computer-use unless user explicitly approves fallback.
 
 ## When to Use This Skill
 
-This skill manages the **assistant's own** AgentMail address (`@agentmail.to`) — not the user's personal email. Only use this skill when the user explicitly asks the assistant to send email **from the assistant's own address**, manage the assistant's inbox, or perform operations on the assistant's AgentMail account. Generic email requests ("send an email", "check my email", "draft a reply") are about the **user's Gmail** and should be handled by the Messaging skill instead.
+This skill manages the **assistant's own** AgentMail address (`@agentmail.to`) - not the user's personal email. Only use this skill when the user explicitly asks the assistant to send email **from the assistant's own address**, manage the assistant's inbox, or perform operations on the assistant's AgentMail account. Generic email requests ("send an email", "check my email", "draft a reply") are about the **user's Gmail** and should be handled by the Messaging skill instead.
 
 ## Rules
 
 - Always run `assistant email` commands via `bash` and parse JSON output.
 - Always do `assistant email status --json` preflight first.
-- Prefer `draft create` before any send — never bypass draft flow.
+- Prefer `draft create` before any send - never bypass draft flow.
 - Require explicit user confirmation before `draft approve-send --confirm`.
 - When uncertain, draft to ops@ inbox and notify user.
 - Never send cold outreach without explicit user authorization.
@@ -51,9 +51,9 @@ After the credential is stored, retry `assistant email status --json` to confirm
 ## Workflow
 
 1. **Preflight:** `assistant email status --json` (if API key error, run API Key Setup above)
-2. **Quick inbox:** `assistant email inbox create --username <name>` (creates e.g. sam@agentmail.to — no custom domain needed)
+2. **Quick inbox:** `assistant email inbox create --username <name>` (creates e.g. sam@agentmail.to - no custom domain needed)
 3. **Custom domain setup (optional):** domain -> dns -> verify -> inboxes -> webhook
-4. **Draft path:** `assistant email draft create ...` — always draft first
+4. **Draft path:** `assistant email draft create ...` - always draft first
 5. **Send path:** show draft -> user confirms -> `draft approve-send --draft-id <id> --confirm`
 6. **Inbound triage:** list -> get -> summarize -> propose reply draft
 7. **Guardrails:** check with `guardrails get`, use `guardrails set` to change

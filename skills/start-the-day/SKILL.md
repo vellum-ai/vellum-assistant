@@ -19,7 +19,7 @@ Build the briefing in sections. Use what you know about the user and their conte
 Check the user's location (from system context or ask once) and provide:
 - Current conditions and temperature
 - High/low for the day
-- Notable weather (rain, extreme temps, wind) — only if it affects plans
+- Notable weather (rain, extreme temps, wind) - only if it affects plans
 
 ### 2. Top Headlines
 
@@ -40,7 +40,7 @@ If you have access to calendar context:
 
 If you have access to communication context:
 - Summarize unread messages that need responses
-- Draft quick replies for straightforward ones — present them for review
+- Draft quick replies for straightforward ones - present them for review
 - Flag anything urgent or time-sensitive
 
 ### 5. Tasks & Priorities
@@ -59,9 +59,9 @@ End with one of:
 
 ## Tone
 
-- Concise and scannable — use bullet points, not paragraphs
-- Conversational but efficient — like a sharp executive assistant
-- Don't pad with filler — if you only have 2 useful sections, give 2 sections
+- Concise and scannable - use bullet points, not paragraphs
+- Conversational but efficient - like a sharp executive assistant
+- Don't pad with filler - if you only have 2 useful sections, give 2 sections
 - Time-aware: morning briefings differ from afternoon check-ins
 
 ## Adaptation Over Time

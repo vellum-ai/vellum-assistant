@@ -3,19 +3,19 @@ import type { ToolDefinition } from "../../providers/types.js";
 export const memoryRecallDefinition: ToolDefinition = {
   name: "memory_recall",
   description:
-    "Hybrid search across memory (semantic and recency) for specific information. Relevant memories are auto-injected each turn, so only call this when the auto-injected context doesn't contain what you need — e.g. the user references a past session, or you need deeper recall. Be specific in your query for best results. Returns formatted memory context with item IDs for use with memory_manage.",
+    "Hybrid search across memory (semantic and recency) for specific information. Relevant memories are auto-injected each turn, so only call this when the auto-injected context doesn't contain what you need - e.g. the user references a past session, or you need deeper recall. Be specific in your query for best results. Returns formatted memory context with item IDs for use with memory_manage.",
   input_schema: {
     type: "object",
     properties: {
       query: {
         type: "string",
-        description: "The search query — be specific and descriptive",
+        description: "The search query - be specific and descriptive",
       },
       scope: {
         type: "string",
         enum: ["default", "conversation"],
         description:
-          'Scope to search — "default" searches all memory, "conversation" restricts to current conversation',
+          'Scope to search - "default" searches all memory, "conversation" restricts to current conversation',
       },
     },
     required: ["query"],
@@ -48,7 +48,7 @@ const memoryManageProperties = {
       "event",
     ],
     description:
-      'Category of the memory item (required for save). Use "constraint" for mistakes, gotchas, discoveries, and working solutions — write as advice to your future self.',
+      'Category of the memory item (required for save). Use "constraint" for mistakes, gotchas, discoveries, and working solutions - write as advice to your future self.',
   },
   subject: {
     type: "string" as const,
@@ -59,7 +59,7 @@ const memoryManageProperties = {
 export const memoryManageDefinition: ToolDefinition = {
   name: "memory_manage",
   description:
-    "Save, update, or delete memory items. Memory does not survive session restarts — if you want to remember something, save it now. Use 'save' for new information worth remembering (facts, preferences, mistakes, discoveries, gotchas), 'update' to correct existing items, 'delete' to remove outdated items. When a user says 'remember this', save immediately. For user profile or personality changes, update workspace files (USER.md, SOUL.md) instead.",
+    "Save, update, or delete memory items. Memory does not survive session restarts - if you want to remember something, save it now. Use 'save' for new information worth remembering (facts, preferences, mistakes, discoveries, gotchas), 'update' to correct existing items, 'delete' to remove outdated items. When a user says 'remember this', save immediately. For user profile or personality changes, update workspace files (USER.md, SOUL.md) instead.",
   input_schema: {
     type: "object",
     properties: memoryManageProperties,

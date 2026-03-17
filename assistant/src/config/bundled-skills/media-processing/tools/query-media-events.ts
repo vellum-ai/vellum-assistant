@@ -1,5 +1,5 @@
 /**
- * Query media tool — sends natural language queries against video
+ * Query media tool - sends natural language queries against video
  * analysis data (map output) via Claude for intelligent answers.
  *
  * Replaces the old keyword-matching approach with an LLM-powered

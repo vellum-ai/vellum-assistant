@@ -72,7 +72,7 @@ export async function run(
           ),
         );
         lines.push(
-          `  Step ${s.stepIndex + 1}: "${s.subject}" — ${s.sends} sends, ${
+          `  Step ${s.stepIndex + 1}: "${s.subject}" - ${s.sends} sends, ${
             s.enrollmentsReached
           } reached, ${(s.dropOff * 100).toFixed(0)}% drop-off`,
         );
@@ -89,7 +89,7 @@ export async function run(
       const time = new Date(e.createdAt).toISOString();
       const step = e.stepIndex !== undefined ? ` step ${e.stepIndex + 1}` : "";
       lines.push(
-        `  [${time}] ${e.eventType}${step} — enrollment ${e.enrollmentId.slice(
+        `  [${time}] ${e.eventType}${step} - enrollment ${e.enrollmentId.slice(
           0,
           8,
         )}...`,

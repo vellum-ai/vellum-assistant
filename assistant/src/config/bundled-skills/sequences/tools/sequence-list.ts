@@ -21,7 +21,7 @@ export async function run(
 
     const lines = seqs.map((s) => {
       const enrollments = countActiveEnrollments(s.id);
-      return `- ${s.name} (ID: ${s.id}) — ${s.status}, ${s.steps.length} steps, ${enrollments} active enrollments, channel: ${s.channel}`;
+      return `- ${s.name} (ID: ${s.id}) - ${s.status}, ${s.steps.length} steps, ${enrollments} active enrollments, channel: ${s.channel}`;
     });
     return ok(`${seqs.length} sequence(s):\n${lines.join("\n")}`);
   } catch (e) {

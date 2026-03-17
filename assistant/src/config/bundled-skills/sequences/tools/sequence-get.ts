@@ -41,7 +41,7 @@ export async function run(
       `Steps (${seq.steps.length}):`,
       ...seq.steps.map(
         (s) =>
-          `  ${s.index + 1}. "${s.subjectTemplate}" — delay: ${
+          `  ${s.index + 1}. "${s.subjectTemplate}" - delay: ${
             s.delaySeconds
           }s${s.requireApproval ? " [approval required]" : ""}`,
       ),

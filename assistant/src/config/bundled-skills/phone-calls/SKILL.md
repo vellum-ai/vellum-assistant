@@ -84,7 +84,7 @@ After they are verified, ask them what they think of your voice and offer to let
 Use the `call_start` tool to place outbound calls. Every call requires:
 
 - **phone_number**: The number to call in E.164 format (e.g. `+14155551234`)
-- **task**: What the call should accomplish — this becomes the AI voice agent's objective
+- **task**: What the call should accomplish - this becomes the AI voice agent's objective
 - **context** (optional): Additional background information for the conversation
 
 ### Example calls:
@@ -148,7 +148,7 @@ Once Twilio is configured and the assistant has a phone number, inbound calls wo
 
 1. The gateway resolves the assistant by phone number and forwards to the runtime
 2. A new voice session is created, keyed by the Twilio CallSid
-3. The LLM-driven orchestrator answers in receptionist mode — greeting the caller warmly and asking how it can help
+3. The LLM-driven orchestrator answers in receptionist mode - greeting the caller warmly and asking how it can help
 4. The conversation proceeds naturally, with ASK_GUARDIAN dispatches to consult the user when needed
 
 No additional configuration is needed beyond Twilio setup and `calls.enabled` being `true`. As long as the phone number has been provisioned/assigned, inbound calls are handled automatically.
@@ -189,7 +189,7 @@ The follow-up flow works across all guardian channels. The guardian can receive 
 
 #### Steering with instructions
 
-When there is **no pending question** but the call is still active, the user can send steering instructions via the HTTP API (`POST /v1/calls/:id/instruction`) to proactively guide the call in real time — for example:
+When there is **no pending question** but the call is still active, the user can send steering instructions via the HTTP API (`POST /v1/calls/:id/instruction`) to proactively guide the call in real time - for example:
 
 - "Ask them about their cancellation policy too"
 - "Wrap up the call, we have what we need"
@@ -202,13 +202,13 @@ The instruction is injected into the AI voice agent's conversation context as hi
 
 ### Call status values
 
-- **initiated** — Call is being placed
-- **ringing** — Phone is ringing on the other end
-- **in_progress** — Call is connected, conversation is active
-- **waiting_on_user** — AI agent needs input from the user (check pending question)
-- **completed** — Call ended successfully
-- **failed** — Call failed (check lastError for details)
-- **cancelled** — Call was manually cancelled
+- **initiated** - Call is being placed
+- **ringing** - Phone is ringing on the other end
+- **in_progress** - Call is connected, conversation is active
+- **waiting_on_user** - AI agent needs input from the user (check pending question)
+- **completed** - Call ended successfully
+- **failed** - Call failed (check lastError for details)
+- **cancelled** - Call was manually cancelled
 
 ### Ending a call early
 
@@ -222,6 +222,6 @@ call_end call_session_id="<session_id>" reason="User requested to end the call"
 
 For detailed information on the following topics, see the reference files:
 
-- **[Retrieving Past Call Transcripts](references/TRANSCRIPTS.md)** — How to find and query full bidirectional call transcripts from the database
-- **[Configuration Reference & Call Quality Tips](references/CONFIG.md)** — All call-related config settings, defaults, and tips for writing effective call tasks
-- **[Troubleshooting](references/TROUBLESHOOTING.md)** — Common error messages, connectivity issues, and debugging steps
+- **[Retrieving Past Call Transcripts](references/TRANSCRIPTS.md)** - How to find and query full bidirectional call transcripts from the database
+- **[Configuration Reference & Call Quality Tips](references/CONFIG.md)** - All call-related config settings, defaults, and tips for writing effective call tasks
+- **[Troubleshooting](references/TROUBLESHOOTING.md)** - Common error messages, connectivity issues, and debugging steps

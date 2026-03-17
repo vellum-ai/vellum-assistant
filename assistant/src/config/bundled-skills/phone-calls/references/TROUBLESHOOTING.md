@@ -52,7 +52,7 @@ Or re-run the public-ingress skill to auto-detect and save the new URL.
 
 ## Call drops after 30 seconds of silence
 
-The system has a 30-second silence timeout. If nobody speaks for 30 seconds during normal conversation, the agent will ask "Are you still there?" This is expected behavior. During guardian wait states (inbound access-request wait or in-call guardian consultation wait), this generic silence nudge is suppressed — the guardian-wait heartbeat messaging is used instead.
+The system has a 30-second silence timeout. If nobody speaks for 30 seconds during normal conversation, the agent will ask "Are you still there?" This is expected behavior. During guardian wait states (inbound access-request wait or in-call guardian consultation wait), this generic silence nudge is suppressed - the guardian-wait heartbeat messaging is used instead.
 
 ## Call quality sounds off
 

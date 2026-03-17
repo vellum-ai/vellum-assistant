@@ -13,24 +13,24 @@ metadata:
 
 Use this skill to browse the web. After loading this skill, the following browser tools become available:
 
-- `browser_navigate` — Navigate to a URL
-- `browser_snapshot` — List interactive elements on the current page
-- `browser_screenshot` — Take a visual screenshot
-- `browser_close` — Close the browser page
-- `browser_click` — Click an element
-- `browser_type` — Type text into an input
-- `browser_press_key` — Press a keyboard key
-- `browser_scroll` — Scroll the page or a specific element
-- `browser_select_option` — Select an option from a native `<select>` element
-- `browser_hover` — Hover over an element to reveal menus/tooltips
-- `browser_wait_for` — Wait for a condition
-- `browser_extract` — Extract page text content
-- `browser_wait_for_download` — Wait for a file download to complete
-- `browser_fill_credential` — Fill a stored credential into a form field
+- `browser_navigate` - Navigate to a URL
+- `browser_snapshot` - List interactive elements on the current page
+- `browser_screenshot` - Take a visual screenshot
+- `browser_close` - Close the browser page
+- `browser_click` - Click an element
+- `browser_type` - Type text into an input
+- `browser_press_key` - Press a keyboard key
+- `browser_scroll` - Scroll the page or a specific element
+- `browser_select_option` - Select an option from a native `<select>` element
+- `browser_hover` - Hover over an element to reveal menus/tooltips
+- `browser_wait_for` - Wait for a condition
+- `browser_extract` - Extract page text content
+- `browser_wait_for_download` - Wait for a file download to complete
+- `browser_fill_credential` - Fill a stored credential into a form field
 
 ## Capabilities
 
-This browser runs **full Chromium with JavaScript enabled**. It can handle SPAs, React/Vue/Angular apps, dynamic content, date pickers, booking systems, reservation flows, and any JavaScript-heavy interactive site. Never tell the user you "can't handle interactive JavaScript" — you can.
+This browser runs **full Chromium with JavaScript enabled**. It can handle SPAs, React/Vue/Angular apps, dynamic content, date pickers, booking systems, reservation flows, and any JavaScript-heavy interactive site. Never tell the user you "can't handle interactive JavaScript" - you can.
 
 ## Typical Workflow
 

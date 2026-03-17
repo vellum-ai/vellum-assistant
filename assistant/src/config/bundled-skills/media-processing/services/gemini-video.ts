@@ -1,5 +1,5 @@
 /**
- * Gemini Video service — uploads video directly to Gemini's Files API for
+ * Gemini Video service - uploads video directly to Gemini's Files API for
  * analysis, letting Gemini see actual motion and temporal context instead
  * of static keyframes.
  *
@@ -266,7 +266,7 @@ export async function analyzeVideoDirectly(
         await client.files.delete({ name: uploadedFileName });
         onProgress?.(`Cleaned up uploaded file from Gemini.\n`);
       } catch {
-        // Best-effort cleanup — don't fail the operation
+        // Best-effort cleanup - don't fail the operation
       }
     }
   }

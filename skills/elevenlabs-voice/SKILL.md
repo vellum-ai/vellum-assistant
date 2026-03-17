@@ -1,6 +1,6 @@
 ---
 name: elevenlabs-voice
-description: Select and tune an ElevenLabs TTS voice — curated voice list, custom/cloned voices via API key, and tuning parameters
+description: Select and tune an ElevenLabs TTS voice - curated voice list, custom/cloned voices via API key, and tuning parameters
 compatibility: "Designed for Vellum personal assistants"
 metadata:
   emoji: "🗣️"
@@ -10,7 +10,7 @@ metadata:
 
 ## Overview
 
-ElevenLabs provides text-to-speech voices for both **in-app TTS** and **phone calls**. The shared config key `elevenlabs.voiceId` controls the voice across all channels. Use the `voice_config_update` tool to change the voice — it writes to the config file and pushes to the macOS app via SSE in one call.
+ElevenLabs provides text-to-speech voices for both **in-app TTS** and **phone calls**. The shared config key `elevenlabs.voiceId` controls the voice across all channels. Use the `voice_config_update` tool to change the voice - it writes to the config file and pushes to the macOS app via SSE in one call.
 
 ## Choose a Voice
 
@@ -122,7 +122,7 @@ assistant config set elevenlabs.stability 0.5
 assistant config set elevenlabs.similarityBoost 0.75
 ```
 
-Lower stability makes the voice more expressive but less predictable — good for conversational calls. Higher stability is better for scripted or formal contexts.
+Lower stability makes the voice more expressive but less predictable - good for conversational calls. Higher stability is better for scripted or formal contexts.
 
 ## Voice Model Tuning
 

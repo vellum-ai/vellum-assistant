@@ -12,7 +12,7 @@ You have access to the Notion API via stored credentials for `integration:notion
 
 ## Authentication
 
-**Step 1 — Check for credentials:**
+**Step 1 - Check for credentials:**
 
 ```
 credential_store action=list
@@ -20,12 +20,12 @@ credential_store action=list
 
 Look for an entry with `service: "integration:notion"`. The credential may be stored under one of two fields depending on how the user set up the integration:
 
-- `field: "internal_secret"` — Internal integration (new default setup)
-- `field: "access_token"` — OAuth/Public integration (legacy setup)
+- `field: "internal_secret"` - Internal integration (new default setup)
+- `field: "access_token"` - OAuth/Public integration (legacy setup)
 
 If neither exists, tell the user: "Notion is not connected yet. Load the **notion-oauth-setup** skill to set it up first."
 
-**Step 2 — Make authenticated API calls:**
+**Step 2 - Make authenticated API calls:**
 
 Use `bash` with `assistant credentials reveal` to inject the token into the Authorization header. Substitute the correct `--field` value based on what you found in Step 1:
 
@@ -51,7 +51,7 @@ All Notion API calls go to `https://api.notion.com/v1/`. Always include the `Not
 GET https://api.notion.com/v1/pages/{page_id}
 ```
 
-Returns page properties. Use the page ID from a Notion URL — the last segment of the URL, e.g. for `https://notion.so/My-Page-abc123def456` the ID is `abc123def456` (formatted as UUID: `abc123de-f456-...`).
+Returns page properties. Use the page ID from a Notion URL - the last segment of the URL, e.g. for `https://notion.so/My-Page-abc123def456` the ID is `abc123def456` (formatted as UUID: `abc123de-f456-...`).
 
 ### Get page content (blocks)
 
@@ -59,7 +59,7 @@ Returns page properties. Use the page ID from a Notion URL — the last segment 
 GET https://api.notion.com/v1/blocks/{block_id}/children?page_size=100
 ```
 
-Pages are blocks too — use the page ID as the `block_id`. Iterates through the page's child blocks. Use `start_cursor` for pagination when `has_more` is `true`.
+Pages are blocks too - use the page ID as the `block_id`. Iterates through the page's child blocks. Use `start_cursor` for pagination when `has_more` is `true`.
 
 **Block types and how to render them:**
 
@@ -234,7 +234,7 @@ DELETE https://api.notion.com/v1/blocks/{block_id}
 
 ## Archive / Delete Pages
 
-Notion does not permanently delete pages via the API — it archives them:
+Notion does not permanently delete pages via the API - it archives them:
 
 ```
 PATCH https://api.notion.com/v1/pages/{page_id}

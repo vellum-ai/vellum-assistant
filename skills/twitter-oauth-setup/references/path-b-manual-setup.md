@@ -42,7 +42,7 @@ Tell the user:
 > 5. Add a brief description and click through each step
 > 6. When prompted, create a new app named **Vellum Assistant**
 >
-> You may see API Key, API Secret, and Bearer Token — save them if you like, but we won't use them. Navigate to your app's settings page.
+> You may see API Key, API Secret, and Bearer Token - save them if you like, but we won't use them. Navigate to your app's settings page.
 >
 > Let me know when the app is created.
 

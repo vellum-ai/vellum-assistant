@@ -1,10 +1,10 @@
 /**
- * Host shell tool — `host_bash`.
+ * Host shell tool - `host_bash`.
  *
  * Unlike the sandboxed `bash` tool, `host_bash` runs commands directly on the
  * host machine without the OS-level sandbox. Under CES shell lockdown for
  * untrusted actors, `host_bash` remains available as a user-approved escape
- * hatch — the guardian must explicitly approve each invocation. It is NOT part
+ * hatch - the guardian must explicitly approve each invocation. It is NOT part
  * of the strong CES secrecy guarantee because it runs unsandboxed and could
  * access protected paths or credential material on disk.
  *
@@ -129,7 +129,7 @@ class HostShellTool implements Tool {
     // lockdown is active for untrusted actors, persistent approvals are
     // disabled (every invocation requires fresh guardian approval) and the
     // VELLUM_UNTRUSTED_SHELL flag is injected to self-deny raw-secret CLI
-    // commands. This does NOT provide the strong CES secrecy guarantee —
+    // commands. This does NOT provide the strong CES secrecy guarantee -
     // the subprocess runs unsandboxed and could access protected paths.
     //
     // NOTE: forcePromptSideEffects is set in executor.ts BEFORE the
@@ -261,7 +261,7 @@ class HostShellTool implements Tool {
         if ((err as NodeJS.ErrnoException).code === "ENOENT") {
           hint = !existsSync(workingDir)
             ? `. The working directory does not exist: ${workingDir}`
-            : ". The command was not found — check that it is installed and in PATH.";
+            : ". The command was not found - check that it is installed and in PATH.";
         }
         resolve({
           content: `Error spawning command: ${err.message}${hint}`,

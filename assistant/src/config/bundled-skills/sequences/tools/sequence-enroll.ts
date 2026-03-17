@@ -39,11 +39,11 @@ export async function run(
           contactEmail: email,
           context,
         });
-        results.push(`  ${email} — enrolled (ID: ${enrollment.id})`);
+        results.push(`  ${email} - enrolled (ID: ${enrollment.id})`);
         successCount++;
       } catch (e) {
         results.push(
-          `  ${email} — failed: ${e instanceof Error ? e.message : String(e)}`,
+          `  ${email} - failed: ${e instanceof Error ? e.message : String(e)}`,
         );
       }
     }

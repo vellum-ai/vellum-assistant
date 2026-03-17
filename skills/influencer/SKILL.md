@@ -21,7 +21,7 @@ The influencer scripts are bundled with this skill. Run them via `bun run {baseD
 - The Chrome extension relay must be connected (user should have the Vellum extension loaded in Chrome)
 - The user must be **logged in** on each platform they want to search (Instagram, TikTok, X) in their Chrome browser
 - The extension MUST have the `debugger` permission (required to bypass CSP on Instagram and other Meta sites)
-- If the relay is not connected, tell the user: "Please open Chrome, click the Vellum extension icon, and click Connect — then I'll retry."
+- If the relay is not connected, tell the user: "Please open Chrome, click the Vellum extension icon, and click Connect - then I'll retry."
 
 ## Platform-Specific Architecture
 
@@ -57,15 +57,15 @@ X has a people search at `/search?q=...&f=user` with `[data-testid="UserCell"]` 
 When the user asks to find or research influencers:
 
 1. **Understand the criteria.** Ask about:
-   - **Niche/topic** — what kind of influencers? (fitness, beauty, tech, food, etc.)
-   - **Platforms** — Instagram, TikTok, X/Twitter, or all three?
-   - **Follower range** — micro (1K-10K), mid-tier (10K-100K), macro (100K-1M), mega (1M+)?
-   - **Verified only?** — do they need the blue checkmark?
+   - **Niche/topic** - what kind of influencers? (fitness, beauty, tech, food, etc.)
+   - **Platforms** - Instagram, TikTok, X/Twitter, or all three?
+   - **Follower range** - micro (1K-10K), mid-tier (10K-100K), macro (100K-1M), mega (1M+)?
+   - **Verified only?** - do they need the blue checkmark?
    - Don't over-ask. If the user says "find me fitness influencers on Instagram", that's enough to start.
 
-2. **Search** — run `bun run {baseDir}/scripts/influencer.ts search "<query>" --platforms <platforms> [options] --json`
+2. **Search** - run `bun run {baseDir}/scripts/influencer.ts search "<query>" --platforms <platforms> [options] --json`
 
-3. **Present results** — show a clean summary of each influencer found:
+3. **Present results** - show a clean summary of each influencer found:
    - Username and display name
    - Platform
    - Follower count
@@ -74,9 +74,9 @@ When the user asks to find or research influencers:
    - Content themes detected
    - Profile URL
 
-4. **Deep dive** (if needed) — run `bun run {baseDir}/scripts/influencer.ts profile <username> --platform <platform> --json` to get detailed data on a specific influencer.
+4. **Deep dive** (if needed) - run `bun run {baseDir}/scripts/influencer.ts profile <username> --platform <platform> --json` to get detailed data on a specific influencer.
 
-5. **Compare** (if needed) — run `bun run {baseDir}/scripts/influencer.ts compare instagram:user1 twitter:user2 tiktok:user3 --json` to compare influencers side by side.
+5. **Compare** (if needed) - run `bun run {baseDir}/scripts/influencer.ts compare instagram:user1 twitter:user2 tiktok:user3 --json` to compare influencers side by side.
 
 ## Follower Range Shortcuts
 
@@ -120,7 +120,7 @@ bun run {baseDir}/scripts/influencer.ts compare <platform:username ...> --json
   - Search with different criteria
   - Export the results
 - **Handle errors gracefully.** If a platform fails (e.g. not logged in), show results from the platforms that worked and mention which one failed.
-- **Do NOT use the browser skill.** All influencer research goes through the bundled scripts, not browser automation. Do NOT use `assistant influencer` directly — use the bundled scripts.
+- **Do NOT use the browser skill.** All influencer research goes through the bundled scripts, not browser automation. Do NOT use `assistant influencer` directly - use the bundled scripts.
 
 ## Example Interactions
 

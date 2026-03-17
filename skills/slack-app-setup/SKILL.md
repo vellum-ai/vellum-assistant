@@ -18,7 +18,7 @@ You are helping your user connect a Slack bot to the Vellum Assistant via Socket
 | App Token | Credential | `credential_store` prompt | **Yes** |
 | Bot Token | Credential | `credential_store` prompt | **Yes** |
 
-- Both tokens are secrets. Always collect via `credential_store` prompt — never accept them pasted in plaintext chat.
+- Both tokens are secrets. Always collect via `credential_store` prompt - never accept them pasted in plaintext chat.
 
 # Setup Steps
 
@@ -132,7 +132,7 @@ AUTH_RESPONSE=$(curl -sf -X POST "https://slack.com/api/auth.test" \
 echo "$AUTH_RESPONSE" | jq .
 ```
 
-If `ok` is `false`, the token is invalid — ask the user to re-enter (repeat Step 3).
+If `ok` is `false`, the token is invalid - ask the user to re-enter (repeat Step 3).
 
 If `ok` is `true`, parse the response and persist workspace metadata so the Settings UI can display the connected bot and workspace:
 
@@ -149,7 +149,7 @@ assistant config set slack.botUsername "$BOT_USERNAME"
 
 Report the bot username and workspace from the response.
 
-Socket Mode connects automatically once both credentials are stored — no further action needed.
+Socket Mode connects automatically once both credentials are stored - no further action needed.
 
 ## Step 5: Guardian Verification (Optional)
 

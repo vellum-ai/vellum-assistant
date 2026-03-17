@@ -28,7 +28,7 @@ The flow has 10 steps total, takes about 3-5 minutes.
 
 ### Step 0: Prerequisite Check
 
-> Before we start — do you have a HubSpot account? You'll need one to create a developer app.
+> Before we start - do you have a HubSpot account? You'll need one to create a developer app.
 
 If no account, direct them to sign up at `https://app.hubspot.com/signup/developers` and come back once they're logged in.
 
@@ -38,17 +38,17 @@ If no account, direct them to sign up at `https://app.hubspot.com/signup/develop
 
 Open: `https://app.hubspot.com/developer`
 
-> I've opened the HubSpot developer portal. If it's asking you to sign in, go ahead and do that first — then let me know.
+> I've opened the HubSpot developer portal. If it's asking you to sign in, go ahead and do that first - then let me know.
 
 ---
 
 ### Step 2: Create a Developer Account (if needed)
 
-> If this is your first time here, HubSpot may ask you to create a developer account. Go ahead and follow the prompts to set one up — it's free.
+> If this is your first time here, HubSpot may ask you to create a developer account. Go ahead and follow the prompts to set one up - it's free.
 
 If the user already has a developer account, skip to the next step.
 
-**Milestone (2 of 10):** "Developer account ready — now let's create an app."
+**Milestone (2 of 10):** "Developer account ready - now let's create an app."
 
 ---
 
@@ -59,9 +59,9 @@ If the user already has a developer account, skip to the next step.
 **Known issues:**
 
 - If the user doesn't see a Create app button, they may need to navigate to **Apps** in the top navigation first
-- Some accounts may show "Create a public app" vs "Create a private app" — choose **public app** (required for OAuth)
+- Some accounts may show "Create a public app" vs "Create a private app" - choose **public app** (required for OAuth)
 
-**Milestone (3 of 10):** "App created — now let's configure it."
+**Milestone (3 of 10):** "App created - now let's configure it."
 
 ---
 
@@ -75,7 +75,7 @@ If the user already has a developer account, skip to the next step.
 
 > Now click on the **Auth** tab at the top of the app page. This is where we'll configure OAuth settings.
 
-**Milestone (5 of 10):** "Auth tab open — let's set up the redirect URL and scopes."
+**Milestone (5 of 10):** "Auth tab open - let's set up the redirect URL and scopes."
 
 ---
 
@@ -91,17 +91,17 @@ If the user already has a developer account, skip to the next step.
 
 > Still on the **Auth** tab, scroll down to the **Scopes** section. You'll need to add each of these scopes:
 >
-> - `crm.objects.contacts.read` — read contact records
-> - `crm.objects.contacts.write` — create and update contacts
-> - `crm.objects.deals.read` — read deal records
-> - `crm.objects.deals.write` — create and update deals
-> - `crm.objects.companies.read` — read company records
+> - `crm.objects.contacts.read` - read contact records
+> - `crm.objects.contacts.write` - create and update contacts
+> - `crm.objects.deals.read` - read deal records
+> - `crm.objects.deals.write` - create and update deals
+> - `crm.objects.companies.read` - read company records
 >
 > Use the search box to find each scope, then check the box next to it. Click **Save** when all five are added.
 
 Wait for the user to confirm all 5 scopes are added.
 
-**Milestone (7 of 10):** "Scopes configured — now let's grab the credentials."
+**Milestone (7 of 10):** "Scopes configured - now let's grab the credentials."
 
 ---
 
@@ -109,7 +109,7 @@ Wait for the user to confirm all 5 scopes are added.
 
 > Still on the **Auth** tab, you should see the **Client ID** and **App Secret** near the top of the page.
 
-**Milestone (8 of 10):** "Almost there — just need to save these credentials."
+**Milestone (8 of 10):** "Almost there - just need to save these credentials."
 
 ---
 
@@ -156,7 +156,7 @@ bash:
     )
 ```
 
-**Milestone (9 of 10):** "Credentials saved and authorized — let's verify."
+**Milestone (9 of 10):** "Credentials saved and authorized - let's verify."
 
 ---
 
@@ -183,6 +183,6 @@ For non-interactive channels, see [references/path-b-manual-setup.md](references
 
 Key HubSpot-specific differences for Path B:
 
-- Loopback callback won't work from a remote channel — need public ingress configured
+- Loopback callback won't work from a remote channel - need public ingress configured
 - Add the ingress-based redirect URI under **Redirect URLs** on the Auth tab
 - App secrets don't have a known prefix that triggers scanners, but still use `credential_store prompt` or `credential_store store` for security

@@ -15,7 +15,7 @@ export const REASON_SKIP_SET = new Set<string>([
  * unless the tool is in the skip set, already has a reason field, or has a
  * non-object schema.
  *
- * CRITICAL: Never mutates the input definitions — always returns deep clones
+ * CRITICAL: Never mutates the input definitions - always returns deep clones
  * for any modified definition, since `getDefinition()` returns shared refs.
  */
 export function injectReasonField(
@@ -69,7 +69,7 @@ export function schemaDefinesProperty(
 
   const s = schema as Record<string, unknown>;
 
-  // Fail-closed on $ref — we can't resolve it, so treat as "doesn't define it"
+  // Fail-closed on $ref - we can't resolve it, so treat as "doesn't define it"
   if ("$ref" in s) {
     return false;
   }

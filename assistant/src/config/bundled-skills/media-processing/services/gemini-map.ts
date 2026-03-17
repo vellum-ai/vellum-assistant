@@ -1,5 +1,5 @@
 /**
- * Gemini Map service — processes video segments through Gemini's structured
+ * Gemini Map service - processes video segments through Gemini's structured
  * output API for vision-based analysis with guaranteed valid JSON responses.
  *
  * Uses @google/genai SDK directly (not the GeminiProvider wrapper) to leverage
@@ -194,7 +194,7 @@ async function processSegmentWithRetry(
         },
       };
     } catch (err) {
-      // Handle Gemini safety blocks — not retryable
+      // Handle Gemini safety blocks - not retryable
       if (err instanceof ApiError) {
         const message = err.message ?? "";
         if (message.includes("SAFETY") || message.includes("safety")) {
@@ -208,7 +208,7 @@ async function processSegmentWithRetry(
           };
         }
 
-        // Non-retryable client errors (400, 401, 403, etc.) — fail immediately
+        // Non-retryable client errors (400, 401, 403, etc.) - fail immediately
         if (
           err.status !== undefined &&
           err.status < 500 &&
@@ -225,7 +225,7 @@ async function processSegmentWithRetry(
           };
         }
 
-        // 429 rate limits — retryable with backoff
+        // 429 rate limits - retryable with backoff
         if (err.status === 429 && attempt < maxRetries) {
           const delay = computeRetryDelay(attempt);
           onProgress?.(
@@ -332,7 +332,7 @@ export async function mapSegments(
         onProgress?.(`  Segment ${segment.id}: loaded from cache.\n`);
         return;
       } catch {
-        // Corrupted cache file — reprocess
+        // Corrupted cache file - reprocess
       }
     }
 

@@ -1,6 +1,6 @@
 ---
 name: slack-digest-setup
-description: Set up recurring Slack channel digests with scanning schedules, channel configuration, and delivery — codifies best practices for high-quality automated summaries
+description: Set up recurring Slack channel digests with scanning schedules, channel configuration, and delivery - codifies best practices for high-quality automated summaries
 compatibility: "Designed for Vellum personal assistants"
 metadata:
   emoji: "📊"
@@ -9,7 +9,7 @@ metadata:
     includes: ["slack", "schedule"]
 ---
 
-You are helping your user set up a recurring Slack digest: automated channel scanning on a schedule that delivers prose-style summaries of what's happening across their workspace. This skill walks through configuration, scheduling, and — critically — the execution protocol that ensures every digest is actually useful.
+You are helping your user set up a recurring Slack digest: automated channel scanning on a schedule that delivers prose-style summaries of what's happening across their workspace. This skill walks through configuration, scheduling, and - critically - the execution protocol that ensures every digest is actually useful.
 
 ## Prerequisites
 
@@ -37,7 +37,7 @@ Create a recurring schedule using `schedule_create`. The recommended default is 
 
 **Cron expression:** `0 7-19 * * *` (fires at the top of each hour, 7am through 7pm)
 
-**Determine the delivery target.** Ask the user where digests should be delivered — typically their Slack DM or a dedicated channel like `#alex-agent-messages`. Use `messaging_read` or the Slack API to resolve the `conversation_id` for the target. This ID gets baked into the schedule message so scheduled conversations know where to post.
+**Determine the delivery target.** Ask the user where digests should be delivered - typically their Slack DM or a dedicated channel like `#alex-agent-messages`. Use `messaging_read` or the Slack API to resolve the `conversation_id` for the target. This ID gets baked into the schedule message so scheduled conversations know where to post.
 
 **The schedule message is critical.** Scheduled conversations have no memory of this setup conversation. The message must be completely self-contained with every instruction needed to execute properly. Use the Scan Execution Protocol below as the template for the schedule message content.
 
@@ -51,13 +51,13 @@ Create a recurring schedule using `schedule_create`. The recommended default is 
 
 Set up two files for scan state and history:
 
-**`data/last_slack_scan.json`** — Stores the timestamp of the last successful scan:
+**`data/last_slack_scan.json`** - Stores the timestamp of the last successful scan:
 
 ```json
 { "timestamp": "2026-01-01T12:00:00Z", "hours_back": 1, "channels_scanned": 0 }
 ```
 
-**`data/slack_scan_log.md`** — Running log of scan activity:
+**`data/slack_scan_log.md`** - Running log of scan activity:
 
 ```markdown
 # Slack Scan Log
@@ -94,7 +94,7 @@ Write in prose style, conversational. Not bullet lists of channel names. Highlig
 
 4b. **If genuinely zero messages: Name the channels you scanned.** The user needs to know coverage was complete. Example: "Scanned team-atlas, team-illuminati, ask-eng, team-jarvis, and 3 others. Nothing new in the last hour."
 
-5. **Deliver via `messaging_send`.** Call `messaging_send` with `platform: "slack"` and the target `conversation_id` (determined during setup — typically the user's preferred DM or a dedicated digest channel). The `message` field MUST contain the full prose digest you wrote in step 4. Do NOT use `send_notification` for digests — the notification router's decision engine rewrites content into short alerts, stripping the actual digest.
+5. **Deliver via `messaging_send`.** Call `messaging_send` with `platform: "slack"` and the target `conversation_id` (determined during setup - typically the user's preferred DM or a dedicated digest channel). The `message` field MUST contain the full prose digest you wrote in step 4. Do NOT use `send_notification` for digests - the notification router's decision engine rewrites content into short alerts, stripping the actual digest.
 
 6. **Update tracking files.** Write the current timestamp to `data/last_slack_scan.json` and append a log entry to `data/slack_scan_log.md`.
 
@@ -111,7 +111,7 @@ Run the Slack digest scan. Follow every instruction exactly:
 4. Build the digest:
    - If there are messages: write a prose-style digest broken down by channel with channel names, who's talking (real names), specific topics, reply counts, decisions, questions, and anything needing attention.
    - If zero messages: list which channels were scanned so coverage is clear.
-5. Send using messaging_send with platform "slack" and conversation_id "<target_channel_id>". The MESSAGE field must contain the full digest from step 4. Never send a generic status like "scan completed." Do NOT use send_notification — it rewrites content into short alerts.
+5. Send using messaging_send with platform "slack" and conversation_id "<target_channel_id>". The MESSAGE field must contain the full digest from step 4. Never send a generic status like "scan completed." Do NOT use send_notification - it rewrites content into short alerts.
 6. Update data/last_slack_scan.json and append to data/slack_scan_log.md.
 ```
 

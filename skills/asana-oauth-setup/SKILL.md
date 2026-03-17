@@ -29,9 +29,9 @@ The flow has 7 steps total, takes about 3-5 minutes.
 
 ### Step 0: Prerequisite Check
 
-> Before we start — do you have an Asana account? You'll need to be able to create developer apps in your Asana workspace.
+> Before we start - do you have an Asana account? You'll need to be able to create developer apps in your Asana workspace.
 
-If no account, direct them to sign up at `https://asana.com`. If they're unsure about permissions, suggest proceeding — most Asana accounts allow creating personal apps.
+If no account, direct them to sign up at `https://asana.com`. If they're unsure about permissions, suggest proceeding - most Asana accounts allow creating personal apps.
 
 ---
 
@@ -39,7 +39,7 @@ If no account, direct them to sign up at `https://asana.com`. If they're unsure 
 
 Open: `https://app.asana.com/0/my-apps`
 
-> I've opened the Asana Developer Console (My Apps). If it's asking you to sign in, go ahead and do that first — then let me know.
+> I've opened the Asana Developer Console (My Apps). If it's asking you to sign in, go ahead and do that first - then let me know.
 
 ---
 
@@ -49,13 +49,13 @@ Open: `https://app.asana.com/0/my-apps`
 
 After the user clicks:
 
-> Set the app name to **Vellum Assistant**. You'll also need to select a purpose — pick whichever fits best (e.g., "Build an integration" or "Personal use"). Then click **Create app**.
+> Set the app name to **Vellum Assistant**. You'll also need to select a purpose - pick whichever fits best (e.g., "Build an integration" or "Personal use"). Then click **Create app**.
 
 **Known issues:**
 
-- If the user is part of multiple workspaces, the app will be tied to their default workspace — that's fine for personal use
+- If the user is part of multiple workspaces, the app will be tied to their default workspace - that's fine for personal use
 
-**Milestone (2 of 7):** "App created — now let's set up the redirect URL."
+**Milestone (2 of 7):** "App created - now let's set up the redirect URL."
 
 ---
 
@@ -65,7 +65,7 @@ After the user clicks:
 >
 > `http://localhost:17328/oauth/callback`
 
-**Milestone (3 of 7):** "Redirect URL is configured — now let's grab the credentials."
+**Milestone (3 of 7):** "Redirect URL is configured - now let's grab the credentials."
 
 ---
 
@@ -75,7 +75,7 @@ After the user clicks:
 
 > You may need to click a reveal or show button to see the secret.
 
-**Milestone (4 of 7):** "Almost there — just need to save these credentials."
+**Milestone (4 of 7):** "Almost there - just need to save these credentials."
 
 ---
 
@@ -107,7 +107,7 @@ bash:
     ) --client-secret-credential-path "integration:asana:oauth_secret"
 ```
 
-**Milestone (5 of 7):** "Credentials saved — just the authorization step left."
+**Milestone (5 of 7):** "Credentials saved - just the authorization step left."
 
 ---
 
@@ -151,6 +151,6 @@ For non-interactive channels, see [references/path-b-manual-setup.md](references
 
 Key Asana-specific differences for Path B:
 
-- Loopback callback won't work from a remote channel — need public ingress configured
+- Loopback callback won't work from a remote channel - need public ingress configured
 - Add the ingress-based redirect URI under the **OAuth** section of the app settings
 - The app secret doesn't have a known prefix that triggers scanners, but still use `credential_store prompt` or `credential_store store` for security

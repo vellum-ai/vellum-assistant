@@ -32,7 +32,7 @@ export async function executeAcpSpawn(
     | undefined;
   if (!sendToClient) {
     return {
-      content: "No client connected — cannot spawn ACP agent.",
+      content: "No client connected - cannot spawn ACP agent.",
       isError: true,
     };
   }

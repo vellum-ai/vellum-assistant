@@ -53,7 +53,7 @@ export interface EnsureChromeOptions {
 /**
  * Returns `true` when a CDP endpoint is responding at the given base URL
  * and has at least one open page tab. A CDP endpoint with zero tabs is
- * stale and unusable — callers should treat it as not ready.
+ * stale and unusable - callers should treat it as not ready.
  */
 export async function isCdpReady(
   cdpBase: string = DEFAULT_CDP_BASE,
@@ -62,7 +62,7 @@ export async function isCdpReady(
     const res = await fetch(`${cdpBase}/json/version`);
     if (!res.ok) return false;
 
-    // Verify there's at least one page tab — a CDP endpoint with no tabs
+    // Verify there's at least one page tab - a CDP endpoint with no tabs
     // is a stale Chrome process that should be relaunched.
     const listRes = await fetch(`${cdpBase}/json/list`);
     if (!listRes.ok) return false;
@@ -99,19 +99,19 @@ export async function ensureChromeWithCdp(
   try {
     const versionRes = await fetch(`${baseUrl}/json/version`);
     if (versionRes.ok) {
-      // Stale Chrome — CDP up but no tabs. Kill it so we can relaunch.
+      // Stale Chrome - CDP up but no tabs. Kill it so we can relaunch.
       try {
         execSync(`lsof -ti :${port} | xargs kill -9 2>/dev/null`, {
           stdio: "ignore",
         });
       } catch {
-        // Ignore — process may have already exited.
+        // Ignore - process may have already exited.
       }
       // Brief wait for port to clear.
       await new Promise((r) => setTimeout(r, 500));
     }
   } catch {
-    // CDP not responding at all — port is free, proceed to launch.
+    // CDP not responding at all - port is free, proceed to launch.
   }
 
   const args = [

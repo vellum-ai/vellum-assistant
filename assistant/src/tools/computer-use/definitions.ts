@@ -3,7 +3,7 @@
  *
  * These tools mirror the macOS client's ToolDefinitions.swift schemas, prefixed
  * with `computer_use_` to avoid collisions with existing daemon tools.  They are all
- * proxy tools — execution is forwarded to a connected macOS client and never
+ * proxy tools - execution is forwarded to a connected macOS client and never
  * handled locally by the daemon.
  */
 
@@ -28,7 +28,7 @@ const reasonProperty = {
 };
 
 // ---------------------------------------------------------------------------
-// click (unified — click_type selects single / double / right)
+// click (unified - click_type selects single / double / right)
 // ---------------------------------------------------------------------------
 
 export const computerUseClickTool: Tool = {
@@ -313,7 +313,7 @@ export const computerUseWaitTool: Tool = {
 export const computerUseOpenAppTool: Tool = {
   name: "computer_use_open_app",
   description:
-    "Open or switch to a macOS application by name. Preferred over cmd+tab for switching apps — more reliable and explicit.",
+    "Open or switch to a macOS application by name. Preferred over cmd+tab for switching apps - more reliable and explicit.",
   category: "computer-use",
   defaultRiskLevel: RiskLevel.Low,
   executionMode: "proxy",
@@ -352,7 +352,7 @@ export const computerUseOpenAppTool: Tool = {
 export const computerUseRunAppleScriptTool: Tool = {
   name: "computer_use_run_applescript",
   description:
-    "Run an AppleScript command. Prefer this over click/type when possible — it doesn't move the cursor or interrupt the user. Never use 'do shell script' inside AppleScript (blocked for security).",
+    "Run an AppleScript command. Prefer this over click/type when possible - it doesn't move the cursor or interrupt the user. Never use 'do shell script' inside AppleScript (blocked for security).",
   category: "computer-use",
   defaultRiskLevel: RiskLevel.Low,
   executionMode: "proxy",
@@ -460,7 +460,7 @@ export const computerUseRespondTool: Tool = {
 export const computerUseObserveTool: Tool = {
   name: "computer_use_observe",
   description:
-    "Capture the current screen state. Returns the accessibility tree with [ID] element references and optionally a screenshot.\n\nThe accessibility tree shows interactive elements like [3] AXButton 'Save' or [17] AXTextField 'Search'. Use element_id to target these elements in subsequent actions — this is much more reliable than pixel coordinates.\n\nCall this before your first computer use action, or to check screen state without acting.",
+    "Capture the current screen state. Returns the accessibility tree with [ID] element references and optionally a screenshot.\n\nThe accessibility tree shows interactive elements like [3] AXButton 'Save' or [17] AXTextField 'Search'. Use element_id to target these elements in subsequent actions - this is much more reliable than pixel coordinates.\n\nCall this before your first computer use action, or to check screen state without acting.",
   category: "computer-use",
   defaultRiskLevel: RiskLevel.Low,
   executionMode: "proxy",

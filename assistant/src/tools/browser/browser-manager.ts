@@ -596,7 +596,7 @@ class BrowserManager {
       log.debug("positionWindowSidebar: placed browser window in top-right");
     } catch (err) {
       log.warn({ err }, "positionWindowSidebar: failed to position window");
-      // CDP session may be stale (e.g. page closed) — clear it so it gets recreated
+      // CDP session may be stale (e.g. page closed) - clear it so it gets recreated
       this.browserCdpSession = null;
       this.browserWindowId = null;
     }
@@ -682,7 +682,7 @@ class BrowserManager {
 
       this.handoffResolvers.set(conversationId, resolver);
 
-      // Poll for URL changes — auto-resolve when the page navigates
+      // Poll for URL changes - auto-resolve when the page navigates
       // (e.g., CAPTCHA solved, login redirect)
       if (initialUrl && page) {
         pollTimer = setInterval(() => {
@@ -702,7 +702,7 @@ class BrowserManager {
               resolver();
             }
           } catch {
-            // Page may have been closed — resolve gracefully
+            // Page may have been closed - resolve gracefully
             this.interactiveModeSessions.delete(conversationId);
             resolver();
           }

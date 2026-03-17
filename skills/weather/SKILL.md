@@ -57,7 +57,7 @@ Present weather data visually if your environment supports rich output. Otherwis
 ## Forecast Days
 
 - Default is 10 days. The user can request anywhere from 1 to 16 days via `--days <n>`.
-- Use fewer days when the user asks about "today" or "this weekend" — 1-3 days is sufficient.
+- Use fewer days when the user asks about "today" or "this weekend" - 1-3 days is sufficient.
 - Use more days when the user asks for an extended or long-range forecast.
 
 ## Tips

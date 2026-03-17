@@ -9,7 +9,7 @@ export interface ShellOutputResult {
 /**
  * Format the raw stdout/stderr/exit-code from a spawned shell command into the
  * final tool result.  Both `shell.ts` (sandbox bash) and `host-shell.ts`
- * (host_bash) must produce identical output formatting — this shared function
+ * (host_bash) must produce identical output formatting - this shared function
  * is the single source of truth for that logic.
  */
 export function formatShellOutput(

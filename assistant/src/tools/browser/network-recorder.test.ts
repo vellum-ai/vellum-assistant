@@ -57,7 +57,7 @@ describe("NetworkRecorder", () => {
       try {
         await recorder.startDirect();
       } catch {
-        // Expected — WebSocket connection will fail in test environment
+        // Expected - WebSocket connection will fail in test environment
       }
 
       expect(fetchCalls.length).toBeGreaterThanOrEqual(1);
@@ -73,7 +73,7 @@ describe("NetworkRecorder", () => {
       try {
         await recorder.startDirect(explicitBase);
       } catch {
-        // Expected — WebSocket connection will fail in test environment
+        // Expected - WebSocket connection will fail in test environment
       }
 
       expect(fetchCalls.length).toBeGreaterThanOrEqual(1);

@@ -1,4 +1,4 @@
-# Collaborative Guided Flow — AppleScript Browser Navigation
+# Collaborative Guided Flow - AppleScript Browser Navigation
 
 This reference defines a reusable pattern for walking users through OAuth app setup on third-party developer dashboards. The assistant opens pages in the user's browser and coaches them through each action. The user keeps control.
 
@@ -8,7 +8,7 @@ Use this pattern when browser automation tools (`browser_*`) are not available o
 
 ## Design Philosophy
 
-"I'll be there every step of the way — with guidance, and always ready to get you unstuck."
+"I'll be there every step of the way - with guidance, and always ready to get you unstuck."
 
 The assistant opens the right pages and coaches. The user does the clicking and form-filling. Failures become conversations, not silent breakage.
 
@@ -19,7 +19,7 @@ The assistant opens the right pages and coaches. The user does the clicking and 
 Determine which delivery path applies before taking action:
 
 - **macOS desktop app** → **Path A: Collaborative Browser Setup** (this document)
-- **Telegram, Slack, or any non-interactive channel** → **Path B: Manual Channel Setup** — provide URLs and instructions as text messages; the user navigates on their own
+- **Telegram, Slack, or any non-interactive channel** → **Path B: Manual Channel Setup** - provide URLs and instructions as text messages; the user navigates on their own
 
 ---
 
@@ -66,7 +66,7 @@ The helper detects the default browser and navigates in the existing tab. Falls 
 
 ### Rules
 
-1. **Navigation is your job.** Open every URL for the user — they should never have to type a URL.
+1. **Navigation is your job.** Open every URL for the user - they should never have to type a URL.
 2. **Screenshot to calibrate.** Take a screenshot on the **first navigation** of the flow to see the actual page layout. Use what you see to give specific, grounded instructions. After that first calibration, use landmark-based instructions for subsequent steps and only screenshot again if the user reports something unexpected or seems stuck.
 3. **Never auto-advance.** Wait for user confirmation ("done", "ok", "next") before proceeding.
 4. **Use landmarks, not coordinates.** Say "Look for **APIs & Services**" not "click the third item in the left sidebar."
@@ -74,7 +74,7 @@ The helper detects the default browser and navigates in the existing tab. Falls 
 6. **Keep instructions short.** One action per message when possible.
 7. **Don't assume any browser.** Focus on page content, not browser-specific UI.
 8. Never use `computer_use_*` tools, `browser_*` tools, or CDP for navigation.
-9. Use `credential_store prompt` for secrets — never ask the user to type secrets in chat. Non-secret values (like Client IDs) can be collected conversationally.
+9. Use `credential_store prompt` for secrets - never ask the user to type secrets in chat. Non-secret values (like Client IDs) can be collected conversationally.
 
 ### Step Rhythm
 
@@ -82,9 +82,9 @@ Every step follows this pattern:
 
 1. **Open the URL** using the navigation helper
 2. **On the first step**, wait a few seconds for the page to load, then screenshot to see the actual page layout and calibrate your instructions
-3. **Give a specific instruction** — on the first step, reference what you actually see; on later steps, use landmark-based guidance. If screenshotting is unavailable (e.g. permissions denied), fall back to landmark-based instructions and ask the user to describe what they see.
+3. **Give a specific instruction** - on the first step, reference what you actually see; on later steps, use landmark-based guidance. If screenshotting is unavailable (e.g. permissions denied), fall back to landmark-based instructions and ask the user to describe what they see.
 4. **User acts** and confirms
-5. **If the user reports a mismatch or seems stuck** — screenshot to see what they're seeing, then adapt
+5. **If the user reports a mismatch or seems stuck** - screenshot to see what they're seeing, then adapt
 6. **Move on** once confirmed
 
 ---
@@ -111,11 +111,11 @@ Take note of the **provider key**, **base URL**, and (if available) the **ping U
 
 Before beginning, tell the user:
 
-> We're going to set up [SERVICE] OAuth together — about N steps, roughly M minutes. I'll open each page in your browser and tell you exactly what to do. You can pause anytime and pick up where you left off.
+> We're going to set up [SERVICE] OAuth together - about N steps, roughly M minutes. I'll open each page in your browser and tell you exactly what to do. You can pause anytime and pick up where you left off.
 >
 > These developer consoles change from time to time, so if something doesn't look right or you're not sure what to click, just let me know and I'll take a look at your screen to help.
 >
-> Your Mac may ask for permissions along the way — if you see an option to allow for a longer duration (like 10 minutes), that'll save you from approving every single step.
+> Your Mac may ask for permissions along the way - if you see an option to allow for a longer duration (like 10 minutes), that'll save you from approving every single step.
 
 ---
 
@@ -123,7 +123,7 @@ Before beginning, tell the user:
 
 ### Client ID
 
-Non-secret — collect conversationally:
+Non-secret - collect conversationally:
 
 > Copy the Client ID from the dialog and paste it here in the chat.
 
@@ -189,7 +189,7 @@ bash:
 
 For non-interactive channels, provide all URLs and instructions as text messages. Key differences from Path A:
 
-- The user navigates on their own — give them the URLs to open
+- The user navigates on their own - give them the URLs to open
 - For providers with `callbackTransport: "gateway"`, use **Web application** credentials and resolve the redirect URI from `ingress.publicBaseUrl`; if not configured, load the `public-ingress` skill first
 - For providers with `callbackTransport: "loopback"`, the redirect URI is handled automatically in Path A; in Path B (remote channel), public ingress is still required since the loopback port is not reachable
 - Collect the Client Secret via split entry if the secret prefix could trigger channel scanners (e.g., Slack's `xoxp-`, Google's `GOCSPX-`)
@@ -200,9 +200,9 @@ For non-interactive channels, provide all URLs and instructions as text messages
 
 ### When Things Don't Match
 
-1. **Don't panic or apologize excessively** — "Okay, that looks a bit different than expected. Let me take a look..."
-2. **Screenshot first, then reorient** — take a screenshot to see the actual state, then describe what you see: "It looks like you're on the project selector page. Let's pick the project we just created..."
-3. **Never blame the user** — the UI is the variable, not them.
+1. **Don't panic or apologize excessively** - "Okay, that looks a bit different than expected. Let me take a look..."
+2. **Screenshot first, then reorient** - take a screenshot to see the actual state, then describe what you see: "It looks like you're on the project selector page. Let's pick the project we just created..."
+3. **Never blame the user** - the UI is the variable, not them.
 
 ### Recovery Patterns
 
@@ -210,7 +210,7 @@ For non-interactive channels, provide all URLs and instructions as text messages
 | -------------------------------------- | -------------------------------------------------------------- |
 | User lands on unexpected page          | Screenshot to see where they are, then navigate back           |
 | User not signed in                     | Tell them to sign in, wait, continue                           |
-| Feature already configured             | "Looks like this is already set up — great, let's skip ahead." |
+| Feature already configured             | "Looks like this is already set up - great, let's skip ahead." |
 | Quota / billing issue                  | Explain clearly, help resolve or use a different project       |
 | Secret not shown after creation        | Guide to credential detail page as fallback                    |
 | Auth URL returned instead of auto-open | Send URL to user to open manually                              |
@@ -219,10 +219,10 @@ For non-interactive channels, provide all URLs and instructions as text messages
 
 ## Tone & Voice
 
-- **Confident but not bossy** — "Go ahead and click Enable" not "You must click Enable"
-- **Specific but not rigid** — "Look for a blue button that says Enable" not "Click the button at coordinates 450, 320"
-- **Progress-aware** — use milestone markers to keep the user oriented
-- **Calm when things go sideways** — "That doesn't look quite right, but no worries — let me see what we're working with"
+- **Confident but not bossy** - "Go ahead and click Enable" not "You must click Enable"
+- **Specific but not rigid** - "Look for a blue button that says Enable" not "Click the button at coordinates 450, 320"
+- **Progress-aware** - use milestone markers to keep the user oriented
+- **Calm when things go sideways** - "That doesn't look quite right, but no worries - let me see what we're working with"
 
 ## Guardrails
 

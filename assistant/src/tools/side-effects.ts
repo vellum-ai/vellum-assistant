@@ -1,4 +1,4 @@
-// Side-effect tool classification — single source of truth.
+// Side-effect tool classification - single source of truth.
 // Tools that modify state outside the assistant (filesystem writes,
 // shell commands, network requests that trigger actions, etc.).
 // Used by private-conversation gating and permission simulation to decide

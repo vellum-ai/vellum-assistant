@@ -10,7 +10,7 @@ metadata:
 
 # Deploy Fullstack to Vercel
 
-Deploy a full-stack app with a React/Vite frontend and Python/FastAPI backend to Vercel as a serverless demo. No auth required — meant for demos, portfolio pieces, and quick showcases.
+Deploy a full-stack app with a React/Vite frontend and Python/FastAPI backend to Vercel as a serverless demo. No auth required - meant for demos, portfolio pieces, and quick showcases.
 
 ## When to Use
 

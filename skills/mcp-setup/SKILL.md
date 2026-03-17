@@ -28,11 +28,11 @@ Shows all configured servers with connection status, transport type, and URL.
 assistant mcp add <name> -t <transport-type> -u <url> [-r <risk>] [--disabled]
 ```
 
-- `<name>` — unique identifier (e.g. `linear`, `github`)
-- `-t` — transport type: `stdio`, `sse`, or `streamable-http`
-- `-u` — server URL (required for `sse`/`streamable-http`)
-- `-c` — command (required for `stdio`), `-a` for args
-- `-r` — risk level: `low`, `medium`, or `high` (default: `high`)
+- `<name>` - unique identifier (e.g. `linear`, `github`)
+- `-t` - transport type: `stdio`, `sse`, or `streamable-http`
+- `-u` - server URL (required for `sse`/`streamable-http`)
+- `-c` - command (required for `stdio`), `-a` for args
+- `-r` - risk level: `low`, `medium`, or `high` (default: `high`)
 
 Examples:
 
@@ -66,7 +66,7 @@ Removes the server config and cleans up any stored OAuth credentials.
 
 ## After Changes
 
-After adding, removing, or authenticating a server, the user must **quit and relaunch the Vellum app** for changes to take effect. The app runs its own assistant process — `assistant daemon restart` only restarts the CLI assistant, which is a separate process.
+After adding, removing, or authenticating a server, the user must **quit and relaunch the Vellum app** for changes to take effect. The app runs its own assistant process - `assistant daemon restart` only restarts the CLI assistant, which is a separate process.
 
 Tell the user: "Please quit and relaunch the Vellum app, then start a new conversation."
 
@@ -74,5 +74,5 @@ Tell the user: "Please quit and relaunch the Vellum app, then start a new conver
 
 - User asks to connect/set up an external service via MCP
 - User asks "what MCP servers do I have?"
-- An MCP tool returns an auth error — offer to run `assistant mcp auth <name>`
+- An MCP tool returns an auth error - offer to run `assistant mcp auth <name>`
 - User wants to remove an MCP integration

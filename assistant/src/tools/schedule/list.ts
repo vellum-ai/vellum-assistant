@@ -116,14 +116,14 @@ export async function executeScheduleList(
     if (oneShot) {
       const fireTime = formatLocalDate(job.nextRunAt);
       lines.push(
-        `  - [${status}] ${job.name} (id: ${job.id}) (one-shot, ${job.mode}) — fire at: ${fireTime} [${job.status}]`,
+        `  - [${status}] ${job.name} (id: ${job.id}) (one-shot, ${job.mode}) - fire at: ${fireTime} [${job.status}]`,
       );
     } else {
       const next = job.enabled ? formatLocalDate(job.nextRunAt) : "n/a";
       lines.push(
         `  - [${status}] ${job.name} (id: ${job.id}) ([${
           job.syntax
-        }] ${describeSchedule(job)}, ${job.mode}) — next: ${next}`,
+        }] ${describeSchedule(job)}, ${job.mode}) - next: ${next}`,
       );
     }
   }

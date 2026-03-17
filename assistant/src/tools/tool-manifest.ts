@@ -1,5 +1,5 @@
 /**
- * Declarative tool manifest — single place to inspect what gets registered.
+ * Declarative tool manifest - single place to inspect what gets registered.
  *
  * Each entry describes HOW a tool (or group of tools) gets loaded and
  * registered.  `initializeTools()` in `registry.ts` iterates this list
@@ -73,7 +73,7 @@ export const eagerModuleToolNames: string[] = [
 // a test registry reset) and tools that have always been explicit.
 
 export const explicitTools: Tool[] = [
-  // Previously-eager tools — kept here so initializeTools() can re-register
+  // Previously-eager tools - kept here so initializeTools() can re-register
   // them after __resetRegistryForTesting() clears the registry (ESM caching
   // prevents their side-effect registrations from re-running).
   shellTool,
@@ -99,7 +99,7 @@ export const explicitTools: Tool[] = [
 // This list is intentionally separate from `explicitTools` so that
 // initializeTools() in registry.ts can conditionally include them.
 
-/** All CES tools — stable references for the manifest snapshot. */
+/** All CES tools - stable references for the manifest snapshot. */
 export const cesTools: Tool[] = [
   makeAuthenticatedRequestTool,
   runAuthenticatedCommandTool,
@@ -123,7 +123,7 @@ export function getCesToolsIfEnabled(): Tool[] {
       );
     }
   } catch {
-    // Config not yet loaded (e.g. during test setup) — CES tools stay off.
+    // Config not yet loaded (e.g. during test setup) - CES tools stay off.
   }
   return [];
 }

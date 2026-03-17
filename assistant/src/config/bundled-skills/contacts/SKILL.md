@@ -291,7 +291,7 @@ If the user provides a phone number without the `+` country code prefix, ask the
 
 ### Create an email invite
 
-Use this when the guardian wants to invite someone to message the assistant via email. Email invites use a 6-digit code — the invitee sends the code to the assistant's email address to redeem access.
+Use this when the guardian wants to invite someone to message the assistant via email. Email invites use a 6-digit code - the invitee sends the code to the assistant's email address to redeem access.
 
 ```bash
 assistant contacts invites create --source-channel email --contact-id "<contact_id>" --contact-name "<invitee_name>" --max-uses 1 --note "<optional note, e.g. the person it is for>" --json
@@ -322,7 +322,7 @@ If the assistant's email address is not available (AgentMail not configured), te
 
 ### Create a WhatsApp invite
 
-Use this when the guardian wants to invite someone to message the assistant on WhatsApp. WhatsApp invites use a 6-digit code — the invitee sends the code to the assistant's WhatsApp number to redeem access.
+Use this when the guardian wants to invite someone to message the assistant on WhatsApp. WhatsApp invites use a 6-digit code - the invitee sends the code to the assistant's WhatsApp number to redeem access.
 
 ```bash
 assistant contacts invites create --source-channel whatsapp --contact-id "<contact_id>" --contact-name "<invitee_name>" --max-uses 1 --note "<optional note, e.g. the person it is for>" --json
@@ -443,7 +443,7 @@ Replace `<invite_id>` with the invite's `id` from the list response. The same re
 
 ## Google Contacts
 
-Use `google_contacts` to list or search the user's Google Contacts by name or email. Returns name, email, phone, and organization. Requires the `contacts.readonly` OAuth scope — users may need to re-authorize Gmail to grant this additional permission.
+Use `google_contacts` to list or search the user's Google Contacts by name or email. Returns name, email, phone, and organization. Requires the `contacts.readonly` OAuth scope - users may need to re-authorize Gmail to grant this additional permission.
 
 ## Contact Fields
 

@@ -43,7 +43,7 @@ const VALID_KINDS = new Set<string>(Object.keys(KIND_PREFIX));
 
 /**
  * Generate an 8-char uppercase base-36 short ID.
- * Provides ~41 bits of entropy — sufficient for intra-request uniqueness.
+ * Provides ~41 bits of entropy - sufficient for intra-request uniqueness.
  */
 function generateShortId(): string {
   const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";

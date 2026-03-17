@@ -12,56 +12,56 @@ You can order food from DoorDash for the user using the DoorDash CLI script.
 
 ## CLI Setup
 
-**IMPORTANT: Always use `host_bash` (not `bash`) for all DoorDash commands.** The DoorDash CLI needs host access for Chrome CDP and session cookies — none of which are available inside the sandbox.
+**IMPORTANT: Always use `host_bash` (not `bash`) for all DoorDash commands.** The DoorDash CLI needs host access for Chrome CDP and session cookies - none of which are available inside the sandbox.
 
 The DoorDash CLI is invoked via `bun {baseDir}/scripts/doordash-entry.ts`. Do NOT search for the script, inspect it, or try to discover how the CLI works. Just run the commands as documented below.
 
 ## Task Progress Widget
 
-A task progress card is shown automatically when you run your first DoorDash command. Its surface ID is `doordash-progress`. As each step completes, call `ui_update` with surface ID `doordash-progress` to update step statuses. Update `data.templateData.steps` — set completed steps to `"status": "completed"` with a `"detail"` string, the current step to `"status": "in_progress"`, and future steps to `"status": "pending"`. Adapt the steps to the actual flow (e.g. skip "Search restaurants" if the user named a specific store).
+A task progress card is shown automatically when you run your first DoorDash command. Its surface ID is `doordash-progress`. As each step completes, call `ui_update` with surface ID `doordash-progress` to update step statuses. Update `data.templateData.steps` - set completed steps to `"status": "completed"` with a `"detail"` string, the current step to `"status": "in_progress"`, and future steps to `"status": "pending"`. Adapt the steps to the actual flow (e.g. skip "Search restaurants" if the user named a specific store).
 
 ## Typical Flow
 
 When the user asks you to order food (e.g. "Order pizza from Andiamo's"):
 
-1. **Check session** — run `bun {baseDir}/scripts/doordash-entry.ts status --json`. If `loggedIn` is false or the session is expired, tell the user: "A Chrome window will open to the DoorDash login page. Please sign in there — I'll detect your login automatically and minimize the window." Then run `bun {baseDir}/scripts/doordash-entry.ts refresh --json`. This captures your session automatically and auto-stops once it detects you've signed in. The session is imported automatically. **This command blocks until login is complete — just wait for it.**
+1. **Check session** - run `bun {baseDir}/scripts/doordash-entry.ts status --json`. If `loggedIn` is false or the session is expired, tell the user: "A Chrome window will open to the DoorDash login page. Please sign in there - I'll detect your login automatically and minimize the window." Then run `bun {baseDir}/scripts/doordash-entry.ts refresh --json`. This captures your session automatically and auto-stops once it detects you've signed in. The session is imported automatically. **This command blocks until login is complete - just wait for it.**
 
-   Keep the DoorDash Chrome window open in the background — it's needed for API requests.
+   Keep the DoorDash Chrome window open in the background - it's needed for API requests.
 
-2. **Search** — run `bun {baseDir}/scripts/doordash-entry.ts search "<query>" --json` to find matching restaurants. Present the top results to the user with name, rating, and delivery info. If the user named a specific restaurant, pick the best match. If ambiguous, ask.
+2. **Search** - run `bun {baseDir}/scripts/doordash-entry.ts search "<query>" --json` to find matching restaurants. Present the top results to the user with name, rating, and delivery info. If the user named a specific restaurant, pick the best match. If ambiguous, ask.
 
-3. **Browse menu** — run `bun {baseDir}/scripts/doordash-entry.ts menu <storeId> --json` to get the menu. Show the user the categories and items with prices. If the user already said what they want (e.g. "pepperoni pizza"), find the matching item(s). **For convenience/pharmacy stores** (CVS, Duane Reade, Walgreens etc.), the response will have `isRetail: true` and empty items — use `store-search` instead (see step 3b).
+3. **Browse menu** - run `bun {baseDir}/scripts/doordash-entry.ts menu <storeId> --json` to get the menu. Show the user the categories and items with prices. If the user already said what they want (e.g. "pepperoni pizza"), find the matching item(s). **For convenience/pharmacy stores** (CVS, Duane Reade, Walgreens etc.), the response will have `isRetail: true` and empty items - use `store-search` instead (see step 3b).
 
-3b. **Search within a retail store** — for convenience/pharmacy stores, run `bun {baseDir}/scripts/doordash-entry.ts store-search <storeId> "<query>" --json` to find specific products. This returns items with IDs, prices, and menuIds that can be added to cart directly.
+3b. **Search within a retail store** - for convenience/pharmacy stores, run `bun {baseDir}/scripts/doordash-entry.ts store-search <storeId> "<query>" --json` to find specific products. This returns items with IDs, prices, and menuIds that can be added to cart directly.
 
-4. **Get item details** (if needed) — run `bun {baseDir}/scripts/doordash-entry.ts item <storeId> <itemId> --json` to see options/customizations. The response includes:
+4. **Get item details** (if needed) - run `bun {baseDir}/scripts/doordash-entry.ts item <storeId> <itemId> --json` to see options/customizations. The response includes:
    - `options`: each option group has `minSelections`/`maxSelections` indicating how many choices are required
    - Each choice has `unitAmount` (price impact in cents), `defaultQuantity`, and possibly `nestedOptions` (sub-choices like milk type within a size selection)
    - `specialInstructionsConfig`: whether special instructions are accepted, max length, and placeholder text
 
    If the item has required options (like size or toppings), construct the `nestedOptions` JSON from the option/choice IDs and pass it via `--options`. Ask the user for preferences or pick sensible defaults.
 
-5. **Add to cart** — run `bun {baseDir}/scripts/doordash-entry.ts cart add --store-id <id> --menu-id <id> --item-id <id> --item-name "<name>" --unit-price <cents> [--options '<json>'] [--special-instructions "<text>"] --json`. For subsequent items at the same store, pass `--cart-id <id>` from the first add response. Use `--special-instructions` for requests like "extra hot", "no ice", etc. Use `--options` to pass customization choices (see Customization Options below).
+5. **Add to cart** - run `bun {baseDir}/scripts/doordash-entry.ts cart add --store-id <id> --menu-id <id> --item-id <id> --item-name "<name>" --unit-price <cents> [--options '<json>'] [--special-instructions "<text>"] --json`. For subsequent items at the same store, pass `--cart-id <id>` from the first add response. Use `--special-instructions` for requests like "extra hot", "no ice", etc. Use `--options` to pass customization choices (see Customization Options below).
 
-6. **Review cart** — run `bun {baseDir}/scripts/doordash-entry.ts cart view <cartId> --json` and show the user what's in their cart with prices. Ask if they want to add anything else or proceed.
+6. **Review cart** - run `bun {baseDir}/scripts/doordash-entry.ts cart view <cartId> --json` and show the user what's in their cart with prices. Ask if they want to add anything else or proceed.
 
-7. **Checkout** — run `bun {baseDir}/scripts/doordash-entry.ts checkout <cartId> --json` to get delivery options. Present them to the user.
+7. **Checkout** - run `bun {baseDir}/scripts/doordash-entry.ts checkout <cartId> --json` to get delivery options. Present them to the user.
 
-8. **Payment methods** — run `bun {baseDir}/scripts/doordash-entry.ts payment-methods --json` to see saved cards. Show the user which card will be used (the default one).
+8. **Payment methods** - run `bun {baseDir}/scripts/doordash-entry.ts payment-methods --json` to see saved cards. Show the user which card will be used (the default one).
 
-9. **Place order** — after the user explicitly confirms, run `bun {baseDir}/scripts/doordash-entry.ts order place --cart-id <id> --store-id <id> --total <cents> [--tip <cents>] [--dropoff-option <id>] --json`. The command auto-selects the default payment method if `--payment-uuid` is not provided. The response contains `orderUuid` on success.
+9. **Place order** - after the user explicitly confirms, run `bun {baseDir}/scripts/doordash-entry.ts order place --cart-id <id> --store-id <id> --total <cents> [--tip <cents>] [--dropoff-option <id>] --json`. The command auto-selects the default payment method if `--payment-uuid` is not provided. The response contains `orderUuid` on success.
 
 ## Important Behavior
 
 - **Always confirm before checkout.** Never place an order without explicit user approval.
-- **Be proactive.** If the user says "order pizza from Andiamo's", don't ask clarifying questions upfront — search, find the store, show the menu, and suggest items. Only ask when you need a choice the user hasn't specified.
+- **Be proactive.** If the user says "order pizza from Andiamo's", don't ask clarifying questions upfront - search, find the store, show the menu, and suggest items. Only ask when you need a choice the user hasn't specified.
 - **Handle expired sessions gracefully.** If any command returns `"error": "session_expired"`, run `bun {baseDir}/scripts/doordash-entry.ts refresh --json` to re-capture the session.
 - **Show prices.** Always show prices when presenting items or the cart summary.
 - **Use `--json` flag** on all commands for reliable parsing.
 - **Do NOT use the browser skill.** All DoorDash interaction goes through the CLI, not browser automation.
 - **Rate limiting.** DoorDash rate-limits rapid sequential requests. When adding multiple items (e.g. a team order), wait 8–10 seconds between `cart add` calls. If you get a 403 error, wait 15–20 seconds and retry. For large orders (5+ items), consider running `bun {baseDir}/scripts/doordash-entry.ts refresh --json` midway through if you hit repeated 403s.
 - **Special instructions are unreliable.** Some merchants disable special instructions entirely. Always prefer `--options` for customizations (size, milk type, etc.). Only use `--special-instructions` for free-text requests that aren't covered by the item's option groups. If the merchant rejects special instructions, drop them and proceed without.
-- **Customization fallback.** If `cart add` with `--options` fails, or if the item details show options that are hard to construct (deeply nested, unusual format), proactively offer to use `cart learn` so the user can customize the item visually in the browser. Don't silently drop customizations — tell the user what happened and offer alternatives.
+- **Customization fallback.** If `cart add` with `--options` fails, or if the item details show options that are hard to construct (deeply nested, unusual format), proactively offer to use `cart learn` so the user can customize the item visually in the browser. Don't silently drop customizations - tell the user what happened and offer alternatives.
 - **Always-allow tip.** At the start of an ordering flow, suggest the user enable "always allow" for DoorDash commands: "Tip: You can type 'a' to always allow DoorDash commands for this conversation so you won't be prompted each time."
 - **Error attribution.** When errors occur, assume it's more likely a bug in our query/parsing than a DoorDash API change. Suggest running `bun {baseDir}/scripts/doordash-entry.ts record` to capture fresh queries before assuming the schema changed.
 
@@ -94,14 +94,14 @@ For choices with nested sub-options (e.g., selecting "Oat Milk" under the "Milk"
 
 Use `--special-instructions` on `cart add` for free-text requests like "extra hot", "no ice", "light foam". The `item` command response includes `specialInstructionsConfig` with the max length and whether instructions are supported.
 
-**Warning:** Some merchants disable special instructions entirely. If `specialInstructionsConfig.isEnabled` is false, or if the add-to-cart call returns an error about special requests, drop the instructions and retry without them. Always prefer `--options` for customizations — special instructions are a last resort for requests not covered by the item's option groups.
+**Warning:** Some merchants disable special instructions entirely. If `specialInstructionsConfig.isEnabled` is false, or if the add-to-cart call returns an error about special requests, drop the instructions and retry without them. Always prefer `--options` for customizations - special instructions are a last resort for requests not covered by the item's option groups.
 
 ### Learning Customizations via Browser Recording
 
 For complex items where constructing the JSON manually is difficult, use `cart learn`:
 
 1. Run `bun {baseDir}/scripts/doordash-entry.ts cart learn --json`
-2. A Chrome window opens — navigate to the item, customize it visually, and click "Add to Cart"
+2. A Chrome window opens - navigate to the item, customize it visually, and click "Add to Cart"
 3. The command auto-detects the `updateCartItem` operation and extracts the exact `nestedOptions` and `specialInstructions`
 4. Use the extracted options directly with `cart add --options '<json>'`
 

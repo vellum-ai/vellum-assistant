@@ -28,7 +28,7 @@ The flow has 7 steps total, takes about 3-5 minutes.
 
 ### Step 0: Prerequisite Check
 
-> Before we start — do you have a Spotify account? Any Spotify account (free or premium) can create developer apps.
+> Before we start - do you have a Spotify account? Any Spotify account (free or premium) can create developer apps.
 
 If the user doesn't have a Spotify account, direct them to sign up at `https://www.spotify.com/signup` first.
 
@@ -38,7 +38,7 @@ If the user doesn't have a Spotify account, direct them to sign up at `https://w
 
 Open: `https://developer.spotify.com/dashboard`
 
-> I've opened the Spotify Developer Dashboard. If it's asking you to sign in, go ahead and do that first — then let me know.
+> I've opened the Spotify Developer Dashboard. If it's asking you to sign in, go ahead and do that first - then let me know.
 
 ---
 
@@ -75,7 +75,7 @@ Then:
 - If the dashboard shows a "You need to verify your email" banner, the user must verify their Spotify email first
 - Free and premium accounts both have access to the developer dashboard
 
-**Milestone (2 of 7):** "App created — now let's grab the credentials."
+**Milestone (2 of 7):** "App created - now let's grab the credentials."
 
 ---
 
@@ -89,7 +89,7 @@ Open: the app's **Settings** page.
 
 > On the Settings page, you should see the **Client ID** and a hidden **app secret**. Click **View app secret** to reveal it.
 
-**Milestone (3 of 7):** "Credentials are visible — let's save them."
+**Milestone (3 of 7):** "Credentials are visible - let's save them."
 
 ---
 
@@ -121,7 +121,7 @@ bash:
     ) --client-secret-credential-path "integration:spotify:oauth_secret"
 ```
 
-**Milestone (4 of 7):** "Credentials saved — just the authorization step left."
+**Milestone (4 of 7):** "Credentials saved - just the authorization step left."
 
 ---
 
@@ -142,15 +142,15 @@ bash:
 
 The scopes requested will include:
 
-- `user-read-playback-state` — see what's playing
-- `user-modify-playback-state` — play, pause, skip tracks
-- `user-read-currently-playing` — see the current track
-- `user-read-recently-played` — see listening history
-- `playlist-read-private` — view private playlists
-- `playlist-modify-public` — create and edit public playlists
-- `playlist-modify-private` — create and edit private playlists
-- `user-library-read` — view saved tracks and albums
-- `user-library-modify` — save and remove tracks and albums
+- `user-read-playback-state` - see what's playing
+- `user-modify-playback-state` - play, pause, skip tracks
+- `user-read-currently-playing` - see the current track
+- `user-read-recently-played` - see listening history
+- `playlist-read-private` - view private playlists
+- `playlist-modify-public` - create and edit public playlists
+- `playlist-modify-private` - create and edit private playlists
+- `user-library-read` - view saved tracks and albums
+- `user-library-modify` - save and remove tracks and albums
 
 ---
 
@@ -177,6 +177,6 @@ For non-interactive channels, see [references/path-b-manual-setup.md](references
 
 Key Spotify-specific differences for Path B:
 
-- Loopback callback won't work from a remote channel — need public ingress configured
+- Loopback callback won't work from a remote channel - need public ingress configured
 - Add the ingress-based redirect URI in the app's Settings page under **Redirect URIs**
 - The app secret doesn't have a known prefix that triggers scanners, but still use `credential_store prompt` or `credential_store store` for security

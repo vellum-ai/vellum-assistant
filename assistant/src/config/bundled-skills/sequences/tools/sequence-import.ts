@@ -31,7 +31,7 @@ export async function run(
       );
     }
 
-    // Preview mode (default) — show what would happen
+    // Preview mode (default) - show what would happen
     if (!autoEnroll) {
       const lines = [
         `Parsed ${parsed.contacts.length} valid contact(s) from file.`,
@@ -72,7 +72,7 @@ export async function run(
       lines.push("");
       lines.push("Skipped:");
       for (const s of result.skipped.slice(0, 10)) {
-        lines.push(`  ${s.email} — ${s.reason}`);
+        lines.push(`  ${s.email} - ${s.reason}`);
       }
     }
 
@@ -80,7 +80,7 @@ export async function run(
       lines.push("");
       lines.push("Failed:");
       for (const f of result.failed.slice(0, 10)) {
-        lines.push(`  ${f.email} — ${f.reason}`);
+        lines.push(`  ${f.email} - ${f.reason}`);
       }
     }
 

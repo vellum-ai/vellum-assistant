@@ -17,7 +17,7 @@ Before using any Calendar tool, verify that Google Calendar is connected by atte
 1. **Do NOT call `credential_store oauth2_connect` yourself.** You do not have valid OAuth client credentials, and fabricating a client_id will cause a "401: invalid_client" error from Google.
 2. Instead, load the **google-oauth-applescript** skill, which walks the user through creating real credentials in Google Cloud Console:
    - Call `skill_load` with `skill: "google-oauth-applescript"` to load the dependency skill.
-3. Tell the user: _"Google Calendar isn't connected yet. I've loaded a setup guide that will walk you through connecting your Google account — it only takes a couple of minutes."_
+3. Tell the user: _"Google Calendar isn't connected yet. I've loaded a setup guide that will walk you through connecting your Google account - it only takes a couple of minutes."_
 
 ## Capabilities
 

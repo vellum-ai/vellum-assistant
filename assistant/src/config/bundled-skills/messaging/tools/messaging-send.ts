@@ -58,7 +58,7 @@ export async function run(
     // Gmail: create a draft instead of sending directly
     if (provider.id === "gmail") {
       const gmailConn = conn as OAuthConnection;
-      // Reply mode: thread_id provided — create a threaded draft with reply-all recipients
+      // Reply mode: thread_id provided - create a threaded draft with reply-all recipients
       if (threadId) {
         // Fetch thread messages to extract recipients and threading headers
         const list = await listMessages(gmailConn, `thread:${threadId}`, 10);

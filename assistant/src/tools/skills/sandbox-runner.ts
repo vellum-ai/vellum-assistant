@@ -204,7 +204,7 @@ function spawnRunner(
         return;
       }
 
-      // No structured result — fall back to raw output
+      // No structured result - fall back to raw output
       if (code !== 0) {
         const truncatedStderr =
           stderr.length > MAX_OUTPUT_CHARS
@@ -261,7 +261,7 @@ function parseSkillResult(
         }
       }
     } catch {
-      // malformed line — keep scanning
+      // malformed line - keep scanning
     }
     searchFrom = lineStart;
   }
@@ -285,7 +285,7 @@ function parseSkillResult(
         };
       }
     } catch {
-      // malformed line — keep scanning
+      // malformed line - keep scanning
     }
     searchFrom = lineStart;
   }

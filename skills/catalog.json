@@ -166,7 +166,7 @@
     {
       "id": "elevenlabs-voice",
       "name": "elevenlabs-voice",
-      "description": "Select and tune an ElevenLabs TTS voice — curated voice list, custom/cloned voices via API key, and tuning parameters",
+      "description": "Select and tune an ElevenLabs TTS voice - curated voice list, custom/cloned voices via API key, and tuning parameters",
       "metadata": {
         "emoji": "🗣️",
         "vellum": {
@@ -362,7 +362,7 @@
     {
       "id": "oauth-setup",
       "name": "oauth-setup",
-      "description": "Connect any OAuth service — walk users through app setup via a collaborative guided flow",
+      "description": "Connect any OAuth service - walk users through app setup via a collaborative guided flow",
       "metadata": {
         "emoji": "🔑",
         "vellum": {
@@ -455,7 +455,7 @@
     {
       "id": "slack-digest-setup",
       "name": "slack-digest-setup",
-      "description": "Set up recurring Slack channel digests with scanning schedules, channel configuration, and delivery — codifies best practices for high-quality automated summaries",
+      "description": "Set up recurring Slack channel digests with scanning schedules, channel configuration, and delivery - codifies best practices for high-quality automated summaries",
       "metadata": {
         "emoji": "📊",
         "vellum": {
@@ -514,7 +514,7 @@
     {
       "id": "time-based-actions",
       "name": "time-based-actions",
-      "description": "Unified routing guide for reminders, schedules, notifications, and tasks — prevents common misrouting",
+      "description": "Unified routing guide for reminders, schedules, notifications, and tasks - prevents common misrouting",
       "metadata": {
         "emoji": "⏰",
         "vellum": {
@@ -585,7 +585,7 @@
     {
       "id": "vellum-avatar",
       "name": "vellum-avatar",
-      "description": "Customize the assistant's avatar — build a native character, upload an image, or generate one with AI",
+      "description": "Customize the assistant's avatar - build a native character, upload an image, or generate one with AI",
       "metadata": {
         "emoji": "🎨",
         "vellum": {
@@ -612,7 +612,7 @@
     {
       "id": "voice-setup",
       "name": "voice-setup",
-      "description": "Complete voice configuration in chat — PTT key, microphone permissions, ElevenLabs TTS, and troubleshooting",
+      "description": "Complete voice configuration in chat - PTT key, microphone permissions, ElevenLabs TTS, and troubleshooting",
       "metadata": {
         "emoji": "🎙️",
         "vellum": {

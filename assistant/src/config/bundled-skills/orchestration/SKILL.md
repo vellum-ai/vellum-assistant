@@ -22,7 +22,7 @@ Use `swarm_delegate` when facing complex multi-part tasks that benefit from para
 
 ## When NOT to use
 
-- Simple single-step requests — just do them directly.
+- Simple single-step requests - just do them directly.
 - Tasks that are inherently sequential (each step depends on the previous result).
 - Requests where the user is asking for a quick answer, not a deep workflow.
 

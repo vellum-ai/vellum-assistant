@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
-// Mutable mock state — set per test
+// Mutable mock state - set per test
 let mockWebSearchProvider: string | undefined = "perplexity";
 let mockBraveSecureKey: string | undefined;
 let mockPerplexitySecureKey: string | undefined;

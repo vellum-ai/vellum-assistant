@@ -39,13 +39,13 @@ function buildCredentialRefTrace(
  * inside the sandbox when CES shell lockdown is active.
  *
  * Protected paths include:
- * - ~/.vellum/protected/ — credential store secrets (also covers local-mode
+ * - ~/.vellum/protected/ - credential store secrets (also covers local-mode
  *   CES data root at ~/.vellum/protected/credential-executor/)
- * - ~/.vellum/workspace/data/db/ — database files that may contain credential metadata
- * - CES bootstrap socket directory (/run/ces-bootstrap/ or CES_BOOTSTRAP_SOCKET_DIR) —
+ * - ~/.vellum/workspace/data/db/ - database files that may contain credential metadata
+ * - CES bootstrap socket directory (/run/ces-bootstrap/ or CES_BOOTSTRAP_SOCKET_DIR) -
  *   prevents untrusted shells from connecting to the CES sidecar directly
  * - CES managed-mode data root (CES_DATA_DIR, or /ces-data when
- *   CES_MANAGED_MODE is set) — prevents access to CES-private state in
+ *   CES_MANAGED_MODE is set) - prevents access to CES-private state in
  *   managed deployments (local-mode is already covered by the protected/
  *   entry)
  */
@@ -53,7 +53,7 @@ function buildCesProtectedPaths(): string[] {
   const root = getRootDir();
   const paths = [`${root}/protected`, `${root}/workspace/data/db`];
 
-  // CES bootstrap socket directory — block access to the Unix socket that
+  // CES bootstrap socket directory - block access to the Unix socket that
   // accepts RPC commands from the assistant process.
   const bootstrapSocketDir =
     process.env["CES_BOOTSTRAP_SOCKET_DIR"] || "/run/ces-bootstrap";
@@ -68,7 +68,7 @@ function buildCesProtectedPaths(): string[] {
     paths.push(dirname(process.env["CES_BOOTSTRAP_SOCKET"]));
   }
 
-  // CES managed-mode private data root — in managed deployments the CES
+  // CES managed-mode private data root - in managed deployments the CES
   // data lives outside the Vellum root, so it isn't covered by the
   // `protected/` entry above.
   const cesDataDir = process.env["CES_DATA_DIR"];
@@ -140,7 +140,7 @@ class ShellTool implements Tool {
       };
     }
 
-    // Reject commands containing null bytes — they cause truncation at the
+    // Reject commands containing null bytes - they cause truncation at the
     // OS level while the parser sees the full string, enabling bypass.
     if (command.includes("\0")) {
       return { content: "Error: command contains null bytes", isError: true };
@@ -155,7 +155,7 @@ class ShellTool implements Tool {
       input.network_mode === "proxied" ? "proxied" : "off";
 
     // -----------------------------------------------------------------------
-    // CES shell lockdown — reject proxied credential sessions for untrusted
+    // CES shell lockdown - reject proxied credential sessions for untrusted
     // actors when the lockdown flag is active. Proxied sessions grant the
     // subprocess access to credentials through the egress proxy, which
     // violates the secrecy guarantee.
@@ -183,7 +183,7 @@ class ShellTool implements Tool {
     }
 
     // -----------------------------------------------------------------------
-    // CES shell lockdown — reject non-empty credential-ref mode for untrusted
+    // CES shell lockdown - reject non-empty credential-ref mode for untrusted
     // actors. Even when network_mode is "off", passing credential_ids could
     // allow the model to probe stored credential metadata.
     // -----------------------------------------------------------------------
@@ -201,7 +201,7 @@ class ShellTool implements Tool {
     }
 
     // Resolve credential refs (UUID or service/field) to canonical UUIDs.
-    // Fail fast if any ref is unresolvable — partial execution with missing
+    // Fail fast if any ref is unresolvable - partial execution with missing
     // credentials is worse than a clear error.
     const credentialIds: string[] = [];
     if (networkMode === "proxied" && rawCredentialRefs.length > 0) {
@@ -264,7 +264,7 @@ class ShellTool implements Tool {
       "Executing shell command",
     );
 
-    // Resolve sandbox config early — needed both for proxy env and command wrapping.
+    // Resolve sandbox config early - needed both for proxy env and command wrapping.
     const sandboxConfig =
       context.sandboxOverride != null
         ? { ...config.sandbox, enabled: context.sandboxOverride }
@@ -273,7 +273,7 @@ class ShellTool implements Tool {
     // Acquire proxy session if proxied mode is requested.
     // `getOrStartSession` serializes per-conversation so concurrent proxied
     // commands share a single session instead of each creating one.
-    // Sessions are NOT stopped here — the session manager's idle timer handles
+    // Sessions are NOT stopped here - the session manager's idle timer handles
     // cleanup after all commands finish (see resetIdleTimer / stopAllSessions).
     let proxyEnv: ProxyEnvVars | null = null;
 
@@ -291,7 +291,7 @@ class ShellTool implements Tool {
       } catch (err) {
         log.error({ err }, "Failed to start proxy session");
         return {
-          content: `Error: failed to start proxy session — ${
+          content: `Error: failed to start proxy session - ${
             err instanceof Error ? err.message : String(err)
           }`,
           isError: true,
@@ -385,7 +385,7 @@ class ShellTool implements Tool {
         resolve({
           content: `Error spawning command: ${err.message}${
             (err as NodeJS.ErrnoException).code === "ENOENT"
-              ? ". The command was not found — check that it is installed and in PATH."
+              ? ". The command was not found - check that it is installed and in PATH."
               : ""
           }`,
           isError: true,

@@ -10,7 +10,7 @@ metadata:
 
 # CLI Discovery
 
-When you need to discover what CLI tools are available on the system, use `host_bash` to check directly. Do not use sandboxed `bash` for discovery — it may not see host-installed CLIs or auth state, leading to false negatives.
+When you need to discover what CLI tools are available on the system, use `host_bash` to check directly. Do not use sandboxed `bash` for discovery - it may not see host-installed CLIs or auth state, leading to false negatives.
 
 ## Checking if a CLI exists
 
@@ -63,9 +63,9 @@ Report findings in markdown:
 ```markdown
 ## Available CLIs
 
-- **git** (/usr/bin/git) — git version 2.x.x
-- **gh** (/usr/bin/gh) — gh version 2.x.x [authenticated: user@example.com]
-- **bun** (~/.bun/bin/bun) — 1.x.x
+- **git** (/usr/bin/git) - git version 2.x.x
+- **gh** (/usr/bin/gh) - gh version 2.x.x [authenticated: user@example.com]
+- **bun** (~/.bun/bin/bun) - 1.x.x
 
 ## Not found: jira, linear, slack
 ```

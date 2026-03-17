@@ -65,6 +65,6 @@ function mapAuthFieldType(authType: AuthField["type"]): FormField["type"] {
 export function buildTimeoutMessage(challenge: AuthChallenge): string {
   const serviceName = challenge.service ?? "the website";
   return challenge.type === "2fa"
-    ? `No rush — just let me know when you've got the verification code from ${serviceName}.`
-    : `Take your time — I'll continue once you sign in to ${serviceName}.`;
+    ? `No rush - just let me know when you've got the verification code from ${serviceName}.`
+    : `Take your time - I'll continue once you sign in to ${serviceName}.`;
 }

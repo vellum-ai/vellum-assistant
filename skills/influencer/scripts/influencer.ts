@@ -63,7 +63,7 @@ function parseHumanNumber(text: string): number {
 // Help
 // ---------------------------------------------------------------------------
 
-const USAGE = `influencer — Research influencers on Instagram, TikTok, and X/Twitter
+const USAGE = `influencer - Research influencers on Instagram, TikTok, and X/Twitter
 
 Uses the Chrome extension relay to browse each platform. Requires the user to
 be logged in on each platform in Chrome.

@@ -29,7 +29,7 @@ The flow has 8 steps total, takes about 3-5 minutes.
 
 ### Step 0: Prerequisite Check
 
-> Before we start — do you have an Airtable account? You'll need one to create an OAuth integration.
+> Before we start - do you have an Airtable account? You'll need one to create an OAuth integration.
 
 If no account, direct them to `https://airtable.com/signup` to create one first.
 
@@ -39,7 +39,7 @@ If no account, direct them to `https://airtable.com/signup` to create one first.
 
 Open: `https://airtable.com/create/oauth`
 
-> I've opened the Airtable OAuth page. If it's asking you to sign in, go ahead and do that first — then let me know.
+> I've opened the Airtable OAuth page. If it's asking you to sign in, go ahead and do that first - then let me know.
 
 ---
 
@@ -55,7 +55,7 @@ Then:
 
 - If you don't see the registration option, make sure you're on a plan that supports OAuth integrations (most plans do)
 
-**Milestone (2 of 8):** "Integration registered — now let's configure the redirect URL."
+**Milestone (2 of 8):** "Integration registered - now let's configure the redirect URL."
 
 ---
 
@@ -73,15 +73,15 @@ Then:
 >
 > You'll need to add each of these scopes:
 >
-> - `data.records:read` — read records from bases
-> - `data.records:write` — create and update records
-> - `schema.bases:read` — view base structure and field info
+> - `data.records:read` - read records from bases
+> - `data.records:write` - create and update records
+> - `schema.bases:read` - view base structure and field info
 >
 > Select each scope from the list and make sure all three are added.
 
 Wait for the user to confirm all 3 scopes are added.
 
-**Milestone (4 of 8):** "Scopes configured — now let's grab the credentials."
+**Milestone (4 of 8):** "Scopes configured - now let's grab the credentials."
 
 ---
 
@@ -89,9 +89,9 @@ Wait for the user to confirm all 3 scopes are added.
 
 > Now let's grab the credentials. You should see the **Client ID** on this page.
 
-> Also look for the **OAuth secret** — you may need to click a button to reveal or generate it.
+> Also look for the **OAuth secret** - you may need to click a button to reveal or generate it.
 
-**Milestone (5 of 8):** "Almost there — just need to save these credentials."
+**Milestone (5 of 8):** "Almost there - just need to save these credentials."
 
 ---
 
@@ -123,7 +123,7 @@ bash:
     ) --client-secret-credential-path "integration:airtable:oauth_secret"
 ```
 
-**Milestone (6 of 8):** "Credentials saved — just the authorization step left."
+**Milestone (6 of 8):** "Credentials saved - just the authorization step left."
 
 ---
 
@@ -167,6 +167,6 @@ For non-interactive channels, see [references/path-b-manual-setup.md](references
 
 Key Airtable-specific differences for Path B:
 
-- Loopback callback won't work from a remote channel — need public ingress configured
+- Loopback callback won't work from a remote channel - need public ingress configured
 - Add the ingress-based redirect URI under the OAuth redirect URL field on the integration page
 - Airtable OAuth secrets don't have a known prefix that triggers scanners, but still use `credential_store prompt` or `credential_store store` for security

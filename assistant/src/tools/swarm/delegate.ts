@@ -73,7 +73,7 @@ export const swarmDelegateTool: Tool = {
       return { content: "Cancelled", isError: true };
     }
 
-    // Recursion guard — scoped to conversation so independent conversations are not blocked
+    // Recursion guard - scoped to conversation so independent conversations are not blocked
     const conversationKey = context.conversationId;
     if (activeConversations.has(conversationKey)) {
       return {
@@ -129,7 +129,7 @@ export const swarmDelegateTool: Tool = {
           config.providerOrder,
         );
       } catch {
-        // No provider available for synthesis — will use fallback
+        // No provider available for synthesis - will use fallback
       }
 
       const summary = await executeSwarm({
@@ -199,7 +199,7 @@ export const swarmDelegateTool: Tool = {
   },
 };
 
-/** Clear all active conversations — only for testing. */
+/** Clear all active conversations - only for testing. */
 export function _resetSwarmActive(): void {
   activeConversations.clear();
 }

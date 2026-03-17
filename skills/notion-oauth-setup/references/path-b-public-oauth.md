@@ -12,10 +12,10 @@ Public integrations use OAuth 2.0 and require:
 
 ## Important: Notion UI for Public Integrations
 
-As of early 2026, Notion does **not** offer a "Type" selector during integration creation — all integrations start as Internal. To convert to Public:
+As of early 2026, Notion does **not** offer a "Type" selector during integration creation - all integrations start as Internal. To convert to Public:
 
 1. Create the integration as Internal (per the main flow)
-2. Look for a way to convert to Public in the integration settings — Notion docs reference this option but the exact UI location may vary
+2. Look for a way to convert to Public in the integration settings - Notion docs reference this option but the exact UI location may vary
 3. Once converted, a **Distribution** tab should appear with OAuth settings
 
 ## Provider Details (Public)
@@ -25,7 +25,7 @@ As of early 2026, Notion does **not** offer a "Type" selector during integration
 - **Extra params:** `owner=user`
 - **Callback transport:** Loopback (port 17323) for interactive channels; public ingress for remote channels
 - **Redirect URI (interactive):** `http://localhost:17323/oauth/callback`
-- **Redirect URI (remote/Path B):** `<ingress.publicBaseUrl>/webhooks/oauth/callback` — resolve from the configured public gateway URL
+- **Redirect URI (remote/Path B):** `<ingress.publicBaseUrl>/webhooks/oauth/callback` - resolve from the configured public gateway URL
 
 ## Public Integration Steps
 

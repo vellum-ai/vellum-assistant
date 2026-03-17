@@ -1,6 +1,6 @@
 ---
 name: oauth-setup
-description: Connect any OAuth service — walk users through app setup via a collaborative guided flow
+description: Connect any OAuth service - walk users through app setup via a collaborative guided flow
 compatibility: "Designed for Vellum personal assistants"
 metadata:
   emoji: "🔑"
@@ -21,25 +21,25 @@ You will be given a `service` name (e.g., "discord", "linear", "spotify"). If no
 
 Use `credential_store` with `action: "describe"` and `service: "<name>"` to get the well-known OAuth config. This returns:
 
-- `scopes` — permissions to request
-- `redirectUri` — the callback URL to register
-- `callbackTransport` — loopback or gateway
-- `requiresClientSecret` — whether a client secret is needed
-- `authUrl` / `tokenUrl` — OAuth endpoints
+- `scopes` - permissions to request
+- `redirectUri` - the callback URL to register
+- `callbackTransport` - loopback or gateway
+- `requiresClientSecret` - whether a client secret is needed
+- `authUrl` / `tokenUrl` - OAuth endpoints
 
 It may also include a `setup` object with rich metadata:
 
-- `setup.displayName` — the provider's name
-- `setup.dashboardUrl` — where to create the app
-- `setup.appType` — what kind of app to create
-- `setup.requiresClientSecret` — whether a client secret is needed
-- `setup.notes` — provider-specific guidance
+- `setup.displayName` - the provider's name
+- `setup.dashboardUrl` - where to create the app
+- `setup.appType` - what kind of app to create
+- `setup.requiresClientSecret` - whether a client secret is needed
+- `setup.notes` - provider-specific guidance
 
 If no config is found, tell the user this service doesn't have a pre-configured setup and offer to help them configure it manually via `oauth2_connect`.
 
 ## Step 2: Check for a dedicated setup skill
 
-Check the available skills catalog for a dedicated `<service>-oauth-setup` skill matching this service name. If one exists, load that skill instead — it has provider-specific steps that are more reliable than the generic flow. Use `skill_load` with that skill ID and hand off completely.
+Check the available skills catalog for a dedicated `<service>-oauth-setup` skill matching this service name. If one exists, load that skill instead - it has provider-specific steps that are more reliable than the generic flow. Use `skill_load` with that skill ID and hand off completely.
 
 Well-known services with dedicated setup skills: `gmail` (google-oauth-applescript), `slack`, `notion`, `twitter`, `github`, `linear`, `spotify`, `todoist`, `discord`, `dropbox`, `asana`, `airtable`, `hubspot`, `figma`.
 
@@ -74,7 +74,7 @@ The provider has OAuth config (endpoints, scopes) but no setup guidance. Guide t
 
 > We're going to set up {setup.displayName} OAuth together. I'll open each page in your browser and tell you exactly what to do. You can pause anytime.
 >
-> Your Mac may ask for permissions along the way — if you see an option to allow for a longer duration (like 10 minutes), that'll save you from approving every single step.
+> Your Mac may ask for permissions along the way - if you see an option to allow for a longer duration (like 10 minutes), that'll save you from approving every single step.
 
 ### Step 5: Open the developer dashboard
 
@@ -88,7 +88,7 @@ Wait for user confirmation before proceeding.
 
 ### Step 6: Create an app
 
-> Look for a button to create a new app or integration — it might say "Create App", "New Application", or "New Integration". Go ahead and click it.
+> Look for a button to create a new app or integration - it might say "Create App", "New Application", or "New Integration". Go ahead and click it.
 
 Guide the user through the creation flow:
 
@@ -116,8 +116,8 @@ If scopes are empty (e.g. Notion), skip this step.
 
 Check the `redirectUri` from the config:
 
-- If it says "automatic" — skip this step entirely (no redirect URI needed for loopback)
-- If it mentions `ingress.publicBaseUrl` — the user needs a public gateway URL. Check if one is configured; if not, load the `public-ingress` skill first
+- If it says "automatic" - skip this step entirely (no redirect URI needed for loopback)
+- If it mentions `ingress.publicBaseUrl` - the user needs a public gateway URL. Check if one is configured; if not, load the `public-ingress` skill first
 - Otherwise, tell the user exactly where to add the redirect URI
 
 > Look for "Redirect URLs" or "OAuth Redirect URIs" in the settings. Add this URL: `{redirectUri}`
@@ -190,7 +190,7 @@ Summarize what was accomplished.
 
 For non-interactive channels (Telegram, Slack, etc.), provide all URLs and instructions as text messages. Key differences:
 
-- The user navigates on their own — give them the URLs to open
+- The user navigates on their own - give them the URLs to open
 - Use **Web application** credentials if the provider distinguishes (callback goes through public gateway)
 - Collect the Client Secret via `credential_store prompt` or split entry if the prefix could trigger channel scanners
 - Resolve the redirect URI from `ingress.publicBaseUrl` before sending instructions; if not configured, load the `public-ingress` skill first
@@ -199,6 +199,6 @@ For non-interactive channels (Telegram, Slack, etc.), provide all URLs and instr
 
 - **User lands on unexpected page:** Offer to screenshot, identify where they are, navigate back
 - **User not signed in:** Tell them to sign in, wait, continue
-- **Feature already configured:** "Looks like this is already set up — great, let's skip ahead."
+- **Feature already configured:** "Looks like this is already set up - great, let's skip ahead."
 - **User is confused or frustrated:** Pause, acknowledge, simplify
 - **OAuth flow timeout or failure:** Offer to retry. The app is already created, so only the connect step needs to be re-run.

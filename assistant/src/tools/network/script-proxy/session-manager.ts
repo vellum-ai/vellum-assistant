@@ -128,7 +128,7 @@ function resolveInjectionTemplates(
 }
 
 // ---------------------------------------------------------------------------
-// Session start hooks — wires assistant credential resolution into core
+// Session start hooks - wires assistant credential resolution into core
 // ---------------------------------------------------------------------------
 
 function buildSessionStartHooks(): SessionStartHooks {
@@ -216,13 +216,13 @@ function buildSessionStartHooks(): SessionStartHooks {
               if (bestCandidates.length === 1) {
                 perCredentialBest.push({ credId, tpl: bestCandidates[0] });
               } else if (bestCandidates.length > 1) {
-                // Same credential, same-specificity tie — ambiguous, block
+                // Same credential, same-specificity tie - ambiguous, block
                 return null;
               }
             }
 
             if (perCredentialBest.length === 0) return req.headers;
-            // Cross-credential ambiguity — block
+            // Cross-credential ambiguity - block
             if (perCredentialBest.length > 1) return null;
 
             const { credId, tpl } = perCredentialBest[0];
@@ -245,7 +245,7 @@ function buildSessionStartHooks(): SessionStartHooks {
               if (!headerValue) {
                 log.warn(
                   { host: req.hostname, credentialId: credId },
-                  "MITM rewrite: blocking request — composeWith credential missing",
+                  "MITM rewrite: blocking request - composeWith credential missing",
                 );
                 return null;
               }
@@ -325,7 +325,7 @@ function buildSessionStartHooks(): SessionStartHooks {
               if (!headerValue) {
                 log.warn(
                   { hostname, credentialId },
-                  "Policy: blocking matched request — composeWith credential missing",
+                  "Policy: blocking matched request - composeWith credential missing",
                 );
                 return null;
               }
@@ -334,7 +334,7 @@ function buildSessionStartHooks(): SessionStartHooks {
             return {};
           }
           case "ambiguous":
-            return null; // block — can't auto-resolve
+            return null; // block - can't auto-resolve
           case "ask_missing_credential":
           case "ask_unauthenticated":
             if (managed.approvalCallback) {
@@ -364,7 +364,7 @@ function buildSessionStartHooks(): SessionStartHooks {
 }
 
 // ---------------------------------------------------------------------------
-// Public API — thin wrappers that delegate to session-core with the store
+// Public API - thin wrappers that delegate to session-core with the store
 // ---------------------------------------------------------------------------
 
 /**
@@ -389,7 +389,7 @@ export function createSession(
 }
 
 /**
- * Start the proxy session — opens an HTTP server on an ephemeral port.
+ * Start the proxy session - opens an HTTP server on an ephemeral port.
  */
 export async function startSession(
   sessionId: ProxySessionId,
@@ -399,7 +399,7 @@ export async function startSession(
 }
 
 /**
- * Gracefully stop a session — closes the HTTP server and clears the idle timer.
+ * Gracefully stop a session - closes the HTTP server and clears the idle timer.
  */
 export async function stopSession(sessionId: ProxySessionId): Promise<void> {
   return coreStopSession(sessionId, store);
@@ -414,7 +414,7 @@ export function getSessionEnv(sessionId: ProxySessionId): ProxyEnvVars {
 }
 
 /**
- * Atomically acquire a proxy session for a conversation — reuses an active
+ * Atomically acquire a proxy session for a conversation - reuses an active
  * session or creates + starts a new one.
  */
 export async function getOrStartSession(

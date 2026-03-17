@@ -68,7 +68,7 @@ export class CredentialBroker {
       };
     }
 
-    // Tool policy enforcement — deny if tool is not in the credential's allowed list
+    // Tool policy enforcement - deny if tool is not in the credential's allowed list
     if (!isToolAllowed(request.toolName, metadata.allowedTools)) {
       const tools = metadata.allowedTools ?? [];
       return {
@@ -76,7 +76,7 @@ export class CredentialBroker {
         reason:
           `Tool "${request.toolName}" is not allowed to use credential ${request.service}/${request.field}. ` +
           (tools.length === 0
-            ? "No tools are currently allowed — update the credential with allowed_tools via credential_store."
+            ? "No tools are currently allowed - update the credential with allowed_tools via credential_store."
             : `Allowed tools: ${tools.join(", ")}.`),
       };
     }
@@ -125,7 +125,7 @@ export class CredentialBroker {
 
     token.consumed = true;
     const storageKey = credentialKey(token.service, token.field);
-    // Check for transient value first (one-time send) — consume and return the value
+    // Check for transient value first (one-time send) - consume and return the value
     // directly since transient values are never persisted to secure storage.
     const transient = this.transientValues.get(storageKey);
     if (transient !== undefined) {
@@ -166,7 +166,7 @@ export class CredentialBroker {
    * Fill a browser field using a credential without exposing plaintext to the caller.
    *
    * The broker resolves the credential, reads the secret internally, and passes it
-   * to the provided fill callback. The return value contains only metadata — the
+   * to the provided fill callback. The return value contains only metadata - the
    * plaintext never leaves this method's scope.
    */
   async browserFill(request: BrowserFillRequest): Promise<BrowserFillResult> {
@@ -178,7 +178,7 @@ export class CredentialBroker {
       };
     }
 
-    // Tool policy enforcement — deny if tool is not in the credential's allowed list
+    // Tool policy enforcement - deny if tool is not in the credential's allowed list
     if (!isToolAllowed(request.toolName, metadata.allowedTools)) {
       const tools = metadata.allowedTools ?? [];
       return {
@@ -186,12 +186,12 @@ export class CredentialBroker {
         reason:
           `Tool "${request.toolName}" is not allowed to use credential ${request.service}/${request.field}. ` +
           (tools.length === 0
-            ? "No tools are currently allowed — update the credential with allowed_tools via credential_store."
+            ? "No tools are currently allowed - update the credential with allowed_tools via credential_store."
             : `Allowed tools: ${tools.join(", ")}.`),
       };
     }
 
-    // Domain policy enforcement — deny if the page domain is not in the credential's allowed list
+    // Domain policy enforcement - deny if the page domain is not in the credential's allowed list
     const browserDomains = metadata.allowedDomains ?? [];
     if (browserDomains.length > 0) {
       if (!request.domain) {
@@ -228,7 +228,7 @@ export class CredentialBroker {
     try {
       await request.fill(value);
       // Only discard the transient value after a successful fill, and only if
-      // the map still holds the same reference — a concurrent injectTransient()
+      // the map still holds the same reference - a concurrent injectTransient()
       // call during the async fill could have replaced it with a new value.
       if (
         transient !== undefined &&
@@ -246,7 +246,7 @@ export class CredentialBroker {
       );
       return { success: true };
     } catch (err) {
-      // Log the raw error for debugging but never return it — the callback
+      // Log the raw error for debugging but never return it - the callback
       // error text may embed the credential value, leaking plaintext outside
       // the broker's trust boundary.
       log.error(
@@ -262,7 +262,7 @@ export class CredentialBroker {
    *
    * Like browserFill, the broker reads the secret internally and passes it
    * to the provided callback. The return value contains only the callback's
-   * result — the plaintext never leaves this method's scope.
+   * result - the plaintext never leaves this method's scope.
    */
   async serverUse<T>(
     request: ServerUseRequest<T>,
@@ -282,12 +282,12 @@ export class CredentialBroker {
         reason:
           `Tool "${request.toolName}" is not allowed to use credential ${request.service}/${request.field}. ` +
           (tools.length === 0
-            ? "No tools are currently allowed — update the credential with allowed_tools via credential_store."
+            ? "No tools are currently allowed - update the credential with allowed_tools via credential_store."
             : `Allowed tools: ${tools.join(", ")}.`),
       };
     }
 
-    // Domain policy enforcement — credentials with domain restrictions are
+    // Domain policy enforcement - credentials with domain restrictions are
     // scoped to browser use on those domains and cannot be used server-side.
     const serverDomains = metadata.allowedDomains ?? [];
     if (serverDomains.length > 0) {
@@ -341,7 +341,7 @@ export class CredentialBroker {
    *
    * Returns metadata and injection templates so the proxy knows how to
    * inject the credential into outbound requests. The secret value is
-   * never included in the result — the proxy reads it separately via
+   * never included in the result - the proxy reads it separately via
    * the secure key backend at injection time.
    */
   async serverUseById(
@@ -365,12 +365,12 @@ export class CredentialBroker {
         reason:
           `Tool "${request.requestingTool}" is not allowed to use credential ${metadata.service}/${metadata.field}. ` +
           (tools.length === 0
-            ? "No tools are currently allowed — update the credential with allowed_tools via credential_store."
+            ? "No tools are currently allowed - update the credential with allowed_tools via credential_store."
             : `Allowed tools: ${tools.join(", ")}.`),
       };
     }
 
-    // Domain policy enforcement — credentials with domain restrictions are
+    // Domain policy enforcement - credentials with domain restrictions are
     // scoped to browser use on those domains and cannot be used server-side.
     const domains = metadata.allowedDomains ?? [];
     if (domains.length > 0) {

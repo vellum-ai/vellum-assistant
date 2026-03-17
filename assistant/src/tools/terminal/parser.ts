@@ -38,7 +38,7 @@ export interface ParsedCommand {
 }
 
 const SHELL_PROGRAMS = new Set(["sh", "bash", "zsh", "dash", "ksh", "fish"]);
-// Script interpreters that can execute arbitrary code from stdin — piping
+// Script interpreters that can execute arbitrary code from stdin - piping
 // untrusted data into these is as dangerous as piping into a shell.
 const SCRIPT_INTERPRETERS = new Set([
   "python",
@@ -55,7 +55,7 @@ const STDIN_EXEC_FLAGS = new Set(["-c", "-e", "-"]);
 // Per-interpreter flags that consume the next argument as a value (not a filename).
 // Mapped by interpreter name since flags differ across interpreters
 // (e.g. -I is standalone in Python but takes a value in Ruby).
-// Note: `-m` is intentionally excluded — it means "run module", so the next arg
+// Note: `-m` is intentionally excluded - it means "run module", so the next arg
 // is a module name and the interpreter is NOT in stdin-exec mode.
 const INTERPRETER_VALUE_FLAGS: ReadonlyMap<
   string,
@@ -128,7 +128,7 @@ const initGuard = new PromiseGuard<void>();
  * In development / `bunx` the file lives under `node_modules/` relative
  * to the source tree.  In compiled Bun binaries `import.meta.dirname`
  * points into the virtual `/$bunfs/` filesystem where binary assets
- * don't exist — fall back to:
+ * don't exist - fall back to:
  *   1. `../Resources/<file>` (macOS .app bundle layout)
  *   2. Next to the compiled binary (process.execPath)
  * This matches the pattern used for compiled Bun binary asset resolution.
@@ -352,7 +352,7 @@ function extractSegments(node: TSNode): CommandSegment[] {
 }
 
 /**
- * Returns true when the interpreter args indicate stdin-exec mode — i.e. the
+ * Returns true when the interpreter args indicate stdin-exec mode - i.e. the
  * interpreter will read code from stdin (or from an inline -c/-e argument)
  * rather than from a file.  Concretely:
  *   - Any STDIN_EXEC_FLAGS present → stdin-exec
@@ -367,7 +367,7 @@ function isStdinExecMode(interpreter: string, args: string[]): boolean {
     if (STDIN_EXEC_FLAGS.has(arg)) return true;
     // First non-flag argument is a filename/module → file mode
     if (!arg.startsWith("-")) return false;
-    // Flags like -W, -X consume the next token as their value — skip it
+    // Flags like -W, -X consume the next token as their value - skip it
     if (valueFlags.has(arg)) i++;
   }
   // No positional arguments at all → interpreter reads from stdin
@@ -581,7 +581,7 @@ export async function parse(command: string): Promise<ParsedCommand> {
   const parser = await ensureParser();
   const tree = parser.parse(command);
   if (!tree) {
-    // Parser couldn't parse — treat as opaque
+    // Parser couldn't parse - treat as opaque
     return { segments: [], dangerousPatterns: [], hasOpaqueConstructs: true };
   }
   const rootNode = tree.rootNode;

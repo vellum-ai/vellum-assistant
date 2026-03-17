@@ -29,7 +29,7 @@ The flow has 11 steps total, takes about 3-5 minutes.
 
 ### Step 0: Prerequisite Check
 
-> Before we start — do you have a Dropbox account? A free account works fine.
+> Before we start - do you have a Dropbox account? A free account works fine.
 
 If no account, direct them to `https://www.dropbox.com` to create one first.
 
@@ -39,7 +39,7 @@ If no account, direct them to `https://www.dropbox.com` to create one first.
 
 Open: `https://www.dropbox.com/developers/apps`
 
-> I've opened the Dropbox App Console. If it's asking you to sign in, go ahead and do that first — then let me know.
+> I've opened the Dropbox App Console. If it's asking you to sign in, go ahead and do that first - then let me know.
 
 ---
 
@@ -61,10 +61,10 @@ Then:
 
 **Known issues:**
 
-- App names must be globally unique on Dropbox — if "Vellum Assistant" is taken, suggest adding a suffix like "Vellum Assistant - Personal"
+- App names must be globally unique on Dropbox - if "Vellum Assistant" is taken, suggest adding a suffix like "Vellum Assistant - Personal"
 - If the user sees "You have reached the limit for the number of apps," they'll need to delete an unused app first
 
-**Milestone (2 of 11):** "App created — now let's set the permissions."
+**Milestone (2 of 11):** "App created - now let's set the permissions."
 
 ---
 
@@ -74,10 +74,10 @@ Then:
 >
 > You'll need to check the boxes for each of these scopes:
 >
-> - `files.metadata.read` — view file and folder metadata
-> - `files.content.read` — read file content
-> - `files.content.write` — create and update files
-> - `sharing.read` — view shared files and folders
+> - `files.metadata.read` - view file and folder metadata
+> - `files.content.read` - read file content
+> - `files.content.write` - create and update files
+> - `sharing.read` - view shared files and folders
 >
 > Make sure each one is checked.
 
@@ -91,7 +91,7 @@ Wait for the user to confirm all 4 scopes are enabled.
 
 **Important:** Permissions must be saved before the authorization step, otherwise the token will not include the requested scopes.
 
-**Milestone (4 of 11):** "Permissions saved — now let's set up the redirect URL."
+**Milestone (4 of 11):** "Permissions saved - now let's set up the redirect URL."
 
 ---
 
@@ -109,9 +109,9 @@ Wait for the user to confirm all 4 scopes are enabled.
 
 > Stay on the **Settings** tab. Scroll up to the **App key** and **App secret** fields in the same OAuth 2 section.
 >
-> The App key is shown in plain text. The App secret is hidden — click **Show** to reveal it.
+> The App key is shown in plain text. The App secret is hidden - click **Show** to reveal it.
 
-**Milestone (6 of 11):** "Found the credentials — now let's save them."
+**Milestone (6 of 11):** "Found the credentials - now let's save them."
 
 ---
 
@@ -147,7 +147,7 @@ bash:
     ) --client-secret-credential-path "integration:dropbox:oauth_secret"
 ```
 
-**Milestone (8 of 11):** "Credentials saved — just the authorization step left."
+**Milestone (8 of 11):** "Credentials saved - just the authorization step left."
 
 ---
 
@@ -199,6 +199,6 @@ For non-interactive channels, see [references/path-b-manual-setup.md](references
 
 Key Dropbox-specific differences for Path B:
 
-- Loopback callback won't work from a remote channel — need public ingress configured
+- Loopback callback won't work from a remote channel - need public ingress configured
 - Add the ingress-based redirect URI under **Redirect URIs** on the Settings tab
 - App secrets don't have a known prefix that triggers scanners, but still use `credential_store prompt` or `credential_store store` for security

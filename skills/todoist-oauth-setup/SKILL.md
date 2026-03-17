@@ -31,7 +31,7 @@ The flow has 7 steps total, takes about 2-3 minutes.
 
 Open: `https://developer.todoist.com/appconsole.html`
 
-> I've opened the Todoist App Console. If it's asking you to sign in, go ahead and do that first — then let me know.
+> I've opened the Todoist App Console. If it's asking you to sign in, go ahead and do that first - then let me know.
 
 ---
 
@@ -43,7 +43,7 @@ Then:
 
 > Set the app name to **Vellum Assistant** and click **Create app**.
 
-**Milestone (2 of 7):** "App created — now let's set up the redirect URL."
+**Milestone (2 of 7):** "App created - now let's set up the redirect URL."
 
 ---
 
@@ -55,7 +55,7 @@ Then:
 >
 > Then click **Save settings**.
 
-**Milestone (3 of 7):** "Redirect URL is set — now let's grab the credentials."
+**Milestone (3 of 7):** "Redirect URL is set - now let's grab the credentials."
 
 ---
 
@@ -63,7 +63,7 @@ Then:
 
 > You should see the **Client ID** and **App secret** displayed in the app settings page.
 
-**Milestone (4 of 7):** "Credentials are visible — let's save them."
+**Milestone (4 of 7):** "Credentials are visible - let's save them."
 
 ---
 
@@ -95,7 +95,7 @@ bash:
     ) --client-secret-credential-path "integration:todoist:app_secret"
 ```
 
-**Milestone (5 of 7):** "Credentials saved — just the authorization step left."
+**Milestone (5 of 7):** "Credentials saved - just the authorization step left."
 
 ---
 
@@ -139,6 +139,6 @@ For non-interactive channels, see [references/path-b-manual-setup.md](references
 
 Key Todoist-specific differences for Path B:
 
-- Loopback callback won't work from a remote channel — need public ingress configured
+- Loopback callback won't work from a remote channel - need public ingress configured
 - Add the ingress-based redirect URI under **OAuth redirect URL** in the app settings
 - The app secret doesn't have a known prefix that triggers scanners, but still use `credential_store prompt` or `credential_store store` for security

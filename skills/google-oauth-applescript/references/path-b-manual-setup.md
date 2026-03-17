@@ -8,7 +8,7 @@ Tell the user:
 
 > **Setting up Gmail & Calendar from chat**
 >
-> Fair warning — this involves Google's developer console, which can feel pretty technical. Don't worry about that — you don't need to understand any of it. I'll give you a direct link for every step and tell you exactly what to do. If anything looks confusing, just let me know and I'll help you through it.
+> Fair warning - this involves Google's developer console, which can feel pretty technical. Don't worry about that - you don't need to understand any of it. I'll give you a direct link for every step and tell you exactly what to do. If anything looks confusing, just let me know and I'll help you through it.
 >
 > Since I can't open pages in your browser from here, you'll need:
 >
@@ -69,25 +69,25 @@ Tell the user:
 >
 > **If you see a Branding page** (with fields for App name, support email, etc.):
 >
-> - **3a. Branding** — Fill in:
+> - **3a. Branding** - Fill in:
 >   - App name: **Vellum Assistant**
 >   - User support email: **your email**
 >   - Developer contact email: **your email**
 >   - Click **Save**
-> - **3b. Audience** — Open: `https://console.cloud.google.com/auth/audience?project=PROJECT_ID`
+> - **3b. Audience** - Open: `https://console.cloud.google.com/auth/audience?project=PROJECT_ID`
 >   - Set user type to **External** if not already set
 >   - Scroll to **Test users**, click **+ Add users**, add **your email**, click **Save**
 >
 > **Then, regardless of which flow you saw:**
 >
-> - **Scopes** — Open: `https://console.cloud.google.com/auth/scopes?project=PROJECT_ID`
->   - Click **Add or Remove Scopes** — a panel will open
+> - **Scopes** - Open: `https://console.cloud.google.com/auth/scopes?project=PROJECT_ID`
+>   - Click **Add or Remove Scopes** - a panel will open
 >   - Scroll down to the **"Manually add scopes"** text box and paste these (comma-separated):
 >     `https://www.googleapis.com/auth/gmail.readonly,https://www.googleapis.com/auth/gmail.modify,https://www.googleapis.com/auth/gmail.send,https://www.googleapis.com/auth/calendar.readonly,https://www.googleapis.com/auth/calendar.events,https://www.googleapis.com/auth/userinfo.email,https://www.googleapis.com/auth/contacts.readonly`
 >   - Click **Update** at the bottom of the panel
 >   - Back on the main page, scroll down and click **Save**
 >
-> **Quick note:** The `gmail.modify` and `gmail.send` scopes are what allow me to draft and send emails on your behalf. If you'd rather I only have read access to your email for now, you can remove those two from the list before pasting — everything else will still work fine, and you can always add them later.
+> **Quick note:** The `gmail.modify` and `gmail.send` scopes are what allow me to draft and send emails on your behalf. If you'd rather I only have read access to your email for now, you can remove those two from the list before pasting - everything else will still work fine, and you can always add them later.
 >
 > Let me know when all parts are done.
 

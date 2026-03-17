@@ -185,7 +185,7 @@ describe("isAuthUrl", () => {
 
 // ── DOM detection: login pages ───────────────────────────────────────
 
-describe("detectAuthChallenge — login pages", () => {
+describe("detectAuthChallenge - login pages", () => {
   it("detects a generic login page with password input", async () => {
     const page = mockPage("https://example.com/login", {
       type: "login",
@@ -251,7 +251,7 @@ describe("detectAuthChallenge — login pages", () => {
 
 // ── DOM detection: 2FA pages ─────────────────────────────────────────
 
-describe("detectAuthChallenge — 2FA pages", () => {
+describe("detectAuthChallenge - 2FA pages", () => {
   it("detects a 2FA page with code input", async () => {
     const page = mockPage("https://accounts.google.com/signin/v2/challenge", {
       type: "2fa",
@@ -290,7 +290,7 @@ describe("detectAuthChallenge — 2FA pages", () => {
 
 // ── DOM detection: OAuth consent ─────────────────────────────────────
 
-describe("detectAuthChallenge — OAuth consent", () => {
+describe("detectAuthChallenge - OAuth consent", () => {
   it("detects an OAuth consent page with Allow button", async () => {
     const page = mockPage("https://accounts.google.com/o/oauth2/v2/auth", {
       type: "oauth_consent",
@@ -324,7 +324,7 @@ describe("detectAuthChallenge — OAuth consent", () => {
 
 // ── Non-auth pages ───────────────────────────────────────────────────
 
-describe("detectAuthChallenge — non-auth pages", () => {
+describe("detectAuthChallenge - non-auth pages", () => {
   it("returns null for a regular page", async () => {
     const page = mockPage("https://example.com/dashboard", null);
 

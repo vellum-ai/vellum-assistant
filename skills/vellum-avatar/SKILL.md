@@ -1,6 +1,6 @@
 ---
 name: vellum-avatar
-description: Customize the assistant's avatar — build a native character, upload an image, or generate one with AI
+description: Customize the assistant's avatar - build a native character, upload an image, or generate one with AI
 compatibility: "Designed for Vellum personal assistants"
 metadata:
   emoji: "🎨"
@@ -14,14 +14,14 @@ You are helping the user customize their assistant's avatar. There are three way
 
 The avatar system supports two representations:
 
-- **Native character** — Defined by `data/avatar/character-traits.json` (body shape, eye style, color). Rendered client-side as an animated character. A static PNG at `data/avatar/avatar-image.png` is auto-generated for use by other clients and the dock icon.
-- **Custom image** — A static PNG at `data/avatar/avatar-image.png`. Used for uploaded or AI-generated avatars. No traits file exists.
+- **Native character** - Defined by `data/avatar/character-traits.json` (body shape, eye style, color). Rendered client-side as an animated character. A static PNG at `data/avatar/avatar-image.png` is auto-generated for use by other clients and the dock icon.
+- **Custom image** - A static PNG at `data/avatar/avatar-image.png`. Used for uploaded or AI-generated avatars. No traits file exists.
 
 See [Mutual Exclusivity Rule](#mutual-exclusivity-rule) for how these modes interact.
 
 ## Mode 1: Native Character Traits
 
-The user picks a body shape, eye style, and color. Present the options conversationally — describe what each looks like so the user can choose without seeing a preview.
+The user picks a body shape, eye style, and color. Present the options conversationally - describe what each looks like so the user can choose without seeing a preview.
 
 ### Body shapes
 
@@ -115,12 +115,12 @@ The generated avatar will appear automatically in the client.
 ## UX Guidelines
 
 - When the user says they want to change or set their avatar, present all three options:
-  1. **Build a character** — Pick a body shape, eye style, and color for an animated native character
-  2. **Upload an image** — Use an existing image file from their computer
-  3. **Generate with AI** — Describe what they want and let AI create it
+  1. **Build a character** - Pick a body shape, eye style, and color for an animated native character
+  2. **Upload an image** - Use an existing image file from their computer
+  3. **Generate with AI** - Describe what they want and let AI create it
 - Ask which mode they prefer before proceeding.
 - For native characters, walk through each trait one at a time (body shape, then eye style, then color). Describe the options conversationally so the user can choose without seeing them.
-- For AI generation, ask the user to describe the avatar they want. Be encouraging — suggest they include details like style, colors, mood, or a character concept.
+- For AI generation, ask the user to describe the avatar they want. Be encouraging - suggest they include details like style, colors, mood, or a character concept.
 - After any avatar change, confirm it was applied and let the user know they can change it again anytime.
 - **After any avatar change**, update the `## Avatar` section in `IDENTITY.md` with a brief description of the current avatar appearance. This ensures you remember what you look like across sessions. Example: `## Avatar\nA friendly purple cat with green eyes wearing a tiny hat`
 
@@ -128,10 +128,10 @@ The generated avatar will appear automatically in the client.
 
 `character-traits.json` and `avatar-image.png` represent different avatar modes:
 
-- **Native character** — `character-traits.json` is the source of truth. The assistant auto-generates `avatar-image.png` as a static representation, so both files coexist.
-- **Custom image** — `avatar-image.png` is user-provided (uploaded or AI-generated). No traits file exists.
+- **Native character** - `character-traits.json` is the source of truth. The assistant auto-generates `avatar-image.png` as a static representation, so both files coexist.
+- **Custom image** - `avatar-image.png` is user-provided (uploaded or AI-generated). No traits file exists.
 
-The client checks for character traits first — if `character-traits.json` exists, it renders the animated character. Otherwise, it falls back to `avatar-image.png` for custom images.
+The client checks for character traits first - if `character-traits.json` exists, it renders the animated character. Otherwise, it falls back to `avatar-image.png` for custom images.
 
 Enforcement rules:
 

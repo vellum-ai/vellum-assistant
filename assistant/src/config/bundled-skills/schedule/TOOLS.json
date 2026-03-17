@@ -3,7 +3,7 @@
   "tools": [
     {
       "name": "schedule_create",
-      "description": "Create a scheduled automation. For recurring: provide expression (cron/RRULE). For one-time: provide fire_at (ISO 8601 timestamp). ONLY use this when the user explicitly wants something to run on a schedule (e.g. \"every day at 9am\", \"remind me tomorrow at 3pm\", \"weekly on Mondays\"). Do NOT use this for \"add to my tasks\" or \"add to my queue\" — use task_list_add for those requests instead.",
+      "description": "Create a scheduled automation. For recurring: provide expression (cron/RRULE). For one-time: provide fire_at (ISO 8601 timestamp). ONLY use this when the user explicitly wants something to run on a schedule (e.g. \"every day at 9am\", \"remind me tomorrow at 3pm\", \"weekly on Mondays\"). Do NOT use this for \"add to my tasks\" or \"add to my queue\" - use task_list_add for those requests instead.",
       "category": "schedule",
       "risk": "medium",
       "input_schema": {

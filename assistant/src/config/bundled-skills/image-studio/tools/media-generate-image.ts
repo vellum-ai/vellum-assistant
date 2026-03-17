@@ -41,7 +41,7 @@ function isAttachmentAccessible(
   if (hasStandard) {
     return true;
   }
-  // All sources are private — visible only if the caller is in one of those conversations
+  // All sources are private - visible only if the caller is in one of those conversations
   return sources.some((s) =>
     isAttachmentVisible(
       { conversationId: s.conversationId, isPrivate: true },

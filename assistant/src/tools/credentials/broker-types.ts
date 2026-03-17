@@ -52,13 +52,13 @@ export interface BrowserFillRequest {
   toolName: string;
   domain?: string;
   /**
-   * Opaque fill callback — the broker calls this with the plaintext value internally.
+   * Opaque fill callback - the broker calls this with the plaintext value internally.
    * The caller provides the fill function but never receives the secret value.
    */
   fill: (value: string) => Promise<void>;
 }
 
-/** Result of a broker-mediated browser fill — contains only metadata, never plaintext. */
+/** Result of a broker-mediated browser fill - contains only metadata, never plaintext. */
 export interface BrowserFillResult {
   success: boolean;
   reason?: string;
@@ -70,13 +70,13 @@ export interface ServerUseRequest<T> {
   field: string;
   toolName: string;
   /**
-   * Opaque callback — the broker calls this with the plaintext value internally.
+   * Opaque callback - the broker calls this with the plaintext value internally.
    * The caller provides the function but never receives the secret value directly.
    */
   execute: (value: string) => Promise<T>;
 }
 
-/** Result of a broker-mediated server-side credential use — contains the callback result, never plaintext. */
+/** Result of a broker-mediated server-side credential use - contains the callback result, never plaintext. */
 export interface ServerUseResult<T> {
   success: boolean;
   result?: T;
@@ -89,7 +89,7 @@ export interface ServerUseByIdRequest {
   requestingTool: string;
 }
 
-/** Successful by-id lookup result — metadata + injection templates, never plaintext. */
+/** Successful by-id lookup result - metadata + injection templates, never plaintext. */
 export interface ServerUseByIdSuccess {
   success: true;
   credentialId: string;

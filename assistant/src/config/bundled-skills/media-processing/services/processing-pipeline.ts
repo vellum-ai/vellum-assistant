@@ -151,7 +151,7 @@ export async function runPipeline(
     resumedFrom = STAGE_ORDER[startIndex];
     onProgress?.(`Resuming pipeline from stage: ${resumedFrom}`);
   } else if (startIndex >= STAGE_ORDER.length) {
-    // All stages already completed — idempotent no-op
+    // All stages already completed - idempotent no-op
     onProgress?.("All pipeline stages already completed.");
     updateMediaAssetStatus(assetId, "indexed");
     return {
@@ -225,7 +225,7 @@ export async function runPipeline(
           `Stage ${stageName} failed (attempt ${attempt + 1}/${maxRetries + 1}): ${errorMsg}`,
         );
 
-        // Save partial progress — the stage handler should have already
+        // Save partial progress - the stage handler should have already
         // persisted any partial results before throwing
         updateProcessingStage(stageRecord.id, {
           status: attempt >= maxRetries ? "failed" : "running",

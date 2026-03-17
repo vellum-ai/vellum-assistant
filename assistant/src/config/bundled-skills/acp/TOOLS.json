@@ -3,7 +3,7 @@
   "tools": [
     {
       "name": "acp_spawn",
-      "description": "Spawn an external coding agent (e.g. Claude Code, Codex, Gemini CLI) via ACP to work on a task. The agent runs as a subprocess and streams results back. Use this when you want to delegate a coding task to an external agent that has its own tools, file editing, and terminal access. If ACP is not enabled, follow the setup instructions in SKILL.md to install claude-agent-acp and configure it. The command MUST be 'claude-agent-acp' — NEVER use 'claude', 'claude -p', or 'claude --acp'.",
+      "description": "Spawn an external coding agent (e.g. Claude Code, Codex, Gemini CLI) via ACP to work on a task. The agent runs as a subprocess and streams results back. Use this when you want to delegate a coding task to an external agent that has its own tools, file editing, and terminal access. If ACP is not enabled, follow the setup instructions in SKILL.md to install claude-agent-acp and configure it. The command MUST be 'claude-agent-acp' - NEVER use 'claude', 'claude -p', or 'claude --acp'.",
       "category": "orchestration",
       "risk": "low",
       "input_schema": {
@@ -15,7 +15,7 @@
           },
           "task": {
             "type": "string",
-            "description": "The task to give the agent — what it should accomplish"
+            "description": "The task to give the agent - what it should accomplish"
           },
           "cwd": {
             "type": "string",
@@ -33,7 +33,7 @@
     },
     {
       "name": "acp_status",
-      "description": "Get the status of a specific ACP session or list all ACP sessions. Only use this when the user explicitly asks about ACP session status — do NOT poll automatically, as you will be notified when sessions complete.",
+      "description": "Get the status of a specific ACP session or list all ACP sessions. Only use this when the user explicitly asks about ACP session status - do NOT poll automatically, as you will be notified when sessions complete.",
       "category": "orchestration",
       "risk": "low",
       "input_schema": {

@@ -90,7 +90,7 @@ export class PermissionChecker {
       );
 
       // Private conversations force prompting for side-effect tools even when a
-      // trust/allow rule would auto-allow. Deny decisions are preserved —
+      // trust/allow rule would auto-allow. Deny decisions are preserved -
       // only allow → prompt promotion happens here.
       if (
         context.forcePromptSideEffects &&
@@ -139,8 +139,8 @@ export class PermissionChecker {
       if (result.decision === "prompt") {
         // Guardian-trust sessions (e.g. scheduled jobs, reminders) should be
         // able to use bundled tools without interactive approval. The guardian
-        // is the owner — prompting makes no sense when there is no client.
-        // Exception: requireFreshApproval tools cannot be auto-approved —
+        // is the owner - prompting makes no sense when there is no client.
+        // Exception: requireFreshApproval tools cannot be auto-approved -
         // without a human present, bundle installation must be denied.
         if (
           context.isInteractive === false &&
@@ -158,7 +158,7 @@ export class PermissionChecker {
           };
         }
 
-        // Non-interactive sessions have no client to respond to prompts —
+        // Non-interactive sessions have no client to respond to prompts -
         // deny immediately instead of blocking for the full permission timeout.
         if (context.isInteractive === false) {
           const durationMs = Date.now() - startTime;
@@ -190,9 +190,9 @@ export class PermissionChecker {
         // Temporary approval override: if the guardian has enabled a
         // conversation-scoped "allow all" mode (allow_10m or allow_conversation),
         // skip the interactive prompt and auto-approve. Only applies to
-        // guardian actors — untrusted actors cannot leverage this to bypass
+        // guardian actors - untrusted actors cannot leverage this to bypass
         // guardian-required gates (those are enforced in pre-execution gates).
-        // Exception: requireFreshApproval tools must always show the prompt —
+        // Exception: requireFreshApproval tools must always show the prompt -
         // cached temporary overrides cannot substitute for per-invocation
         // human review.
         if (
@@ -206,7 +206,7 @@ export class PermissionChecker {
               riskLevel,
               conversationId: context.conversationId,
             },
-            "Temporary approval override active — auto-approving without prompt",
+            "Temporary approval override active - auto-approving without prompt",
           );
           return { allowed: true, decision: "temporary_override", riskLevel };
         }
@@ -237,7 +237,7 @@ export class PermissionChecker {
         const persistentDecisionsAllowed = !context.requireFreshApproval;
 
         // Offer temporary approval options to guardians. Suppressed when
-        // requireFreshApproval is true — temporary overrides would be
+        // requireFreshApproval is true - temporary overrides would be
         // misleading since future invocations still require fresh approval.
         const temporaryOptionsAvailable:
           | Array<"allow_10m" | "allow_conversation">

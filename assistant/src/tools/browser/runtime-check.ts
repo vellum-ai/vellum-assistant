@@ -26,7 +26,7 @@ function resolveChromium(
 /**
  * Try importing playwright from the bundled binary. Returns the module
  * if chromium is resolvable, otherwise undefined. This never installs
- * anything — safe for diagnostic/read-only use.
+ * anything - safe for diagnostic/read-only use.
  */
 async function tryBundledPlaywright(): Promise<
   typeof import("playwright") | undefined
@@ -95,7 +95,7 @@ export async function importPlaywright(): Promise<typeof import("playwright")> {
     }
   }
 
-  // Dynamic import with a runtime-computed path — bun can't statically
+  // Dynamic import with a runtime-computed path - bun can't statically
   // analyze this, so it resolves from the filesystem at runtime.
   const entryPath = resolvePackageEntry(pwPkg);
   const pw: Record<string, unknown> = await import(entryPath);
@@ -109,7 +109,7 @@ export async function importPlaywright(): Promise<typeof import("playwright")> {
 }
 
 export async function checkBrowserRuntime(): Promise<BrowserRuntimeStatus> {
-  // Diagnostic only — no side effects (no playwright installation)
+  // Diagnostic only - no side effects (no playwright installation)
   let chromium: { executablePath: () => string };
   try {
     const pw = await tryBundledPlaywright();

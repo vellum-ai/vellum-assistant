@@ -82,7 +82,7 @@ export async function waitForInlineGrant(
       return { outcome: "aborted" };
     }
 
-    // Check if the canonical request was rejected — exit early without
+    // Check if the canonical request was rejected - exit early without
     // waiting for the full timeout.
     const request = getCanonicalGuardianRequest(escalationRequestId);
     if (request && request.status === "denied") {
@@ -98,7 +98,7 @@ export async function waitForInlineGrant(
       return { outcome: "denied", requestId: escalationRequestId };
     }
 
-    // Try to consume the grant — if the guardian approved, the canonical
+    // Try to consume the grant - if the guardian approved, the canonical
     // decision primitive will have minted a scoped grant by now.
     const grantResult = await consumeGrantForInvocation(consumeParams, {
       maxWaitMs: 0,
@@ -112,7 +112,7 @@ export async function waitForInlineGrant(
           grantId: grantResult.grant.id,
           elapsedMs: maxWait - (deadline - Date.now()),
         },
-        "Grant found during inline wait — tool execution proceeding",
+        "Grant found during inline wait - tool execution proceeding",
       );
       return { outcome: "granted", grant: { id: grantResult.grant.id } };
     }
@@ -125,7 +125,7 @@ export async function waitForInlineGrant(
       toolName: consumeParams.toolName,
       maxWaitMs: maxWait,
     },
-    "Inline grant wait timed out — no guardian decision within budget",
+    "Inline grant wait timed out - no guardian decision within budget",
   );
   return { outcome: "timeout", requestId: escalationRequestId };
 }
@@ -425,13 +425,13 @@ export class ToolApprovalHandler {
             executionTarget,
             grantId: grantResult.grant.id,
           },
-          "Scoped grant consumed — allowing untrusted actor tool invocation",
+          "Scoped grant consumed - allowing untrusted actor tool invocation",
         );
 
         return { allowed: true, tool, grantConsumed: true };
       }
 
-      // Treat abort as a cancellation — not a grant denial. This matches
+      // Treat abort as a cancellation - not a grant denial. This matches
       // the abort check at the top of checkPreExecutionGates so the caller
       // sees a consistent "Cancelled" result instead of a spurious
       // guardian_approval_required denial during voice barge-in.
@@ -458,12 +458,12 @@ export class ToolApprovalHandler {
         };
       }
 
-      // No matching grant or race condition — deny or wait inline.
+      // No matching grant or race condition - deny or wait inline.
       //
       // For verified non-guardian actors (trusted_contact) with sufficient
       // context, escalate to the guardian by creating a canonical
       // tool_grant_request. Then wait bounded for the grant to become
-      // available — this lets the tool call succeed inline after guardian
+      // available - this lets the tool call succeed inline after guardian
       // approval without the requester having to retry manually.
       //
       // Unverified actors remain fail-closed with no escalation or wait.
@@ -524,7 +524,7 @@ export class ToolApprovalHandler {
                 grantId: waitResult.grant.id,
                 escalationRequestId: escalation.requestId,
               },
-              "Inline grant wait succeeded — allowing trusted contact tool invocation",
+              "Inline grant wait succeeded - allowing trusted contact tool invocation",
             );
             return { allowed: true, tool, grantConsumed: true };
           }
@@ -589,7 +589,7 @@ export class ToolApprovalHandler {
               waitOutcome: waitResult.outcome,
               escalationRequestId: escalation.requestId,
             },
-            "Inline grant wait ended without approval — denying trusted contact tool invocation",
+            "Inline grant wait ended without approval - denying trusted contact tool invocation",
           );
           const durationMs = Date.now() - startTime;
           emitLifecycleEvent({
@@ -610,10 +610,10 @@ export class ToolApprovalHandler {
             result: { content: escalationMessage, isError: true },
           };
         }
-        // escalation.failed — fall through to generic denial.
+        // escalation.failed - fall through to generic denial.
       }
 
-      // Unknown/unverified actors or escalation failures — generic denial.
+      // Unknown/unverified actors or escalation failures - generic denial.
       const reason = guardianApprovalDeniedMessage(context.trustClass, name);
       log.warn(
         {

@@ -175,7 +175,7 @@ export async function run(
           memoryConfig,
         );
       } catch (err) {
-        // Indexing failure is non-fatal — the message is already persisted,
+        // Indexing failure is non-fatal - the message is already persisted,
         // and failing here would abort the loop before conversationKeys is
         // written, causing duplicate imports on retry.
         log.warn(

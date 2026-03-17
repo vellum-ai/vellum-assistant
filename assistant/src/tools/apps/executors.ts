@@ -28,7 +28,7 @@ export interface ExecutorResult {
 }
 
 // ---------------------------------------------------------------------------
-// Dependency interfaces — callers inject these rather than importing the
+// Dependency interfaces - callers inject these rather than importing the
 // app-store module directly, which makes the executors testable with mocks.
 // ---------------------------------------------------------------------------
 
@@ -82,7 +82,7 @@ export type ProxyResolver = (
 ) => Promise<ExecutorResult>;
 
 // ---------------------------------------------------------------------------
-// Path resolution — multifile apps default to src/ for file operations
+// Path resolution - multifile apps default to src/ for file operations
 // ---------------------------------------------------------------------------
 
 /**
@@ -146,7 +146,7 @@ export async function executeAppCreate(
   const autoOpen = input.auto_open !== false; // default true
   const preview = input.preview;
 
-  // Validate required fields — LLM input is not type-checked at runtime
+  // Validate required fields - LLM input is not type-checked at runtime
   if (typeof name !== "string" || name.trim() === "") {
     return {
       content: JSON.stringify({
@@ -168,7 +168,7 @@ export async function executeAppCreate(
     }
   }
 
-  // Extract icon from preview if provided — only persist emoji-like values,
+  // Extract icon from preview if provided - only persist emoji-like values,
   // not URLs which would render as raw strings in UI and bundle manifests.
   const rawIcon = preview?.icon as string | undefined;
   const icon = rawIcon && !rawIcon.startsWith("http") ? rawIcon : undefined;
@@ -270,7 +270,7 @@ render(<App />, document.getElementById('app')!);
         isError: false,
       };
     } catch {
-      // Preview emission failure is non-fatal — the app was created successfully.
+      // Preview emission failure is non-fatal - the app was created successfully.
       return {
         content: JSON.stringify({
           ...app,
@@ -388,7 +388,7 @@ export function executeAppFileList(
 
   if (app && isMultifileApp(app)) {
     // Separate build output paths from source paths without mutating the
-    // file path strings — consumers need clean paths for subsequent tool calls.
+    // file path strings - consumers need clean paths for subsequent tool calls.
     const buildOutputPaths = files.filter((f) =>
       f.replace(/\\/g, "/").startsWith("dist/"),
     );
@@ -557,7 +557,7 @@ export async function executeAppGenerateIcon(
   );
 
   if (existsSync(iconPath)) {
-    // Success — clean up the old icon backup
+    // Success - clean up the old icon backup
     if (existsSync(tempPath)) {
       unlinkSync(tempPath);
     }
@@ -567,7 +567,7 @@ export async function executeAppGenerateIcon(
     };
   }
 
-  // Generation failed — restore the previous icon if we had one
+  // Generation failed - restore the previous icon if we had one
   if (existsSync(tempPath)) {
     renameSync(tempPath, iconPath);
   }

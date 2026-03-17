@@ -44,13 +44,13 @@ When crafting tasks for the AI voice agent, follow these guidelines for the best
 ## Writing good task descriptions
 
 - **Be specific about the objective**: "Make a dinner reservation for 2 at 7pm tonight" is better than "Call the restaurant"
-- **Include relevant context**: Names, account numbers, appointment details — anything the agent might need
+- **Include relevant context**: Names, account numbers, appointment details - anything the agent might need
 - **Specify what information to collect**: "Ask about their return policy and store hours" tells the agent what to gather
 - **Set clear completion criteria**: The agent knows to end the call when the task is fulfilled
 
 ## Providing context
 
-The `context` field is powerful — use it to give the agent background that helps it sound natural:
+The `context` field is powerful - use it to give the agent background that helps it sound natural:
 
 - User's name and identifying details (for making appointments, verifying accounts)
 - Preferences and constraints (dietary restrictions, budget limits, scheduling conflicts)

@@ -14,11 +14,11 @@ Ingest and track processing of media files (video, audio, images) through a conf
 
 The processing pipeline follows a sequential 3-phase flow:
 
-1. **Ingest** (`ingest_media`) — Register a media file, detect MIME type, extract duration, deduplicate by content hash.
-2. **Preprocess** (`extract_keyframes`) — Detect dead time, segment the video into windows, extract downscaled keyframes, build a subject registry, and write a pipeline manifest.
-3. **Map** (`analyze_keyframes`) — Send each segment's frames to Gemini 2.5 Flash with assistant-provided extraction instructions and a JSON Schema for guaranteed structured output. Supports concurrency pooling, cost tracking, resumability, and automatic retries.
-4. **Reduce / Query** (`query_media`) — Send all map output to Claude for intelligent analysis and Q&A. Supports arbitrary natural language queries about video content.
-5. **Clip** (`generate_clip`) — Extract video clips around specific moments.
+1. **Ingest** (`ingest_media`) - Register a media file, detect MIME type, extract duration, deduplicate by content hash.
+2. **Preprocess** (`extract_keyframes`) - Detect dead time, segment the video into windows, extract downscaled keyframes, build a subject registry, and write a pipeline manifest.
+3. **Map** (`analyze_keyframes`) - Send each segment's frames to Gemini 2.5 Flash with assistant-provided extraction instructions and a JSON Schema for guaranteed structured output. Supports concurrency pooling, cost tracking, resumability, and automatic retries.
+4. **Reduce / Query** (`query_media`) - Send all map output to Claude for intelligent analysis and Q&A. Supports arbitrary natural language queries about video content.
+5. **Clip** (`generate_clip`) - Extract video clips around specific moments.
 
 The processing pipeline service (`services/processing-pipeline.ts`) orchestrates phases 2-4 automatically with retries, resumability, and cancellation support.
 
@@ -38,35 +38,35 @@ Preprocess a video asset: detect dead time via mpdecimate, segment the video int
 
 Parameters:
 
-- `asset_id` (required) — ID of the media asset.
-- `interval_seconds` — Interval between keyframes (default: 1s). Use 0.5s for sports/action content where frame density matters.
-- `segment_duration` — Duration of each segment window (default: 15s).
-- `dead_time_threshold` — Sensitivity for dead-time detection (default: 0.02).
-- `section_config` — Path to a JSON file with manual section boundaries.
-- `detect_dead_time` — Whether to detect and skip dead time (default: false). Dead-time detection can be too aggressive for continuous action video like sports — it may incorrectly skip live play. Enable only for content with clear idle periods (e.g., lectures, surveillance footage).
-- `short_edge` — Short edge resolution for downscaled frames in pixels (default: 480).
-- `include_audio` — Whether to extract and transcribe audio for each segment (default: false). When enabled, each segment's audio is transcribed and stored alongside visual frames.
-- `transcription_mode` — Transcription backend: `'api'` (OpenAI Whisper cloud) or `'local'` (whisper.cpp on-device). Default: `'local'`. The `'api'` mode requires an OpenAI API key configured in settings.
+- `asset_id` (required) - ID of the media asset.
+- `interval_seconds` - Interval between keyframes (default: 1s). Use 0.5s for sports/action content where frame density matters.
+- `segment_duration` - Duration of each segment window (default: 15s).
+- `dead_time_threshold` - Sensitivity for dead-time detection (default: 0.02).
+- `section_config` - Path to a JSON file with manual section boundaries.
+- `detect_dead_time` - Whether to detect and skip dead time (default: false). Dead-time detection can be too aggressive for continuous action video like sports - it may incorrectly skip live play. Enable only for content with clear idle periods (e.g., lectures, surveillance footage).
+- `short_edge` - Short edge resolution for downscaled frames in pixels (default: 480).
+- `include_audio` - Whether to extract and transcribe audio for each segment (default: false). When enabled, each segment's audio is transcribed and stored alongside visual frames.
+- `transcription_mode` - Transcription backend: `'api'` (OpenAI Whisper cloud) or `'local'` (whisper.cpp on-device). Default: `'local'`. The `'api'` mode requires an OpenAI API key configured in settings.
 
 ### analyze_keyframes
 
 Map video segments through Gemini's structured output API. Supports two modes:
 
-- **`keyframes`** (default) — Reads frames from the preprocess manifest, sends each segment's images to Gemini. Requires `extract_keyframes` to be run first. Best for longer videos (> 1 hour) or when you need fine-grained control over frame selection (interval, segment duration, dead-time skipping).
-- **`direct_video`** — Uploads the video file directly to Gemini's Files API. Gemini sees actual motion and temporal context instead of static frames. Best for shorter videos (< 1 hour) where temporal context matters (detecting actions, transitions, motion patterns). Has a 2 GB file size limit. Does not require `extract_keyframes` preprocessing.
+- **`keyframes`** (default) - Reads frames from the preprocess manifest, sends each segment's images to Gemini. Requires `extract_keyframes` to be run first. Best for longer videos (> 1 hour) or when you need fine-grained control over frame selection (interval, segment duration, dead-time skipping).
+- **`direct_video`** - Uploads the video file directly to Gemini's Files API. Gemini sees actual motion and temporal context instead of static frames. Best for shorter videos (< 1 hour) where temporal context matters (detecting actions, transitions, motion patterns). Has a 2 GB file size limit. Does not require `extract_keyframes` preprocessing.
 
 Both modes produce the same `MapOutput` format, so `query_media` works identically regardless of which mode was used.
 
 Parameters:
 
-- `asset_id` (required) — ID of the media asset.
-- `system_prompt` (required) — Extraction instructions for Gemini.
-- `output_schema` (required) — JSON Schema for structured output.
-- `mode` — Analysis mode: `'keyframes'` (default) or `'direct_video'`.
-- `context` — Additional context to include in the prompt.
-- `model` — Gemini model to use (default: `gemini-2.5-flash`).
-- `concurrency` — Maximum concurrent API requests (default: 10, keyframes mode only).
-- `max_retries` — Retry attempts per segment on failure (default: 3).
+- `asset_id` (required) - ID of the media asset.
+- `system_prompt` (required) - Extraction instructions for Gemini.
+- `output_schema` (required) - JSON Schema for structured output.
+- `mode` - Analysis mode: `'keyframes'` (default) or `'direct_video'`.
+- `context` - Additional context to include in the prompt.
+- `model` - Gemini model to use (default: `gemini-2.5-flash`).
+- `concurrency` - Maximum concurrent API requests (default: 10, keyframes mode only).
+- `max_retries` - Retry attempts per segment on failure (default: 3).
 
 ### query_media
 
@@ -74,10 +74,10 @@ Query video analysis data using natural language. Sends map output (from analyze
 
 Parameters:
 
-- `asset_id` (required) — ID of the media asset.
-- `query` (required) — Natural language query about the video data.
-- `system_prompt` — Optional system prompt for Claude.
-- `model` — LLM model to use (default: `claude-sonnet-4-6`).
+- `asset_id` (required) - ID of the media asset.
+- `query` (required) - Natural language query about the video data.
+- `system_prompt` - Optional system prompt for Claude.
+- `model` - LLM model to use (default: `claude-sonnet-4-6`).
 
 ### generate_clip
 
@@ -135,7 +135,7 @@ Transcription modes:
 - **`local`** (default): Uses whisper.cpp for on-device transcription. Requires `whisper-cpp` to be installed (`brew install whisper-cpp`). No API costs, but slower.
 - **`api`**: Uses the OpenAI Whisper API for cloud-based transcription. Faster and more accurate, but requires an OpenAI API key and incurs per-minute costs.
 
-The audio transcription degrades gracefully — if transcription fails for a segment (missing tools, no audio track, API errors), the segment proceeds with visual-only analysis.
+The audio transcription degrades gracefully - if transcription fails for a segment (missing tools, no audio track, API errors), the segment proceeds with visual-only analysis.
 
 ## Best Practices
 
@@ -195,13 +195,13 @@ Be specific and factual. Describe what you see, not what you infer happened betw
 
 ### Clip Delivery
 
-The `generate_clip` tool automatically opens clips in the user's default video player after extraction (handled internally — do **not** run `open` via `host_bash`). Clips are saved persistently in the asset's pipeline directory (`pipeline/<assetId>/clips/`), falling back to a temp directory when the source location is read-only. Each clip gets a unique filename so concurrent or repeated extractions at the same range never collide. The `clipPath` field in the tool response contains the absolute file path.
+The `generate_clip` tool automatically opens clips in the user's default video player after extraction (handled internally - do **not** run `open` via `host_bash`). Clips are saved persistently in the asset's pipeline directory (`pipeline/<assetId>/clips/`), falling back to a temp directory when the source location is read-only. Each clip gets a unique filename so concurrent or repeated extractions at the same range never collide. The `clipPath` field in the tool response contains the absolute file path.
 
-The tool handles high-bitrate and incompatible codec sources automatically — it tries stream copy first for speed, then falls back to H.264 re-encoding if needed. **Always use `generate_clip` rather than manual ffmpeg commands.**
+The tool handles high-bitrate and incompatible codec sources automatically - it tries stream copy first for speed, then falls back to H.264 re-encoding if needed. **Always use `generate_clip` rather than manual ffmpeg commands.**
 
 Always provide a descriptive `title` parameter (e.g. `"snow-dive-closeup"`, `"goal-celebration"`) so clips get meaningful filenames instead of timestamp-based names.
 
-## Known Limitations — Vision Analysis
+## Known Limitations - Vision Analysis
 
 Gemini performs well at **spatial/descriptive analysis** from static keyframes:
 
@@ -217,7 +217,7 @@ Gemini **hallucinates when asked to detect fast temporal events** from static fr
 - Fast transitions and split-second actions
 - Causality between frames (what "happened" vs. what's visible)
 
-The model is good at describing **what is there** but bad at detecting **what happened** from static frames. For content where temporal context matters, consider using `mode: 'direct_video'` which lets Gemini see actual motion. For keyframes mode, structure your map prompts and queries accordingly — ask the model to describe scenes, then use `query_media` (Claude) to reason about patterns and events across the descriptive data.
+The model is good at describing **what is there** but bad at detecting **what happened** from static frames. For content where temporal context matters, consider using `mode: 'direct_video'` which lets Gemini see actual motion. For keyframes mode, structure your map prompts and queries accordingly - ask the model to describe scenes, then use `query_media` (Claude) to reason about patterns and events across the descriptive data.
 
 ## Operator Runbook
 
@@ -225,10 +225,10 @@ The model is good at describing **what is there** but bad at detecting **what ha
 
 Use `media_status` to check the current state of any asset:
 
-- **registered** — Ingested but not yet processed.
-- **processing** — Pipeline is running.
-- **indexed** — All stages completed successfully.
-- **failed** — A stage failed. Check stage details for the error.
+- **registered** - Ingested but not yet processed.
+- **processing** - Pipeline is running.
+- **indexed** - All stages completed successfully.
+- **failed** - A stage failed. Check stage details for the error.
 
 The response includes per-stage progress (0-100%) so you can see exactly where processing stands.
 
@@ -244,11 +244,11 @@ Use `media_status` to check processing stages:
    - **map**: Gemini API key not configured, API rate limits, network errors.
    - **reduce**: No LLM provider configured, no map output exists.
 
-After fixing the root cause, re-run the failed stage. The pipeline is resumable — it picks up from where it left off.
+After fixing the root cause, re-run the failed stage. The pipeline is resumable - it picks up from where it left off.
 
 ### Cost Expectations
 
-The Map phase (Gemini) is the primary cost driver — it scales with video duration and keyframe interval. The Q&A phase (Claude) is negligible per query.
+The Map phase (Gemini) is the primary cost driver - it scales with video duration and keyframe interval. The Q&A phase (Claude) is negligible per query.
 
 ### Known Limitations
 

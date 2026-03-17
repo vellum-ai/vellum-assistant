@@ -21,8 +21,8 @@ sqlite3 ~/.vellum/workspace/data/db/assistant.db \
 
 This returns all messages in chronological order with:
 
-- `role: "user"` — caller speech (prefixed with `[SPEAKER]` tags) and system events
-- `role: "assistant"` — assistant responses, including `text` content and any `tool_use`/`tool_result` blocks
+- `role: "user"` - caller speech (prefixed with `[SPEAKER]` tags) and system events
+- `role: "assistant"` - assistant responses, including `text` content and any `tool_use`/`tool_result` blocks
 
 ## Quick one-liner for the most recent call
 

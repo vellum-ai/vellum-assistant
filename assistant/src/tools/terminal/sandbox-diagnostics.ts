@@ -46,7 +46,7 @@ function checkNativeBackend(): SandboxCheckResult {
       return {
         label: "Native sandbox (Linux bwrap)",
         ok: false,
-        detail: "bwrap not available — install bubblewrap",
+        detail: "bwrap not available - install bubblewrap",
       };
     }
   }

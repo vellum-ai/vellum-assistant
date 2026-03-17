@@ -75,7 +75,7 @@ export async function executeWatcherList(
       ? new Date(w.lastPollAt).toLocaleString()
       : "never";
     lines.push(
-      `  - [${status}] ${w.name} (${w.providerId}) — last: ${lastPoll}`,
+      `  - [${status}] ${w.name} (${w.providerId}) - last: ${lastPoll}`,
     );
   }
 

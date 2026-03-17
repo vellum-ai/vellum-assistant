@@ -33,8 +33,8 @@ The local gateway URL is available as the `$INTERNAL_GATEWAY_BASE_URL` environme
 
 The commands return:
 
-- `ingress.publicBaseUrl` — currently configured public ingress URL (if any)
-- `ingress.enabled` — whether ingress is enabled
+- `ingress.publicBaseUrl` - currently configured public ingress URL (if any)
+- `ingress.enabled` - whether ingress is enabled
 
 If `publicBaseUrl` is already set and the tunnel is running (check via `curl -s http://127.0.0.1:4040/api/tunnels`), tell the user the current status and ask if they want to reconfigure or if this is sufficient.
 
@@ -60,7 +60,7 @@ brew install ngrok/ngrok/ngrok
 sudo snap install ngrok
 ```
 
-**Linux (apt — alternative):**
+**Linux (apt - alternative):**
 
 ```bash
 curl -sSL https://ngrok-agent.s3.amazonaws.com/ngrok.asc | sudo tee /etc/apt/trusted.gpg.d/ngrok.asc >/dev/null
@@ -80,7 +80,7 @@ ngrok config check
 
 If not authenticated:
 
-1. Tell the user: "You need an ngrok account to create tunnels. If you don't have one, sign up at https://dashboard.ngrok.com/signup — it's free."
+1. Tell the user: "You need an ngrok account to create tunnels. If you don't have one, sign up at https://dashboard.ngrok.com/signup - it's free."
 2. Once they have an account, use `credential_store` to securely collect their auth token. **Never ask the user to paste the token directly in chat.**
 
    Use `credential_store` with:
@@ -132,7 +132,7 @@ sleep 3
 
 ## Step 4b: Verify Port Alignment
 
-Before discovering the public URL, verify that ngrok is forwarding to the same port the gateway is actually listening on. A mismatch here causes silent failures — webhooks appear to be delivered but never reach the gateway.
+Before discovering the public URL, verify that ngrok is forwarding to the same port the gateway is actually listening on. A mismatch here causes silent failures - webhooks appear to be delivered but never reach the gateway.
 
 Query the ngrok tunnel's target port and the gateway's configured port, then compare them:
 

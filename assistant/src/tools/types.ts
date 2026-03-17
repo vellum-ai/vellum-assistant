@@ -114,7 +114,7 @@ export interface ToolContext {
   sandboxOverride?: boolean;
   /** Optional callback for tool lifecycle events (start/prompt/deny/execute/error/secret_detected). */
   onToolLifecycleEvent?: ToolLifecycleEventHandler;
-  /** Optional resolver for proxy tools — delegates execution to an external client. */
+  /** Optional resolver for proxy tools - delegates execution to an external client. */
   proxyToolResolver?: ProxyToolResolver;
   /** When set, only tools in this set may execute. Tools outside the set are blocked with an error. */
   allowedToolNames?: Set<string>;
@@ -147,7 +147,7 @@ export interface ToolContext {
   forcePromptSideEffects?: boolean;
   /**
    * When true, the tool requires a fresh interactive approval for every
-   * invocation — no cached grants, temporary overrides, persistent
+   * invocation - no cached grants, temporary overrides, persistent
    * "Always Allow" rules, or non-interactive auto-approve shortcuts may
    * bypass the prompt. This flag is independently sufficient: it
    * promotes allow → prompt decisions on its own and suppresses
@@ -231,7 +231,7 @@ export interface ToolExecutionResult {
 }
 
 // ---------------------------------------------------------------------------
-// Proxy approval types — local definitions for the outbound-proxy contract.
+// Proxy approval types - local definitions for the outbound-proxy contract.
 // The proxy service owns the canonical shapes; these are the assistant's
 // minimal view of the approval callback interface.
 // ---------------------------------------------------------------------------

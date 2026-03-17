@@ -18,11 +18,11 @@ const log = getLogger("network-recorder");
 /** Max response body size to capture (64 KB). */
 const MAX_BODY_SIZE = 64 * 1024;
 
-/** Default CDP endpoint — used when no base URL is injected. */
+/** Default CDP endpoint - used when no base URL is injected. */
 const DEFAULT_CDP_BASE = "http://localhost:9222";
 
 /**
- * Minimal CDP client over WebSocket — talks the Chrome DevTools Protocol directly
+ * Minimal CDP client over WebSocket - talks the Chrome DevTools Protocol directly
  * without needing Playwright, so it can attach to the user's real browsing session.
  */
 class DirectCDPClient {
@@ -385,7 +385,7 @@ export class NetworkRecorder {
       this.loginDetectedFired = true;
       log.info(
         { url: truncate(entry.request.url, 120, "") },
-        "Login detected — will auto-stop in 5s",
+        "Login detected - will auto-stop in 5s",
       );
       // Delay to let remaining network requests (cookies, session data) settle
       setTimeout(() => this.onLoginDetected?.(), 5000);

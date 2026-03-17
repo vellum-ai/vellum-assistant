@@ -28,7 +28,7 @@ The flow has 8 steps total, takes about 3-5 minutes.
 
 ### Step 0: Prerequisite Check
 
-> Before we start — do you have a GitHub account? You'll need one to create an OAuth App.
+> Before we start - do you have a GitHub account? You'll need one to create an OAuth App.
 
 If no account, direct them to `https://github.com/signup` and wait for them to finish before continuing.
 
@@ -38,7 +38,7 @@ If no account, direct them to `https://github.com/signup` and wait for them to f
 
 Open: `https://github.com/settings/developers`
 
-> I've opened the GitHub Developer Settings page. If it's asking you to sign in, go ahead and do that first — then let me know.
+> I've opened the GitHub Developer Settings page. If it's asking you to sign in, go ahead and do that first - then let me know.
 
 ---
 
@@ -52,7 +52,7 @@ After the user clicks:
 >
 > - **Application name:** `Vellum Assistant`
 > - **Homepage URL:** `https://vellum.ai` (or any URL you prefer)
-> - **Authorization callback URL:** We need to look this up first — hold on.
+> - **Authorization callback URL:** We need to look this up first - hold on.
 
 Resolve the callback URL:
 
@@ -70,15 +70,15 @@ Then:
 
 > Once all three fields are filled in, click **Register application**.
 
-**Milestone (2 of 8):** "App registered — now let's grab the credentials."
+**Milestone (2 of 8):** "App registered - now let's grab the credentials."
 
 ---
 
 ### Step 3: Copy Client ID
 
-> You should now be on the app's settings page. The **Client ID** is displayed near the top. Copy it — we'll need it in a moment.
+> You should now be on the app's settings page. The **Client ID** is displayed near the top. Copy it - we'll need it in a moment.
 
-**Milestone (3 of 8):** "Client ID is ready — now we need the app secret."
+**Milestone (3 of 8):** "Client ID is ready - now we need the app secret."
 
 ---
 
@@ -88,7 +88,7 @@ Then:
 >
 > GitHub will show the secret only once, so copy it right away before navigating away from the page.
 
-**Milestone (4 of 8):** "Secret generated — now let's store both credentials."
+**Milestone (4 of 8):** "Secret generated - now let's store both credentials."
 
 ---
 
@@ -122,7 +122,7 @@ bash:
     ) --client-secret-credential-path "integration:github:<secret-field>"
 ```
 
-**Milestone (5 of 8):** "Credentials saved — just the authorization step left."
+**Milestone (5 of 8):** "Credentials saved - just the authorization step left."
 
 ---
 
@@ -130,9 +130,9 @@ bash:
 
 The GitHub integration requires these scopes:
 
-- `repo` — full access to repositories
-- `read:user` — read user profile info
-- `notifications` — access notifications
+- `repo` - full access to repositories
+- `read:user` - read user profile info
+- `notifications` - access notifications
 
 These scopes are passed during the authorization step below.
 
@@ -153,7 +153,7 @@ bash:
     ) --scopes repo read:user notifications
 ```
 
-**Milestone (7 of 8):** "Authorization complete — let's verify it works."
+**Milestone (7 of 8):** "Authorization complete - let's verify it works."
 
 ---
 
@@ -180,6 +180,6 @@ For non-interactive channels, see [references/path-b-manual-setup.md](references
 
 Key GitHub-specific differences for Path B:
 
-- Loopback callback won't work from a remote channel — need public ingress configured
+- Loopback callback won't work from a remote channel - need public ingress configured
 - Set the **Authorization callback URL** to the ingress-based OAuth callback URL when creating the app
 - App secrets don't have a known prefix that triggers scanners, but still use `credential_store prompt` or `credential_store store` for security

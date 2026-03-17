@@ -185,7 +185,7 @@ export async function prepareRequest(): Promise<{
 }> {
   const session = await requireSession();
   const tabId = await findAmazonTab();
-  // Skip cookie sync — use Chrome's own live cookies instead of overwriting with stale CLI ones
+  // Skip cookie sync - use Chrome's own live cookies instead of overwriting with stale CLI ones
   // await syncCookiesToBrowser(session.cookies);
   return { tabId, session };
 }
@@ -203,7 +203,7 @@ async function findAmazonTab(): Promise<number> {
     return resp.tabId;
   }
 
-  // No Amazon tab open — create one
+  // No Amazon tab open - create one
   const newTab = await sendRelayCommand({
     action: "new_tab",
     url: "https://www.amazon.com",
@@ -292,7 +292,7 @@ export async function cdpEval(tabId: number, script: string): Promise<unknown> {
  * Handle the raw result object returned from cdpEval scripts.
  * Throws appropriate errors for auth failures, rate limits, and other errors.
  *
- * Browser scripts return only { __status, __error } for 403 responses —
+ * Browser scripts return only { __status, __error } for 403 responses -
  * the response body is not surfaced, so all 403s are treated as rate limits.
  */
 export function handleResult(result: Record<string, unknown>): void {

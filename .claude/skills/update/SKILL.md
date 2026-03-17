@@ -4,7 +4,7 @@ description: >
   Restart Vellum services and rebuild the macOS app. Smart branch handling: pulls from main by default, restarts in-place on feature branches, or switches to a specified branch. Pass --pull to force-pull on the current branch.
 ---
 
-# Update — Restart Vellum (with Smart Branch Handling)
+# Update - Restart Vellum (with Smart Branch Handling)
 
 Restart Vellum services and rebuild the macOS app with branch-aware git behavior.
 
@@ -15,7 +15,7 @@ The user may pass `$ARGUMENTS` to control branch behavior:
 | Invocation | Behavior |
 |---|---|
 | `/update` (no args, on `main`) | Pull latest from `origin/main` (default) |
-| `/update` (no args, on a feature branch) | Skip git ops — restart with the current checkout |
+| `/update` (no args, on a feature branch) | Skip git ops - restart with the current checkout |
 | `/update <branch>` | Check out that branch, pull if it has a remote |
 | `/update --pull` | Force pull on whatever branch you're currently on |
 
@@ -26,7 +26,7 @@ The user may pass `$ARGUMENTS` to control branch behavior:
    export PATH="$HOME/.bun/bin:$PATH"
    ```
 
-1. Preflight snapshot — capture current state before making changes:
+1. Preflight snapshot - capture current state before making changes:
    ```bash
    vellum ps
    ```
@@ -37,12 +37,12 @@ The user may pass `$ARGUMENTS` to control branch behavior:
    pkill -f "build\.sh run" || true
    ```
 
-3. Quiesce with `vellum sleep` — stop assistant and gateway processes. This is directory-agnostic and stops processes globally regardless of CWD:
+3. Quiesce with `vellum sleep` - stop assistant and gateway processes. This is directory-agnostic and stops processes globally regardless of CWD:
    ```bash
    vellum sleep || true
    ```
 
-4. Verify stopped — run `vellum ps` and confirm no running processes. If `vellum ps` shows processes still running, run fallback cleanup to force-kill them:
+4. Verify stopped - run `vellum ps` and confirm no running processes. If `vellum ps` shows processes still running, run fallback cleanup to force-kill them:
    ```bash
    vellum ps
    ```
@@ -56,14 +56,14 @@ The user may pass `$ARGUMENTS` to control branch behavior:
    ```
    After fallback cleanup, run `vellum ps` again to confirm all processes are stopped.
 
-5. Smart branch handling — determine what git operations (if any) to perform:
+5. Smart branch handling - determine what git operations (if any) to perform:
 
    ```bash
    CURRENT=$(git branch --show-current)
    GIT_OPS_RAN=false
    ```
 
-   **Case A — `--pull` flag:** Force pull on the current branch.
+   **Case A - `--pull` flag:** Force pull on the current branch.
    ```bash
    if [[ "$ARGUMENTS" == "--pull" ]]; then
      git pull
@@ -71,7 +71,7 @@ The user may pass `$ARGUMENTS` to control branch behavior:
    fi
    ```
 
-   **Case B — Explicit branch name provided:** Check out the requested branch, pulling if possible. Before checking out, verify the working tree is clean — if there are uncommitted changes, **stop and warn the user** rather than silently losing work. Do NOT stash automatically.
+   **Case B - Explicit branch name provided:** Check out the requested branch, pulling if possible. Before checking out, verify the working tree is clean - if there are uncommitted changes, **stop and warn the user** rather than silently losing work. Do NOT stash automatically.
    ```bash
    if [[ -n "$ARGUMENTS" && "$ARGUMENTS" != "--pull" ]]; then
      if ! git diff --quiet || ! git diff --cached --quiet; then
@@ -84,7 +84,7 @@ The user may pass `$ARGUMENTS` to control branch behavior:
    fi
    ```
 
-   **Case C — No args, on `main`:** Pull latest from origin (preserves current default behavior).
+   **Case C - No args, on `main`:** Pull latest from origin (preserves current default behavior).
    ```bash
    if [[ -z "$ARGUMENTS" && "$CURRENT" == "main" ]]; then
      git pull origin main
@@ -92,14 +92,14 @@ The user may pass `$ARGUMENTS` to control branch behavior:
    fi
    ```
 
-   **Case D — No args, on a feature branch:** Skip git ops entirely — just restart with the current checkout.
+   **Case D - No args, on a feature branch:** Skip git ops entirely - just restart with the current checkout.
    ```bash
    if [[ -z "$ARGUMENTS" && "$CURRENT" != "main" ]]; then
-     echo "On branch '$CURRENT' — skipping git pull, restarting with current checkout"
+     echo "On branch '$CURRENT' - skipping git pull, restarting with current checkout"
    fi
    ```
 
-6. Install dependencies — only if git operations ran (dependencies are unlikely to have changed for a local-only restart):
+6. Install dependencies - only if git operations ran (dependencies are unlikely to have changed for a local-only restart):
    ```bash
    if [[ "$GIT_OPS_RAN" == "true" ]]; then
      cd assistant && bun install && cd ..
@@ -107,7 +107,7 @@ The user may pass `$ARGUMENTS` to control branch behavior:
    fi
    ```
 
-7. Restart with `vellum wake` — start assistant and gateway from the current checkout. `vellum wake` must be run from the checkout directory that should supply the new assistant code:
+7. Restart with `vellum wake` - start assistant and gateway from the current checkout. `vellum wake` must be run from the checkout directory that should supply the new assistant code:
    ```bash
    vellum wake
    ```
@@ -124,7 +124,7 @@ The user may pass `$ARGUMENTS` to control branch behavior:
    cd clients/macos && ./build.sh run &
    ```
 
-9. Verify fresh state — run `vellum ps` to confirm processes are running:
+9. Verify fresh state - run `vellum ps` to confirm processes are running:
    ```bash
    sleep 5
    echo ""

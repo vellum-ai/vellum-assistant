@@ -171,7 +171,7 @@ export async function run(
         agg.hasMore = true;
       }
 
-      // Track date range — compare using internalDate (epoch ms) for reliability
+      // Track date range - compare using internalDate (epoch ms) for reliability
       const msgEpoch = msg.internalDate ? Number(msg.internalDate) : 0;
       const oldestEpoch = agg.oldestDate
         ? new Date(agg.oldestDate).getTime()

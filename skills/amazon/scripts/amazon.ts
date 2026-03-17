@@ -533,7 +533,7 @@ switch (subcommand) {
   }
 
   // =========================================================================
-  // default — unknown or missing subcommand
+  // default - unknown or missing subcommand
   // =========================================================================
   default: {
     process.stderr.write(

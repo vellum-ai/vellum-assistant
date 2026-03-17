@@ -245,7 +245,7 @@ export async function executeBrowserNavigate(
       await page.route("**/*", routeHandler);
     }
 
-    // Use domcontentloaded but with a shorter timeout — if it times out,
+    // Use domcontentloaded but with a shorter timeout - if it times out,
     // the page is likely still usable (heavy SPAs like DoorDash keep loading
     // scripts after DOMContentLoaded). Fall back gracefully instead of failing.
     let response: PageResponse | null = null;
@@ -260,7 +260,7 @@ export async function executeBrowserNavigate(
       const navMsg = navErr instanceof Error ? navErr.message : String(navErr);
       if (navMsg.includes("Timeout") || navMsg.includes("timeout")) {
         // If the page URL never changed from before navigation, the page
-        // never actually loaded — re-throw instead of reporting success.
+        // never actually loaded - re-throw instead of reporting success.
         if (page.url() === urlBeforeNav && urlBeforeNav !== parsedUrl.href) {
           throw navErr;
         }
@@ -300,7 +300,7 @@ export async function executeBrowserNavigate(
     browserManager.clearSnapshotMap(context.conversationId);
 
     // Auto-dismiss common blocker modals (regulatory notices, cookie banners)
-    // that aren't exposed in the accessibility tree. Runs silently — if no
+    // that aren't exposed in the accessibility tree. Runs silently - if no
     // modal is present the evaluate is a no-op.
     try {
       await page.evaluate(`(() => {
@@ -318,7 +318,7 @@ export async function executeBrowserNavigate(
         }
       })()`);
     } catch {
-      // Page may have navigated during evaluate — safe to ignore
+      // Page may have navigated during evaluate - safe to ignore
     }
 
     const finalUrl = page.url();
@@ -335,7 +335,7 @@ export async function executeBrowserNavigate(
 
     if (navigationTimedOut) {
       lines.push(
-        `Note: Page is still loading (domcontentloaded timed out). The page should still be interactive — use browser_snapshot to check.`,
+        `Note: Page is still loading (domcontentloaded timed out). The page should still be interactive - use browser_snapshot to check.`,
       );
     }
 
@@ -347,7 +347,7 @@ export async function executeBrowserNavigate(
     try {
       const authChallenge = await detectAuthChallenge(page);
       const captchaChallenge = await detectCaptchaChallenge(page);
-      // CAPTCHA takes priority — it blocks all interaction including login
+      // CAPTCHA takes priority - it blocks all interaction including login
       let challenge = captchaChallenge ?? authChallenge;
 
       // Many CAPTCHA interstitials (e.g. Cloudflare "Just a moment") auto-resolve
@@ -362,7 +362,7 @@ export async function executeBrowserNavigate(
           const still = await detectCaptchaChallenge(page);
           if (!still) {
             log.info("CAPTCHA auto-resolved");
-            // Re-check for auth challenge now that CAPTCHA is gone —
+            // Re-check for auth challenge now that CAPTCHA is gone -
             // the page may have loaded a login form behind it.
             challenge = await detectAuthChallenge(page);
             break;
@@ -372,7 +372,7 @@ export async function executeBrowserNavigate(
 
       if (challenge) {
         if (challenge.type === "captcha") {
-          // CAPTCHA persisted after auto-resolve wait — hand off to user
+          // CAPTCHA persisted after auto-resolve wait - hand off to user
           if (sender) {
             const { startHandoff } = await import("./browser-handoff.js");
             await startHandoff(context.conversationId, {
@@ -388,7 +388,7 @@ export async function executeBrowserNavigate(
               `CAPTCHA solved by user. Current page: ${newTitle} (${newUrl})`,
             );
 
-            // Re-check for auth challenges — the page behind the CAPTCHA may have a login form
+            // Re-check for auth challenges - the page behind the CAPTCHA may have a login form
             const postCaptchaAuth = await detectAuthChallenge(page);
             if (postCaptchaAuth) {
               lines.push("");
@@ -407,7 +407,7 @@ export async function executeBrowserNavigate(
                 "3. For email verification codes, use ui_show with a form to ask the user for the code mid-turn",
               );
               lines.push(
-                "4. Do NOT give up or tell the user to sign in manually — handle the login flow yourself",
+                "4. Do NOT give up or tell the user to sign in manually - handle the login flow yourself",
               );
             }
           } else {
@@ -420,7 +420,7 @@ export async function executeBrowserNavigate(
             );
           }
         } else {
-          // Login / 2FA / OAuth — the agent should handle these itself
+          // Login / 2FA / OAuth - the agent should handle these itself
           // using browser tools + credential_store. Don't hand off.
           lines.push("");
           lines.push(formatAuthChallenge(challenge));
@@ -438,7 +438,7 @@ export async function executeBrowserNavigate(
             "3. For email verification codes, use ui_show with a form to ask the user for the code mid-turn",
           );
           lines.push(
-            "4. Do NOT give up or tell the user to sign in manually — handle the login flow yourself",
+            "4. Do NOT give up or tell the user to sign in manually - handle the login flow yourself",
           );
         }
       }
@@ -1047,7 +1047,7 @@ export async function executeBrowserFillCredential(
         pageDomain = parsed.hostname;
       }
     } catch {
-      // Invalid URL — pageDomain stays undefined, broker will deny if domain policy exists
+      // Invalid URL - pageDomain stays undefined, broker will deny if domain policy exists
     }
 
     const result = await credentialBroker.browserFill({

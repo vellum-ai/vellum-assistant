@@ -130,7 +130,7 @@ export async function resolveProvider(
  * for the given messaging provider.
  *
  * Non-OAuth providers (e.g. Telegram) use isConnected() and don't need
- * tokens — they receive an empty string which the string overload handles.
+ * tokens - they receive an empty string which the string overload handles.
  */
 export async function getProviderConnection(
   provider: MessagingProvider,

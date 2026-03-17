@@ -80,7 +80,7 @@ describe("buildDeadTimeRanges", () => {
   });
 
   it("filters out short ranges below minDuration", () => {
-    // Only 3 seconds of drops — below the 5s minimum
+    // Only 3 seconds of drops - below the 5s minimum
     const timestamps = [10, 10.5, 11, 11.5, 12, 12.5, 13];
     const ranges = buildDeadTimeRanges(timestamps, 1.0, 5.0);
     expect(ranges).toEqual([]);

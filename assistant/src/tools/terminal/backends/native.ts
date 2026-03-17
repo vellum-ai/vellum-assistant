@@ -31,12 +31,12 @@ function buildSandboxProfile(
   denyReadPaths?: string[],
 ): string {
   const networkRule = allowNetwork
-    ? ";; Allow network access (proxied mode — needed to reach the credential proxy)\n(allow network*)"
+    ? ";; Allow network access (proxied mode - needed to reach the credential proxy)\n(allow network*)"
     : ";; Block network access\n(deny network*)";
 
   // Build deny-read rules for protected paths (CES shell lockdown).
   // These are placed AFTER the allow file-read* rule because SBPL uses
-  // last-match-wins semantics — the more specific deny overrides the
+  // last-match-wins semantics - the more specific deny overrides the
   // general allow.
   const denyReadRules =
     denyReadPaths && denyReadPaths.length > 0
@@ -149,13 +149,13 @@ let bwrapAvailable = false;
 /**
  * Check whether bwrap is installed AND functional (can create namespaces).
  *
- * Just testing `bwrap --version` is not enough — the binary may exist but
+ * Just testing `bwrap --version` is not enough - the binary may exist but
  * namespace creation can be blocked by the kernel (e.g. inside containers
  * or when user namespaces are disabled). We run a minimal sandbox that
  * exercises all namespace types used by buildBwrapArgs() (mount, network,
  * PID) to verify end-to-end functionality.
  *
- * Only positive results are cached — if bwrap is unavailable, we re-check
+ * Only positive results are cached - if bwrap is unavailable, we re-check
  * on every call so that a mid-session install is picked up immediately.
  */
 function isBwrapAvailable(): boolean {

@@ -85,7 +85,7 @@ assistant channel-verification-sessions resend --channel <channel> --json
 
 On success, report the next action based on the channel:
 
-- **Phone**: The resend response includes a fresh `secret` field with a new verification code. Tell the user the new code BEFORE the call connects — just like the initial start flow: "I'm calling [number] again. Your new verification code is [secret]. When you answer the call, enter this code using your phone's keypad." The `resend` command already initiates the voice call. Do NOT place a separate `call_start` call. **After delivering the code, immediately begin the voice auto-check polling loop** (see [Voice Auto-Check Polling](#voice-auto-check-polling) below).
+- **Phone**: The resend response includes a fresh `secret` field with a new verification code. Tell the user the new code BEFORE the call connects - just like the initial start flow: "I'm calling [number] again. Your new verification code is [secret]. When you answer the call, enter this code using your phone's keypad." The `resend` command already initiates the voice call. Do NOT place a separate `call_start` call. **After delivering the code, immediately begin the voice auto-check polling loop** (see [Voice Auto-Check Polling](#voice-auto-check-polling) below).
 - **Telegram**: The resend response includes a fresh `secret` field. Show the new code in the current chat: "Your new verification code is **[secret]**. I've also sent it to your Telegram. Open the Telegram bot chat and reply with that 6-digit code to complete verification." If the response does not contain a `secret` field, treat this as a control-plane error: tell the user something went wrong and ask them to retry from Step 3.
 - **Slack**: The resend response includes a fresh `secret` field. Show the new code in the current chat: "Your new verification code is **[secret]**. I've also sent it to you as a Slack DM. Reply to the DM with that 6-digit code to complete verification. (resent)" If the response does not contain a `secret` field, treat this as a control-plane error: tell the user something went wrong and ask them to retry from Step 3. **After delivering the code, immediately begin the Slack auto-check polling loop** (see [Slack Auto-Check Polling](#slack-auto-check-polling) below).
 
@@ -124,22 +124,22 @@ For **voice** verification only: after telling the user their code and instructi
 assistant channel-verification-sessions status --channel phone --json
 ```
 
-3. If the response shows `bound: true`: immediately send a proactive success message in the current chat — "Voice verification complete! Your phone number is now the trusted guardian." Stop polling.
+3. If the response shows `bound: true`: immediately send a proactive success message in the current chat - "Voice verification complete! Your phone number is now the trusted guardian." Stop polling.
 4. If not yet bound: wait ~15 seconds and poll again.
 5. Continue polling for up to **2 minutes** (approximately 8 attempts).
-6. If the 2-minute timeout is reached without `bound: true`: proactively tell the user — "I've been checking for about 2 minutes but verification hasn't completed yet. The code may have expired or wasn't entered. Would you like me to resend a new code (Step 4) or start a new session (Step 3)?"
+6. If the 2-minute timeout is reached without `bound: true`: proactively tell the user - "I've been checking for about 2 minutes but verification hasn't completed yet. The code may have expired or wasn't entered. Would you like me to resend a new code (Step 4) or start a new session (Step 3)?"
 
 **Rebind guard:**
 When in a **rebind flow** (i.e., the session creation request included `"rebind": true` because a binding already existed), do NOT treat `bound: true` alone as success. The pre-existing binding will show `bound: true` before the user has entered the new code, which would be a false positive. To guard against this:
 
 - Only report success when BOTH conditions are met: `bound: true` AND `verificationSessionId` is **absent** from the status response. The `verificationSessionId` field is present while a verification session is still active (pending). When the user enters the correct code, the session is consumed and `verificationSessionId` disappears from subsequent status responses. This proves the new outbound session was consumed and the binding is fresh.
-- If a poll shows `bound: true` but `verificationSessionId` is still present, the old binding is still active and the new code has not yet been consumed — continue polling.
-- Non-rebind flows (fresh verification with no prior binding) are unaffected — the first `bound: true` is trustworthy because there was no prior binding to confuse the result.
+- If a poll shows `bound: true` but `verificationSessionId` is still present, the old binding is still active and the new code has not yet been consumed - continue polling.
+- Non-rebind flows (fresh verification with no prior binding) are unaffected - the first `bound: true` is trustworthy because there was no prior binding to confuse the result.
 
 **Important polling rules:**
 
 - This polling loop is voice-only. Do NOT poll for Telegram channels (Telegram has its own bot-driven flow). For Slack, use the separate Slack Auto-Check Polling loop below.
-- Do NOT require the user to ask "did it work?" — the whole point is proactive confirmation.
+- Do NOT require the user to ask "did it work?" - the whole point is proactive confirmation.
 - If the user sends a message while polling is in progress, handle their message normally. If their message is about verification status, the next poll iteration will provide the answer.
 
 ## Slack Auto-Check Polling
@@ -155,21 +155,21 @@ For **Slack** verification: after telling the user their code and instructing th
 assistant channel-verification-sessions status --channel slack --json
 ```
 
-3. If the response shows `bound: true`: immediately send a proactive success message in the current chat — "Slack verification complete! Your Slack account is now the trusted guardian. The DM channel has been captured for future message delivery." Stop polling.
+3. If the response shows `bound: true`: immediately send a proactive success message in the current chat - "Slack verification complete! Your Slack account is now the trusted guardian. The DM channel has been captured for future message delivery." Stop polling.
 4. If not yet bound: wait ~15 seconds and poll again.
 5. Continue polling for up to **2 minutes** (approximately 8 attempts).
-6. If the 2-minute timeout is reached without `bound: true`: proactively tell the user — "I've been checking for about 2 minutes but verification hasn't completed yet. The code may have expired or wasn't entered. Would you like me to resend a new code (Step 4) or start a new session (Step 3)?"
+6. If the 2-minute timeout is reached without `bound: true`: proactively tell the user - "I've been checking for about 2 minutes but verification hasn't completed yet. The code may have expired or wasn't entered. Would you like me to resend a new code (Step 4) or start a new session (Step 3)?"
 
 **Rebind guard:**
 When in a **rebind flow** (i.e., the session creation request included `"rebind": true` because a binding already existed), do NOT treat `bound: true` alone as success. The pre-existing binding will show `bound: true` before the user has entered the new code, which would be a false positive. To guard against this:
 
 - Only report success when BOTH conditions are met: `bound: true` AND `verificationSessionId` is **absent** from the status response. The `verificationSessionId` field is present while a verification session is still active (pending). When the user enters the correct code, the session is consumed and `verificationSessionId` disappears from subsequent status responses. This proves the new outbound session was consumed and the binding is fresh.
-- If a poll shows `bound: true` but `verificationSessionId` is still present, the old binding is still active and the new code has not yet been consumed — continue polling.
-- Non-rebind flows (fresh verification with no prior binding) are unaffected — the first `bound: true` is trustworthy because there was no prior binding to confuse the result.
+- If a poll shows `bound: true` but `verificationSessionId` is still present, the old binding is still active and the new code has not yet been consumed - continue polling.
+- Non-rebind flows (fresh verification with no prior binding) are unaffected - the first `bound: true` is trustworthy because there was no prior binding to confuse the result.
 
 **Important polling rules:**
 
-- Do NOT require the user to ask "did it work?" — the whole point is proactive confirmation.
+- Do NOT require the user to ask "did it work?" - the whole point is proactive confirmation.
 - If the user sends a message while polling is in progress, handle their message normally.
 
 ## Step 6: Check Verification Status
@@ -200,7 +200,7 @@ Replace `<channel>` with the channel to unbind from (e.g. `phone`, `telegram`, `
 The response includes `bound: false` after the operation completes. Check the previous binding state to tailor the message:
 
 - If a binding was previously active (i.e., the user explicitly asked to revoke their guardian): "Guardian binding revoked for [channel]. The previous guardian no longer has access to this channel."
-- If no binding existed (`bound: false` and there was nothing to revoke): "There is no active guardian binding for [channel] — nothing to revoke. Any pending verification challenges have been cleared."
+- If no binding existed (`bound: false` and there was nothing to revoke): "There is no active guardian binding for [channel] - nothing to revoke. Any pending verification challenges have been cleared."
 
 ## Important Notes
 

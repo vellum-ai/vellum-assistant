@@ -53,7 +53,7 @@ export async function getFreshDeliverySlots(): Promise<DeliverySlot[]> {
               });
             });
           } catch(pe) {
-            // HTML response — parse from page
+            // HTML response - parse from page
             var parser = new DOMParser();
             var doc = parser.parseFromString(text, 'text/html');
             doc.querySelectorAll('[data-slot-id], [data-window-id]').forEach(function(el) {

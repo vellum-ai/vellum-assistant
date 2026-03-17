@@ -28,7 +28,7 @@ The flow has 7 steps total, takes about 3-5 minutes.
 
 ### Step 0: Prerequisite Check
 
-> Before we start — do you have a Figma account? You'll need one to create a Figma app for OAuth access.
+> Before we start - do you have a Figma account? You'll need one to create a Figma app for OAuth access.
 
 If the user doesn't have a Figma account, point them to `https://www.figma.com/signup` and wait for them to sign up.
 
@@ -38,7 +38,7 @@ If the user doesn't have a Figma account, point them to `https://www.figma.com/s
 
 Open: `https://www.figma.com/developers/apps`
 
-> I've opened the Figma developers page. If it's asking you to sign in, go ahead and do that first — then let me know.
+> I've opened the Figma developers page. If it's asking you to sign in, go ahead and do that first - then let me know.
 
 ---
 
@@ -59,7 +59,7 @@ After the user clicks:
 
 - If the page looks different or the button isn't visible, the user may need to scroll down or check that they're on the correct page at `https://www.figma.com/developers/apps`
 
-**Milestone (2 of 7):** "App created — now let's set up the callback URL."
+**Milestone (2 of 7):** "App created - now let's set up the callback URL."
 
 ---
 
@@ -71,7 +71,7 @@ After the user clicks:
 >
 > Then click **Save**.
 
-**Milestone (3 of 7):** "Callback URL is set — now let's configure the scopes."
+**Milestone (3 of 7):** "Callback URL is set - now let's configure the scopes."
 
 ---
 
@@ -81,14 +81,14 @@ After the user clicks:
 >
 > Enable these scopes:
 >
-> - `files:read` — read access to files and projects
-> - `file_comments:write` — ability to post comments on files
+> - `files:read` - read access to files and projects
+> - `file_comments:write` - ability to post comments on files
 >
 > Save your changes if there's a save button.
 
 Wait for the user to confirm scopes are set.
 
-**Milestone (4 of 7):** "Scopes are configured — now let's grab the credentials."
+**Milestone (4 of 7):** "Scopes are configured - now let's grab the credentials."
 
 ---
 
@@ -96,7 +96,7 @@ Wait for the user to confirm scopes are set.
 
 > On the app settings page, you should see your **Client ID** and **App Secret** (sometimes called just "Secret"). These are the credentials we need.
 
-**Milestone (5 of 7):** "Almost there — just need to save these credentials."
+**Milestone (5 of 7):** "Almost there - just need to save these credentials."
 
 ---
 
@@ -128,7 +128,7 @@ bash:
     ) --client-secret-credential-path "integration:figma:oauth_secret"
 ```
 
-**Milestone (6 of 7):** "Credentials saved — just the authorization step left."
+**Milestone (6 of 7):** "Credentials saved - just the authorization step left."
 
 ---
 
@@ -168,6 +168,6 @@ For non-interactive channels, see [references/path-b-manual-setup.md](references
 
 Key Figma-specific differences for Path B:
 
-- Loopback callback won't work from a remote channel — need public ingress configured
+- Loopback callback won't work from a remote channel - need public ingress configured
 - Add the ingress-based redirect URI in the **Callback URL** field on the app settings page
 - The app secret doesn't have a known prefix that triggers scanners, but still use `credential_store prompt` or `credential_store store` for security

@@ -69,4 +69,4 @@ osascript -e 'display notification "Done!" with title "Vellum"'
 
 - For multi-line scripts, write them to a `.applescript` file and run with `osascript path/to/script.applescript`
 - Use `System Events` for UI scripting apps that don't have their own AppleScript dictionary
-- AppleScript permissions are gated by macOS TCC — if a command fails with a permission error, use `request_system_permission` to prompt the user
+- AppleScript permissions are gated by macOS TCC - if a command fails with a permission error, use `request_system_permission` to prompt the user

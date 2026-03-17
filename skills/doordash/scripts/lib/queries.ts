@@ -1,10 +1,10 @@
 /**
  * Barrel re-export of all DoorDash GraphQL queries.
  * Individual query modules are split by domain:
- *   - search-queries.ts  — search and homepage discovery
- *   - store-queries.ts   — store pages, item details, retail feeds
- *   - cart-queries.ts    — cart CRUD (add, remove, list, detail)
- *   - order-queries.ts   — checkout, delivery options, payment methods
+ *   - search-queries.ts  - search and homepage discovery
+ *   - store-queries.ts   - store pages, item details, retail feeds
+ *   - cart-queries.ts    - cart CRUD (add, remove, list, detail)
+ *   - order-queries.ts   - checkout, delivery options, payment methods
  */
 
 export {

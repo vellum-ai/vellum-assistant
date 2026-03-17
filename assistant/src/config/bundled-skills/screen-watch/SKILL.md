@@ -16,9 +16,9 @@ Use `start_screen_watch` when the user wants you to monitor what's happening on 
 
 ## Parameters
 
-- **focus_area** (required) — What to focus on observing
-- **duration_minutes** — How long to watch in minutes (1-15, default 5)
-- **interval_seconds** — Seconds between screen captures (5-30, default 10)
+- **focus_area** (required) - What to focus on observing
+- **duration_minutes** - How long to watch in minutes (1-15, default 5)
+- **interval_seconds** - Seconds between screen captures (5-30, default 10)
 
 ## Constraints
 

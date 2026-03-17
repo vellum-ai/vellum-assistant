@@ -44,7 +44,7 @@ export async function executeSubagentRead(
     };
   }
 
-  // Extract assistant messages only — that's the subagent's output.
+  // Extract assistant messages only - that's the subagent's output.
   const output: string[] = [];
   for (const msg of dbMessages) {
     if (msg.role !== "assistant") continue;

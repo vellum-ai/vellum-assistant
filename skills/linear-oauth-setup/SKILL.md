@@ -30,7 +30,7 @@ The flow has 8 steps total, takes about 3-5 minutes.
 
 ### Step 0: Prerequisite Check
 
-> Before we start — do you have a Linear account with access to a workspace?
+> Before we start - do you have a Linear account with access to a workspace?
 
 If no account, direct them to sign up at `https://linear.app`. If they have an account but aren't sure about permissions, explain that they'll need workspace access to create OAuth applications under Settings > API.
 
@@ -40,7 +40,7 @@ If no account, direct them to sign up at `https://linear.app`. If they have an a
 
 Open: `https://linear.app/settings/api`
 
-> I've opened the Linear API settings page. If it's asking you to sign in, go ahead and do that first — then let me know.
+> I've opened the Linear API settings page. If it's asking you to sign in, go ahead and do that first - then let me know.
 
 ---
 
@@ -60,7 +60,7 @@ After the user clicks:
 
 - If the user sees an error about duplicate application names, suggest a variant like "Vellum Assistant (Personal)"
 
-**Milestone (2 of 8):** "App created — now let's grab the credentials."
+**Milestone (2 of 8):** "App created - now let's grab the credentials."
 
 ---
 
@@ -70,7 +70,7 @@ After the user clicks:
 
 Wait for the user to provide the Client ID.
 
-**Milestone (3 of 8):** "Got the Client ID — now let's grab the secret."
+**Milestone (3 of 8):** "Got the Client ID - now let's grab the secret."
 
 ---
 
@@ -93,7 +93,7 @@ credential_store prompt:
   placeholder: "lin_oauth_..."
 ```
 
-**Milestone (4 of 8):** "Credentials captured — let's add the scopes next."
+**Milestone (4 of 8):** "Credentials captured - let's add the scopes next."
 
 ---
 
@@ -101,13 +101,13 @@ credential_store prompt:
 
 > Now let's make sure the right scopes are requested. The Linear OAuth flow requests scopes at authorization time, so I'll handle that automatically. The scopes we'll request are:
 >
-> - `read` — read access to your Linear data
-> - `write` — write access to update issues, projects, etc.
-> - `issues:create` — create new issues
+> - `read` - read access to your Linear data
+> - `write` - write access to update issues, projects, etc.
+> - `issues:create` - create new issues
 >
-> You don't need to configure these in the Linear dashboard — I'll include them in the authorization request.
+> You don't need to configure these in the Linear dashboard - I'll include them in the authorization request.
 
-**Milestone (5 of 8):** "Scopes are set — now let's save everything."
+**Milestone (5 of 8):** "Scopes are set - now let's save everything."
 
 ---
 
@@ -124,7 +124,7 @@ bash:
     ) --client-secret-credential-path "integration:linear:oauth_secret"
 ```
 
-**Milestone (6 of 8):** "Credentials saved — just the authorization step left."
+**Milestone (6 of 8):** "Credentials saved - just the authorization step left."
 
 ---
 
@@ -168,6 +168,6 @@ For non-interactive channels, see [references/path-b-manual-setup.md](references
 
 Key Linear-specific differences for Path B:
 
-- Loopback callback won't work from a remote channel — need public ingress configured
+- Loopback callback won't work from a remote channel - need public ingress configured
 - The redirect URL must be set when creating the OAuth application (or updated afterwards in the app settings)
-- The app secret is shown only once at creation time — if the user misses it, they'll need to regenerate it
+- The app secret is shown only once at creation time - if the user misses it, they'll need to regenerate it

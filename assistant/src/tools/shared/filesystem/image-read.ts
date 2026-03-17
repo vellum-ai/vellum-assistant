@@ -102,7 +102,7 @@ function optimizeWithSips(srcPath: string): string | null {
  * Read an image file from disk, optionally optimize it, and return a
  * ToolExecutionResult with base64-encoded image content blocks.
  *
- * The caller is responsible for path resolution and sandbox enforcement —
+ * The caller is responsible for path resolution and sandbox enforcement -
  * `resolvedPath` must be an already-validated absolute path.
  */
 export function readImageFile(resolvedPath: string): ToolExecutionResult {
@@ -157,7 +157,7 @@ export function readImageFile(resolvedPath: string): ToolExecutionResult {
     }
   }
 
-  // Detect actual format from magic bytes — never trust the file extension
+  // Detect actual format from magic bytes - never trust the file extension
   // alone, since sips converts to JPEG and files can be misnamed.
   const detectedType = detectMediaType(buffer);
   if (!detectedType) {

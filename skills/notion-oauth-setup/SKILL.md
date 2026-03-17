@@ -17,7 +17,7 @@ This skill follows the **Collaborative Guided Flow** pattern from the included `
 
 - **Provider key:** `integration:notion`
 - **Default credential type:** Internal integration (API token)
-- **No OAuth flow required** for the default path — just copy the integration secret and grant page access
+- **No OAuth flow required** for the default path - just copy the integration secret and grant page access
 
 ## Prerequisites
 
@@ -34,7 +34,7 @@ The flow has 4 steps total, takes about 1-2 minutes.
 
 ### Step 0: Prerequisite Check
 
-> Before we start — do you have a Notion account and workspace you'd like to connect?
+> Before we start - do you have a Notion account and workspace you'd like to connect?
 
 If no Notion account, guide them to create one at `https://www.notion.so/signup` or defer.
 
@@ -44,7 +44,7 @@ If no Notion account, guide them to create one at `https://www.notion.so/signup`
 
 Open: `https://www.notion.so/profile/integrations`
 
-This is the first navigation — wait a few seconds for the page to load, then take a screenshot to see the actual layout. Use what you see to give the user specific guidance. If the page is asking them to sign in, tell them to do that first.
+This is the first navigation - wait a few seconds for the page to load, then take a screenshot to see the actual layout. Use what you see to give the user specific guidance. If the page is asking them to sign in, tell them to do that first.
 
 ---
 
@@ -58,13 +58,13 @@ This is the first navigation — wait a few seconds for the page to load, then t
 > 2. Select your workspace from the **Associated workspace** dropdown
 > 3. Click **Create**
 
-There is no Type selector on the creation form — integrations are created as **Internal by default**, which is what we want.
+There is no Type selector on the creation form - integrations are created as **Internal by default**, which is what we want.
 
 **Known issues:**
 
-- If they already have an integration named "Vellum Assistant", ask if they'd like to reuse it — skip ahead to Step 3
+- If they already have an integration named "Vellum Assistant", ask if they'd like to reuse it - skip ahead to Step 3
 
-**Milestone (2 of 4):** "Integration created — now let's grab the secret and grant page access."
+**Milestone (2 of 4):** "Integration created - now let's grab the secret and grant page access."
 
 ---
 
@@ -99,7 +99,7 @@ credential_store prompt:
 >
 > You can always add more pages later by repeating this step.
 
-**Milestone (3 of 4):** "Secret stored and pages connected — let's verify."
+**Milestone (3 of 4):** "Secret stored and pages connected - let's verify."
 
 ---
 
@@ -131,4 +131,4 @@ Key Notion-specific differences for Path B:
 
 - No OAuth flow or redirect URIs needed for Internal integrations
 - The user copies their Internal Integration Secret and sends it via chat
-- The secret prefix is `ntn_` — use `credential_store prompt` to collect it securely
+- The secret prefix is `ntn_` - use `credential_store prompt` to collect it securely

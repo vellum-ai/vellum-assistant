@@ -63,7 +63,7 @@ export async function clearSession(): Promise<void> {
       "session:cookies",
     ]);
   } catch {
-    // Clearing a non-existent session is fine — no-op
+    // Clearing a non-existent session is fine - no-op
   }
 }
 

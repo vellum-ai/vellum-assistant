@@ -309,7 +309,7 @@ function normalizeText(text: string): string {
 }
 
 // Lighter normalization for markdown that preserves indentation, multiple spaces,
-// and trailing whitespace — all of which carry semantic meaning in markdown
+// and trailing whitespace - all of which carry semantic meaning in markdown
 // (code blocks, nested lists, table alignment, line breaks).
 function normalizeMarkdown(text: string): string {
   return text

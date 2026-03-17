@@ -19,7 +19,7 @@ You are helping your user connect a Telegram bot to the Vellum Assistant gateway
 | Bot Username   | Config     | `assistant config set telegram.botUsername` | No      |
 | Webhook Secret | Credential | `assistant credentials set`                 | **Yes** |
 
-- **Bot Token** is a secret. Always collect via `credential_store` prompt — never accept it pasted in plaintext chat.
+- **Bot Token** is a secret. Always collect via `credential_store` prompt - never accept it pasted in plaintext chat.
 - **Bot Username** is derived from the token via the Telegram API and stored as config.
 
 # Setup Steps
@@ -41,7 +41,7 @@ BOT_USERNAME=$(echo "$GETME_RESPONSE" | jq -r '.result.username')
 assistant config set telegram.botUsername "$BOT_USERNAME"
 ```
 
-If the `curl` call fails, the token is invalid — ask the user to re-enter (repeat Step 1).
+If the `curl` call fails, the token is invalid - ask the user to re-enter (repeat Step 1).
 
 ## Step 3: Set Up Public Ingress and Webhooks
 
@@ -69,7 +69,7 @@ assistant credentials set --service telegram --field webhook_secret "$(uuidgen)"
 assistant platform callback-routes register --path webhooks/telegram --type telegram --json
 ```
 
-Only needed for containerized deployments. A "not available" error is expected locally — ignore it.
+Only needed for containerized deployments. A "not available" error is expected locally - ignore it.
 
 ## Step 4: Register Bot Commands
 
@@ -80,7 +80,7 @@ curl -sf -X POST "https://api.telegram.org/bot${BOT_TOKEN}/setMyCommands" \
   -d '{"commands":[{"command":"new","description":"Start a new conversation"},{"command":"help","description":"Show available commands"}]}'
 ```
 
-Non-critical — warn on failure but don't block setup.
+Non-critical - warn on failure but don't block setup.
 
 ## Step 5: Guardian Verification (Optional)
 

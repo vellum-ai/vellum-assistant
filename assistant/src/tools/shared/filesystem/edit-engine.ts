@@ -29,7 +29,7 @@ export type EditEngineResult =
  * Core match/replace logic shared by both sandbox and host edit tools,
  * and by the executor's preview-diff computation.
  *
- * This function is pure — it takes file content and edit parameters and
+ * This function is pure - it takes file content and edit parameters and
  * returns the result without performing any I/O.
  */
 export function applyEdit(

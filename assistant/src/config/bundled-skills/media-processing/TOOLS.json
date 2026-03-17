@@ -139,7 +139,7 @@
           },
           "output_schema": {
             "type": "object",
-            "description": "JSON Schema for structured output — Gemini will enforce this schema on the response"
+            "description": "JSON Schema for structured output - Gemini will enforce this schema on the response"
           },
           "context": {
             "type": "object",
@@ -171,7 +171,7 @@
     },
     {
       "name": "query_media",
-      "description": "Query video analysis data using natural language. Sends map output (from analyze_keyframes) to Claude for intelligent analysis and Q&A. Supports arbitrary questions about video content — Claude reads the full structured analysis and answers based on the data.",
+      "description": "Query video analysis data using natural language. Sends map output (from analyze_keyframes) to Claude for intelligent analysis and Q&A. Supports arbitrary questions about video content - Claude reads the full structured analysis and answers based on the data.",
       "category": "media",
       "risk": "low",
       "input_schema": {

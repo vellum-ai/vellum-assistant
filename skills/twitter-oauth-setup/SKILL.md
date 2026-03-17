@@ -32,7 +32,7 @@ The flow has 8 steps total, takes about 3-5 minutes.
 
 ### Step 0: Prerequisite Check
 
-> Before we start — do you have a Twitter/X account you'd like to use for this? You'll also need access to the Twitter Developer Portal.
+> Before we start - do you have a Twitter/X account you'd like to use for this? You'll also need access to the Twitter Developer Portal.
 
 If no account -> guide them to create one or defer.
 If no developer account -> they'll be prompted to sign up during Step 1. Free tier is sufficient.
@@ -47,7 +47,7 @@ Open: `https://developer.x.com/en/portal/dashboard`
 
 **Known issues:**
 
-- First-time developers will see a sign-up flow — they need to agree to the developer agreement and describe their use case. "Personal project" or "Building a tool" works fine for the description.
+- First-time developers will see a sign-up flow - they need to agree to the developer agreement and describe their use case. "Personal project" or "Building a tool" works fine for the description.
 - Free tier is sufficient for OAuth 2.0 with PKCE.
 
 ---
@@ -59,16 +59,16 @@ Open: `https://developer.x.com/en/portal/dashboard`
 Guide through project creation:
 
 > 1. **Project name:** `Vellum Assistant` (or whatever you prefer)
-> 2. **Use case:** Select **Making a bot** or **Exploring the API** — either works
+> 2. **Use case:** Select **Making a bot** or **Exploring the API** - either works
 > 3. **Project description:** Something brief like "Personal assistant integration"
 > 4. Click **Next** through each step
 
 **Known issues:**
 
-- Free tier allows only one project — if the user already has one, reuse it
+- Free tier allows only one project - if the user already has one, reuse it
 - If they see "You've reached your project limit", use the existing project
 
-**Milestone (2 of 8):** "Project created — now let's set up an app inside it."
+**Milestone (2 of 8):** "Project created - now let's set up an app inside it."
 
 ---
 
@@ -80,9 +80,9 @@ If the project creation wizard prompts to create an app immediately, follow alon
 >
 > Set the app name to **Vellum Assistant** and click **Next** or **Create**.
 
-After creation, the portal may show API keys (API Key and Secret, Bearer Token). These are for OAuth 1.0a — we don't need them for OAuth 2.0, but it doesn't hurt to save them somewhere safe.
+After creation, the portal may show API keys (API Key and Secret, Bearer Token). These are for OAuth 1.0a - we don't need them for OAuth 2.0, but it doesn't hurt to save them somewhere safe.
 
-> You may see API Key, API Secret, and Bearer Token on this screen. You can save these somewhere safe if you like, but we won't need them — we're using OAuth 2.0. Go ahead and click **App Settings** or navigate to your app's settings page.
+> You may see API Key, API Secret, and Bearer Token on this screen. You can save these somewhere safe if you like, but we won't need them - we're using OAuth 2.0. Go ahead and click **App Settings** or navigate to your app's settings page.
 
 ---
 
@@ -126,7 +126,7 @@ Check the redirect URI situation. Since callbackTransport is `gateway`, public i
 >
 > Then click **Save**.
 
-**Milestone (4 of 8):** "OAuth settings configured — now let's grab the credentials."
+**Milestone (4 of 8):** "OAuth settings configured - now let's grab the credentials."
 
 ---
 
@@ -138,7 +138,7 @@ Check the redirect URI situation. Since callbackTransport is `gateway`, public i
 
 Note: The token endpoint auth method (`basic`) requires both a Client ID and a secret, so the skill collects both.
 
-**Milestone (5 of 8):** "Almost there — just need to save these credentials."
+**Milestone (5 of 8):** "Almost there - just need to save these credentials."
 
 ---
 
@@ -170,7 +170,7 @@ bash:
     ) --client-secret-credential-path "credential/integration:twitter/client_secret"
 ```
 
-**Milestone (6 of 8):** "Credentials saved — just the authorization step left."
+**Milestone (6 of 8):** "Credentials saved - just the authorization step left."
 
 ---
 
@@ -178,7 +178,7 @@ bash:
 
 > I'll start the Twitter authorization flow now. You should see a Twitter consent page asking you to authorize **Vellum Assistant** to access your account.
 >
-> Review the permissions — it will ask for permission to read your tweets, post tweets, and read your profile info. Click **Authorize app**.
+> Review the permissions - it will ask for permission to read your tweets, post tweets, and read your profile info. Click **Authorize app**.
 
 ```
 bash:
@@ -214,6 +214,6 @@ For non-interactive channels, see [references/path-b-manual-setup.md](references
 
 Key Twitter-specific differences for Path B:
 
-- Gateway callback requires public ingress — must be configured before starting
+- Gateway callback requires public ingress - must be configured before starting
 - OAuth 2.0 Client Secret doesn't have a known prefix that triggers channel scanners, but still use `credential_store store` for security
 - App type must be **Web App, Automated App or Bot** (same as Path A, since gateway transport is used in both paths)

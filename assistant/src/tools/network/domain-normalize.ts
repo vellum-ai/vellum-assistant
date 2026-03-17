@@ -55,13 +55,13 @@ export function normalizeDomain(input: string): DomainInfo | null {
 
   if (!hostname) return null;
 
-  // Reject IP addresses and localhost — they don't have registrable domains
+  // Reject IP addresses and localhost - they don't have registrable domains
   if (isIPAddress(hostname) || hostname === "localhost") {
     return null;
   }
 
   // Reject malformed hostnames. Each DNS label must start and end with an
-  // alphanumeric and contain only alphanumerics/hyphens — no consecutive dots,
+  // alphanumeric and contain only alphanumerics/hyphens - no consecutive dots,
   // no labels starting or ending with hyphens.
   if (
     !/^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)*$/.test(

@@ -1,5 +1,5 @@
 /**
- * asset_materialize — write a stored attachment to a sandbox file path.
+ * asset_materialize - write a stored attachment to a sandbox file path.
  *
  * Accepts an attachment ID (from asset_search) and a destination path
  * within the sandbox working directory. Decodes the base64 content and
@@ -31,7 +31,7 @@ import type { Tool, ToolContext, ToolExecutionResult } from "../types.js";
 import { getAttachmentSourceConversations } from "./search.js";
 
 // ---------------------------------------------------------------------------
-// Size limit — prevent materializing excessively large attachments
+// Size limit - prevent materializing excessively large attachments
 // ---------------------------------------------------------------------------
 
 /** 50 MB ceiling for materialized files. */
@@ -177,7 +177,7 @@ class AssetMaterializeTool implements Tool {
     if (sources.length > 0) {
       const hasStandard = sources.some((s) => s.conversationType !== "private");
       if (!hasStandard) {
-        // All sources are private — check if the caller is in any of those conversations
+        // All sources are private - check if the caller is in any of those conversations
         const callerInSourceConversation = sources.some((s) =>
           isAttachmentVisible(
             { conversationId: s.conversationId, isPrivate: true },

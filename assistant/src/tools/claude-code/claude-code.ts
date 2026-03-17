@@ -438,7 +438,7 @@ export const claudeCodeTool: Tool = {
             }
 
             if (!emittedToolUseIds.has(toolUseId)) {
-              // New tool — mark previous as complete and emit tool_start.
+              // New tool - mark previous as complete and emit tool_start.
               if (lastSubToolName && activeToolUseId !== toolUseId) {
                 context.onOutput?.(
                   JSON.stringify({
@@ -523,7 +523,7 @@ export const claudeCodeTool: Tool = {
                 resultText = message.result;
               }
             } else {
-              // Error result — surface the subtype and details
+              // Error result - surface the subtype and details
               hasError = true;
               const errors = message.errors ?? [];
               const denials = message.permission_denials ?? [];

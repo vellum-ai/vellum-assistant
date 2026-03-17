@@ -427,8 +427,8 @@ export async function viewCart(): Promise<CartSummary> {
 
   return runWithBackoff(async () => {
     // Combine two sources:
-    //   1. /gp/cart/view.html HTML page  — regular Amazon items
-    //   2. get-cart-items JSON endpoint  — Fresh (LOCAL_MARKET) items only
+    //   1. /gp/cart/view.html HTML page  - regular Amazon items
+    //   2. get-cart-items JSON endpoint  - Fresh (LOCAL_MARKET) items only
     const script = `
       (async function() {
         try {

@@ -11,12 +11,12 @@ export function resolveExecutionTarget(
   manifestOverride?: ManifestOverride,
 ): ExecutionTarget {
   const tool = getTool(toolName);
-  // Manifest-declared execution target is authoritative — check it first so
+  // Manifest-declared execution target is authoritative - check it first so
   // skill tools with host_/computer_use_ prefixes aren't mis-classified.
   if (tool?.executionTarget) {
     return tool.executionTarget;
   }
-  // Check the tool's executionMode metadata — proxy tools run on the connected
+  // Check the tool's executionMode metadata - proxy tools run on the connected
   // client (host), not inside the sandbox.
   if (tool?.executionMode === "proxy") {
     return "host";

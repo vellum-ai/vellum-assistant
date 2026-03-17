@@ -12,10 +12,10 @@ Create and manage watchers that poll external services for events and process th
 
 ## Concepts
 
-- **Provider** — The external service to poll (e.g. "gmail"). Each provider defines how to fetch and parse events.
-- **Action prompt** — LLM instructions for handling detected events. Sent along with event data to a background conversation.
-- **Poll interval** — How often to check for new events (minimum 15 seconds, default 60 seconds).
-- **Digest** — Summary of recent watcher activity, grouped by watcher with time-based filtering.
+- **Provider** - The external service to poll (e.g. "gmail"). Each provider defines how to fetch and parse events.
+- **Action prompt** - LLM instructions for handling detected events. Sent along with event data to a background conversation.
+- **Poll interval** - How often to check for new events (minimum 15 seconds, default 60 seconds).
+- **Digest** - Summary of recent watcher activity, grouped by watcher with time-based filtering.
 
 ## Lifecycle
 

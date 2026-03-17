@@ -1,5 +1,5 @@
 /**
- * Influencer Research Client — Standalone Version
+ * Influencer Research Client - Standalone Version
  *
  * This is a self-contained version of the influencer research client that
  * communicates with the Chrome extension relay via the `assistant browser
@@ -201,7 +201,7 @@ async function evalInTab(tabId: number, script: string): Promise<unknown> {
           const parsed: RelayResponse = JSON.parse(stdout);
           if (parsed.error) return reject(new Error(parsed.error));
         } catch {
-          // stdout wasn't valid JSON — fall through to stderr/exit code
+          // stdout wasn't valid JSON - fall through to stderr/exit code
         }
         return reject(new Error(stderr || `Exit code ${code}`));
       }
@@ -302,7 +302,7 @@ async function searchInstagram(
   const seenUsernames = new Set<string>();
   const authorUsernames: string[] = [];
 
-  // Navigation skip list — known non-profile IG paths
+  // Navigation skip list - known non-profile IG paths
   const skipUsernames = new Set([
     "reels",
     "explore",
@@ -357,7 +357,7 @@ async function searchInstagram(
           author = username;
           break;
         }
-        // Fallback: parse from body text — look for the pattern after "Follow\\n"
+        // Fallback: parse from body text - look for the pattern after "Follow\\n"
         if (!author) {
           var followIdx = bodyText.indexOf('Follow\\n');
           if (followIdx > -1) {
@@ -616,7 +616,7 @@ async function searchTikTok(
     return [];
   }
 
-  // Convert to profiles — we only have basic data from search, no bios yet
+  // Convert to profiles - we only have basic data from search, no bios yet
   const profiles: InfluencerProfile[] = searchResults.map((p) => ({
     platform: "tiktok" as const,
     username: p.username,
@@ -797,7 +797,7 @@ async function searchTwitter(
   const limit = criteria.limit ?? 10;
   const tabId = await findOrOpenTab("*://*.x.com/*", "https://x.com");
 
-  // Use a short query — X people search fails with long queries
+  // Use a short query - X people search fails with long queries
   const queryWords = criteria.query.split(/\s+/).slice(0, 4).join(" ");
   const searchUrl = `https://x.com/search?q=${encodeURIComponent(
     queryWords,

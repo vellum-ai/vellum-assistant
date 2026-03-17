@@ -27,7 +27,7 @@ export interface CredentialSelectionResult {
 }
 
 /**
- * Tier scores — higher-priority criteria use larger values so they
+ * Tier scores - higher-priority criteria use larger values so they
  * dominate over lower-priority ones regardless of accumulation.
  */
 const SCORE_EXACT_HOST = 100;

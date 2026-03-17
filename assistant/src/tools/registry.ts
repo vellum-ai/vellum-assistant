@@ -65,7 +65,7 @@ export function registerSkillTools(newTools: Tool[]): Tool[] {
         );
         continue;
       }
-      // Existing is also a skill tool — only allow replacement from the same owner.
+      // Existing is also a skill tool - only allow replacement from the same owner.
       if (existing.ownerSkillId !== tool.ownerSkillId) {
         throw new Error(
           `Skill tool "${tool.name}" is already registered by skill "${existing.ownerSkillId}"`,
@@ -108,7 +108,7 @@ export function unregisterSkillTools(skillId: string): void {
     return;
   }
 
-  // Last reference — actually remove the tools
+  // Last reference - actually remove the tools
   skillRefCount.delete(skillId);
   for (const [name, tool] of tools) {
     if (tool.origin === "skill" && tool.ownerSkillId === skillId) {
@@ -210,9 +210,9 @@ export function getSkillRefCount(skillId: string): number {
 }
 
 export function getAllToolDefinitions(): ToolDefinition[] {
-  // Exclude proxy tools (e.g. computer_use_* tools) — they are projected
+  // Exclude proxy tools (e.g. computer_use_* tools) - they are projected
   // into sessions by the skill system, not via the global tool list.
-  // Exclude skill-origin tools — they are managed by the session-level
+  // Exclude skill-origin tools - they are managed by the session-level
   // skill projection system (projectSkillTools) and must not leak into
   // the base tool list, which is shared across sessions via the global
   // registry.  Including them here causes "Tool names must be unique"
@@ -239,7 +239,7 @@ export async function initializeTools(): Promise<void> {
   // Import tool modules to trigger registration side effects.
   await loadEagerModules();
 
-  // Explicit tool instances — no side-effect import required.
+  // Explicit tool instances - no side-effect import required.
   for (const tool of explicitTools) {
     registerTool(tool);
   }
@@ -256,7 +256,7 @@ export async function initializeTools(): Promise<void> {
     registerTool(tool);
   }
 
-  // CES tools — registered only when the CES feature flag is enabled.
+  // CES tools - registered only when the CES feature flag is enabled.
   const activeCesTools = getCesToolsIfEnabled();
   for (const tool of activeCesTools) {
     registerTool(tool);
@@ -298,7 +298,7 @@ export async function initializeTools(): Promise<void> {
 
 /**
  * Reset registry to its post-initializeTools() baseline. Exposed
- * exclusively for test isolation — prevents cross-file contamination
+ * exclusively for test isolation - prevents cross-file contamination
  * when multiple test suites share a single Bun process.
  *
  * Restores core tools from a snapshot taken after the first

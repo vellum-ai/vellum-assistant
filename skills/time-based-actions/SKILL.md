@@ -1,6 +1,6 @@
 ---
 name: time-based-actions
-description: Unified routing guide for reminders, schedules, notifications, and tasks — prevents common misrouting
+description: Unified routing guide for reminders, schedules, notifications, and tasks - prevents common misrouting
 compatibility: "Designed for Vellum personal assistants"
 metadata:
   emoji: "⏰"
@@ -69,16 +69,16 @@ Phrases like "at the 45 minute mark", "at the top of the hour", "on the half-hou
 
 **Resolution rules (in priority order):**
 
-1. **Conversation-anchored expressions** — if the user mentioned a start time earlier in conversation ("I got here at 9", "meeting started at 2:10"), interpret offset-style phrases ("the 45 minute mark", "20 minutes in", "when I hit an hour") as `start_time + offset`. This takes precedence because the conversational anchor overrides any wall-clock interpretation.
+1. **Conversation-anchored expressions** - if the user mentioned a start time earlier in conversation ("I got here at 9", "meeting started at 2:10"), interpret offset-style phrases ("the 45 minute mark", "20 minutes in", "when I hit an hour") as `start_time + offset`. This takes precedence because the conversational anchor overrides any wall-clock interpretation.
 
-2. **Clock-position expressions** — when no start time is in context, map directly to a wall-clock time:
+2. **Clock-position expressions** - when no start time is in context, map directly to a wall-clock time:
    - "top of the hour" / "on the hour" → next :00 (e.g. 10:00 AM)
    - "the X minute mark" / "at :XX" → current hour's :XX; if already past, advance one hour
    - "the half-hour mark" / "half past" → nearest upcoming :30
    - "noon" / "midnight" → 12:00 PM or 12:00 AM today; if past, tomorrow
    - "quarter past" / "quarter to" → :15 or :45 of current or next hour
 
-3. **Ask only if truly ambiguous** — if neither rule 1 nor rule 2 resolves, ask: "Do you mean [clock time] or [X minutes from now]?" Never silently default to "from now."
+3. **Ask only if truly ambiguous** - if neither rule 1 nor rule 2 resolves, ask: "Do you mean [clock time] or [X minutes from now]?" Never silently default to "from now."
 
 **Examples:**
 
@@ -105,8 +105,8 @@ The word "remind" is ambiguous. Route based on whether a time is specified:
 
 `reminder_create` supports two modes:
 
-- **`notify`** (default) — shows a notification to the user when the reminder fires
-- **`execute`** — sends the reminder message to a background assistant conversation for autonomous handling
+- **`notify`** (default) - shows a notification to the user when the reminder fires
+- **`execute`** - sends the reminder message to a background assistant conversation for autonomous handling
 
 Use `notify` for simple alerts. Use `execute` when the reminder should trigger the assistant to do something (e.g., "in 30 minutes, check if the build passed").
 
@@ -114,9 +114,9 @@ Use `notify` for simple alerts. Use `execute` when the reminder should trigger t
 
 `reminder_create` supports a `routing_intent` parameter that controls how the reminder is delivered at trigger time:
 
-- **`single_channel`** — deliver to one best channel
-- **`multi_channel`** — deliver to a subset of channels
-- **`all_channels`** (default) — deliver to every available channel
+- **`single_channel`** - deliver to one best channel
+- **`multi_channel`** - deliver to a subset of channels
+- **`all_channels`** (default) - deliver to every available channel
 
 You can also pass `routing_hints` (a JSON object) to influence routing decisions (e.g. preferred channels, exclusions).
 

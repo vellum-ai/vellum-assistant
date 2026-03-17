@@ -8,7 +8,7 @@ metadata:
     display-name: "Collaborative OAuth Flow"
 ---
 
-This skill provides the **Collaborative Guided Flow** pattern for OAuth app setup. It is not invoked directly — it is included by service-specific OAuth skills (e.g., `google-oauth-applescript`).
+This skill provides the **Collaborative Guided Flow** pattern for OAuth app setup. It is not invoked directly - it is included by service-specific OAuth skills (e.g., `google-oauth-applescript`).
 
 See `references/collaborative-guided-flow.md` for the full pattern: navigation helper, step rhythm, rules, credential collection, error handling, tone, and guardrails.
 

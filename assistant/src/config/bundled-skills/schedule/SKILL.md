@@ -26,10 +26,10 @@ Standard 5-field cron syntax: `minute hour day-of-month month day-of-week`
 
 Examples:
 
-- `0 9 * * 1-5` — weekdays at 9:00 AM
-- `30 8 * * *` — every day at 8:30 AM
-- `0 */2 * * *` — every 2 hours
-- `0 9 1 * *` — first of every month at 9:00 AM
+- `0 9 * * 1-5` - weekdays at 9:00 AM
+- `30 8 * * *` - every day at 8:30 AM
+- `0 */2 * * *` - every 2 hours
+- `0 9 1 * *` - first of every month at 9:00 AM
 
 ### RRULE (RFC 5545)
 
@@ -49,25 +49,25 @@ Exclusions (EXDATE, EXRULE) always take precedence over inclusions (RRULE, RDATE
 
 #### Basic examples
 
-- `DTSTART:20250101T090000Z\nRRULE:FREQ=DAILY` — every day at 9:00 AM UTC
-- `DTSTART:20250101T090000Z\nRRULE:FREQ=WEEKLY;BYDAY=MO,WE,FR` — Mon/Wed/Fri at 9:00 AM UTC
-- `DTSTART:20250101T090000Z\nRRULE:FREQ=MONTHLY;BYMONTHDAY=1,15` — 1st and 15th of each month
+- `DTSTART:20250101T090000Z\nRRULE:FREQ=DAILY` - every day at 9:00 AM UTC
+- `DTSTART:20250101T090000Z\nRRULE:FREQ=WEEKLY;BYDAY=MO,WE,FR` - Mon/Wed/Fri at 9:00 AM UTC
+- `DTSTART:20250101T090000Z\nRRULE:FREQ=MONTHLY;BYMONTHDAY=1,15` - 1st and 15th of each month
 
 #### Bounded recurrence
 
-- `DTSTART:20250101T090000Z\nRRULE:FREQ=DAILY;COUNT=30` — daily for 30 occurrences then stop
-- `DTSTART:20250101T090000Z\nRRULE:FREQ=WEEKLY;BYDAY=MO;UNTIL=20250331T235959Z` — every Monday until end of March
+- `DTSTART:20250101T090000Z\nRRULE:FREQ=DAILY;COUNT=30` - daily for 30 occurrences then stop
+- `DTSTART:20250101T090000Z\nRRULE:FREQ=WEEKLY;BYDAY=MO;UNTIL=20250331T235959Z` - every Monday until end of March
 
 #### Set construct examples
 
-- `DTSTART:20250101T090000Z\nRRULE:FREQ=WEEKLY;BYDAY=MO,WE,FR\nEXDATE:20250120T090000Z` — Mon/Wed/Fri except Jan 20
-- `DTSTART:20250101T090000Z\nRRULE:FREQ=DAILY\nEXRULE:FREQ=WEEKLY;BYDAY=SA,SU` — every weekday (daily minus weekends)
-- `DTSTART:20250101T090000Z\nRRULE:FREQ=MONTHLY;BYMONTHDAY=1\nRDATE:20250704T090000Z` — 1st of each month plus July 4th
-- `DTSTART:20250101T090000Z\nRRULE:FREQ=WEEKLY;BYDAY=TU\nRRULE:FREQ=WEEKLY;BYDAY=TH` — union of Tuesdays and Thursdays
+- `DTSTART:20250101T090000Z\nRRULE:FREQ=WEEKLY;BYDAY=MO,WE,FR\nEXDATE:20250120T090000Z` - Mon/Wed/Fri except Jan 20
+- `DTSTART:20250101T090000Z\nRRULE:FREQ=DAILY\nEXRULE:FREQ=WEEKLY;BYDAY=SA,SU` - every weekday (daily minus weekends)
+- `DTSTART:20250101T090000Z\nRRULE:FREQ=MONTHLY;BYMONTHDAY=1\nRDATE:20250704T090000Z` - 1st of each month plus July 4th
+- `DTSTART:20250101T090000Z\nRRULE:FREQ=WEEKLY;BYDAY=TU\nRRULE:FREQ=WEEKLY;BYDAY=TH` - union of Tuesdays and Thursdays
 
 ## One-Shot Schedules (Reminders)
 
-To create a one-time schedule that fires once and is done, pass `fire_at` (an ISO 8601 timestamp) instead of an `expression`. This replaces the old reminder concept — "remind me at 3pm" becomes a one-shot schedule with `fire_at`.
+To create a one-time schedule that fires once and is done, pass `fire_at` (an ISO 8601 timestamp) instead of an `expression`. This replaces the old reminder concept - "remind me at 3pm" becomes a one-shot schedule with `fire_at`.
 
 One-shot schedules:
 - Fire once at the specified time, then are marked as `fired` and disabled.
@@ -82,8 +82,8 @@ Examples:
 
 The `mode` parameter controls what happens when a schedule fires:
 
-- **execute** (default) — sends the schedule's message to a background assistant conversation for autonomous handling. The assistant processes the message as if the user sent it.
-- **notify** — sends a notification to the user via the notification pipeline. No assistant processing occurs.
+- **execute** (default) - sends the schedule's message to a background assistant conversation for autonomous handling. The assistant processes the message as if the user sent it.
+- **notify** - sends a notification to the user via the notification pipeline. No assistant processing occurs.
 
 Use `notify` for simple reminders ("remind me to take medicine at 9am") and `execute` for tasks that need assistant action ("check my calendar at 8am and send me a digest").
 
@@ -91,9 +91,9 @@ Use `notify` for simple reminders ("remind me to take medicine at 9am") and `exe
 
 Control how notify-mode schedules are delivered at trigger time with `routing_intent`:
 
-- **single_channel** — deliver to one best channel
-- **multi_channel** — deliver to a subset of channels
-- **all_channels** (default) — deliver to every available channel
+- **single_channel** - deliver to one best channel
+- **multi_channel** - deliver to a subset of channels
+- **all_channels** (default) - deliver to every available channel
 
 Optionally pass `routing_hints` (a JSON object) to influence routing decisions (e.g. preferred channels, exclusions).
 
@@ -129,20 +129,20 @@ Phrases like "at the 45 minute mark", "at the top of the hour", "at noon", or "2
 
 **Resolution rules (in priority order):**
 
-1. **Conversation-anchored expressions** — if the user mentioned a start time earlier in conversation ("I got here at 9", "meeting started at 2:10"), interpret offset-style phrases ("the 45 minute mark", "20 minutes in") as `start_time + offset`.
+1. **Conversation-anchored expressions** - if the user mentioned a start time earlier in conversation ("I got here at 9", "meeting started at 2:10"), interpret offset-style phrases ("the 45 minute mark", "20 minutes in") as `start_time + offset`.
 
-2. **Clock-position expressions** — when no start time is in context, map directly to a wall-clock time:
+2. **Clock-position expressions** - when no start time is in context, map directly to a wall-clock time:
    - "top of the hour" → next :00
    - "the X minute mark" → current hour's :XX; if already past, advance one hour
    - "noon" / "midnight" → 12:00 PM or 12:00 AM today; if past, tomorrow
 
-3. **Ask only if truly ambiguous** — if neither rule resolves, ask for clarification. Never silently default to "from now."
+3. **Ask only if truly ambiguous** - if neither rule resolves, ask for clarification. Never silently default to "from now."
 - Timezones default to the system timezone if omitted. Use IANA timezone identifiers (e.g. "America/Los_Angeles").
 - Prefer RRULE for complex patterns that cron cannot express (e.g. "every other Tuesday", "last weekday of the month").
 
 ## Capability Preflight
 
-Before confirming a schedule to the user, you MUST verify that you have the capabilities needed to execute the scheduled message autonomously. Scheduled messages run without user interaction — if a required integration is missing, the schedule will fail silently.
+Before confirming a schedule to the user, you MUST verify that you have the capabilities needed to execute the scheduled message autonomously. Scheduled messages run without user interaction - if a required integration is missing, the schedule will fail silently.
 
 When `schedule_create` returns, it includes an integration status summary. Cross-reference the scheduled task's requirements against the available integrations:
 
@@ -153,7 +153,7 @@ When `schedule_create` returns, it includes an integration status summary. Cross
 
 If any required capability is missing:
 
-1. **Do NOT tell the user the schedule is ready** — instead, explain what's missing and why the schedule won't work yet
+1. **Do NOT tell the user the schedule is ready** - instead, explain what's missing and why the schedule won't work yet
 2. Offer to help set up the missing integration first
 3. The schedule is still created (so timing is preserved), but make it clear it won't execute successfully until dependencies are resolved
 

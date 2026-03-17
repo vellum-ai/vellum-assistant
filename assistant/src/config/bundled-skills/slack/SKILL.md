@@ -68,7 +68,7 @@ When responding to messages from Slack channels, replies are automatically threa
 When you need to **send** content to Slack proactively (e.g. a scheduled digest, a scan summary, or a report):
 
 - Use `messaging_send` with `platform: "slack"` and the target `conversation_id` (Slack channel or DM ID). This posts directly via `chat.postMessage` and preserves the full message content.
-- Do **NOT** use `send_notification` for rich content like digests — the notification router's decision engine rewrites content into short alerts, stripping the actual digest.
+- Do **NOT** use `send_notification` for rich content like digests - the notification router's decision engine rewrites content into short alerts, stripping the actual digest.
 - `send_notification` is appropriate for short alerts and status updates where you want the router to pick the best channel. `messaging_send` is appropriate when you have specific content to deliver to a specific Slack destination.
 - For scheduled tasks (cron/RRULE), always end with a `messaging_send` call so the results actually reach the user. Without it, the output only lives in the conversation log.
 

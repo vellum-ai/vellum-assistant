@@ -1,4 +1,4 @@
-/** Event time — either a dateTime with timezone or a date for all-day events. */
+/** Event time - either a dateTime with timezone or a date for all-day events. */
 export interface EventDateTime {
   dateTime?: string;
   date?: string;

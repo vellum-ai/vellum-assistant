@@ -18,7 +18,7 @@ The user may pass `$ARGUMENTS` to filter to a specific test case by name (e.g., 
 
 **Test case filter:** Determine which test case to target:
 1. If the user passes a bare word argument (e.g., `phone-setup`), use that as the filter.
-2. Otherwise, look at the conversational context — if you've been working on or discussing a specific e2e test case (e.g., editing `playwright/cases/phone-setup.md`), automatically target that test case.
+2. Otherwise, look at the conversational context - if you've been working on or discussing a specific e2e test case (e.g., editing `playwright/cases/phone-setup.md`), automatically target that test case.
 3. If neither applies, run all tests.
 
 **Additional flags from `$ARGUMENTS`:**

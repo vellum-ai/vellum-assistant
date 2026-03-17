@@ -50,7 +50,7 @@ const AUDIO_EXTENSIONS = new Set([
 /** Max file size for a single OpenAI Whisper API request (25MB). */
 const WHISPER_API_MAX_BYTES = 25 * 1024 * 1024;
 
-/** Duration per chunk when splitting for the API (10 minutes — stays well under 25MB as WAV). */
+/** Duration per chunk when splitting for the API (10 minutes - stays well under 25MB as WAV). */
 const API_CHUNK_DURATION_SECS = 600;
 
 /** Timeout for a single Whisper API request. */
@@ -167,7 +167,7 @@ async function resolveSource(
     // Check if this is a file-backed attachment (large files stored on disk)
     const onDiskPath = getFilePathForAttachment(attachment.id);
     if (onDiskPath) {
-      // File-backed attachment — use the on-disk file directly
+      // File-backed attachment - use the on-disk file directly
       try {
         await access(onDiskPath);
       } catch {
@@ -183,7 +183,7 @@ async function resolveSource(
       };
     }
 
-    // Inline attachment — decode base64 to a temp file
+    // Inline attachment - decode base64 to a temp file
     const ext = mime.startsWith("video/") ? ".mp4" : ".m4a";
     const tempPath = join(
       tmpdir(),
@@ -217,7 +217,7 @@ async function toWav(inputPath: string, isVideo: boolean): Promise<string> {
 }
 
 // ---------------------------------------------------------------------------
-// API mode — OpenAI Whisper API
+// API mode - OpenAI Whisper API
 // ---------------------------------------------------------------------------
 
 async function transcribeViaApi(
@@ -244,7 +244,7 @@ async function transcribeViaApi(
     context.onOutput?.(
       `Large file (${Math.round(
         duration / 60,
-      )}min) — splitting into chunks...\n`,
+      )}min) - splitting into chunks...\n`,
     );
     const chunks = await splitAudio(
       audioPath,
@@ -305,7 +305,7 @@ async function whisperApiRequest(
 }
 
 // ---------------------------------------------------------------------------
-// Local mode — whisper.cpp
+// Local mode - whisper.cpp
 // ---------------------------------------------------------------------------
 
 async function transcribeViaLocal(
@@ -320,20 +320,20 @@ async function transcribeViaLocal(
     );
   }
 
-  // Resolve model path — use the base model, download if needed
+  // Resolve model path - use the base model, download if needed
   const modelPath = await resolveWhisperModel(context);
 
   const duration = await getAudioDuration(audioPath);
 
   if (duration > 0 && duration <= 1800) {
-    // Under 30 minutes — transcribe directly (whisper.cpp handles long files well)
+    // Under 30 minutes - transcribe directly (whisper.cpp handles long files well)
     context.onOutput?.(
       `Transcribing ${Math.round(duration / 60)}min of audio locally...\n`,
     );
     return await whisperCppRun(audioPath, modelPath);
   }
 
-  // Very long files — split into 10-minute chunks to show progress
+  // Very long files - split into 10-minute chunks to show progress
   const chunkDir = join(
     tmpdir(),
     `vellum-transcribe-local-chunks-${randomUUID()}`,
@@ -344,7 +344,7 @@ async function transcribeViaLocal(
     context.onOutput?.(
       `Large file (${Math.round(
         duration / 60,
-      )}min) — splitting into chunks...\n`,
+      )}min) - splitting into chunks...\n`,
     );
     const chunks = await splitAudio(audioPath, chunkDir, 600);
     const parts: string[] = [];

@@ -34,7 +34,7 @@ const CONTAINER_WORKSPACE_EXACT = "/workspace";
  *
  * For existing paths, symlinks are resolved via realpathSync so a symlink
  * pointing outside the boundary is caught. For new paths (e.g. file_write),
- * pass `mustExist: false` — the nearest existing ancestor directory is
+ * pass `mustExist: false` - the nearest existing ancestor directory is
  * resolved via realpathSync to catch symlinks in parent dirs.
  *
  * Paths starting with `/workspace/` are treated as container-scoped and
@@ -71,7 +71,7 @@ export function sandboxPolicy(
     try {
       realResolved = realpathSync(resolved);
     } catch {
-      // File doesn't exist — will be caught by the tool's own existence check
+      // File doesn't exist - will be caught by the tool's own existence check
       realResolved = resolved;
     }
   } else {

@@ -2,7 +2,7 @@
  * CES tool: make_authenticated_request
  *
  * Delegates an authenticated HTTP request to the Credential Execution Service.
- * The assistant never sees raw credentials — CES injects the credential into
+ * The assistant never sees raw credentials - CES injects the credential into
  * the outbound request internally and returns the sanitised response.
  *
  * The input schema matches the `MakeAuthenticatedRequestSchema` from
@@ -22,7 +22,7 @@ const log = getLogger("ces-tool:make-authenticated-request");
 class MakeAuthenticatedRequestTool implements Tool {
   name = "make_authenticated_request";
   description =
-    "Execute an authenticated HTTP request through CES. CES injects the credential and returns the response — the assistant never sees raw secrets.";
+    "Execute an authenticated HTTP request through CES. CES injects the credential and returns the response - the assistant never sees raw secrets.";
   category = "credential-execution";
   defaultRiskLevel = RiskLevel.High;
 
@@ -50,7 +50,7 @@ class MakeAuthenticatedRequestTool implements Tool {
             type: "object",
             additionalProperties: { type: "string" },
             description:
-              "Optional request headers. Credential headers are injected by CES — do not include secrets here.",
+              "Optional request headers. Credential headers are injected by CES - do not include secrets here.",
           },
           body: {
             description:
@@ -188,7 +188,7 @@ class MakeAuthenticatedRequestTool implements Tool {
         "CES make_authenticated_request RPC error",
       );
       return {
-        content: `Error: CES RPC call failed — ${msg}`,
+        content: `Error: CES RPC call failed - ${msg}`,
         isError: true,
       };
     }

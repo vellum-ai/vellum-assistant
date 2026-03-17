@@ -23,7 +23,7 @@ export async function executeSubagentSpawn(
     | undefined;
   if (!sendToClient) {
     return {
-      content: "No client connected — cannot spawn subagent.",
+      content: "No client connected - cannot spawn subagent.",
       isError: true,
     };
   }
@@ -45,7 +45,7 @@ export async function executeSubagentSpawn(
         subagentId,
         label,
         status: "pending",
-        message: `Subagent "${label}" spawned. You will be notified automatically when it completes or fails — do NOT poll subagent_status. Continue the conversation normally.`,
+        message: `Subagent "${label}" spawned. You will be notified automatically when it completes or fails - do NOT poll subagent_status. Continue the conversation normally.`,
       }),
       isError: false,
     };

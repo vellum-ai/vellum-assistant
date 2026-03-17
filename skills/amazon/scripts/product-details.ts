@@ -67,7 +67,7 @@ export async function getProductDetails(
           // Detect Fresh
           var isFresh = ${isFreshFlag} || html.includes('amazon.com/fresh') || !!doc.querySelector('[aria-label*="Fresh"]');
 
-          // Variations — parse from inline JS objects
+          // Variations - parse from inline JS objects
           var variations = [];
           try {
             var dimMatch = html.match(/dimensionRelationshipsStr\s*=\s*'([^']+)'/);

@@ -88,7 +88,7 @@ export class ToolExecutor {
       // whether a scoped grant was consumed. Previously this was nested
       // inside the `!grantConsumed` block, meaning untrusted host_bash
       // calls that arrived with a consumed guardian-approval grant would
-      // skip this assignment entirely — defeating the lockdown.
+      // skip this assignment entirely - defeating the lockdown.
       if (
         name === "host_bash" &&
         isCesShellLockdownEnabled(getConfig()) &&
@@ -98,7 +98,7 @@ export class ToolExecutor {
       }
 
       // Secure command tool installation always requires fresh per-invocation
-      // approval — no persistent grants. This is unconditional (not gated on
+      // approval - no persistent grants. This is unconditional (not gated on
       // CES lockdown or trust class) because installing secure tools is
       // inherently high-impact.
       if (name === "manage_secure_command_tool") {
@@ -106,11 +106,11 @@ export class ToolExecutor {
         context.requireFreshApproval = true;
       }
 
-      // A consumed scoped grant is a complete authorization — skip the
+      // A consumed scoped grant is a complete authorization - skip the
       // interactive permission/prompt flow so non-interactive sessions
       // don't auto-deny prompt-gated tools and burn the one-time grant.
       // Exception: requireFreshApproval tools always go through the
-      // permission check even when a grant was consumed — the grant does
+      // permission check even when a grant was consumed - the grant does
       // not substitute for an interactive human review.
       if (!gateResult.grantConsumed || context.requireFreshApproval) {
         // Check permissions via the extracted PermissionChecker
@@ -164,7 +164,7 @@ export class ToolExecutor {
         return { content: msg, isError: true };
       }
 
-      // Execute the tool — proxy tools delegate to an external resolver
+      // Execute the tool - proxy tools delegate to an external resolver
       let execResult: ToolExecutionResult;
       let toolTimeoutMs: number;
       if (name === "bash" || name === "host_bash") {
@@ -276,7 +276,7 @@ export class ToolExecutor {
               grantId: bridgeResult.grantId,
               conversationId: context.conversationId,
             },
-            "CES approval granted — retrying tool invocation with grantId",
+            "CES approval granted - retrying tool invocation with grantId",
           );
 
           if (tool.executionMode === "proxy") {
@@ -579,7 +579,7 @@ function computePreviewDiff(
       };
     }
   } catch {
-    // Preview is best-effort — don't block the prompt on errors
+    // Preview is best-effort - don't block the prompt on errors
   }
   return undefined;
 }

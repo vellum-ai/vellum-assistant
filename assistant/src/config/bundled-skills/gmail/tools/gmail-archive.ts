@@ -124,7 +124,7 @@ export async function run(
 
   // Batch path for scan_id+sender_ids and message_ids
   if (!messageIds?.length) {
-    return err("Resolved message list is empty — no messages to archive.");
+    return err("Resolved message list is empty - no messages to archive.");
   }
 
   try {

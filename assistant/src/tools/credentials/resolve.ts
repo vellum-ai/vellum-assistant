@@ -1,5 +1,5 @@
 /**
- * Credential resolver — maps between opaque IDs, service/field pairs,
+ * Credential resolver - maps between opaque IDs, service/field pairs,
  * and storage locators.
  *
  * This decouples external credential references from the underlying

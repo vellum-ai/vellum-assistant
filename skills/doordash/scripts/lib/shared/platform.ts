@@ -1,6 +1,6 @@
 /**
  * Inlined platform utilities used by the DoorDash skill.
- * Subset of assistant/src/util/platform.ts — kept minimal.
+ * Subset of assistant/src/util/platform.ts - kept minimal.
  */
 
 import { homedir } from "node:os";

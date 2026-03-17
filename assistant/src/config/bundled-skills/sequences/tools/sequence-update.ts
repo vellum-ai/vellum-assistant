@@ -58,7 +58,7 @@ export async function run(
             : null;
           if (seq && seq.status !== "active")
             return err(
-              `Cannot resume enrollment — parent sequence "${seq.name}" is ${seq.status}. Resume the sequence first.`,
+              `Cannot resume enrollment - parent sequence "${seq.name}" is ${seq.status}. Resume the sequence first.`,
             );
           resumeEnrollment(enrollmentId);
           return ok(`Enrollment ${enrollmentId} resumed.`);

@@ -67,7 +67,7 @@ class CredentialStoreTool implements Tool {
               "describe",
             ],
             description:
-              'The operation to perform. Use "prompt" to ask the user for a secret via secure UI — the value never enters the conversation. Use "oauth2_connect" to connect an OAuth2 service via browser authorization. Use "describe" to get setup metadata for a well-known OAuth service (dashboard URL, scopes, redirect URI, etc.). For well-known services (gmail, slack), only the service name is required — endpoints, scopes, and stored client credentials are resolved automatically.',
+              'The operation to perform. Use "prompt" to ask the user for a secret via secure UI - the value never enters the conversation. Use "oauth2_connect" to connect an OAuth2 service via browser authorization. Use "describe" to get setup metadata for a well-known OAuth service (dashboard URL, scopes, redirect URI, etc.). For well-known services (gmail, slack), only the service name is required - endpoints, scopes, and stored client credentials are resolved automatically.',
           },
           service: {
             type: "string",
@@ -477,7 +477,7 @@ class CredentialStoreTool implements Tool {
           if (oauthResult === "error") {
             log.warn(
               { service },
-              "OAuth disconnect failed after removing credential — secure key deletion error",
+              "OAuth disconnect failed after removing credential - secure key deletion error",
             );
           }
         } catch (err) {
@@ -666,7 +666,7 @@ class CredentialStoreTool implements Tool {
             };
           }
           // Ensure metadata exists so broker policy checks work, but don't
-          // overwrite an existing record — a stored credential's policy should
+          // overwrite an existing record - a stored credential's policy should
           // not be silently replaced by the transient prompt's policy.
           // Metadata must be written before injecting the transient value so
           // we never leave a dangling value that fails policy checks.
@@ -754,7 +754,7 @@ class CredentialStoreTool implements Tool {
         // Resolve client_id and client_secret.
         // Priority:
         //   1. Explicit input from the caller
-        //   2. oauth-store DB — when clientId is already known, look up the
+        //   2. oauth-store DB - when clientId is already known, look up the
         //      matching app so the secret comes from the same app. Only fall
         //      back to the most-recent-app heuristic when clientId is unknown.
         let clientId = input.client_id as string | undefined;
@@ -791,7 +791,7 @@ class CredentialStoreTool implements Tool {
             isError: true,
           };
 
-        // Fail early when client_secret is required but missing — guide the
+        // Fail early when client_secret is required but missing - guide the
         // agent to collect it from the user rather than letting it improvise
         // browser-automation workarounds that inevitably fail.
         const requiresSecret =
@@ -808,7 +808,7 @@ class CredentialStoreTool implements Tool {
           };
         }
 
-        // Delegate to the shared orchestrator — it resolves authUrl, tokenUrl,
+        // Delegate to the shared orchestrator - it resolves authUrl, tokenUrl,
         // extraParams, userinfoUrl, and tokenEndpointAuthMethod from the DB.
         const result = await orchestrateOAuthConnect({
           service: rawService,
@@ -909,7 +909,7 @@ class CredentialStoreTool implements Tool {
           redirectUri = `http://localhost:${loopbackPort}/oauth/callback`;
         } else if (transport === "loopback") {
           redirectUri =
-            "(automatic — no redirect URI needed, uses random localhost port)";
+            "(automatic - no redirect URI needed, uses random localhost port)";
         } else {
           // Try to compute the actual URL from config/env
           try {
@@ -920,7 +920,7 @@ class CredentialStoreTool implements Tool {
             redirectUri = `${baseUrl}/webhooks/oauth/callback`;
           } catch {
             redirectUri =
-              "(requires ingress.publicBaseUrl — not currently configured)";
+              "(requires ingress.publicBaseUrl - not currently configured)";
           }
         }
 

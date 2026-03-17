@@ -1,6 +1,6 @@
 /**
  * Inlined error classes used by the DoorDash skill.
- * Subset of assistant/src/util/errors.ts — kept minimal.
+ * Subset of assistant/src/util/errors.ts - kept minimal.
  */
 
 export enum ErrorCode {

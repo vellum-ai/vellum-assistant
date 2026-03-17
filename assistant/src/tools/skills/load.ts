@@ -249,7 +249,7 @@ export class SkillLoadTool implements Tool {
         catalogIndex = indexCatalogById(catalog);
       }
 
-      // Validate (fail-closed — catches genuinely missing deps + cycles)
+      // Validate (fail-closed - catches genuinely missing deps + cycles)
       const validation = validateIncludes(skill.id, catalogIndex);
       if (!validation.ok) {
         if (validation.error === "missing") {
@@ -307,7 +307,7 @@ export class SkillLoadTool implements Tool {
           continue;
 
         childLines.push(
-          `  - ${child.id}: ${child.displayName} — ${child.description} (${child.skillFilePath})`,
+          `  - ${child.id}: ${child.displayName} - ${child.description} (${child.skillFilePath})`,
         );
 
         // Load the included skill's body content

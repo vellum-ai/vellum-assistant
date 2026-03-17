@@ -502,7 +502,7 @@
           },
           "page_token": {
             "type": "string",
-            "description": "Resume token from a previous scan (rarely needed — scans now cover up to 10,000 messages in a single call)"
+            "description": "Resume token from a previous scan (rarely needed - scans now cover up to 10,000 messages in a single call)"
           },
           "reason": {
             "type": "string",
@@ -519,7 +519,7 @@
     },
     {
       "name": "gmail_outreach_scan",
-      "description": "Scan Gmail inbox for senders without List-Unsubscribe headers (potential cold outreach). Returns top senders with message counts and sample subjects. Read-only — use gmail_archive and gmail_filters for cleanup.",
+      "description": "Scan Gmail inbox for senders without List-Unsubscribe headers (potential cold outreach). Returns top senders with message counts and sample subjects. Read-only - use gmail_archive and gmail_filters for cleanup.",
       "category": "gmail",
       "risk": "low",
       "input_schema": {
@@ -539,7 +539,7 @@
           },
           "page_token": {
             "type": "string",
-            "description": "Resume token from a previous scan (rarely needed — scans now cover up to 5,000 messages in a single call)"
+            "description": "Resume token from a previous scan (rarely needed - scans now cover up to 5,000 messages in a single call)"
           },
           "reason": {
             "type": "string",

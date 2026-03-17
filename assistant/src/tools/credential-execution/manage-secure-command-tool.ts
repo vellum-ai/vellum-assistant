@@ -3,7 +3,7 @@
  *
  * The only assistant-facing way to request secure bundle installation or
  * update. This tool deliberately accepts only user-reviewable bundle
- * metadata (bundleId, version, sourceUrl, sha256, declared profiles) —
+ * metadata (bundleId, version, sourceUrl, sha256, declared profiles) -
  * never raw bytes, workspace file paths, or executable content.
  *
  * Every invocation forces a fresh approval prompt without creating
@@ -28,7 +28,7 @@ class ManageSecureCommandToolImpl implements Tool {
   name = "manage_secure_command_tool";
   description =
     "Request installation, update, or removal of a secure command tool bundle. " +
-    "Accepts only bundle metadata for guardian review — never raw bytes or file paths. " +
+    "Accepts only bundle metadata for guardian review - never raw bytes or file paths. " +
     "Each invocation requires fresh approval.";
   category = "credential-execution";
   defaultRiskLevel = RiskLevel.High;
@@ -362,7 +362,7 @@ class ManageSecureCommandToolImpl implements Tool {
         "CES manage_secure_command_tool RPC error",
       );
       return {
-        content: `Error: CES RPC call failed — ${msg}`,
+        content: `Error: CES RPC call failed - ${msg}`,
         isError: true,
       };
     }

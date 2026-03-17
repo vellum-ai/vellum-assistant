@@ -111,7 +111,7 @@
     },
     {
       "name": "sequence_update",
-      "description": "Update a sequence or manage an enrollment's lifecycle. Two modes: (1) Sequence-level — pass `id` to change name, description, status (active/paused/archived), steps, or exit-on-reply. (2) Enrollment-level — pass `enrollment_id` + `enrollment_action` to pause, resume, or cancel an enrollment. Exactly one mode must be used per call.",
+      "description": "Update a sequence or manage an enrollment's lifecycle. Two modes: (1) Sequence-level - pass `id` to change name, description, status (active/paused/archived), steps, or exit-on-reply. (2) Enrollment-level - pass `enrollment_id` + `enrollment_action` to pause, resume, or cancel an enrollment. Exactly one mode must be used per call.",
       "category": "sequences",
       "risk": "medium",
       "input_schema": {

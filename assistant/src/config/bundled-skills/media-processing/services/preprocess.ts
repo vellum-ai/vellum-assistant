@@ -319,7 +319,7 @@ async function extractDominantColors(framePath: string): Promise<string[]> {
   // Fallback: return empty if analysis fails
   if (result.exitCode !== 0) return [];
 
-  // Parse palette info from stderr — look for color hex values
+  // Parse palette info from stderr - look for color hex values
   const colors: string[] = [];
   const colorMatches = result.stderr.matchAll(/0x([0-9a-fA-F]{6})/g);
   for (const m of colorMatches) {
@@ -549,7 +549,7 @@ export async function preprocessForAsset(
     );
     if (rawSegments.length > 0 && totalFrames === 0) {
       throw new Error(
-        `All ${rawSegments.length} segment(s) failed frame extraction — zero usable frames produced.`,
+        `All ${rawSegments.length} segment(s) failed frame extraction - zero usable frames produced.`,
       );
     }
     onProgress?.(

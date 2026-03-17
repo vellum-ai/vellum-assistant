@@ -3,7 +3,7 @@
  *
  * Delegates an authenticated command execution to the Credential Execution
  * Service. CES injects credential values into the command's environment and
- * runs it inside the CES sandbox — the assistant never sees raw secrets.
+ * runs it inside the CES sandbox - the assistant never sees raw secrets.
  *
  * The input schema matches the `RunAuthenticatedCommandSchema` from
  * `@vellumai/ces-contracts` exactly so the LLM-produced parameters pass
@@ -22,7 +22,7 @@ const log = getLogger("ces-tool:run-authenticated-command");
 class RunAuthenticatedCommandTool implements Tool {
   name = "run_authenticated_command";
   description =
-    "Execute a command with credential environment variables injected by CES. The command runs inside the CES sandbox — the assistant never sees raw secrets.";
+    "Execute a command with credential environment variables injected by CES. The command runs inside the CES sandbox - the assistant never sees raw secrets.";
   category = "credential-execution";
   defaultRiskLevel = RiskLevel.High;
 
@@ -192,7 +192,7 @@ class RunAuthenticatedCommandTool implements Tool {
         };
       }
 
-      // Surface copyback errors — CES may report success (command exited
+      // Surface copyback errors - CES may report success (command exited
       // normally) but populate response.error with copyback failures.
       if (response.error) {
         const copybackMsg = response.error.message ?? "Output copyback failed";
@@ -251,7 +251,7 @@ class RunAuthenticatedCommandTool implements Tool {
         "CES run_authenticated_command RPC error",
       );
       return {
-        content: `Error: CES RPC call failed — ${msg}`,
+        content: `Error: CES RPC call failed - ${msg}`,
         isError: true,
       };
     }

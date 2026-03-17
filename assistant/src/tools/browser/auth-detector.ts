@@ -25,7 +25,7 @@ interface ServicePattern {
 }
 
 const SERVICE_PATTERNS: ServicePattern[] = [
-  // Auth-subdomain services — hostname match is sufficient
+  // Auth-subdomain services - hostname match is sufficient
   { pattern: /accounts\.google\.com/, service: "Google" },
   { pattern: /login\.microsoftonline\.com/, service: "Microsoft" },
   { pattern: /appleid\.apple\.com/, service: "Apple" },
@@ -33,7 +33,7 @@ const SERVICE_PATTERNS: ServicePattern[] = [
   { pattern: /id\.atlassian\.com/, service: "Atlassian" },
   { pattern: /auth0\.com/, service: "Auth0" },
   { pattern: /okta\.com/, service: "Okta" },
-  // General-domain services — need both hostname AND path match
+  // General-domain services - need both hostname AND path match
   {
     pattern: /github\.com/,
     service: "GitHub",
@@ -89,7 +89,7 @@ export function isAuthUrl(url: string): boolean {
     )
   )
     return true;
-  // Generic path patterns — match against pathname only to avoid false positives
+  // Generic path patterns - match against pathname only to avoid false positives
   // from query parameters or fragments that happen to contain auth-related words.
   return GENERIC_AUTH_PATTERNS.some((p) => p.test(parsedUrl.pathname));
 }
@@ -228,7 +228,7 @@ const CAPTCHA_DETECT_EXPRESSION = `(() => {
     if (document.querySelector(sel)) return true;
   }
 
-  // reCAPTCHA — only flag visible challenges, not invisible v3 scoring widgets.
+  // reCAPTCHA - only flag visible challenges, not invisible v3 scoring widgets.
   // The challenge iframe (api2/bframe) or a visible .g-recaptcha container indicates
   // an interactive CAPTCHA the user must solve.
   if (document.querySelector('iframe[src*="recaptcha/api2/bframe"]')) return true;
@@ -238,14 +238,14 @@ const CAPTCHA_DETECT_EXPRESSION = `(() => {
     if (rect.width > 0 && rect.height > 0) return true;
   }
 
-  // hCaptcha — only flag when a visible challenge container is present
+  // hCaptcha - only flag when a visible challenge container is present
   const hcaptchaContainer = document.querySelector('#hcaptcha-container, .h-captcha');
   if (hcaptchaContainer) {
     const rect = hcaptchaContainer.getBoundingClientRect();
     if (rect.width > 0 && rect.height > 0) return true;
   }
 
-  // hCaptcha fallback — catch custom-rendered hCaptcha in arbitrary host elements
+  // hCaptcha fallback - catch custom-rendered hCaptcha in arbitrary host elements
   // by looking for any visible hCaptcha iframe (check all, not just the first)
   const hcaptchaIframes = document.querySelectorAll('iframe[src*="hcaptcha"]');
   for (const iframe of hcaptchaIframes) {

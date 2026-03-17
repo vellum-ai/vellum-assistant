@@ -23,7 +23,7 @@
           },
           "body_markdown": {
             "type": "string",
-            "description": "The full skill body in markdown — instructions, prompts, templates, etc."
+            "description": "The full skill body in markdown - instructions, prompts, templates, etc."
           },
           "emoji": {
             "type": "string",
