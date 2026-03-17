@@ -992,7 +992,7 @@ private struct ErrorToastOverlay: View {
                 .containerRelativeFrame(.horizontal) { width, _ in width * 0.7 }
             }
 
-            if let conversationError = errorManager.conversationError, !conversationError.isCreditsExhausted {
+            if let conversationError = errorManager.conversationError, !conversationError.isCreditsExhausted, !errorManager.isConversationErrorDisplayedInline {
                 ChatConversationErrorToast(
                     error: conversationError,
                     onRetry: onRetryConversationError,
