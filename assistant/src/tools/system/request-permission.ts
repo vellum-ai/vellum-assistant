@@ -53,8 +53,9 @@ const FRIENDLY_NAMES: Record<PermissionType, string> = {
 class RequestSystemPermissionTool implements Tool {
   name = "request_system_permission";
   description =
-    "Ask the user to grant a macOS system permission (e.g. Full Disk Access) via System Settings. " +
-    "Use this when a tool execution fails because of a TCC/permission error.";
+    "Ask the user to grant a macOS system permission via System Settings. " +
+    "Use when a tool fails with a permission/access error (e.g. 'Operation not permitted', 'EACCES', sandbox denial). " +
+    "Do not explain how to open System Settings manually — this tool handles it with a clickable button.";
   category = "system";
   defaultRiskLevel = RiskLevel.High;
 
