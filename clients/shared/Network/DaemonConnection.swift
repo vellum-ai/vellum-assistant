@@ -45,6 +45,11 @@ extension DaemonClient {
             if connected {
                 NotificationCenter.default.post(name: .daemonDidReconnect, object: self)
             }
+            #if os(macOS)
+            if !connected {
+                self.autoWakeIfDaemonDied()
+            }
+            #endif
         }
 
         // Persist refreshed bearer tokens so the client survives app restarts.
@@ -117,6 +122,47 @@ extension DaemonClient {
     public func disconnect() {
         disconnectInternal(triggerReconnect: false)
     }
+
+    // MARK: - Auto-Wake on Health Check Disconnect
+
+    #if os(macOS)
+    /// Minimum interval between auto-wake attempts to prevent crash loops.
+    private static let autoWakeCooldown: TimeInterval = 60.0
+
+    /// Check whether the daemon process has died and, if so, attempt to wake it
+    /// and reconnect. Called from the `onConnectionStateChanged` callback when
+    /// the health check reports disconnection.
+    private func autoWakeIfDaemonDied() {
+        guard let wakeHandler,
+              config.transportMetadata.routeMode == .runtimeFlat,
+              !DaemonClient.isDaemonProcessAlive(environment: config.instanceDir.map { ["BASE_DATA_DIR": $0] })
+        else { return }
+
+        // Crash loop protection: if we already tried recently and the daemon
+        // died again, don't keep restarting a broken process.
+        if let last = lastAutoWakeAttempt,
+           Date().timeIntervalSince(last) < Self.autoWakeCooldown {
+            log.warning("auto-wake: skipping — last attempt was within \(Self.autoWakeCooldown)s cooldown")
+            return
+        }
+
+        lastAutoWakeAttempt = Date()
+
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            log.info("auto-wake: daemon process died during session — attempting wake")
+            do {
+                try await wakeHandler()
+                log.info("auto-wake: wake succeeded, reconnecting")
+                try await self.connect()
+                log.info("auto-wake: reconnect succeeded")
+                self.lastAutoWakeAttempt = nil
+            } catch {
+                log.error("auto-wake: failed: \(error)")
+            }
+        }
+    }
+    #endif
 
     func disconnectInternal(triggerReconnect: Bool) {
         isAuthenticated = false

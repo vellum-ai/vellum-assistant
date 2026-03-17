@@ -471,6 +471,13 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     /// Set by the app layer — `DaemonClient` never imports platform-specific types.
     public var wakeHandler: (@MainActor @Sendable () async throws -> Void)?
 
+    #if os(macOS)
+    /// Timestamp of the last auto-wake attempt from the health-check disconnect path.
+    /// Used to prevent crash loops: if the daemon dies again within the cooldown window
+    /// after a wake, we stop retrying. Reset on successful reconnection or reconfigure.
+    var lastAutoWakeAttempt: Date?
+    #endif
+
     // MARK: - Broadcast Subscribers
 
     /// Creates a new message stream for the caller. Each subscriber receives all messages
@@ -530,6 +537,9 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
         keyFingerprint = nil
         latestMemoryStatus = nil
         currentModel = nil
+        #if os(macOS)
+        lastAutoWakeAttempt = nil
+        #endif
     }
 
     deinit {
