@@ -112,7 +112,7 @@ struct UsageDashboardPanel: View {
     }
 
     private let barChartHeight: CGFloat = 140
-    private let maxBarWidth: CGFloat = 32
+    private let maxBarWidth: CGFloat = 40
 
     @ViewBuilder
     private func dailyBarChart(_ buckets: [UsageDayBucket]) -> some View {
@@ -151,11 +151,23 @@ struct UsageDashboardPanel: View {
         }
     }
 
-    /// Formats a date string (e.g. "2026-03-15") to a short label (e.g. "15").
+    private static let shortDateFormatter: DateFormatter = {
+        let f = DateFormatter()
+        f.dateFormat = "MMM d"
+        return f
+    }()
+
+    private static let isoParser: DateFormatter = {
+        let f = DateFormatter()
+        f.dateFormat = "yyyy-MM-dd"
+        f.locale = Locale(identifier: "en_US_POSIX")
+        return f
+    }()
+
+    /// Formats a date string (e.g. "2026-03-15") to a short label (e.g. "Mar 15").
     private func formatShortDate(_ dateString: String) -> String {
-        let parts = dateString.split(separator: "-")
-        guard parts.count == 3 else { return dateString }
-        return String(parts[2]).replacingOccurrences(of: "^0", with: "", options: .regularExpression)
+        guard let date = Self.isoParser.date(from: dateString) else { return dateString }
+        return Self.shortDateFormatter.string(from: date)
     }
 
     // MARK: - Breakdown Section
