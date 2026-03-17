@@ -91,6 +91,14 @@ struct HighlightedTextView: View {
                 .background(Self.editorBackground)
             }
         }
+        .onKeyPress(.escape) {
+            if isSearchVisible {
+                dismissSearch()
+                return .handled
+            }
+            isActivelyEditing = false
+            return .handled
+        }
         .onChange(of: text) { _, _ in
             let count = searchMatchCount
             if count == 0 {
@@ -412,11 +420,21 @@ private struct CodeTextView: NSViewRepresentable {
     }
 
     func updateNSView(_ scrollView: HorizontalOnlyScrollView, context: Context) {
+        context.coordinator.parent = self
         guard let textView = scrollView.documentView as? CodeNSTextView else { return }
         if textView.string != text {
             let selectedRanges = textView.selectedRanges
             textView.string = text
-            textView.selectedRanges = selectedRanges
+            let length = (text as NSString).length
+            let clampedRanges = selectedRanges.compactMap { rangeValue -> NSValue? in
+                let range = rangeValue.rangeValue
+                let clampedLocation = min(range.location, length)
+                let clampedLength = min(range.length, length - clampedLocation)
+                return NSValue(range: NSRange(location: clampedLocation, length: clampedLength))
+            }
+            textView.selectedRanges = clampedRanges.isEmpty
+                ? [NSValue(range: NSRange(location: length, length: 0))]
+                : clampedRanges
         }
         textView.onEscape = onEscape
         textView.onCommandF = onCommandF
