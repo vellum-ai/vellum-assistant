@@ -316,7 +316,12 @@ struct GuardianChannelsDetailView: View {
 
         Task {
             do {
-                _ = try await contactClient.updateContactChannel(channelId: channelId, status: "revoked", policy: nil, reason: nil)
+                let updated = try await contactClient.updateContactChannel(channelId: channelId, status: "revoked", policy: nil, reason: nil)
+                guard updated != nil else {
+                    errorMessage = "Failed to update channel"
+                    errorChannelType = type
+                    return
+                }
                 let refreshed = try await contactClient.fetchContact(contactId: displayContact.id)
                 if let refreshed {
                     currentContact = refreshed

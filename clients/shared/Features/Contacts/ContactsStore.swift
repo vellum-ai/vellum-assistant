@@ -56,7 +56,9 @@ public final class ContactsStore: ObservableObject {
         Task {
             do {
                 let result = try await contactClient.fetchContactsList(limit: 500, role: nil)
-                self.contacts = result
+                if !result.isEmpty {
+                    self.contacts = result
+                }
             } catch {
                 // Keep existing contacts on failure
             }
