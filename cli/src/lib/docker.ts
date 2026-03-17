@@ -139,6 +139,7 @@ async function ensureDockerInstalled(): Promise<void> {
 export function dockerResourceNames(instanceName: string) {
   return {
     assistantContainer: `${instanceName}-assistant`,
+    assistantNetwork: `vellum-assistant-net-${instanceName}`,
     cesContainer: `${instanceName}-credential-executor`,
     dataVolume: `vellum-data-${instanceName}`,
     gatewayContainer: `${instanceName}-gateway`,
@@ -190,6 +191,11 @@ export async function retireDocker(name: string): Promise<void> {
   // Remove shared network and volumes
   try {
     await exec("docker", ["network", "rm", res.network]);
+  } catch {
+    // network may not exist
+  }
+  try {
+    await exec("docker", ["network", "rm", res.assistantNetwork]);
   } catch {
     // network may not exist
   }
@@ -326,7 +332,7 @@ export function serviceDockerRunArgs(opts: {
         "-d",
         "--name",
         res.assistantContainer,
-        `--network=${res.network}`,
+        `--network=${res.assistantNetwork}`,
         "-v",
         `${res.dataVolume}:/data`,
         "-v",
@@ -416,6 +422,14 @@ export async function startContainers(
   for (const service of SERVICE_START_ORDER) {
     log(`🚀 Starting ${service} container...`);
     await exec("docker", runArgs[service]());
+    if (service === "gateway") {
+      await exec("docker", [
+        "network",
+        "connect",
+        opts.res.assistantNetwork,
+        opts.res.gatewayContainer,
+      ]);
+    }
   }
 }
 
@@ -522,6 +536,14 @@ function startFileWatcher(opts: {
         console.log(`🔄 Restarting ${container}...`);
         await removeContainer(container);
         await exec("docker", runArgs[service]());
+        if (service === "gateway") {
+          await exec("docker", [
+            "network",
+            "connect",
+            res.assistantNetwork,
+            res.gatewayContainer,
+          ]);
+        }
       }
 
       console.log("✅ Rebuild complete — watching for changes...\n");
@@ -656,6 +678,7 @@ export async function hatchDocker(
 
     log("📁 Creating shared network and volumes...");
     await exec("docker", ["network", "create", res.network]);
+    await exec("docker", ["network", "create", res.assistantNetwork]);
     await exec("docker", ["volume", "create", res.dataVolume]);
     await exec("docker", ["volume", "create", res.socketVolume]);
 
