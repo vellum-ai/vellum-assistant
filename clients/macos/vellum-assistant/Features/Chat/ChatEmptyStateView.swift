@@ -112,6 +112,7 @@ struct ChatEmptyStateView: View {
                             .frame(height: 80)
 
                         heroSection
+                            .id("hero-composer")
 
                         composerSection
 
@@ -126,8 +127,15 @@ struct ChatEmptyStateView: View {
                             }
                         }
 
-                        Spacer()
-                            .frame(height: VSpacing.xxl)
+                        // Scroll offset detector — when this goes off screen, show floating composer
+                        GeometryReader { geo in
+                            Color.clear
+                                .preference(
+                                    key: ScrollOffsetKey.self,
+                                    value: geo.frame(in: .named("emptyStateScroll")).minY
+                                )
+                        }
+                        .frame(height: 0)
                     }
                     .frame(minHeight: 400)
 
@@ -144,7 +152,7 @@ struct ChatEmptyStateView: View {
                             onCardTap: { card in
                                 onSelectCard?(card)
                                 withAnimation(.easeInOut(duration: 0.3)) {
-                                    proxy.scrollTo("hero-top", anchor: .top)
+                                    proxy.scrollTo("hero-composer", anchor: .top)
                                 }
                             }
                         )
@@ -152,6 +160,22 @@ struct ChatEmptyStateView: View {
                     }
                 }
                 .id("hero-top")
+            }
+            .coordinateSpace(name: "emptyStateScroll")
+            .onPreferenceChange(ScrollOffsetKey.self) { offset in
+                let isPastHero = offset < -200
+                if isPastHero != scrolledPastHero {
+                    withAnimation(VAnimation.fast) {
+                        scrolledPastHero = isPastHero
+                    }
+                }
+            }
+            .overlay(alignment: .top) {
+                FloatingMiniComposer(visible: scrolledPastHero) {
+                    withAnimation(.easeInOut(duration: 0.3)) {
+                        proxy.scrollTo("hero-composer", anchor: .top)
+                    }
+                }
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -400,5 +424,14 @@ struct ChatTemporaryChatEmptyStateView: View {
             .offset(y: -40)
             .allowsHitTesting(false)
         )
+    }
+}
+
+// MARK: - Scroll Offset Tracking
+
+private struct ScrollOffsetKey: PreferenceKey {
+    static var defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = nextValue()
     }
 }
