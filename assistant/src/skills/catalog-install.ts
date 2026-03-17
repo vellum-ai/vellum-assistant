@@ -31,6 +31,14 @@ export interface CatalogSkill {
   emoji?: string;
   includes?: string[];
   version?: string;
+  metadata?: {
+    vellum?: {
+      "display-name"?: string;
+      "activation-hints"?: string[];
+      "avoid-when"?: string[];
+      "feature-flag"?: string;
+    };
+  };
 }
 
 export interface CatalogManifest {
