@@ -14,7 +14,7 @@ import {
   unlinkSync,
   writeFileSync,
 } from "node:fs";
-import { tmpdir } from "node:os";
+import { hostname, tmpdir, userInfo } from "node:os";
 import { join } from "node:path";
 import {
   afterAll,
@@ -71,7 +71,6 @@ const SALT_LENGTH = 32;
 
 /** Local copy of the legacy machine entropy derivation (the export was removed). */
 function legacyMachineEntropy(): string {
-  const { hostname, userInfo } = require("node:os");
   const parts: string[] = [];
   try { parts.push(hostname()); } catch { parts.push("unknown-host"); }
   try { parts.push(userInfo().username); } catch { parts.push("unknown-user"); }
