@@ -105,6 +105,7 @@ import {
   registerWatcherProviders,
 } from "./providers-setup.js";
 import { seedInterfaceFiles } from "./seed-files.js";
+import { seedCatalogSkillMemories } from "../skills/skill-memory.js";
 import { DaemonServer } from "./server.js";
 import { installShutdownHandlers } from "./shutdown-handlers.js";
 import { handleWatchObservation } from "./watch-handler.js";
@@ -372,6 +373,12 @@ export async function runDaemon(): Promise<void> {
 
     log.info("Daemon startup: starting memory worker");
     const memoryWorker = startMemoryJobsWorker();
+
+    // Seed capability memories for first-party catalog skills so the memory
+    // pipeline can surface relevant skills via semantic search.
+    void seedCatalogSkillMemories().catch((err) =>
+      log.warn({ err }, "Catalog skill memory seeding failed — continuing"),
+    );
 
     registerWatcherProviders();
     registerMessagingProviders();
