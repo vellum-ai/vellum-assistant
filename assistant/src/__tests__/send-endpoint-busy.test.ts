@@ -16,7 +16,10 @@ mock.module("../config/env.js", () => ({ isHttpAuthDisabled: () => true }));
 import { createGuardianBinding } from "../contacts/contacts-write.js";
 import type { Conversation } from "../daemon/conversation.js";
 import type { ServerMessage } from "../daemon/message-protocol.js";
-import { createCanonicalGuardianRequest } from "../memory/canonical-guardian-store.js";
+import {
+  createCanonicalGuardianRequest,
+  getCanonicalGuardianRequest,
+} from "../memory/canonical-guardian-store.js";
 import { getOrCreateConversation } from "../memory/conversation-key-store.js";
 
 const testDir = realpathSync(
@@ -893,6 +896,62 @@ describe("POST /v1/messages — queue-if-busy and hub publishing", () => {
       }),
     });
     expect(res.status).toBe(400);
+
+    await stopServer();
+  });
+
+  test("auto-deny resolves canonical guardian request so stale records do not cause pending_interaction_not_found", async () => {
+    const conversationKey = "conv-auto-deny-canonical";
+    const { conversationId } = getOrCreateConversation(conversationKey);
+    const requestId = "req-auto-deny-canonical";
+
+    // Step 1: Create a pending approval conversation with a canonical request.
+    const { conversation, denyAllPendingConfirmationsMock } =
+      makePendingApprovalConversation(requestId, false);
+
+    pendingInteractions.register(requestId, {
+      conversation,
+      conversationId,
+      kind: "confirmation",
+    });
+    createCanonicalGuardianRequest({
+      id: requestId,
+      kind: "tool_approval",
+      sourceType: "desktop",
+      sourceChannel: "vellum",
+      conversationId,
+      toolName: "bash",
+      guardianPrincipalId: "test-principal-id",
+      status: "pending",
+      requestCode: "STALE1",
+      expiresAt: Date.now() + 5 * 60 * 1000,
+    });
+
+    await startServer(() => conversation);
+
+    // Step 2: Send a non-approval message to trigger auto-deny of the
+    // pending confirmation. "do something else" is not an approval phrase,
+    // so tryConsumeCanonicalGuardianReply won't consume it, and the
+    // auto-deny path will fire.
+    const res = await fetch(messagesUrl(), {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...AUTH_HEADERS },
+      body: JSON.stringify({
+        conversationKey,
+        content: "do something else instead",
+        sourceChannel: "vellum",
+        interface: "macos",
+      }),
+    });
+    expect(res.status).toBe(202);
+    expect(denyAllPendingConfirmationsMock).toHaveBeenCalledTimes(1);
+
+    // Step 3: Verify the canonical guardian request was resolved to "denied".
+    // Without the fix, this would remain "pending", causing
+    // pending_interaction_not_found errors on subsequent "yes" messages.
+    const canonicalRequest = getCanonicalGuardianRequest(requestId);
+    expect(canonicalRequest).toBeDefined();
+    expect(canonicalRequest!.status).toBe("denied");
 
     await stopServer();
   });
