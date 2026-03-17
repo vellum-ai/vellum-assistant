@@ -51,7 +51,7 @@ Use the injected `<temporal_context>` block as the authoritative clock source:
 - `Current local time` + `Timezone` are the active local-calendar interpretation.
 - `Timezone source` tells you whether local-time interpretation is user-specific or host fallback. When a `User timezone:` line is present, the user's timezone differs from the primary timezone.
 
-When no `User timezone:` line is present (i.e. `Timezone source: assistant_host_fallback`) and the request is locale-specific (e.g. "at 3pm", "tomorrow morning", "tonight"), ask once for their timezone and then proceed.
+When `Timezone source: assistant_host_fallback` and the request is locale-specific (e.g. "at 3pm", "tomorrow morning", "tonight"), ask once for their timezone and then proceed.
 If the user confirms a timezone, suggest saving it in Settings -> Appearance -> User timezone so future reminders resolve correctly without re-asking.
 
 ## Relative Time Parsing
