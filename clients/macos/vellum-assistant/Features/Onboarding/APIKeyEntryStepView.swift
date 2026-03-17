@@ -142,16 +142,11 @@ struct APIKeyEntryStepView: View {
         APIKeyManager.setKey(trimmed, for: "anthropic")
         APIKeyManager.syncKeyToDaemon(provider: "anthropic", value: trimmed)
 
-        // After BYOK onboarding, set inference mode to "your-own".
+        // After BYOK onboarding, set all service modes to "your-own".
         // This overwrites the schema default that the daemon materializes on
-        // first load. If the user later switches mode in settings, setInferenceMode()
-        // will overwrite this value.
-        let existingConfig = WorkspaceConfigIO.read()
-        var services = existingConfig["services"] as? [String: Any] ?? [:]
-        var inference = services["inference"] as? [String: Any] ?? [:]
-        inference["mode"] = "your-own"
-        services["inference"] = inference
-        try? WorkspaceConfigIO.merge(["services": services])
+        // first load. If the user later switches mode in settings, the per-service
+        // setter will overwrite individual values.
+        WorkspaceConfigIO.initializeServiceDefaults(defaultMode: "your-own")
 
         saveModelToConfig("claude-opus-4-6")
         state.advance()

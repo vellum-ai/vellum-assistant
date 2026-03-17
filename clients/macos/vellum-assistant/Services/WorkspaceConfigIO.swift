@@ -93,4 +93,21 @@ public enum WorkspaceConfigIO {
             throw error
         }
     }
+
+    /// Sets the service mode for all services (inference, image-generation, web-search).
+    /// Called during onboarding (BYOK → "your-own") and managed-proxy bootstrap (→ "managed").
+    public static func initializeServiceDefaults(defaultMode mode: String, into path: String? = nil) {
+        let existingConfig = read(from: path)
+        var services = existingConfig["services"] as? [String: Any] ?? [:]
+
+        var inference = services["inference"] as? [String: Any] ?? [:]
+        inference["mode"] = mode
+        services["inference"] = inference
+
+        var imageGen = services["image-generation"] as? [String: Any] ?? [:]
+        imageGen["mode"] = mode
+        services["image-generation"] = imageGen
+
+        try? merge(["services": services], into: path)
+    }
 }

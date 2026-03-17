@@ -372,16 +372,11 @@ extension AppDelegate {
                     log.info("Local assistant API key provisioned: \(id, privacy: .public)")
                 }
 
-                // After successful managed-proxy bootstrap, set inference mode to "managed".
+                // After successful managed-proxy bootstrap, set all service modes to "managed".
                 // This overwrites the schema default ("your-own") that the daemon materializes
-                // on first load. If the user later switches mode in settings, setInferenceMode()
-                // will overwrite this value.
-                let existingConfig = WorkspaceConfigIO.read()
-                var services = existingConfig["services"] as? [String: Any] ?? [:]
-                var inference = services["inference"] as? [String: Any] ?? [:]
-                inference["mode"] = "managed"
-                services["inference"] = inference
-                try? WorkspaceConfigIO.merge(["services": services])
+                // on first load. If the user later switches mode in settings, the per-service
+                // setter will overwrite individual values.
+                WorkspaceConfigIO.initializeServiceDefaults(defaultMode: "managed")
 
                 self.localBootstrapDidComplete = true
                 SentryDeviceInfo.updateOrganizationTag(UserDefaults.standard.string(forKey: "connectedOrganizationId"))
