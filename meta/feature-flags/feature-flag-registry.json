@@ -223,7 +223,7 @@
       "key": "feature_flags.conversation-starters.enabled",
       "label": "Recommended Starts",
       "description": "Show a curated row of recommended starting actions on the empty conversation page, ordered by relevance as confident first-click options",
-      "defaultEnabled": false
+      "defaultEnabled": true
     },
     {
       "id": "deploy-to-vercel",
