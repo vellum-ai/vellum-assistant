@@ -805,8 +805,8 @@ export function buildInboundActorContextBlock(
     lines.push(`contact_interaction_count: ${ctx.contactInteractionCount}`);
   }
   if (
-    ctx.actorMemberDisplayName &&
-    ctx.actorSenderDisplayName &&
+    differs(ctx.actorMemberDisplayName) &&
+    differs(ctx.actorSenderDisplayName) &&
     sanitizeInlineContextValue(ctx.actorMemberDisplayName) !==
       sanitizeInlineContextValue(ctx.actorSenderDisplayName)
   ) {

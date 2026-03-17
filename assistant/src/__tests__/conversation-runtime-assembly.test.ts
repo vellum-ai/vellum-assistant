@@ -824,6 +824,30 @@ describe("injectInboundActorContext", () => {
     );
   });
 
+  test("omits name_preference_note when member name matches canonical and is suppressed", () => {
+    const ctx: InboundActorContext = {
+      sourceChannel: "telegram",
+      canonicalActorIdentity: "Jeff",
+      actorIdentifier: "@jeff_handle",
+      actorDisplayName: "Jeff",
+      actorSenderDisplayName: "Jeffrey",
+      actorMemberDisplayName: "Jeff",
+      trustClass: "trusted_contact",
+      guardianIdentity: "guardian-user-1",
+      memberStatus: "active",
+      memberPolicy: "allow",
+    };
+
+    const result = injectInboundActorContext(baseUserMessage, ctx);
+    const text = (result.content[0] as { type: "text"; text: string }).text;
+    // actor_member_display_name matches canonical → omitted by differs() guard
+    expect(text).not.toContain("actor_member_display_name:");
+    // actor_sender_display_name differs from canonical → emitted
+    expect(text).toContain("actor_sender_display_name: Jeffrey");
+    // name_preference_note must NOT appear since actor_member_display_name was omitted
+    expect(text).not.toContain("name_preference_note:");
+  });
+
   test("sanitizes inline actor context values to prevent line injection", () => {
     const ctx: InboundActorContext = {
       sourceChannel: "telegram",
