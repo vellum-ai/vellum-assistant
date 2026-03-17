@@ -384,6 +384,18 @@ private struct CodeTextView: NSViewRepresentable {
         // Match gutter's .padding(.top, VSpacing.sm) exactly
         textView.textContainerInset = NSSize(width: 0, height: VSpacing.sm)
 
+        // Fix line height so emoji/tall glyphs don't expand individual lines
+        let fixedLineHeight = layoutManager.defaultLineHeight(for: textView.font!)
+        let paragraphStyle = NSMutableParagraphStyle()
+        paragraphStyle.minimumLineHeight = fixedLineHeight
+        paragraphStyle.maximumLineHeight = fixedLineHeight
+        textView.defaultParagraphStyle = paragraphStyle
+        textView.typingAttributes = [
+            .font: textView.font!,
+            .foregroundColor: textView.textColor!,
+            .paragraphStyle: paragraphStyle,
+        ]
+
         textView.onEscape = onEscape
         textView.onCommandF = onCommandF
         textView.string = text
