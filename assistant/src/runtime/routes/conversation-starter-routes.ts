@@ -62,21 +62,41 @@ export function orderStrongestFirst<T extends StarterItem>(items: T[]): T[] {
 
   const result: T[] = [];
   let lastCategory: string | null = null;
+  const seenCategories = new Set<string>();
 
   while (result.length < items.length) {
     let picked = false;
 
-    // First pass: pick from a group whose category differs from last
+    // First pass: prefer categories not yet seen at all (maximizes diversity in
+    // top positions), skipping only the immediately preceding category.
     for (const group of sortedGroups) {
       if (group.idx >= group.items.length) continue;
       const candidate = group.items[group.idx];
       const cat = candidate.category ?? "other";
-      if (cat !== lastCategory) {
+      if (cat !== lastCategory && !seenCategories.has(cat)) {
         result.push(candidate);
         group.idx++;
         lastCategory = cat;
+        seenCategories.add(cat);
         picked = true;
         break;
+      }
+    }
+
+    // Second pass: pick from any group whose category differs from last
+    if (!picked) {
+      for (const group of sortedGroups) {
+        if (group.idx >= group.items.length) continue;
+        const candidate = group.items[group.idx];
+        const cat = candidate.category ?? "other";
+        if (cat !== lastCategory) {
+          result.push(candidate);
+          group.idx++;
+          lastCategory = cat;
+          seenCategories.add(cat);
+          picked = true;
+          break;
+        }
       }
     }
 

@@ -1807,7 +1807,7 @@ describe("Memory regressions", () => {
         totalOutputTokens: 0,
         totalEstimatedCost: 0,
         contextSummary: null,
-        contextCompactedMessageCount: 0,
+        contextCompactedMessageCount: 1,
         contextCompactedAt: null,
       })
       .run();
@@ -2052,7 +2052,7 @@ describe("Memory regressions", () => {
         totalOutputTokens: 0,
         totalEstimatedCost: 0,
         contextSummary: null,
-        contextCompactedMessageCount: 0,
+        contextCompactedMessageCount: 1,
         contextCompactedAt: null,
       })
       .run();
@@ -2126,7 +2126,7 @@ describe("Memory regressions", () => {
         totalOutputTokens: 0,
         totalEstimatedCost: 0,
         contextSummary: null,
-        contextCompactedMessageCount: 0,
+        contextCompactedMessageCount: 1,
         contextCompactedAt: null,
       })
       .run();

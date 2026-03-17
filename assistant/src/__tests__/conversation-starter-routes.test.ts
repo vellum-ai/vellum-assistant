@@ -97,9 +97,9 @@ function insertStarter(overrides: {
 
 function insertMemoryItem(scopeId = "default") {
   getSqlite().run(
-    `INSERT INTO memory_items (id, kind, subject, statement, importance, status, scope_id, first_seen_at, updated_at)
-     VALUES (?, 'fact', 'test', 'test statement', 5, 'active', ?, ?, ?)`,
-    [uuid(), scopeId, Date.now(), Date.now()],
+    `INSERT INTO memory_items (id, kind, subject, statement, importance, status, confidence, fingerprint, scope_id, first_seen_at, last_seen_at)
+     VALUES (?, 'fact', 'test', 'test statement', 5, 'active', 0.8, ?, ?, ?, ?)`,
+    [uuid(), uuid(), scopeId, Date.now(), Date.now()],
   );
 }
 

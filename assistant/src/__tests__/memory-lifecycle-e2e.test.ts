@@ -323,7 +323,7 @@ describe("Memory lifecycle E2E regression", () => {
         totalOutputTokens: 0,
         totalEstimatedCost: 0,
         contextSummary: null,
-        contextCompactedMessageCount: 0,
+        contextCompactedMessageCount: 1,
         contextCompactedAt: null,
       })
       .run();

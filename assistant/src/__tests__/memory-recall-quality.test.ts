@@ -112,6 +112,7 @@ function insertConversation(
   db: ReturnType<typeof getDb>,
   id: string,
   createdAt: number,
+  contextCompactedMessageCount = 0,
 ) {
   db.insert(conversations)
     .values({
@@ -123,7 +124,7 @@ function insertConversation(
       totalOutputTokens: 0,
       totalEstimatedCost: 0,
       contextSummary: null,
-      contextCompactedMessageCount: 0,
+      contextCompactedMessageCount,
       contextCompactedAt: null,
     })
     .run();
@@ -629,7 +630,7 @@ describe("Memory Recall Quality", () => {
     test("invalidated items are excluded from recall", async () => {
       const db = getDb();
       const now = 1_700_000_275_000;
-      insertConversation(db, "conv-invalid-status", now);
+      insertConversation(db, "conv-invalid-status", now, 1);
       insertMessage(
         db,
         "msg-invalid-status",
@@ -989,7 +990,7 @@ describe("Memory Recall Quality", () => {
     test("precision@k guard verifies pipeline completes with seeded segments", async () => {
       const db = getDb();
       const now = 1_700_000_700_000;
-      insertConversation(db, "conv-pk", now);
+      insertConversation(db, "conv-pk", now, 3);
 
       const prefs = [
         {
