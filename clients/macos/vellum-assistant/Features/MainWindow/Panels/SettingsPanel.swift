@@ -2,25 +2,27 @@ import SwiftUI
 import VellumAssistantShared
 
 enum SettingsTab: String {
-    case general = "General"
+    case account = "Account"
+    case channels = "Channels"
     case modelsAndServices = "Models & Services"
-    case voice = "Voice"
-    case permissionsAndPrivacy = "Permissions & Privacy"
+    case automation = "Automation"
     case contacts = "Contacts"
+    case appearance = "Appearance"
+    case permissionsAndPrivacy = "Permissions"
+    case accessibility = "Accessibility"
+    case privacy = "Privacy"
+    case voice = "Voice"
     case billing = "Billing"
     case archivedConversations = "Archived Threads"
     case developer = "Developer"
 
     /// Primary tabs shown in the main nav list (excludes feature-flagged bottom tabs).
     static func primaryTabs(contactsEnabled: Bool = false, billingEnabled: Bool = false) -> [SettingsTab] {
-        var tabs: [SettingsTab] = [.general]
+        var tabs: [SettingsTab] = [.account, .channels, .modelsAndServices, .automation]
         if contactsEnabled {
             tabs.append(.contacts)
         }
-        tabs.append(contentsOf: [
-            .voice, .modelsAndServices,
-            .permissionsAndPrivacy,
-        ])
+        tabs.append(contentsOf: [.appearance, .permissionsAndPrivacy, .accessibility, .privacy])
         if billingEnabled {
             tabs.append(.billing)
         }
@@ -28,9 +30,16 @@ enum SettingsTab: String {
         return tabs
     }
 
-    /// Resolves a tab name string to a SettingsTab. Only accepts current canonical names.
+    /// Resolves a tab name string to a SettingsTab, with backward compatibility for old names.
     static func fromRawValue(_ value: String, contactsEnabled: Bool = false, billingEnabled: Bool = false, developerEnabled: Bool = false) -> SettingsTab? {
-        guard let tab = SettingsTab(rawValue: value) else { return nil }
+        // Support old raw values for backward compatibility
+        let tab: SettingsTab?
+        switch value {
+        case "General": tab = .account
+        case "Permissions & Privacy": tab = .permissionsAndPrivacy
+        default: tab = SettingsTab(rawValue: value)
+        }
+        guard let tab else { return nil }
         // Block feature-flagged tabs when disabled
         if tab == .contacts && !contactsEnabled { return nil }
         if tab == .billing && !billingEnabled { return nil }
@@ -60,7 +69,7 @@ struct SettingsPanel: View {
     @State private var notificationsGranted: Bool = false
     @State private var notificationBadgesGranted: Bool = false
     @State private var permissionCheckTask: Task<Void, Never>?
-    @State private var selectedTab: SettingsTab = .general
+    @State private var selectedTab: SettingsTab = .account
     @State private var isContactsEnabled: Bool = false
     @State private var isBillingEnabled: Bool = false
     @State private var isDeveloperEnabled: Bool = false
@@ -105,11 +114,11 @@ struct SettingsPanel: View {
                 settingsNav
                     .frame(width: 200)
 
-                if selectedTab == .contacts || (selectedTab == .archivedConversations && conversationManager.archivedConversations.isEmpty) {
+                if selectedTab == .contacts || selectedTab == .channels || (selectedTab == .archivedConversations && conversationManager.archivedConversations.isEmpty) {
                     selectedTabContent
                         .padding(.trailing, VSpacing.xl)
                         .padding(.bottom, VSpacing.xl)
-                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: selectedTab == .contacts ? .top : .center)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: (selectedTab == .contacts || selectedTab == .channels) ? .top : .center)
                 } else {
                     ScrollView {
                         selectedTabContent
@@ -167,7 +176,7 @@ struct SettingsPanel: View {
         }
         .onChange(of: billingVisible) { _, visible in
             if !visible && selectedTab == .billing {
-                selectedTab = .general
+                selectedTab = .account
             }
         }
         .onReceive(NotificationCenter.default.publisher(for: .assistantFeatureFlagDidChange)) { notification in
@@ -176,12 +185,12 @@ struct SettingsPanel: View {
                 if key == Self.contactsFeatureFlagKey {
                     isContactsEnabled = enabled
                     if !enabled && selectedTab == .contacts {
-                        selectedTab = .general
+                        selectedTab = .account
                     }
                 } else if key == Self.developerFeatureFlagKey {
                     isDeveloperEnabled = enabled
                     if !enabled && selectedTab == .developer {
-                        selectedTab = .general
+                        selectedTab = .account
                     }
                 } else if key == Self.billingFeatureFlagKey {
                     isBillingEnabled = enabled
@@ -303,7 +312,7 @@ struct SettingsPanel: View {
     @ViewBuilder
     private var selectedTabContent: some View {
         switch selectedTab {
-        case .general:
+        case .account:
             SettingsGeneralTab(store: store, daemonClient: daemonClient, authManager: authManager, onClose: onClose, onSignIn: {
                 // Re-bootstrap actor credentials first so the actor token is
                 // available when ensureLocalAssistantApiKey() waits for it.
@@ -315,14 +324,24 @@ struct SettingsPanel: View {
                 }
                 AppDelegate.shared?.ensureLocalAssistantApiKey()
             })
+        case .channels:
+            AssistantChannelsDetailView(store: store, daemonClient: daemonClient, isEmailEnabled: isEmailEnabled)
         case .modelsAndServices:
             integrationsContent
-        case .voice:
-            VoiceSettingsView(store: store)
-        case .permissionsAndPrivacy:
-            permissionsAndPrivacyContent
+        case .automation:
+            VEmptyState(title: "Automation", subtitle: "Coming soon", icon: VIcon.zap.rawValue)
         case .contacts:
             ContactsContainerView(daemonClient: daemonClient, store: store, isEmailEnabled: isEmailEnabled)
+        case .appearance:
+            SettingsAppearanceTab(store: store)
+        case .permissionsAndPrivacy:
+            permissionsContent
+        case .accessibility:
+            accessibilityContent
+        case .privacy:
+            SettingsPrivacyTab(daemonClient: daemonClient, store: store)
+        case .voice:
+            VoiceSettingsView(store: store)
         case .billing:
             SettingsBillingTab(authManager: authManager)
         case .archivedConversations:
@@ -416,24 +435,15 @@ struct SettingsPanel: View {
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    // MARK: - Permissions & Privacy Tab
+    // MARK: - Permissions Tab
 
-    private var permissionsAndPrivacyContent: some View {
+    private var permissionsContent: some View {
         VStack(alignment: .leading, spacing: VSpacing.lg) {
             // PERMISSIONS section (OS permissions)
             VStack(alignment: .leading, spacing: VSpacing.md) {
                 Text("System Permissions")
                     .font(VFont.sectionTitle)
                     .foregroundColor(VColor.contentDefault)
-
-                permissionRow(
-                    label: "Accessibility",
-                    subtitle: "Allows your assistant to click, type, and control apps on your behalf.",
-                    granted: accessibilityGranted
-                ) {
-                    _ = PermissionManager.accessibilityStatus(prompt: true)
-                    startPermissionPolling()
-                }
 
                 permissionRow(
                     label: "Screen Recording",
@@ -505,10 +515,31 @@ struct SettingsPanel: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .vCard(background: VColor.surfaceOverlay)
             }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
 
-            // PRIVACY section (merged from SettingsPrivacyTab)
-            SettingsPrivacyTab(daemonClient: daemonClient, store: store)
+    // MARK: - Accessibility Tab
 
+    private var accessibilityContent: some View {
+        VStack(alignment: .leading, spacing: VSpacing.lg) {
+            VStack(alignment: .leading, spacing: VSpacing.md) {
+                Text("Accessibility Permissions")
+                    .font(VFont.sectionTitle)
+                    .foregroundColor(VColor.contentDefault)
+
+                permissionRow(
+                    label: "Accessibility",
+                    subtitle: "Allows your assistant to click, type, and control apps on your behalf.",
+                    granted: accessibilityGranted
+                ) {
+                    _ = PermissionManager.accessibilityStatus(prompt: true)
+                    startPermissionPolling()
+                }
+            }
+            .padding(VSpacing.lg)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .vCard(background: VColor.surfaceOverlay)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
