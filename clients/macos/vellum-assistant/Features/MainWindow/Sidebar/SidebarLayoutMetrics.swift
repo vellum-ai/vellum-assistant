@@ -51,9 +51,4 @@ enum SidebarLayoutMetrics {
     /// Vertical padding above and below a section divider line.
     static let dividerVerticalPadding: CGFloat = VSpacing.xs  // 4pt — compact rhythm
 
-    /// Horizontal inset for dividers in expanded mode.
-    static let dividerHorizontalPaddingExpanded: CGFloat = VSpacing.md  // 12pt
-
-    /// Horizontal inset for dividers in collapsed mode.
-    static let dividerHorizontalPaddingCollapsed: CGFloat = VSpacing.xs  // 4pt
 }

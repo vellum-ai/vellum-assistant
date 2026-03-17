@@ -273,12 +273,15 @@ extension MainWindowView {
                     }
 
                     if regularConversations.count > 5 {
-                        VButton(
-                            label: sidebar.showAllConversations ? "Show less" : "Show more",
-                            style: .ghost,
-                            size: .compact
-                        ) {
-                            withAnimation(VAnimation.fast) { sidebar.showAllConversations.toggle() }
+                        HStack {
+                            VButton(
+                                label: sidebar.showAllConversations ? "Show less" : "Show more",
+                                style: .ghost,
+                                size: .compact
+                            ) {
+                                withAnimation(VAnimation.fast) { sidebar.showAllConversations.toggle() }
+                            }
+                            Spacer()
                         }
                         .padding(.leading, VSpacing.xs + SidebarLayoutMetrics.iconSlotSize + VSpacing.xs)
                     }
@@ -418,12 +421,15 @@ extension MainWindowView {
                         }
 
                         if scheduleConversationGroups.count > 3 {
-                            VButton(
-                                label: sidebar.showAllScheduleConversations ? "Show less" : "Show more",
-                                style: .ghost,
-                                size: .compact
-                            ) {
-                                withAnimation(VAnimation.fast) { sidebar.showAllScheduleConversations.toggle() }
+                            HStack {
+                                VButton(
+                                    label: sidebar.showAllScheduleConversations ? "Show less" : "Show more",
+                                    style: .ghost,
+                                    size: .compact
+                                ) {
+                                    withAnimation(VAnimation.fast) { sidebar.showAllScheduleConversations.toggle() }
+                                }
+                                Spacer()
                             }
                             .padding(.leading, VSpacing.xs + SidebarLayoutMetrics.iconSlotSize + VSpacing.xs)
                         }
