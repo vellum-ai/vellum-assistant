@@ -48,40 +48,43 @@ struct AppIconPickerSheet: View {
                         .foregroundColor(VColor.contentTertiary)
                         .tracking(1.2)
 
-                    LazyVGrid(columns: iconColumns, spacing: VSpacing.sm) {
-                        ForEach(VAppIconGenerator.icons, id: \.self) { icon in
-                            Button {
-                                selectedIcon = icon
-                            } label: {
-                                VIconView(icon, size: 16)
-                                    .foregroundColor(
-                                        selectedIcon == icon
-                                            ? VColor.primaryBase
-                                            : VColor.contentSecondary
-                                    )
-                                    .frame(width: 36, height: 36)
-                                    .background(
-                                        RoundedRectangle(cornerRadius: VRadius.md)
-                                            .fill(
-                                                selectedIcon == icon
-                                                    ? VColor.primaryBase.opacity(0.15)
-                                                    : VColor.surfaceBase
-                                            )
-                                    )
-                                    .overlay(
-                                        RoundedRectangle(cornerRadius: VRadius.md)
-                                            .stroke(
-                                                selectedIcon == icon
-                                                    ? VColor.primaryBase
-                                                    : Color.clear,
-                                                lineWidth: 2
-                                            )
-                                    )
+                    ScrollView {
+                        LazyVGrid(columns: iconColumns, spacing: VSpacing.sm) {
+                            ForEach(VAppIconGenerator.icons, id: \.self) { icon in
+                                Button {
+                                    selectedIcon = icon
+                                } label: {
+                                    VIconView(icon, size: 16)
+                                        .foregroundColor(
+                                            selectedIcon == icon
+                                                ? VColor.primaryBase
+                                                : VColor.contentSecondary
+                                        )
+                                        .frame(width: 36, height: 36)
+                                        .background(
+                                            RoundedRectangle(cornerRadius: VRadius.md)
+                                                .fill(
+                                                    selectedIcon == icon
+                                                        ? VColor.primaryBase.opacity(0.15)
+                                                        : VColor.surfaceBase
+                                                )
+                                        )
+                                        .overlay(
+                                            RoundedRectangle(cornerRadius: VRadius.md)
+                                                .stroke(
+                                                    selectedIcon == icon
+                                                        ? VColor.primaryBase
+                                                        : Color.clear,
+                                                    lineWidth: 2
+                                                )
+                                        )
+                                }
+                                .buttonStyle(.plain)
+                                .accessibilityLabel(icon.rawValue)
                             }
-                            .buttonStyle(.plain)
-                            .accessibilityLabel(icon.rawValue)
                         }
                     }
+                    .frame(maxHeight: 180)
                 }
             }
         } footer: {
