@@ -215,18 +215,11 @@ export async function retireDocker(name: string): Promise<void> {
 }
 
 /**
- * Locate the repository root by walking up from `cli/src/lib/` until we
- * find a directory containing the expected Dockerfiles.
+ * Walk up from `startDir` looking for a directory that contains
+ * `assistant/Dockerfile`. Returns the path if found, otherwise `undefined`.
  */
-function findRepoRoot(): string {
-  // cli/src/lib/ -> repo root
-  const sourceTreeRoot = join(import.meta.dir, "..", "..", "..");
-  if (existsSync(join(sourceTreeRoot, "assistant", "Dockerfile"))) {
-    return sourceTreeRoot;
-  }
-
-  // Walk up from cwd as a fallback
-  let dir = process.cwd();
+function walkUpForRepoRoot(startDir: string): string | undefined {
+  let dir = startDir;
   while (true) {
     if (existsSync(join(dir, "assistant", "Dockerfile"))) {
       return dir;
@@ -234,6 +227,34 @@ function findRepoRoot(): string {
     const parent = dirname(dir);
     if (parent === dir) break;
     dir = parent;
+  }
+  return undefined;
+}
+
+/**
+ * Locate the repository root by walking up from `cli/src/lib/` until we
+ * find a directory containing the expected Dockerfiles.
+ */
+function findRepoRoot(): string {
+  // cli/src/lib/ -> repo root (works when running from source via bun)
+  const sourceTreeRoot = join(import.meta.dir, "..", "..", "..");
+  if (existsSync(join(sourceTreeRoot, "assistant", "Dockerfile"))) {
+    return sourceTreeRoot;
+  }
+
+  // Walk up from the compiled binary's location. When the CLI is bundled
+  // inside the macOS app (e.g. .../dist/Vellum.app/Contents/MacOS/vellum-cli),
+  // the binary still lives inside the repo tree, so walking up will
+  // eventually reach the repo root.
+  const execRoot = walkUpForRepoRoot(dirname(process.execPath));
+  if (execRoot) {
+    return execRoot;
+  }
+
+  // Walk up from cwd as a final fallback
+  const cwdRoot = walkUpForRepoRoot(process.cwd());
+  if (cwdRoot) {
+    return cwdRoot;
   }
 
   throw new Error(
