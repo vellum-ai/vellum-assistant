@@ -103,7 +103,6 @@ const {
   buildSystemPrompt,
   ensurePromptFiles,
   stripCommentLines,
-  buildExternalCommsIdentitySection,
   SYSTEM_PROMPT_CACHE_BOUNDARY,
 } = await import("../prompts/system-prompt.js");
 
@@ -245,26 +244,9 @@ describe("buildSystemPrompt", () => {
     expect(result).toContain("browser automation as last resort");
   });
 
-  test("includes external comms identity section", () => {
+  test("does not include removed sections", () => {
     const result = buildSystemPrompt();
-    expect(result).toContain("## External Communications Identity");
-  });
-
-  test("external comms identity section contains assistant guidance and resolved user reference", () => {
-    const result = buildSystemPrompt();
-    expect(result).toContain("Refer to yourself as an **assistant**");
-    expect(result).toContain("on behalf of **John**");
-  });
-
-  test("buildExternalCommsIdentitySection returns section with expected content", () => {
-    const section = buildExternalCommsIdentitySection();
-    expect(section).toContain("## External Communications Identity");
-    expect(section).toContain("assistant");
-    expect(section).toContain("John");
-    expect(section).toContain(
-      "Do not volunteer that you are an AI unless directly asked",
-    );
-    expect(section).toContain("Occasional variations are acceptable");
+    expect(result).not.toContain("## External Communications Identity");
   });
 
   test("does not include removed domain routing sections", () => {
