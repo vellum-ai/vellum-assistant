@@ -480,6 +480,20 @@ struct MessageListView: View {
     private func restoreScrollToBottom(proxy: ScrollViewProxy) {
         scrollRestoreTask?.cancel()
         hasFreshAnchorMeasurement = false
+
+        // Reset avatar follower state so the avatar starts hidden and only
+        // appears once the conversation tail anchor reports a fresh position
+        // after the scroll settles. Without this, the avatar can flash at a
+        // stale Y from a previous layout pass (e.g. app re-launch where
+        // onAppear calls restoreScrollToBottom without resetting avatar state).
+        avatarSmoothingTask?.cancel()
+        avatarSmoothingTask = nil
+        avatarTargetY = .infinity
+        avatarDisplayY = .infinity
+        pendingAvatarY = nil
+        avatarLastAppliedAt = nil
+        lastTailAnchorY = .infinity
+
         scrollRestoreTask = Task { @MainActor in
             guard !Task.isCancelled else { return }
             // Stage 0: immediate — covers the happy path where layout is already ready.
@@ -1092,12 +1106,10 @@ struct MessageListView: View {
                     conversationSwitchSuppressionTask = nil
                 }
                 isConversationContentHovered = false
-                avatarTargetY = .infinity
-                avatarDisplayY = .infinity
-                pendingAvatarY = nil
-                avatarLastAppliedAt = nil
                 hasPlayedTailEntryAnimation = false
-                lastTailAnchorY = .infinity
+                // Avatar state (avatarTargetY, avatarDisplayY, pendingAvatarY,
+                // avatarLastAppliedAt, lastTailAnchorY) is reset inside
+                // restoreScrollToBottom so the reset is shared with onAppear.
                 restoreScrollToBottom(proxy: proxy)
             }
             .onChange(of: anchorMessageId) {
