@@ -276,8 +276,7 @@ extension MainWindowView {
                         VButton(
                             label: sidebar.showAllConversations ? "Show less" : "Show more",
                             style: .ghost,
-                            size: .compact,
-                            isFullWidth: true
+                            size: .compact
                         ) {
                             withAnimation(VAnimation.fast) { sidebar.showAllConversations.toggle() }
                         }
@@ -422,8 +421,7 @@ extension MainWindowView {
                             VButton(
                                 label: sidebar.showAllScheduleConversations ? "Show less" : "Show more",
                                 style: .ghost,
-                                size: .compact,
-                                isFullWidth: true
+                                size: .compact
                             ) {
                                 withAnimation(VAnimation.fast) { sidebar.showAllScheduleConversations.toggle() }
                             }
