@@ -716,6 +716,23 @@ struct MainWindowView: View {
             daemonClient.startSSE()
             // Sync initial daemon startup error state
             daemonStartupError = AppDelegate.shared?.daemonStartupError
+
+            // Auto-wake: if the local assistant's daemon process is not
+            // running, wake it via the CLI and re-establish the connection.
+            if !daemonClient.isConnected && !daemonClient.isConnecting,
+               let appDelegate = AppDelegate.shared,
+               !appDelegate.isCurrentAssistantRemote {
+                let env: [String: String]? = daemonClient.config.instanceDir.map { ["BASE_DATA_DIR": $0] }
+                if !DaemonClient.isDaemonProcessAlive(environment: env) {
+                    Task {
+                        let name = UserDefaults.standard.string(forKey: "connectedAssistantId") ?? "default"
+                        try? await appDelegate.assistantCli.wake(name: name)
+                        if !daemonClient.isConnected {
+                            try? await daemonClient.connect()
+                        }
+                    }
+                }
+            }
         }
         .task {
             guard let appDelegate = AppDelegate.shared else { return }
