@@ -16,7 +16,7 @@ set -uo pipefail
 # ---------------------------------------------------------------------------
 
 EXCLUDE_EXPERIMENTAL="${EXCLUDE_EXPERIMENTAL:-false}"
-WORKERS="${TEST_WORKERS:-$(sysctl -n hw.logicalcpu 2>/dev/null || nproc 2>/dev/null || echo 8)}"
+WORKERS="${TEST_WORKERS:-4}"
 COVERAGE="${COVERAGE:-false}"
 # Per-test timeout (seconds). Kills bun processes that pass but don't exit due to open handles.
 PER_TEST_TIMEOUT="${PER_TEST_TIMEOUT:-120}"

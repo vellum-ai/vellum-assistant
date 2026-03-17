@@ -67,14 +67,18 @@ import { and, eq } from "drizzle-orm";
 import { DEFAULT_CONFIG } from "../config/defaults.js";
 import { vectorToBlob } from "../memory/job-utils.js";
 
-// Disable LLM extraction in tests to avoid real API calls and ensure
-// deterministic pattern-based extraction.
+// Disable LLM extraction and summarization in tests to avoid real API calls
+// and ensure deterministic pattern-based extraction / fallback summaries.
 const TEST_CONFIG = {
   ...DEFAULT_CONFIG,
   memory: {
     ...DEFAULT_CONFIG.memory,
     extraction: {
       ...DEFAULT_CONFIG.memory.extraction,
+      useLLM: false,
+    },
+    summarization: {
+      ...DEFAULT_CONFIG.memory.summarization,
       useLLM: false,
     },
   },
@@ -333,7 +337,9 @@ describe("Memory regressions", () => {
     expect(b1.type === "text" && b1.text).toBe("Actual user request");
 
     // Stripped by prefix-based stripping
-    const cleaned = stripUserTextBlocksByPrefix(injected, ["<memory_context __injected>"]);
+    const cleaned = stripUserTextBlocksByPrefix(injected, [
+      "<memory_context __injected>",
+    ]);
     expect(cleaned).toHaveLength(1);
     expect(cleaned[0].content).toHaveLength(1);
     const cb0 = cleaned[0].content[0];
@@ -414,7 +420,9 @@ describe("Memory regressions", () => {
         ],
       },
     ];
-    const cleaned = stripUserTextBlocksByPrefix(msgs, ["<memory_context __injected>"]);
+    const cleaned = stripUserTextBlocksByPrefix(msgs, [
+      "<memory_context __injected>",
+    ]);
     expect(cleaned).toHaveLength(3);
     const c0 = cleaned[0].content[0];
     const c1 = cleaned[1].content[0];
