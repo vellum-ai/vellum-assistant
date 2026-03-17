@@ -2113,14 +2113,18 @@ public final class ChatViewModel: ObservableObject {
 
     /// Dismiss the typed conversation error state. Clears both the typed error
     /// and any corresponding `errorText` so the UI can return to normal.
+    /// Also removes inline error messages from the message list.
     public func dismissConversationError() {
         conversationError = nil
         errorText = nil
+        // Remove inline error cards so the message list is cleaned up on retry/dismiss.
+        messages.removeAll(where: { $0.isError })
     }
 
     /// Copy conversation error details to the clipboard for debugging.
     public func copyConversationErrorDebugDetails() {
-        guard let error = conversationError else { return }
+        let error = conversationError ?? messages.last(where: { $0.isError })?.conversationError
+        guard let error else { return }
         var details = """
         Error: \(error.message)
         Category: \(error.category)
@@ -2139,8 +2143,11 @@ public final class ChatViewModel: ObservableObject {
     }
 
     /// Retry the last message after a conversation error, if the error is retryable.
+    /// The error may live on the view model (toast path) or on the last inline error
+    /// message (inline card path, where `conversationError` was already cleared).
     public func retryAfterConversationError() {
-        guard let error = conversationError, error.isRetryable else { return }
+        let error = conversationError ?? messages.last(where: { $0.isError })?.conversationError
+        guard let error, error.isRetryable else { return }
         guard conversationId != nil else { return }
         // Reset sending state that may still be set if the conversation error arrived
         // while queued messages were pending (pendingQueuedCount > 0).

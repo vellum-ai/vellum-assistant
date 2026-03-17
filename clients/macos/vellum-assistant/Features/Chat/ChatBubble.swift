@@ -184,7 +184,6 @@ struct ChatBubble: View {
                                 conversationError: message.conversationError,
                                 onRetry: onRetryConversationError
                             )
-                            .scaleEffect(conversationZoomScale, anchor: .topLeading)
                         } else if shouldShowBubble {
                             bubbleContent
                         }
