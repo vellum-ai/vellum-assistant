@@ -10,7 +10,7 @@ import AppKit
 private let composerLog = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "Composer")
 
 struct ComposerView: View {
-    private let composerMaxHeight: CGFloat = 200
+    private let composerMaxHeight: CGFloat = 300
     private let composerActionButtonSize: CGFloat = 32
     private let composerTextToButtonsGap: CGFloat = 10
 
@@ -234,6 +234,7 @@ struct ComposerView: View {
                 composerTextOverlays(font: scaledBody, hasSlashHighlight: hasSlashHighlight)
                 composerInputField(font: scaledBody, hasSlashHighlight: hasSlashHighlight)
             }
+            .padding(.vertical, VSpacing.xs)
             .frame(maxWidth: .infinity, minHeight: composerActionButtonSize, alignment: .leading)
         }
         .scrollBounceBehavior(.basedOnSize)

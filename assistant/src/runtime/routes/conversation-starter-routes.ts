@@ -123,8 +123,7 @@ function handleListConversationStarters(url: URL): Response {
 
   const db = getDb();
 
-  // Fetch from the latest batch, then apply strongest-first ordering so the
-  // first four chips form a coherent, category-diverse row.
+  // Fetch chips (ranked by model, newest batch first)
   const rawItems = db
     .select({
       id: conversationStarters.id,
@@ -144,11 +143,9 @@ function handleListConversationStarters(url: URL): Response {
       desc(conversationStarters.generationBatch),
       desc(conversationStarters.createdAt),
     )
-    .limit(Math.max(limitParam, 20))
+    .limit(limitParam)
     .offset(offsetParam)
     .all();
-
-  const items = orderStrongestFirst(rawItems).slice(0, limitParam);
 
   const countRow = rawGet<{ c: number }>(
     `SELECT COUNT(*) AS c FROM conversation_starters WHERE scope_id = ? AND card_type = 'chip'`,
@@ -158,7 +155,11 @@ function handleListConversationStarters(url: URL): Response {
 
   // If starters exist, return them immediately.
   if (total > 0) {
-    return Response.json({ starters: items, total, status: "ready" });
+    return Response.json({
+      starters: rawItems,
+      total,
+      status: "ready",
+    });
   }
 
   // No starters — check whether we have memory items to generate from.

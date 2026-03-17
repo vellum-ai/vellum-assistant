@@ -35,7 +35,7 @@ struct ChatEmptyStateView: View {
     var onFetchConversationStarters: (() -> Void)? = nil
 
     @State private var visible = false
-    @State private var placeholder: String = placeholderTexts.randomElement()!
+    @State private var fallbackPlaceholder: String = placeholderTexts.randomElement()!
 
     // Stable random pick from SOUL.md (computed once per view lifecycle)
     @State private var soulGreeting: String? = {
@@ -140,7 +140,7 @@ struct ChatEmptyStateView: View {
             recordingAmplitude: recordingAmplitude,
             onDictateToggle: onDictateToggle,
             onVoiceModeToggle: onVoiceModeToggle,
-            placeholderText: placeholder,
+            placeholderText: fallbackPlaceholder,
             conversationId: conversationId
         )
         .frame(maxWidth: VSpacing.chatBubbleMaxWidth)
@@ -152,34 +152,21 @@ struct ChatEmptyStateView: View {
     private var conversationStartersSection: some View {
         if !conversationStarters.isEmpty {
             ConversationStarterPillRow(
-                starters: Array(conversationStarters.prefix(4)),
+                starters: conversationStarters,
                 onSelect: { starter in onSelectStarter?(starter) }
             )
             .frame(maxWidth: VSpacing.chatBubbleMaxWidth)
-            .padding(.top, VSpacing.xl)
+            .padding(.top, VSpacing.xxl)
             .opacity(visible ? 1 : 0)
             .offset(y: visible ? 0 : 10)
         } else if conversationStartersLoading {
-            HStack(spacing: VSpacing.sm) {
-                Group {
-                    if let body = appearance.characterBodyShape,
-                       let eyes = appearance.characterEyeStyle,
-                       let color = appearance.characterColor {
-                        AnimatedAvatarView(bodyShape: body, eyeStyle: eyes, color: color, size: 16)
-                            .frame(width: 16, height: 16)
-                    } else {
-                        ProgressView()
-                            .controlSize(.small)
-                    }
-                }
-                Text("Getting some ideas\u{2026}")
-                    .font(VFont.caption)
-                    .foregroundColor(VColor.contentTertiary)
-            }
-            .frame(maxWidth: VSpacing.chatBubbleMaxWidth)
-            .padding(.top, VSpacing.xl)
-            .opacity(visible ? 1 : 0)
-            .offset(y: visible ? 0 : 10)
+            Text("Getting some ideas\u{2026}")
+                .font(VFont.caption)
+                .foregroundColor(VColor.contentTertiary)
+                .frame(maxWidth: VSpacing.chatBubbleMaxWidth)
+                .padding(.top, VSpacing.xxl)
+                .opacity(visible ? 1 : 0)
+                .offset(y: visible ? 0 : 10)
         }
     }
 
@@ -197,21 +184,32 @@ struct ChatEmptyStateView: View {
 
 // MARK: - Conversation Starter Pill Row
 
-/// Horizontally-wrapped row of conversation starter pills, capped at four items.
-/// Preserves server ordering so the strongest recommendations appear first.
+/// Two-column grid of conversation starter pills, always showing 2 or 4 items.
+/// Each pill stretches to fill its column so both columns are equal width.
 struct ConversationStarterPillRow: View {
     let starters: [ConversationStarter]
     let onSelect: (ConversationStarter) -> Void
 
-    /// Maximum number of visible pills in the recommendation row.
-    static let maxVisibleCount = 4
+    /// Round down to the nearest even number, capped at 4.
+    private var visibleStarters: [ConversationStarter] {
+        let count = min(starters.count, 4)
+        let evenCount = count - (count % 2)
+        guard evenCount > 0 else { return [] }
+        return Array(starters.prefix(evenCount))
+    }
+
+    private let columns = [
+        GridItem(.flexible(), spacing: VSpacing.sm),
+        GridItem(.flexible(), spacing: VSpacing.sm),
+    ]
 
     var body: some View {
-        FlowLayout(spacing: VSpacing.sm) {
-            ForEach(starters.prefix(Self.maxVisibleCount)) { starter in
+        LazyVGrid(columns: columns, spacing: VSpacing.sm) {
+            ForEach(visibleStarters) { starter in
                 ConversationStarterPill(label: starter.label) {
                     onSelect(starter)
                 }
+                .frame(maxWidth: .infinity)
             }
         }
     }
@@ -245,6 +243,7 @@ struct ConversationStarterPill: View {
                 .font(VFont.bodyMedium)
                 .foregroundColor(isHovered ? VColor.contentDefault : VColor.contentSecondary)
                 .lineLimit(1)
+                .frame(maxWidth: .infinity)
                 .padding(.horizontal, VSpacing.md)
                 .padding(.vertical, VSpacing.xs + 2)
                 .background(
