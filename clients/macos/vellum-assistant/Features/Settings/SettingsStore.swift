@@ -197,6 +197,9 @@ public final class SettingsStore: ObservableObject {
     /// `services.web-search.provider`.
     @Published var webSearchProvider: String = "anthropic-native"
 
+    /// Current web search mode. Values: "managed" or "your-own".
+    @Published var webSearchMode: String = "your-own"
+
     static let availableWebSearchProviders = ["anthropic-native", "perplexity", "brave"]
 
     static let webSearchProviderDisplayNames: [String: String] = [
@@ -1961,6 +1964,10 @@ public final class SettingsStore: ObservableObject {
            let mode = imageGen["mode"] as? String {
             self.imageGenMode = mode
         }
+        if let webSearch = services["web-search"] as? [String: Any],
+           let mode = webSearch["mode"] as? String {
+            self.webSearchMode = mode
+        }
     }
 
     func setInferenceMode(_ mode: String) {
@@ -1991,6 +1998,22 @@ public final class SettingsStore: ObservableObject {
             try WorkspaceConfigIO.merge(["services": services], into: configPath)
         } catch {
             log.error("Failed to merge workspace config for image-generation mode: \(error)")
+        }
+        scheduleRoutingSourceRefresh()
+    }
+
+    func setWebSearchMode(_ mode: String) {
+        webSearchMode = mode
+        guard !isCurrentAssistantRemote else { return }
+        let existingConfig = WorkspaceConfigIO.read(from: configPath)
+        var services = existingConfig["services"] as? [String: Any] ?? [:]
+        var webSearch = services["web-search"] as? [String: Any] ?? [:]
+        webSearch["mode"] = mode
+        services["web-search"] = webSearch
+        do {
+            try WorkspaceConfigIO.merge(["services": services], into: configPath)
+        } catch {
+            log.error("Failed to merge workspace config for web search mode: \(error)")
         }
         scheduleRoutingSourceRefresh()
     }
