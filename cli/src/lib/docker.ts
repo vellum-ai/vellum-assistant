@@ -1,4 +1,5 @@
-import { existsSync, watch as fsWatch } from "fs";
+import { chmodSync, existsSync, mkdirSync, watch as fsWatch } from "fs";
+import { arch, platform } from "os";
 import { dirname, join } from "path";
 
 // Direct import — bun embeds this at compile time so it works in compiled binaries.
@@ -39,12 +40,178 @@ export const GATEWAY_INTERNAL_PORT = 7830;
 /** Max time to wait for the assistant container to emit the readiness sentinel. */
 export const DOCKER_READY_TIMEOUT_MS = 3 * 60 * 1000;
 
+/** Directory for user-local binary installs (no sudo required). */
+const VELLUM_BIN_DIR = join(
+  process.env.HOME || process.env.USERPROFILE || ".",
+  ".vellum",
+  "bin",
+);
+
+/**
+ * Returns the macOS architecture suffix used by GitHub release artifacts.
+ * Maps Node's `arch()` values to the names used in release URLs.
+ */
+function releaseArch(): string {
+  const a = arch();
+  if (a === "arm64") return "aarch64";
+  if (a === "x64") return "x86_64";
+  return a;
+}
+
+/**
+ * Downloads a file from `url` to `destPath`, makes it executable, and returns
+ * the destination path. Throws on failure.
+ */
+async function downloadBinary(
+  url: string,
+  destPath: string,
+  label: string,
+): Promise<void> {
+  console.log(`  ⬇ Downloading ${label}...`);
+  await exec("bash", [
+    "-c",
+    `curl -fsSL -o "${destPath}" "${url}" && chmod +x "${destPath}"`,
+  ]);
+}
+
+/**
+ * Downloads and extracts a `.tar.gz` archive into `destDir`.
+ */
+async function downloadAndExtract(
+  url: string,
+  destDir: string,
+  label: string,
+): Promise<void> {
+  console.log(`  ⬇ Downloading ${label}...`);
+  await exec("bash", ["-c", `curl -fsSL "${url}" | tar xz -C "${destDir}"`]);
+}
+
+/**
+ * Installs Docker CLI, Colima, and Lima by downloading pre-built binaries
+ * directly into ~/.vellum/bin/. No Homebrew or sudo required.
+ *
+ * Falls back to Homebrew if available (e.g. admin users who prefer it).
+ */
+async function installDockerToolchain(): Promise<void> {
+  // Try Homebrew first if available — it handles updates and dependencies.
+  let hasBrew = false;
+  try {
+    await execOutput("brew", ["--version"]);
+    hasBrew = true;
+  } catch {
+    // brew not found
+  }
+
+  if (hasBrew) {
+    console.log("🐳 Docker not found. Installing via Homebrew...");
+    try {
+      await exec("brew", ["install", "colima", "docker"]);
+      return;
+    } catch {
+      console.log(
+        "  ⚠ Homebrew install failed, falling back to direct binary download...",
+      );
+    }
+  }
+
+  // Direct binary install — no sudo required.
+  console.log(
+    "🐳 Docker not found. Installing Docker, Colima, and Lima to ~/.vellum/bin/...",
+  );
+
+  mkdirSync(VELLUM_BIN_DIR, { recursive: true });
+
+  const cpuArch = releaseArch();
+  const isMac = platform() === "darwin";
+
+  if (!isMac) {
+    throw new Error(
+      "Automatic Docker installation is only supported on macOS. " +
+        "Please install Docker manually: https://docs.docker.com/engine/install/",
+    );
+  }
+
+  // --- Docker CLI ---
+  // Docker publishes static binaries at download.docker.com.
+  const dockerArch = cpuArch === "aarch64" ? "aarch64" : "x86_64";
+  const dockerTarUrl = `https://download.docker.com/mac/static/stable/${dockerArch}/docker-27.5.1.tgz`;
+  const dockerTmpDir = join(VELLUM_BIN_DIR, ".docker-tmp");
+  mkdirSync(dockerTmpDir, { recursive: true });
+  try {
+    await downloadAndExtract(dockerTarUrl, dockerTmpDir, "Docker CLI");
+    // The archive extracts to docker/docker — move it to our bin dir.
+    await exec("mv", [
+      join(dockerTmpDir, "docker", "docker"),
+      join(VELLUM_BIN_DIR, "docker"),
+    ]);
+    chmodSync(join(VELLUM_BIN_DIR, "docker"), 0o755);
+  } finally {
+    await exec("rm", ["-rf", dockerTmpDir]).catch(() => {});
+  }
+
+  // --- Colima ---
+  const colimaArch = cpuArch === "aarch64" ? "arm64" : "x86_64";
+  const colimaUrl = `https://github.com/abiosoft/colima/releases/latest/download/colima-Darwin-${colimaArch}`;
+  await downloadBinary(colimaUrl, join(VELLUM_BIN_DIR, "colima"), "Colima");
+
+  // --- Lima ---
+  // Lima publishes tar.gz archives with bin/limactl and other tools.
+  const limaArch = cpuArch === "aarch64" ? "arm64" : "x86_64";
+  const limaVersionUrl =
+    "https://api.github.com/repos/lima-vm/lima/releases/latest";
+  let limaVersion: string;
+  try {
+    const resp = await fetch(limaVersionUrl);
+    const data = (await resp.json()) as { tag_name: string };
+    limaVersion = data.tag_name; // e.g. "v1.0.3"
+  } catch {
+    throw new Error(
+      "Failed to fetch latest Lima version. Check your network connection.",
+    );
+  }
+  const limaVersionNum = limaVersion.replace(/^v/, ""); // "1.0.3"
+  const limaTarUrl = `https://github.com/lima-vm/lima/releases/download/${limaVersion}/lima-${limaVersionNum}-Darwin-${limaArch}.tar.gz`;
+  await downloadAndExtract(limaTarUrl, VELLUM_BIN_DIR, "Lima");
+
+  // Verify all binaries are in place.
+  for (const bin of ["docker", "colima", "limactl"]) {
+    const binPath = join(VELLUM_BIN_DIR, "bin", bin);
+    const topPath = join(VELLUM_BIN_DIR, bin);
+    // Lima extracts to bin/ subdirectory; docker and colima are at top level.
+    if (!existsSync(topPath) && !existsSync(binPath)) {
+      throw new Error(
+        `${bin} binary not found after installation. Please install Docker manually.`,
+      );
+    }
+  }
+
+  console.log("  ✅ Docker toolchain installed to ~/.vellum/bin/");
+}
+
+/**
+ * Ensures ~/.vellum/bin/ is on PATH for this process so that docker, colima,
+ * and limactl are discoverable.
+ */
+function ensureVellumBinOnPath(): void {
+  // Lima extracts binaries into a bin/ subdirectory.
+  const limaBinDir = join(VELLUM_BIN_DIR, "bin");
+  const dirs = [VELLUM_BIN_DIR, limaBinDir];
+  const currentPath = process.env.PATH || "";
+  const missing = dirs.filter((d) => !currentPath.includes(d));
+  if (missing.length > 0) {
+    process.env.PATH = `${missing.join(":")}:${currentPath}`;
+  }
+}
+
 /**
  * Checks whether the `docker` CLI and daemon are available on the system.
- * Installs Colima and Docker via Homebrew if the CLI is missing, and starts
- * Colima if the Docker daemon is not reachable.
+ * Installs Colima and Docker via direct binary download if missing (no sudo
+ * required), and starts Colima if the Docker daemon is not reachable.
  */
 async function ensureDockerInstalled(): Promise<void> {
+  // Always add ~/.vellum/bin to PATH so previously installed binaries are found.
+  ensureVellumBinOnPath();
+
   let installed = false;
   try {
     await execOutput("docker", ["--version"]);
@@ -54,45 +221,9 @@ async function ensureDockerInstalled(): Promise<void> {
   }
 
   if (!installed) {
-    // Check whether Homebrew is available before attempting to use it.
-    let hasBrew = false;
-    try {
-      await execOutput("brew", ["--version"]);
-      hasBrew = true;
-    } catch {
-      // brew not found
-    }
-
-    if (!hasBrew) {
-      console.log("🍺 Homebrew not found. Installing Homebrew...");
-      try {
-        await exec("bash", [
-          "-c",
-          'NONINTERACTIVE=1 /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"',
-        ]);
-      } catch (err) {
-        const message = err instanceof Error ? err.message : String(err);
-        throw new Error(
-          `Failed to install Homebrew. Please install Docker manually from https://www.docker.com/products/docker-desktop/\n${message}`,
-        );
-      }
-
-      // Homebrew on Apple Silicon installs to /opt/homebrew; add it to PATH
-      // so subsequent brew/colima/docker invocations work in this session.
-      if (!process.env.PATH?.includes("/opt/homebrew")) {
-        process.env.PATH = `/opt/homebrew/bin:/opt/homebrew/sbin:${process.env.PATH}`;
-      }
-    }
-
-    console.log("🐳 Docker not found. Installing via Homebrew...");
-    try {
-      await exec("brew", ["install", "colima", "docker"]);
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      throw new Error(
-        `Failed to install Docker via Homebrew. Please install Docker manually.\n${message}`,
-      );
-    }
+    await installDockerToolchain();
+    // Re-check PATH after install.
+    ensureVellumBinOnPath();
 
     try {
       await execOutput("docker", ["--version"]);
@@ -104,7 +235,7 @@ async function ensureDockerInstalled(): Promise<void> {
     }
   }
 
-  // Verify the Docker daemon is reachable; start Colima if it isn't
+  // Verify the Docker daemon is reachable; start Colima if it isn't.
   try {
     await exec("docker", ["info"]);
   } catch {
