@@ -153,7 +153,14 @@ function handleListCapabilityCards(url: URL): Response {
   // Build per-category status map
   const categoryStatuses = buildCategoryStatuses(scopeId);
 
-  const total = transformedCards.length;
+  // Proper COUNT query — transformedCards.length would be LIMIT-capped
+  const countCondition = categoryFilter ? `AND category = ?` : ``;
+  const countParams = categoryFilter ? [scopeId, categoryFilter] : [scopeId];
+  const countRow = rawGet<{ c: number }>(
+    `SELECT COUNT(*) AS c FROM thread_starters WHERE scope_id = ? AND card_type = 'card' ${countCondition}`,
+    ...countParams,
+  );
+  const total = countRow?.c ?? 0;
 
   // If we have cards, return them
   if (total > 0) {
@@ -229,7 +236,8 @@ function buildCategoryStatuses(
     `SELECT payload FROM memory_jobs
      WHERE type = 'generate_capability_cards'
        AND status IN ('pending', 'running')
-       AND payload LIKE '%"scopeId":"${scopeId}"%'`,
+       AND payload LIKE ?`,
+    `%"scopeId":"${scopeId}"%`,
   );
 
   for (const job of pendingJobs) {
