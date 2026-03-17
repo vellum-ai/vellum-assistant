@@ -63,12 +63,7 @@ public struct VDropdown<T: Hashable>: View {
             .padding(.vertical, VSpacing.xs)
             .frame(maxWidth: .infinity)
             .frame(height: 32)
-            .background(VColor.surfaceActive)
-            .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
-            .overlay(
-                RoundedRectangle(cornerRadius: VRadius.md)
-                    .stroke(VColor.borderBase.opacity(0.5), lineWidth: 1)
-            )
+            .vInputChrome()
         }
         .menuStyle(.button)
         .buttonStyle(.plain)
