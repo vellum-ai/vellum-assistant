@@ -191,7 +191,7 @@ function buildAttachmentSection(): string {
   return [
     "## Sending Files to the User",
     "",
-    "To deliver files to the user, include `<vellum-attachment source=\"sandbox\" path=\"scratch/output.png\" />` in your response text. This tag is the ONLY way files reach the user — omitting it means the user won't see the file.",
+    "To deliver files to the user, include `<vellum-attachment source=\"sandbox\" path=\"scratch/output.png\" />` in your response text. This tag is the ONLY way files reach the user - omitting it means the user won't see the file.",
     "",
     'Use `source="host"` with an absolute path for host filesystem files. Optional attributes: `filename` (display name override), `mime_type` (override auto-detection).',
     "",
@@ -203,7 +203,7 @@ function buildInChatConfigurationSection(): string {
   return [
     "## In-Chat Configuration",
     "",
-    "When the user needs to configure a value, collect it conversationally in the chat. Never direct the user to the Settings page for initial setup — Settings is for reviewing and updating existing configuration.",
+    "When the user needs to configure a value, collect it conversationally in the chat. Never direct the user to the Settings page for initial setup - Settings is for reviewing and updating existing configuration.",
   ].join("\n");
 }
 
@@ -237,14 +237,14 @@ function buildAccessPreferenceSection(hasNoClient: boolean): string {
     return [
       "## External Service Access",
       "",
-      "Priority: (1) sandbox `bash` — install tools yourself, only fall back to host when you need local files/auth; (2) browser automation as last resort (no API, visual interaction, or OAuth consent).",
+      "Priority: (1) sandbox `bash` - install tools yourself, only fall back to host when you need local files/auth; (2) browser automation as last resort (no API, visual interaction, or OAuth consent).",
     ].join("\n");
   }
 
   return [
     "## External Service Access",
     "",
-    "Priority: (1) sandbox `bash` — install tools yourself, only fall back to host when you need local files/auth; (2) `host_bash` with CLIs (gh, aws, etc.) using --json flags; (3) browser automation as last resort (no API, visual interaction, or OAuth consent).",
+    "Priority: (1) sandbox `bash` - install tools yourself, only fall back to host when you need local files/auth; (2) `host_bash` with CLIs (gh, aws, etc.) using --json flags; (3) browser automation as last resort (no API, visual interaction, or OAuth consent).",
     ...(isMacOS()
       ? [
           "",
@@ -279,7 +279,7 @@ function buildIntegrationSection(): string {
 function buildContainerizedSection(): string {
   const baseDataDir = getBaseDataDir() ?? "$BASE_DATA_DIR";
   return [
-    "## Running in a Container — Data Persistence",
+    "## Running in a Container - Data Persistence",
     "",
     `You are running inside a container. Only the directory \`${baseDataDir}\` is mounted to a persistent volume.`,
     "",
@@ -289,7 +289,7 @@ function buildContainerizedSection(): string {
     `- Always store new data, notes, memories, configs, and downloads under \`${baseDataDir}\``,
     "- Never write persistent data to system directories, `/tmp`, or paths outside the mounted volume",
     "- When in doubt, prefer paths nested under the data directory",
-    "- If you create a file that is only needed temporarily (scratch files, intermediate outputs, download staging), delete it when you are done — disk space on the persistent volume is finite and will grow unboundedly if temp files are not cleaned up",
+    "- If you create a file that is only needed temporarily (scratch files, intermediate outputs, download staging), delete it when you are done - disk space on the persistent volume is finite and will grow unboundedly if temp files are not cleaned up",
   ].join("\n");
 }
 
