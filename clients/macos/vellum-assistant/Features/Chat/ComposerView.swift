@@ -12,7 +12,6 @@ private let composerLog = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com
 struct ComposerView: View {
     private let composerMaxHeight: CGFloat = 300
     private let composerActionButtonSize: CGFloat = 32
-    private let composerTextToButtonsGap: CGFloat = 10
 
     // MARK: - ComposerMode
 
@@ -447,8 +446,6 @@ struct ComposerView: View {
         }
     }
 
-    /// Gap between two ghost (frameless) buttons — small since both have internal icon padding.
-    private let composerGhostGap: CGFloat = 2
     /// Gap between a ghost button and a filled (primary/contrast) button — larger to visually
     /// match the ghost-ghost gap, compensating for the filled button having no internal padding.
     private let composerFilledGap: CGFloat = 12
