@@ -2144,8 +2144,12 @@ public final class SettingsStore: ObservableObject {
 
     func refreshApprovedDevices() {
         Task {
-            let devices = try await pairingClient.fetchApprovedDevices()
-            self.approvedDevices = devices
+            do {
+                let devices = try await pairingClient.fetchApprovedDevices()
+                self.approvedDevices = devices
+            } catch {
+                // Fetch failed — preserve existing local state
+            }
         }
     }
 
@@ -2153,8 +2157,12 @@ public final class SettingsStore: ObservableObject {
         let removed = approvedDevices.filter { $0.hashedDeviceId == hashedDeviceId }
         approvedDevices.removeAll { $0.hashedDeviceId == hashedDeviceId }
         Task {
-            let success = try await pairingClient.removeApprovedDevice(hashedDeviceId: hashedDeviceId)
-            if !success {
+            do {
+                let success = try await pairingClient.removeApprovedDevice(hashedDeviceId: hashedDeviceId)
+                if !success {
+                    self.approvedDevices.append(contentsOf: removed)
+                }
+            } catch {
                 // Request failed — restore optimistically removed devices
                 self.approvedDevices.append(contentsOf: removed)
             }
@@ -2163,9 +2171,13 @@ public final class SettingsStore: ObservableObject {
 
     func clearAllApprovedDevices() {
         Task {
-            let success = try await pairingClient.clearApprovedDevices()
-            if success {
-                self.approvedDevices = []
+            do {
+                let success = try await pairingClient.clearApprovedDevices()
+                if success {
+                    self.approvedDevices = []
+                }
+            } catch {
+                // Request failed — don't clear local state
             }
         }
     }

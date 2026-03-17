@@ -17,6 +17,17 @@ public protocol PairingClientProtocol {
 public struct PairingClient: PairingClientProtocol {
     nonisolated public init() {}
 
+    enum PairingClientError: LocalizedError {
+        case httpError(statusCode: Int)
+
+        var errorDescription: String? {
+            switch self {
+            case .httpError(let statusCode):
+                return "Pairing request failed (HTTP \(statusCode))"
+            }
+        }
+    }
+
     public func sendPairingApprovalResponse(pairingRequestId: String, decision: String) async throws -> Bool {
         let body: [String: Any] = [
             "type": "pairing_approval_response",
@@ -38,8 +49,7 @@ public struct PairingClient: PairingClientProtocol {
             path: "assistants/{assistantId}/pairing/register", timeout: 10
         )
         guard response.isSuccess else {
-            log.error("fetchApprovedDevices failed (HTTP \(response.statusCode))")
-            return []
+            throw PairingClientError.httpError(statusCode: response.statusCode)
         }
         let patched = injectType("approved_devices_list_response", into: response.data)
         return try JSONDecoder().decode(ApprovedDevicesListResponseMessage.self, from: patched).devices
