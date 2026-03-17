@@ -112,7 +112,7 @@ struct SyntaxTextView: NSViewRepresentable {
         textView.isIncrementalSearchingEnabled = true
         textView.font = SyntaxTheme.nsMonoFont
         textView.backgroundColor = NSColor(VColor.surfaceOverlay)
-        textView.insertionPointColor = NSColor(VColor.contentDefault)
+        textView.insertionPointColor = SyntaxTheme.nsContentDefault
         textView.selectedTextAttributes = [
             .backgroundColor: NSColor(VColor.primaryBase.opacity(0.3))
         ]

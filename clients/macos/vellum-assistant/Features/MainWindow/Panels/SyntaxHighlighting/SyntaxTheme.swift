@@ -70,9 +70,50 @@ struct SyntaxTheme {
     // MARK: - AppKit Bridging
 
     #if os(macOS)
+
+    // NSColors created directly from raw sRGB values — bypasses the
+    // NSColor→SwiftUI.Color→NSColor round-trip that breaks text storage
+    // attribute resolution in NSTextView's layout manager.
+
+    private static func nsAdaptiveColor(
+        light: (r: CGFloat, g: CGFloat, b: CGFloat),
+        dark: (r: CGFloat, g: CGFloat, b: CGFloat)
+    ) -> NSColor {
+        NSColor(name: nil) { appearance in
+            let isDark = appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+            let c = isDark ? dark : light
+            return NSColor(srgbRed: c.r, green: c.g, blue: c.b, alpha: 1)
+        }
+    }
+
+    // Values mirrored from VColor / FigmaRawColor in ColorTokens.swift
+    static let nsContentDefault = nsAdaptiveColor(
+        light: (0x2A / 255.0, 0x2A / 255.0, 0x28 / 255.0),
+        dark: (0xE8 / 255.0, 0xE6 / 255.0, 0xDA / 255.0)
+    )
+
+    private static let nsSyntaxKeyword = nsAdaptiveColor(light: (0.33, 0.25, 0.80), dark: (0.55, 0.65, 0.96))
+    private static let nsSyntaxString = nsAdaptiveColor(light: (0.72, 0.19, 0.10), dark: (0.87, 0.55, 0.47))
+    private static let nsSyntaxComment = nsAdaptiveColor(light: (0.42, 0.47, 0.42), dark: (0.55, 0.60, 0.55))
+    private static let nsSyntaxNumber = nsAdaptiveColor(light: (0.55, 0.28, 0.73), dark: (0.73, 0.56, 0.87))
+    private static let nsSyntaxType = nsAdaptiveColor(light: (0.15, 0.55, 0.52), dark: (0.45, 0.78, 0.74))
+    private static let nsSyntaxProperty = nsAdaptiveColor(light: (0.35, 0.50, 0.68), dark: (0.68, 0.78, 0.88))
+    private static let nsSyntaxLink = nsAdaptiveColor(light: (0.12, 0.52, 0.32), dark: (0.30, 0.75, 0.55))
+
     /// Returns the `NSColor` for the given syntax token type (for NSTextStorage use).
     static func nsColor(for tokenType: SyntaxTokenType) -> NSColor {
-        NSColor(color(for: tokenType))
+        switch tokenType {
+        case .keyword: return nsSyntaxKeyword
+        case .string: return nsSyntaxString
+        case .comment: return nsSyntaxComment
+        case .number: return nsSyntaxNumber
+        case .type: return nsSyntaxType
+        case .property: return nsSyntaxProperty
+        case .boolean, .null: return nsSyntaxNumber
+        case .codeSpan: return nsSyntaxString
+        case .link: return nsSyntaxLink
+        case .heading, .bold, .italic, .plain: return nsContentDefault
+        }
     }
 
     /// The monospaced `NSFont` matching `VFont.mono` for NSTextView use.
@@ -100,7 +141,7 @@ struct SyntaxTheme {
 
         // Set base attributes
         storage.addAttribute(.font, value: nsMonoFont, range: fullRange)
-        storage.addAttribute(.foregroundColor, value: NSColor(VColor.contentDefault), range: fullRange)
+        storage.addAttribute(.foregroundColor, value: nsContentDefault, range: fullRange)
 
         guard language != .plain else { return }
 
