@@ -106,24 +106,6 @@ extension HTTPTransport {
                 return true
             }
 
-            // --- Pairing ---
-            if let msg = message as? PairingApprovalResponseMessage {
-                Task { await self.sendEncodablePost(.pairingRegister, body: msg, label: "pairing_approval_response") }
-                return true
-            }
-            if message is ApprovedDevicesListMessage {
-                Task { await self.sendGenericPost(.pairingRegister, method: "GET", label: "approved_devices_list") }
-                return true
-            }
-            if let msg = message as? ApprovedDeviceRemoveMessage {
-                Task { await self.sendEncodablePost(.pairingRegister, body: msg, method: "DELETE", label: "approved_device_remove") }
-                return true
-            }
-            if message is ApprovedDevicesClearMessage {
-                Task { await self.sendGenericPost(.pairingRegister, method: "DELETE", label: "approved_devices_clear") }
-                return true
-            }
-
             // --- Integration Config ---
             if let msg = message as? SlackWebhookConfigRequestMessage {
                 Task { await self.sendEncodablePost(.integrationsSlackConfig, body: msg, label: "slack_webhook_config") }
@@ -167,18 +149,8 @@ extension HTTPTransport {
                 return true
             }
             // --- Publishing ---
-            if let msg = message as? PublishPageRequestMessage {
-                Task { await self.sendEncodablePost(.publishPage, body: msg, label: "publish_page") }
-                return true
-            }
             if let msg = message as? UnpublishPageRequestMessage {
                 Task { await self.sendEncodablePost(.unpublishPage, body: msg, label: "unpublish_page") }
-                return true
-            }
-
-            // --- Link Open ---
-            if let msg = message as? LinkOpenRequestMessage {
-                Task { await self.sendEncodablePost(.linkOpen, body: msg, label: "link_open_request") }
                 return true
             }
 

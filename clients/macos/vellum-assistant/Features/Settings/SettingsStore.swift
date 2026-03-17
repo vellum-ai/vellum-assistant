@@ -264,6 +264,7 @@ public final class SettingsStore: ObservableObject {
     private let channelClient: ChannelClientProtocol
     private let integrationClient: IntegrationClientProtocol
     private let settingsClient: SettingsClientProtocol
+    private let pairingClient: PairingClientProtocol
     private var cancellables = Set<AnyCancellable>()
     private let configPath: String?
 
@@ -313,6 +314,7 @@ public final class SettingsStore: ObservableObject {
         channelClient: ChannelClientProtocol = ChannelClient(),
         integrationClient: IntegrationClientProtocol = IntegrationClient(),
         settingsClient: SettingsClientProtocol = SettingsClient(),
+        pairingClient: PairingClientProtocol = PairingClient(),
         configPath: String? = nil,
         verificationSessionTimeoutDuration: TimeInterval = 12,
         verificationStatusPollInterval: TimeInterval = 2,
@@ -322,6 +324,7 @@ public final class SettingsStore: ObservableObject {
         self.channelClient = channelClient
         self.integrationClient = integrationClient
         self.settingsClient = settingsClient
+        self.pairingClient = pairingClient
         self.configPath = configPath
         self.verificationSessionTimeoutDuration = max(0.05, verificationSessionTimeoutDuration)
         self.verificationStatusPollInterval = max(0.05, verificationStatusPollInterval)
@@ -2140,32 +2143,30 @@ public final class SettingsStore: ObservableObject {
     @Published var approvedDevices: [ApprovedDevicesListResponseMessage.Device] = []
 
     func refreshApprovedDevices() {
-        guard let daemonClient else { return }
-        daemonClient.onApprovedDevicesListResponse = { [weak self] msg in
-            self?.approvedDevices = msg.devices
+        Task {
+            let devices = try await pairingClient.fetchApprovedDevices()
+            self.approvedDevices = devices
         }
-        try? daemonClient.sendApprovedDevicesList()
     }
 
     func removeApprovedDevice(hashedDeviceId: String) {
-        guard let daemonClient else { return }
         let removed = approvedDevices.filter { $0.hashedDeviceId == hashedDeviceId }
         approvedDevices.removeAll { $0.hashedDeviceId == hashedDeviceId }
-        do {
-            try daemonClient.sendApprovedDeviceRemove(hashedDeviceId: hashedDeviceId)
-        } catch {
-            // Send failed — restore optimistically removed devices
-            approvedDevices.append(contentsOf: removed)
+        Task {
+            let success = try await pairingClient.removeApprovedDevice(hashedDeviceId: hashedDeviceId)
+            if !success {
+                // Request failed — restore optimistically removed devices
+                self.approvedDevices.append(contentsOf: removed)
+            }
         }
     }
 
     func clearAllApprovedDevices() {
-        guard let daemonClient else { return }
-        do {
-            try daemonClient.sendApprovedDevicesClear()
-            approvedDevices = []
-        } catch {
-            // Send failed — don't clear local state
+        Task {
+            let success = try await pairingClient.clearApprovedDevices()
+            if success {
+                self.approvedDevices = []
+            }
         }
     }
 

@@ -471,9 +471,6 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     /// The latest full model info response from the daemon stream.
     @Published public var latestModelInfo: ModelInfoMessage?
 
-    /// Called when the daemon sends a `publish_page_response` message.
-    public var onPublishPageResponse: ((PublishPageResponseMessage) -> Void)?
-
     /// Called when the daemon sends an `open_url` message.
     public var onOpenUrl: ((OpenUrlMessage) -> Void)?
 
@@ -530,12 +527,6 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
 
     /// Called when the daemon requests pairing approval from macOS.
     public var onPairingApprovalRequest: ((PairingApprovalRequestMessage) -> Void)?
-
-    /// Called when the daemon sends the approved devices list.
-    public var onApprovedDevicesListResponse: ((ApprovedDevicesListResponseMessage) -> Void)?
-
-    /// Called when the daemon confirms a device removal.
-    public var onApprovedDeviceRemoveResponse: ((ApprovedDeviceRemoveResponseMessage) -> Void)?
 
     /// Called when a subagent is spawned.
     public var onSubagentSpawned: ((SubagentSpawned) -> Void)?
@@ -1155,10 +1146,6 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
         try send(TelegramConfigRequestMessage(action: action, botToken: botToken, commands: commands))
     }
 
-    /// Publish a static page to Vercel.
-    public func sendPublishPage(html: String, title: String? = nil, appId: String? = nil) throws {
-        try send(PublishPageRequestMessage(html: html, title: title, appId: appId))
-    }
 
     /// Unpublish a page and delete its Vercel deployment.
     public func sendUnpublishPage(deploymentId: String) throws {
@@ -1186,12 +1173,6 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
         try send(EnvVarsRequestMessage())
     }
 
-    // MARK: - Link Open
-
-    /// Send a link_open_request to the daemon, requesting it open a URL externally.
-    public func sendLinkOpenRequest(url: String, metadata: [String: AnyCodable]?) throws {
-        try send(LinkOpenRequestMessage(url: url, metadata: metadata))
-    }
 
     /// Request identity info via HTTP.
     public func sendIdentityGet() throws {
@@ -1414,27 +1395,6 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
         try send(HeartbeatChecklistWrite(type: "heartbeat_checklist_write", content: content))
     }
 
-    // MARK: - Pairing
-
-    /// Send the user's pairing approval decision.
-    public func sendPairingApprovalResponse(pairingRequestId: String, decision: String) throws {
-        try send(PairingApprovalResponseMessage(pairingRequestId: pairingRequestId, decision: decision))
-    }
-
-    /// Request the list of always-allowed devices.
-    public func sendApprovedDevicesList() throws {
-        try send(ApprovedDevicesListMessage())
-    }
-
-    /// Remove a device from the always-allow list.
-    public func sendApprovedDeviceRemove(hashedDeviceId: String) throws {
-        try send(ApprovedDeviceRemoveMessage(hashedDeviceId: hashedDeviceId))
-    }
-
-    /// Clear all approved devices.
-    public func sendApprovedDevicesClear() throws {
-        try send(ApprovedDevicesClearMessage())
-    }
 
     // MARK: - Guardian Actions
 
