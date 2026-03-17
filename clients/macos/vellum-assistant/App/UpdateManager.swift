@@ -42,7 +42,7 @@ public final class UpdateManager: NSObject, ObservableObject, SPUUpdaterDelegate
             try updaterController.updater.start()
             log.info("Sparkle auto-update checks started")
         } catch {
-            log.error("Failed to start Sparkle updater: \(error.localizedDescription)")
+            log.error("Failed to start Sparkle updater: \(error.localizedDescription, privacy: .public)")
         }
     }
 
@@ -87,7 +87,7 @@ public final class UpdateManager: NSObject, ObservableObject, SPUUpdaterDelegate
     /// annotation.  The Task hop ensures property access stays on MainActor.
     nonisolated public func updater(_ updater: SPUUpdater, willInstallUpdate item: SUAppcastItem) {
         Task { @MainActor in
-            log.info("Will install update \(item.displayVersionString)")
+            log.info("Will install update \(item.displayVersionString, privacy: .public)")
             // Skip the daemon stop if we have a deferred update — the daemon
             // will be stopped when the deferred handler is invoked at quit.
             guard !self.hasDeferredUpdate else { return }
@@ -112,7 +112,7 @@ public final class UpdateManager: NSObject, ObservableObject, SPUUpdaterDelegate
             self.isDeferredUpdateReady = true
         }
         Task { @MainActor in
-            log.info("Update \(item.displayVersionString) ready — deferring install until quit")
+            log.info("Update \(item.displayVersionString, privacy: .public) ready — deferring install until quit")
         }
         return false
     }
@@ -121,7 +121,7 @@ public final class UpdateManager: NSObject, ObservableObject, SPUUpdaterDelegate
     /// manual check).  Sets `isUpdateAvailable` so the top-bar button appears.
     nonisolated public func updater(_ updater: SPUUpdater, didFindValidUpdate item: SUAppcastItem) {
         Task { @MainActor in
-            log.info("Found valid update: \(item.displayVersionString)")
+            log.info("Found valid update: \(item.displayVersionString, privacy: .public)")
             self.isUpdateAvailable = true
         }
     }
@@ -144,7 +144,7 @@ public final class UpdateManager: NSObject, ObservableObject, SPUUpdaterDelegate
     ) {
         Task { @MainActor in
             if choice == .skip {
-                log.info("User skipped update \(updateItem.displayVersionString)")
+                log.info("User skipped update \(updateItem.displayVersionString, privacy: .public)")
                 self.isUpdateAvailable = false
             }
         }

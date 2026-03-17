@@ -42,6 +42,12 @@
     <string>1</string>
     <key>CFBundleIconName</key>
     <string>AppIcon</string>
+    <key>SUFeedURL</key>
+    <string>https://github.com/vellum-ai/velly/releases/latest/download/appcast.xml</string>
+    <key>SUEnableAutomaticChecks</key>
+    <true/>
+    <key>SUAutomaticallyUpdate</key>
+    <true/>
     <key>NSAppTransportSecurity</key>
     <dict>
         <key>NSAllowsLocalNetworking</key>
