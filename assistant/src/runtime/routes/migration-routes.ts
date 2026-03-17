@@ -16,6 +16,7 @@ import { Database } from "bun:sqlite";
 
 import { invalidateConfigCache } from "../../config/loader.js";
 import { resetDb } from "../../memory/db-connection.js";
+import { clearCache as clearTrustCache } from "../../permissions/trust-store.js";
 import { getLogger } from "../../util/logger.js";
 import {
   getDbPath,
@@ -432,8 +433,9 @@ export async function handleMigrationImport(req: Request): Promise<Response> {
       );
     }
 
-    // Invalidate in-process config cache so imported settings.json takes effect
+    // Invalidate in-process caches so imported settings.json and trust.json take effect
     invalidateConfigCache();
+    clearTrustCache();
 
     return Response.json(result.report);
   } catch (err) {

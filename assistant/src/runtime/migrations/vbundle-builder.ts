@@ -5,6 +5,8 @@
  * - manifest.json: metadata with schema_version, checksums, and bundle info
  * - data/db/assistant.db: the SQLite database with conversations and memory
  * - config/settings.json: the assistant configuration
+ * - trust/trust.json: trust rules (optional)
+ * - skills/: workspace skills (optional)
  */
 
 import { createHash } from "node:crypto";
