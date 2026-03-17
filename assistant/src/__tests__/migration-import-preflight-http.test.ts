@@ -690,6 +690,48 @@ describe("DefaultPathResolver", () => {
     );
     expect(resolver.resolve("unknown/path.txt")).toBeNull();
   });
+
+  test("resolves valid skills path when skillsDir is provided", () => {
+    const resolver = new DefaultPathResolver(
+      "/some/db.db",
+      "/some/config.json",
+      undefined,
+      "/home/user/.vellum/workspace/skills",
+    );
+    expect(resolver.resolve("skills/my-skill/SKILL.md")).toBe(
+      "/home/user/.vellum/workspace/skills/my-skill/SKILL.md",
+    );
+  });
+
+  test("returns null for skills path traversal attempt (../../etc/passwd)", () => {
+    const resolver = new DefaultPathResolver(
+      "/some/db.db",
+      "/some/config.json",
+      undefined,
+      "/home/user/.vellum/workspace/skills",
+    );
+    expect(resolver.resolve("skills/../../etc/passwd")).toBeNull();
+  });
+
+  test("returns null for skills path traversal attempt (../../../.ssh/authorized_keys)", () => {
+    const resolver = new DefaultPathResolver(
+      "/some/db.db",
+      "/some/config.json",
+      undefined,
+      "/home/user/.vellum/workspace/skills",
+    );
+    expect(
+      resolver.resolve("skills/../../../.ssh/authorized_keys"),
+    ).toBeNull();
+  });
+
+  test("returns null for skills paths when skillsDir is not provided", () => {
+    const resolver = new DefaultPathResolver(
+      "/some/db.db",
+      "/some/config.json",
+    );
+    expect(resolver.resolve("skills/my-skill/SKILL.md")).toBeNull();
+  });
 });
 
 // ---------------------------------------------------------------------------
