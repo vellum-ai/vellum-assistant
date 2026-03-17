@@ -83,7 +83,7 @@ struct ImproveExperienceStepView: View {
                 )
 
                 OnboardingButton(
-                    title: "Accept and Start",
+                    title: "Continue",
                     style: .primary,
                     disabled: !tosAccepted
                 ) {
