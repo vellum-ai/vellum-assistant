@@ -320,17 +320,20 @@ struct MainWindowView: View {
                     sharing.publishError = nil
                 }
 
-                // Collapse the sidebar when an app opens to avoid crowding;
-                // re-expand when leaving an app so other panels see the sidebar.
+                // Collapse the sidebar when an app or document editor opens
+                // to avoid crowding; re-expand when leaving so other panels
+                // see the sidebar.
                 let wasApp: Bool = {
                     switch oldSelection {
                     case .app, .appEditing: return true
+                    case .panel(.documentEditor): return true
                     default: return false
                     }
                 }()
                 let isApp: Bool = {
                     switch newSelection {
                     case .app, .appEditing: return true
+                    case .panel(.documentEditor): return true
                     default: return false
                     }
                 }()
