@@ -242,14 +242,7 @@ struct ContactDetailView: View {
 
         return VStack(alignment: .leading, spacing: VSpacing.md) {
             if !channelReadinessLoaded && visibleTypes.isEmpty {
-                HStack(spacing: VSpacing.sm) {
-                    ProgressView()
-                        .controlSize(.small)
-                    Text("Loading channels...")
-                        .font(VFont.body)
-                        .foregroundColor(VColor.contentTertiary)
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
+                channelSkeletonRows()
             } else if visibleTypes.isEmpty {
                 VStack(alignment: .leading, spacing: VSpacing.sm) {
                     Text("No channels available")
@@ -903,7 +896,26 @@ struct ContactDetailView: View {
         }
     }
 
-    // MARK: - Formatting Helpers
+    // MARK: - Skeleton Loading
+
+    private func channelSkeletonRows() -> some View {
+        VStack(alignment: .leading, spacing: 0) {
+            ForEach(0..<3, id: \.self) { index in
+                HStack(spacing: VSpacing.sm) {
+                    VSkeletonBone(width: 16, height: 16, radius: VRadius.xs)
+                    VSkeletonBone(width: 80, height: 14)
+                    Spacer()
+                    VSkeletonBone(width: 90, height: 28, radius: VRadius.md)
+                }
+                .frame(minHeight: 36)
+                .padding(.vertical, VSpacing.sm)
+                if index < 2 {
+                    SettingsDivider()
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
 
     // MARK: - Helpers
 
