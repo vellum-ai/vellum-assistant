@@ -604,10 +604,10 @@ export async function uninstallSkill(
       } catch {
         /* best effort */
       }
+      // Best-effort cleanup of capability memory for uninstalled skill
+      // (managed path handles this internally via deleteManagedSkill)
+      deleteSkillCapabilityMemory(skillId);
     }
-
-    // Best-effort cleanup of capability memory for uninstalled skill
-    deleteSkillCapabilityMemory(skillId);
 
     // Clean config entry
     const raw = loadRawConfig();
