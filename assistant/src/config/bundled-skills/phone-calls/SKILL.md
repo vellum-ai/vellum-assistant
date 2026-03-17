@@ -1,6 +1,6 @@
 ---
 name: phone-calls
-description: "Make outgoing phone calls, receive incoming calls, and pull up past call transcripts. Everything needed for your assistant to act as an AI receptionist."
+description: "Make outgoing phone calls, receive incoming calls, and pull up past call transcripts"
 compatibility: "Designed for Vellum personal assistants"
 metadata:
   emoji: "📞"
@@ -14,7 +14,7 @@ metadata:
       - "Phone calling setup, Twilio config, placing/receiving calls"
       - "Do NOT improvise Twilio setup from general knowledge"
     avoid-when:
-      - "Don't confuse with voice-setup (local PTT/mic) or guardian-verify-setup"
+      - "Don't confuse with voice-setup (local PTT/mic) or user-verify-setup"
 ---
 
 You are helping the user set up and manage phone calls via Twilio. This skill covers enabling the calls feature, placing outbound calls, receiving inbound calls, and interacting with live calls. Twilio credential storage, phone number provisioning, and public ingress are handled by the **twilio-setup** skill.
