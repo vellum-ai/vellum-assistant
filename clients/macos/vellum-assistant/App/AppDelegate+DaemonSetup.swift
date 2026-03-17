@@ -497,7 +497,7 @@ extension AppDelegate {
             let syncCollectUsageData = hasExplicitCollectUsageData ? collectUsageData : nil
             let syncSendDiagnostics = hasExplicitSendDiagnostics ? sendDiagnostics : nil
             if syncCollectUsageData != nil || syncSendDiagnostics != nil {
-                try? await daemonClient.setPrivacyConfig(collectUsageData: syncCollectUsageData, sendDiagnostics: syncSendDiagnostics)
+                try? await FeatureFlagClient().setPrivacyConfig(collectUsageData: syncCollectUsageData, sendDiagnostics: syncSendDiagnostics)
             }
 
             let tosAccepted = UserDefaults.standard.bool(forKey: "tosAccepted")

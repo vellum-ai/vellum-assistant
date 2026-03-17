@@ -704,6 +704,13 @@ async function main() {
       handler: (req) => handleFeatureFlagsGet(req),
     },
     {
+      path: /^\/v1\/assistants\/([^/]+)\/feature-flags\/$/,
+      method: "GET",
+      auth: "edge-scoped",
+      scope: "feature_flags.read",
+      handler: (req) => handleFeatureFlagsGet(req),
+    },
+    {
       path: /^\/v1\/feature-flags\/(.+)$/,
       method: "PATCH",
       auth: "edge-scoped",
@@ -721,10 +728,35 @@ async function main() {
         return handleFeatureFlagsPatch(req, flagKey);
       },
     },
+    {
+      path: /^\/v1\/assistants\/([^/]+)\/feature-flags\/(.+)$/,
+      method: "PATCH",
+      auth: "edge-scoped",
+      scope: "feature_flags.write",
+      handler: (req, params) => {
+        let flagKey: string;
+        try {
+          flagKey = decodeURIComponent(params[1]);
+        } catch {
+          return Response.json(
+            { error: "Invalid flag key encoding" },
+            { status: 400 },
+          );
+        }
+        return handleFeatureFlagsPatch(req, flagKey);
+      },
+    },
 
     // ── Privacy config (scope-protected) ──
     {
       path: "/v1/config/privacy",
+      method: "PATCH",
+      auth: "edge-scoped",
+      scope: "settings.write",
+      handler: (req) => handlePrivacyConfigPatch(req),
+    },
+    {
+      path: /^\/v1\/assistants\/([^/]+)\/config\/privacy\/$/,
       method: "PATCH",
       auth: "edge-scoped",
       scope: "settings.write",
