@@ -130,11 +130,20 @@ export async function waitForInlineGrant(
   return { outcome: "timeout", requestId: escalationRequestId };
 }
 
+const UI_SURFACE_TOOLS = new Set(["ui_show", "ui_update", "ui_dismiss"]);
+
 function requiresGuardianApprovalForActor(
   toolName: string,
   input: Record<string, unknown>,
   executionTarget: ExecutionTarget,
 ): boolean {
+  // UI surface tools are passive, user-visible operations (cards, forms,
+  // tables). User input is voluntary and user-controlled — skip the guardian
+  // gate so they work during fresh onboarding before trust is established.
+  if (UI_SURFACE_TOOLS.has(toolName)) {
+    return false;
+  }
+
   // Side-effect tools always require guardian approval for untrusted actors.
   // Read-only host execution is also blocked because it can leak sensitive
   // local information (e.g. shell/file reads).

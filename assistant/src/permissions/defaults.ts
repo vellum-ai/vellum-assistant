@@ -259,10 +259,10 @@ export function getDefaultRuleTemplates(): DefaultRuleTemplate[] {
     }),
   );
 
-  // ui_update and ui_dismiss are purely passive operations (modify/remove existing
-  // surfaces). ui_show is excluded because it can create forms that collect user
-  // input — it goes through normal permission checking instead.
-  const UI_SURFACE_TOOLS = ["ui_update", "ui_dismiss"] as const;
+  // All three UI surface tools are passive, user-visible operations. ui_show
+  // creates surfaces (cards, forms, tables) but user input is voluntary and
+  // user-controlled — safe to auto-approve like ui_update and ui_dismiss.
+  const UI_SURFACE_TOOLS = ["ui_show", "ui_update", "ui_dismiss"] as const;
   const uiSurfaceRules: DefaultRuleTemplate[] = UI_SURFACE_TOOLS.map(
     (tool) => ({
       id: `default:allow-${tool}-global`,
