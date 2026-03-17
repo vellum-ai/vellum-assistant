@@ -208,28 +208,27 @@ struct WebSearchServiceCard: View {
     // MARK: - API Key Section
 
     private var apiKeySection: some View {
-        VStack(alignment: .leading, spacing: VSpacing.sm) {
+        let hasKey = isPerplexity ? store.hasPerplexityKey : store.hasBraveKey
+        let keyText = isPerplexity ? perplexityKeyText : braveKeyText
+
+        return VStack(alignment: .leading, spacing: VSpacing.sm) {
             Text("API Key")
                 .font(VFont.inputLabel)
                 .foregroundColor(VColor.contentSecondary)
             SecureField(
-                apiKeyPlaceholder,
+                "Enter your API key",
                 text: isPerplexity ? $perplexityKeyText : $braveKeyText
             )
             .vInputStyle()
             .font(VFont.body)
             .foregroundColor(VColor.contentDefault)
-        }
-    }
 
-    private var apiKeyPlaceholder: String {
-        let isConnected = isPerplexity ? store.hasPerplexityKey : store.hasBraveKey
-        let keyText = isPerplexity ? perplexityKeyText : braveKeyText
-        let providerName = isPerplexity ? "Perplexity" : "Brave"
-        if isConnected && keyText.isEmpty {
-            return "••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••"
+            if hasKey && keyText.isEmpty {
+                Label("Key saved", systemImage: "checkmark.circle.fill")
+                    .font(VFont.caption)
+                    .foregroundColor(VColor.systemPositiveStrong)
+            }
         }
-        return "Enter your \(providerName) API key"
     }
 
     // MARK: - Save

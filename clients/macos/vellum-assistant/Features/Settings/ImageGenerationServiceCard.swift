@@ -66,15 +66,16 @@ struct ImageGenerationServiceCard: View {
                         Text("API Key")
                             .font(VFont.inputLabel)
                             .foregroundColor(VColor.contentSecondary)
-                        SecureField(
-                            isConnected && apiKeyText.isEmpty
-                                ? "••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••"
-                                : "Enter your Gemini API key",
-                            text: $apiKeyText
-                        )
-                        .vInputStyle()
-                        .font(VFont.body)
-                        .foregroundColor(VColor.contentDefault)
+                        SecureField("Enter your API key", text: $apiKeyText)
+                            .vInputStyle()
+                            .font(VFont.body)
+                            .foregroundColor(VColor.contentDefault)
+
+                        if isConnected && apiKeyText.isEmpty {
+                            Label("Key saved", systemImage: "checkmark.circle.fill")
+                                .font(VFont.caption)
+                                .foregroundColor(VColor.systemPositiveStrong)
+                        }
                     }
 
                     // Model picker
