@@ -359,38 +359,8 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     /// Called when the daemon sends a `usage_update` message.
     public var onUsageUpdate: ((UsageUpdate) -> Void)?
 
-    /// Called when the daemon sends an `apps_list_response` message.
-    public var onAppsListResponse: ((AppsListResponseMessage) -> Void)?
-
-    /// Called when the daemon sends an `app_preview_response` message.
-    public var onAppPreviewResponse: ((AppPreviewResponseMessage) -> Void)?
-
-    /// Called when the daemon sends a `shared_apps_list_response` message.
-    public var onSharedAppsListResponse: ((SharedAppsListResponseMessage) -> Void)?
-
-    /// Called when the daemon sends an `app_delete_response` message.
-    public var onAppDeleteResponse: ((AppDeleteResponseMessage) -> Void)?
-
-    /// Called when the daemon sends a `shared_app_delete_response` message.
-    public var onSharedAppDeleteResponse: ((SharedAppDeleteResponseMessage) -> Void)?
-
     /// Called when the daemon sends a `fork_shared_app_response` message.
     public var onForkSharedAppResponse: ((ForkSharedAppResponseMessage) -> Void)?
-
-    /// Called when the daemon sends an `app_history_response` message.
-    public var onAppHistoryResponse: ((AppHistoryResponse) -> Void)?
-
-    /// Called when the daemon sends an `app_diff_response` message.
-    public var onAppDiffResponse: ((AppDiffResponse) -> Void)?
-
-    /// Called when the daemon sends an `app_restore_response` message.
-    public var onAppRestoreResponse: ((AppRestoreResponse) -> Void)?
-
-    /// Called when the daemon sends a `bundle_app_response` message.
-    public var onBundleAppResponse: ((BundleAppResponseMessage) -> Void)?
-
-    /// Called when the daemon sends an `open_bundle_response` message.
-    public var onOpenBundleResponse: ((OpenBundleResponseMessage) -> Void)?
 
     /// Called when the daemon sends a `conversation_list_response` message.
     public var onConversationListResponse: ((ConversationListResponseMessage) -> Void)?
@@ -920,66 +890,6 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     }
 
     // MARK: - Apps
-
-    /// Request opening an app by ID. The daemon responds with a `ui_surface_show` message.
-    public func sendAppOpen(appId: String) throws {
-        try send(AppOpenRequestMessage(appId: appId))
-    }
-
-    /// Send a preview screenshot for an app.
-    public func sendAppUpdatePreview(appId: String, preview: String) throws {
-        try send(AppUpdatePreviewRequestMessage(appId: appId, preview: preview))
-    }
-
-    /// Request the list of all apps from the daemon.
-    public func sendAppsList() throws {
-        try send(AppsListRequestMessage())
-    }
-
-    /// Request a single app's preview screenshot.
-    public func sendAppPreview(appId: String) throws {
-        try send(AppPreviewRequestMessage(type: "app_preview_request", appId: appId))
-    }
-
-    /// Request version history for an app.
-    public func sendAppHistory(appId: String, limit: Int? = nil) throws {
-        try send(AppHistoryRequest(type: "app_history_request", appId: appId, limit: limit.map { Double($0) }))
-    }
-
-    /// Request a diff between two versions of an app.
-    public func sendAppDiff(appId: String, fromCommit: String, toCommit: String? = nil) throws {
-        try send(AppDiffRequest(type: "app_diff_request", appId: appId, fromCommit: fromCommit, toCommit: toCommit))
-    }
-
-    /// Restore an app to a previous version.
-    public func sendAppRestore(appId: String, commitHash: String) throws {
-        try send(AppRestoreRequest(type: "app_restore_request", appId: appId, commitHash: commitHash))
-    }
-
-    /// Request bundling an app for sharing.
-    public func sendBundleApp(appId: String) throws {
-        try send(BundleAppRequestMessage(appId: appId))
-    }
-
-    /// Request opening and scanning a .vellum bundle.
-    public func sendOpenBundle(filePath: String) throws {
-        try send(OpenBundleMessage(filePath: filePath))
-    }
-
-    /// Request the list of shared/received apps.
-    public func sendSharedAppsList() throws {
-        try send(SharedAppsListRequestMessage())
-    }
-
-    /// Delete a persistent user-created app by ID.
-    public func sendAppDelete(appId: String) throws {
-        try send(AppDeleteRequestMessage(appId: appId))
-    }
-
-    /// Delete a shared app by UUID.
-    public func sendSharedAppDelete(uuid: String) throws {
-        try send(SharedAppDeleteRequestMessage(uuid: uuid))
-    }
 
     /// Fork a shared app into a local editable copy.
     public func sendForkSharedApp(uuid: String) throws {

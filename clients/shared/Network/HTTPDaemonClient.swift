@@ -278,18 +278,7 @@ public final class HTTPTransport {
         case trustRuleManageById(id: String)
         case pendingInteractions(conversationKey: String?)
         // Apps
-        case appsList
         case appData(id: String)
-        case appOpen(id: String)
-        case appDelete(id: String)
-        case appPreview(id: String)
-        case appHistory(id: String)
-        case appDiff(id: String)
-        case appRestore(id: String)
-        case appBundle(id: String)
-        case appsOpenBundle
-        case appsShared
-        case appsSharedDelete(uuid: String)
         case appsFork
         case appsShareCloud(id: String)
         case appsGallery
@@ -464,39 +453,9 @@ public final class HTTPTransport {
             }
             return ("/v1/pending-interactions", nil)
         // Apps
-        case .appsList:
-            return ("/v1/apps", nil)
         case .appData(let id):
             let encoded = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
             return ("/v1/apps/\(encoded)/data", nil)
-        case .appOpen(let id):
-            let encoded = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
-            return ("/v1/apps/\(encoded)/open", nil)
-        case .appDelete(let id):
-            let encoded = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
-            return ("/v1/apps/\(encoded)/delete", nil)
-        case .appPreview(let id):
-            let encoded = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
-            return ("/v1/apps/\(encoded)/preview", nil)
-        case .appHistory(let id):
-            let encoded = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
-            return ("/v1/apps/\(encoded)/history", nil)
-        case .appDiff(let id):
-            let encoded = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
-            return ("/v1/apps/\(encoded)/diff", nil)
-        case .appRestore(let id):
-            let encoded = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
-            return ("/v1/apps/\(encoded)/restore", nil)
-        case .appBundle(let id):
-            let encoded = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
-            return ("/v1/apps/\(encoded)/bundle", nil)
-        case .appsOpenBundle:
-            return ("/v1/apps/open-bundle", nil)
-        case .appsShared:
-            return ("/v1/apps/shared", nil)
-        case .appsSharedDelete(let uuid):
-            let encoded = uuid.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? uuid
-            return ("/v1/apps/shared/\(encoded)", nil)
         case .appsFork:
             return ("/v1/apps/fork", nil)
         case .appsShareCloud(let id):
@@ -728,39 +687,9 @@ public final class HTTPTransport {
             }
             return ("\(prefix)/pending-interactions/", nil)
         // Apps
-        case .appsList:
-            return ("\(prefix)/apps/", nil)
         case .appData(let id):
             let encoded = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
             return ("\(prefix)/apps/\(encoded)/data/", nil)
-        case .appOpen(let id):
-            let encoded = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
-            return ("\(prefix)/apps/\(encoded)/open/", nil)
-        case .appDelete(let id):
-            let encoded = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
-            return ("\(prefix)/apps/\(encoded)/delete/", nil)
-        case .appPreview(let id):
-            let encoded = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
-            return ("\(prefix)/apps/\(encoded)/preview/", nil)
-        case .appHistory(let id):
-            let encoded = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
-            return ("\(prefix)/apps/\(encoded)/history/", nil)
-        case .appDiff(let id):
-            let encoded = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
-            return ("\(prefix)/apps/\(encoded)/diff/", nil)
-        case .appRestore(let id):
-            let encoded = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
-            return ("\(prefix)/apps/\(encoded)/restore/", nil)
-        case .appBundle(let id):
-            let encoded = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
-            return ("\(prefix)/apps/\(encoded)/bundle/", nil)
-        case .appsOpenBundle:
-            return ("\(prefix)/apps/open-bundle/", nil)
-        case .appsShared:
-            return ("\(prefix)/apps/shared/", nil)
-        case .appsSharedDelete(let uuid):
-            let encoded = uuid.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? uuid
-            return ("\(prefix)/apps/shared/\(encoded)/", nil)
         case .appsFork:
             return ("\(prefix)/apps/fork/", nil)
         case .appsShareCloud(let id):

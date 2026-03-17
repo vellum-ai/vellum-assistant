@@ -108,32 +108,13 @@ extension DaemonClient {
             onSkillsInspectResponse?(msg)
         case .skillsDraftResponse(let msg):
             onSkillsDraftResponse?(msg)
-        case .appsListResponse(let msg):
-            onAppsListResponse?(msg)
-        case .appUpdatePreviewResponse:
-            break // Fire-and-forget; no callback needed
-        case .appPreviewResponse(let msg):
-            onAppPreviewResponse?(msg)
-        case .appHistoryResponse(let msg):
-            onAppHistoryResponse?(msg)
-        case .appDiffResponse(let msg):
-            onAppDiffResponse?(msg)
-        case .appFileAtVersionResponse:
-            break // Handled by subscribers
-        case .appRestoreResponse(let msg):
-            onAppRestoreResponse?(msg)
-        case .sharedAppsListResponse(let msg):
-            onSharedAppsListResponse?(msg)
-        case .appDeleteResponse(let msg):
-            onAppDeleteResponse?(msg)
-        case .sharedAppDeleteResponse(let msg):
-            onSharedAppDeleteResponse?(msg)
+        case .appsListResponse, .appUpdatePreviewResponse, .appPreviewResponse,
+             .appHistoryResponse, .appDiffResponse, .appFileAtVersionResponse,
+             .appRestoreResponse, .sharedAppsListResponse, .appDeleteResponse,
+             .sharedAppDeleteResponse, .bundleAppResponse, .openBundleResponse:
+            break // Handled by AppClient via GatewayHTTPClient.
         case .forkSharedAppResponse(let msg):
             onForkSharedAppResponse?(msg)
-        case .bundleAppResponse(let msg):
-            onBundleAppResponse?(msg)
-        case .openBundleResponse(let msg):
-            onOpenBundleResponse?(msg)
         case .conversationListResponse(let msg):
             onConversationListResponse?(msg)
         case .conversationTitleUpdated(let msg):

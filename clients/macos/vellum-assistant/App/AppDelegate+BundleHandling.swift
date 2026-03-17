@@ -24,14 +24,16 @@ extension AppDelegate {
                 continue
             }
 
-            do {
-                pendingBundleFilePaths.append(url.path)
-                try daemonClient.sendOpenBundle(filePath: url.path)
-            } catch {
-                log.error("Failed to send open_bundle message: \(error.localizedDescription)")
-                // Remove the path we just appended since the send failed
-                if let idx = pendingBundleFilePaths.lastIndex(of: url.path) {
-                    pendingBundleFilePaths.remove(at: idx)
+            let filePath = url.path
+            pendingBundleFilePaths.append(filePath)
+            Task {
+                let response = await AppClient().openBundle(filePath: filePath)
+                if let response {
+                    self.handleOpenBundleResponse(response)
+                } else {
+                    if let idx = self.pendingBundleFilePaths.lastIndex(of: filePath) {
+                        self.pendingBundleFilePaths.remove(at: idx)
+                    }
                 }
             }
         }

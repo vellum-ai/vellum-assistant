@@ -237,7 +237,7 @@ struct AppsGridView: View {
                             }
                             Button(role: .destructive) {
                                     hoveredAppId = nil
-                                try? daemonClient.sendAppDelete(appId: app.id)
+                                Task { await AppClient().delete(appId: app.id) }
                                 appListManager.removeApp(id: app.id)
                                 AppPreviewImageStore.remove(appId: app.id)
                             } label: {
@@ -430,9 +430,12 @@ struct AppsGridView: View {
         isBundling = true
         sharingAppId = appId
 
-        let previousHandler = daemonClient.onBundleAppResponse
-        daemonClient.onBundleAppResponse = { response in
-            daemonClient.onBundleAppResponse = previousHandler
+        Task { @MainActor in
+            guard let response = await AppClient().bundle(appId: appId) else {
+                isBundling = false
+                sharingAppId = nil
+                return
+            }
             let url = MainWindowView.cleanBundleURL(bundlePath: response.bundlePath, appName: response.manifest.name)
             MainWindowView.applyFileIcon(to: url, iconBase64: response.iconImageBase64, emojiIcon: response.manifest.icon, appName: response.manifest.name)
             shareFileURL = url
@@ -440,14 +443,6 @@ struct AppsGridView: View {
             shareAppIcon = MainWindowView.buildAppIcon(iconBase64: response.iconImageBase64, emojiIcon: response.manifest.icon, appName: response.manifest.name)
             isBundling = false
             showShareSheet = true
-        }
-
-        do {
-            try daemonClient.sendBundleApp(appId: appId)
-        } catch {
-            isBundling = false
-            sharingAppId = nil
-            daemonClient.onBundleAppResponse = previousHandler
         }
     }
 
@@ -459,34 +454,13 @@ struct AppsGridView: View {
         // Skip if already cached (including empty-string sentinel) or in-flight
         guard previewCache[app.id] == nil, previewTasks[app.id] == nil else { return }
 
-        let stream = daemonClient.subscribe()
-        do {
-            try daemonClient.sendAppPreview(appId: app.id)
-        } catch { return }
-
         let appId = app.id
         let task = Task { @MainActor in
-            let timeout = Task { try await Task.sleep(nanoseconds: 10_000_000_000) }
-            defer {
-                timeout.cancel()
-                self.previewTasks.removeValue(forKey: appId)
-            }
-
-            for await message in stream {
-                if Task.isCancelled { break }
-                if case .appPreviewResponse(let response) = message,
-                   response.appId == appId {
-                    self.previewCache[appId] = response.preview ?? ""
-                    return
-                }
+            defer { self.previewTasks.removeValue(forKey: appId) }
+            if let response = await AppClient().fetchPreview(appId: appId) {
+                self.previewCache[appId] = response.preview ?? ""
             }
         }
-
-        Task {
-            try? await Task.sleep(nanoseconds: 10_000_000_000)
-            if !task.isCancelled { task.cancel() }
-        }
-
         previewTasks[appId] = task
     }
 
@@ -529,31 +503,16 @@ struct AppsGridView: View {
     private func refreshLocalAppsFromDaemon() {
         localAppsTask?.cancel()
         localAppsTask = Task { @MainActor in
-            let stream = daemonClient.subscribe()
-            do {
-                try daemonClient.sendAppsList()
-            } catch {
-                hasFetchedLocalApps = true
-                return
-            }
-            for await message in stream {
-                guard !Task.isCancelled else { return }
-                if case .appsListResponse(let response) = message {
-                    if response.success {
-                        let daemonItems = response.apps.map {
-                            AppListManager.AppItem_Daemon(
-                                id: $0.id, name: $0.name, description: $0.description,
-                                icon: $0.icon, appType: nil, createdAt: $0.createdAt
-                            )
-                        }
-                        appListManager.syncFromDaemon(daemonItems)
-                    }
-                    hasFetchedLocalApps = true
-                    return
+            if let response = await AppClient().fetchList(), response.success {
+                let daemonItems = response.apps.map {
+                    AppListManager.AppItem_Daemon(
+                        id: $0.id, name: $0.name, description: $0.description,
+                        icon: $0.icon, appType: nil, createdAt: $0.createdAt
+                    )
                 }
+                appListManager.syncFromDaemon(daemonItems)
             }
-            // Stream ended without a response (e.g. daemon disconnected)
-            if !Task.isCancelled { hasFetchedLocalApps = true }
+            hasFetchedLocalApps = true
         }
     }
 

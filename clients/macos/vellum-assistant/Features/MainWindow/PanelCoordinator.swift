@@ -60,7 +60,7 @@ extension MainWindowView {
                 daemonClient: daemonClient,
                 gatewayBaseURL: settingsStore.localGatewayTarget,
                 onOpenApp: { appId in
-                    try? daemonClient.sendAppOpen(appId: appId)
+                    Task { await AppClient().open(appId: appId) }
                     windowState.selection = .app(appId)
                 },
                 onOpenSharedApp: { surfaceMsg in
@@ -245,7 +245,7 @@ extension MainWindowView {
                 AppLoadingView(
                     appId: appId,
                     onRetry: { appId in
-                        try? daemonClient.sendAppOpen(appId: appId)
+                        Task { await AppClient().open(appId: appId) }
                     },
                     onClose: {
                         windowState.closeDynamicPanel()
@@ -260,7 +260,7 @@ extension MainWindowView {
                     daemonClient: daemonClient,
                     gatewayBaseURL: settingsStore.localGatewayTarget,
                     onOpenApp: { appId in
-                        try? daemonClient.sendAppOpen(appId: appId)
+                        Task { await AppClient().open(appId: appId) }
                         windowState.selection = .app(appId)
                     },
                     onOpenSharedApp: { surfaceMsg in
@@ -440,7 +440,7 @@ extension MainWindowView {
                 daemonClient: daemonClient,
                 gatewayBaseURL: settingsStore.localGatewayTarget,
                 onOpenApp: { appId in
-                    try? daemonClient.sendAppOpen(appId: appId)
+                    Task { await AppClient().open(appId: appId) }
                     windowState.selection = .app(appId)
                 },
                 onOpenSharedApp: { surfaceMsg in
@@ -930,9 +930,9 @@ struct DynamicWorkspaceWrapper: View {
                         onPageChanged: { [weak viewModel] page in
                             viewModel?.currentPage = page
                         },
-                        onSnapshotCaptured: data.appId != nil ? { [weak daemonClient] base64 in
+                        onSnapshotCaptured: data.appId != nil ? { base64 in
                             guard let appId = data.appId else { return }
-                            try? daemonClient?.sendAppUpdatePreview(appId: appId, preview: base64)
+                            Task { await AppClient().updatePreview(appId: appId, preview: base64) }
                             NotificationCenter.default.post(
                                 name: .appPreviewImageCaptured,
                                 object: nil,

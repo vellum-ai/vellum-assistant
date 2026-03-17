@@ -835,7 +835,11 @@ struct MainWindowView: View {
                 windowState.selection = .app(reopenId)
                 let env = daemonClient.config.instanceDir.map { ["BASE_DATA_DIR": $0] }
                 windowState.activeDynamicUserAppsDirectory = VellumAppSchemeHandler.resolveUserAppsDirectory(environment: env)
-                try? daemonClient.sendAppOpen(appId: reopenId)
+                Task {
+                    if let surfaceMsg = await AppClient().open(appId: reopenId) {
+                        daemonClient.onSurfaceShow?(surfaceMsg)
+                    }
+                }
             }
         }
         .onReceive(NotificationCenter.default.publisher(for: .shareAppCloud)) { notification in
@@ -888,30 +892,23 @@ struct MainWindowView: View {
         .onReceive(NotificationCenter.default.publisher(for: .requestAppPreview)) { notification in
             guard let appId = notification.userInfo?["appId"] as? String else { return }
             let html = notification.userInfo?["html"] as? String
-            let stream = daemonClient.subscribe()
-            do { try daemonClient.sendAppPreview(appId: appId) } catch { return }
             Task { @MainActor in
-                for await message in stream {
-                    if case .appPreviewResponse(let response) = message,
-                       response.appId == appId {
-                        if let base64 = response.preview, !base64.isEmpty {
-                            NotificationCenter.default.post(
-                                name: .appPreviewImageCaptured,
-                                object: nil,
-                                userInfo: ["appId": appId, "previewImage": base64]
-                            )
-                        } else if let html = html {
-                            // No stored preview — capture one via offscreen WKWebView
-                            if let base64 = await OffscreenPreviewCapture.capture(html: html) {
-                                try? daemonClient.sendAppUpdatePreview(appId: appId, preview: base64)
-                                NotificationCenter.default.post(
-                                    name: .appPreviewImageCaptured,
-                                    object: nil,
-                                    userInfo: ["appId": appId, "previewImage": base64]
-                                )
-                            }
-                        }
-                        return
+                let appClient = AppClient()
+                if let response = await appClient.fetchPreview(appId: appId),
+                   let base64 = response.preview, !base64.isEmpty {
+                    NotificationCenter.default.post(
+                        name: .appPreviewImageCaptured,
+                        object: nil,
+                        userInfo: ["appId": appId, "previewImage": base64]
+                    )
+                } else if let html = html {
+                    if let base64 = await OffscreenPreviewCapture.capture(html: html) {
+                        await appClient.updatePreview(appId: appId, preview: base64)
+                        NotificationCenter.default.post(
+                            name: .appPreviewImageCaptured,
+                            object: nil,
+                            userInfo: ["appId": appId, "previewImage": base64]
+                        )
                     }
                 }
             }

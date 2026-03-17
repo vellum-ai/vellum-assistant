@@ -258,27 +258,14 @@ struct AppVersionHistoryPanel: View {
         let currentId = UUID()
         fetchHistoryId = currentId
         isLoading = true
-        daemonClient.onAppHistoryResponse = { response in
-            if response.appId == appId {
-                versions = response.versions
-                isLoading = false
-            }
-        }
-        do {
-            try daemonClient.sendAppHistory(appId: appId)
-        } catch {
-            isLoading = false
-        }
-        // Timeout: daemon sends a generic error on failure, not app_history_response,
-        // so the spinner would get stuck without this fallback.
         historyTimeoutTask?.cancel()
         historyTimeoutTask = Task {
-            try? await Task.sleep(nanoseconds: 10_000_000_000)
-            guard !Task.isCancelled else { return }
-            guard fetchHistoryId == currentId else { return }
-            if isLoading {
-                isLoading = false
+            if let response = await AppClient().fetchHistory(appId: appId),
+               response.appId == appId {
+                versions = response.versions
             }
+            guard fetchHistoryId == currentId else { return }
+            isLoading = false
         }
     }
 
@@ -299,18 +286,15 @@ struct AppVersionHistoryPanel: View {
         let previousVersion = versions[index + 1]
 
         let expectedHash = version.commitHash
-        daemonClient.onAppDiffResponse = { response in
-            guard pendingDiffCommitHash == expectedHash else { return }
-            if response.appId == appId {
+        Task {
+            if let response = await AppClient().fetchDiff(appId: appId, fromCommit: previousVersion.commitHash, toCommit: version.commitHash),
+               pendingDiffCommitHash == expectedHash,
+               response.appId == appId {
                 diffText = response.diff
-                isDiffLoading = false
+            } else {
+                diffText = ""
             }
-        }
-        do {
-            try daemonClient.sendAppDiff(appId: appId, fromCommit: previousVersion.commitHash, toCommit: version.commitHash)
-        } catch {
             isDiffLoading = false
-            diffText = ""
         }
     }
 
@@ -319,22 +303,20 @@ struct AppVersionHistoryPanel: View {
         restoreError = nil
         restoreConfirmVersion = nil
 
-        daemonClient.onAppRestoreResponse = { response in
-            isRestoring = false
-            if response.success {
-                // Refresh history to show the new restore commit
-                fetchHistory()
-                selectedVersion = nil
-                diffText = nil
+        Task {
+            if let response = await AppClient().restore(appId: appId, commitHash: version.commitHash) {
+                isRestoring = false
+                if response.success {
+                    fetchHistory()
+                    selectedVersion = nil
+                    diffText = nil
+                } else {
+                    restoreError = response.error ?? "Restore failed"
+                }
             } else {
-                restoreError = response.error ?? "Restore failed"
+                isRestoring = false
+                restoreError = "Failed to send restore request"
             }
-        }
-        do {
-            try daemonClient.sendAppRestore(appId: appId, commitHash: version.commitHash)
-        } catch {
-            isRestoring = false
-            restoreError = "Failed to send restore request"
         }
     }
 

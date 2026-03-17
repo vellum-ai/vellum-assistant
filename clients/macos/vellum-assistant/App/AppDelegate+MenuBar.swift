@@ -350,11 +350,7 @@ extension AppDelegate {
         let storedIcon = info["icon"]
         let appIcon = cachedApp?.icon ?? (storedIcon?.isEmpty == false ? storedIcon : nil)
         mainWindow?.appListManager.recordAppOpen(id: appId, name: appName, icon: appIcon)
-        do {
-            try daemonClient.sendAppOpen(appId: appId)
-        } catch {
-            log.error("Failed to send app open for \(appId, privacy: .public): \(error)")
-        }
+        Task { await AppClient().open(appId: appId) }
     }
 
     @objc func toggleSkill(_ sender: NSMenuItem) {
@@ -378,26 +374,15 @@ extension AppDelegate {
     func refreshAppsCache() {
         refreshAppsTask?.cancel()
         refreshAppsTask = Task {
-            let stream = daemonClient.subscribe()
-            do {
-                try daemonClient.sendAppsList()
-            } catch { return }
-            for await message in stream {
-                guard !Task.isCancelled else { return }
-                if case .appsListResponse(let response) = message {
-                    if response.success {
-                        self.cachedApps = response.apps
-                        let daemonItems = response.apps.map {
-                            AppListManager.AppItem_Daemon(
-                                id: $0.id, name: $0.name, description: $0.description,
-                                icon: $0.icon, appType: nil, createdAt: $0.createdAt
-                            )
-                        }
-                        self.mainWindow?.appListManager.syncFromDaemon(daemonItems)
-                    }
-                    return
-                }
+            guard let response = await AppClient().fetchList(), response.success else { return }
+            self.cachedApps = response.apps
+            let daemonItems = response.apps.map {
+                AppListManager.AppItem_Daemon(
+                    id: $0.id, name: $0.name, description: $0.description,
+                    icon: $0.icon, appType: nil, createdAt: $0.createdAt
+                )
             }
+            self.mainWindow?.appListManager.syncFromDaemon(daemonItems)
         }
     }
 

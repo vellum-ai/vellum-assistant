@@ -118,24 +118,17 @@ extension MainWindowView {
         sharing.shareAppId = appId
 
         Task { @MainActor in
-            let previousHandler = daemonClient.onBundleAppResponse
-            daemonClient.onBundleAppResponse = { response in
-                daemonClient.onBundleAppResponse = previousHandler
-                let url = Self.cleanBundleURL(bundlePath: response.bundlePath, appName: response.manifest.name)
-                Self.applyFileIcon(to: url, iconBase64: response.iconImageBase64, emojiIcon: response.manifest.icon, appName: response.manifest.name)
-                sharing.shareFileURL = url
-                sharing.shareAppName = response.manifest.name
-                sharing.shareAppIcon = Self.buildAppIcon(iconBase64: response.iconImageBase64, emojiIcon: response.manifest.icon, appName: response.manifest.name)
+            guard let response = await AppClient().bundle(appId: appId) else {
                 sharing.isBundling = false
-                sharing.showSharePicker = true
+                return
             }
-
-            do {
-                try daemonClient.sendBundleApp(appId: appId)
-            } catch {
-                sharing.isBundling = false
-                daemonClient.onBundleAppResponse = previousHandler
-            }
+            let url = Self.cleanBundleURL(bundlePath: response.bundlePath, appName: response.manifest.name)
+            Self.applyFileIcon(to: url, iconBase64: response.iconImageBase64, emojiIcon: response.manifest.icon, appName: response.manifest.name)
+            sharing.shareFileURL = url
+            sharing.shareAppName = response.manifest.name
+            sharing.shareAppIcon = Self.buildAppIcon(iconBase64: response.iconImageBase64, emojiIcon: response.manifest.icon, appName: response.manifest.name)
+            sharing.isBundling = false
+            sharing.showSharePicker = true
         }
     }
 

@@ -521,34 +521,12 @@ struct GeneratedPanel: View {
         // Skip if already cached (including empty-string sentinel) or in-flight
         guard previewCache[appId] == nil, previewTasks[appId] == nil else { return }
 
-        let stream = daemonClient.subscribe()
-        do {
-            try daemonClient.sendAppPreview(appId: appId)
-        } catch { return }
-
         let task = Task { @MainActor in
-            let timeout = Task { try await Task.sleep(nanoseconds: 10_000_000_000) }
-            defer {
-                timeout.cancel()
-                self.previewTasks.removeValue(forKey: appId)
-            }
-
-            for await message in stream {
-                if Task.isCancelled { break }
-                if case .appPreviewResponse(let response) = message,
-                   response.appId == appId {
-                    self.previewCache[appId] = response.preview ?? ""
-                    return
-                }
+            defer { self.previewTasks.removeValue(forKey: appId) }
+            if let response = await AppClient().fetchPreview(appId: appId) {
+                self.previewCache[appId] = response.preview ?? ""
             }
         }
-
-        // Cancel after timeout
-        Task {
-            try? await Task.sleep(nanoseconds: 10_000_000_000)
-            if !task.isCancelled { task.cancel() }
-        }
-
         previewTasks[appId] = task
     }
 
@@ -602,11 +580,11 @@ struct GeneratedPanel: View {
 
     @MainActor private func openApp(_ item: DisplayAppItem) {
         if let localId = item.localAppId {
-            // Local apps: ask the daemon to open via ui_surface_show.
-            // When onOpenApp is set, the daemon's response will be intercepted
-            // by SurfaceManager and routed to the workspace (see PR 5).
+            // Local apps: open via the gateway.
+            // When onOpenApp is set, the response will be intercepted
+            // by SurfaceManager and routed to the workspace.
             onRecordAppOpen?(localId, item.name, item.icon, item.appType)
-            try? daemonClient.sendAppOpen(appId: localId)
+            Task { await AppClient().open(appId: localId) }
         } else if let uuid = item.sharedUUID {
             // Shared apps: construct surface from unpacked files on disk
             // Sanitize to prevent XSS — name comes from external bundle metadata
@@ -648,36 +626,18 @@ struct GeneratedPanel: View {
         isBundling = true
 
         Task { @MainActor in
-            let stream = daemonClient.subscribe()
-
-            do {
-                try daemonClient.sendBundleApp(appId: appId)
-            } catch {
-                isBundling = false
-                sharingAppId = nil
-                return
-            }
-
-            let response = await stream.firstMatch { message -> BundleAppResponseMessage? in
-                if case .bundleAppResponse(let response) = message {
-                    return response
-                }
-                return nil
-            }
-
-            if let response {
-                let url = MainWindowView.cleanBundleURL(bundlePath: response.bundlePath, appName: response.manifest.name)
-                MainWindowView.applyFileIcon(to: url, iconBase64: response.iconImageBase64, emojiIcon: response.manifest.icon, appName: response.manifest.name)
-                self.shareFileURL = url
-                self.shareAppName = response.manifest.name
-                self.shareAppIcon = MainWindowView.buildAppIcon(iconBase64: response.iconImageBase64, emojiIcon: response.manifest.icon, appName: response.manifest.name)
-                self.isBundling = false
-                self.showShareSheet = true
-            } else {
-                // Timeout or stream ended — reset bundling state to avoid stuck UI
+            guard let response = await AppClient().bundle(appId: appId) else {
                 self.isBundling = false
                 self.sharingAppId = nil
+                return
             }
+            let url = MainWindowView.cleanBundleURL(bundlePath: response.bundlePath, appName: response.manifest.name)
+            MainWindowView.applyFileIcon(to: url, iconBase64: response.iconImageBase64, emojiIcon: response.manifest.icon, appName: response.manifest.name)
+            self.shareFileURL = url
+            self.shareAppName = response.manifest.name
+            self.shareAppIcon = MainWindowView.buildAppIcon(iconBase64: response.iconImageBase64, emojiIcon: response.manifest.icon, appName: response.manifest.name)
+            self.isBundling = false
+            self.showShareSheet = true
         }
     }
 
@@ -699,21 +659,7 @@ struct GeneratedPanel: View {
         guard let uuid = item.sharedUUID else { return }
 
         Task { @MainActor in
-            let stream = daemonClient.subscribe()
-
-            do {
-                try daemonClient.sendSharedAppDelete(uuid: uuid)
-            } catch {
-                return
-            }
-
-            let success = await stream.firstMatch { message -> Bool? in
-                if case .sharedAppDeleteResponse(let response) = message {
-                    return response.success
-                }
-                return nil
-            }
-            if success == true {
+            if let response = await AppClient().deleteShared(uuid: uuid), response.success {
                 self.sharedApps.removeAll { $0.uuid == uuid }
                 self.buildDisplayItems()
             }

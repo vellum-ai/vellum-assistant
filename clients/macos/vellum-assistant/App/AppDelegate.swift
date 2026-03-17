@@ -87,8 +87,8 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
     /// the daemon-instance-changed observer. Stored so we can properly remove
     /// the closure-based observer before registering a new one.
     var instanceChangeObserver: NSObjectProtocol?
-    /// Tracks file paths of .vellum bundles awaiting daemon responses (FIFO).
-    /// Each call to sendOpenBundle appends a path; handleOpenBundleResponse
+    /// Tracks file paths of .vellum bundles awaiting responses (FIFO).
+    /// Each open-bundle request appends a path; handleOpenBundleResponse
     /// pops the first entry so concurrent opens are correctly paired.
     var pendingBundleFilePaths: [String] = []
     #if DEBUG
