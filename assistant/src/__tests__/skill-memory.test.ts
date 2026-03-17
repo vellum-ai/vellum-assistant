@@ -175,8 +175,6 @@ describe("upsertSkillCapabilityMemory", () => {
     expect(before).toHaveLength(1);
     const originalLastSeen = before[0].lastSeenAt;
 
-    // Small delay to ensure timestamps differ
-    const now = Date.now() + 100;
     // Upsert again
     upsertSkillCapabilityMemory("test-skill", entry);
 
