@@ -2065,7 +2065,7 @@ public final class HTTPTransport {
 
     /// Record a lifecycle telemetry event (e.g. app_open, hatch).
     /// Fire-and-forget — failures are logged but do not propagate.
-    func recordLifecycleEvent(_ eventName: String, isRetry: Bool = false) async {
+    public func recordLifecycleEvent(_ eventName: String, isRetry: Bool = false) async {
         guard let url = buildURL(for: .telemetryLifecycle) else { return }
 
         var request = URLRequest(url: url)
