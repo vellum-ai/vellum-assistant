@@ -18,6 +18,7 @@ import {
   existsSync,
   mkdirSync,
   readFileSync,
+  rmSync,
   writeFileSync,
 } from "node:fs";
 import { dirname } from "node:path";
@@ -152,6 +153,49 @@ export function commitImport(options: ImportCommitOptions): ImportCommitResult {
 
     manifest = validation.manifest;
     entryMap = validation.entries;
+  }
+
+  // Step 1b: Clear skills directory if the bundle contains skills entries.
+  // This ensures the restored skills match the backup exactly — no stale
+  // skills left behind from the current assistant state.
+  const hasSkillsEntries = manifest.files.some((f) =>
+    f.path.startsWith("skills/"),
+  );
+  if (hasSkillsEntries) {
+    // Derive the skills directory from the resolver by resolving a known
+    // skills path prefix and stripping the relative portion.
+    const firstSkillsEntry = manifest.files.find((f) =>
+      f.path.startsWith("skills/"),
+    )!;
+    const resolvedSkillPath = pathResolver.resolve(firstSkillsEntry.path);
+    if (resolvedSkillPath) {
+      // The resolver maps "skills/<relative>" → "<skillsDir>/<relative>",
+      // so strip the relative suffix to get the skills root directory.
+      const relativeSuffix = firstSkillsEntry.path.slice("skills/".length);
+      const skillsRoot = resolvedSkillPath.slice(
+        0,
+        resolvedSkillPath.length - relativeSuffix.length,
+      );
+      // Remove trailing slash if present (unless it's the root "/")
+      const skillsDirPath =
+        skillsRoot.length > 1 && skillsRoot.endsWith("/")
+          ? skillsRoot.slice(0, -1)
+          : skillsRoot;
+
+      if (existsSync(skillsDirPath)) {
+        try {
+          rmSync(skillsDirPath, { recursive: true, force: true });
+        } catch (err) {
+          return {
+            ok: false,
+            reason: "write_failed",
+            message: `Failed to clear skills directory "${skillsDirPath}": ${
+              err instanceof Error ? err.message : String(err)
+            }`,
+          };
+        }
+      }
+    }
   }
 
   // Step 2: Write files to disk with backups
