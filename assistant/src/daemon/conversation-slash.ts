@@ -110,6 +110,11 @@ const PROVIDER_MODEL_SHORTCUTS: Record<
     model: "x-ai/grok-4",
     displayName: "Grok 4 (OpenRouter)",
   },
+  "grok-multi": {
+    provider: "openrouter",
+    model: "x-ai/grok-4.20-multi-agent-beta",
+    displayName: "Grok 4.20 Multi-Agent (OpenRouter)",
+  },
 };
 
 /** True when the trimmed content matches a provider shortcut like /opus, /gpt4, etc. */
