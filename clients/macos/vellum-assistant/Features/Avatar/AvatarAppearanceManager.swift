@@ -322,11 +322,15 @@ final class AvatarAppearanceManager {
             characterBodyShape = nil
             characterEyeStyle = nil
             characterColor = nil
+            cachedFallbackAvatar = nil
+            cachedFullFallbackAvatar = nil
             return
         }
         characterBodyShape = AvatarBodyShape(rawValue: components.bodyShape)
         characterEyeStyle = AvatarEyeStyle(rawValue: components.eyeStyle)
         characterColor = AvatarColor(rawValue: components.color)
+        cachedFallbackAvatar = nil
+        cachedFullFallbackAvatar = nil
     }
 
     // MARK: - File Watching
