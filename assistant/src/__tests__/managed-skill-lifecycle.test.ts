@@ -142,7 +142,8 @@ describe("managed skill lifecycle: scaffold → catalog → prompt → delete", 
     const prompt = buildSystemPrompt();
     expect(prompt).toContain("**lifecycle-test**");
     expect(prompt).toContain("Integration test skill.");
-    expect(prompt).toContain("## Dynamic Skill Authoring Workflow");
+    // Dynamic Skill Authoring section moved to tool descriptions; prompt should not contain it
+    expect(prompt).not.toContain("## Dynamic Skill Authoring Workflow");
 
     // Step 5: Delete the skill
     const deleteResult = await executeDeleteManagedSkill(

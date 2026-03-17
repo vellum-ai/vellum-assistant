@@ -426,18 +426,6 @@
       "compatibility": "Designed for Vellum personal assistants"
     },
     {
-      "id": "skills-catalog",
-      "name": "skills-catalog",
-      "description": "Discover bundled skills and search/install community skills from the skills.sh registry",
-      "metadata": {
-        "emoji": "🧩",
-        "vellum": {
-          "display-name": "Skills Catalog"
-        }
-      },
-      "compatibility": "Designed for Vellum personal assistants"
-    },
-    {
       "id": "slack-app-setup",
       "name": "slack-app-setup",
       "description": "Connect a Slack app to the Vellum Assistant via Socket Mode with guided app creation and guardian verification",

@@ -83,7 +83,7 @@ mock.module("../config/loader.js", () => ({
 
 const { buildSystemPrompt } = await import("../prompts/system-prompt.js");
 
-describe("Dynamic Skill Authoring Workflow prompt section", () => {
+describe("Dynamic Skill Authoring Workflow moved to tool descriptions", () => {
   beforeEach(() => {
     mkdirSync(TEST_DIR, { recursive: true });
   });
@@ -94,36 +94,11 @@ describe("Dynamic Skill Authoring Workflow prompt section", () => {
     }
   });
 
-  test("buildSystemPrompt includes dynamic skill workflow section", () => {
+  test("system prompt no longer contains Dynamic Skill Authoring section", () => {
     writeFileSync(join(TEST_DIR, "IDENTITY.md"), "I am Vellum.");
     const result = buildSystemPrompt();
-    expect(result).toContain("## Dynamic Skill Authoring Workflow");
-  });
-
-  test("workflow section mentions scaffold and delete tools and bun run workflow", () => {
-    writeFileSync(join(TEST_DIR, "IDENTITY.md"), "I am Vellum.");
-    const result = buildSystemPrompt();
-    expect(result).toContain("bun run /tmp/vellum-eval/snippet.ts");
-    expect(result).toContain("scaffold_managed_skill");
-    expect(result).toContain("delete_managed_skill");
-  });
-
-  test("workflow section includes user confirmation warning", () => {
-    writeFileSync(join(TEST_DIR, "IDENTITY.md"), "I am Vellum.");
-    const result = buildSystemPrompt();
-    expect(result).toContain("explicit user confirmation");
-  });
-
-  test("workflow section includes retry limit guidance", () => {
-    writeFileSync(join(TEST_DIR, "IDENTITY.md"), "I am Vellum.");
-    const result = buildSystemPrompt();
-    expect(result).toContain("3 attempts");
-  });
-
-  test("workflow section includes conversation eviction note", () => {
-    writeFileSync(join(TEST_DIR, "IDENTITY.md"), "I am Vellum.");
-    const result = buildSystemPrompt();
-    expect(result).toContain("recreated session");
+    expect(result).not.toContain("## Dynamic Skill Authoring Workflow");
+    expect(result).not.toContain("### Community Skills Discovery");
   });
 
   test("prompt still includes available skills catalog when skills exist", () => {
@@ -139,7 +114,6 @@ describe("Dynamic Skill Authoring Workflow prompt section", () => {
     const result = buildSystemPrompt();
     expect(result).toContain("## Available Skills");
     expect(result).toContain("**test-skill**");
-    expect(result).toContain("## Dynamic Skill Authoring Workflow");
   });
 
   test("prompt is additive with IDENTITY/SOUL/USER files", () => {
@@ -151,13 +125,6 @@ describe("Dynamic Skill Authoring Workflow prompt section", () => {
     expect(result).toContain("Identity here");
     expect(result).toContain("Soul here");
     expect(result).toContain("User here");
-    expect(result).toContain("## Dynamic Skill Authoring Workflow");
-  });
-
-  test("workflow section includes skill_load instruction", () => {
-    writeFileSync(join(TEST_DIR, "IDENTITY.md"), "I am Vellum.");
-    const result = buildSystemPrompt();
-    expect(result).toContain("skill_load");
   });
 
   test("browser skill has activation hints in skills catalog instead of dedicated section", () => {
