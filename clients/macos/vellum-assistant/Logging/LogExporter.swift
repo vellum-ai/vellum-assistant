@@ -569,11 +569,24 @@ enum LogExporter {
         try? data.write(to: destination)
     }
 
+    /// Reads the first `bytes` bytes from `source` and writes them to `destination`.
+    private nonisolated static func copyHead(of source: URL, bytes: Int, to destination: URL) {
+        guard let handle = try? FileHandle(forReadingFrom: source) else { return }
+        defer { try? handle.close() }
+
+        let data = handle.readData(ofLength: bytes)
+        try? data.write(to: destination)
+    }
+
     // MARK: - Crash Report Collection
 
-    /// Process name prefixes to match in DiagnosticReports filenames.
-    /// macOS names crash files `<process>_<date>-<time>_<host>.<ext>`.
-    private nonisolated static let crashReportProcessPrefixes = [
+    /// Process names to match in DiagnosticReports filenames.
+    /// macOS names crash files `<process>-<date>-<time>.<ext>` or
+    /// `<process>_<date>-<time>_<host>.<ext>`. The match requires the
+    /// process name to be followed by a separator (`-`, `_`, or `.`)
+    /// to avoid false positives from unrelated processes whose names
+    /// share a prefix (e.g. `bundle`, `nodekit`).
+    private nonisolated static let crashReportProcessNames = [
         "bun",
         "node",
         "qdrant",
@@ -614,7 +627,11 @@ enum LogExporter {
                     return false
                 }
                 let name = url.lastPathComponent
-                guard crashReportProcessPrefixes.contains(where: { name.hasPrefix($0) }) else {
+                guard crashReportProcessNames.contains(where: { processName in
+                    guard name.hasPrefix(processName) else { return false }
+                    guard let next = name.dropFirst(processName.count).first else { return false }
+                    return next == "-" || next == "_" || next == "."
+                }) else {
                     return false
                 }
                 guard let values = try? url.resourceValues(forKeys: [.contentModificationDateKey]),
@@ -634,6 +651,7 @@ enum LogExporter {
         try? fileManager.createDirectory(at: dest, withIntermediateDirectories: true)
 
         var totalBytes = 0
+        var collectedCount = 0
         for file in matching {
             guard totalBytes < crashReportSizeLimit else { break }
             guard let values = try? file.resourceValues(forKeys: [.fileSizeKey]),
@@ -647,17 +665,19 @@ enum LogExporter {
                     to: dest.appendingPathComponent(file.lastPathComponent)
                 )
             } else {
-                // Truncate oversized reports to fit within the budget
-                copyTail(
+                // Truncate oversized reports — read from the start to
+                // preserve the header (process name, exception, crashed thread).
+                copyHead(
                     of: file,
                     bytes: bytesToRead,
                     to: dest.appendingPathComponent(file.lastPathComponent)
                 )
             }
             totalBytes += bytesToRead
+            collectedCount += 1
         }
 
-        log.info("Collected \(matching.count) crash report(s) (\(totalBytes) bytes)")
+        log.info("Collected \(collectedCount) crash report(s) (\(totalBytes) bytes)")
     }
 
     // MARK: - Platform Log Helpers
