@@ -852,15 +852,45 @@ async function classifyWithLLM(
  *
  * - `all_channels`: force selected channels to all connected channels.
  * - `multi_channel`: ensure at least 2 channels when 2+ are connected.
- * - `single_channel`: no override (default behavior).
+ * - `single_channel`: cap to a single channel. When explicitly set, reduces
+ *   selected channels to one — preferring the source channel if present.
  */
 export function enforceRoutingIntent(
   decision: NotificationDecision,
   routingIntent: RoutingIntent | undefined,
   connectedChannels: NotificationChannel[],
+  sourceChannel?: string,
 ): NotificationDecision {
-  if (!routingIntent || routingIntent === "single_channel") {
+  if (!routingIntent) {
     return decision;
+  }
+
+  if (routingIntent === "single_channel") {
+    if (!decision.shouldNotify || decision.selectedChannels.length <= 1) {
+      return decision;
+    }
+
+    // Prefer the source channel if it's among the selected channels;
+    // otherwise keep the first selected channel.
+    const preferred =
+      sourceChannel &&
+      decision.selectedChannels.includes(sourceChannel as NotificationChannel)
+        ? (sourceChannel as NotificationChannel)
+        : decision.selectedChannels[0];
+
+    const enforced = { ...decision };
+    enforced.selectedChannels = [preferred];
+    enforced.reasoningSummary = `${decision.reasoningSummary} [routing_intent=single_channel enforced: capped to ${preferred}]`;
+    log.info(
+      {
+        routingIntent,
+        sourceChannel,
+        originalChannels: decision.selectedChannels,
+        enforcedChannel: preferred,
+      },
+      "Routing intent enforcement: single_channel → capped to one channel",
+    );
+    return enforced;
   }
 
   if (!decision.shouldNotify) {

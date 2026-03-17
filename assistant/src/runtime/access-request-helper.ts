@@ -200,10 +200,18 @@ export function notifyGuardianOfAccessRequest(
   });
 
   let vellumDeliveryId: string | null = null;
+  // When the access request originates from a specific channel (Slack,
+  // Telegram, etc.), route the guardian notification to that same channel
+  // only. Delivering on the macOS client as well is noisy and approving
+  // from there doesn't work because the desktop path lacks the channel
+  // delivery context needed to deliver the verification code.
+  const sameChannelOnly = sourceChannel !== "vellum";
+
   void emitNotificationSignal({
     sourceEventName: "ingress.access_request",
     sourceChannel: sourceChannel as NotificationSourceChannel,
     sourceContextId: `access-req-${sourceChannel}-${actorExternalId}`,
+    ...(sameChannelOnly ? { routingIntent: "single_channel" as const } : {}),
     attentionHints: {
       requiresAction: true,
       urgency: "high",
