@@ -161,7 +161,7 @@ struct AssistantChannelsDetailView: View {
                     .help("Copy email address")
                 }
             } else {
-                feedbackMessage(
+                VInlineMessage(
                     "Not configured — run the Email Setup skill to assign an address",
                     tone: .warning
                 )
@@ -220,7 +220,7 @@ struct AssistantChannelsDetailView: View {
             }
 
             if let error = store.telegramError {
-                feedbackMessage(error)
+                VInlineMessage(error)
             }
 
         }
@@ -319,7 +319,7 @@ struct AssistantChannelsDetailView: View {
             }
 
             if let error = store.slackChannelError {
-                feedbackMessage(error)
+                VInlineMessage(error)
             }
 
         }
@@ -424,11 +424,11 @@ struct AssistantChannelsDetailView: View {
             }
 
             if let warning = store.twilioWarning {
-                feedbackMessage(warning, tone: .warning)
+                VInlineMessage(warning, tone: .warning)
             }
 
             if let error = store.twilioError {
-                feedbackMessage(error)
+                VInlineMessage(error)
             }
 
         }
@@ -483,34 +483,6 @@ struct AssistantChannelsDetailView: View {
                 }
             }
         }
-    }
-
-    private enum FeedbackTone {
-        case error
-        case warning
-    }
-
-    private func feedbackMessage(_ text: String, tone: FeedbackTone = .error) -> some View {
-        let foreground = tone == .warning ? VColor.systemMidStrong : VColor.systemNegativeStrong
-        let background = tone == .warning ? VColor.systemMidWeak : VColor.systemNegativeWeak
-
-        return HStack(alignment: .top, spacing: VSpacing.xs) {
-            VIconView(.triangleAlert, size: 12)
-                .foregroundColor(foreground)
-                .padding(.top, 1)
-            Text(text)
-                .font(VFont.caption)
-                .foregroundColor(foreground)
-                .fixedSize(horizontal: false, vertical: true)
-        }
-        .padding(.horizontal, VSpacing.sm)
-        .padding(.vertical, VSpacing.xs)
-        .background(background)
-        .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
-        .overlay(
-            RoundedRectangle(cornerRadius: VRadius.md)
-                .stroke(foreground.opacity(0.16), lineWidth: 1)
-        )
     }
 
 }

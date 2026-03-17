@@ -163,7 +163,7 @@ struct GuardianChannelsDetailView: View {
             }
 
             if errorChannelType == type, let errorMessage {
-                inlineMessage(errorMessage)
+                VInlineMessage(errorMessage)
             }
         }
     }
@@ -352,25 +352,6 @@ struct GuardianChannelsDetailView: View {
 
             actionInProgress = nil
         }
-    }
-
-    private func inlineMessage(_ text: String) -> some View {
-        HStack(alignment: .top, spacing: VSpacing.xs) {
-            VIconView(.triangleAlert, size: 12)
-                .foregroundColor(VColor.systemNegativeStrong)
-                .padding(.top, 1)
-            Text(text)
-                .font(VFont.caption)
-                .foregroundColor(VColor.systemNegativeStrong)
-        }
-        .padding(.horizontal, VSpacing.sm)
-        .padding(.vertical, VSpacing.xs)
-        .background(VColor.systemNegativeWeak)
-        .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
-        .overlay(
-            RoundedRectangle(cornerRadius: VRadius.md)
-                .stroke(VColor.systemNegativeStrong.opacity(0.16), lineWidth: 1)
-        )
     }
 
     // MARK: - Verification Flow Content

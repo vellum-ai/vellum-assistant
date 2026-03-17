@@ -229,26 +229,6 @@ struct ContactDetailView: View {
         }
     }
 
-    private func inlineMessage(_ text: String) -> some View {
-        HStack(alignment: .top, spacing: VSpacing.xs) {
-            VIconView(.triangleAlert, size: 12)
-                .foregroundColor(VColor.systemNegativeStrong)
-                .padding(.top, 1)
-            Text(text)
-                .font(VFont.caption)
-                .foregroundColor(VColor.systemNegativeStrong)
-                .fixedSize(horizontal: false, vertical: true)
-        }
-        .padding(.horizontal, VSpacing.sm)
-        .padding(.vertical, VSpacing.xs)
-        .background(VColor.systemNegativeWeak)
-        .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
-        .overlay(
-            RoundedRectangle(cornerRadius: VRadius.md)
-                .stroke(VColor.systemNegativeStrong.opacity(0.16), lineWidth: 1)
-        )
-    }
-
     // MARK: - Channels Section
 
     private var channelsSection: some View {
@@ -289,7 +269,7 @@ struct ContactDetailView: View {
             }
 
             if let errorMessage {
-                inlineMessage(errorMessage)
+                VInlineMessage(errorMessage)
             }
         }
         .task {
@@ -525,7 +505,7 @@ struct ContactDetailView: View {
 
                 // Inline error display so the message appears inside the channel card
                 if let inviteError, inviteErrorChannel == type {
-                    inlineMessage(inviteError)
+                    VInlineMessage(inviteError)
                 }
             } else if type == "phone" {
                 // Phone channel: code-based invite flow
@@ -564,7 +544,7 @@ struct ContactDetailView: View {
 
                 // Inline error display so the message appears inside the channel card
                 if let inviteError, inviteErrorChannel == type {
-                    inlineMessage(inviteError)
+                    VInlineMessage(inviteError)
                 }
             }
         }

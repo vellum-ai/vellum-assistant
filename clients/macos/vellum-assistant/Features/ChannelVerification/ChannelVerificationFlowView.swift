@@ -468,23 +468,7 @@ struct ChannelVerificationFlowView: View {
         let leadingPadding: CGFloat = showLabel ? labelColumnWidth + VSpacing.sm : 0
 
         VStack(alignment: .leading, spacing: VSpacing.xs) {
-            HStack(alignment: .top, spacing: VSpacing.xs) {
-                VIconView(.triangleAlert, size: 12)
-                    .foregroundColor(VColor.systemNegativeStrong)
-                    .padding(.top, 1)
-                Text(error)
-                    .font(VFont.caption)
-                    .foregroundColor(VColor.systemNegativeStrong)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-            .padding(.horizontal, VSpacing.sm)
-            .padding(.vertical, VSpacing.xs)
-            .background(VColor.systemNegativeWeak)
-            .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
-            .overlay(
-                RoundedRectangle(cornerRadius: VRadius.md)
-                    .stroke(VColor.systemNegativeStrong.opacity(0.16), lineWidth: 1)
-            )
+            VInlineMessage(error)
             if state.alreadyBound {
                 VButton(label: "Replace", style: .outlined) {
                     onStartSession(true)
