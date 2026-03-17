@@ -87,7 +87,7 @@ function encryptEntries(
     { iv: string; tag: string; data: string }
   > = {};
   for (const [account, value] of Object.entries(entries)) {
-    const iv = randomBytes(12);
+    const iv = randomBytes(16);
     const cipher = createCipheriv(ALGORITHM, key, iv, {
       authTagLength: AUTH_TAG_LENGTH,
     });

@@ -68,7 +68,7 @@ function encrypt(
   value: string,
   key: Buffer,
 ): { iv: string; tag: string; data: string } {
-  const iv = cryptoRandomBytes(12);
+  const iv = cryptoRandomBytes(16);
   const cipher = createCipheriv(ALGORITHM, key, iv, {
     authTagLength: AUTH_TAG_LENGTH,
   });
