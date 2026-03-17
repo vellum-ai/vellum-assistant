@@ -119,12 +119,6 @@ function basePrompt(result: string): string {
     boundaryIdx >= 0
       ? result.slice(boundaryIdx + SYSTEM_PROMPT_CACHE_BOUNDARY.length)
       : result;
-  // Strip the hardcoded em-dash instruction preamble (in case boundary is absent)
-  const emDashLine =
-    "IMPORTANT: Never use em dashes (\u2014) in your messages. Use commas, periods, or just start a new sentence instead.";
-  if (s.startsWith(emDashLine)) {
-    s = s.slice(emDashLine.length).replace(/^\n\n/, "");
-  }
   for (const heading of [
     "## Configuration",
     "## Skills Catalog",

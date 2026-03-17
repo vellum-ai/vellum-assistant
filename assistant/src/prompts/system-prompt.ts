@@ -134,9 +134,6 @@ export function buildSystemPrompt(options?: BuildSystemPromptOptions): string {
   // the first cache block so they remain cached even when workspace files
   // (IDENTITY.md, SOUL.md, USER.md, etc.) are edited between turns.
   const staticParts: string[] = [];
-  staticParts.push(
-    "IMPORTANT: Never use em dashes (—) in your messages. Use commas, periods, or just start a new sentence instead.",
-  );
   if (getIsContainerized()) staticParts.push(buildContainerizedSection());
   staticParts.push(buildCliReferenceSection());
   staticParts.push(buildPostToolResponseSection());
