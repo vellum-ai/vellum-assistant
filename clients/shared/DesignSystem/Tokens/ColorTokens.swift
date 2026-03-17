@@ -384,10 +384,10 @@ public enum VColor {
     public static let funTeal   = Color(hex: 0x0E9B8B)
     public static let funGreen  = Color(hex: 0x4C9B50)
 
-    // Role tag backgrounds — soft pastel backgrounds for contact role badges
-    public static let tagAssistant = Color(hex: 0xF0D9E0)
-    public static let tagGuardian  = Color(hex: 0xC8E5E2)
-    public static let tagHuman     = Color(hex: 0xEFE8C4)
+    // Role tag backgrounds — adaptive pastel backgrounds for contact role badges
+    public static let tagAssistant = adaptiveColor(light: Color(hex: 0xF0D9E0), dark: Color(hex: 0x3D2A35))
+    public static let tagGuardian  = adaptiveColor(light: Color(hex: 0xC8E5E2), dark: Color(hex: 0x2A4A45))
+    public static let tagHuman     = adaptiveColor(light: Color(hex: 0xEFE8C4), dark: Color(hex: 0x4A4530))
 
     /// Deterministic conversation icon background palette — semantic compositions of existing tokens.
     public static let conversationIconBackgrounds: [Color] = [
