@@ -697,10 +697,9 @@ struct MainWindowView: View {
             JITPermissionView(manager: jitPermissionManager)
         }
         .onAppear {
-            // Reset stale chat-dock state for users upgrading from versions
-            // that had the ChatBubbleToggle (now removed). Without this,
-            // isAppChatOpen could remain persisted as true with no UI to
-            // disable it, leaving panels stuck in split mode.
+            // Reset stale chat-dock state for users upgrading from older versions.
+            // Without this, isAppChatOpen could remain persisted as true with
+            // no UI to disable it, leaving panels stuck in split mode.
             isAppChatOpen = false
             windowState.refreshAPIKeyStatus(isConnected: daemonClient.isConnected, isAuthenticated: authManager.isAuthenticated)
             selectedConversationId = conversationManager.activeConversationId
