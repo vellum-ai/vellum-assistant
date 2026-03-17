@@ -18,10 +18,25 @@ import type {
 
 const log = getLogger("retry");
 
+/** Patterns that indicate a transient streaming corruption from the SDK. */
+const RETRYABLE_STREAM_PATTERNS = [
+  "Unexpected event order",
+  "stream ended without producing",
+  "request ended without sending any chunks",
+  "stream has ended, this shouldn't happen",
+];
+
+function isRetryableStreamError(error: unknown): boolean {
+  if (!(error instanceof ProviderError)) return false;
+  if (error.statusCode !== undefined) return false; // has a real HTTP status — not a stream error
+  return RETRYABLE_STREAM_PATTERNS.some((p) => error.message.includes(p));
+}
+
 function isRetryableError(error: unknown): boolean {
   if (error instanceof ProviderError && error.statusCode !== undefined) {
     if (error.statusCode === 429 || error.statusCode >= 500) return true;
   }
+  if (isRetryableStreamError(error)) return true;
   return isRetryableNetworkError(error);
 }
 
@@ -127,7 +142,9 @@ export class RetryProvider implements Provider {
                   error.statusCode !== undefined &&
                   error.statusCode >= 500
                 ? `server_error_${error.statusCode}`
-                : "network_error";
+                : isRetryableStreamError(error)
+                  ? "stream_corruption"
+                  : "network_error";
           log.warn(
             {
               attempt: attempt + 1,

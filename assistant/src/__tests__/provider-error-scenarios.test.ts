@@ -420,6 +420,115 @@ describe("RetryProvider — network error retries", () => {
 });
 
 // ---------------------------------------------------------------------------
+// RetryProvider — streaming corruption retries
+// ---------------------------------------------------------------------------
+
+describe("RetryProvider — streaming corruption retries", () => {
+  test("retries on 'Unexpected event order' (message_start before message_stop)", async () => {
+    const inner = makeFlaky(
+      1,
+      new ProviderError(
+        'Anthropic request failed: Unexpected event order, got message_start before receiving "message_stop"',
+        "anthropic",
+      ),
+    );
+    const provider = new RetryProvider(inner);
+
+    const result = await provider.sendMessage(MESSAGES);
+    expect(result.stopReason).toBe("end_turn");
+    expect(inner.calls).toBe(2);
+  });
+
+  test("retries on 'Unexpected event order' (event before message_start)", async () => {
+    const inner = makeFlaky(
+      1,
+      new ProviderError(
+        'Anthropic request failed: Unexpected event order, got content_block_start before "message_start"',
+        "anthropic",
+      ),
+    );
+    const provider = new RetryProvider(inner);
+
+    const result = await provider.sendMessage(MESSAGES);
+    expect(inner.calls).toBe(2);
+    expect(result.model).toBe("test-model");
+  });
+
+  test("retries on 'stream ended without producing'", async () => {
+    const inner = makeFlaky(
+      1,
+      new ProviderError(
+        "Anthropic request failed: stream ended without producing a Message with role=assistant",
+        "anthropic",
+      ),
+    );
+    const provider = new RetryProvider(inner);
+
+    const result = await provider.sendMessage(MESSAGES);
+    expect(inner.calls).toBe(2);
+    expect(result.content).toHaveLength(1);
+  });
+
+  test("retries on 'request ended without sending any chunks'", async () => {
+    const inner = makeFlaky(
+      1,
+      new ProviderError(
+        "Anthropic request failed: request ended without sending any chunks",
+        "anthropic",
+      ),
+    );
+    const provider = new RetryProvider(inner);
+
+    const result = await provider.sendMessage(MESSAGES);
+    expect(inner.calls).toBe(2);
+  });
+
+  test("throws after exhausting retries on persistent stream corruption", async () => {
+    const inner = makeFailing(
+      new ProviderError(
+        'Anthropic request failed: Unexpected event order, got message_start before receiving "message_stop"',
+        "anthropic",
+      ),
+    );
+    const provider = new RetryProvider(inner);
+
+    await expect(provider.sendMessage(MESSAGES)).rejects.toThrow(
+      "Unexpected event order",
+    );
+    expect(inner.calls).toBe(DEFAULT_MAX_RETRIES + 1);
+  });
+
+  test("does not retry non-stream ProviderError without status code", async () => {
+    const inner = makeFailing(
+      new ProviderError("model not found", "anthropic"),
+    );
+    const provider = new RetryProvider(inner);
+
+    await expect(provider.sendMessage(MESSAGES)).rejects.toThrow(
+      "model not found",
+    );
+    expect(inner.calls).toBe(1);
+  });
+
+  test("does not treat stream pattern as retryable when ProviderError has a status code", async () => {
+    // A 400 error that happens to contain "Unexpected event order" should NOT be retried
+    const inner = makeFailing(
+      new ProviderError(
+        "Unexpected event order in request payload",
+        "anthropic",
+        400,
+      ),
+    );
+    const provider = new RetryProvider(inner);
+
+    await expect(provider.sendMessage(MESSAGES)).rejects.toThrow(
+      "Unexpected event order",
+    );
+    expect(inner.calls).toBe(1);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // RetryProvider — streaming + options passthrough
 // ---------------------------------------------------------------------------
 
