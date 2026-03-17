@@ -70,6 +70,7 @@ describe("classifyConversationError", () => {
       "Connection refused by server",
       "connection reset",
       "connection timeout",
+      "The socket connection was closed unexpectedly",
     ];
 
     for (const msg of cases) {
