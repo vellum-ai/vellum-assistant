@@ -274,7 +274,7 @@ extension MainWindowView {
 
                     if regularConversations.count > 5 {
                         Button {
-                            withAnimation(VAnimation.standard) { sidebar.showAllConversations.toggle() }
+                            withAnimation(VAnimation.fast) { sidebar.showAllConversations.toggle() }
                         } label: {
                             Text(sidebar.showAllConversations ? "Show less" : "Show more")
                                 .font(VFont.caption)
@@ -333,7 +333,7 @@ extension MainWindowView {
 
                                 // Header row — chevron in icon slot, label + count badge
                                 Button {
-                                    withAnimation(VAnimation.standard) {
+                                    withAnimation(VAnimation.fast) {
                                         if isGroupExpanded {
                                             sidebar.expandedScheduleGroups.remove(group.key)
                                         } else {
@@ -424,7 +424,7 @@ extension MainWindowView {
 
                         if scheduleConversationGroups.count > 3 {
                             Button {
-                                withAnimation(VAnimation.standard) { sidebar.showAllScheduleConversations.toggle() }
+                                withAnimation(VAnimation.fast) { sidebar.showAllScheduleConversations.toggle() }
                             } label: {
                                 Text(sidebar.showAllScheduleConversations ? "Show less" : "Show more")
                                     .font(VFont.caption)

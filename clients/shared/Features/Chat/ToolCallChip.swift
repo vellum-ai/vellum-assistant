@@ -101,7 +101,8 @@ public struct ToolCallChip: View {
                     }
                 }
                 .padding(.horizontal, VSpacing.md)
-                .padding(.vertical, VSpacing.sm)
+                .padding(.vertical, VSpacing.md)
+                .contentShape(RoundedRectangle(cornerRadius: VRadius.md))
             }
             .buttonStyle(.plain)
             .pointerCursor()
@@ -236,6 +237,7 @@ public struct ToolCallChip: View {
                     }
                 }
                 .padding(.bottom, VSpacing.sm)
+                .transition(.opacity.combined(with: .move(edge: .top)))
                 .onAppear {
                     // Compute formatted input once when the user first expands,
                     // rather than re-running formatAllToolInput on every render.

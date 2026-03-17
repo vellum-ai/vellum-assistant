@@ -98,6 +98,8 @@ public struct ToolCallProgressBar: View {
             }
             .frame(width: 20, height: 20)
         }
+        .frame(minWidth: 28, minHeight: 28)
+        .contentShape(Circle())
         .buttonStyle(.plain)
         .disabled(!toolCall.isComplete)
         .accessibilityLabel(toolCall.isError ? "\(toolCall.friendlyName), failed" : toolCall.isComplete ? "\(toolCall.friendlyName), completed" : "\(toolCall.friendlyName), in progress")
