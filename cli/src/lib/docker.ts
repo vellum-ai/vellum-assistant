@@ -696,7 +696,7 @@ export async function hatchDocker(
     saveAssistantEntry(dockerEntry);
     setActiveAssistant(instanceName);
 
-    await tailContainerUntilReady({
+    const { ready } = await tailContainerUntilReady({
       containerName: res.assistantContainer,
       detached: watch ? false : detached,
       instanceName,
@@ -704,6 +704,10 @@ export async function hatchDocker(
       runtimeUrl,
       sentinel: "DaemonServer started",
     });
+
+    if (!ready && !(watch && repoRoot)) {
+      throw new Error("Timed out waiting for assistant to become ready");
+    }
 
     if (watch && repoRoot) {
       saveAssistantEntry({ ...dockerEntry, watcherPid: process.pid });
@@ -748,7 +752,7 @@ async function tailContainerUntilReady(opts: {
   logFd: number | "ignore";
   runtimeUrl: string;
   sentinel: string;
-}): Promise<void> {
+}): Promise<{ ready: boolean }> {
   const { containerName, detached, instanceName, logFd, runtimeUrl, sentinel } =
     opts;
 
@@ -765,14 +769,14 @@ async function tailContainerUntilReady(opts: {
     log(`  Container: ${containerName}`);
     log("");
     log(`Stop with: vellum retire ${instanceName}`);
-    return;
+    return { ready: true };
   }
 
   log(`  Container: ${containerName}`);
   log(`  Runtime: ${runtimeUrl}`);
   log("");
 
-  await new Promise<void>((resolve, reject) => {
+  return await new Promise<{ ready: boolean }>((resolve, reject) => {
     let settled = false;
     const child = nodeSpawn("docker", ["logs", "-f", containerName], {
       stdio: ["ignore", "pipe", "pipe"],
@@ -795,7 +799,7 @@ async function tailContainerUntilReady(opts: {
         log(`   The container is still running.`);
         log(`   Check logs with: docker logs -f ${containerName}`);
         log("");
-        reject(new Error("Timed out waiting for assistant to become ready"));
+        resolve({ ready: false });
       });
     }, DOCKER_READY_TIMEOUT_MS);
 
@@ -817,7 +821,7 @@ async function tailContainerUntilReady(opts: {
             log(`   Runtime: ${runtimeUrl}`);
             log("");
             child.kill();
-            resolve();
+            resolve({ ready: true });
           });
         });
       }
@@ -848,7 +852,7 @@ async function tailContainerUntilReady(opts: {
           code === 137 ||
           code === 143
         ) {
-          resolve();
+          resolve({ ready: true });
         } else {
           reject(new Error(`Docker container exited with code ${code}`));
         }
@@ -863,7 +867,7 @@ async function tailContainerUntilReady(opts: {
     process.on("SIGINT", () => {
       settle(() => {
         child.kill();
-        resolve();
+        resolve({ ready: true });
       });
     });
   });
