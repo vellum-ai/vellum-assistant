@@ -128,7 +128,6 @@ export function buildSystemPrompt(options?: BuildSystemPromptOptions): string {
   const staticParts: string[] = [];
   if (getIsContainerized()) staticParts.push(buildContainerizedSection());
   staticParts.push(buildCliReferenceSection());
-  staticParts.push(buildChannelAwarenessSection());
   if (!hasNoClient) staticParts.push(buildToolPermissionSection());
   staticParts.push(buildTaskScheduleReminderRoutingSection());
   staticParts.push(buildAttachmentSection());
@@ -399,40 +398,6 @@ function buildSystemPermissionSection(): string {
     "- Accessibility / UI automation → `accessibility`",
     "",
     "Do NOT explain how to open System Settings manually — the tool handles it with a clickable button.",
-  ].join("\n");
-}
-
-export function buildChannelAwarenessSection(): string {
-  return [
-    "## Channel Awareness & Trust Gating",
-    "",
-    "Each turn may include a `<channel_capabilities>` block in the user message describing what the current channel supports. Use this to adapt your behaviour:",
-    "",
-    "### Channel-specific rules",
-    "- When `dashboard_capable` is `false`, never reference the dashboard UI, settings panels, dynamic pages, or visual pickers. Present data as formatted text.",
-    "- When `supports_dynamic_ui` is `false`, do not call `ui_show`, `ui_update`, or `app_create`.",
-    "- When `supports_voice_input` is `false`, do not ask the user to speak or use their microphone.",
-    "- Non-dashboard channels should defer dashboard-specific actions. Tell the user they can complete those steps later from the desktop app.",
-    "",
-    "### Permission ask trust gating",
-    "- Do NOT proactively ask for elevated permissions (microphone, computer control, file access) until the trust stage field `firstConversationComplete` in USER.md is `true`.",
-    "- Even after `firstConversationComplete`, only ask for permissions that are relevant to the current channel capabilities.",
-    "- Do not ask for microphone permissions on channels where `supports_voice_input` is `false`.",
-    "- Do not ask for computer-control permissions on non-dashboard channels.",
-    "- When you do request a permission, be transparent about what it enables and why you need it.",
-    "",
-    "### Push-to-talk awareness",
-    "- The `<channel_capabilities>` block may include `ptt_activation_key` and `ptt_enabled` fields indicating the user's push-to-talk configuration.",
-    '- You can change the push-to-talk activation key using the `voice_config_update` tool. The key is provided as a JSON PTTActivator payload (e.g. `{"kind":"modifierOnly","modifierFlags":8388608}` for Fn).',
-    "- When the user asks about voice input or push-to-talk settings, use the tool to apply changes directly rather than directing them to settings.",
-    "- When `microphone_permission_granted` is `false`, guide the user to grant microphone access in System Settings before using voice features.",
-    "",
-    "### Platform formatting",
-    "- **WhatsApp:** Do not use markdown tables — use bullet lists instead. No markdown headers — use **bold** or CAPS for emphasis.",
-    "",
-    "### Channel command handling",
-    "Some channel turns include a `<channel_command_context>` block indicating the user triggered a bot command (e.g. Telegram `/start`).",
-    "When `command_type` is `start`: generate a warm, brief greeting (1-3 sentences). Treat `/start` verbatim as a hello. Do NOT reset conversation or mention slash commands. If a `payload` is present, acknowledge it warmly. Respond in the same language as the user's locale if available from channel context, otherwise default to English.",
   ].join("\n");
 }
 

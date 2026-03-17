@@ -162,14 +162,15 @@ describe("starter task playbook integration with buildSystemPrompt", () => {
     expect(result).not.toContain("## Starter Task Playbooks");
   });
 
-  test("starter task playbook and channel awareness both present during onboarding", () => {
+  test("starter task playbook present during onboarding (channel awareness removed from static prompt)", () => {
     writeFileSync(join(TEST_DIR, "IDENTITY.md"), "I am Vellum.");
     writeFileSync(join(TEST_DIR, "BOOTSTRAP.md"), "# First run");
     const result = buildSystemPrompt();
     const starterIdx = result.indexOf("## Starter Task Playbooks");
-    const channelIdx = result.indexOf("## Channel Awareness & Trust Gating");
     expect(starterIdx).toBeGreaterThan(-1);
-    expect(channelIdx).toBeGreaterThan(-1);
+    // Channel awareness section was removed from the static prompt —
+    // channel-specific rules are now injected per-turn via <channel_capabilities>.
+    expect(result).not.toContain("## Channel Awareness & Trust Gating");
   });
 
   test("all three kickoff intents present in full system prompt during onboarding", () => {

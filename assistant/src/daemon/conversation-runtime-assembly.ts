@@ -194,99 +194,6 @@ export function sanitizePttActivationKey(
   return undefined;
 }
 
-// Key code → name mapping for common macOS CGKeyCodes (subset for system prompt labels).
-const KEY_CODE_NAMES: Record<number, string> = {
-  0: "A",
-  1: "S",
-  2: "D",
-  3: "F",
-  4: "H",
-  5: "G",
-  6: "Z",
-  7: "X",
-  8: "C",
-  9: "V",
-  11: "B",
-  12: "Q",
-  13: "W",
-  14: "E",
-  15: "R",
-  16: "Y",
-  17: "T",
-  31: "O",
-  32: "U",
-  34: "I",
-  35: "P",
-  37: "L",
-  38: "J",
-  40: "K",
-  45: "N",
-  46: "M",
-  49: "Space",
-  96: "F5",
-  97: "F6",
-  98: "F7",
-  99: "F3",
-  100: "F8",
-  101: "F9",
-  103: "F11",
-  109: "F10",
-  111: "F12",
-  118: "F4",
-  120: "F2",
-  122: "F1",
-  57: "Caps Lock",
-};
-
-/** Derive a human-readable label from a PTT activation key JSON value. */
-function pttKeyLabel(raw: string): string {
-  // JSON PTTActivator payload
-  if (raw.startsWith("{")) {
-    try {
-      const p = JSON.parse(raw) as {
-        kind: string;
-        keyCode?: number;
-        modifierFlags?: number;
-        mouseButton?: number;
-      };
-      switch (p.kind) {
-        case "modifierOnly": {
-          const flags = p.modifierFlags ?? 0;
-          const parts: string[] = [];
-          if (flags & (1 << 23)) parts.push("Fn");
-          if (flags & (1 << 18)) parts.push("Ctrl");
-          if (flags & (1 << 19)) parts.push("Opt");
-          if (flags & (1 << 17)) parts.push("Shift");
-          if (flags & (1 << 20)) parts.push("Cmd");
-          return parts.length > 0 ? parts.join("+") : "modifier key";
-        }
-        case "key":
-          return KEY_CODE_NAMES[p.keyCode ?? -1] ?? `Key ${p.keyCode}`;
-        case "modifierKey": {
-          const flags = p.modifierFlags ?? 0;
-          const parts: string[] = [];
-          if (flags & (1 << 23)) parts.push("Fn");
-          if (flags & (1 << 18)) parts.push("Ctrl");
-          if (flags & (1 << 19)) parts.push("Opt");
-          if (flags & (1 << 17)) parts.push("Shift");
-          if (flags & (1 << 20)) parts.push("Cmd");
-          const keyName = KEY_CODE_NAMES[p.keyCode ?? -1] ?? `Key ${p.keyCode}`;
-          parts.push(keyName);
-          return parts.join("+");
-        }
-        case "mouseButton":
-          return `Mouse ${p.mouseButton}`;
-        case "none":
-          return "none";
-      }
-    } catch {
-      // fall through
-    }
-  }
-
-  return raw;
-}
-
 /** Optional PTT metadata provided by the client alongside each message. */
 export interface PttMetadata {
   pttActivationKey?: string;
@@ -607,6 +514,16 @@ export function injectChannelCapabilityContext(
   message: Message,
   caps: ChannelCapabilities,
 ): Message {
+  // Happy path: desktop with full capabilities — skip injection entirely.
+  if (
+    caps.dashboardCapable &&
+    caps.supportsDynamicUi &&
+    caps.supportsVoiceInput &&
+    !isGroupChatType(caps.chatType)
+  ) {
+    return message;
+  }
+
   const lines: string[] = ["<channel_capabilities>"];
   lines.push(`channel: ${caps.channel}`);
   lines.push(`dashboard_capable: ${caps.dashboardCapable}`);
@@ -631,36 +548,16 @@ export function injectChannelCapabilityContext(
       "- Defer dashboard-specific actions (e.g. accent color selection) by telling the user",
     );
     lines.push("  they can complete those steps later from the desktop app.");
+
+    if (caps.channel === "whatsapp") {
+      lines.push(
+        "- Do NOT use markdown tables — use bullet lists instead. No markdown headers — use **bold** or CAPS for emphasis.",
+      );
+    }
   }
 
   if (!caps.supportsVoiceInput) {
     lines.push("- Do NOT ask the user to use voice or microphone input.");
-  }
-
-  // PTT state — only relevant on channels that support voice input
-  if (caps.supportsVoiceInput) {
-    if (caps.pttActivationKey && caps.pttActivationKey !== "none") {
-      const keyLabel = pttKeyLabel(caps.pttActivationKey);
-      const isDisabled = keyLabel === "none";
-      if (!isDisabled) {
-        lines.push(`ptt_activation_key: ${keyLabel}`);
-        lines.push(`ptt_enabled: true`);
-        lines.push(
-          `Push-to-talk is configured with the ${keyLabel} key. The user can hold ${keyLabel} to dictate text or start a voice conversation.`,
-        );
-      }
-    } else if (caps.pttActivationKey === "none") {
-      lines.push(`ptt_activation_key: none`);
-      lines.push(`ptt_enabled: false`);
-      lines.push(
-        "Push-to-talk is disabled. You can offer to enable it for the user.",
-      );
-    }
-    if (caps.microphonePermissionGranted !== undefined) {
-      lines.push(
-        `microphone_permission_granted: ${caps.microphonePermissionGranted}`,
-      );
-    }
   }
 
   // Inject group chat etiquette only when the chat type indicates a multi-party
@@ -720,6 +617,13 @@ export function injectChannelCommandContext(
   if (ctx.languageCode) {
     lines.push(`language_code: ${ctx.languageCode}`);
   }
+
+  if (ctx.type === "start") {
+    lines.push(
+      "Respond with a warm, brief greeting (1-3 sentences). Treat /start as a hello. Do NOT reset conversation or mention slash commands. If a payload is present, acknowledge it warmly. Respond in the user's language if available from context, otherwise default to English.",
+    );
+  }
+
   lines.push("</channel_command_context>");
 
   const block = lines.join("\n");

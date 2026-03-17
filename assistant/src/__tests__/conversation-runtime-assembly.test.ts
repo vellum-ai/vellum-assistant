@@ -9,6 +9,7 @@ import {
   applyRuntimeInjections,
   buildChannelTurnContextBlock,
   injectChannelCapabilityContext,
+  injectChannelCommandContext,
   injectChannelTurnContext,
   injectInboundActorContext,
   injectTemporalContext,
@@ -20,7 +21,6 @@ import {
   stripInboundActorContext,
   stripTemporalContext,
 } from "../daemon/conversation-runtime-assembly.js";
-import { buildChannelAwarenessSection } from "../prompts/system-prompt.js";
 import type { Message } from "../providers/types.js";
 
 // ---------------------------------------------------------------------------
@@ -155,7 +155,7 @@ describe("injectChannelCapabilityContext", () => {
     content: [{ type: "text", text: "Hello" }],
   };
 
-  test("injects channel capabilities block for dashboard channel", () => {
+  test("skips injection entirely for desktop happy path (all capabilities true)", () => {
     const caps: ChannelCapabilities = {
       channel: "vellum",
       dashboardCapable: true,
@@ -165,26 +165,9 @@ describe("injectChannelCapabilityContext", () => {
 
     const result = injectChannelCapabilityContext(baseUserMessage, caps);
 
-    // Should prepend a text block with channel_capabilities
-    expect(result.content.length).toBe(2);
-    const injected = result.content[0];
-    expect(injected.type).toBe("text");
-    expect((injected as { type: "text"; text: string }).text).toContain(
-      "<channel_capabilities>",
-    );
-    expect((injected as { type: "text"; text: string }).text).toContain(
-      "dashboard_capable: true",
-    );
-    expect((injected as { type: "text"; text: string }).text).toContain(
-      "supports_dynamic_ui: true",
-    );
-    expect((injected as { type: "text"; text: string }).text).toContain(
-      "</channel_capabilities>",
-    );
-    // Should NOT contain constraint rules for dashboard
-    expect((injected as { type: "text"; text: string }).text).not.toContain(
-      "CHANNEL CONSTRAINTS",
-    );
+    // Message returned unchanged — no injection at all
+    expect(result).toBe(baseUserMessage);
+    expect(result.content.length).toBe(1);
   });
 
   test("injects constraint rules for non-dashboard channel", () => {
@@ -292,6 +275,50 @@ describe("injectChannelCapabilityContext", () => {
     const text = (result.content[0] as { type: "text"; text: string }).text;
     expect(text).toContain("GROUP CHAT ETIQUETTE");
     expect(text).toContain("emoji reactions");
+  });
+
+  test("still injects for group chats even when all capabilities are true", () => {
+    const caps: ChannelCapabilities = {
+      channel: "slack",
+      dashboardCapable: true,
+      supportsDynamicUi: true,
+      supportsVoiceInput: true,
+      chatType: "channel",
+    };
+
+    const result = injectChannelCapabilityContext(baseUserMessage, caps);
+    // Not the happy path because chatType is a group type
+    expect(result).not.toBe(baseUserMessage);
+    const text = (result.content[0] as { type: "text"; text: string }).text;
+    expect(text).toContain("GROUP CHAT ETIQUETTE");
+  });
+
+  test("injects WhatsApp formatting constraint for whatsapp channel", () => {
+    const caps: ChannelCapabilities = {
+      channel: "whatsapp",
+      dashboardCapable: false,
+      supportsDynamicUi: false,
+      supportsVoiceInput: false,
+    };
+
+    const result = injectChannelCapabilityContext(baseUserMessage, caps);
+    const text = (result.content[0] as { type: "text"; text: string }).text;
+    expect(text).toContain("Do NOT use markdown tables");
+    expect(text).toContain("bullet lists");
+    expect(text).toContain("CAPS for emphasis");
+  });
+
+  test("does NOT inject WhatsApp formatting for non-whatsapp channels", () => {
+    const caps: ChannelCapabilities = {
+      channel: "telegram",
+      dashboardCapable: false,
+      supportsDynamicUi: false,
+      supportsVoiceInput: false,
+    };
+
+    const result = injectChannelCapabilityContext(baseUserMessage, caps);
+    const text = (result.content[0] as { type: "text"; text: string }).text;
+    expect(text).not.toContain("Do NOT use markdown tables");
   });
 });
 
@@ -450,59 +477,11 @@ describe("applyRuntimeInjections with channelCapabilities", () => {
 });
 
 // ---------------------------------------------------------------------------
-// buildChannelAwarenessSection
-// ---------------------------------------------------------------------------
-
-describe("buildChannelAwarenessSection", () => {
-  test("includes channel awareness heading", () => {
-    const section = buildChannelAwarenessSection();
-    expect(section).toContain("## Channel Awareness & Trust Gating");
-  });
-
-  test("includes channel-specific rules", () => {
-    const section = buildChannelAwarenessSection();
-    expect(section).toContain("dashboard_capable");
-    expect(section).toContain("supports_dynamic_ui");
-    expect(section).toContain("supports_voice_input");
-  });
-
-  test("includes trust gating rules for permission asks", () => {
-    const section = buildChannelAwarenessSection();
-    expect(section).toContain("firstConversationComplete");
-    expect(section).toContain("Permission ask trust gating");
-    expect(section).toContain(
-      "Do NOT proactively ask for elevated permissions",
-    );
-  });
-
-  test("gates microphone permissions on voice capability", () => {
-    const section = buildChannelAwarenessSection();
-    expect(section).toContain("Do not ask for microphone permissions");
-  });
-
-  test("gates computer-control on dashboard channel", () => {
-    const section = buildChannelAwarenessSection();
-    expect(section).toContain("computer-control permissions on non-dashboard");
-  });
-
-  test("does NOT include group chat etiquette (gated per-turn instead)", () => {
-    const section = buildChannelAwarenessSection();
-    expect(section).not.toContain("Group chat etiquette");
-    expect(section).not.toContain("Stay silent when");
-  });
-
-  test("does NOT include Discord references (not a supported channel)", () => {
-    const section = buildChannelAwarenessSection();
-    expect(section).not.toContain("Discord");
-  });
-});
-
-// ---------------------------------------------------------------------------
 // Trust-gating behavior: channel constraints for permission asks
 // ---------------------------------------------------------------------------
 
 describe("trust-gating via channel capabilities", () => {
-  test("vellum channel with macos interface does not add constraint rules", () => {
+  test("vellum channel with macos interface skips injection (happy path)", () => {
     const caps = resolveChannelCapabilities("vellum", "macos");
     const message: Message = {
       role: "user",
@@ -510,10 +489,9 @@ describe("trust-gating via channel capabilities", () => {
     };
 
     const result = injectChannelCapabilityContext(message, caps);
-    const injected = (result.content[0] as { type: "text"; text: string }).text;
 
-    expect(injected).not.toContain("CHANNEL CONSTRAINTS");
-    expect(injected).toContain("dashboard_capable: true");
+    // Happy path: message returned unchanged
+    expect(result).toBe(message);
   });
 
   test("non-dashboard channel adds constraint rules preventing UI references", () => {
@@ -551,6 +529,50 @@ describe("trust-gating via channel capabilities", () => {
     );
     expect(injected).toContain("supports_dynamic_ui: true");
     expect(injected).toContain("dashboard_capable: false");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// injectChannelCommandContext
+// ---------------------------------------------------------------------------
+
+describe("injectChannelCommandContext", () => {
+  const baseUserMessage: Message = {
+    role: "user",
+    content: [{ type: "text", text: "Hello" }],
+  };
+
+  test("injects start command instructions when type is start", () => {
+    const result = injectChannelCommandContext(baseUserMessage, {
+      type: "start",
+    });
+    const text = (result.content[0] as { type: "text"; text: string }).text;
+    expect(text).toContain("command_type: start");
+    expect(text).toContain("warm, brief greeting");
+    expect(text).toContain("Treat /start as a hello");
+    expect(text).toContain("Do NOT reset conversation");
+  });
+
+  test("includes language code and payload when provided", () => {
+    const result = injectChannelCommandContext(baseUserMessage, {
+      type: "start",
+      payload: "ref123",
+      languageCode: "es",
+    });
+    const text = (result.content[0] as { type: "text"; text: string }).text;
+    expect(text).toContain("payload: ref123");
+    expect(text).toContain("language_code: es");
+    expect(text).toContain("warm, brief greeting");
+  });
+
+  test("does NOT inject start instructions for non-start commands", () => {
+    const result = injectChannelCommandContext(baseUserMessage, {
+      type: "help",
+    });
+    const text = (result.content[0] as { type: "text"; text: string }).text;
+    expect(text).toContain("command_type: help");
+    expect(text).not.toContain("warm, brief greeting");
+    expect(text).not.toContain("Treat /start as a hello");
   });
 });
 
