@@ -134,7 +134,6 @@ struct ContactDetailView: View {
             headerTitle
             headerFields
             headerActions
-            dangerZone
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .onAppear {
@@ -152,16 +151,29 @@ struct ContactDetailView: View {
     }
 
     private var headerTitle: some View {
-        VStack(alignment: .leading, spacing: VSpacing.xs) {
-            HStack(spacing: VSpacing.sm) {
-                Text(displayContact.displayName)
-                    .font(VFont.display)
-                    .foregroundColor(VColor.contentDefault)
-                contactTypeBadge
+        HStack(alignment: .top) {
+            VStack(alignment: .leading, spacing: VSpacing.xs) {
+                HStack(spacing: VSpacing.sm) {
+                    Text(displayContact.displayName)
+                        .font(VFont.display)
+                        .foregroundColor(VColor.contentDefault)
+                    contactTypeBadge
+                }
+                Text("\(displayContact.interactionCount) interaction\(displayContact.interactionCount == 1 ? "" : "s")")
+                    .font(VFont.caption)
+                    .foregroundColor(VColor.contentTertiary)
             }
-            Text("\(displayContact.interactionCount) interaction\(displayContact.interactionCount == 1 ? "" : "s")")
-                .font(VFont.caption)
-                .foregroundColor(VColor.contentTertiary)
+            Spacer()
+            VButton(
+                label: "Delete Contact",
+                iconOnly: VIcon.trash.rawValue,
+                style: .dangerGhost,
+                isDisabled: isDeleting || actionInProgress != nil || verificationInProgress != nil,
+                tooltip: "Delete Contact"
+            ) {
+                showDeleteConfirmation = true
+            }
+            .accessibilityLabel("Delete contact")
         }
     }
 
@@ -203,30 +215,6 @@ struct ContactDetailView: View {
 
     private var contactTypeBadge: some View {
         VBadge(label: formatContactType(displayContact.role), tone: .neutral)
-    }
-
-    private var dangerZone: some View {
-        VStack(alignment: .leading, spacing: VSpacing.sm) {
-            SettingsDivider()
-
-            Text("Danger Zone")
-                .font(VFont.inputLabel)
-                .foregroundColor(VColor.contentSecondary)
-
-            Text("Delete this contact and revoke all of their channels.")
-                .font(VFont.caption)
-                .foregroundColor(VColor.contentTertiary)
-
-            VButton(
-                label: "Delete Contact",
-                leftIcon: VIcon.trash.rawValue,
-                style: .dangerGhost,
-                isDisabled: isDeleting || actionInProgress != nil || verificationInProgress != nil
-            ) {
-                showDeleteConfirmation = true
-            }
-            .accessibilityLabel("Delete contact")
-        }
     }
 
     // MARK: - Channels Section
