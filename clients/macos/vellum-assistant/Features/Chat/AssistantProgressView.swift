@@ -843,6 +843,7 @@ private struct StepDetailRow: View {
                 }
             }
             .padding(VSpacing.sm)
+            .padding(.trailing, VSpacing.xl) // reserve space for copy button
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(VColor.surfaceOverlay.opacity(0.6))
             .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
