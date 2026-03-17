@@ -21,9 +21,9 @@ const PROVIDER_MODEL_INTENTS: Record<
     "vision-optimized": "claude-sonnet-4-6",
   },
   openai: {
-    "latency-optimized": "gpt-4o-mini",
+    "latency-optimized": "gpt-5.4-nano",
     "quality-optimized": "gpt-5.2",
-    "vision-optimized": "gpt-4o",
+    "vision-optimized": "gpt-5.4",
   },
   gemini: {
     "latency-optimized": "gemini-3-flash",
