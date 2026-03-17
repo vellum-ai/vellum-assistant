@@ -113,9 +113,10 @@ struct ReauthView: View {
             }
         }
         .task {
-            if !authManager.isAuthenticated {
-                await authManager.checkSession()
-            }
+            // If already authenticated (e.g. macOS state restoration), skip
+            // straight to the app. No redundant checkSession() — callers
+            // (startAuthenticatedFlow, performLogout) have already resolved
+            // the auth state before presenting this view.
             if authManager.isAuthenticated && !didComplete {
                 didComplete = true
                 onComplete()
