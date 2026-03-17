@@ -24,31 +24,39 @@ extension ComposerView {
         let isImage = attachment.mimeType.hasPrefix("image/")
 
         return HStack(spacing: VSpacing.sm) {
-            if isImage, let nsImage = attachment.thumbnailImage {
-                Image(nsImage: nsImage)
-                    .resizable()
-                    .aspectRatio(contentMode: .fill)
-                    .frame(width: 28, height: 28)
-                    .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
-            } else {
-                RoundedRectangle(cornerRadius: VRadius.sm)
-                    .fill(VColor.borderBase.opacity(0.5))
-                    .frame(width: 28, height: 28)
-                    .overlay {
-                        VIconView(iconForMimeType(attachment.mimeType, filename: attachment.filename), size: 14)
-                            .foregroundColor(VColor.contentSecondary)
-                    }
+            HStack(spacing: VSpacing.sm) {
+                if isImage, let nsImage = attachment.thumbnailImage {
+                    Image(nsImage: nsImage)
+                        .resizable()
+                        .aspectRatio(contentMode: .fill)
+                        .frame(width: 28, height: 28)
+                        .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
+                } else {
+                    RoundedRectangle(cornerRadius: VRadius.sm)
+                        .fill(VColor.borderBase.opacity(0.5))
+                        .frame(width: 28, height: 28)
+                        .overlay {
+                            VIconView(iconForMimeType(attachment.mimeType, filename: attachment.filename), size: 14)
+                                .foregroundColor(VColor.contentSecondary)
+                        }
+                }
+
+                Text(attachment.filename)
+                    .font(VFont.caption)
+                    .foregroundColor(VColor.contentSecondary)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+
+                Text("· \(fileSize)")
+                    .font(VFont.caption)
+                    .foregroundColor(VColor.contentTertiary)
             }
-
-            Text(attachment.filename)
-                .font(VFont.caption)
-                .foregroundColor(VColor.contentSecondary)
-                .lineLimit(1)
-                .truncationMode(.middle)
-
-            Text("· \(fileSize)")
-                .font(VFont.caption)
-                .foregroundColor(VColor.contentTertiary)
+            .contentShape(Rectangle())
+            .if(isImage) { view in
+                view
+                    .onTapGesture { openAttachmentPreview(attachment) }
+                    .pointerCursor()
+            }
 
             Button {
                 onRemoveAttachment(attachment.id)
@@ -64,12 +72,6 @@ extension ComposerView {
         .background(VColor.borderBase.opacity(0.3))
         .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
         .frame(maxWidth: 280)
-        .if(isImage) { view in
-            view
-                .contentShape(Rectangle())
-                .onTapGesture { openAttachmentPreview(attachment) }
-                .pointerCursor()
-        }
     }
 }
 
