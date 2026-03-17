@@ -11,7 +11,6 @@ struct UsageDashboardPanel: View {
     var body: some View {
         VSidePanel(title: "Usage", onClose: onClose, pinnedContent: {
             timeRangeStrip(store: store)
-            Divider().background(VColor.borderBase)
         }) {
             contentView(store: store)
         }
@@ -60,7 +59,9 @@ struct UsageDashboardPanel: View {
     func contentView(store: UsageDashboardStore) -> some View {
         VStack(alignment: .leading, spacing: VSpacing.xl) {
             totalsSection(store: store)
+            Divider().background(VColor.borderBase)
             dailySection(store: store)
+            Divider().background(VColor.borderBase)
             breakdownSection(store: store)
         }
     }
@@ -69,22 +70,24 @@ struct UsageDashboardPanel: View {
 
     @ViewBuilder
     private func totalsSection(store: UsageDashboardStore) -> some View {
-        sectionHeader("Totals", icon: "chart.bar.fill")
+        VStack(alignment: .leading, spacing: VSpacing.md) {
+            sectionTitle("Totals")
 
-        switch store.totalsState {
-        case .idle, .loading:
-            loadingRow()
-        case .loaded(let totals):
-            LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: VSpacing.md) {
-                statCard(label: "Estimated Cost", value: formatCost(totals.totalEstimatedCostUsd))
-                statCard(label: "LLM Calls", value: formatCount(totals.eventCount))
-                statCard(label: UsageFormatting.directInputTokensLabel, value: formatTokenCount(totals.totalInputTokens))
-                statCard(label: "Output Tokens", value: formatTokenCount(totals.totalOutputTokens))
-                statCard(label: "Cache Created", value: formatTokenCount(totals.totalCacheCreationTokens))
-                statCard(label: "Cache Read", value: formatTokenCount(totals.totalCacheReadTokens))
+            switch store.totalsState {
+            case .idle, .loading:
+                loadingRow()
+            case .loaded(let totals):
+                LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: VSpacing.md) {
+                    statCard(label: "Estimated Cost", value: formatCost(totals.totalEstimatedCostUsd))
+                    statCard(label: "LLM Calls", value: formatCount(totals.eventCount))
+                    statCard(label: UsageFormatting.directInputTokensLabel, value: formatTokenCount(totals.totalInputTokens))
+                    statCard(label: "Output Tokens", value: formatTokenCount(totals.totalOutputTokens))
+                    statCard(label: "Cache Created", value: formatTokenCount(totals.totalCacheCreationTokens))
+                    statCard(label: "Cache Read", value: formatTokenCount(totals.totalCacheReadTokens))
+                }
+            case .failed(let message):
+                errorRow(message)
             }
-        case .failed(let message):
-            errorRow(message)
         }
     }
 
@@ -92,58 +95,62 @@ struct UsageDashboardPanel: View {
 
     @ViewBuilder
     private func dailySection(store: UsageDashboardStore) -> some View {
-        sectionHeader("Daily Trend", icon: "chart.line.uptrend.xyaxis")
+        VStack(alignment: .leading, spacing: VSpacing.md) {
+            sectionTitle("Daily Trend")
 
-        switch store.dailyState {
-        case .idle, .loading:
-            loadingRow()
-        case .loaded(let daily):
-            if daily.buckets.isEmpty {
-                VEmptyState(
-                    title: "No daily data",
-                    subtitle: "No usage recorded in this time range",
-                    icon: "calendar"
-                )
-            } else {
-                dailyTrendList(daily.buckets)
+            switch store.dailyState {
+            case .idle, .loading:
+                loadingRow()
+            case .loaded(let daily):
+                if daily.buckets.isEmpty {
+                    VEmptyState(
+                        title: "No daily data",
+                        subtitle: "No usage recorded in this time range",
+                        icon: "calendar"
+                    )
+                } else {
+                    dailyBarChart(daily.buckets)
+                }
+            case .failed(let message):
+                errorRow(message)
             }
-        case .failed(let message):
-            errorRow(message)
         }
     }
 
     private let barChartHeight: CGFloat = 140
+    private let maxBarWidth: CGFloat = 32
 
     @ViewBuilder
-    private func dailyTrendList(_ buckets: [UsageDayBucket]) -> some View {
+    private func dailyBarChart(_ buckets: [UsageDayBucket]) -> some View {
         let maxCost = buckets.map(\.totalEstimatedCostUsd).max() ?? 1.0
 
         VStack(spacing: VSpacing.xs) {
             // Bar chart
-            HStack(alignment: .bottom, spacing: 2) {
+            HStack(alignment: .bottom, spacing: VSpacing.xs) {
                 ForEach(buckets, id: \.date) { bucket in
                     let fraction = maxCost > 0 ? bucket.totalEstimatedCostUsd / maxCost : 0
                     VStack(spacing: VSpacing.xxs) {
                         Spacer(minLength: 0)
                         RoundedRectangle(cornerRadius: VRadius.xs)
                             .fill(VColor.systemPositiveStrong)
-                            .frame(height: max(2, barChartHeight * fraction))
+                            .frame(width: maxBarWidth, height: max(2, barChartHeight * fraction))
                     }
-                    .frame(maxWidth: .infinity)
                 }
             }
             .frame(height: barChartHeight)
+            .frame(maxWidth: .infinity)
 
             // Date labels
-            HStack(spacing: 2) {
+            HStack(spacing: VSpacing.xs) {
                 ForEach(buckets, id: \.date) { bucket in
                     Text(formatShortDate(bucket.date))
                         .font(VFont.small)
                         .foregroundColor(VColor.contentTertiary)
-                        .frame(maxWidth: .infinity)
+                        .frame(width: maxBarWidth)
                         .lineLimit(1)
                 }
             }
+            .frame(maxWidth: .infinity)
         }
     }
 
@@ -158,27 +165,27 @@ struct UsageDashboardPanel: View {
 
     @ViewBuilder
     private func breakdownSection(store: UsageDashboardStore) -> some View {
-        HStack {
-            sectionHeader("Breakdown", icon: "rectangle.3.group")
-            Spacer()
-            groupByPicker(store: store)
-        }
+        VStack(alignment: .leading, spacing: VSpacing.md) {
+            sectionTitle("Breakdown")
 
-        switch store.breakdownState {
-        case .idle, .loading:
-            loadingRow()
-        case .loaded(let breakdown):
-            if breakdown.breakdown.isEmpty {
-                VEmptyState(
-                    title: "No breakdown data",
-                    subtitle: "No usage recorded for this grouping",
-                    icon: "rectangle.3.group"
-                )
-            } else {
-                breakdownList(breakdown.breakdown)
+            groupByPicker(store: store)
+
+            switch store.breakdownState {
+            case .idle, .loading:
+                loadingRow()
+            case .loaded(let breakdown):
+                if breakdown.breakdown.isEmpty {
+                    VEmptyState(
+                        title: "No breakdown data",
+                        subtitle: "No usage recorded for this grouping",
+                        icon: "rectangle.3.group"
+                    )
+                } else {
+                    breakdownTable(breakdown.breakdown)
+                }
+            case .failed(let message):
+                errorRow(message)
             }
-        case .failed(let message):
-            errorRow(message)
         }
     }
 
@@ -195,11 +202,13 @@ struct UsageDashboardPanel: View {
             ),
             options: UsageGroupByDimension.allCases.map { ($0.rawValue.capitalized, $0) }
         )
-        .frame(width: 120)
+        .frame(width: 140)
     }
 
+    private let breakdownTableWidth: CGFloat = 500
+
     @ViewBuilder
-    private func breakdownList(_ entries: [UsageGroupBreakdownEntry]) -> some View {
+    private func breakdownTable(_ entries: [UsageGroupBreakdownEntry]) -> some View {
         VStack(spacing: VSpacing.sm) {
             // Header row
             HStack(alignment: .top, spacing: VSpacing.sm) {
@@ -222,6 +231,7 @@ struct UsageDashboardPanel: View {
                 breakdownRow(entry)
             }
         }
+        .frame(maxWidth: breakdownTableWidth, alignment: .leading)
     }
 
     @ViewBuilder
@@ -248,14 +258,10 @@ struct UsageDashboardPanel: View {
     // MARK: - Shared Components
 
     @ViewBuilder
-    private func sectionHeader(_ title: String, icon: String) -> some View {
-        HStack(spacing: VSpacing.xs) {
-            VIconView(SFSymbolMapping.icon(forSFSymbol: icon, fallback: .puzzle), size: 12)
-                .foregroundColor(VColor.systemPositiveStrong)
-            Text(title)
-                .font(VFont.captionMedium)
-                .foregroundColor(VColor.contentDefault)
-        }
+    private func sectionTitle(_ title: String) -> some View {
+        Text(title)
+            .font(VFont.headline)
+            .foregroundColor(VColor.contentDefault)
     }
 
     @ViewBuilder
