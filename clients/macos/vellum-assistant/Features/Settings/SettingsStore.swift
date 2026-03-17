@@ -190,6 +190,9 @@ public final class SettingsStore: ObservableObject {
     /// Values: `"managed"` or `"your-own"`.
     @Published var inferenceMode: String = "your-own"
 
+    /// Current image generation mode. Values: "managed" or "your-own".
+    @Published var imageGenMode: String = "your-own"
+
     /// The selected web search provider, persisted in workspace config under
     /// `services.web-search.provider`.
     @Published var webSearchProvider: String = "anthropic-native"
@@ -378,6 +381,9 @@ public final class SettingsStore: ObservableObject {
            let provider = webSearch["provider"] as? String {
             self.webSearchProvider = provider
         }
+
+        // Load service modes (inference, image-generation) from workspace config
+        loadServiceModes()
 
         // When enabledSince was defaulted to "now" (no value on disk),
         // persist it immediately so subsequent loads produce the same
@@ -1907,12 +1913,25 @@ public final class SettingsStore: ObservableObject {
                       let provider = json["provider"] as? [String: Any],
                       let sources = provider["routingSources"] as? [String: String] else { return }
                 self.providerRoutingSources = sources
-                if let mode = provider["inferenceMode"] as? String {
-                    self.inferenceMode = mode
-                }
+                self.loadServiceModes()
             } catch {
                 log.error("Failed to load provider routing sources: \(error)")
             }
+        }
+    }
+
+    /// Loads service modes (inference, image-generation) from workspace config.
+    /// Called during init and when the daemon reconnects.
+    func loadServiceModes() {
+        let config = WorkspaceConfigIO.read(from: configPath)
+        guard let services = config["services"] as? [String: Any] else { return }
+        if let inference = services["inference"] as? [String: Any],
+           let mode = inference["mode"] as? String {
+            self.inferenceMode = mode
+        }
+        if let imageGen = services["image-generation"] as? [String: Any],
+           let mode = imageGen["mode"] as? String {
+            self.imageGenMode = mode
         }
     }
 
@@ -1928,6 +1947,22 @@ public final class SettingsStore: ObservableObject {
             try WorkspaceConfigIO.merge(["services": services], into: configPath)
         } catch {
             log.error("Failed to merge workspace config for inference mode: \(error)")
+        }
+        scheduleRoutingSourceRefresh()
+    }
+
+    func setImageGenMode(_ mode: String) {
+        imageGenMode = mode
+        guard !isCurrentAssistantRemote else { return }
+        let existingConfig = WorkspaceConfigIO.read(from: configPath)
+        var services = existingConfig["services"] as? [String: Any] ?? [:]
+        var imageGen = services["image-generation"] as? [String: Any] ?? [:]
+        imageGen["mode"] = mode
+        services["image-generation"] = imageGen
+        do {
+            try WorkspaceConfigIO.merge(["services": services], into: configPath)
+        } catch {
+            log.error("Failed to merge workspace config for image-generation mode: \(error)")
         }
         scheduleRoutingSourceRefresh()
     }
