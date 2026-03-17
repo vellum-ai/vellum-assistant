@@ -65,8 +65,7 @@ class HostShellTool implements Tool {
         properties: {
           command: {
             type: "string",
-            description:
-              "The host shell command to execute. IMPORTANT: Only use host_bash when the command absolutely must run on the host machine. Strongly prefer the regular `bash` tool for all other commands.",
+            description: "The host shell command to execute.",
           },
           activity: {
             type: "string",
