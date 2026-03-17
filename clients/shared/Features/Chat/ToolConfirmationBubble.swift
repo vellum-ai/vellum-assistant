@@ -509,6 +509,14 @@ public struct ToolConfirmationBubble: View {
         }
     }
 
+    private var alwaysAllowPatternLabel: String {
+        let tool = confirmation.toolName
+        if tool == "bash" || tool == "host_bash" { return "Command" }
+        if tool.contains("file") { return "File" }
+        if tool == "web_fetch" || tool == "web_search" { return "URL" }
+        return "Pattern"
+    }
+
     @ViewBuilder
     private var alwaysAllowMenuItems: some View {
         let options = confirmation.allowlistOptions
@@ -517,20 +525,24 @@ public struct ToolConfirmationBubble: View {
         if options.count > 1 {
             // Multiple patterns — show each, with scope submenus if needed
             Menu("Always allow") {
-                ForEach(Array(options.enumerated()), id: \.element.pattern) { _, option in
-                    if scopes.isEmpty {
-                        Button(option.label) {
-                            markCommandExplanationSeen()
-                            preferredAllowAction = "always_allow"
-                            onAlwaysAllow(confirmation.requestId, option.pattern, "everywhere", alwaysAllowDecision)
-                        }
-                    } else {
-                        Menu(option.label) {
-                            ForEach(Array(scopes.enumerated()), id: \.element.scope) { _, scopeOption in
-                                Button(scopeOption.label) {
-                                    markCommandExplanationSeen()
-                                    preferredAllowAction = "always_allow"
-                                    onAlwaysAllow(confirmation.requestId, option.pattern, scopeOption.scope, alwaysAllowDecision)
+                Section(alwaysAllowPatternLabel) {
+                    ForEach(Array(options.enumerated()), id: \.element.pattern) { _, option in
+                        if scopes.isEmpty {
+                            Button(option.label) {
+                                markCommandExplanationSeen()
+                                preferredAllowAction = "always_allow"
+                                onAlwaysAllow(confirmation.requestId, option.pattern, "everywhere", alwaysAllowDecision)
+                            }
+                        } else {
+                            Menu(option.label) {
+                                Section("Scope") {
+                                    ForEach(Array(scopes.enumerated()), id: \.element.scope) { _, scopeOption in
+                                        Button(scopeOption.label) {
+                                            markCommandExplanationSeen()
+                                            preferredAllowAction = "always_allow"
+                                            onAlwaysAllow(confirmation.requestId, option.pattern, scopeOption.scope, alwaysAllowDecision)
+                                        }
+                                    }
                                 }
                             }
                         }
@@ -552,11 +564,13 @@ public struct ToolConfirmationBubble: View {
             } else {
                 // Single pattern with scope choice
                 Menu("Always allow") {
-                    ForEach(Array(scopes.enumerated()), id: \.element.scope) { _, scopeOption in
-                        Button(scopeOption.label) {
-                            markCommandExplanationSeen()
-                            preferredAllowAction = "always_allow"
-                            onAlwaysAllow(confirmation.requestId, option.pattern, scopeOption.scope, alwaysAllowDecision)
+                    Section("Scope") {
+                        ForEach(Array(scopes.enumerated()), id: \.element.scope) { _, scopeOption in
+                            Button(scopeOption.label) {
+                                markCommandExplanationSeen()
+                                preferredAllowAction = "always_allow"
+                                onAlwaysAllow(confirmation.requestId, option.pattern, scopeOption.scope, alwaysAllowDecision)
+                            }
                         }
                     }
                 }
