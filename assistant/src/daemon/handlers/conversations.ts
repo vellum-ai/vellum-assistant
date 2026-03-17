@@ -581,14 +581,14 @@ export function deleteQueuedMessage(
   ) => { removeQueuedMessage(requestId: string): boolean } | undefined,
 ):
   | { removed: true }
-  | { removed: false; reason: "session_not_found" | "message_not_found" } {
+  | { removed: false; reason: "conversation_not_found" | "message_not_found" } {
   const conversation = findConversation(conversationId);
   if (!conversation) {
     log.warn(
       { conversationId, requestId },
       "No conversation found for delete_queued_message",
     );
-    return { removed: false, reason: "session_not_found" };
+    return { removed: false, reason: "conversation_not_found" };
   }
   const removed = conversation.removeQueuedMessage(requestId);
   if (removed) {

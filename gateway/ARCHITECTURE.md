@@ -215,13 +215,13 @@ Channel readiness endpoints are exposed directly by the gateway and forwarded to
 
 ### Channel Binding Lifecycle (Lane Separation)
 
-Each channel (desktop, Telegram, etc.) operates in its own **lane**: conversations created by an external channel are never displayed in the desktop conversation list, and desktop conversations are never exposed to external channels. The `channelBinding` metadata on a conversation is used solely for routing inbound/outbound messages within that lane and for filtering sessions during desktop session restoration.
+Each channel (desktop, Telegram, etc.) operates in its own **lane**: conversations created by an external channel are never displayed in the desktop conversation list, and desktop conversations are never exposed to external channels. The `channelBinding` metadata on a conversation is used solely for routing inbound/outbound messages within that lane and for filtering conversations during desktop conversation restoration.
 
 Channel bindings follow a three-phase lifecycle:
 
 1. **Bind** — An inbound message from an external channel (e.g., Telegram chat) arrives at the gateway, which normalizes it and forwards it to the runtime's `/v1/channels/inbound` endpoint. The runtime creates or reuses a conversation, establishing the channel binding (`sourceChannel` metadata on the conversation).
 
-2. **Route** — Subsequent messages on the same external chat are routed to the same conversation via the channel binding. Replies from the assistant are delivered back through the gateway's `/deliver/telegram` endpoint. The desktop client filters out channel-bound sessions during session restoration (`ConversationRestorer`) so they never appear in the desktop conversation list.
+2. **Route** — Subsequent messages on the same external chat are routed to the same conversation via the channel binding. Replies from the assistant are delivered back through the gateway's `/deliver/telegram` endpoint. The desktop client filters out channel-bound conversations during conversation restoration (`ConversationRestorer`) so they never appear in the desktop conversation list.
 
 3. **Rebind** — If a message arrives on an external chat whose conversation was previously deleted, the channel inbound handler treats it as a new conversation and establishes a fresh binding. The external chat ID is reused, but the conversation is new.
 

@@ -195,7 +195,6 @@ describe("guardian-dispatch", () => {
     expect(vellumDelivery!.destination_conversation_id).toBe("conv-vellum-1");
 
     const signalParams = emitCalls[0] as Record<string, unknown>;
-    expect(signalParams.skipVellumThread).toBeUndefined();
     expect(typeof signalParams.onConversationCreated).toBe("function");
   });
 

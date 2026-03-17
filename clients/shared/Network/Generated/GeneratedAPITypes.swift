@@ -395,7 +395,7 @@ public struct AppUpdatePreviewResponse: Codable, Sendable {
 
 /// Server-side assistant activity lifecycle for thinking indicator placement.
 /// 
-/// `activityVersion` is monotonically increasing per session. Clients must
+/// `activityVersion` is monotonically increasing per conversation. Clients must
 /// ignore events with a version older than their current known version.
 public struct AssistantActivityState: Codable, Sendable {
     public let type: String
@@ -634,7 +634,7 @@ public struct CancelRequest: Codable, Sendable {
     }
 }
 
-/// Channel binding metadata exposed in session/conversation list APIs.
+/// Channel binding metadata exposed in conversation list APIs.
 public struct ChannelBinding: Codable, Sendable {
     public let sourceChannel: String
     public let externalChatId: String
@@ -3374,7 +3374,7 @@ public struct ConversationListResponseItem: Codable, Sendable {
     public let conversationType: String?
     public let source: String?
     public let scheduleJobId: String?
-    /// Channel binding metadata exposed in session/conversation list APIs.
+    /// Channel binding metadata exposed in conversation list APIs.
     public let channelBinding: ChannelBinding?
     public let conversationOriginChannel: String?
     public let conversationOriginInterface: String?
@@ -4147,7 +4147,7 @@ public struct SubagentStatusChanged: Codable, Sendable {
 
 public struct SubagentStatusRequest: Codable, Sendable {
     public let type: String
-    /// If omitted, returns all subagents for the session.
+    /// If omitted, returns all subagents for the conversation.
     public let subagentId: String?
 
     public init(type: String, subagentId: String? = nil) {
@@ -4885,7 +4885,7 @@ public struct VercelApiConfigResponse: Codable, Sendable {
     }
 }
 
-/// Request from a session or client to change the voice activation key.
+/// Request from a conversation or client to change the voice activation key.
 public struct VoiceConfigUpdateRequest: Codable, Sendable {
     public let type: String
     /// The desired activation key (enum value or natural-language name).
