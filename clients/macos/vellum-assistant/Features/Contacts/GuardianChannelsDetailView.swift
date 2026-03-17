@@ -427,7 +427,8 @@ struct GuardianChannelsDetailView: View {
                 },
                 botUsername: store.telegramBotUsername,
                 phoneNumber: store.twilioPhoneNumber,
-                showLabel: false
+                showLabel: false,
+                autoFocus: true
             )
         }
     }

@@ -175,7 +175,12 @@ struct ContactDetailView: View {
                 style: .dangerGhost,
                 isDisabled: isDeleting || actionInProgress != nil || verificationInProgress != nil
             ) {
-                showDeleteConfirmation = true
+                // Skip confirmation for empty/placeholder contacts
+                if displayContact.displayName == "New Contact" && displayContact.channels.isEmpty && displayContact.interactionCount == 0 {
+                    deleteContact()
+                } else {
+                    showDeleteConfirmation = true
+                }
             }
         }
     }

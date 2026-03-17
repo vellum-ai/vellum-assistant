@@ -25,6 +25,8 @@ struct ChannelVerificationFlowView: View {
     var botUsername: String?
     var phoneNumber: String?
     var showLabel: Bool = true
+    /// When true, auto-focuses the first input field on appear.
+    var autoFocus: Bool = false
     var labelColumnWidth: CGFloat = 140
 
     // MARK: - Copy Feedback State
@@ -33,6 +35,7 @@ struct ChannelVerificationFlowView: View {
     @State private var commandCopied: Bool = false
     @State private var codeCopyResetTask: Task<Void, Never>?
     @State private var commandCopyResetTask: Task<Void, Never>?
+    @FocusState private var isDestinationFocused: Bool
 
     // MARK: - Body
 
@@ -421,6 +424,14 @@ struct ChannelVerificationFlowView: View {
                 .font(VFont.body)
                 .foregroundColor(VColor.contentDefault)
                 .frame(maxWidth: 360)
+                .focused($isDestinationFocused)
+                .onAppear {
+                    if autoFocus {
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                            isDestinationFocused = true
+                        }
+                    }
+                }
 
             if state.channel == "telegram" {
                 HStack(spacing: 0) {
