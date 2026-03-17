@@ -411,11 +411,20 @@ public final class SettingsStore: ObservableObject {
             .sink { [weak self] _ in self?.refreshAPIKeyState() }
             .store(in: &cancellables)
 
-        // Re-sync all API keys to daemon when it reconnects
+        // Re-sync all API keys and refresh remote state when the daemon reconnects.
+        // This also covers the first-launch case where SettingsStore is initialized
+        // before onboarding sets connectedAssistantId.
         NotificationCenter.default.publisher(for: .daemonDidReconnect)
             .receive(on: RunLoop.main)
             .sink { [weak self] _ in
                 self?.syncAllKeysToDaemon()
+                self?.refreshVercelKeyState()
+                self?.refreshModelInfo()
+                self?.refreshTelegramStatus()
+                self?.refreshTwilioStatus()
+                self?.refreshChannelVerificationStatus(channel: "telegram")
+                self?.refreshChannelVerificationStatus(channel: "phone")
+                self?.refreshChannelVerificationStatus(channel: "slack")
                 self?.loadProviderRoutingSources()
             }
             .store(in: &cancellables)
