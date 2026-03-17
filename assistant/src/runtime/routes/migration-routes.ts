@@ -13,10 +13,17 @@
 
 import { Database } from "bun:sqlite";
 
+import { join } from "node:path";
+
 import { invalidateConfigCache } from "../../config/loader.js";
 import { resetDb } from "../../memory/db-connection.js";
 import { getLogger } from "../../util/logger.js";
-import { getDbPath, getWorkspaceConfigPath } from "../../util/platform.js";
+import {
+  getDbPath,
+  getRootDir,
+  getWorkspaceConfigPath,
+  getWorkspaceSkillsDir,
+} from "../../util/platform.js";
 import { httpError } from "../http-errors.js";
 import type { RouteDefinition } from "../http-router.js";
 import { buildExportVBundle } from "../migrations/vbundle-builder.js";
@@ -137,6 +144,8 @@ export async function handleMigrationExport(req: Request): Promise<Response> {
     const { archive, manifest } = buildExportVBundle({
       dbPath: getDbPath(),
       configPath: getWorkspaceConfigPath(),
+      trustPath: join(getRootDir(), "protected", "trust.json"),
+      skillsDir: getWorkspaceSkillsDir(),
       source: "runtime-export",
       description,
       checkpoint: () => {
@@ -291,6 +300,8 @@ export async function handleMigrationImportPreflight(
     const pathResolver = new DefaultPathResolver(
       getDbPath(),
       getWorkspaceConfigPath(),
+      join(getRootDir(), "protected"),
+      getWorkspaceSkillsDir(),
     );
 
     const report = analyzeImport({
@@ -373,6 +384,8 @@ export async function handleMigrationImport(req: Request): Promise<Response> {
     const pathResolver = new DefaultPathResolver(
       getDbPath(),
       getWorkspaceConfigPath(),
+      join(getRootDir(), "protected"),
+      getWorkspaceSkillsDir(),
     );
 
     // Close the live SQLite connection before overwriting assistant.db on disk.
