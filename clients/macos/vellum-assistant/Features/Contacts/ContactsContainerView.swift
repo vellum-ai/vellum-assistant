@@ -30,14 +30,13 @@ struct ContactsContainerView: View {
     }
 
     var body: some View {
-        HStack(alignment: .top, spacing: VSpacing.lg) {
+        HStack(alignment: .top, spacing: 0) {
             // Left pane: contacts list (full height, internal scrolling)
             ContactsListView(
                 viewModel: viewModel,
                 selection: $selection
             )
-            .padding(.leading, VSpacing.lg)
-            .padding(.vertical, VSpacing.lg)
+            .padding(VSpacing.lg)
             .frame(width: 320)
             .frame(maxHeight: .infinity, alignment: .top)
             .background(VColor.surfaceOverlay)
