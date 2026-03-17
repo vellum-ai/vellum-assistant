@@ -165,7 +165,7 @@ subgraph "Text Q&A Session"
             MW_STATE["MainWindowState<br/>cross-view UI state"]
             CONV_MGR["ConversationManager<br/>conversation CRUD + delegate"]
             CONV_RESTORER["ConversationRestorer<br/>daemon conversation restoration"]
-            CHAT_VM["ChatViewModel<br/>session bootstrap + streaming"]
+            CHAT_VM["ChatViewModel<br/>conversation bootstrap + streaming"]
             CHAT_VIEW["ChatView<br/>bubbles + composer + stop"]
         end
 
@@ -186,7 +186,7 @@ subgraph "Text Q&A Session"
 
     subgraph "Daemon (Bun + TypeScript)"
         HTTP_RT["RuntimeHttpServer<br/>HTTP + SSE"]
-        HANDLERS["Route Handlers<br/>session routing"]
+        HANDLERS["Route Handlers<br/>conversation routing"]
         SESSION_MGR["Conversation Manager<br/>in-memory pool<br/>stale eviction"]
 
         subgraph "Onboarding Control Plane"
@@ -354,8 +354,8 @@ subgraph "Text Q&A Session"
     HTTP_RT -->|"AssistantTextDelta<br/>(SSE stream)"| TEXT_WIN
 
     %% Main Window Chat flow
-    CHAT_VM -->|"session_create +<br/>user_message +<br/>cancel<br/>(HTTP POST)"| HTTP_RT
-    HTTP_RT -->|"session_info +<br/>session_title_updated +<br/>text deltas +<br/>message_complete +<br/>conversation_error +<br/>message_queued +<br/>message_dequeued +<br/>generation_handoff<br/>(SSE)"| CHAT_VM
+    CHAT_VM -->|"conversation_create +<br/>user_message +<br/>cancel<br/>(HTTP POST)"| HTTP_RT
+    HTTP_RT -->|"conversation_info +<br/>conversation_title_updated +<br/>text deltas +<br/>message_complete +<br/>conversation_error +<br/>message_queued +<br/>message_dequeued +<br/>generation_handoff<br/>(SSE)"| CHAT_VM
     CHAT_VIEW --> CHAT_VM
     MW_STATE -->|"app_open_request<br/>(dashboard-first bootstrap)"| HTTP_RT
 
@@ -374,7 +374,7 @@ subgraph "Text Q&A Session"
     SESSION_MGR --> OLLAMA
     SESSION_MGR --> CONV_STORE
     SESSION_MGR --> RECALL
-    HANDLERS -->|"session_create.transport"| PLAYBOOK_MGR
+    HANDLERS -->|"conversation_create.transport"| PLAYBOOK_MGR
     PLAYBOOK_MGR --> PLAYBOOK_REG
     PLAYBOOK_MGR -->|"inject <channel_onboarding_playbook><br/>runtime context"| SESSION_MGR
     PLAYBOOK_MGR --> ONBOARD_ORCH
