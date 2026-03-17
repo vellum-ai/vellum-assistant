@@ -57,11 +57,9 @@ struct UsageDashboardPanel: View {
 
     @ViewBuilder
     func contentView(store: UsageDashboardStore) -> some View {
-        VStack(alignment: .leading, spacing: VSpacing.xl) {
+        VStack(alignment: .leading, spacing: VSpacing.lg) {
             totalsSection(store: store)
-            Divider().background(VColor.borderBase)
             dailySection(store: store)
-            Divider().background(VColor.borderBase)
             breakdownSection(store: store)
         }
     }
@@ -70,9 +68,7 @@ struct UsageDashboardPanel: View {
 
     @ViewBuilder
     private func totalsSection(store: UsageDashboardStore) -> some View {
-        VStack(alignment: .leading, spacing: VSpacing.md) {
-            sectionTitle("Totals")
-
+        SettingsCard(title: "Totals") {
             switch store.totalsState {
             case .idle, .loading:
                 loadingRow()
@@ -95,9 +91,7 @@ struct UsageDashboardPanel: View {
 
     @ViewBuilder
     private func dailySection(store: UsageDashboardStore) -> some View {
-        VStack(alignment: .leading, spacing: VSpacing.md) {
-            sectionTitle("Daily Trend")
-
+        SettingsCard(title: "Daily Trend") {
             switch store.dailyState {
             case .idle, .loading:
                 loadingRow()
@@ -124,8 +118,8 @@ struct UsageDashboardPanel: View {
     private func dailyBarChart(_ buckets: [UsageDayBucket]) -> some View {
         let maxCost = buckets.map(\.totalEstimatedCostUsd).max() ?? 1.0
 
-        VStack(spacing: VSpacing.xs) {
-            // Bar chart
+        VStack(alignment: .leading, spacing: VSpacing.xs) {
+            // Bar chart — left-aligned
             HStack(alignment: .bottom, spacing: VSpacing.xs) {
                 ForEach(buckets, id: \.date) { bucket in
                     let fraction = maxCost > 0 ? bucket.totalEstimatedCostUsd / maxCost : 0
@@ -138,19 +132,22 @@ struct UsageDashboardPanel: View {
                 }
             }
             .frame(height: barChartHeight)
-            .frame(maxWidth: .infinity)
 
-            // Date labels
-            HStack(spacing: VSpacing.xs) {
+            // Cost + date labels — left-aligned
+            HStack(alignment: .top, spacing: VSpacing.xs) {
                 ForEach(buckets, id: \.date) { bucket in
-                    Text(formatShortDate(bucket.date))
-                        .font(VFont.small)
-                        .foregroundColor(VColor.contentTertiary)
-                        .frame(width: maxBarWidth)
-                        .lineLimit(1)
+                    VStack(spacing: VSpacing.xxs) {
+                        Text(formatCost(bucket.totalEstimatedCostUsd))
+                            .font(VFont.small)
+                            .foregroundColor(VColor.contentSecondary)
+                        Text(formatShortDate(bucket.date))
+                            .font(VFont.small)
+                            .foregroundColor(VColor.contentTertiary)
+                    }
+                    .frame(width: maxBarWidth)
+                    .lineLimit(1)
                 }
             }
-            .frame(maxWidth: .infinity)
         }
     }
 
@@ -165,9 +162,7 @@ struct UsageDashboardPanel: View {
 
     @ViewBuilder
     private func breakdownSection(store: UsageDashboardStore) -> some View {
-        VStack(alignment: .leading, spacing: VSpacing.md) {
-            sectionTitle("Breakdown")
-
+        SettingsCard(title: "Breakdown") {
             groupByPicker(store: store)
 
             switch store.breakdownState {
@@ -256,13 +251,6 @@ struct UsageDashboardPanel: View {
     }
 
     // MARK: - Shared Components
-
-    @ViewBuilder
-    private func sectionTitle(_ title: String) -> some View {
-        Text(title)
-            .font(VFont.headline)
-            .foregroundColor(VColor.contentDefault)
-    }
 
     @ViewBuilder
     private func statCard(label: String, value: String) -> some View {
