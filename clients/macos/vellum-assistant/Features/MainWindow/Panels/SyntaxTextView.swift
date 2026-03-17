@@ -99,24 +99,38 @@ struct SyntaxTextView: NSViewRepresentable {
     }
 
     func makeNSView(context: Context) -> NSScrollView {
-        // Use Apple's standard factory which properly initializes the text system
-        // (text storage, layout manager, text container, and scroll view sizing).
-        let scrollView = NSTextView.scrollableTextView()
-        guard let textView = scrollView.documentView as? NSTextView else {
-            return scrollView
-        }
+        // Explicit TextKit 1 stack — gives full control over text container sizing
+        // and matches the pattern proven to work in CodeTextView on main.
+        let textStorage = NSTextStorage()
+        let layoutManager = NSLayoutManager()
+        textStorage.addLayoutManager(layoutManager)
+        let textContainer = NSTextContainer(size: NSSize(
+            width: CGFloat.greatestFiniteMagnitude,
+            height: CGFloat.greatestFiniteMagnitude
+        ))
+        textContainer.widthTracksTextView = false
+        textContainer.heightTracksTextView = false
+        textContainer.lineFragmentPadding = VSpacing.md
+        layoutManager.addTextContainer(textContainer)
 
-        // Appearance — use concrete colors to rule out dynamic color resolution issues
+        let textView = NSTextView(frame: .zero, textContainer: textContainer)
+
+        // Appearance
         textView.font = SyntaxTheme.nsMonoFont
-        textView.textColor = .white
-        textView.backgroundColor = .black
-        textView.insertionPointColor = .white
-        textView.textContainerInset = NSSize(width: VSpacing.md, height: VSpacing.sm)
+        textView.textColor = SyntaxTheme.nsContentDefault
+        textView.backgroundColor = NSColor(VColor.surfaceOverlay)
+        textView.insertionPointColor = SyntaxTheme.nsContentDefault
+        textView.selectedTextAttributes = [
+            .backgroundColor: NSColor(VColor.primaryBase.opacity(0.3))
+        ]
+        textView.textContainerInset = NSSize(width: 0, height: VSpacing.sm)
 
-        // Behavior — plain text mode (no rich text attributes)
+        // Behavior
+        textView.delegate = context.coordinator
         textView.isEditable = true
         textView.isSelectable = true
-        textView.isRichText = false
+        textView.allowsUndo = true
+        textView.isRichText = true
         textView.isAutomaticQuoteSubstitutionEnabled = false
         textView.isAutomaticDashSubstitutionEnabled = false
         textView.isAutomaticTextReplacementEnabled = false
@@ -125,25 +139,24 @@ struct SyntaxTextView: NSViewRepresentable {
         textView.usesFindBar = true
         textView.isIncrementalSearchingEnabled = true
 
-        // Horizontal scrolling (no line wrap)
+        // Sizing — autoresizingMask is critical for the text view to fill the
+        // scroll view's width. Without it, the text view stays at zero width
+        // and nothing renders.
         textView.isHorizontallyResizable = true
+        textView.isVerticallyResizable = true
+        textView.autoresizingMask = [.width]
         textView.maxSize = NSSize(
             width: CGFloat.greatestFiniteMagnitude,
             height: CGFloat.greatestFiniteMagnitude
         )
-        if let textContainer = textView.textContainer {
-            textContainer.widthTracksTextView = false
-            textContainer.containerSize = NSSize(
-                width: CGFloat.greatestFiniteMagnitude,
-                height: CGFloat.greatestFiniteMagnitude
-            )
-        }
 
         // Content
-        textView.delegate = context.coordinator
         textView.string = text
 
         // Scroll view
+        let scrollView = NSScrollView()
+        scrollView.documentView = textView
+        scrollView.hasVerticalScroller = true
         scrollView.hasHorizontalScroller = true
         scrollView.autohidesScrollers = true
         scrollView.drawsBackground = false
@@ -162,6 +175,9 @@ struct SyntaxTextView: NSViewRepresentable {
             name: NSView.boundsDidChangeNotification,
             object: scrollView.contentView
         )
+
+        // Apply initial highlighting
+        SyntaxTheme.applyHighlighting(to: textStorage, language: language)
 
         // Store reference in coordinator
         context.coordinator.textView = textView
@@ -192,6 +208,20 @@ struct SyntaxTextView: NSViewRepresentable {
             coordinator.isUpdatingFromSwiftUI = true
             textView.string = text
             coordinator.lastKnownText = text
+            coordinator.rehighlight(textView)
+
+            // Clamp restored selectedRanges to new text length to avoid
+            // NSRangeException when text is externally updated to a shorter value
+            let maxLen = (textView.string as NSString).length
+            let clampedRanges = textView.selectedRanges.map { rangeValue -> NSValue in
+                let range = rangeValue.rangeValue
+                let clampedLocation = min(range.location, maxLen)
+                let clampedEnd = min(range.location + range.length, maxLen)
+                let clampedLength = clampedEnd > clampedLocation ? clampedEnd - clampedLocation : 0
+                return NSValue(range: NSRange(location: clampedLocation, length: clampedLength))
+            }
+            textView.selectedRanges = clampedRanges
+
             coordinator.isUpdatingFromSwiftUI = false
         }
     }
