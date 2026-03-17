@@ -8,19 +8,31 @@ const log = getLogger("tool-permission-telemetry");
 export function registerToolPermissionTelemetryListener(
   eventBus: EventBus<AssistantDomainEvents>,
 ): Subscription {
+  // Track which request IDs were actually prompted so we only record
+  // decided telemetry for real user interactions, not auto-allowed tools.
+  const promptedRequestIds = new Set<string>();
+
   return eventBus.onAny((event) => {
     try {
       switch (event.type) {
         case "tool.permission.requested":
+          if (event.payload.requestId) {
+            promptedRequestIds.add(event.payload.requestId);
+          }
           recordLifecycleEvent(
             `permission_prompt:${event.payload.toolName}`,
           );
           return;
-        case "tool.permission.decided":
-          recordLifecycleEvent(
-            `permission_decided:${event.payload.toolName}:${event.payload.decision}`,
-          );
+        case "tool.permission.decided": {
+          const { requestId, toolName, decision } = event.payload;
+          if (requestId && promptedRequestIds.has(requestId)) {
+            promptedRequestIds.delete(requestId);
+            recordLifecycleEvent(
+              `permission_decided:${toolName}:${decision}`,
+            );
+          }
           return;
+        }
         default:
           return;
       }
