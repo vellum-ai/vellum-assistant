@@ -120,6 +120,7 @@ struct HatchingStepView: View {
                         Text(reason)
                             .font(.system(size: 14))
                             .foregroundColor(VColor.contentSecondary)
+                            .textSelection(.enabled)
                     }
                 }
             } else if state.hatchCompleted {

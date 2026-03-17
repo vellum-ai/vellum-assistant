@@ -626,6 +626,7 @@ private struct ChatBootstrapTimeoutView: View {
                     .foregroundColor(VColor.contentSecondary)
                     .multilineTextAlignment(.center)
                     .frame(maxWidth: 320)
+                    .textSelection(.enabled)
             }
 
             if let onSendLogs {
