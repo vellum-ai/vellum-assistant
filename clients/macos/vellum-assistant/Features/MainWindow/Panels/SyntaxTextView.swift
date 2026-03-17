@@ -165,6 +165,11 @@ struct SyntaxTextView: NSViewRepresentable {
         return scrollView
     }
 
+    static func dismantleNSView(_ scrollView: NSScrollView, coordinator: Coordinator) {
+        NotificationCenter.default.removeObserver(coordinator)
+        coordinator.rehighlightTask?.cancel()
+    }
+
     func updateNSView(_ scrollView: NSScrollView, context: Context) {
         guard let textView = scrollView.documentView as? NSTextView else { return }
         let coordinator = context.coordinator
@@ -210,7 +215,7 @@ struct SyntaxTextView: NSViewRepresentable {
         var language: SyntaxLanguage
         var isUpdatingFromSwiftUI = false
         weak var textView: NSTextView?
-        private var rehighlightTask: Task<Void, Never>?
+        var rehighlightTask: Task<Void, Never>?
 
         init(_ parent: SyntaxTextView) {
             self.parent = parent
@@ -235,8 +240,8 @@ struct SyntaxTextView: NSViewRepresentable {
             rehighlightTask?.cancel()
             rehighlightTask = Task { @MainActor [weak self] in
                 try? await Task.sleep(nanoseconds: 150_000_000)
-                guard !Task.isCancelled else { return }
-                self?.rehighlight(textView)
+                guard !Task.isCancelled, let self, let textView = self.textView else { return }
+                self.rehighlight(textView)
             }
         }
 
