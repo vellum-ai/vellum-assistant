@@ -203,10 +203,11 @@ extension ChatBubble {
     func openImageInPreview(_ attachment: ChatAttachment, image: NSImage? = nil) {
         let tempDir = FileManager.default.temporaryDirectory
         let sanitized = (attachment.filename as NSString).lastPathComponent
-        let fileURL = tempDir.appendingPathComponent(sanitized.isEmpty ? "image.png" : sanitized)
+        let fallbackName = sanitized.isEmpty ? "image.png" : sanitized
 
         // Prefer the original base64 data when available (full resolution).
         // Fall back to the in-memory NSImage (thumbnail) when data has been cleared.
+        var usedNSImageFallback = false
         let fileData: Data? = {
             if !attachment.data.isEmpty,
                let decoded = Data(base64Encoded: attachment.data),
@@ -215,10 +216,21 @@ extension ChatBubble {
             }
             if let image, let tiff = image.tiffRepresentation,
                let rep = NSBitmapImageRep(data: tiff) {
+                usedNSImageFallback = true
                 return rep.representation(using: .png, properties: [:])
             }
             return nil
         }()
+
+        // When the NSImage fallback encodes as PNG, force the extension to .png
+        // so the file extension matches the actual content encoding.
+        let fileName: String
+        if usedNSImageFallback {
+            fileName = (fallbackName as NSString).deletingPathExtension + ".png"
+        } else {
+            fileName = fallbackName
+        }
+        let fileURL = tempDir.appendingPathComponent(fileName)
 
         guard let fileData else { return }
         do {
