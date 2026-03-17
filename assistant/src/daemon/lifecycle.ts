@@ -400,7 +400,7 @@ export async function runDaemon(): Promise<void> {
         await emitNotificationSignal({
           sourceEventName: "schedule.notify",
           sourceChannel: "scheduler",
-          sourceSessionId: schedule.id,
+          sourceContextId: schedule.id,
           attentionHints: {
             requiresAction: true,
             urgency: "high",
@@ -422,7 +422,7 @@ export async function runDaemon(): Promise<void> {
         void emitNotificationSignal({
           sourceEventName: "schedule.complete",
           sourceChannel: "scheduler",
-          sourceSessionId: schedule.id,
+          sourceContextId: schedule.id,
           attentionHints: {
             requiresAction: false,
             urgency: "medium",
@@ -440,7 +440,7 @@ export async function runDaemon(): Promise<void> {
         void emitNotificationSignal({
           sourceEventName: "watcher.notification",
           sourceChannel: "watcher",
-          sourceSessionId: `watcher-${Date.now()}`,
+          sourceContextId: `watcher-${Date.now()}`,
           attentionHints: {
             requiresAction: false,
             urgency: "low",
@@ -458,7 +458,7 @@ export async function runDaemon(): Promise<void> {
         void emitNotificationSignal({
           sourceEventName: "watcher.escalation",
           sourceChannel: "watcher",
-          sourceSessionId: `watcher-escalation-${Date.now()}`,
+          sourceContextId: `watcher-escalation-${Date.now()}`,
           attentionHints: {
             requiresAction: true,
             urgency: "high",

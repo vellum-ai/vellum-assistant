@@ -319,7 +319,7 @@ function buildFallbackDecision(
       selectedChannels: [],
       reasoningSummary: "Fallback: suppressed (vellum channel not available)",
       renderedCopy: {},
-      dedupeKey: `fallback:${signal.sourceEventName}:${signal.sourceSessionId}:${signal.createdAt}`,
+      dedupeKey: `fallback:${signal.sourceEventName}:${signal.sourceContextId}:${signal.createdAt}`,
       confidence: 0.3,
       fallbackUsed: true,
     };
@@ -334,7 +334,7 @@ function buildFallbackDecision(
       ? "Fallback: high urgency + requires action — all channels"
       : "Fallback: vellum-only (local, always delivered)",
     renderedCopy: copy,
-    dedupeKey: `fallback:${signal.sourceEventName}:${signal.sourceSessionId}:${signal.createdAt}`,
+    dedupeKey: `fallback:${signal.sourceEventName}:${signal.sourceContextId}:${signal.createdAt}`,
     confidence: 0.3,
     fallbackUsed: true,
   };

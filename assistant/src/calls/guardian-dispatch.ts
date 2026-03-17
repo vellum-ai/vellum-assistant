@@ -204,7 +204,7 @@ async function dispatchGuardianQuestionInner(
     const signalResult = await emitNotificationSignal({
       sourceEventName: "guardian.question",
       sourceChannel: "phone",
-      sourceSessionId: callSessionId,
+      sourceContextId: callSessionId,
       attentionHints: {
         requiresAction: true,
         urgency: "high",

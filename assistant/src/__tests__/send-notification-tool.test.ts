@@ -39,7 +39,7 @@ describe("send-notification tool", () => {
     expect(emitNotificationSignalMock).toHaveBeenCalledWith({
       sourceEventName: "user.send_notification",
       sourceChannel: "assistant_tool",
-      sourceSessionId: "conv-override",
+      sourceContextId: "conv-override",
       attentionHints: {
         requiresAction: true,
         urgency: "high",
@@ -50,7 +50,7 @@ describe("send-notification tool", () => {
       contextPayload: {
         requestedMessage: "Your verification code is 123456",
         requestedByTool: "send_notification",
-        requestedBySessionId: "conv-1",
+        requestedByContextId: "conv-1",
         requestedTitle: "Verification code",
         requestedByConversationId: "conv-override",
         preferredChannels: ["vellum"],
