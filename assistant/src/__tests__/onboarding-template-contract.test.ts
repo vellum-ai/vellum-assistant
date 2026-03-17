@@ -16,7 +16,6 @@ describe("onboarding template contracts", () => {
     test("contains identity discovery prompts", () => {
       const lower = bootstrap.toLowerCase();
       expect(lower).toContain("your name");
-      expect(lower).toContain("your nature");
       expect(lower).toContain("your emoji");
     });
 
@@ -87,9 +86,8 @@ describe("onboarding template contracts", () => {
   });
 
   describe("IDENTITY.md", () => {
-    test("contains canonical fields: Name, Nature, Personality, Emoji", () => {
+    test("contains canonical fields: Name, Personality, Emoji", () => {
       expect(identity).toContain("**Name:**");
-      expect(identity).toContain("**Nature:**");
       expect(identity).toContain("**Personality:**");
       expect(identity).toContain("**Emoji:**");
     });

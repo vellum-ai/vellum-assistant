@@ -6,7 +6,6 @@ This file is yours. Add sections, restructure it, make it reflect who you are. N
 
 - **Name:** _(not yet chosen)_
 - **Emoji:** _(not yet chosen)_
-- **Nature:** _(not yet established)_
 - **Personality:** _(not yet established)_
 - **Role:** _(not yet established)_
 - **Home:** Local (~/.vellum/workspace)
