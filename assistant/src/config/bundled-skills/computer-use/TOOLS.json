@@ -9,12 +9,12 @@
       "input_schema": {
         "type": "object",
         "properties": {
-          "reason": {
+          "activity": {
             "type": "string",
             "description": "Brief non-technical explanation of why this tool is being called"
           }
         },
-        "required": ["reason"]
+        "required": ["activity"]
       },
       "executor": "tools/computer-use-observe.ts",
       "execution_target": "host"
@@ -48,7 +48,7 @@
             "type": "string",
             "description": "Explanation of what you see and why you are clicking here"
           },
-          "reason": {
+          "activity": {
             "type": "string",
             "description": "Brief non-technical explanation of why this tool is being called"
           }
@@ -74,7 +74,7 @@
             "type": "string",
             "description": "Explanation of what you are typing and why"
           },
-          "reason": {
+          "activity": {
             "type": "string",
             "description": "Brief non-technical explanation of why this tool is being called"
           }
@@ -100,7 +100,7 @@
             "type": "string",
             "description": "Explanation of why you are pressing this key"
           },
-          "reason": {
+          "activity": {
             "type": "string",
             "description": "Brief non-technical explanation of why this tool is being called"
           }
@@ -143,7 +143,7 @@
             "type": "string",
             "description": "Explanation of why you are scrolling"
           },
-          "reason": {
+          "activity": {
             "type": "string",
             "description": "Brief non-technical explanation of why this tool is being called"
           }
@@ -189,7 +189,7 @@
             "type": "string",
             "description": "Explanation of what you are dragging and why"
           },
-          "reason": {
+          "activity": {
             "type": "string",
             "description": "Brief non-technical explanation of why this tool is being called"
           }
@@ -215,7 +215,7 @@
             "type": "string",
             "description": "Explanation of what you are waiting for"
           },
-          "reason": {
+          "activity": {
             "type": "string",
             "description": "Brief non-technical explanation of why this tool is being called"
           }
@@ -241,7 +241,7 @@
             "type": "string",
             "description": "Explanation of why you need to open or switch to this app"
           },
-          "reason": {
+          "activity": {
             "type": "string",
             "description": "Brief non-technical explanation of why this tool is being called"
           }
@@ -267,7 +267,7 @@
             "type": "string",
             "description": "Explanation of what this script does and why AppleScript is better than UI interaction for this step"
           },
-          "reason": {
+          "activity": {
             "type": "string",
             "description": "Brief non-technical explanation of why this tool is being called"
           }
@@ -289,7 +289,7 @@
             "type": "string",
             "description": "Human-readable summary of what was accomplished"
           },
-          "reason": {
+          "activity": {
             "type": "string",
             "description": "Brief non-technical explanation of why this tool is being called"
           }
@@ -315,7 +315,7 @@
             "type": "string",
             "description": "Explanation of how you determined the answer"
           },
-          "reason": {
+          "activity": {
             "type": "string",
             "description": "Brief non-technical explanation of why this tool is being called"
           }

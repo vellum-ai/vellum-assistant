@@ -283,11 +283,11 @@ describe("host_bash — regression: no proxied-mode additions", () => {
     expect(schemaProps).not.toHaveProperty("credential_ids");
   });
 
-  test("schema only contains the expected properties (command, working_dir, timeout_seconds, reason)", () => {
+  test("schema only contains the expected properties (command, working_dir, timeout_seconds, activity)", () => {
     const propertyNames = Object.keys(schemaProps).sort();
     expect(propertyNames).toEqual([
+      "activity",
       "command",
-      "reason",
       "timeout_seconds",
       "working_dir",
     ]);
@@ -348,10 +348,10 @@ describe("host_bash — regression: no proxied-mode additions", () => {
     expect(definition.name).toBe("host_bash");
   });
 
-  test("required fields contains command and reason", () => {
+  test("required fields contains command and activity", () => {
     expect(
       (definition.input_schema as Record<string, unknown>).required,
-    ).toEqual(["command", "reason"]);
+    ).toEqual(["command", "activity"]);
   });
 });
 

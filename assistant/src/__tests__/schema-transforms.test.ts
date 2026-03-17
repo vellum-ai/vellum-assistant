@@ -60,7 +60,7 @@ describe("injectActivityField", () => {
 
   test("skips tools in skip set (returns unchanged)", () => {
     const defs = [makeDef("bash"), makeDef("host_bash")];
-    const result = injectActivityField(defs);
+    const result = injectActivityField(defs, new Set(["bash", "host_bash"]));
     // Should be the exact same object references
     expect(Object.is(result[0], defs[0])).toBe(true);
     expect(Object.is(result[1], defs[1])).toBe(true);

@@ -662,7 +662,7 @@ describe("Shell tool input validation", () => {
     };
     expect(def.name).toBe("bash");
     expect(schema.required).toContain("command");
-    expect(schema.required).toContain("reason");
+    expect(schema.required).toContain("activity");
     expect(schema.properties.command).toBeDefined();
     expect(schema.properties.timeout_seconds).toBeDefined();
     expect(schema.properties.network_mode).toBeDefined();
