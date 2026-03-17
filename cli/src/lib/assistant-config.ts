@@ -54,6 +54,8 @@ export interface AssistantEntry {
   volume?: string;
   /** Per-instance resource config. Present for local entries in multi-instance setups. */
   resources?: LocalInstanceResources;
+  /** PID of the file watcher process for docker instances hatched with --watch. */
+  watcherPid?: number;
   [key: string]: unknown;
 }
 
