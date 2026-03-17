@@ -148,6 +148,9 @@ mock.module("../oauth/oauth-store.js", () => ({
   getConnectionByProvider: (): undefined => undefined,
   listConnections: (): never[] => [],
   deleteConnection: (): boolean => false,
+  upsertApp: async () => ({ id: "mock-app-id" }),
+  createConnection: () => ({ id: "mock-conn-id" }),
+  updateConnection: (): boolean => true,
 }));
 
 // ---------------------------------------------------------------------------

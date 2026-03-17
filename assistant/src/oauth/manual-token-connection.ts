@@ -66,6 +66,53 @@ export function removeManualTokenConnection(providerKey: string): void {
 }
 
 /**
+ * Reconcile the synthetic oauth_connection row for a manual-token provider
+ * with whatever credentials are currently present in secure storage.
+ *
+ * This lets generic credential entry paths (chat setup, CLI, secure prompt)
+ * keep connection status in sync without duplicating per-provider rules.
+ */
+export async function syncManualTokenConnection(
+  providerKey: string,
+  accountInfo?: string,
+): Promise<void> {
+  switch (providerKey) {
+    case "telegram": {
+      const hasBotToken = !!(await getSecureKeyAsync(
+        credentialKey("telegram", "bot_token"),
+      ));
+      const hasWebhookSecret = !!(await getSecureKeyAsync(
+        credentialKey("telegram", "webhook_secret"),
+      ));
+      if (hasBotToken && hasWebhookSecret) {
+        await ensureManualTokenConnection(providerKey, accountInfo);
+      } else {
+        removeManualTokenConnection(providerKey);
+      }
+      return;
+    }
+
+    case "slack_channel": {
+      const hasBotToken = !!(await getSecureKeyAsync(
+        credentialKey("slack_channel", "bot_token"),
+      ));
+      const hasAppToken = !!(await getSecureKeyAsync(
+        credentialKey("slack_channel", "app_token"),
+      ));
+      if (hasBotToken && hasAppToken) {
+        await ensureManualTokenConnection(providerKey, accountInfo);
+      } else {
+        removeManualTokenConnection(providerKey);
+      }
+      return;
+    }
+
+    default:
+      return;
+  }
+}
+
+/**
  * Backfill oauth_connection rows for manual-token providers that already
  * have valid keychain credentials but are missing connection records.
  *
@@ -78,29 +125,6 @@ export function removeManualTokenConnection(providerKey: string): void {
  * connection row.
  */
 export async function backfillManualTokenConnections(): Promise<void> {
-  // Telegram: requires both bot_token and webhook_secret
-  if (!getConnectionByProvider("telegram")) {
-    const hasBotToken = !!(await getSecureKeyAsync(
-      credentialKey("telegram", "bot_token"),
-    ));
-    const hasWebhookSecret = !!(await getSecureKeyAsync(
-      credentialKey("telegram", "webhook_secret"),
-    ));
-    if (hasBotToken && hasWebhookSecret) {
-      await ensureManualTokenConnection("telegram");
-    }
-  }
-
-  // Slack channel: requires both bot_token and app_token
-  if (!getConnectionByProvider("slack_channel")) {
-    const hasBotToken = !!(await getSecureKeyAsync(
-      credentialKey("slack_channel", "bot_token"),
-    ));
-    const hasAppToken = !!(await getSecureKeyAsync(
-      credentialKey("slack_channel", "app_token"),
-    ));
-    if (hasBotToken && hasAppToken) {
-      await ensureManualTokenConnection("slack_channel");
-    }
-  }
+  await syncManualTokenConnection("telegram");
+  await syncManualTokenConnection("slack_channel");
 }

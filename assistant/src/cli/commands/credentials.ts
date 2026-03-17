@@ -5,6 +5,9 @@ import {
   type ManagedCredentialDescriptor,
 } from "../../credential-execution/managed-catalog.js";
 import {
+  syncManualTokenConnection,
+} from "../../oauth/manual-token-connection.js";
+import {
   disconnectOAuthProvider,
   getConnectionByProvider,
   listConnections,
@@ -439,6 +442,7 @@ Examples:
             usageDescription: opts.description,
             allowedTools,
           });
+          await syncManualTokenConnection(service);
 
           writeOutput(cmd, {
             ok: true,

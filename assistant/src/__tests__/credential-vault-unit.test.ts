@@ -70,6 +70,29 @@ mock.module("../oauth/oauth-store.js", () => {
   };
 });
 
+let manualConnectionStore: Record<string, string> = {};
+
+mock.module("../oauth/manual-token-connection.js", () => ({
+  syncManualTokenConnection: async (providerKey: string) => {
+    const { credentialKey } = await import("../security/credential-key.js");
+    const { getSecureKeyAsync } = await import("../security/secure-keys.js");
+
+    if (providerKey === "slack_channel") {
+      const hasBotToken = !!(await getSecureKeyAsync(
+        credentialKey("slack_channel", "bot_token"),
+      ));
+      const hasAppToken = !!(await getSecureKeyAsync(
+        credentialKey("slack_channel", "app_token"),
+      ));
+      if (hasBotToken && hasAppToken) {
+        manualConnectionStore[providerKey] = "active";
+      } else {
+        delete manualConnectionStore[providerKey];
+      }
+    }
+  },
+}));
+
 // ---------------------------------------------------------------------------
 // Mock public ingress URL — not available in unit tests. The connect
 // orchestrator dynamically imports this for non-interactive flows.
@@ -122,6 +145,10 @@ const _ctx: ToolContext = {
   conversationId: "test-conv",
   trustClass: "guardian",
 };
+
+beforeEach(() => {
+  manualConnectionStore = {};
+});
 
 afterAll(() => {
   mock.restore();
@@ -504,6 +531,41 @@ describe("credential_store tool — prompt action", () => {
     expect(meta!.allowedTools).toEqual(["browser_fill_credential"]);
     expect(meta!.allowedDomains).toEqual(["github.com"]);
     expect(meta!.usageDescription).toBe("GitHub login");
+  });
+
+  test("chat-style slack_channel prompts create the manual connection once both tokens exist", async () => {
+    const promptValues = ["xapp-test-token", "xoxb-test-token"];
+    const ctxWithPrompt: ToolContext = {
+      ..._ctx,
+      requestSecret: async () => ({
+        value: promptValues.shift() ?? "",
+        delivery: "store" as const,
+      }),
+    };
+
+    const appResult = await credentialStoreTool.execute(
+      {
+        action: "prompt",
+        service: "slack_channel",
+        field: "app_token",
+        label: "App-Level Token",
+      },
+      ctxWithPrompt,
+    );
+    expect(appResult.isError).toBe(false);
+    expect(manualConnectionStore["slack_channel"]).toBeUndefined();
+
+    const botResult = await credentialStoreTool.execute(
+      {
+        action: "prompt",
+        service: "slack_channel",
+        field: "bot_token",
+        label: "Bot User OAuth Token",
+      },
+      ctxWithPrompt,
+    );
+    expect(botResult.isError).toBe(false);
+    expect(manualConnectionStore["slack_channel"]).toBe("active");
   });
 
   test("prompt rejects invalid policy input", async () => {

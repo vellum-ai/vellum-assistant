@@ -520,14 +520,27 @@ final class AvatarAppearanceManager {
     /// Default app name used for the dock label when no assistant is connected.
     private static let defaultDockLabel = "Vellum"
 
-    /// Updates the dock label (text under the icon) to the assistant's name.
-    /// Writes `CFBundleDisplayName` into the running app bundle's Info.plist
-    /// and re-registers with LaunchServices so the Dock picks up the change.
+    /// Sentinel file that `build.sh` reads at build time to set
+    /// `CFBundleDisplayName` so the Dock shows the assistant name from
+    /// the very first launch after a rebuild.
+    private static let dockDisplayNameURL: URL = {
+        URL(fileURLWithPath: NSHomeDirectory())
+            .appendingPathComponent(".vellum/.dock-display-name")
+    }()
+
+    /// Persists the dock label so `build.sh` can embed it into
+    /// `CFBundleDisplayName` at build time.  Also updates the running
+    /// app bundle's Info.plist and re-registers with LaunchServices so
+    /// the change takes effect on the next launch without a rebuild.
     private func updateDockLabel() {
-        // Use the assistant's name if it's a real name (not the single-letter
-        // avatar fallback "V"); otherwise revert to the default app name.
         let label = assistantName.count > 1 ? assistantName : Self.defaultDockLabel
 
+        // 1. Persist for build.sh
+        let dir = Self.dockDisplayNameURL.deletingLastPathComponent()
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        try? label.write(to: Self.dockDisplayNameURL, atomically: true, encoding: .utf8)
+
+        // 2. Update the running bundle's Info.plist (takes effect next launch)
         guard let bundleURL = Bundle.main.bundleURL as URL?,
               bundleURL.pathExtension == "app" else { return }
 
@@ -538,7 +551,6 @@ final class AvatarAppearanceManager {
                   from: data, format: nil
               ) as? [String: Any] else { return }
 
-        // Skip the write if the label is already correct.
         if plist["CFBundleDisplayName"] as? String == label { return }
 
         plist["CFBundleDisplayName"] = label
@@ -554,9 +566,7 @@ final class AvatarAppearanceManager {
             return
         }
 
-        // Force LaunchServices to re-read the bundle so the Dock picks up
-        // the new display name. The deprecated LSRegisterURL API is
-        // unreliable on modern macOS; use the lsregister CLI tool instead.
+        // Force LaunchServices to re-read the bundle.
         let lsregister = "/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister"
         if FileManager.default.fileExists(atPath: lsregister) {
             let process = Process()
