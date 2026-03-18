@@ -4,6 +4,22 @@
 
 ---
 
+## Table of Contents
+
+1. [What This Is](#what-this-is)
+2. [Build & Test](#build--test)
+3. [Architecture](#architecture)
+4. [Design System](#design-system-designsystem)
+5. [SwiftUI & Swift Conventions](#swiftui--swift-conventions)
+6. [Key Constraints](#key-constraints)
+7. [Permissions](#permissions)
+8. [iOS Pairing](#ios-pairing)
+9. [Keyboard Shortcuts](#keyboard-shortcuts)
+10. [macOS-Specific Guidance](#macos-specific-guidance)
+11. [Data Storage](#data-storage)
+
+---
+
 ## What This Is
 
 A native macOS menu bar app that controls your Mac via accessibility APIs and CGEvent input injection, powered by large language models. It lives as a sparkles icon in the menu bar — users type a task (or hold Fn for voice), and the agent executes it step-by-step.
@@ -45,6 +61,9 @@ log stream --predicate 'subsystem == "com.vellum.vellum-assistant"' --level debu
 
 All UI and feature code lives in `Features/`, organized by domain:
 
+<details>
+<summary><strong>Feature module directory</strong></summary>
+
 | Module | Purpose |
 |--------|---------|
 | `Ambient/` | Background screen monitoring UI |
@@ -62,6 +81,8 @@ All UI and feature code lives in `Features/`, organized by domain:
 | `Sharing/` | Content sharing and export |
 | `Surfaces/` | Daemon surface rendering (HTML/JSON overlays) |
 | `Voice/` | Voice input UI (VoiceTranscriptionWindow) |
+
+</details>
 
 **Main window layout** (`MainWindowView`):
 ```
@@ -198,6 +219,9 @@ All design system types use the `V` prefix (VButton, VColor, VFont, etc.). Alway
 
 ### State Management
 
+<details>
+<summary><strong>State property wrapper guide</strong></summary>
+
 | Pattern | When to use |
 |---------|-------------|
 | `@State` | Local, view-scoped transient state (hover, drag, focus, form fields) |
@@ -206,6 +230,8 @@ All design system types use the `V` prefix (VButton, VColor, VFont, etc.). Alway
 | `@ObservedObject` | Observe an ObservableObject owned elsewhere |
 | `@AppStorage` | Persistent user preferences backed by UserDefaults |
 | `@Observable` | Modern Observation framework (used by OnboardingState) |
+
+</details>
 
 ### Rules
 
@@ -281,7 +307,7 @@ When adding a new keyboard shortcut to the macOS app, you **must** also add a co
 
 ### Entitlements and Sandboxing
 - The app is **not sandboxed** — it requires direct access to accessibility APIs, CGEvent injection, and file system paths outside the sandbox container.
-- Entitlements required: `com.apple.security.automation.apple-events` (for AppleScript bridges), plus the standard Hardened Runtime entitlements for code signing.
+- The app binary is signed ad-hoc (or with a developer certificate); entitlements are only applied to the embedded daemon binary (`daemon-entitlements.plist`: JIT, unsigned executable memory, network client).
 - Never add `com.apple.security.app-sandbox` — it would break core functionality.
 
 ### Computer-Use Safety

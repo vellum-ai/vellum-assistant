@@ -7,6 +7,26 @@
 
 ---
 
+## Table of Contents
+
+1. [Research Protocol](#research-protocol-apple-platform-work)
+2. [SwiftUI and Apple Platform Practices](#swiftui-and-apple-platform-practices)
+3. [Performance and Resource Management](#performance-and-resource-management)
+4. [Scroll and Layout Stability](#scroll-and-layout-stability)
+5. [Native SwiftUI over Custom AppKit](#native-swiftui-over-custom-appkit)
+6. [File Organization and Splitting](#file-organization-and-splitting)
+7. [SwiftUI Type-Checker Complexity](#swiftui-type-checker-complexity)
+8. [Common SwiftUI Pitfalls](#common-swiftui-pitfalls)
+9. [Design System](#design-system-clientsshareddesignsystem)
+10. [Architecture and Shared Code](#architecture-and-shared-code)
+11. [Testing and Quality](#testing-and-quality)
+12. [Networking](#networking-use-gatewayhttpclient-for-new-http-apis)
+13. [Docs Anti-Drift](#docs-anti-drift)
+14. [Non-Apple Clients](#non-apple-clients)
+15. [Maintenance](#maintenance)
+
+---
+
 ## Research Protocol (Apple Platform Work)
 - Verify decisions against current Apple sources (Developer Documentation, HIG, WWDC sessions, Swift Evolution).
 - Check deprecations and availability for targeted OS versions before adopting APIs.
@@ -36,6 +56,9 @@ When updating any client documentation (README, AGENTS.md, ARCHITECTURE.md), con
 
 For new view models and state objects targeting macOS 14+ / iOS 17+, prefer the `@Observable` macro (Observation framework) over `ObservableObject`.
 
+<details>
+<summary><strong>Migration reference table</strong></summary>
+
 | Observation framework (preferred for new code) | Legacy ObservableObject |
 |------------------------------------------------|------------------------|
 | `@Observable class MyViewModel` | `class MyViewModel: ObservableObject` |
@@ -43,6 +66,8 @@ For new view models and state objects targeting macOS 14+ / iOS 17+, prefer the 
 | `@Bindable var vm` (injected reference) | `@ObservedObject var vm` |
 | `@Environment(\.myService)` | `@EnvironmentObject var service` |
 | Property-level tracking (only changed properties trigger re-render) | Object-level tracking (any `@Published` change re-renders all observers) |
+
+</details>
 
 **Why:** `@Observable` provides property-level granularity — views only re-render when the specific properties they read change, not when any property on the object changes. This eliminates the need for `objectWillChange` forwarding patterns and reduces unnecessary view updates.
 
@@ -59,8 +84,13 @@ For new view models and state objects targeting macOS 14+ / iOS 17+, prefer the 
 - **View bodies must be lightweight.** Never perform I/O, network calls, or heavy computation inside a SwiftUI view body. Defer work to `task {}`, `onAppear`, or background actors.
 - **Lazy containers for large collections.** Use `LazyVStack`, `LazyHStack`, `LazyVGrid` instead of eager equivalents when the item count is unbounded or large.
 - **Scope observation narrowly.** Only observe the specific properties a view needs. Prefer granular `@Observable` properties or `withObservationTracking` over observing an entire store that publishes on unrelated changes.
+<details>
+<summary><strong>Per-entity observation and dictionary patterns</strong></summary>
+
 - **Use per-entity `@Observable` objects for dictionary-stored data.** `@Observable` tracks at the property level, not per dictionary key. A `var items: [Key: Value]` property invalidates *all* readers when *any* key changes. When views display individual entries (e.g., per-subagent event lists), store each entry's data in its own `@Observable` class instance (e.g., `var states: [String: EntityState]` where `EntityState` is `@Observable`). Views that read a specific `EntityState`'s properties are only invalidated when *that* instance changes — not when a sibling entry is mutated. The dictionary itself should only be mutated when entries are added or removed (infrequent), while high-frequency updates go through the per-entity object's properties.
 - **Use targeted `@Published` + `.removeDuplicates()` instead of forwarding `objectWillChange`.** Wiring one object's `objectWillChange` publisher into another's invalidates the entire SwiftUI tree on every emission. Expose a narrow `@Published var activeMessageCount: Int` (or equivalent) and attach `.removeDuplicates()` so downstream views only re-render when the value actually changes.
+
+</details>
 
 ### High-Frequency Updates
 
@@ -73,11 +103,16 @@ For new view models and state objects targeting macOS 14+ / iOS 17+, prefer the 
 - **Prefer async/await and structured concurrency.** Use `Task {}` with proper cancellation over raw GCD or unstructured `Task.detached` unless there is a specific reason.
 - **Always cancel subscriptions and tasks.** Store `AnyCancellable` tokens and cancel them in `deinit` or `onDisappear`. For `Task {}` started in `onAppear`, cancel in `onDisappear`. For `@StateObject` / `@ObservedObject` view models, cancel in `deinit`.
 - **Remove observers and listeners.** Unsubscribe from `NotificationCenter`, KVO, and any custom event systems when the owning object is deallocated or the view disappears. Prefer the `task {}` modifier with implicit cancellation over manual `NotificationCenter.addObserver`.
+<details>
+<summary><strong>Task lifecycle patterns (deferred work, cancellation guards, cleanup)</strong></summary>
+
 - **Store deferred async work as a cancellable `Task`, not `DispatchQueue.asyncAfter`.** A `DispatchQueue.asyncAfter` block cannot be cancelled. Replace it with `Task { try? await Task.sleep(...); guard !Task.isCancelled else { return }; ... }` stored in a `Task<Void, Never>?` property so it can be cancelled cleanly in `deinit` or `onDisappear`.
 - **Add `guard !Task.isCancelled else { return }` after every `Task.sleep` in animation or scroll tasks.** A sleep inside a debounce task is a cancellation point; without the guard the trailing action (e.g., `proxy.scrollTo`) can fire after the task was explicitly cancelled, causing competing UI mutations.
 - **Guard `defer` cleanup blocks against clobbering a newer reference.** If a task stores itself in a shared property (e.g., `scrollDebounceTask = self`), its `defer { scrollDebounceTask = nil }` must check that the property still points to *this* task before nil-ing it — otherwise it silently cancels the successor task that was assigned after the cancel.
 - **Eliminate busy-wait loops with `AsyncStream`.** Replace repeated `DispatchQueue.asyncAfter` polling for state transitions (e.g., waiting for a session to reach `.active`) with an `AsyncStream` that yields on each state change. Use separate Combine subscriptions only for continuously-updating progress properties (elapsed time, counts), not for lifecycle state.
 - **Atomically unsubscribe all per-resource subscriptions together.** If a manager keeps several subscription dictionaries keyed by a resource ID (e.g., per-conversation Combine cancellables, per-conversation tasks), clear all of them in a single `unsubscribeAll(for id:)` method called from one place (teardown, logout, dealloc). Piecemeal unsubscription leaves orphaned subscriptions that continue to fire after the resource is gone.
+
+</details>
 
 ### Memory Management
 
@@ -103,10 +138,15 @@ For new view models and state objects targeting macOS 14+ / iOS 17+, prefer the 
 - **Cancel auto-scroll tasks immediately on user-initiated scroll.** When the user manually scrolls (up, pagination pull, etc.), cancel the debounce/auto-scroll `Task` synchronously inside the scroll callback — before any `await`. Do not rely on the task noticing cancellation at its next sleep boundary; by then the trailing `proxy.scrollTo` may already have been scheduled, starting a fight with the user's scroll position.
 - **Guard scroll `onChange` handlers with a suppression flag during competing operations.** Any `onChange(of: messages.count)` or `onChange(of: streamingScrollTrigger)` that calls `proxy.scrollTo` must be guarded by a flag such as `isSuppressingBottomScroll`. Set that flag to `true` for the duration of pagination scroll-position restoration, and clear it only after the restoration `proxy.scrollTo` has fired. This prevents auto-scroll from racing pagination scroll.
 - **Use an in-flight guard to prevent stacking concurrent pagination loads.** A `@State var isPaginationInFlight: Bool` (or equivalent) must gate the pagination sentinel's `onAppear`. Without it, rapid scroll-to-top can enqueue multiple concurrent loads before `isLoadingMoreMessages` is set by the async response, duplicating content and corrupting the history cursor.
+<details>
+<summary><strong>Layout timing, scroll forwarding, and .scrollPosition caveats</strong></summary>
+
 - **Allow a layout settle delay before restoring scroll position.** After inserting new messages (pagination prepend), wait at least **32 ms** before calling `proxy.scrollTo(anchor)` so SwiftUI can finish its layout pass. If any inserted content performs an animated height change (e.g., `InlineVideoEmbedCard` at 0.25 s), increase the delay to at least the animation duration (100 ms minimum) — restoring scroll mid-animation lands at the wrong position.
 - **Forward scroll/wheel events from gesture-capturing subviews.** `WKWebView` (and other `NSResponder`/`UIResponder` subclasses that capture scroll events) swallow all scroll-wheel input, preventing the enclosing `ScrollView` from scrolling. Subclass the view and override `scrollWheel(_:)` (macOS) / `gestureRecognizerShouldBegin(_:)` (iOS) to forward the event to `nextResponder` / the parent scroll view instead of consuming it.
 - **Use `.scrollPosition(id:anchor:)` with caution — prefer `ScrollViewReader` for this project.** `.scrollPosition` requires fully managed bindings: you must set the binding on scroll events and clear it on content changes. Declaring a binding without actively managing it causes crashes during LazyVStack re-layouts (pagination, streaming) as SwiftUI's internal tracking fights with the nil binding. Additionally, `.scrollPosition` does not work with `List` (only `ScrollView`) and has known issues with `LazyVStack` during auto-scroll. The existing `ScrollViewReader` + `proxy.scrollTo()` pattern is the current project standard — prefer it unless `.scrollPosition` provides a clear advantage for your use case.
 - **Add `os.Logger` diagnostics to complex scroll paths.** Pagination, suppression flag transitions, and scroll position restoration are hard to debug from a crash report alone. Log key events (`[pagination] sentinel appeared`, `[scroll] suppression on/off`, `[scroll] restoring to anchor`) via `os.Logger` with subsystem `com.vellum.vellum-assistant` so they are visible in Console.app without Xcode attached.
+
+</details>
 
 ---
 
@@ -190,6 +230,9 @@ Swift's type checker has quadratic complexity with chained view modifiers. Compl
 
 ## Common SwiftUI Pitfalls
 
+<details>
+<summary><strong>Pitfall reference table</strong></summary>
+
 | Pitfall | Why it's bad | Do this instead |
 |---------|-------------|----------------|
 | `[weak context]` in NSViewRepresentable | `Context` is a struct, not a class — won't compile | Capture `context.coordinator` in a local `let` |
@@ -201,6 +244,8 @@ Swift's type checker has quadratic complexity with chained view modifiers. Compl
 | Strong closure capture on window | Retain cycle if window outlives view | Use `[weak coordinator]` or clear in `dismantleNSView` |
 | `@Observable` dictionary as per-entity store | Any key mutation invalidates all views reading the dictionary | Use per-entity `@Observable` wrapper objects; mutate their properties instead of the dictionary |
 | GeometryReader on ScrollView `.background` measuring parent frame | Measures the ScrollView's proposed size (parent frame), not content intrinsic height — creates feedback loop where state derived from the measurement drives the frame that's being measured | Place GeometryReader on the *inner content* (inside the ScrollView), and reset all derived state (`contentHeight`, `isExpanded`) atomically when content clears |
+
+</details>
 
 ---
 
