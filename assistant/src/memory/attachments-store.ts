@@ -117,6 +117,8 @@ const ALLOWED_MIME_TYPES = new Set([
   "video/mpeg",
   // Documents
   "application/pdf",
+  "text/rtf",
+  "application/rtf",
   "text/plain",
   "text/csv",
   "text/markdown",
