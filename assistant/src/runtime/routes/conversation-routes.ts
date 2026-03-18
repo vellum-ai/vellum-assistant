@@ -184,19 +184,36 @@ async function tryConsumeCanonicalGuardianReply(params: {
   // is not re-processed as a new user turn.
   let messageId: string | undefined;
   try {
+    const guardianImageSourcePaths: Record<string, string> = {};
+    for (const a of attachments) {
+      const filePath = (a as Record<string, unknown>).filePath;
+      if (
+        typeof filePath === "string" &&
+        a.mimeType.toLowerCase().startsWith("image/")
+      ) {
+        guardianImageSourcePaths[a.filename] = filePath;
+      }
+    }
     const channelMeta = {
       userMessageChannel: sourceChannel,
       assistantMessageChannel: sourceChannel,
       userMessageInterface: sourceInterface,
       assistantMessageInterface: sourceInterface,
       provenanceTrustClass: "guardian" as const,
+      ...(Object.keys(guardianImageSourcePaths).length > 0
+        ? { imageSourcePaths: guardianImageSourcePaths }
+        : {}),
     };
 
-    const userMessage = createUserMessage(content, attachments);
+    const cleanUserMessage = createUserMessage(content, attachments);
+    const llmUserMessage = enrichMessageWithSourcePaths(
+      cleanUserMessage,
+      attachments,
+    );
     const persistedUser = await addMessage(
       conversationId,
       "user",
-      JSON.stringify(userMessage.content),
+      JSON.stringify(cleanUserMessage.content),
       channelMeta,
     );
     messageId = persistedUser.id;
@@ -216,7 +233,7 @@ async function tryConsumeCanonicalGuardianReply(params: {
 
     // Avoid mutating in-memory history / emitting stream deltas while a run is active.
     if (!conversation.isProcessing()) {
-      conversation.getMessages().push(userMessage, assistantMessage);
+      conversation.getMessages().push(llmUserMessage, assistantMessage);
       onEvent({
         type: "assistant_text_delta",
         text: replyText,
