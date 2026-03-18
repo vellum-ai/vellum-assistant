@@ -196,6 +196,37 @@ struct DisplayGallerySection: View {
             }
             Divider().background(VColor.borderBase).padding(.vertical, VSpacing.md)
 
+            // MARK: - VActionCard
+            GallerySectionHeader(
+                title: "VActionCard",
+                description: "Tappable card for action choices with icon, title, subtitle, and optional chevron. Hover highlight and pointer cursor built in."
+            )
+
+            VStack(spacing: VSpacing.sm) {
+                VActionCard(
+                    icon: VIcon.settings.rawValue,
+                    label: "Configure Settings",
+                    subtitle: "Adjust preferences and options"
+                ) {}
+
+                VActionCard(
+                    icon: VIcon.plus.rawValue,
+                    label: "Add New Item",
+                    subtitle: "Create something new"
+                ) {}
+
+                VActionCard(
+                    icon: VIcon.trash.rawValue,
+                    label: "Delete Account",
+                    subtitle: "This action cannot be undone",
+                    destructive: true,
+                    showChevron: false
+                ) {}
+            }
+            .frame(width: 320)
+
+            Divider().background(VColor.borderBase).padding(.vertical, VSpacing.md)
+
             // MARK: - VAvatarImage
             #if os(macOS)
             GallerySectionHeader(

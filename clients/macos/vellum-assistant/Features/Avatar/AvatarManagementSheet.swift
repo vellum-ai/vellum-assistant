@@ -43,64 +43,55 @@ struct AvatarManagementSheet: View {
     // MARK: - Action List
 
     private var actionList: some View {
-        VStack(spacing: 0) {
+        VStack(spacing: VSpacing.sm) {
             VAvatarImage(image: appearance.fullAvatarImage, size: 120, showBorder: false)
-                .padding(.bottom, VSpacing.xl)
+                .padding(.bottom, VSpacing.md)
 
-            Divider().background(VColor.borderBase)
-                .padding(.horizontal, -VSpacing.xl)
-
-            VStack(spacing: 0) {
-                actionRow(
-                    icon: "paintbrush",
-                    label: "Build a Character",
-                    subtitle: "Build your own character"
-                ) {
-                    withAnimation(VAnimation.fast) {
-                        if let body = appearance.characterBodyShape,
-                           let eyes = appearance.characterEyeStyle,
-                           let color = appearance.characterColor {
-                            draftBody = body
-                            draftEyes = eyes
-                            draftColor = color
-                        } else {
-                            draftBody = AvatarBodyShape.allCases.randomElement()!
-                            draftEyes = AvatarEyeStyle.allCases.randomElement()!
-                            draftColor = AvatarColor.allCases.randomElement()! // color-literal-ok
-                        }
-                        initialBody = draftBody
-                        initialEyes = draftEyes
-                        initialColor = draftColor
-                        renderDraft()
-                        showingCharacterBuilder = true
+            VActionCard(
+                icon: "paintbrush",
+                label: "Build a Character",
+                subtitle: "Build your own character"
+            ) {
+                withAnimation(VAnimation.fast) {
+                    if let body = appearance.characterBodyShape,
+                       let eyes = appearance.characterEyeStyle,
+                       let color = appearance.characterColor {
+                        draftBody = body
+                        draftEyes = eyes
+                        draftColor = color
+                    } else {
+                        draftBody = AvatarBodyShape.allCases.randomElement()!
+                        draftEyes = AvatarEyeStyle.allCases.randomElement()!
+                        draftColor = AvatarColor.allCases.randomElement()! // color-literal-ok
                     }
-                }
-
-                Divider().background(VColor.borderBase)
-
-                actionRow(
-                    icon: "photo",
-                    label: "Upload Image",
-                    subtitle: "Choose a PNG or JPEG from your Mac"
-                ) {
-                    pickImage()
-                }
-
-                if appearance.customAvatarImage != nil {
-                    Divider().background(VColor.borderBase)
-
-                    actionRow(
-                        icon: VIcon.trash.rawValue,
-                        label: "Delete Avatar",
-                        subtitle: "Revert to the default avatar",
-                        destructive: true
-                    ) {
-                        appearance.clearCustomAvatar()
-                        onClose()
-                    }
+                    initialBody = draftBody
+                    initialEyes = draftEyes
+                    initialColor = draftColor
+                    renderDraft()
+                    showingCharacterBuilder = true
                 }
             }
-            .padding(.vertical, VSpacing.sm)
+
+            VActionCard(
+                icon: "photo",
+                label: "Upload Image",
+                subtitle: "Choose a PNG or JPEG from your Mac"
+            ) {
+                pickImage()
+            }
+
+            if appearance.customAvatarImage != nil {
+                VActionCard(
+                    icon: VIcon.trash.rawValue,
+                    label: "Delete Avatar",
+                    subtitle: "Revert to the default avatar",
+                    destructive: true,
+                    showChevron: false
+                ) {
+                    appearance.clearCustomAvatar()
+                    onClose()
+                }
+            }
         }
     }
 
@@ -287,42 +278,6 @@ struct AvatarManagementSheet: View {
     private func renderDraft() {
         guard let body = draftBody, let eyes = draftEyes, let color = draftColor else { return }
         draftImage = AvatarCompositor.render(bodyShape: body, eyeStyle: eyes, color: color)
-    }
-
-    // MARK: - Action Row
-
-    @ViewBuilder
-    private func actionRow(
-        icon: String,
-        label: String,
-        subtitle: String,
-        destructive: Bool = false,
-        action: @escaping () -> Void
-    ) -> some View {
-        Button(action: action) {
-            HStack(spacing: VSpacing.md) {
-                VIconView(SFSymbolMapping.icon(forSFSymbol: icon, fallback: .puzzle), size: 14)
-                    .foregroundColor(destructive ? VColor.systemNegativeStrong : VColor.contentSecondary)
-                    .frame(width: 24, alignment: .center)
-
-                VStack(alignment: .leading, spacing: VSpacing.xxs) {
-                    Text(label)
-                        .font(VFont.bodyMedium)
-                        .foregroundColor(destructive ? VColor.systemNegativeStrong : VColor.contentDefault)
-                    Text(subtitle)
-                        .font(VFont.caption)
-                        .foregroundColor(VColor.contentTertiary)
-                }
-
-                Spacer()
-
-                VIconView(.chevronRight, size: 11)
-                    .foregroundColor(VColor.contentTertiary)
-            }
-            .padding(.vertical, VSpacing.md)
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
     }
 
     // MARK: - File Picker
