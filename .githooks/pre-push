@@ -103,14 +103,18 @@ if [ -z "$REMOTE_SHA" ]; then
     exit 0
 fi
 
-# Get all changed files (source files only, not deleted)
-CHANGED_FILES=$(git diff --name-only --diff-filter=ACMR "$REMOTE_SHA"..HEAD -- '*.ts' '*.tsx' '*.js' '*.jsx' '*.mjs' 2>/dev/null)
+# Get all changed files (source files only, not deleted).
+# Use triple-dot diff (merge-base syntax) so that after merging main into a
+# feature branch, we only see files changed on the feature branch — not every
+# file that came in from main. Triple-dot diffs from the merge base of
+# REMOTE_SHA and HEAD, which is exactly the set of feature-branch changes.
+CHANGED_FILES=$(git diff --name-only --diff-filter=ACMR "$REMOTE_SHA"...HEAD -- '*.ts' '*.tsx' '*.js' '*.jsx' '*.mjs' 2>/dev/null)
 
 _changed_count=$(echo "$CHANGED_FILES" | grep -c . 2>/dev/null || echo 0)
 _debug_log "changed files: ${_changed_count}"
 
 # Get changed Swift files separately (not included in the TS/JS diff above)
-SWIFT_CHANGED_FILES=$(git diff --name-only --diff-filter=ACMR "$REMOTE_SHA"..HEAD -- 'clients/*.swift' 'clients/**/*.swift' 2>/dev/null)
+SWIFT_CHANGED_FILES=$(git diff --name-only --diff-filter=ACMR "$REMOTE_SHA"...HEAD -- 'clients/*.swift' 'clients/**/*.swift' 2>/dev/null)
 _swift_count=$(echo "$SWIFT_CHANGED_FILES" | grep -c . 2>/dev/null || echo 0)
 _debug_log "changed Swift files: ${_swift_count}"
 

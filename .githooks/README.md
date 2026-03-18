@@ -37,6 +37,7 @@ Automatically checks for plain text keys and secrets before allowing a commit.
 - Avoids known false positives for architecture/db identifier strings like `assistant_auth_tokens` and migration checkpoint keys
 - Ignores checksum/hash fixture fields (for example `nonceSha256`) while still scanning adjacent lines
 - Runs prettier and eslint on staged files in assistant, cli, and gateway directories
+- **Merge-aware:** During merge commits, Prettier and ESLint only run on files the author changed on their branch — not files brought in from the other side of the merge. This prevents pre-existing formatting drift on main from blocking merge commits. Secret scanning still checks all staged files regardless.
 - When message contract files are staged, verifies the generated Swift models and inventory snapshot are up to date
 - Catches unstaged generated output files (e.g., regenerated but not `git add`-ed)
 
@@ -56,7 +57,10 @@ Runs before pushing to catch issues that would fail CI.
 **What it checks:**
 
 1. **TypeScript type check** — Runs `tsc --noEmit` on `assistant/` when `.ts`/`.tsx` files changed. This backstops the pre-commit type check which is skipped in worktrees for performance.
-2. **Related tests** — Finds and runs test files matching changed source file stems using filename heuristics.
+2. **Lint** — Runs `eslint` on changed `.ts`/`.tsx`/`.js`/`.jsx`/`.mjs` files in `assistant/`, `cli/`, and `gateway/`.
+3. **Related tests** — Finds and runs test files matching changed source file stems using filename heuristics.
+
+**Merge-aware:** Uses triple-dot diff (`REMOTE_SHA...HEAD`) to determine changed files, so after merging main into a feature branch only the feature branch's own changes are checked — not every file that came in from main.
 
 **Bypass (not recommended):**
 ```bash

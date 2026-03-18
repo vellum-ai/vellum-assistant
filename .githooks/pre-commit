@@ -11,9 +11,43 @@ NC='\033[0m' # No Color
 # Two variants: ACM-filtered (most checks) and unfiltered (typecheck, system-prompt warning).
 STAGED_ACM_FILE=$(mktemp)
 STAGED_ALL_FILE=$(mktemp)
-trap 'rm -f "$STAGED_ACM_FILE" "$STAGED_ALL_FILE"' EXIT
+# AUTHOR_ACM_FILE: during merges, only files the author changed (not files from the
+# other branch). Used for formatting/lint checks so that pre-existing drift on main
+# doesn't block merge commits. Secret scanning still uses the full STAGED_ACM_FILE.
+AUTHOR_ACM_FILE=$(mktemp)
+trap 'rm -f "$STAGED_ACM_FILE" "$STAGED_ALL_FILE" "$AUTHOR_ACM_FILE"' EXIT
 git diff --cached --name-only --diff-filter=ACM -z > "$STAGED_ACM_FILE"
 git diff --cached --name-only -z > "$STAGED_ALL_FILE"
+
+# Detect merge commits and scope formatting/lint to author-changed files only.
+# During a merge, git stages files from both sides. We intersect the staged list
+# with files the author actually modified on their branch (relative to MERGE_HEAD)
+# so that formatting drift on the incoming branch doesn't block the commit.
+MERGE_HEAD_FILE="$(git rev-parse --git-dir)/MERGE_HEAD"
+if [ -f "$MERGE_HEAD_FILE" ]; then
+    MERGE_HEAD_SHA=$(cat "$MERGE_HEAD_FILE" | head -1)
+    # Files the author changed: diff between the merge base and HEAD (our branch).
+    # This excludes files that only changed on the incoming branch.
+    MERGE_BASE=$(git merge-base HEAD "$MERGE_HEAD_SHA" 2>/dev/null || echo "")
+    if [ -n "$MERGE_BASE" ]; then
+        AUTHOR_CHANGED_FILE=$(mktemp)
+        trap 'rm -f "$STAGED_ACM_FILE" "$STAGED_ALL_FILE" "$AUTHOR_ACM_FILE" "$AUTHOR_CHANGED_FILE"' EXIT
+        git diff --name-only "$MERGE_BASE"..HEAD -z > "$AUTHOR_CHANGED_FILE"
+        # Intersect: keep only staged files that the author changed on their branch.
+        # Both files are NUL-delimited; we convert to newline, sort, intersect, then
+        # convert back to NUL-delimited.
+        comm -12 \
+            <(tr '\0' '\n' < "$STAGED_ACM_FILE" | sort) \
+            <(tr '\0' '\n' < "$AUTHOR_CHANGED_FILE" | sort) \
+            | tr '\n' '\0' > "$AUTHOR_ACM_FILE"
+    else
+        # Couldn't determine merge base — fall back to all staged files.
+        cp "$STAGED_ACM_FILE" "$AUTHOR_ACM_FILE"
+    fi
+else
+    # Not a merge — author files are the same as staged files.
+    cp "$STAGED_ACM_FILE" "$AUTHOR_ACM_FILE"
+fi
 
 echo "🔍 Checking for plain text keys and secrets..."
 
@@ -791,13 +825,15 @@ DIRS_TO_CHECK=("assistant" "cli" "gateway")
 BUN="${BUN:-$(command -v bun 2>/dev/null || echo "$HOME/.bun/bin/bun")}"
 
 for DIR in "${DIRS_TO_CHECK[@]}"; do
-    # Collect staged .ts/.tsx/.js/.jsx/.json/.mjs files in this directory
+    # Collect staged files in this directory — use AUTHOR_ACM_FILE so that
+    # during merges we only check files the author actually changed, not
+    # files brought in from the other branch.
     STAGED_FILES=()
     while IFS= read -r -d '' FILE; do
         if [[ "$FILE" == "$DIR/"* ]]; then
             STAGED_FILES+=("$FILE")
         fi
-    done < "$STAGED_ACM_FILE"
+    done < "$AUTHOR_ACM_FILE"
 
     if [ ${#STAGED_FILES[@]} -eq 0 ]; then
         continue
