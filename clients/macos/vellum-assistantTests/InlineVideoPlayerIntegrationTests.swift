@@ -12,7 +12,7 @@ final class InlineVideoPlayerIntegrationTests: XCTestCase {
         XCTAssertNotNil(url)
         XCTAssertEqual(
             url?.absoluteString,
-            "https://www.youtube.com/embed/dQw4w9WgXcQ?autoplay=1&rel=0"
+            "https://www.youtube.com/embed/dQw4w9WgXcQ?autoplay=1&rel=0&playsinline=1"
         )
     }
 
@@ -137,7 +137,7 @@ final class InlineVideoPlayerIntegrationTests: XCTestCase {
         // Verify the URL the card would use for playback matches what
         // VideoEmbedURLBuilder produces for each provider.
         let providers: [(String, String, String)] = [
-            ("youtube", "testVid1", "https://www.youtube.com/embed/testVid1?autoplay=1&rel=0"),
+            ("youtube", "testVid1", "https://www.youtube.com/embed/testVid1?autoplay=1&rel=0&playsinline=1"),
             ("vimeo", "12345", "https://player.vimeo.com/video/12345?autoplay=1"),
             ("loom", "aaaabbbb", "https://www.loom.com/embed/aaaabbbb?autoplay=1"),
         ]

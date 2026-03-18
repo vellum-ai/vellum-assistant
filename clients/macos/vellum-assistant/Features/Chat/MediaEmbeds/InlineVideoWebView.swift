@@ -1,5 +1,6 @@
 import SwiftUI
 @preconcurrency import WebKit
+import VellumAssistantShared
 
 /// WKWebView subclass that forwards scroll-wheel events to the enclosing
 /// NSScrollView instead of consuming them internally.
@@ -61,7 +62,7 @@ struct InlineVideoWebView: NSViewRepresentable {
         let webView = Self.makeConfiguredWebView()
         webView.navigationDelegate = context.coordinator
         webView.uiDelegate = context.coordinator
-        let request = URLRequest(url: url)
+        let request = Self.makeRequest(url: url, provider: provider)
         webView.load(request)
         return webView
     }
@@ -98,6 +99,11 @@ struct InlineVideoWebView: NSViewRepresentable {
         webView.allowsLinkPreview = false
 
         return webView
+    }
+
+    /// Build the initial request so tests can verify provider-specific headers.
+    static func makeRequest(url: URL, provider: String) -> URLRequest {
+        VideoEmbedRequestBuilder.buildRequest(url: url, provider: provider)
     }
 
     /// Check whether `host` matches any of the allowed patterns for `provider`.
