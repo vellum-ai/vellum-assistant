@@ -69,6 +69,8 @@ final class VoiceInputManager {
     /// Floating overlay showing dictation state (recording/processing/done).
     private let overlayWindow = DictationOverlayWindow()
 
+    /// Overlay for denied permission prompts (microphone/speech recognition).
+    private let permissionOverlay = PermissionPromptOverlay()
 
     /// True after a dictation request has been sent and we're awaiting a response.
     /// Used by `stopRecording()` to decide whether the overlay should stay visible.
@@ -187,6 +189,7 @@ final class VoiceInputManager {
         isActivatorHeld = false
         stopRecording()
         overlayWindow.dismiss()
+        permissionOverlay.dismiss()
     }
 
     /// Directly toggle recording on/off — used by UI mic buttons that bypass the Fn-key hold flow.
@@ -560,16 +563,15 @@ final class VoiceInputManager {
         let micDenied = micStatus == .denied || micStatus == .restricted
         let speechDenied = speechStatus == .denied || speechStatus == .restricted
         if micDenied || speechDenied {
-            // Open the relevant System Settings pane directly.
-            // Calling requestAccess first ensures the app is registered in TCC
-            // so it actually appears in System Settings.
-            if micDenied {
-                AVCaptureDevice.requestAccess(for: .audio) { _ in }
-                PermissionManager.openMicrophoneSettings()
+            let deniedPermission: PermissionPromptOverlay.DeniedPermission
+            if micDenied && speechDenied {
+                deniedPermission = .both
+            } else if micDenied {
+                deniedPermission = .microphone
             } else {
-                SFSpeechRecognizer.requestAuthorization { _ in }
-                PermissionManager.openSpeechRecognitionSettings()
+                deniedPermission = .speechRecognition
             }
+            permissionOverlay.show(kind: deniedPermission, onDismiss: {})
             currentDictationContext = nil
             return
         }
@@ -697,7 +699,7 @@ final class VoiceInputManager {
         let micGranted = await AVCaptureDevice.requestAccess(for: .audio)
         guard micGranted else {
             log.warning("Microphone access denied by user")
-            PermissionManager.openMicrophoneSettings()
+            permissionOverlay.show(kind: .microphone, onDismiss: {})
             return
         }
 
@@ -708,7 +710,7 @@ final class VoiceInputManager {
         }
         guard speechGranted else {
             log.warning("Speech recognition access denied by user")
-            PermissionManager.openSpeechRecognitionSettings()
+            permissionOverlay.show(kind: .speechRecognition, onDismiss: {})
             return
         }
 
