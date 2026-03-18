@@ -41,6 +41,11 @@ struct ContactsContainerView: View {
             .frame(width: 320)
             .frame(maxHeight: .infinity, alignment: .top)
 
+            // Thin separator with shadow
+            VColor.borderDisabled
+                .frame(width: 1)
+                .frame(maxHeight: .infinity)
+                .shadow(color: Color.black.opacity(0.08), radius: 2, x: 1, y: 0)
 
             // Right pane: detail, loading, or placeholder
             VStack(alignment: .leading, spacing: 0) {
@@ -184,8 +189,6 @@ struct ContactsContainerView: View {
                 }
             }
             }
-            .background(VColor.surfaceBase)
-            .clipShape(RoundedRectangle(cornerRadius: VRadius.lg))
             .frame(maxWidth: 700, maxHeight: .infinity)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)

@@ -107,8 +107,6 @@ struct ContactsListView: View {
                 .padding(.vertical, VSpacing.xs)
             }
         }
-        .background(VColor.surfaceBase)
-        .clipShape(RoundedRectangle(cornerRadius: VRadius.lg))
         .frame(maxHeight: .infinity, alignment: .top)
     }
 
