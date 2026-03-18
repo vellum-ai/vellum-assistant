@@ -301,11 +301,20 @@ struct ContactsContainerView: View {
 
     @State private var cachedAssistantName: String = AssistantDisplayName.placeholder
 
-    /// Assistant detail — channels card only (top summary tile removed per design review).
+    /// Assistant detail — header + channels.
     @ViewBuilder
     private var assistantDetailView: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: VSpacing.lg) {
+                // Header matching contact/guardian detail pattern
+                HStack(spacing: VSpacing.sm) {
+                    Text(cachedAssistantName)
+                        .font(VFont.display)
+                        .foregroundColor(VColor.contentDefault)
+                    ContactTypeBadge(role: "assistant")
+                }
+                .padding(.horizontal, VSpacing.lg)
+
                 if let store {
                     AssistantChannelsDetailView(store: store, daemonClient: daemonClient, conversationManager: conversationManager, assistantName: cachedAssistantName, isEmailEnabled: isEmailEnabled, showCardBorders: false)
                         .padding(.horizontal, VSpacing.lg)
