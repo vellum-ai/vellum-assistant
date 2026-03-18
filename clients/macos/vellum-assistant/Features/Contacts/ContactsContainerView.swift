@@ -41,11 +41,6 @@ struct ContactsContainerView: View {
             .frame(width: 320)
             .frame(maxHeight: .infinity, alignment: .top)
 
-            // Vertical separator
-            VColor.borderDisabled
-                .frame(width: 1)
-                .frame(maxHeight: .infinity)
-                .padding(.vertical, VSpacing.lg)
 
             // Right pane: detail, loading, or placeholder
             if viewModel.isLoading && viewModel.contacts.isEmpty {
