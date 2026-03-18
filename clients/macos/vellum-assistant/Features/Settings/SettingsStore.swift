@@ -832,18 +832,18 @@ public final class SettingsStore: ObservableObject {
     func saveVercelKey(_ raw: String) {
         let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
-        do {
-            try daemonClient?.sendVercelApiConfig(action: "set", apiToken: trimmed)
-        } catch {
-            log.error("Failed to send Vercel API config set: \(error)")
+        Task {
+            if let response = await settingsClient.saveVercelConfig(action: "set", apiToken: trimmed) {
+                self.applyVercelConfigResponse(response)
+            }
         }
     }
 
     func clearVercelKey() {
-        do {
-            try daemonClient?.sendVercelApiConfig(action: "delete")
-        } catch {
-            log.error("Failed to send Vercel API config delete: \(error)")
+        Task {
+            if let response = await settingsClient.saveVercelConfig(action: "delete") {
+                self.applyVercelConfigResponse(response)
+            }
         }
     }
 
@@ -1569,28 +1569,32 @@ public final class SettingsStore: ObservableObject {
             }
             pendingVerificationSessionChannel = channel
             armVerificationSessionTimeout(for: channel)
-            try daemonClient.sendChannelVerificationSession(
-                action: "create_session",
-                channel: channel,
-                rebind: rebind ? true : nil
-            )
-        } catch {
-            log.error("Failed to start \(channel) channel verification: \(error)")
-            clearVerificationSessionPending(for: channel)
-            switch channel {
-            case "telegram":
-                telegramVerificationInProgress = false
-                telegramVerificationError = "Failed to start verification. Try again."
-            case "phone":
-                voiceVerificationInProgress = false
-                voiceVerificationError = "Failed to start verification. Try again."
-            case "slack":
-                slackVerificationInProgress = false
-                slackVerificationError = "Failed to start verification. Try again."
-            default:
-                break
+            Task {
+                let response = await settingsClient.sendChannelVerificationSession(
+                    action: "create_session",
+                    channel: channel,
+                    rebind: rebind ? true : nil
+                )
+                if response == nil {
+                    log.error("Failed to start \(channel) channel verification")
+                    self.clearVerificationSessionPending(for: channel)
+                    switch channel {
+                    case "telegram":
+                        self.telegramVerificationInProgress = false
+                        self.telegramVerificationError = "Failed to start verification. Try again."
+                    case "phone":
+                        self.voiceVerificationInProgress = false
+                        self.voiceVerificationError = "Failed to start verification. Try again."
+                    case "slack":
+                        self.slackVerificationInProgress = false
+                        self.slackVerificationError = "Failed to start verification. Try again."
+                    default:
+                        break
+                    }
+                } else if let response {
+                    self.applyChannelVerificationResponse(response)
+                }
             }
-        }
     }
 
     func cancelVerificationSession(channel: String) {
@@ -1610,10 +1614,8 @@ public final class SettingsStore: ObservableObject {
             break
         }
         // Invalidate the pending session on the backend so it can't be used after cancellation
-        do {
-            try daemonClient?.sendChannelVerificationSession(action: "revoke", channel: channel)
-        } catch {
-            log.error("Failed to revoke \(channel) verification session on cancel: \(error)")
+        Task {
+            _ = await settingsClient.sendChannelVerificationSession(action: "revoke", channel: channel)
         }
     }
 
@@ -1632,10 +1634,8 @@ public final class SettingsStore: ObservableObject {
         default:
             break
         }
-        do {
-            try daemonClient?.sendChannelVerificationSession(action: "revoke", channel: channel)
-        } catch {
-            log.error("Failed to revoke \(channel) verification: \(error)")
+        Task {
+            _ = await settingsClient.sendChannelVerificationSession(action: "revoke", channel: channel)
         }
     }
 
@@ -1677,37 +1677,42 @@ public final class SettingsStore: ObservableObject {
                 }
                 return
             }
-            try daemonClient.sendChannelVerificationSession(
-                action: "create_session",
-                channel: channel,
-                destination: destination
-            )
-        } catch {
-            log.error("Failed to start outbound \(channel) channel verification: \(error)")
-            switch channel {
-            case "telegram":
-                telegramVerificationInProgress = false
-                telegramVerificationError = "Failed to start verification. Try again."
-            case "phone":
-                voiceVerificationInProgress = false
-                voiceVerificationError = "Failed to start verification. Try again."
-            case "slack":
-                slackVerificationInProgress = false
-                slackVerificationError = "Failed to start verification. Try again."
-            default:
-                break
+            Task {
+                let response = await self.settingsClient.sendChannelVerificationSession(
+                    action: "create_session",
+                    channel: channel,
+                    destination: destination
+                )
+                if response == nil {
+                    log.error("Failed to start outbound \(channel) channel verification")
+                    switch channel {
+                    case "telegram":
+                        self.telegramVerificationInProgress = false
+                        self.telegramVerificationError = "Failed to start verification. Try again."
+                    case "phone":
+                        self.voiceVerificationInProgress = false
+                        self.voiceVerificationError = "Failed to start verification. Try again."
+                    case "slack":
+                        self.slackVerificationInProgress = false
+                        self.slackVerificationError = "Failed to start verification. Try again."
+                    default:
+                        break
+                    }
+                } else if let response {
+                    self.applyChannelVerificationResponse(response)
+                }
             }
-        }
     }
 
     func resendOutboundVerification(channel: String) {
-        do {
-            try daemonClient?.sendChannelVerificationSession(
+        Task {
+            let response = await settingsClient.sendChannelVerificationSession(
                 action: "resend_session",
                 channel: channel
             )
-        } catch {
-            log.error("Failed to resend outbound \(channel) channel verification: \(error)")
+            if let response {
+                self.applyChannelVerificationResponse(response)
+            }
         }
     }
 
@@ -1724,13 +1729,11 @@ public final class SettingsStore: ObservableObject {
         default:
             break
         }
-        do {
-            try daemonClient?.sendChannelVerificationSession(
+        Task {
+            _ = await settingsClient.sendChannelVerificationSession(
                 action: "cancel_session",
                 channel: channel
             )
-        } catch {
-            log.error("Failed to cancel outbound \(channel) channel verification: \(error)")
         }
     }
 

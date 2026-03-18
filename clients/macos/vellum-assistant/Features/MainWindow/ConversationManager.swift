@@ -681,11 +681,12 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
     func loadMoreConversations() {
         guard !isLoadingMoreConversations else { return }
         isLoadingMoreConversations = true
-        do {
-            try daemonClient.sendConversationList(offset: serverOffset, limit: 50)
-        } catch {
-            log.error("Failed to request more conversations: \(error.localizedDescription)")
-            isLoadingMoreConversations = false
+        Task {
+            if let response = await ConversationListClient().fetchConversationList(offset: serverOffset, limit: 50) {
+                self.appendConversations(from: response)
+            } else {
+                self.isLoadingMoreConversations = false
+            }
         }
     }
 
@@ -1549,7 +1550,7 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
     }
 
     private func emitConversationUnreadSignal(conversationId: String) async throws {
-        let signal = ConversationUnreadSignal(
+        try await ConversationListClient().sendConversationUnread(
             conversationId: conversationId,
             sourceChannel: "vellum",
             signalType: "macos_conversation_opened",
@@ -1557,7 +1558,6 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
             source: "ui-navigation",
             evidenceText: "User selected Mark as unread"
         )
-        try await daemonClient.sendConversationUnread(signal)
     }
 
     private func rollbackUnreadMutationIfNeeded(

@@ -31,8 +31,8 @@ extension HTTPTransport {
             } else if let msg = message as? UndoRequest {
                 Task { await self.undoLastMessage(conversationId: msg.conversationId) }
                 return true
-            } else if let msg = message as? RegenerateMessage {
-                Task { await self.regenerateLastResponse(conversationId: msg.conversationId) }
+            } else if message is RegenerateMessage {
+                // Handled by ConversationListClient via GatewayHTTPClient.
                 return true
             } else if message is ModelGetRequestMessage || message is ModelSetRequestMessage {
                 // Handled by SettingsClient via GatewayHTTPClient.
@@ -49,11 +49,11 @@ extension HTTPTransport {
                     )
                 }
                 return true
-            } else if let msg = message as? MessageContentRequest {
-                Task { await self.fetchMessageContent(conversationId: msg.conversationId, messageId: msg.messageId) }
+            } else if message is MessageContentRequest {
+                // Handled by ConversationListClient via GatewayHTTPClient.
                 return true
-            } else if let msg = message as? DeleteQueuedMessageMessage {
-                Task { await self.deleteQueuedMessage(conversationId: msg.conversationId, requestId: msg.requestId) }
+            } else if message is DeleteQueuedMessageMessage {
+                // Handled by ConversationListClient via GatewayHTTPClient.
                 return true
             } else if let msg = message as? ReorderConversationsRequest {
                 Task { await self.reorderConversations(updates: msg.updates) }

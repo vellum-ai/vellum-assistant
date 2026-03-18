@@ -39,8 +39,8 @@ extension HTTPTransport {
             }
 
             // --- Surface Undo ---
-            if let msg = message as? UiSurfaceUndoMessage {
-                Task { await self.sendEncodablePost(.surfaceUndo(surfaceId: msg.surfaceId), body: msg, label: "ui_surface_undo") }
+            if message is UiSurfaceUndoMessage {
+                // Handled by SurfaceActionClient via GatewayHTTPClient.
                 return true
             }
 
@@ -67,21 +67,12 @@ extension HTTPTransport {
             }
             // platform_config does not have HTTP routes yet;
             // it continues to use SSE message handlers and is not dispatched here.
-            if let msg = message as? VercelApiConfigRequestMessage {
-                Task { await self.sendEncodablePost(.integrationsVercelConfig, body: msg, label: "vercel_api_config") }
+            if message is VercelApiConfigRequestMessage {
+                // Handled by SettingsClient via GatewayHTTPClient.
                 return true
             }
-            if let msg = message as? ChannelVerificationSessionRequestMessage {
-                switch msg.action {
-                case "cancel_session":
-                    Task { await self.sendEncodablePostAndDispatch(.channelVerificationSessions, body: msg, method: "DELETE", messageType: "channel_verification_session_response", label: "channel_verification_cancel", channel: msg.channel) }
-                case "revoke":
-                    Task { await self.sendEncodablePostAndDispatch(.channelVerificationSessionsRevoke, body: msg, messageType: "channel_verification_session_response", label: "channel_verification_revoke", channel: msg.channel) }
-                case "resend_session":
-                    Task { await self.sendEncodablePostAndDispatch(.channelVerificationSessionsResend, body: msg, messageType: "channel_verification_session_response", label: "channel_verification_resend", channel: msg.channel) }
-                default:
-                    Task { await self.sendEncodablePostAndDispatch(.channelVerificationSessions, body: msg, messageType: "channel_verification_session_response", label: "channel_verification_session", channel: msg.channel) }
-                }
+            if message is ChannelVerificationSessionRequestMessage {
+                // Handled by SettingsClient via GatewayHTTPClient.
                 return true
             }
             // --- Workspace Files (legacy HTTP) ---

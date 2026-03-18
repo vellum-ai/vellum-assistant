@@ -374,12 +374,13 @@ class IOSConversationStore: ObservableObject {
     /// for any response that arrives between the generation bump and this send.  If the send
     /// throws, the expected generation is not advanced and the guard stays closed.
     private func sendPageOneConversationList(daemon: DaemonClient) {
-        do {
-            try daemon.sendConversationList(offset: 0, limit: Self.conversationPageSize)
-            expectedConversationListGeneration = conversationListGeneration
-        } catch {
-            // Send failed — leave expectedConversationListGeneration unchanged so the
-            // guard stays closed and stale responses are rejected.
+        let currentGeneration = conversationListGeneration
+        Task { [weak self] in
+            guard let self else { return }
+            if let response = await ConversationListClient().fetchConversationList(offset: 0, limit: Self.conversationPageSize) {
+                self.expectedConversationListGeneration = currentGeneration
+                self.handleConversationListResponse(response)
+            }
         }
     }
 
@@ -633,21 +634,19 @@ class IOSConversationStore: ObservableObject {
     /// Load the next page of conversations from the daemon (Connected mode only).
     func loadMoreConversations() {
         guard isConnectedMode,
-              let daemon = daemonClient as? DaemonClient,
               !isLoadingMoreConversations,
               hasMoreConversations else { return }
         isLoadingMoreConversations = true
         let nextOffset = conversationListOffset + Self.conversationPageSize
         conversationListOffset = nextOffset
-        // Do not touch conversationListGeneration or expectedConversationListGeneration here.
-        // The generation counter tracks reconnect boundaries only; within a single
-        // connection all responses are accepted (the daemon doesn't echo request IDs).
-        do {
-            try daemon.sendConversationList(offset: nextOffset, limit: Self.conversationPageSize)
-        } catch {
-            // Request failed before being sent — roll back pagination state.
-            isLoadingMoreConversations = false
-            conversationListOffset -= Self.conversationPageSize
+        Task { [weak self] in
+            guard let self else { return }
+            if let response = await ConversationListClient().fetchConversationList(offset: nextOffset, limit: Self.conversationPageSize) {
+                self.handleConversationListResponse(response)
+            } else {
+                self.isLoadingMoreConversations = false
+                self.conversationListOffset -= Self.conversationPageSize
+            }
         }
     }
 
@@ -685,7 +684,6 @@ class IOSConversationStore: ObservableObject {
     func loadHistoryIfNeeded(for conversationLocalId: UUID) {
         guard let conversation = conversations.first(where: { $0.id == conversationLocalId }),
               let conversationId = conversation.conversationId,
-              let daemon = daemonClient as? DaemonClient,
               let vm = viewModels[conversationLocalId],
               !vm.isHistoryLoaded else { return }
 
@@ -696,7 +694,15 @@ class IOSConversationStore: ObservableObject {
             self?.requestPaginatedHistory(conversationId: conversationId, beforeTimestamp: beforeTimestamp)
         }
 
-        try? daemon.sendHistoryRequest(conversationId: conversationId, limit: 50, mode: "light", maxToolResultChars: 1000)
+        Task { [weak self] in
+            guard let self else { return }
+            let response = await ConversationListClient().fetchHistory(conversationId: conversationId, limit: 50, mode: "light", maxToolResultChars: 1000)
+            if let response {
+                self.handleHistoryResponse(response)
+            } else {
+                self.pendingHistoryByConversationId.removeValue(forKey: conversationId)
+            }
+        }
     }
 
     /// Mark a connected conversation as seen when the user explicitly opens it.
@@ -737,23 +743,20 @@ class IOSConversationStore: ObservableObject {
 
     /// Request an older page of history for pagination.
     private func requestPaginatedHistory(conversationId: String, beforeTimestamp: Double) {
-        guard let daemon = daemonClient as? DaemonClient,
-              let conversation = conversations.first(where: { $0.conversationId == conversationId }) else {
-            // Clear loading state so the user isn't stuck with a permanent spinner.
-            // The daemon cast may fail (e.g. HTTP transport) while the conversation is still findable.
-            if let conversation = conversations.first(where: { $0.conversationId == conversationId }),
-               let vm = viewModels[conversation.id] {
-                vm.isLoadingMoreMessages = false
-            }
+        guard let conversation = conversations.first(where: { $0.conversationId == conversationId }) else {
             return
         }
         pendingHistoryByConversationId[conversationId] = conversation.id
-        do {
-            try daemon.sendHistoryRequest(conversationId: conversationId, limit: 50, beforeTimestamp: beforeTimestamp, mode: "light", maxToolResultChars: 1000)
-        } catch {
-            pendingHistoryByConversationId.removeValue(forKey: conversationId)
-            if let vm = viewModels[conversation.id] {
-                vm.isLoadingMoreMessages = false
+        Task { [weak self] in
+            guard let self else { return }
+            let response = await ConversationListClient().fetchHistory(conversationId: conversationId, limit: 50, beforeTimestamp: beforeTimestamp, mode: "light", maxToolResultChars: 1000)
+            if let response {
+                self.handleHistoryResponse(response)
+            } else {
+                self.pendingHistoryByConversationId.removeValue(forKey: conversationId)
+                if let vm = self.viewModels[conversation.id] {
+                    vm.isLoadingMoreMessages = false
+                }
             }
         }
     }
@@ -789,10 +792,18 @@ class IOSConversationStore: ObservableObject {
     /// pendingHistoryByConversationId and the response is properly routed back.
     private func wireReconnectCallback(vm: ChatViewModel, conversationLocalId: UUID) {
         guard vm.onReconnectHistoryNeeded == nil else { return }
-        vm.onReconnectHistoryNeeded = { [weak self, weak vm] conversationId in
-            guard let self, let _ = vm, let daemon = self.daemonClient as? DaemonClient else { return }
+        vm.onReconnectHistoryNeeded = { [weak self] conversationId in
+            guard let self else { return }
             self.pendingHistoryByConversationId[conversationId] = conversationLocalId
-            try? daemon.sendHistoryRequest(conversationId: conversationId, limit: 50, mode: "light", maxToolResultChars: 1000)
+            Task { [weak self] in
+                guard let self else { return }
+                let response = await ConversationListClient().fetchHistory(conversationId: conversationId, limit: 50, mode: "light", maxToolResultChars: 1000)
+                if let response {
+                    self.handleHistoryResponse(response)
+                } else {
+                    self.pendingHistoryByConversationId.removeValue(forKey: conversationId)
+                }
+            }
         }
     }
 
@@ -979,7 +990,14 @@ class IOSConversationStore: ObservableObject {
         Task { @MainActor [weak self] in
             guard let self else { return }
             do {
-                try await self.daemonClient.sendConversationUnread(signal)
+                try await ConversationListClient().sendConversationUnread(
+                    conversationId: conversationId,
+                    sourceChannel: signal.sourceChannel,
+                    signalType: signal.signalType,
+                    confidence: signal.confidence,
+                    source: signal.source,
+                    evidenceText: signal.evidenceText
+                )
             } catch {
                 self.rollbackUnreadMutationIfNeeded(
                     conversationLocalId: conversation.id,
