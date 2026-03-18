@@ -173,9 +173,9 @@ struct MessageListView: View {
     /// trigger re-renders.
     @StateObject private var anchorTracker = AnchorVisibilityTracker()
     /// Whether a physical scroll event (wheel/trackpad) has been received since
-    /// the current conversation loaded. Before any scroll event, `isNearBottom`
-    /// (which defaults to `true`) is not trusted; the button relies solely on
-    /// `anchorTracker.isVisible` to decide visibility.
+    /// the current conversation loaded. Used by `restoreScrollToBottom` to skip
+    /// retries once the user has interacted, and by the scroll-bottom-anchor's
+    /// `onAppear` to avoid premature re-tethering during LazyVStack prefetch.
     @State private var hasReceivedScrollEvent: Bool = false
     /// The scroll view's viewport height, captured via preference key. Used by
     /// the anchor GeometryReader to determine if the anchor is within bounds.
@@ -904,7 +904,9 @@ struct MessageListView: View {
                 conversationTailAvatar
             }
             .overlay(alignment: .bottom) {
-                if (!isNearBottom || !hasReceivedScrollEvent) && !anchorTracker.isVisible {
+                if !isNearBottom && !anchorTracker.isVisible
+                    && anchorTracker.lastMinY > scrollViewportHeight + 20
+                {
                     Button(action: {
                         hasReceivedScrollEvent = true
                         isNearBottom = true
