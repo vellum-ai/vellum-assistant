@@ -77,7 +77,20 @@ struct UsageDashboardPanel: View {
         SettingsCard(title: "Totals") {
             switch store.totalsState {
             case .idle, .loading:
-                loadingRow()
+                // Skeleton matching 2x3 stat card grid
+                LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: VSpacing.md) {
+                    ForEach(0..<6, id: \.self) { _ in
+                        VStack(alignment: .leading, spacing: VSpacing.xxs) {
+                            VSkeletonBone(width: 50, height: 14)
+                            VSkeletonBone(width: 90, height: 12)
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(VSpacing.sm)
+                        .background(VColor.borderBase.opacity(0.15))
+                        .cornerRadius(8)
+                    }
+                }
+                .accessibilityHidden(true)
             case .loaded(let totals):
                 LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: VSpacing.md) {
                     statCard(label: "Estimated Cost", value: formatCost(totals.totalEstimatedCostUsd))
@@ -88,7 +101,7 @@ struct UsageDashboardPanel: View {
                     statCard(label: "Cache Read", value: formatTokenCount(totals.totalCacheReadTokens))
                 }
             case .failed(let message):
-                errorRow(message)
+                errorRow(message) { refreshTask?.cancel(); refreshTask = Task { await store.refresh() } }
             }
         }
     }
@@ -100,7 +113,17 @@ struct UsageDashboardPanel: View {
         SettingsCard(title: "Daily Trend") {
             switch store.dailyState {
             case .idle, .loading:
-                loadingRow()
+                // Skeleton matching bar chart layout
+                HStack(alignment: .bottom, spacing: VSpacing.xs) {
+                    ForEach(0..<7, id: \.self) { index in
+                        VStack(spacing: VSpacing.xxs) {
+                            Spacer(minLength: 0)
+                            VSkeletonBone(width: maxBarWidth, height: CGFloat([40, 80, 60, 100, 50, 70, 30][index]), radius: VRadius.xs)
+                        }
+                    }
+                }
+                .frame(height: barChartHeight)
+                .accessibilityHidden(true)
             case .loaded(let daily):
                 if daily.buckets.isEmpty {
                     VEmptyState(
@@ -112,7 +135,7 @@ struct UsageDashboardPanel: View {
                     dailyBarChart(daily.buckets)
                 }
             case .failed(let message):
-                errorRow(message)
+                errorRow(message) { refreshTask?.cancel(); refreshTask = Task { await store.refresh() } }
             }
         }
     }
@@ -192,7 +215,28 @@ struct UsageDashboardPanel: View {
 
             switch store.breakdownState {
             case .idle, .loading:
-                loadingRow()
+                // Skeleton matching breakdown table rows
+                VStack(spacing: 0) {
+                    HStack(spacing: VSpacing.sm) {
+                        VSkeletonBone(width: 50, height: 12)
+                        VSkeletonBone(height: 12)
+                        VSkeletonBone(width: 50, height: 12)
+                    }
+                    .padding(.horizontal, VSpacing.md)
+                    .padding(.vertical, VSpacing.sm)
+                    ForEach(0..<4, id: \.self) { _ in
+                        Divider().background(VColor.borderBase)
+                        HStack(spacing: VSpacing.sm) {
+                            VSkeletonBone(width: 100, height: 14)
+                            VSkeletonBone(height: 12)
+                            VSkeletonBone(width: 50, height: 14)
+                        }
+                        .padding(.horizontal, VSpacing.md)
+                        .padding(.vertical, VSpacing.sm)
+                    }
+                }
+                .frame(maxWidth: breakdownTableWidth, alignment: .leading)
+                .accessibilityHidden(true)
             case .loaded(let breakdown):
                 if breakdown.breakdown.isEmpty {
                     VEmptyState(
@@ -204,7 +248,7 @@ struct UsageDashboardPanel: View {
                     breakdownTable(breakdown.breakdown)
                 }
             case .failed(let message):
-                errorRow(message)
+                errorRow(message) { refreshTask?.cancel(); refreshTask = Task { await store.refresh() } }
             }
         }
     }
@@ -298,26 +342,20 @@ struct UsageDashboardPanel: View {
     }
 
     @ViewBuilder
-    private func loadingRow() -> some View {
-        HStack {
-            ProgressView()
-                .controlSize(.small)
-            Text("Loading...")
-                .font(VFont.small)
-                .foregroundColor(VColor.contentTertiary)
-        }
-        .frame(maxWidth: .infinity, alignment: .center)
-        .padding(.vertical, VSpacing.md)
-    }
-
-    @ViewBuilder
-    private func errorRow(_ message: String) -> some View {
-        HStack(spacing: VSpacing.xs) {
-            VIconView(.triangleAlert, size: 14)
-                .foregroundColor(VColor.systemNegativeHover)
-            Text(message)
-                .font(VFont.small)
-                .foregroundColor(VColor.contentTertiary)
+    private func errorRow(_ message: String, retryAction: (() -> Void)? = nil) -> some View {
+        VStack(alignment: .leading, spacing: VSpacing.sm) {
+            HStack(spacing: VSpacing.xs) {
+                VIconView(.triangleAlert, size: 14)
+                    .foregroundColor(VColor.systemNegativeHover)
+                Text(message)
+                    .font(VFont.small)
+                    .foregroundColor(VColor.contentTertiary)
+            }
+            if let retryAction {
+                VButton(label: "Try Again", style: .outlined) {
+                    retryAction()
+                }
+            }
         }
         .padding(.vertical, VSpacing.sm)
     }
