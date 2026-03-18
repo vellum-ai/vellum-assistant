@@ -232,9 +232,9 @@ extension AppDelegate {
 
         menu.addItem(NSMenuItem.separator())
 
-        let updateItem = NSMenuItem(title: "Check for Updates...", action: #selector(checkForUpdates), keyEquivalent: "")
+        let updateItem = NSMenuItem(title: updateManager.updateMenuItemTitle, action: #selector(checkForUpdates), keyEquivalent: "")
         updateItem.target = self
-        updateItem.isEnabled = updateManager.canCheckForUpdates
+        updateItem.isEnabled = updateManager.updateMenuItemIsEnabled
         updateItem.image = VIcon.circleArrowDown.nsImage(size: 16)
         menu.addItem(updateItem)
 
