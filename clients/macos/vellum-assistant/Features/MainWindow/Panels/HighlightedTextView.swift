@@ -64,7 +64,10 @@ struct HighlightedTextView: View {
                     .background(Self.editorBackground)
             }
         }
-        .task { contentReady = true }
+        .task {
+            cachedLineCount = Self.countLines(in: text)
+            contentReady = true
+        }
         .onChange(of: isActivelyEditing) { _, editing in
             if !editing {
                 // readOnlyView's .onChange(of: text) doesn't fire while
