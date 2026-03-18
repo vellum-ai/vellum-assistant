@@ -83,17 +83,24 @@ final class SecretPromptManager {
         panel.collectionBehavior = [.canJoinAllSpaces, .stationary]
         panel.identifier = NSUserInterfaceItemIdentifier("SecureCredentialPanel")
 
-        // Position centered over the main app window, or screen center as fallback
+        // Position at the right edge of the screen so the panel doesn't cover
+        // chat content (e.g. setup instructions the user needs to reference
+        // while filling in credentials). Vertically centered relative to the
+        // app window when available, clamped within the visible screen area.
+        let margin: CGFloat = 20
         let appWindow = NSApp.windows.first { $0 is TitleBarZoomableWindow && $0.isVisible }
-        if let anchor = appWindow {
-            let anchorFrame = anchor.frame
-            let x = anchorFrame.midX - panelWidth / 2
-            let y = anchorFrame.midY - panelHeight / 2
-            panel.setFrameOrigin(NSPoint(x: x, y: y))
-        } else if let screen = NSScreen.main {
-            let screenFrame = screen.visibleFrame
-            let x = screenFrame.midX - panelWidth / 2
-            let y = screenFrame.midY - panelHeight / 2
+        let screen = appWindow?.screen ?? NSScreen.main
+        if let screenFrame = screen?.visibleFrame {
+            let x = screenFrame.maxX - panelWidth - margin
+            let y: CGFloat
+            if let anchor = appWindow {
+                y = max(
+                    screenFrame.minY + margin,
+                    min(anchor.frame.midY - panelHeight / 2, screenFrame.maxY - panelHeight - margin)
+                )
+            } else {
+                y = screenFrame.midY - panelHeight / 2
+            }
             panel.setFrameOrigin(NSPoint(x: x, y: y))
         }
 
