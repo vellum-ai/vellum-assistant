@@ -139,7 +139,6 @@ struct MessageListView: View {
     /// Measured width of the chat container, used to detect sidebar/split resizes
     /// and stabilize scroll position during layout width changes.
     var containerWidth: CGFloat = 0
-    @Environment(\.conversationZoomScale) private var conversationZoomScale
     @AppStorage("hasEverSentMessage") private var hasEverSentMessage: Bool = false
     @AppStorage("completedConversationCount") private var completedConversationCount: Int = 0
     @State private var identity: IdentityInfo? = IdentityInfo.load()
@@ -1090,12 +1089,6 @@ struct MessageListView: View {
                 } else if isSuppressingBottomScroll {
                     log.debug("Auto-scroll suppressed (bottom-scroll suppression active)")
                 }
-            }
-            .onChange(of: conversationZoomScale) {
-                if isNearBottom {
-                    proxy.scrollTo("scroll-bottom-anchor", anchor: .bottom)
-                }
-                // When mid-scroll, do nothing — let SwiftUI handle the text reflow naturally.
             }
             .onChange(of: containerWidth) {
                 // Ignore sub-pixel jitter and initial zero value

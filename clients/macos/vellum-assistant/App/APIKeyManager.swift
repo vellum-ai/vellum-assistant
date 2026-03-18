@@ -20,10 +20,19 @@ extension Notification.Name {
     static let localBootstrapCompleted = Notification.Name("localBootstrapCompleted")
 }
 
-/// Manages API keys using UserDefaults. The daemon owns the canonical encrypted
-/// store; the app syncs keys to the daemon via HTTP on save/clear/reconnect.
+/// Manages API keys using CredentialStorage (Keychain in Release, file-based
+/// in DEBUG). The daemon owns the canonical encrypted store; the app syncs
+/// keys to the daemon via HTTP on save/clear/reconnect.
 enum APIKeyManager {
     private static let udPrefix = "vellum_provider_"
+
+    private static let storage: CredentialStorage = {
+        #if DEBUG
+        return FileCredentialStorage()
+        #else
+        return KeychainCredentialStorage()
+        #endif
+    }()
 
     /// All provider identifiers whose API keys should be synced to the daemon.
     /// Every call site that iterates over syncable providers must use this list
@@ -45,19 +54,39 @@ enum APIKeyManager {
         return false
     }
 
+    // MARK: - Migration from UserDefaults
+
+    /// One-time migration: copies API keys from UserDefaults to credential
+    /// storage for existing users, then removes them from UserDefaults.
+    /// Safe to call multiple times — skips providers that already have a
+    /// value in credential storage.
+    static func migrateFromUserDefaults() {
+        for provider in allSyncableProviders {
+            let udKey = udPrefix + provider
+            if let udValue = UserDefaults.standard.string(forKey: udKey),
+               !udValue.isEmpty,
+               storage.get(account: udKey) == nil {
+                _ = storage.set(account: udKey, value: udValue)
+            }
+            // Always remove from UserDefaults regardless — keys should not
+            // remain in the plaintext plist after migration.
+            UserDefaults.standard.removeObject(forKey: udKey)
+        }
+    }
+
     // MARK: - Generic provider access
 
     static func getKey(for provider: String) -> String? {
-        UserDefaults.standard.string(forKey: udPrefix + provider)
+        storage.get(account: udPrefix + provider)
     }
 
     static func setKey(_ key: String, for provider: String) {
-        UserDefaults.standard.set(key, forKey: udPrefix + provider)
+        _ = storage.set(account: udPrefix + provider, value: key)
         notifyKeyDidChange()
     }
 
     static func deleteKey(for provider: String) {
-        UserDefaults.standard.removeObject(forKey: udPrefix + provider)
+        _ = storage.delete(account: udPrefix + provider)
         notifyKeyDidChange()
     }
 

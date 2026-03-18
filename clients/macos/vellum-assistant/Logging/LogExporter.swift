@@ -893,11 +893,8 @@ enum LogExporter {
             "conversation_key",
             "sidebarExpanded",
             "windowZoomLevel",
-            "conversationTextZoomLevel",
             "collectUsageData",
             "sendDiagnostics",
-            "ttsVoiceId",
-            "activityNotificationsEnabled",
         ]
 
         let boolKeys = [

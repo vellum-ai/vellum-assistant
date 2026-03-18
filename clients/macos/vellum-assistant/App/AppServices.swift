@@ -10,18 +10,11 @@ public final class AppServices {
     let surfaceManager = SurfaceManager()
     let secretPromptManager = SecretPromptManager()
     let zoomManager = ZoomManager()
-    let conversationZoomManager = ConversationZoomManager()
 
     /// Shared settings state consumed by SettingsPanel and its tab views.
     /// Lazy because it needs `ambientAgent` and `daemonClient` which are set above.
     public lazy var settingsStore: SettingsStore = SettingsStore(
         daemonClient: daemonClient
-    )
-
-    /// Activity notification service for sending push notifications on task completion.
-    /// Lazy because it needs `settingsStore` which is set above.
-    public lazy var activityNotificationService: ActivityNotificationService = ActivityNotificationService(
-        settingsStore: settingsStore
     )
 
     init() {

@@ -279,15 +279,11 @@ public final class MainWindow {
         self.updateManager = updateManager
         self.conversationManager = ConversationManager(
             daemonClient: services.daemonClient,
-            activityNotificationService: services.activityNotificationService,
             isFirstLaunch: isFirstLaunch
         )
         self.usageDashboardStore = UsageDashboardStore()
         self.conversationManager.ambientAgent = services.ambientAgent
         documentManager.daemonClient = daemonClient
-        services.activityNotificationService.isConversationWindowVisible = { [weak self] in
-            self?.isVisible ?? false
-        }
         services.daemonClient.onTraceEvent = { [weak self] msg in
             Task { @MainActor in
                 self?.traceStore.ingest(msg)
@@ -399,7 +395,7 @@ public final class MainWindow {
             }
         } : nil
 
-        let rootView = MainWindowView(conversationManager: conversationManager, appListManager: appListManager, zoomManager: zoomManager, conversationZoomManager: services.conversationZoomManager, traceStore: traceStore, usageDashboardStore: usageDashboardStore, daemonClient: daemonClient, surfaceManager: surfaceManager, ambientAgent: ambientAgent, settingsStore: services.settingsStore, authManager: services.authManager, windowState: windowState, documentManager: documentManager, onMicrophoneToggle: onMicrophoneToggle ?? {}, voiceModeManager: voiceModeManager, updateManager: updateManager, onSendWakeUp: wakeUpCallback)
+        let rootView = MainWindowView(conversationManager: conversationManager, appListManager: appListManager, zoomManager: zoomManager, traceStore: traceStore, usageDashboardStore: usageDashboardStore, daemonClient: daemonClient, surfaceManager: surfaceManager, ambientAgent: ambientAgent, settingsStore: services.settingsStore, authManager: services.authManager, windowState: windowState, documentManager: documentManager, onMicrophoneToggle: onMicrophoneToggle ?? {}, voiceModeManager: voiceModeManager, updateManager: updateManager, onSendWakeUp: wakeUpCallback)
         let hostingController = NonDraggableHostingController(rootView: rootView)
 
         let screenFrame = NSScreen.main?.visibleFrame ?? NSScreen.screens.first?.visibleFrame ?? NSRect(x: 0, y: 0, width: 1440, height: 900)

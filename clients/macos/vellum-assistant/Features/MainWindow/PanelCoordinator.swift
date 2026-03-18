@@ -397,15 +397,6 @@ extension MainWindowView {
                 anchorMessageId: $conversationManager.pendingAnchorMessageId,
                 highlightedMessageId: $conversationManager.highlightedMessageId
             )
-            .environment(\.conversationZoomScale, conversationZoomManager.zoomLevel)
-            .overlay(alignment: .top) {
-                if conversationZoomManager.showZoomIndicator {
-                    ZoomIndicatorView(percentage: conversationZoomManager.zoomPercentage, label: "Text")
-                        .transition(.move(edge: .top).combined(with: .opacity))
-                        .padding(.top, VSpacing.xl)
-                }
-            }
-            .animation(VAnimation.fast, value: conversationZoomManager.showZoomIndicator)
         }
     }
 

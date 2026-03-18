@@ -7,7 +7,6 @@ struct MainWindowView: View {
     @ObservedObject var conversationManager: ConversationManager
     @ObservedObject var appListManager: AppListManager
     var zoomManager: ZoomManager
-    var conversationZoomManager: ConversationZoomManager
     /// Plain `let` instead of `@ObservedObject` so SwiftUI doesn't observe
     /// TraceStore mutations when the DebugPanel isn't visible. DebugPanel
     /// itself uses `@ObservedObject` and is only instantiated when shown.
@@ -65,11 +64,10 @@ struct MainWindowView: View {
     /// daemon loading overlay when a structured error arrives or is cleared.
     @State private var daemonStartupError: DaemonStartupError?
 
-    init(conversationManager: ConversationManager, appListManager: AppListManager, zoomManager: ZoomManager, conversationZoomManager: ConversationZoomManager, traceStore: TraceStore, usageDashboardStore: UsageDashboardStore, daemonClient: DaemonClient, surfaceManager: SurfaceManager, ambientAgent: AmbientAgent, settingsStore: SettingsStore, authManager: AuthManager, windowState: MainWindowState, documentManager: DocumentManager, onMicrophoneToggle: @escaping () -> Void = {}, voiceModeManager: VoiceModeManager, updateManager: UpdateManager, onSendWakeUp: (() -> Void)? = nil) {
+    init(conversationManager: ConversationManager, appListManager: AppListManager, zoomManager: ZoomManager, traceStore: TraceStore, usageDashboardStore: UsageDashboardStore, daemonClient: DaemonClient, surfaceManager: SurfaceManager, ambientAgent: AmbientAgent, settingsStore: SettingsStore, authManager: AuthManager, windowState: MainWindowState, documentManager: DocumentManager, onMicrophoneToggle: @escaping () -> Void = {}, voiceModeManager: VoiceModeManager, updateManager: UpdateManager, onSendWakeUp: (() -> Void)? = nil) {
         self.conversationManager = conversationManager
         self.appListManager = appListManager
         self.zoomManager = zoomManager
-        self.conversationZoomManager = conversationZoomManager
         self.traceStore = traceStore
         self.usageDashboardStore = usageDashboardStore
         self.daemonClient = daemonClient
