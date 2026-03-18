@@ -9,20 +9,27 @@ struct IntelligencePanel: View {
     let daemonClient: DaemonClient
     var initialTab: String? = nil
     @Binding var pendingMemoryId: String?
+    var store: SettingsStore?
+    var isEmailEnabled: Bool = false
+    var showToast: ((String, ToastInfo.Style) -> Void)?
 
     @State private var selectedTab: IntelligenceTab
 
-    init(onClose: @escaping () -> Void, onInvokeSkill: ((SkillInfo) -> Void)? = nil, daemonClient: DaemonClient, initialTab: String? = nil, pendingMemoryId: Binding<String?> = .constant(nil)) {
+    init(onClose: @escaping () -> Void, onInvokeSkill: ((SkillInfo) -> Void)? = nil, daemonClient: DaemonClient, initialTab: String? = nil, pendingMemoryId: Binding<String?> = .constant(nil), store: SettingsStore? = nil, isEmailEnabled: Bool = false, showToast: ((String, ToastInfo.Style) -> Void)? = nil) {
         self.onClose = onClose
         self.onInvokeSkill = onInvokeSkill
         self.daemonClient = daemonClient
         self.initialTab = initialTab
         _pendingMemoryId = pendingMemoryId
+        self.store = store
+        self.isEmailEnabled = isEmailEnabled
+        self.showToast = showToast
         _selectedTab = State(initialValue: IntelligenceTab(rawValue: initialTab ?? "") ?? .identity)
     }
 
     private enum IntelligenceTab: String, CaseIterable {
         case identity = "Identity"
+        case contacts = "Contacts"
         case installedSkills = "Skills"
         case workspace = "Workspace"
         case memories = "Memories"
@@ -103,6 +110,16 @@ struct IntelligencePanel: View {
             .padding(.top, VSpacing.sm)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
             .clipped()
+
+        case .contacts:
+            ContactsContainerView(
+                daemonClient: daemonClient,
+                store: store,
+                isEmailEnabled: isEmailEnabled,
+                showToast: showToast
+            )
+            .padding(.top, VSpacing.sm)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
 
         case .installedSkills:
             AgentPanelContent(

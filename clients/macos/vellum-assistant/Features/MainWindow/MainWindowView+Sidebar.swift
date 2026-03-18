@@ -193,8 +193,8 @@ extension MainWindowView {
             }
 
             // MARK: Nav Items (fixed)
-            SidebarNavRow(icon: VIcon.users.rawValue, label: "Contacts", isActive: windowState.selection == .panel(.contacts)) {
-                windowState.showPanel(.contacts)
+            SidebarNavRow(icon: VIcon.brain.rawValue, label: "Intelligence", isActive: windowState.selection == .panel(.intelligence) || windowState.selection == .panel(.contacts)) {
+                windowState.showPanel(.intelligence)
             }
             SidebarNavRow(icon: VIcon.layoutGrid.rawValue, label: "Library", isActive: windowState.selection == .panel(.apps)) {
                 windowState.showPanel(.apps)
@@ -475,8 +475,8 @@ extension MainWindowView {
                 sidebarSectionDivider()
             }
 
-            SidebarNavRow(icon: VIcon.users.rawValue, label: "Contacts", isActive: windowState.selection == .panel(.contacts), isExpanded: false) {
-                windowState.showPanel(.contacts)
+            SidebarNavRow(icon: VIcon.brain.rawValue, label: "Intelligence", isActive: windowState.selection == .panel(.intelligence) || windowState.selection == .panel(.contacts), isExpanded: false) {
+                windowState.showPanel(.intelligence)
             }
             SidebarNavRow(icon: VIcon.layoutGrid.rawValue, label: "Library", isActive: windowState.selection == .panel(.apps), isExpanded: false) {
                 windowState.showPanel(.apps)

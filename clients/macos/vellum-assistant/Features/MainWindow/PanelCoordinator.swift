@@ -79,43 +79,26 @@ extension MainWindowView {
                     startNewConversation()
                 }
             )
-        case .intelligence:
-            // Redirect to contacts panel with intelligence tab
-            Color.clear.onAppear {
-                windowState.contactsPanelTab = .intelligence
-                windowState.showPanel(.contacts)
-            }
-        case .contacts:
-            ContactsIntelligencePanel(
-                selectedTab: $windowState.contactsPanelTab,
+        case .intelligence, .contacts:
+            IntelligencePanel(
                 onClose: { windowState.selection = nil },
-                contactsContent: {
-                    ContactsContainerView(
-                        daemonClient: daemonClient,
-                        store: settingsStore,
-                        isEmailEnabled: assistantFeatureFlagStore.isEnabled("feature_flags.email-channel.enabled"),
-                        showToast: { msg, style in windowState.showToast(message: msg, style: style) }
-                    )
+                onInvokeSkill: { skill in
+                    let vm = conversationManager.openConversation(message: "Use the \(skill.name) skill") { vm in
+                        vm.pendingSkillInvocation = SkillInvocationData(
+                            name: skill.name,
+                            emoji: skill.emoji,
+                            description: skill.description
+                        )
+                    }
+                    vm?.pendingSkillInvocation = nil
+                    windowState.selection = nil
                 },
-                intelligenceContent: {
-                    IntelligencePanel(
-                        onClose: { windowState.selection = nil },
-                        onInvokeSkill: { skill in
-                            let vm = conversationManager.openConversation(message: "Use the \(skill.name) skill") { vm in
-                                vm.pendingSkillInvocation = SkillInvocationData(
-                                    name: skill.name,
-                                    emoji: skill.emoji,
-                                    description: skill.description
-                                )
-                            }
-                            vm?.pendingSkillInvocation = nil
-                            windowState.selection = nil
-                        },
-                        daemonClient: daemonClient,
-                        initialTab: windowState.pendingMemoryId != nil ? "Memories" : nil,
-                        pendingMemoryId: $windowState.pendingMemoryId
-                    )
-                }
+                daemonClient: daemonClient,
+                initialTab: windowState.pendingMemoryId != nil ? "Memories" : nil,
+                pendingMemoryId: $windowState.pendingMemoryId,
+                store: settingsStore,
+                isEmailEnabled: assistantFeatureFlagStore.isEnabled("feature_flags.email-channel.enabled"),
+                showToast: { msg, style in windowState.showToast(message: msg, style: style) }
             )
         case .usageDashboard:
             UsageDashboardPanel(
@@ -472,43 +455,29 @@ extension MainWindowView {
             )
             .overlay(alignment: .topTrailing) { panelDismissButton }
             .background(VColor.surfaceBase)
-        case .intelligence:
-            Color.clear.onAppear {
-                windowState.contactsPanelTab = .intelligence
-                windowState.showPanel(.contacts)
-            }
-        case .contacts:
-            ContactsIntelligencePanel(
-                selectedTab: $windowState.contactsPanelTab,
+        case .intelligence, .contacts:
+            IntelligencePanel(
                 onClose: { windowState.dismissOverlay() },
-                contactsContent: {
-                    ContactsContainerView(
-                        daemonClient: daemonClient,
-                        store: settingsStore,
-                        isEmailEnabled: assistantFeatureFlagStore.isEnabled("feature_flags.email-channel.enabled"),
-                        showToast: { msg, style in windowState.showToast(message: msg, style: style) }
-                    )
+                onInvokeSkill: { skill in
+                    let vm = conversationManager.openConversation(message: "Use the \(skill.name) skill") { vm in
+                        vm.pendingSkillInvocation = SkillInvocationData(
+                            name: skill.name,
+                            emoji: skill.emoji,
+                            description: skill.description
+                        )
+                    }
+                    vm?.pendingSkillInvocation = nil
+                    windowState.dismissOverlay()
                 },
-                intelligenceContent: {
-                    IntelligencePanel(
-                        onClose: { windowState.dismissOverlay() },
-                        onInvokeSkill: { skill in
-                            let vm = conversationManager.openConversation(message: "Use the \(skill.name) skill") { vm in
-                                vm.pendingSkillInvocation = SkillInvocationData(
-                                    name: skill.name,
-                                    emoji: skill.emoji,
-                                    description: skill.description
-                                )
-                            }
-                            vm?.pendingSkillInvocation = nil
-                            windowState.selection = nil
-                        },
-                        daemonClient: daemonClient,
-                        initialTab: windowState.pendingMemoryId != nil ? "Memories" : nil,
-                        pendingMemoryId: $windowState.pendingMemoryId
-                    )
-                }
+                daemonClient: daemonClient,
+                initialTab: windowState.pendingMemoryId != nil ? "Memories" : nil,
+                pendingMemoryId: $windowState.pendingMemoryId,
+                store: settingsStore,
+                isEmailEnabled: assistantFeatureFlagStore.isEnabled("feature_flags.email-channel.enabled"),
+                showToast: { msg, style in windowState.showToast(message: msg, style: style) }
             )
+            .overlay(alignment: .topTrailing) { panelDismissButton }
+            .background(VColor.surfaceOverlay)
         case .usageDashboard:
             UsageDashboardPanel(
                 store: usageDashboardStore,
