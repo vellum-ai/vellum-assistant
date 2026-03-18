@@ -383,14 +383,9 @@ struct ComposerView: View {
 
     /// Shared send logic used by `.onSubmit` (native Return-to-send) and the
     /// AppKit `ComposerFocusBridge` Cmd+Enter interception. Keeps slash-menu
-    /// selection, ghost-text acceptance, and pending-confirmation approval
-    /// all working regardless of how "send" is triggered.
+    /// selection and pending-confirmation approval working regardless of how
+    /// "send" is triggered.
     private func performSendAction() {
-        // Do not mutate inputText before onSend(). The ViewModel already trims
-        // whitespace, and mutating here races with the ViewModel's clearing of
-        // inputText — the TextField's internal buffer can write stale text back
-        // through the binding, preventing the composer from clearing.
-        if ghostSuffix != nil { onAcceptSuggestion() }
         if showSlashMenu {
             handleSlashNavigation(.select)
         } else if canSend {
