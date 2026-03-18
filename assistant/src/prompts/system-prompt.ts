@@ -1,4 +1,4 @@
-import { copyFileSync, existsSync, readFileSync, unlinkSync } from "node:fs";
+import { copyFileSync, existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { isAssistantFeatureFlagEnabled } from "../config/assistant-feature-flags.js";
@@ -166,16 +166,6 @@ export function buildSystemPrompt(options?: BuildSystemPromptOptions): string {
         "BOOTSTRAP.md is present — this is your first conversation. Follow its instructions.\n\n" +
         bootstrap,
     );
-
-    // Auto-delete BOOTSTRAP.md after inclusion so the onboarding ritual
-    // only fires for the very first conversation.  Without this, every new
-    // thread would re-trigger the "Who am I? Who are you?" intro.
-    try {
-      unlinkSync(bootstrapPath);
-      log.info("Deleted BOOTSTRAP.md after first-run inclusion");
-    } catch (err) {
-      log.warn({ err }, "Failed to delete BOOTSTRAP.md after inclusion");
-    }
   }
   if (updates) {
     dynamicParts.push(
