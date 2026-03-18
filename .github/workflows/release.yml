@@ -1506,7 +1506,7 @@ jobs:
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
         run: |
-          bun install --no-save @anthropic-ai/sdk
+          cd scripts && bun install && cd ..
           bun scripts/generate-release-notes.ts \
             --version "${{ needs.extract-version.outputs.version }}" \
             --repo "${{ github.repository }}" \

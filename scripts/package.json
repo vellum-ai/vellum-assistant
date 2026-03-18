@@ -1,0 +1,7 @@
+{
+  "name": "@vellumai/scripts",
+  "private": true,
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.39.0"
+  }
+}
