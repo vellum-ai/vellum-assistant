@@ -77,18 +77,26 @@ export async function resolveOAuthConnection(
     ) {
       const ctx = await resolveManagedProxyContext();
       const assistantId = getPlatformAssistantId();
-      if (ctx.enabled && assistantId) {
-        return new PlatformOAuthConnection({
-          id: conn.id,
-          providerKey: conn.providerKey,
-          externalId: conn.id,
-          accountInfo: conn.accountInfo,
-          grantedScopes,
-          assistantId,
-          platformBaseUrl: ctx.platformBaseUrl,
-          apiKey: ctx.assistantApiKey,
-        });
+      if (!ctx.enabled || !assistantId) {
+        const missing: string[] = [];
+        if (!ctx.platformBaseUrl) missing.push("platform base URL");
+        if (!ctx.assistantApiKey) missing.push("assistant API key");
+        if (!assistantId) missing.push("assistant ID");
+        throw new Error(
+          `"${credentialService}" is configured in managed mode but platform prerequisites are not met (missing: ${missing.join(", ")}). ` +
+            `Set up your platform connection or switch to "your-own" mode in your assistant config.`,
+        );
       }
+      return new PlatformOAuthConnection({
+        id: conn.id,
+        providerKey: conn.providerKey,
+        externalId: conn.id,
+        accountInfo: conn.accountInfo,
+        grantedScopes,
+        assistantId,
+        platformBaseUrl: ctx.platformBaseUrl,
+        apiKey: ctx.assistantApiKey,
+      });
     }
   }
 

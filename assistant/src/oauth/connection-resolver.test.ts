@@ -133,7 +133,7 @@ describe("resolveOAuthConnection", () => {
     expect(result.grantedScopes).toEqual(["scope-a", "scope-b"]);
   });
 
-  test("falls through to BYOOAuthConnection when managed mode but proxy prerequisites not met", async () => {
+  test("throws when managed mode but proxy prerequisites not met", async () => {
     mockProvider!.managedServiceConfigKey = "google-oauth";
     mockManagedProxyCtx = {
       enabled: false,
@@ -141,9 +141,9 @@ describe("resolveOAuthConnection", () => {
       assistantApiKey: "",
     };
 
-    const result = await resolveOAuthConnection("integration:google");
-    expect(result).toBeInstanceOf(BYOOAuthConnection);
-    expect(result.id).toBe("conn-1");
+    await expect(resolveOAuthConnection("integration:google")).rejects.toThrow(
+      /configured in managed mode but platform prerequisites/,
+    );
   });
 
   test("returns BYOOAuthConnection when service config mode is your-own", async () => {
@@ -157,11 +157,12 @@ describe("resolveOAuthConnection", () => {
     expect(result.id).toBe("conn-1");
   });
 
-  test("falls through to BYO when managed mode but no assistantId", async () => {
+  test("throws when managed mode but no assistantId", async () => {
     mockProvider!.managedServiceConfigKey = "google-oauth";
     mockAssistantId = "";
 
-    const result = await resolveOAuthConnection("integration:google");
-    expect(result).toBeInstanceOf(BYOOAuthConnection);
+    await expect(resolveOAuthConnection("integration:google")).rejects.toThrow(
+      /missing: assistant ID/,
+    );
   });
 });
