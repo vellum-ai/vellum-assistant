@@ -85,6 +85,7 @@ mock.module("../util/platform.js", () => ({
 
 mock.module("../tools/credentials/resolve.js", () => ({
   resolveCredentialRef: () => null,
+  listActiveOAuthConnectionsWithTemplates: () => [],
 }));
 
 mock.module("../tools/network/script-proxy/logging.js", () => ({
