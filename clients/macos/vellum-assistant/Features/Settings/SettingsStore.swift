@@ -352,10 +352,8 @@ public final class SettingsStore: ObservableObject {
         let elevenLabsKey = APIKeyManager.getKey(for: "elevenlabs")
         self.hasElevenLabsKey = elevenLabsKey != nil
         self.maskedElevenLabsKey = Self.maskKey(elevenLabsKey)
-        let storedImageGenModel = UserDefaults.standard.string(forKey: "selectedImageGenModel")
-        if let storedImageGenModel, Self.availableImageGenModels.contains(storedImageGenModel) {
-            self.selectedImageGenModel = storedImageGenModel
-        }
+        // selectedImageGenModel is initialized with a hardcoded default and
+        // populated from the daemon's workspace config via loadServiceModes().
 
         let storedMaxSteps = UserDefaults.standard.double(forKey: "maxStepsPerSession")
         self.maxSteps = storedMaxSteps == 0 ? 50 : storedMaxSteps
@@ -781,7 +779,6 @@ public final class SettingsStore: ObservableObject {
 
     func setImageGenModel(_ model: String) {
         selectedImageGenModel = model
-        UserDefaults.standard.set(model, forKey: "selectedImageGenModel")
         Task {
             _ = await settingsClient.setImageGenModel(modelId: model)
         }
@@ -2003,9 +2000,14 @@ public final class SettingsStore: ObservableObject {
            let mode = inference["mode"] as? String {
             self.inferenceMode = mode
         }
-        if let imageGen = services["image-generation"] as? [String: Any],
-           let mode = imageGen["mode"] as? String {
-            self.imageGenMode = mode
+        if let imageGen = services["image-generation"] as? [String: Any] {
+            if let mode = imageGen["mode"] as? String {
+                self.imageGenMode = mode
+            }
+            if let model = imageGen["model"] as? String,
+               Self.availableImageGenModels.contains(model) {
+                self.selectedImageGenModel = model
+            }
         }
         if let webSearch = services["web-search"] as? [String: Any],
            let mode = webSearch["mode"] as? String {
