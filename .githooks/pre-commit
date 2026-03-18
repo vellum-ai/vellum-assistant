@@ -38,11 +38,12 @@ if [ -f "$MERGE_HEAD_FILE" ]; then
         #    resolution tweaks or manual fixups to incoming-branch files).
         git diff --name-only "$MERGE_HEAD_SHA" --cached -z >> "$AUTHOR_CHANGED_FILE"
         # Intersect: keep only staged files that appear in either source above.
-        # Both files are NUL-delimited; convert to newline, sort -u (deduplicate
-        # the union from the two sources), intersect with staged, convert back.
+        # Both files are NUL-delimited; convert to newline, strip empty lines
+        # (git diff -z terminates with NUL → trailing blank after tr), sort,
+        # intersect with staged, convert back to NUL-delimited.
         comm -12 \
-            <(tr '\0' '\n' < "$STAGED_ACM_FILE" | sort) \
-            <(tr '\0' '\n' < "$AUTHOR_CHANGED_FILE" | sort -u) \
+            <(tr '\0' '\n' < "$STAGED_ACM_FILE" | sed '/^$/d' | sort) \
+            <(tr '\0' '\n' < "$AUTHOR_CHANGED_FILE" | sed '/^$/d' | sort -u) \
             | tr '\n' '\0' > "$AUTHOR_ACM_FILE"
     else
         # Couldn't determine merge base — fall back to all staged files.
