@@ -1,11 +1,6 @@
 import VellumAssistantShared
 import SwiftUI
 
-enum OnboardingVariant: String {
-    case `default`
-    case firstMeeting = "first_meeting"
-}
-
 enum ActivationKey: String, CaseIterable {
     case fn
     case ctrl
@@ -80,7 +75,6 @@ final class OnboardingState {
     var hasHatched: Bool = false
     var interviewCompleted: Bool = false
     var cloudProvider: String = "local"
-    var onboardingVariant: OnboardingVariant = .default
 
     /// When false, step changes are not written to UserDefaults (used by auth gate).
     var shouldPersist: Bool = true
@@ -102,25 +96,12 @@ final class OnboardingState {
     var hatchCompleted: Bool = false
     var hatchFailed: Bool = false
 
-    // First-meeting-specific state
-    var firstMeetingCrackProgress: CGFloat = 0.0
-    var conversationCompleted: Bool = false
-    var capabilitiesBriefingShown: Bool = false
-    var observationCompleted: Bool = false
-    var firstTaskCandidate: String? = nil
-    var observationDurationMinutes: Int = 5
-    var observationInsights: [String] = []
-
     var anyPermissionDenied: Bool {
         !speechGranted || !accessibilityGranted || !screenGranted
     }
 
     /// Continuous crack progress (0.0–1.0) derived from step and permission state.
-    /// For the first meeting variant, uses a timer-driven stored property instead.
     var crackProgress: CGFloat {
-        if onboardingVariant == .firstMeeting {
-            return firstMeetingCrackProgress
-        }
         switch currentStep {
         case 0: return hasHatched ? 0.15 : 0.0
         case 1: return 0.20
@@ -162,24 +143,8 @@ final class OnboardingState {
             cloudProvider = UserDefaults.standard.string(forKey: "onboarding.cloudProvider") ?? "local"
             skippedAPIKeyEntry = UserDefaults.standard.bool(forKey: "onboarding.skippedAPIKeyEntry")
         }
-        if let rawVariant = UserDefaults.standard.string(forKey: "onboarding.variant"),
-           let variant = OnboardingVariant(rawValue: rawVariant) {
-            onboardingVariant = variant
-        }
-        firstMeetingCrackProgress = CGFloat(UserDefaults.standard.double(forKey: "onboarding.firstMeetingCrackProgress"))
-
-        // Clamp restored step to the variant's maximum to prevent out-of-range
-        // rendering (e.g. a step saved from the 8-step default flow would be
-        // invalid for the 5-step first-meeting flow).
-        let isManagedSignIn = MacOSClientFeatureFlagManager.shared.isEnabled("managed_sign_in_enabled")
-        let maxStep: Int
-        if isManagedSignIn {
-            maxStep = 3
-        } else if onboardingVariant == .firstMeeting {
-            maxStep = 4
-        } else {
-            maxStep = 3
-        }
+        // Clamp restored step to the valid range.
+        let maxStep = 3
         if currentStep > maxStep {
             currentStep = maxStep
         }
@@ -200,8 +165,6 @@ final class OnboardingState {
         UserDefaults.standard.set(hasHatched, forKey: "onboarding.hatched")
         UserDefaults.standard.set(interviewCompleted, forKey: "onboarding.interviewCompleted")
         UserDefaults.standard.set(cloudProvider, forKey: "onboarding.cloudProvider")
-        UserDefaults.standard.set(onboardingVariant.rawValue, forKey: "onboarding.variant")
-        UserDefaults.standard.set(Double(firstMeetingCrackProgress), forKey: "onboarding.firstMeetingCrackProgress")
         UserDefaults.standard.set(Self.currentFlowVersion, forKey: "onboarding.flowVersion")
         UserDefaults.standard.set(skippedAPIKeyEntry, forKey: "onboarding.skippedAPIKeyEntry")
     }
@@ -243,7 +206,7 @@ final class OnboardingState {
     }
 
     static func clearPersistedState() {
-        for key in ["onboarding.step", "onboarding.name", "onboarding.key", "onboarding.hatched", "onboarding.interviewCompleted", "onboarding.variant", "onboarding.firstMeetingCrackProgress", "onboarding.flowVersion", "onboarding.cloudProvider", "onboarding.skippedAPIKeyEntry"] {
+        for key in ["onboarding.step", "onboarding.name", "onboarding.key", "onboarding.hatched", "onboarding.interviewCompleted", "onboarding.flowVersion", "onboarding.cloudProvider", "onboarding.skippedAPIKeyEntry"] {
             UserDefaults.standard.removeObject(forKey: key)
         }
     }
