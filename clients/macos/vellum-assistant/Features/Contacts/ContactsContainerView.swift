@@ -78,10 +78,18 @@ struct ContactsContainerView: View {
                         }
                     }
                 }
-                // Interactions count on its own row
-                if case .contact(let contactId) = selection,
-                   let contact = viewModel.deduplicatedContacts.first(where: { $0.id == contactId }) {
+                // Subtitle row — always present to keep consistent height
+                if case .assistant = selection {
+                    Text("Channel configuration")
+                        .font(VFont.caption)
+                        .foregroundColor(VColor.contentTertiary)
+                } else if case .contact(let contactId) = selection,
+                          let contact = viewModel.deduplicatedContacts.first(where: { $0.id == contactId }) {
                     Text("\(contact.interactionCount) interaction\(contact.interactionCount == 1 ? "" : "s")")
+                        .font(VFont.caption)
+                        .foregroundColor(VColor.contentTertiary)
+                } else {
+                    Text(" ")
                         .font(VFont.caption)
                         .foregroundColor(VColor.contentTertiary)
                 }

@@ -39,7 +39,7 @@ struct ContactsListView: View {
 
     private var contactsCard: some View {
         VStack(alignment: .leading, spacing: 0) {
-            // Pinned header (matches right side header height with two rows)
+            // Pinned header
             VStack(alignment: .leading, spacing: VSpacing.xxs) {
                 HStack {
                     Text("Contacts")
@@ -51,10 +51,9 @@ struct ContactsListView: View {
                     }
                     .accessibilityLabel("Add contact")
                 }
-                // Invisible row to match the interactions count row on the right
-                Text(" ")
+                Text("\(viewModel.contacts.count) contact\(viewModel.contacts.count == 1 ? "" : "s")")
                     .font(VFont.caption)
-                    .hidden()
+                    .foregroundColor(VColor.contentTertiary)
             }
             .padding(.horizontal, VSpacing.md)
             .padding(.vertical, VSpacing.sm)
