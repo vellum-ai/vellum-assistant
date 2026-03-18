@@ -8,9 +8,15 @@ struct UsageDashboardPanel: View {
     @State private var refreshTask: Task<Void, Never>?
     @State private var breakdownTask: Task<Void, Never>?
 
+    private var allFailed: Bool {
+        store.totalsState.isFailed && store.dailyState.isFailed && store.breakdownState.isFailed
+    }
+
     var body: some View {
         VSidePanel(title: "Usage", contentPadding: EdgeInsets(top: VSpacing.lg, leading: 0, bottom: VSpacing.lg, trailing: 0), onClose: onClose, pinnedContent: {
-            timeRangeStrip(store: store)
+            if !allFailed {
+                timeRangeStrip(store: store)
+            }
         }) {
             contentView(store: store)
         }
@@ -66,8 +72,6 @@ struct UsageDashboardPanel: View {
 
     @ViewBuilder
     func contentView(store: UsageDashboardStore) -> some View {
-        let allFailed = store.totalsState.isFailed && store.dailyState.isFailed && store.breakdownState.isFailed
-
         if allFailed {
             VStack(spacing: VSpacing.lg) {
                 VIconView(.circleAlert, size: 32)
