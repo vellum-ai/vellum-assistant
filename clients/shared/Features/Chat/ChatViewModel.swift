@@ -1994,7 +1994,12 @@ public final class ChatViewModel: ObservableObject {
         }
 
         Task {
-            await conversationListClient.regenerate(conversationId: conversationId)
+            let success = await conversationListClient.regenerate(conversationId: conversationId)
+            if !success {
+                self.isSending = false
+                self.isThinking = false
+                self.errorText = "Failed to regenerate message."
+            }
         }
     }
 

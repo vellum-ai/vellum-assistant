@@ -374,10 +374,11 @@ class IOSConversationStore: ObservableObject {
     /// for any response that arrives between the generation bump and this send.  If the send
     /// throws, the expected generation is not advanced and the guard stays closed.
     private func sendPageOneConversationList(daemon: DaemonClient) {
-        expectedConversationListGeneration = conversationListGeneration
+        let currentGeneration = conversationListGeneration
         Task { [weak self] in
             guard let self else { return }
             if let response = await ConversationListClient().fetchConversationList(offset: 0, limit: Self.conversationPageSize) {
+                self.expectedConversationListGeneration = currentGeneration
                 self.handleConversationListResponse(response)
             }
         }

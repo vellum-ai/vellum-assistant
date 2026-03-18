@@ -13,7 +13,7 @@ public protocol ConversationListClientProtocol {
     func fetchHistory(conversationId: String, limit: Int?, beforeTimestamp: Double?, mode: String?, maxTextChars: Int?, maxToolResultChars: Int?) async -> HistoryResponse?
     func fetchMessageContent(conversationId: String, messageId: String) async -> MessageContentResponse?
     func deleteQueuedMessage(conversationId: String, requestId: String) async -> Bool
-    func regenerate(conversationId: String) async
+    func regenerate(conversationId: String) async -> Bool
     func sendConversationUnread(conversationId: String, sourceChannel: String, signalType: String, confidence: String, source: String, evidenceText: String?, observedAt: Int?, latestAssistantMessageAt: Int?) async throws
 }
 
@@ -191,7 +191,8 @@ public struct ConversationListClient: ConversationListClientProtocol {
         }
     }
 
-    public func regenerate(conversationId: String) async {
+    @discardableResult
+    public func regenerate(conversationId: String) async -> Bool {
         do {
             let encoded = conversationId.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? conversationId
             let response = try await GatewayHTTPClient.post(
@@ -199,9 +200,12 @@ public struct ConversationListClient: ConversationListClientProtocol {
             )
             if !response.isSuccess {
                 log.error("regenerate failed (HTTP \(response.statusCode))")
+                return false
             }
+            return true
         } catch {
             log.error("regenerate error: \(error.localizedDescription)")
+            return false
         }
     }
 
