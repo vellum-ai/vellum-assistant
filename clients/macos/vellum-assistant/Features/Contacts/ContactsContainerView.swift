@@ -164,7 +164,7 @@ struct ContactsContainerView: View {
     /// Guardian detail — editable name+notes header card, then existing channel content in a second card.
     private func guardianDetailView(contact: ContactPayload) -> some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: VSpacing.lg) {
+            VStack(alignment: .leading, spacing: 0) {
                 VStack(alignment: .leading, spacing: VSpacing.lg) {
                     // Title row: display name + badge + interaction count
                     VStack(alignment: .leading, spacing: VSpacing.xs) {
@@ -224,7 +224,8 @@ struct ContactsContainerView: View {
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(VSpacing.lg)
-                .vCard(radius: VRadius.lg, background: VColor.surfaceOverlay)
+
+                SettingsDivider()
 
                 GuardianChannelsDetailView(
                     contact: contact,
@@ -234,8 +235,8 @@ struct ContactsContainerView: View {
                     showCardBorders: false
                 )
                 .padding(VSpacing.lg)
-                .vCard(radius: VRadius.lg, background: VColor.surfaceOverlay)
             }
+            .vCard(radius: VRadius.lg, background: VColor.surfaceOverlay)
         }
         .id(contact.id)
         .onAppear {
