@@ -42,12 +42,11 @@ public struct SurfaceActionClient: SurfaceActionClientProtocol {
 
     public func sendSurfaceUndo(conversationId: String, surfaceId: String) async {
         do {
-            let encoded = surfaceId.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? surfaceId
             let body: [String: Any] = [
                 "conversationId": conversationId,
                 "surfaceId": surfaceId,
             ]
-            let response = try await GatewayHTTPClient.post(path: "surfaces/\(encoded)/undo", json: body, timeout: 10)
+            let response = try await GatewayHTTPClient.post(path: "surfaces/\(surfaceId)/undo", json: body, timeout: 10)
             if !response.isSuccess {
                 log.error("sendSurfaceUndo failed (HTTP \(response.statusCode))")
             }
