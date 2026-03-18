@@ -43,7 +43,19 @@ struct ContactsContainerView: View {
 
 
             // Right pane: detail, loading, or placeholder
-            Group {
+            VStack(alignment: .leading, spacing: 0) {
+            // Pinned header
+            HStack {
+                Text("Contact Info")
+                    .font(VFont.headline)
+                    .foregroundColor(VColor.contentDefault)
+                Spacer()
+            }
+            .padding(.horizontal, VSpacing.md)
+            .padding(.vertical, VSpacing.sm)
+
+            Divider().background(VColor.borderBase)
+
             if viewModel.isLoading && viewModel.contacts.isEmpty {
                 // Skeleton loading state for detail pane
                 ScrollView {
