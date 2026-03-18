@@ -278,7 +278,7 @@ struct HighlightedTextView: View {
             let capturedVersion = highlightVersion
             let t = text
             let l = language
-            let result = await Task(priority: .userInitiated) {
+            let result = await Task.detached(priority: .userInitiated) {
                 SyntaxTheme.highlight(t, language: l)
             }.value
             if !Task.isCancelled, highlightVersion == capturedVersion {
