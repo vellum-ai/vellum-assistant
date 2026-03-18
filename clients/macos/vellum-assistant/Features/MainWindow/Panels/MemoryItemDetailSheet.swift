@@ -41,53 +41,55 @@ struct MemoryItemDetailSheet: View {
                 }
             }
 
-            if let errorMessage {
-                HStack(spacing: VSpacing.xs) {
-                    VIconView(.circleAlert, size: 11)
-                        .foregroundColor(VColor.systemNegativeStrong)
-                    Text(errorMessage)
-                        .font(VFont.caption)
-                        .foregroundColor(VColor.systemNegativeStrong)
-                }
-            }
         } footer: {
-            HStack {
-                if isEditing {
-                    Spacer()
-                    VButton(label: "Cancel", style: .outlined) {
-                        isEditing = false
-                        errorMessage = nil
-                        editSubject = item.subject
-                        editStatement = item.statement
-                        editKind = item.kind
-                        editStatus = item.status
-                        editImportance = item.importance ?? 0.5
+            VStack(spacing: VSpacing.sm) {
+                if let errorMessage {
+                    HStack(spacing: VSpacing.xs) {
+                        VIconView(.circleAlert, size: 11)
+                            .foregroundColor(VColor.systemNegativeStrong)
+                        Text(errorMessage)
+                            .font(VFont.caption)
+                            .foregroundColor(VColor.systemNegativeStrong)
                     }
-                    VButton(
-                        label: isSaving ? "Saving..." : "Save",
-                        style: .primary,
-                        isDisabled: !isEditFormValid || isSaving
-                    ) {
-                        save()
-                    }
-                } else {
-                    VButton(
-                        label: "Delete",
-                        leftIcon: VIcon.trash.rawValue,
-                        style: .dangerOutline
-                    ) {
-                        showDeleteConfirm = true
-                    }
-                    Spacer()
-                    VButton(label: "Close", style: .outlined) {
-                        onDismiss()
-                    }
-                    VButton(
-                        label: "Edit",
-                        leftIcon: VIcon.pencil.rawValue,
-                        style: .primary
-                    ) {
-                        isEditing = true
+                }
+                HStack {
+                    if isEditing {
+                        Spacer()
+                        VButton(label: "Cancel", style: .outlined) {
+                            isEditing = false
+                            errorMessage = nil
+                            editSubject = item.subject
+                            editStatement = item.statement
+                            editKind = item.kind
+                            editStatus = item.status
+                            editImportance = item.importance ?? 0.5
+                        }
+                        VButton(
+                            label: isSaving ? "Saving..." : "Save",
+                            style: .primary,
+                            isDisabled: !isEditFormValid || isSaving
+                        ) {
+                            save()
+                        }
+                    } else {
+                        VButton(
+                            label: "Delete",
+                            leftIcon: VIcon.trash.rawValue,
+                            style: .dangerOutline
+                        ) {
+                            showDeleteConfirm = true
+                        }
+                        Spacer()
+                        VButton(label: "Close", style: .outlined) {
+                            onDismiss()
+                        }
+                        VButton(
+                            label: "Edit",
+                            leftIcon: VIcon.pencil.rawValue,
+                            style: .primary
+                        ) {
+                            isEditing = true
+                        }
                     }
                 }
             }
