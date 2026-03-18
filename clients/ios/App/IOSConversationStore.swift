@@ -640,10 +640,12 @@ class IOSConversationStore: ObservableObject {
         isLoadingMoreConversations = true
         let nextOffset = conversationListOffset + Self.conversationPageSize
         conversationListOffset = nextOffset
+        let capturedGeneration = conversationListGeneration
         let capturedOffset = conversationListOffset
         Task { [weak self] in
             guard let self else { return }
             if let response = await conversationListClient.fetchConversationList(offset: nextOffset, limit: Self.conversationPageSize) {
+                guard capturedGeneration == self.conversationListGeneration else { return }
                 self.handleConversationListResponse(response)
             } else {
                 guard self.conversationListOffset == capturedOffset else { return }
