@@ -52,6 +52,9 @@ struct ComponentGalleryView: View {
 
     // MARK: - Header Bar
 
+    /// Leading padding to clear macOS traffic-light buttons when using fullSizeContentView.
+    private let trafficLightPadding: CGFloat = 78
+
     private var galleryHeaderBar: some View {
         HStack(spacing: VSpacing.sm) {
             Text("Component Gallery")
@@ -62,7 +65,8 @@ struct ComponentGalleryView: View {
 
             VThemeToggle()
         }
-        .padding(.horizontal, VSpacing.lg)
+        .padding(.leading, trafficLightPadding)
+        .padding(.trailing, VSpacing.lg)
         .frame(height: 48)
         .background(VColor.surfaceOverlay)
     }
