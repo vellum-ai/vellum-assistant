@@ -51,6 +51,27 @@ public final class PlatformOAuthService {
 
     // MARK: - Private Helpers
 
+    /// Resolve the platform base URL for the connected assistant.
+    ///
+    /// On macOS, reads the lockfile `runtimeUrl` for the connected assistant
+    /// (same resolution as `GatewayHTTPClient`) so that staging, self-hosted,
+    /// or `VELLUM_PLATFORM_URL`-overridden connections hit the correct host.
+    /// Falls back to `resolvePlatformBaseURL()` when no override is stored.
+    private func resolvePlatformBaseURL() -> String {
+        #if os(macOS)
+        if let id = UserDefaults.standard.string(forKey: "connectedAssistantId"), !id.isEmpty,
+           let assistant = LockfileAssistant.loadByName(id),
+           let runtimeUrl = assistant.runtimeUrl {
+            return runtimeUrl
+        }
+        #else
+        if let url = UserDefaults.standard.string(forKey: "managed_platform_base_url"), !url.isEmpty {
+            return url
+        }
+        #endif
+        return resolvePlatformBaseURL()
+    }
+
     private func authenticatedRequest(url: URL, method: String) async throws -> URLRequest {
         var urlRequest = URLRequest(url: url)
         urlRequest.httpMethod = method
@@ -74,7 +95,7 @@ public final class PlatformOAuthService {
 
     /// Start a Google OAuth flow for the given assistant.
     public func startGoogleOAuth(assistantId: String, redirectAfterConnect: String? = nil) async throws -> OAuthStartResponse {
-        let urlString = "\(AuthService.shared.baseURL)/v1/assistants/\(assistantId)/oauth/google/start/"
+        let urlString = "\(resolvePlatformBaseURL())/v1/assistants/\(assistantId)/oauth/google/start/"
         guard let url = URL(string: urlString) else {
             throw PlatformAPIError.invalidURL
         }
@@ -120,7 +141,7 @@ public final class PlatformOAuthService {
 
     /// List OAuth connections for the given assistant.
     public func listConnections(assistantId: String) async throws -> [OAuthConnectionEntry] {
-        let urlString = "\(AuthService.shared.baseURL)/v1/assistants/\(assistantId)/oauth/connections/"
+        let urlString = "\(resolvePlatformBaseURL())/v1/assistants/\(assistantId)/oauth/connections/"
         guard let url = URL(string: urlString) else {
             throw PlatformAPIError.invalidURL
         }
@@ -158,7 +179,7 @@ public final class PlatformOAuthService {
 
     /// Disconnect a specific OAuth connection for the given assistant.
     public func disconnectConnection(assistantId: String, connectionId: String) async throws {
-        let urlString = "\(AuthService.shared.baseURL)/v1/assistants/\(assistantId)/oauth/connections/\(connectionId)/disconnect/"
+        let urlString = "\(resolvePlatformBaseURL())/v1/assistants/\(assistantId)/oauth/connections/\(connectionId)/disconnect/"
         guard let url = URL(string: urlString) else {
             throw PlatformAPIError.invalidURL
         }
