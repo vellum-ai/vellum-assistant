@@ -2132,15 +2132,20 @@ public final class ChatViewModel: ObservableObject {
 
     /// Dismiss the typed conversation error state. Clears both the typed error
     /// and any corresponding `errorText` so the UI can return to normal.
-    /// Also removes the most recent inline error message from the message list.
+    /// Removes the most recent inline error message only if one was created.
     public func dismissConversationError() {
         conversationError = nil
         errorText = nil
-        errorManager.isConversationErrorDisplayedInline = false
-        // Remove only the most recent inline error card (not all historical ones).
-        if let lastErrorIndex = messages.lastIndex(where: { $0.isError }) {
+        // Only remove the inline error card if the current error actually
+        // produced one. When shouldCreateInlineErrorMessage returned false
+        // (e.g. credits-exhausted on macOS), no card was appended, so
+        // removing the last .isError message would delete an unrelated
+        // historical error card.
+        if errorManager.isConversationErrorDisplayedInline,
+           let lastErrorIndex = messages.lastIndex(where: { $0.isError }) {
             messages.remove(at: lastErrorIndex)
         }
+        errorManager.isConversationErrorDisplayedInline = false
     }
 
     /// Copy conversation error details to the clipboard for debugging.
