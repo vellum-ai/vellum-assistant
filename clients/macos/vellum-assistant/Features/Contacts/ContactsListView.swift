@@ -39,16 +39,22 @@ struct ContactsListView: View {
 
     private var contactsCard: some View {
         VStack(alignment: .leading, spacing: 0) {
-            // Pinned header
-            HStack {
-                Text("Contacts")
-                    .font(VFont.headline)
-                    .foregroundColor(VColor.contentDefault)
-                Spacer()
-                VButton(label: "Add", iconOnly: VIcon.plus.rawValue, style: .ghost, size: .compact) {
-                    viewModel.isCreatingContact = true
+            // Pinned header (matches right side header height with two rows)
+            VStack(alignment: .leading, spacing: VSpacing.xxs) {
+                HStack {
+                    Text("Contacts")
+                        .font(VFont.headline)
+                        .foregroundColor(VColor.contentDefault)
+                    Spacer()
+                    VButton(label: "Add", iconOnly: VIcon.plus.rawValue, style: .ghost, size: .compact) {
+                        viewModel.isCreatingContact = true
+                    }
+                    .accessibilityLabel("Add contact")
                 }
-                .accessibilityLabel("Add contact")
+                // Invisible row to match the interactions count row on the right
+                Text(" ")
+                    .font(VFont.caption)
+                    .hidden()
             }
             .padding(.horizontal, VSpacing.md)
             .padding(.vertical, VSpacing.sm)

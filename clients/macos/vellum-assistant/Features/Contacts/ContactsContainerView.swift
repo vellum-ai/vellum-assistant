@@ -44,40 +44,46 @@ struct ContactsContainerView: View {
 
             // Right pane: detail, loading, or placeholder
             VStack(alignment: .leading, spacing: 0) {
-            // Pinned header — contact name, role, interactions, delete
-            HStack(spacing: VSpacing.sm) {
-                if case .assistant = selection {
-                    Text(cachedAssistantName)
-                        .font(VFont.headline)
-                        .foregroundColor(VColor.contentDefault)
-                    ContactTypeBadge(role: "assistant")
-                } else if case .contact(let contactId) = selection,
-                          let contact = viewModel.deduplicatedContacts.first(where: { $0.id == contactId }) {
-                    let isGuardian = contact.role == "guardian"
-                    Text(isGuardian ? "\(contact.displayName) (You)" : contact.displayName)
-                        .font(VFont.headline)
-                        .foregroundColor(VColor.contentDefault)
-                    ContactTypeBadge(role: contact.role)
+            // Pinned header — contact name, role, delete + interactions below
+            VStack(alignment: .leading, spacing: VSpacing.xxs) {
+                HStack(spacing: VSpacing.sm) {
+                    if case .assistant = selection {
+                        Text(cachedAssistantName)
+                            .font(VFont.headline)
+                            .foregroundColor(VColor.contentDefault)
+                        ContactTypeBadge(role: "assistant")
+                    } else if case .contact(let contactId) = selection,
+                              let contact = viewModel.deduplicatedContacts.first(where: { $0.id == contactId }) {
+                        let isGuardian = contact.role == "guardian"
+                        Text(isGuardian ? "\(contact.displayName) (You)" : contact.displayName)
+                            .font(VFont.headline)
+                            .foregroundColor(VColor.contentDefault)
+                        ContactTypeBadge(role: contact.role)
+                    } else {
+                        Text("Contact Info")
+                            .font(VFont.headline)
+                            .foregroundColor(VColor.contentDefault)
+                    }
+                    Spacer()
+                    if case .contact(let contactId) = selection,
+                       let contact = viewModel.deduplicatedContacts.first(where: { $0.id == contactId }),
+                       contact.role != "guardian" {
+                        VButton(
+                            label: "Delete Contact",
+                            leftIcon: VIcon.trash.rawValue,
+                            style: .dangerGhost,
+                            size: .compact
+                        ) {
+                            pendingDeleteContactId = contactId
+                        }
+                    }
+                }
+                // Interactions count on its own row
+                if case .contact(let contactId) = selection,
+                   let contact = viewModel.deduplicatedContacts.first(where: { $0.id == contactId }) {
                     Text("\(contact.interactionCount) interaction\(contact.interactionCount == 1 ? "" : "s")")
                         .font(VFont.caption)
                         .foregroundColor(VColor.contentTertiary)
-                } else {
-                    Text("Contact Info")
-                        .font(VFont.headline)
-                        .foregroundColor(VColor.contentDefault)
-                }
-                Spacer()
-                if case .contact(let contactId) = selection,
-                   let contact = viewModel.deduplicatedContacts.first(where: { $0.id == contactId }),
-                   contact.role != "guardian" {
-                    VButton(
-                        label: "Delete Contact",
-                        leftIcon: VIcon.trash.rawValue,
-                        style: .dangerGhost,
-                        size: .compact
-                    ) {
-                        pendingDeleteContactId = contactId
-                    }
                 }
             }
             .padding(.horizontal, VSpacing.md)
