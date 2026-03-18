@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 
-import { compileApp } from "../bundler/app-compiler.js";
+import { compileApp, readCompileStatus } from "../bundler/app-compiler.js";
 import {
   ALLOWED_PACKAGES,
   getCacheDir,
@@ -143,6 +143,40 @@ console.log("styled");`,
     expect(result.ok).toBe(false);
     expect(result.errors.length).toBeGreaterThan(0);
     expect(result.errors[0].text).toBeTruthy();
+
+    const status = readCompileStatus(appDir);
+    expect(status?.ok).toBe(false);
+    expect(status?.errors.length).toBeGreaterThan(0);
+  });
+
+  test("preserves the last successful dist output when a later build fails", async () => {
+    const appDir = await scaffold("stale-dist-guard", {
+      "main.tsx": `console.log("version one");`,
+      "index.html": MINIMAL_HTML,
+    });
+
+    const initialResult = await compileApp(appDir);
+    expect(initialResult.ok).toBe(true);
+
+    const originalJs = await readFile(join(appDir, "dist", "main.js"), "utf-8");
+
+    await writeFile(
+      join(appDir, "src", "main.tsx"),
+      `const broken = <<<INVALID>>>;`,
+    );
+
+    const failedResult = await compileApp(appDir);
+    expect(failedResult.ok).toBe(false);
+
+    const preservedJs = await readFile(
+      join(appDir, "dist", "main.js"),
+      "utf-8",
+    );
+    expect(preservedJs).toBe(originalJs);
+
+    const status = readCompileStatus(appDir);
+    expect(status?.ok).toBe(false);
+    expect(status?.errors[0]?.text).toBeTruthy();
   });
 
   test("dist/index.html has script tag injected", async () => {

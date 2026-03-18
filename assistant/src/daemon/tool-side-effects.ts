@@ -9,7 +9,10 @@
 
 import { join } from "node:path";
 
-import { compileApp } from "../bundler/app-compiler.js";
+import {
+  compileApp,
+  formatCompileStatusMessage,
+} from "../bundler/app-compiler.js";
 import { generateAppIcon } from "../media/app-icon-generator.js";
 import { getApp, getAppsDir, isMultifileApp } from "../memory/app-store.js";
 import { deliverVerificationSlack } from "../runtime/verification-outbound-actions.js";
@@ -44,7 +47,7 @@ function handleAppChange(
   ctx: ToolSetupContext,
   appId: string,
   broadcastToAllClients: ((msg: ServerMessage) => void) | undefined,
-  opts?: { fileChange?: boolean; status?: string },
+  opts?: { fileChange?: boolean; status?: string | null },
 ): void {
   const app = getApp(appId);
 
@@ -54,22 +57,32 @@ function handleAppChange(
     const appDir = join(getAppsDir(), appId);
     void compileApp(appDir)
       .then((result) => {
+        const status = result.ok
+          ? (opts?.status ?? null)
+          : (formatCompileStatusMessage(result) ?? "Build failed");
         if (!result.ok) {
           log.warn(
             { appId, errors: result.errors },
-            "Recompile failed on app change, serving stale dist/",
+            "Recompile failed on app change; preserving last successful dist/",
           );
         }
-        refreshSurfacesForApp(ctx, appId, opts);
+        refreshSurfacesForApp(ctx, appId, {
+          ...opts,
+          status,
+        });
         broadcastToAllClients?.({ type: "app_files_changed", appId });
-        void updatePublishedAppDeployment(appId);
+        if (result.ok) {
+          void updatePublishedAppDeployment(appId);
+        }
       })
       .catch((err) => {
+        const message = err instanceof Error ? err.message : String(err);
         log.warn({ appId, err }, "Recompile threw on app change");
-        // Still refresh surfaces with stale output
-        refreshSurfacesForApp(ctx, appId, opts);
+        refreshSurfacesForApp(ctx, appId, {
+          ...opts,
+          status: `Build failed: ${message}`,
+        });
         broadcastToAllClients?.({ type: "app_files_changed", appId });
-        void updatePublishedAppDeployment(appId);
       });
     return;
   }

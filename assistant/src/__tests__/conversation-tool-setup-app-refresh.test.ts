@@ -24,6 +24,29 @@ import type { ToolExecutionResult } from "../tools/types.js";
 
 const refreshSpy = mock(() => {});
 const updatePublishedSpy = mock(() => Promise.resolve());
+const generateAppIconMock = mock(() => Promise.resolve());
+const compileAppMock = mock(
+  async (): Promise<{
+    ok: boolean;
+    errors: Array<{ text: string }>;
+    warnings: Array<{ text: string }>;
+    durationMs: number;
+    builtAt: number;
+  }> => ({
+    ok: true,
+    errors: [],
+    warnings: [],
+    durationMs: 12,
+    builtAt: Date.now(),
+  }),
+);
+const getAppMock = mock(
+  (): { id: string; formatVersion?: number } | null => null,
+);
+const isMultifileAppMock = mock((app: { formatVersion?: number } | null) => {
+  return app?.formatVersion === 2;
+});
+const getAppsDirMock = mock(() => "/fake/apps");
 
 // Mock session-surfaces so refreshSurfacesForApp is captured
 mock.module("../daemon/conversation-surfaces.js", () => ({
@@ -36,6 +59,28 @@ mock.module("../daemon/conversation-surfaces.js", () => ({
 // Mock published-app-updater to prevent real deployment calls
 mock.module("../services/published-app-updater.js", () => ({
   updatePublishedAppDeployment: updatePublishedSpy,
+}));
+
+mock.module("../media/app-icon-generator.js", () => ({
+  generateAppIcon: generateAppIconMock,
+}));
+
+mock.module("../bundler/app-compiler.js", () => ({
+  compileApp: compileAppMock,
+  formatCompileStatusMessage: (result: {
+    ok: boolean;
+    errors: Array<{ text: string }>;
+  }) => {
+    if (result.ok) return undefined;
+    const firstError = result.errors[0]?.text ?? "Build failed";
+    return `Build failed: ${firstError}`;
+  },
+}));
+
+mock.module("../memory/app-store.js", () => ({
+  getApp: getAppMock,
+  getAppsDir: getAppsDirMock,
+  isMultifileApp: isMultifileAppMock,
 }));
 
 // Mock browser-screencast registration (no-op)
@@ -99,6 +144,11 @@ const noopSecretPrompter = {
 } as unknown as SecretPrompter;
 const noopLifecycleHandler = mock(() => {});
 
+async function flushAsyncSideEffects(): Promise<void> {
+  await Promise.resolve();
+  await Promise.resolve();
+}
+
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
@@ -107,6 +157,23 @@ describe("session-tool-setup app refresh side effects", () => {
   beforeEach(() => {
     refreshSpy.mockClear();
     updatePublishedSpy.mockClear();
+    generateAppIconMock.mockClear();
+    compileAppMock.mockClear();
+    compileAppMock.mockImplementation(async () => ({
+      ok: true,
+      errors: [],
+      warnings: [],
+      durationMs: 12,
+      builtAt: Date.now(),
+    }));
+    getAppMock.mockClear();
+    getAppMock.mockReturnValue(null);
+    isMultifileAppMock.mockClear();
+    isMultifileAppMock.mockImplementation(
+      (app: { formatVersion?: number } | null) => app?.formatVersion === 2,
+    );
+    getAppsDirMock.mockClear();
+    getAppsDirMock.mockReturnValue("/fake/apps");
   });
 
   // ── app_update ──────────────────────────────────────────────────────
@@ -348,6 +415,50 @@ describe("session-tool-setup app refresh side effects", () => {
       );
     });
 
+    test("surfaces multifile compile failures instead of treating them as success", async () => {
+      getAppMock.mockReturnValue({ id: "multi-edit", formatVersion: 2 });
+      compileAppMock.mockImplementation(async () => ({
+        ok: false,
+        errors: [{ text: "Unexpected end of file" }],
+        warnings: [],
+        durationMs: 18,
+        builtAt: Date.now(),
+      }));
+
+      const ctx = makeCtx();
+      const executor = makeFakeExecutor({ content: "{}", isError: false });
+      const broadcastSpy = mock(() => {});
+
+      const toolFn = createToolExecutor(
+        executor as unknown as ToolExecutor,
+        noopPrompter,
+        noopSecretPrompter,
+        ctx,
+        noopLifecycleHandler,
+        broadcastSpy,
+      );
+
+      await toolFn("app_file_edit", {
+        app_id: "multi-edit",
+        path: "src/main.tsx",
+        old_string: "old",
+        new_string: "new",
+      });
+      await flushAsyncSideEffects();
+
+      expect(compileAppMock).toHaveBeenCalledTimes(1);
+      expect((compileAppMock.mock.calls as unknown[][])[0][0]).toBe(
+        "/fake/apps/multi-edit",
+      );
+      expect(refreshSpy).toHaveBeenCalledTimes(1);
+      expect((refreshSpy.mock.calls as unknown[][])[0][2]).toEqual({
+        fileChange: true,
+        status: "Build failed: Unexpected end of file",
+      });
+      expect(broadcastSpy).toHaveBeenCalledTimes(1);
+      expect(updatePublishedSpy).not.toHaveBeenCalled();
+    });
+
     test("skips side effects when result is an error", async () => {
       const ctx = makeCtx();
       const executor = makeFakeExecutor({ content: "Error", isError: true });
@@ -488,6 +599,41 @@ describe("session-tool-setup app refresh side effects", () => {
       expect(updatePublishedSpy).toHaveBeenCalledTimes(1);
       expect((updatePublishedSpy.mock.calls as unknown[][])[0][0]).toBe(
         "app-pub-write",
+      );
+    });
+
+    test("clears prior multifile failure state after a successful rebuild", async () => {
+      getAppMock.mockReturnValue({ id: "multi-write", formatVersion: 2 });
+
+      const ctx = makeCtx();
+      const executor = makeFakeExecutor({ content: "{}", isError: false });
+      const broadcastSpy = mock(() => {});
+
+      const toolFn = createToolExecutor(
+        executor as unknown as ToolExecutor,
+        noopPrompter,
+        noopSecretPrompter,
+        ctx,
+        noopLifecycleHandler,
+        broadcastSpy,
+      );
+
+      await toolFn("app_file_write", {
+        app_id: "multi-write",
+        path: "src/styles.css",
+        content: "body { color: green; }",
+      });
+      await flushAsyncSideEffects();
+
+      expect(refreshSpy).toHaveBeenCalledTimes(1);
+      expect((refreshSpy.mock.calls as unknown[][])[0][2]).toEqual({
+        fileChange: true,
+        status: null,
+      });
+      expect(broadcastSpy).toHaveBeenCalledTimes(1);
+      expect(updatePublishedSpy).toHaveBeenCalledTimes(1);
+      expect((updatePublishedSpy.mock.calls as unknown[][])[0][0]).toBe(
+        "multi-write",
       );
     });
 
