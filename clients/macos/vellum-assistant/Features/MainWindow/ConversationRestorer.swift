@@ -48,13 +48,15 @@ final class ConversationRestorer {
 
     private let daemonClient: DaemonClient
     private let conversationListClient: any ConversationListClientProtocol = ConversationListClient()
+    private let conversationHistoryClient: any ConversationHistoryClientProtocol
     private var connectionCancellable: AnyCancellable?
     private var disconnectCancellable: AnyCancellable?
 
     weak var delegate: ConversationRestorerDelegate?
 
-    init(daemonClient: DaemonClient) {
+    init(daemonClient: DaemonClient, conversationHistoryClient: any ConversationHistoryClientProtocol = ConversationHistoryClient()) {
         self.daemonClient = daemonClient
+        self.conversationHistoryClient = conversationHistoryClient
     }
 
     func startObserving(skipInitialFetch: Bool = false) {
@@ -107,7 +109,7 @@ final class ConversationRestorer {
 
         Task { [weak self] in
             guard let self else { return }
-            let response = await ConversationClient().fetchHistory(conversationId: conversationId, limit: 50, mode: "light", maxToolResultChars: 1000)
+            let response = await self.conversationHistoryClient.fetchHistory(conversationId: conversationId, limit: 50, mode: "light", maxToolResultChars: 1000)
             if let response {
                 self.handleHistoryResponse(response)
             } else {
@@ -125,7 +127,7 @@ final class ConversationRestorer {
         pendingHistoryByConversationId[conversationId] = conversation.id
         Task { [weak self] in
             guard let self else { return }
-            let response = await ConversationClient().fetchHistory(conversationId: conversationId, limit: 50, mode: "light", maxToolResultChars: 1000)
+            let response = await self.conversationHistoryClient.fetchHistory(conversationId: conversationId, limit: 50, mode: "light", maxToolResultChars: 1000)
             if let response {
                 self.handleHistoryResponse(response)
             } else {
@@ -147,7 +149,7 @@ final class ConversationRestorer {
         pendingHistoryByConversationId[conversationId] = conversation.id
         Task { [weak self] in
             guard let self else { return }
-            let response = await ConversationClient().fetchHistory(conversationId: conversationId, limit: 50, beforeTimestamp: beforeTimestamp, mode: "light", maxToolResultChars: 1000)
+            let response = await self.conversationHistoryClient.fetchHistory(conversationId: conversationId, limit: 50, beforeTimestamp: beforeTimestamp, mode: "light", maxToolResultChars: 1000)
             if let response {
                 self.handleHistoryResponse(response)
             } else {

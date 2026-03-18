@@ -102,6 +102,7 @@ class IOSConversationStore: ObservableObject {
     /// ViewModels keyed by conversation ID, created lazily on first access.
     private var viewModels: [UUID: ChatViewModel] = [:]
     private var daemonClient: any DaemonClientProtocol
+    private let conversationHistoryClient: any ConversationHistoryClientProtocol = ConversationHistoryClient()
     private static let persistenceKey = "ios_conversations_v1"
     private static let connectedCacheKey = "ios_connected_conversations_cache_v1"
     private static let legacyPersistenceKey = "ios_threads_v1"
@@ -692,7 +693,7 @@ class IOSConversationStore: ObservableObject {
 
         Task { [weak self] in
             guard let self else { return }
-            let response = await ConversationClient().fetchHistory(conversationId: conversationId, limit: 50, mode: "light", maxToolResultChars: 1000)
+            let response = await self.conversationHistoryClient.fetchHistory(conversationId: conversationId, limit: 50, mode: "light", maxToolResultChars: 1000)
             if let response {
                 self.handleHistoryResponse(response)
             } else {
@@ -745,7 +746,7 @@ class IOSConversationStore: ObservableObject {
         pendingHistoryByConversationId[conversationId] = conversation.id
         Task { [weak self] in
             guard let self else { return }
-            let response = await ConversationClient().fetchHistory(conversationId: conversationId, limit: 50, beforeTimestamp: beforeTimestamp, mode: "light", maxToolResultChars: 1000)
+            let response = await self.conversationHistoryClient.fetchHistory(conversationId: conversationId, limit: 50, beforeTimestamp: beforeTimestamp, mode: "light", maxToolResultChars: 1000)
             if let response {
                 self.handleHistoryResponse(response)
             } else {
@@ -793,7 +794,7 @@ class IOSConversationStore: ObservableObject {
             self.pendingHistoryByConversationId[conversationId] = conversationLocalId
             Task { [weak self] in
                 guard let self else { return }
-                let response = await ConversationClient().fetchHistory(conversationId: conversationId, limit: 50, mode: "light", maxToolResultChars: 1000)
+                let response = await self.conversationHistoryClient.fetchHistory(conversationId: conversationId, limit: 50, mode: "light", maxToolResultChars: 1000)
                 if let response {
                     self.handleHistoryResponse(response)
                 } else {
