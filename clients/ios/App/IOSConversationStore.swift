@@ -379,6 +379,7 @@ class IOSConversationStore: ObservableObject {
                 self.expectedConversationListGeneration = currentGeneration
                 self.handleConversationListResponse(response)
             } else {
+                guard currentGeneration == self.conversationListGeneration else { return }
                 self.isLoadingInitialConversations = false
             }
         }
@@ -638,11 +639,13 @@ class IOSConversationStore: ObservableObject {
         isLoadingMoreConversations = true
         let nextOffset = conversationListOffset + Self.conversationPageSize
         conversationListOffset = nextOffset
+        let capturedOffset = conversationListOffset
         Task { [weak self] in
             guard let self else { return }
             if let response = await ConversationListClient().fetchConversationList(offset: nextOffset, limit: Self.conversationPageSize) {
                 self.handleConversationListResponse(response)
             } else {
+                guard self.conversationListOffset == capturedOffset else { return }
                 self.isLoadingMoreConversations = false
                 self.conversationListOffset -= Self.conversationPageSize
             }
