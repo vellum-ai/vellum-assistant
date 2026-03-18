@@ -1,7 +1,7 @@
 # Clients — Agent Guidance
 
 ## Scope and Precedence
-- Applies to all client code in `clients/` (macOS, iOS, iPadOS, watchOS, tvOS, browser extensions, shared).
+- Applies to all client code in `clients/` (macOS, iOS, browser extensions, shared).
 - Platform-specific docs (for example `clients/macos/CLAUDE.md`, `clients/ios/README.md`) override or extend this file.
 - `AGENTS.md` at repo root still applies; if guidance conflicts, follow the most specific document.
 

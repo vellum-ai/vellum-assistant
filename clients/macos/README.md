@@ -1,60 +1,12 @@
 # vellum-assistant
 
-A native macOS menu bar app that controls your Mac via accessibility APIs and CGEvent input injection, powered by Claude via the Anthropic Messages API with tool use.
+A native macOS menu bar app that controls your Mac via accessibility APIs and CGEvent input injection, powered by large language models with tool use.
 
 ---
 
 ## iOS Target
 
-This repository also includes an iOS app target (`vellum-assistant-ios`) that shares ~45-50% of code with the macOS app through the `VellumAssistantShared` library. The iOS app is a chat-focused client that connects to the assistant through cloud login or QR-paired HTTP gateway.
-
-**Status:** Fully functional. Build via Xcode (recommended) or `xcodebuild` from the command line — `swift build` on macOS cannot compile the iOS target due to UIKit dependencies. See [clients/ios/README.md](../ios/README.md) for build instructions.
-
-**Code organization:**
-- `clients/shared/` — Shared library (network layer, chat models/ViewModels, design system)
-- `clients/macos/` — macOS-specific code (accessibility, CGEvent, computer-use)
-- `clients/ios/` — iOS-specific code (UIKit app structure, SwiftUI views)
-
-### Testing the iOS App
-
-The iOS app can be tested in three ways:
-
-**1. Xcode Simulator (Recommended for development)**
-```bash
-# Open the iOS project in Xcode
-open ../ios/vellum-assistant-ios.xcodeproj
-
-# In Xcode:
-# - Select the VellumAssistantIOS scheme
-# - Choose an iOS Simulator (iPhone 16 Pro, iPad Pro, etc.)
-# - Click Run (⌘R)
-```
-
-**Pros:** No signing needed, fast iteration, free
-**Cons:** No push notifications, camera, or some hardware features
-**Use for:** Chat interface, settings, basic UI testing
-
-**2. Physical Device (For hardware features)**
-
-Requires either:
-- Free personal Apple ID (7-day code signing)
-- Paid Apple Developer account ($99/year, 1-year signing)
-
-```bash
-# In Xcode:
-# - Connect your iPhone/iPad via USB
-# - Select your device in the destination menu
-# - Xcode will prompt for Apple ID and handle signing
-# - Click Run (⌘R)
-```
-
-**Use for:** Voice input, camera/photo picker, push notifications
-
-**3. TestFlight (For beta testing)**
-
-Requires Apple Developer account + App Store Connect setup.
-
-**Connection Note:** The iOS app connects to the assistant through the HTTP gateway. Pair via QR code (Settings → Connect → Show QR Code on Mac, Scan QR Code on iPhone). All pairings require Mac-side approval. Devices approved with "Always Allow" auto-approve on future pairings.
+This repository also includes a fully functional iOS app target. See [clients/ios/README.md](../ios/README.md) for build instructions, connection modes, testing, and configuration.
 
 ---
 
@@ -264,7 +216,7 @@ This builds the app (if needed), generates the background image, creates a style
 
 ## Local Assistant (Daemon)
 
-The macOS app is a frontend — all inference (chat, computer-use sessions, ambient analysis) goes through the **local assistant process** (internally called the daemon), a Node/Bun process that manages Claude API calls, conversation state, and tool execution. The app connects to it via HTTP+SSE (the runtime HTTP server port is resolved dynamically from the lockfile, honoring `BASE_DATA_DIR` for multi-instance setups).
+The macOS app is a frontend — all inference (chat, computer-use sessions, ambient analysis) goes through the **local assistant process** (internally called the daemon), a backend process that manages LLM API calls, conversation state, and tool execution. The app connects to it via HTTP+SSE (the runtime HTTP server port is resolved dynamically from the lockfile, honoring `BASE_DATA_DIR` for multi-instance setups).
 
 **Local mode: You must start the assistant before using the app.** Without it, the app will connect but get no responses. (In managed mode, the assistant runs on the Vellum platform — no local process needed.)
 
@@ -420,20 +372,19 @@ ComputerUse/          Core perception + action pipeline
   AccessibilityTree   AX element enumeration & formatting
   AXTreeDiff          Diff between AX tree snapshots across steps
   ActionExecutor      CGEvent mouse/keyboard injection
+  ActionTypes         Action type definitions
   ActionVerifier      Safety checks (sensitive data, loops, limits)
-  RecipeExecutor      Recipe-based onboarding (computer-use driven setup)
+  HostCuExecutor      Computer-use action execution
+  HostCuSessionProxy  Session proxy for host computer-use orchestration
   ScreenCapture       ScreenCaptureKit screenshot capture
-  Session             Main orchestration loop
-Inference/            AI action selection
-  ToolDefinitions     Tool schemas for function calling
 Services/             Singleton service containers
 Ambient/              Background screen-watching agent
   AmbientAgent        Periodic capture → OCR → analyze via HTTP
-  AmbientAnalyzer     Type definitions (AmbientDecision, AmbientAnalysisResult)
+  AmbientAXCapture    Accessibility tree capture for ambient analysis
   KnowledgeStore      Persists observations as JSON
   ScreenOCR           Vision framework OCR
+  WatchSession        Watch connectivity session for ambient data
 Features/
-  Ambient/            Background screen monitoring UI
   Avatar/             Avatar customization
   Chat/               Chat interface (ChatView, ChatViewModel, ChatMessage)
   CommandPalette/     Command palette (search, actions)
@@ -446,6 +397,7 @@ Features/
   Settings/           Tabbed settings panels (Appearance, Advanced, Connect, Trust, etc.)
   Sharing/            Content sharing and export
   Surfaces/           Daemon surface rendering (HTML/JSON overlays)
+  Terminal/            Terminal UI
   Voice/              Voice input UI (VoiceTranscriptionWindow)
 Recording/            Screen recording (HUD, capture, thumbnails)
 Telemetry/            Crash reporting, MetricKit, perf signposts
