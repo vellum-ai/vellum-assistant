@@ -132,10 +132,6 @@ struct APIKeyEntryStepView: View {
         guard !trimmed.isEmpty else { return }
         APIKeyManager.setKey(trimmed, for: "anthropic")
 
-        // Key sync to the daemon is handled by the bootstrap sequence in
-        // proceedToApp(isFirstLaunch:) via syncApiKeysViaGateway() after
-        // the daemon and gateway are fully ready.
-
         // Set service modes to "your-own" for any services that don't already
         // have a mode configured (first-time BYOK onboarding).
         WorkspaceConfigIO.initializeServiceDefaults(defaultMode: "your-own")
