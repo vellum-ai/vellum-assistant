@@ -84,8 +84,10 @@ struct ComposerView: View {
     @State private var isComposerDropTargeted = false
 
     /// The portion of the suggestion that extends beyond the current input.
+    /// Hidden when the user has pending attachments so the composer looks empty
+    /// and they aren't confused about what will be sent.
     private var ghostSuffix: String? {
-        guard let suggestion else { return nil }
+        guard let suggestion, pendingAttachments.isEmpty else { return nil }
         if suggestion.hasPrefix(inputText) {
             let suffix = String(suggestion.dropFirst(inputText.count))
             return suffix.isEmpty ? nil : suffix
