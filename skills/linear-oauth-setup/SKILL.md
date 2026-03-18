@@ -188,6 +188,7 @@ curl -s -X POST https://api.linear.app/graphql \
 **Common operations:**
 
 Create an issue:
+
 ```bash
 curl -s -X POST https://api.linear.app/graphql \
   -H "Content-Type: application/json" \
@@ -196,6 +197,7 @@ curl -s -X POST https://api.linear.app/graphql \
 ```
 
 Look up teams and users (needed for creating issues):
+
 ```bash
 curl -s -X POST https://api.linear.app/graphql \
   -H "Content-Type: application/json" \
@@ -204,6 +206,7 @@ curl -s -X POST https://api.linear.app/graphql \
 ```
 
 Search issues:
+
 ```bash
 curl -s -X POST https://api.linear.app/graphql \
   -H "Content-Type: application/json" \
@@ -212,6 +215,7 @@ curl -s -X POST https://api.linear.app/graphql \
 ```
 
 **Important:**
+
 - Use `network_mode: proxied` for network access (required for outbound HTTP from the sandbox).
 - Do NOT pass `credential_ids` — OAuth tokens are not in the credential store. Instead, inject the token via shell substitution using `$(assistant oauth connections token integration:linear)` in the Authorization header.
 - Do NOT use `assistant credentials reveal` — that command is for manually stored API keys, not OAuth tokens. Always use `assistant oauth connections token`.

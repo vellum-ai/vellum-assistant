@@ -303,6 +303,11 @@
           "feature-flag": "integration-linear",
           "includes": [
             "collaborative-oauth-flow"
+          ],
+          "activation-hints": [
+            "Create, update, or manage Linear issues",
+            "Interact with Linear workspace, projects, or teams",
+            "User mentions Linear (load for both setup and API usage guidance)"
           ]
         }
       },
