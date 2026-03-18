@@ -78,8 +78,23 @@ public struct VDropdown<T: Hashable>: View {
         .buttonStyle(.plain)
         .menuIndicator(.hidden)
         .accessibilityLabel(selectedLabel ?? placeholder)
-        .frame(width: maxWidth == nil ? width : nil,
-               maxWidth: maxWidth)
+        .modifier(DropdownSizeModifier(fixedWidth: width, flexibleMaxWidth: maxWidth))
+    }
+}
+
+/// Applies either a fixed width or a flexible maxWidth constraint.
+/// Needed because SwiftUI's `.frame(width:)` and `.frame(maxWidth:)` are
+/// separate overloads that cannot be combined in a single call.
+private struct DropdownSizeModifier: ViewModifier {
+    let fixedWidth: CGFloat
+    let flexibleMaxWidth: CGFloat?
+
+    func body(content: Content) -> some View {
+        if let max = flexibleMaxWidth {
+            content.frame(maxWidth: max)
+        } else {
+            content.frame(width: fixedWidth)
+        }
     }
 }
 
