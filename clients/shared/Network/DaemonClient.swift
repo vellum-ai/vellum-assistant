@@ -340,6 +340,12 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     /// Called when a notification delivery creates a new vellum conversation.
     public var onNotificationConversationCreated: ((NotificationConversationCreated) -> Void)?
 
+    /// Called when the daemon broadcasts that a service group update is starting.
+    public var onServiceGroupUpdateStarting: ((ServiceGroupUpdateStartingMessage) -> Void)?
+
+    /// Called when the daemon broadcasts that a service group update has completed.
+    public var onServiceGroupUpdateComplete: ((ServiceGroupUpdateCompleteMessage) -> Void)?
+
     /// Called when the server-assigned conversation ID differs from the
     /// client-local ID. Parameters: (localId, serverId).
     public var onConversationIdResolved: ((_ localId: String, _ serverId: String) -> Void)?

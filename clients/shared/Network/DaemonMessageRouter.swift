@@ -92,6 +92,10 @@ extension DaemonClient {
             onNotificationIntent?(msg)
         case .notificationConversationCreated(let msg):
             onNotificationConversationCreated?(msg)
+        case .serviceGroupUpdateStarting(let msg):
+            onServiceGroupUpdateStarting?(msg)
+        case .serviceGroupUpdateComplete(let msg):
+            onServiceGroupUpdateComplete?(msg)
         case .trustRulesListResponse:
             break // Handled by TrustRuleClient via GatewayHTTPClient.
         case .toolPermissionSimulateResponse:
