@@ -6,6 +6,7 @@ import {
   getAcpSessionManager,
   setBroadcastToAllClients,
 } from "../acp/index.js";
+import { enrichMessageWithSourcePaths } from "../agent/attachments.js";
 import {
   createAssistantMessage,
   createUserMessage,
@@ -1074,6 +1075,12 @@ export class DaemonServer {
       const serverProvenance = provenanceFromTrustContext(
         conversation.trustContext,
       );
+      const imageSourcePaths: Record<string, string> = {};
+      for (const a of attachments) {
+        if (a.filePath && a.mimeType.toLowerCase().startsWith("image/")) {
+          imageSourcePaths[a.filename] = a.filePath;
+        }
+      }
       const serverChannelMeta = {
         ...serverProvenance,
         ...(serverTurnCtx
@@ -1089,15 +1096,19 @@ export class DaemonServer {
                 serverInterfaceCtx.assistantMessageInterface,
             }
           : {}),
+        ...(Object.keys(imageSourcePaths).length > 0
+          ? { imageSourcePaths }
+          : {}),
       };
-      const userMsg = createUserMessage(content, attachments);
+      const cleanMsg = createUserMessage(content, attachments);
+      const llmMsg = enrichMessageWithSourcePaths(cleanMsg, attachments);
       const persisted = await addMessage(
         conversationId,
         "user",
-        JSON.stringify(userMsg.content),
+        JSON.stringify(cleanMsg.content),
         serverChannelMeta,
       );
-      conversation.getMessages().push(userMsg);
+      conversation.getMessages().push(llmMsg);
 
       if (serverTurnCtx) {
         try {
