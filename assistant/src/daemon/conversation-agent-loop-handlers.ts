@@ -167,30 +167,6 @@ export function emitLlmCallStartedIfNeeded(
   );
 }
 
-// ── Client Payload Size Caps ─────────────────────────────────────────
-// The client truncates tool results anyway (20 000 chars in ChatViewModel),
-// but the full string can be megabytes (file_read, bash output). Capping
-// here avoids sending oversized payloads which get decoded on the
-// client's main thread.
-
-const TOOL_RESULT_MAX_CHARS = 20_000;
-const TOOL_RESULT_TRUNCATION_SUFFIX = "...[truncated]";
-
-// tool_input_delta streams accumulated JSON as tools run. For non-app
-// tools the client discards it (extractCodePreview only handles app tools),
-// so we cap it aggressively to avoid excessive client traffic.
-const TOOL_INPUT_DELTA_MAX_CHARS = 50_000;
-const APP_TOOL_NAMES = new Set(["app_create", "app_update"]);
-
-function truncateForClient(
-  value: string,
-  maxChars: number,
-  suffix: string,
-): string {
-  if (value.length <= maxChars) return value;
-  return value.slice(0, maxChars - suffix.length) + suffix;
-}
-
 // ── Friendly Tool Names ──────────────────────────────────────────────
 
 const TOOL_FRIENDLY_NAMES: Record<string, string> = {
@@ -409,19 +385,10 @@ export function handleInputJsonDelta(
   deps: EventHandlerDeps,
   event: Extract<AgentEvent, { type: "input_json_delta" }>,
 ): void {
-  // Cap non-app tool input deltas — the client only uses this data for
-  // app_create/app_update code previews; all other tools discard it.
-  const content = APP_TOOL_NAMES.has(event.toolName)
-    ? event.accumulatedJson
-    : truncateForClient(
-        event.accumulatedJson,
-        TOOL_INPUT_DELTA_MAX_CHARS,
-        TOOL_RESULT_TRUNCATION_SUFFIX,
-      );
   deps.onEvent({
     type: "tool_input_delta",
     toolName: event.toolName,
-    content,
+    content: event.accumulatedJson,
     conversationId: deps.ctx.conversationId,
     toolUseId: event.toolUseId,
   });
@@ -438,11 +405,7 @@ export function handleToolResult(
   deps.onEvent({
     type: "tool_result",
     toolName: "",
-    result: truncateForClient(
-      event.content,
-      TOOL_RESULT_MAX_CHARS,
-      TOOL_RESULT_TRUNCATION_SUFFIX,
-    ),
+    result: event.content,
     isError: event.isError,
     diff: event.diff,
     status: event.status,

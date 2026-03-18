@@ -502,9 +502,7 @@ private struct StepDetailRow: View {
     @State private var isHovered = false
     /// Cached formatted input — computed once on first expand.
     @State private var cachedInputFull: String?
-    /// Tracks which output sections (live output / final output) are expanded.
-    @State private var expandedOutputIds: Set<String> = []
-    @Environment(\.displayScale) private var displayScale
+@Environment(\.displayScale) private var displayScale
     @Environment(\.suppressAutoScroll) private var suppressAutoScroll
 
     /// Lazily resolved full input text.
@@ -512,12 +510,6 @@ private struct StepDetailRow: View {
         if let cached = cachedInputFull { return cached }
         if !toolCall.inputFull.isEmpty { return toolCall.inputFull }
         return ""
-    }
-
-    /// Whether the tool result or input appears truncated.
-    private var isTruncated: Bool {
-        (toolCall.result?.hasSuffix("[truncated]") ?? false)
-            || toolCall.inputFull.hasSuffix("[truncated]")
     }
 
     /// Whether this tool has detail content to show (running or completed).
@@ -651,9 +643,6 @@ private struct StepDetailRow: View {
                                 cachedInputFull = ToolCallData.formatAllToolInput(dict)
                             }
                         }
-                        if isTruncated {
-                            onRehydrate?()
-                        }
                     }
             }
         }
@@ -681,22 +670,10 @@ private struct StepDetailRow: View {
 
             // Technical details
             VStack(alignment: .leading, spacing: VSpacing.xs) {
-                HStack {
-                    Text("Technical details")
-                        .font(VFont.small)
-                        .foregroundColor(VColor.contentTertiary)
-                        .textCase(.uppercase)
-                    if isTruncated {
-                        Text("truncated")
-                            .font(VFont.caption)
-                            .foregroundColor(VColor.systemMidStrong)
-                            .padding(.horizontal, VSpacing.xs)
-                            .background(
-                                RoundedRectangle(cornerRadius: VRadius.xs)
-                                    .fill(VColor.systemMidStrong.opacity(0.12))
-                            )
-                    }
-                }
+                Text("Technical details")
+                    .font(VFont.small)
+                    .foregroundColor(VColor.contentTertiary)
+                    .textCase(.uppercase)
 
                 VStack(alignment: .leading, spacing: VSpacing.xs) {
                     if let reason = toolCall.reasonDescription, !reason.isEmpty {
@@ -712,6 +689,7 @@ private struct StepDetailRow: View {
                             .font(VFont.monoSmall)
                             .foregroundColor(VColor.contentSecondary)
                             .textSelection(.enabled)
+                            .fixedSize(horizontal: false, vertical: true)
                     }
                 }
             }
@@ -743,12 +721,10 @@ private struct StepDetailRow: View {
                         .textCase(.uppercase)
 
                     outputBlock(
-                        id: "live-\(toolCall.id.uuidString)",
                         text: toolCall.partialOutput,
                         attributedText: nil,
                         copyText: toolCall.partialOutput,
-                        copyLabel: "Copy live output",
-                        isLive: true
+                        copyLabel: "Copy live output"
                     )
                 }
                 .padding(.horizontal, VSpacing.lg)
@@ -766,7 +742,6 @@ private struct StepDetailRow: View {
                         .textCase(.uppercase)
 
                     outputBlock(
-                        id: "result-\(toolCall.id.uuidString)",
                         text: nil,
                         attributedText: coloredOutput(result, isError: toolCall.isError),
                         copyText: result,
@@ -781,65 +756,29 @@ private struct StepDetailRow: View {
 
     // MARK: - Output Block
 
-    /// Reusable output block that replaces nested ScrollView with truncated Text.
-    /// Default state shows 8 lines with a "Show more" toggle. Expanded state shows
-    /// full text; outputs exceeding 500 lines use a ScrollView capped at 400pt.
+    /// Reusable output block — shows full text with a copy button.
     @ViewBuilder
     private func outputBlock(
-        id: String,
         text: String?,
         attributedText: AttributedString?,
         copyText: String,
-        copyLabel: String,
-        isLive: Bool = false
+        copyLabel: String
     ) -> some View {
-        let isOutputExpanded = expandedOutputIds.contains(id)
-        let lineCount = copyText.components(separatedBy: "\n").count
-        let needsTruncation = lineCount > 8 || copyText.count > 400
-
         ZStack(alignment: .topTrailing) {
             VStack(alignment: .leading, spacing: VSpacing.xs) {
-                if isOutputExpanded && lineCount > 500 {
-                    // Expanded with ScrollView for extremely long outputs
-                    ScrollView {
-                        outputTextView(text: text, attributedText: attributedText, lineLimit: nil)
-                    }
-                    .if(isLive) { view in
-                        view.defaultScrollAnchor(.bottom)
-                    }
-                    .frame(maxHeight: 400)
-                } else if let attrText = attributedText {
+                if let attrText = attributedText {
                     Text(attrText)
                         .font(VFont.monoSmall)
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .textSelection(.enabled)
-                        .lineLimit(isOutputExpanded ? nil : 8)
-                        .truncationMode(.tail)
+                        .fixedSize(horizontal: false, vertical: true)
                 } else if let plainText = text {
                     Text(plainText)
                         .font(VFont.monoSmall)
                         .foregroundColor(VColor.contentSecondary)
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .textSelection(.enabled)
-                        .lineLimit(isOutputExpanded ? nil : 8)
-                        .truncationMode(.tail)
-                }
-
-                if needsTruncation {
-                    Button {
-                        withAnimation(VAnimation.fast) {
-                            if isOutputExpanded {
-                                expandedOutputIds.remove(id)
-                            } else {
-                                expandedOutputIds.insert(id)
-                            }
-                        }
-                    } label: {
-                        Text(isOutputExpanded ? "Show less" : "Show more")
-                            .font(VFont.caption)
-                            .foregroundColor(VColor.primaryBase)
-                    }
-                    .buttonStyle(.plain)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
             }
             .padding(VSpacing.sm)
@@ -857,29 +796,6 @@ private struct StepDetailRow: View {
                 NSPasteboard.general.setString(copyText, forType: .string)
             }
             .padding(VSpacing.xs)
-        }
-    }
-
-    /// Text view used inside the expanded ScrollView for long outputs.
-    @ViewBuilder
-    private func outputTextView(
-        text: String?,
-        attributedText: AttributedString?,
-        lineLimit: Int?
-    ) -> some View {
-        if let attrText = attributedText {
-            Text(attrText)
-                .font(VFont.monoSmall)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .textSelection(.enabled)
-                .lineLimit(lineLimit)
-        } else if let plainText = text {
-            Text(plainText)
-                .font(VFont.monoSmall)
-                .foregroundColor(VColor.contentSecondary)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .textSelection(.enabled)
-                .lineLimit(lineLimit)
         }
     }
 

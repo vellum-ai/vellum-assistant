@@ -2598,12 +2598,6 @@ public final class ChatViewModel: ObservableObject {
             let toolsBeforeText = item.toolCallsBeforeText ?? true
             if let historyToolCalls = item.toolCalls {
                 toolCalls = historyToolCalls.map { tc in
-                    // Truncate tool result for memory safety
-                    let truncatedResult: String? = {
-                        guard let result = tc.result else { return nil }
-                        return result.count > 20000 ? String(result.prefix(20000)) + "...[truncated]" : result
-                    }()
-
                     // Decode image once — pass decoded image directly to avoid double-decode
                     // (ToolCallData.init also decodes base64, so skip that by passing imageData: nil)
                     let decodedImage = ToolCallData.decodeImage(from: tc.imageData)
@@ -2613,7 +2607,7 @@ public final class ChatViewModel: ObservableObject {
                         inputSummary: summarizeToolInput(tc.input),
                         inputFull: "",
                         inputRawValue: extractToolInput(tc.input),
-                        result: truncatedResult,
+                        result: tc.result,
                         isError: tc.isError ?? false,
                         isComplete: true,
                         arrivedBeforeText: toolsBeforeText,

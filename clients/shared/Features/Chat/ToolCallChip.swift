@@ -18,13 +18,7 @@ public struct ToolCallChip: View {
     /// `formatAllToolInput` on every SwiftUI render pass.
     @State private var cachedInputFull: String?
 
-    /// Whether the tool result or input appears to contain truncated content.
-    private var isTruncated: Bool {
-        (toolCall.result?.hasSuffix("[truncated]") ?? false)
-            || toolCall.inputFull.hasSuffix("[truncated]")
-    }
-
-    /// Parse a `<command_exit code="N" />` tag from the result string and return the exit code.
+/// Parse a `<command_exit code="N" />` tag from the result string and return the exit code.
     static func parseExitCode(from result: String) -> Int? {
         // Match <command_exit code="N" /> where N is an integer
         guard let codeRange = result.range(of: #"<command_exit code="(\d+)" />"#, options: .regularExpression) else {
@@ -115,22 +109,10 @@ public struct ToolCallChip: View {
 
                     // Technical details section
                     VStack(alignment: .leading, spacing: VSpacing.xs) {
-                        HStack {
-                            Text("Technical details")
-                                .font(VFont.caption)
-                                .foregroundColor(VColor.contentTertiary)
-                                .textCase(.uppercase)
-                            if isTruncated {
-                                Text("truncated")
-                                    .font(VFont.caption)
-                                    .foregroundColor(VColor.systemMidStrong)
-                                    .padding(.horizontal, VSpacing.xs)
-                                    .background(
-                                        RoundedRectangle(cornerRadius: VRadius.xs)
-                                            .fill(VColor.systemMidStrong.opacity(0.12))
-                                    )
-                            }
-                        }
+                        Text("Technical details")
+                            .font(VFont.caption)
+                            .foregroundColor(VColor.contentTertiary)
+                            .textCase(.uppercase)
 
                         VStack(alignment: .leading, spacing: VSpacing.xs) {
                             Text(toolCall.friendlyName)
@@ -141,6 +123,7 @@ public struct ToolCallChip: View {
                                     .font(VFont.monoSmall)
                                     .foregroundColor(VColor.contentSecondary)
                                     .textSelection(.enabled)
+                                    .fixedSize(horizontal: false, vertical: true)
                             }
                         }
                     }
@@ -223,14 +206,12 @@ public struct ToolCallChip: View {
                                         .foregroundColor(VColor.contentSecondary)
                                 }
                             } else {
-                                ScrollView {
-                                    Text(result)
-                                        .font(VFont.monoSmall)
-                                        .foregroundColor(VColor.contentSecondary)
-                                        .frame(maxWidth: .infinity, alignment: .leading)
-                                        .textSelection(.enabled)
-                                }
-                                .frame(maxHeight: 200)
+                                Text(result)
+                                .font(VFont.monoSmall)
+                                .foregroundColor(VColor.contentSecondary)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .textSelection(.enabled)
+                                .fixedSize(horizontal: false, vertical: true)
                             }
                         }
                         .padding(.horizontal, VSpacing.sm)
@@ -247,10 +228,6 @@ public struct ToolCallChip: View {
                         } else if let dict = toolCall.inputRawDict {
                             cachedInputFull = ToolCallData.formatAllToolInput(dict)
                         }
-                    }
-                    // Trigger on-demand rehydration when expanding truncated content.
-                    if isTruncated {
-                        onRehydrate?()
                     }
                 }
             }

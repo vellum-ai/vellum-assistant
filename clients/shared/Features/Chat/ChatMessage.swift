@@ -870,12 +870,10 @@ public struct ToolCallData: Identifiable, Equatable {
         self.id = id
         self.toolName = toolName
         self.inputSummary = inputSummary
-        var fullInput = inputFull ?? inputSummary
-        if fullInput.count > 10_000 { fullInput = String(fullInput.prefix(10_000)) + "... [truncated]" }
+        let fullInput = inputFull ?? inputSummary
         self.inputFull = fullInput
         self.inputFullLength = fullInput.count
-        var rawValue = inputRawValue ?? inputSummary
-        if rawValue.count > 10_000 { rawValue = String(rawValue.prefix(10_000)) + "... [truncated]" }
+        let rawValue = inputRawValue ?? inputSummary
         self.inputRawValue = rawValue
         self.inputRawValueLength = rawValue.count
         self.result = result
@@ -1255,9 +1253,7 @@ public struct ToolCallData: Identifiable, Equatable {
             }
         }
 
-        var result = lines.joined(separator: "\n")
-        if result.count > 10_000 { result = String(result.prefix(10_000)) + "... [truncated]" }
-        return result
+        return lines.joined(separator: "\n")
     }
 
     private static func stringifyValue(_ value: AnyCodable) -> String {
