@@ -308,7 +308,7 @@ struct AssistantChannelsDetailView: View {
                             ),
                             options: store.twilioNumbers.map { (label: $0.friendlyName, value: $0.phoneNumber) },
                             emptyValue: "",
-                            width: 280
+                            maxWidth: 280
                         )
                     }
                 } else if !isConnected && voiceSetupExpanded {
@@ -763,7 +763,7 @@ struct AssistantChannelsDetailView: View {
                         ),
                         options: store.twilioNumbers.map { (label: $0.friendlyName, value: $0.phoneNumber) },
                         emptyValue: "",
-                        width: 360
+                        maxWidth: 360
                     )
                 }
 

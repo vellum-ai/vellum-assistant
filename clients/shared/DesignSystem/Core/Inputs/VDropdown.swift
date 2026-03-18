@@ -4,28 +4,34 @@ import SwiftUI
 ///
 /// Uses a `Menu` containing an inline `Picker` for proper selection semantics
 /// (automatic checkmarks, accessibility). The visual label is fully custom.
-/// Defaults to 400pt wide; callers can pass a custom `width` to override.
+/// Defaults to 400pt fixed width; callers can pass a custom `width` to override,
+/// or use `maxWidth` instead for a flexible upper bound that allows shrinking.
 public struct VDropdown<T: Hashable>: View {
     public let placeholder: String
     @Binding public var selection: T
     public let options: [(label: String, value: T)]
     /// When selection equals emptyValue, placeholder text is shown instead.
     public var emptyValue: T? = nil
-    /// The fixed width of the dropdown. Defaults to 400.
+    /// Fixed width of the dropdown. Defaults to 400. Ignored when `maxWidth` is set.
     public var width: CGFloat = 400
+    /// Optional flexible upper bound. When set, the dropdown can shrink below this
+    /// value in narrow containers instead of using a fixed width.
+    public var maxWidth: CGFloat? = nil
 
     public init(
         placeholder: String,
         selection: Binding<T>,
         options: [(label: String, value: T)],
         emptyValue: T? = nil,
-        width: CGFloat = 400
+        width: CGFloat = 400,
+        maxWidth: CGFloat? = nil
     ) {
         self.placeholder = placeholder
         self._selection = selection
         self.options = options
         self.emptyValue = emptyValue
         self.width = width
+        self.maxWidth = maxWidth
     }
 
     private var selectedLabel: String? {
@@ -72,7 +78,8 @@ public struct VDropdown<T: Hashable>: View {
         .buttonStyle(.plain)
         .menuIndicator(.hidden)
         .accessibilityLabel(selectedLabel ?? placeholder)
-        .frame(width: width)
+        .frame(width: maxWidth == nil ? width : nil,
+               maxWidth: maxWidth)
     }
 }
 
