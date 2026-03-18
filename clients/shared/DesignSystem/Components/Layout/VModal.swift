@@ -53,9 +53,9 @@ public struct VModal<Content: View, Footer: View>: View {
             }
         }
         .background(VColor.surfaceOverlay)
-        .clipShape(RoundedRectangle(cornerRadius: VRadius.lg))
+        .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
         .overlay(
-            RoundedRectangle(cornerRadius: VRadius.lg)
+            RoundedRectangle(cornerRadius: VRadius.md)
                 .stroke(VColor.borderBase, lineWidth: 1)
         )
     }
