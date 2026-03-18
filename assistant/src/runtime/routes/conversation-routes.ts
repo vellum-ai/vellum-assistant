@@ -25,6 +25,10 @@ import {
   resolveSlash,
   type SlashContext,
 } from "../../daemon/conversation-slash.js";
+import {
+  getCannedFirstGreeting,
+  isWakeUpGreeting,
+} from "../../daemon/first-greeting.js";
 import { renderHistoryContent } from "../../daemon/handlers/shared.js";
 import { HostBashProxy } from "../../daemon/host-bash-proxy.js";
 import { HostCuProxy } from "../../daemon/host-cu-proxy.js";
@@ -777,6 +781,77 @@ export async function handleSendMessage(
   conversation.updateClient(onEvent, !isInteractive, {
     skipProxySenderUpdate: preservingProxies,
   });
+
+  // ── Canned first-greeting fast path ──
+  // On a completely fresh workspace, skip LLM inference for the macOS
+  // wake-up greeting and return a pre-written response. This eliminates
+  // 10-30s of inference latency on first boot.
+  if (isWakeUpGreeting(trimmedContent, conversation.getMessages().length)) {
+    const cannedGreeting = getCannedFirstGreeting();
+    if (cannedGreeting) {
+      conversation.processing = true;
+      const provenance = provenanceFromTrustContext(conversation.trustContext);
+      const channelMeta = {
+        ...provenance,
+        userMessageChannel: sourceChannel,
+        assistantMessageChannel: sourceChannel,
+        userMessageInterface: sourceInterface,
+        assistantMessageInterface: sourceInterface,
+      };
+
+      const rawContent = content ?? "";
+      const attachments = hasAttachments
+        ? smDeps.resolveAttachments(attachmentIds)
+        : [];
+      const userMsg = createUserMessage(rawContent, attachments);
+      const persisted = await addMessage(
+        mapping.conversationId,
+        "user",
+        JSON.stringify(userMsg.content),
+        channelMeta,
+      );
+      conversation.getMessages().push(userMsg);
+
+      setConversationOriginChannelIfUnset(
+        mapping.conversationId,
+        sourceChannel,
+      );
+      setConversationOriginInterfaceIfUnset(
+        mapping.conversationId,
+        sourceInterface,
+      );
+
+      const assistantMsg = createAssistantMessage(cannedGreeting);
+      await addMessage(
+        mapping.conversationId,
+        "assistant",
+        JSON.stringify(assistantMsg.content),
+        channelMeta,
+      );
+      conversation.getMessages().push(assistantMsg);
+
+      const conversationId = mapping.conversationId;
+      const response = Response.json(
+        { accepted: true, messageId: persisted.id, conversationId },
+        { status: 202 },
+      );
+
+      // Defer event publishing to next tick (same pattern as unknown-slash
+      // fast path) so the HTTP response reaches the client before SSE
+      // events arrive.
+      setTimeout(() => {
+        onEvent({ type: "assistant_text_delta", text: cannedGreeting });
+        onEvent({ type: "message_complete", conversationId });
+        conversation.processing = false;
+      }, 0);
+
+      log.info(
+        { conversationId },
+        "Served canned first greeting — skipped LLM inference",
+      );
+      return response;
+    }
+  }
 
   const attachments = hasAttachments
     ? smDeps.resolveAttachments(attachmentIds)
