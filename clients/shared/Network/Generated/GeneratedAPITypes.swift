@@ -3892,8 +3892,9 @@ public struct SkillsListResponseSkill: Codable, Sendable {
     public let updateAvailable: Bool
     public let clawhub: SkillsListResponseSkillClawhub?
     public let provenance: SkillsListResponseSkillProvenance?
+    public let installedAt: String?
 
-    public init(id: String, name: String, description: String, emoji: String? = nil, homepage: String? = nil, source: String, state: String, installedVersion: String? = nil, latestVersion: String? = nil, updateAvailable: Bool, clawhub: SkillsListResponseSkillClawhub? = nil, provenance: SkillsListResponseSkillProvenance? = nil) {
+    public init(id: String, name: String, description: String, emoji: String? = nil, homepage: String? = nil, source: String, state: String, installedVersion: String? = nil, latestVersion: String? = nil, updateAvailable: Bool, clawhub: SkillsListResponseSkillClawhub? = nil, provenance: SkillsListResponseSkillProvenance? = nil, installedAt: String? = nil) {
         self.id = id
         self.name = name
         self.description = description
@@ -3906,6 +3907,7 @@ public struct SkillsListResponseSkill: Codable, Sendable {
         self.updateAvailable = updateAvailable
         self.clawhub = clawhub
         self.provenance = provenance
+        self.installedAt = installedAt
     }
 }
 

@@ -204,28 +204,33 @@ struct AgentPanelContent: View {
     }
 
     private func skillCard(_ skill: SkillInfo) -> some View {
-        return VStack(alignment: .leading, spacing: 0) {
-            // Top row: icon + info + remove button
-            HStack(alignment: .top, spacing: VSpacing.md) {
-                skillIcon(skill.emoji)
+        HStack(alignment: .center, spacing: VSpacing.md) {
+            skillIcon(skill.emoji)
 
-                VStack(alignment: .leading, spacing: VSpacing.xs) {
+            VStack(alignment: .leading, spacing: VSpacing.xs) {
+                HStack(spacing: VSpacing.sm) {
                     Text(skill.name)
-                        .font(VFont.bodyBold)
+                        .font(VFont.cardTitle)
                         .foregroundColor(VColor.contentDefault)
 
-                    Text(skill.description)
-                        .font(VFont.caption)
-                        .foregroundColor(VColor.contentTertiary)
-                        .lineLimit(2)
-
-                    VSkillTypePill(source: skill.source)
-                        .padding(.top, VSpacing.sm)
+                    VSkillTypePill(type: .installed)
                 }
 
-                Spacer(minLength: VSpacing.lg)
+                Text(skill.description)
+                    .font(VFont.caption)
+                    .foregroundColor(VColor.contentTertiary)
+                    .lineLimit(2)
+            }
 
-                // Remove button
+            Spacer(minLength: VSpacing.lg)
+
+            VStack(alignment: .trailing, spacing: VSpacing.xs) {
+                if let timeAgo = relativeTimeString(for: skill.installedAt) {
+                    Text(timeAgo)
+                        .font(VFont.caption)
+                        .foregroundColor(VColor.contentTertiary)
+                }
+
                 Button {
                     skillToDelete = skill
                 } label: {
@@ -241,26 +246,45 @@ struct AgentPanelContent: View {
                 }
                 .buttonStyle(.plain)
             }
-
-            // Details navigation
-            HStack {
-                Spacer()
-                VButton(
-                    label: "Details",
-                    rightIcon: VIcon.chevronRight.rawValue,
-                    style: .outlined
-                ) {
-                    withAnimation(VAnimation.fast) {
-                        selectedInstalledSkillId = skill.id
-                    }
-                }
-            }
-            .padding(.top, VSpacing.xs)
         }
         .padding(.horizontal, VSpacing.lg)
         .padding(.vertical, VSpacing.md)
         .contentShape(Rectangle())
+        .pointerCursor()
+        .onTapGesture {
+            withAnimation(VAnimation.fast) {
+                selectedInstalledSkillId = skill.id
+            }
+        }
         .vCard(radius: VRadius.lg, background: VColor.surfaceOverlay)
+    }
+
+    // MARK: - Relative Time Formatting
+
+    private static let iso8601Formatter: ISO8601DateFormatter = {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return formatter
+    }()
+
+    private static let iso8601FormatterNoFraction: ISO8601DateFormatter = {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime]
+        return formatter
+    }()
+
+    private static let relativeFormatter: RelativeDateTimeFormatter = {
+        let formatter = RelativeDateTimeFormatter()
+        formatter.unitsStyle = .full
+        return formatter
+    }()
+
+    private func relativeTimeString(for isoString: String?) -> String? {
+        guard let isoString else { return nil }
+        let date = Self.iso8601Formatter.date(from: isoString)
+            ?? Self.iso8601FormatterNoFraction.date(from: isoString)
+        guard let date else { return nil }
+        return Self.relativeFormatter.localizedString(for: date, relativeTo: Date())
     }
 
     // MARK: - Installed Skill Detail View

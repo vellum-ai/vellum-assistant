@@ -185,6 +185,19 @@ export function readSkillVersion(id: string): string | null {
   }
 }
 
+/** Returns the ISO 8601 timestamp when the skill was installed, or null if unavailable. */
+export function readSkillInstalledAt(id: string): string | null {
+  const metaPath = getVersionMetaPath(id);
+  if (!existsSync(metaPath)) return null;
+  try {
+    const raw = readFileSync(metaPath, "utf-8");
+    const meta: SkillVersionMeta = JSON.parse(raw);
+    return meta.installedAt ?? null;
+  } catch {
+    return null;
+  }
+}
+
 // ─── Create / Delete ─────────────────────────────────────────────────────────
 
 interface CreateManagedSkillParams {

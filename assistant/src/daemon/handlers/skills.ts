@@ -35,6 +35,7 @@ import {
 import {
   createManagedSkill,
   deleteManagedSkill,
+  readSkillInstalledAt,
   removeSkillsIndexEntry,
   validateManagedSkillId,
 } from "../../skills/managed-store.js";
@@ -123,6 +124,29 @@ function resolveProvenance(summary: SkillSummary): SkillProvenance {
   }
 
   return { kind: "local" };
+}
+
+// ─── Install timestamp resolution ────────────────────────────────────────────
+
+/**
+ * Resolves the installation timestamp for a skill.
+ * For managed/clawhub skills, reads from version.json metadata.
+ * For other sources, falls back to the SKILL.md file's mtime.
+ */
+function resolveInstalledAt(summary: SkillSummary): string | undefined {
+  // Managed skills store installedAt in version.json
+  if (summary.source === "managed") {
+    const fromMeta = readSkillInstalledAt(summary.id);
+    if (fromMeta) return fromMeta;
+  }
+
+  // Fall back to the SKILL.md file's modification time
+  try {
+    const stat = statSync(summary.skillFilePath);
+    return stat.mtime.toISOString();
+  } catch {
+    return undefined;
+  }
 }
 
 // ─── Frontmatter parsing ─────────────────────────────────────────────────────
@@ -249,6 +273,7 @@ export interface SkillListItem {
   state: "enabled" | "disabled";
   updateAvailable: boolean;
   provenance: SkillProvenance;
+  installedAt?: string;
 }
 
 /** Sorting rank for provenance-based ordering: first-party first, local last. */
@@ -274,6 +299,7 @@ export function listSkills(_ctx: SkillOperationContext): SkillListItem[] {
     state: r.state,
     updateAvailable: false,
     provenance: resolveProvenance(r.summary),
+    installedAt: resolveInstalledAt(r.summary),
   }));
 
   // Sort: first-party > third-party with provider > third-party without > local,
@@ -309,6 +335,7 @@ function findSkillById(
     state: r.state,
     updateAvailable: false,
     provenance: resolveProvenance(r.summary),
+    installedAt: resolveInstalledAt(r.summary),
   };
   return { item, summary: r.summary };
 }
