@@ -4,27 +4,6 @@ A native macOS menu bar app that controls your Mac via accessibility APIs and CG
 
 ---
 
-## Table of Contents
-
-1. [iOS Target](#ios-target)
-2. [Managed Mode](#managed-mode)
-3. [Download](#download)
-4. [Requirements](#requirements)
-5. [Quick Run](#quick-run)
-6. [Build](#build)
-7. [Auto-Rebuild on Save](#auto-rebuild-on-save-watch-mode)
-8. [SwiftPM Commands](#swiftpm-commands)
-9. [Test DMG Installer](#test-dmg-installer)
-10. [Local Assistant (Daemon)](#local-assistant-daemon)
-11. [Permissions](#permissions)
-12. [Usage](#usage)
-13. [Component Gallery](#component-gallery-debug)
-14. [Architecture](#architecture)
-15. [Remote Assistant](#remote-assistant)
-16. [Safety](#safety)
-
----
-
 ## iOS Target
 
 This repository also includes a fully functional iOS app target. See [clients/ios/README.md](../ios/README.md) for build instructions, connection modes, testing, and configuration.

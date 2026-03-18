@@ -4,22 +4,6 @@
 
 ---
 
-## Table of Contents
-
-1. [What This Is](#what-this-is)
-2. [Build & Test](#build--test)
-3. [Architecture](#architecture)
-4. [Design System](#design-system-designsystem)
-5. [SwiftUI & Swift Conventions](#swiftui--swift-conventions)
-6. [Key Constraints](#key-constraints)
-7. [Permissions](#permissions)
-8. [iOS Pairing](#ios-pairing)
-9. [Keyboard Shortcuts](#keyboard-shortcuts)
-10. [macOS-Specific Guidance](#macos-specific-guidance)
-11. [Data Storage](#data-storage)
-
----
-
 ## What This Is
 
 A native macOS menu bar app that controls your Mac via accessibility APIs and CGEvent input injection, powered by large language models. It lives as a sparkles icon in the menu bar — users type a task (or hold Fn for voice), and the agent executes it step-by-step.

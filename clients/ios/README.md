@@ -6,18 +6,6 @@ After editing `project.yml`, regenerate the Xcode project by running `xcodegen g
 
 ---
 
-## Table of Contents
-
-1. [Features](#features)
-2. [Build & Test](#build--test)
-3. [Connection Modes](#connection-modes)
-4. [Running Tests](#running-tests)
-5. [Configuration Reference](#configuration-reference)
-6. [Dependencies](#dependencies)
-7. [Troubleshooting](#troubleshooting)
-
----
-
 ## Features
 
 - **Cloud login** — sign in with Vellum to connect to a platform-hosted assistant (no Mac required)

@@ -6,19 +6,6 @@ For client architecture details, see [`ARCHITECTURE.md`](ARCHITECTURE.md).
 
 ---
 
-## Table of Contents
-
-1. [Structure](#structure)
-2. [Targets](#targets)
-3. [Building](#building)
-4. [Code Reuse Strategy](#code-reuse-strategy)
-5. [Development](#development)
-6. [Known Limitations](#known-limitations)
-7. [Documentation](#documentation)
-8. [Testing](#testing)
-
----
-
 ## Structure
 
 <details>

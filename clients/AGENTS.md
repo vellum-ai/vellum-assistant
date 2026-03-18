@@ -7,26 +7,6 @@
 
 ---
 
-## Table of Contents
-
-1. [Research Protocol](#research-protocol-apple-platform-work)
-2. [SwiftUI and Apple Platform Practices](#swiftui-and-apple-platform-practices)
-3. [Performance and Resource Management](#performance-and-resource-management)
-4. [Scroll and Layout Stability](#scroll-and-layout-stability)
-5. [Native SwiftUI over Custom AppKit](#native-swiftui-over-custom-appkit)
-6. [File Organization and Splitting](#file-organization-and-splitting)
-7. [SwiftUI Type-Checker Complexity](#swiftui-type-checker-complexity)
-8. [Common SwiftUI Pitfalls](#common-swiftui-pitfalls)
-9. [Design System](#design-system-clientsshareddesignsystem)
-10. [Architecture and Shared Code](#architecture-and-shared-code)
-11. [Testing and Quality](#testing-and-quality)
-12. [Networking](#networking-use-gatewayhttpclient-for-new-http-apis)
-13. [Docs Anti-Drift](#docs-anti-drift)
-14. [Non-Apple Clients](#non-apple-clients)
-15. [Maintenance](#maintenance)
-
----
-
 ## Research Protocol (Apple Platform Work)
 - Verify decisions against current Apple sources (Developer Documentation, HIG, WWDC sessions, Swift Evolution).
 - Check deprecations and availability for targeted OS versions before adopting APIs.
