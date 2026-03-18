@@ -249,7 +249,7 @@ struct OnboardingFlowView: View {
                         .controlSize(.small)
                         .progressViewStyle(.circular)
                     Text("Setting up your assistant...")
-                        .font(.system(size: 16))
+                        .font(VFont.buttonLarge)
                         .foregroundColor(VColor.contentSecondary)
                 }
             } else {
