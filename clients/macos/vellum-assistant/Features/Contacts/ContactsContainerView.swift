@@ -254,6 +254,8 @@ struct ContactsContainerView: View {
                 )
                 .padding(VSpacing.lg)
             }
+            .frame(maxWidth: 700, alignment: .leading)
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
         .scrollContentBackground(.hidden)
         .contentMargins(0)
@@ -322,6 +324,7 @@ struct ContactsContainerView: View {
                 }
             }
             .frame(maxWidth: 700, alignment: .leading)
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
         .scrollContentBackground(.hidden)
         .scrollIndicators(.never)

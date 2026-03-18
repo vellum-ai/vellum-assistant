@@ -54,6 +54,8 @@ struct ContactDetailView: View {
                         .padding(.bottom, VSpacing.lg)
                 }
             }
+            .frame(maxWidth: 700, alignment: .leading)
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
         .scrollContentBackground(.hidden)
         .contentMargins(0)
