@@ -495,7 +495,7 @@ public struct ToolConfirmationBubble: View {
                 // since it creates a persistent rule, not a default preference.
                 if hasAllow10m || hasAllowConversation || primary != "allow_once" {
                     Section {
-                        Text("Sets default for this button (except \u{201C}Always allow\u{201D})")
+                        Text("Your selection becomes the default action (except \u{201C}Always allow\u{201D})")
                     }
                 }
             }
