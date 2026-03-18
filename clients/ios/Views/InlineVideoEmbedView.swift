@@ -191,8 +191,12 @@ private struct VideoEmbedWebView: UIViewRepresentable {
         webView.scrollView.isScrollEnabled = false
         webView.navigationDelegate = context.coordinator
         webView.uiDelegate = context.coordinator
-        webView.load(URLRequest(url: url))
+        webView.load(Self.makeRequest(url: url, provider: provider))
         return webView
+    }
+
+    static func makeRequest(url: URL, provider: String) -> URLRequest {
+        VideoEmbedRequestBuilder.buildRequest(url: url, provider: provider)
     }
 
     func updateUIView(_ uiView: WKWebView, context: Context) {

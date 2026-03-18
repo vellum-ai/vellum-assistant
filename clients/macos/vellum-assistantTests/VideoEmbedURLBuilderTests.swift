@@ -12,7 +12,7 @@ final class VideoEmbedURLBuilderTests: XCTestCase {
         XCTAssertNotNil(url)
         XCTAssertEqual(
             url?.absoluteString,
-            "https://www.youtube.com/embed/dQw4w9WgXcQ?autoplay=1&rel=0"
+            "https://www.youtube.com/embed/dQw4w9WgXcQ?autoplay=1&rel=0&playsinline=1"
         )
     }
 
@@ -23,6 +23,7 @@ final class VideoEmbedURLBuilderTests: XCTestCase {
 
         XCTAssertTrue(queryItems.contains(where: { $0.name == "autoplay" && $0.value == "1" }))
         XCTAssertTrue(queryItems.contains(where: { $0.name == "rel" && $0.value == "0" }))
+        XCTAssertTrue(queryItems.contains(where: { $0.name == "playsinline" && $0.value == "1" }))
     }
 
     // MARK: - Vimeo
@@ -77,7 +78,7 @@ final class VideoEmbedURLBuilderTests: XCTestCase {
         XCTAssertNotNil(url)
         XCTAssertEqual(
             url?.absoluteString,
-            "https://www.youtube.com/embed/testID?autoplay=1&rel=0"
+            "https://www.youtube.com/embed/testID?autoplay=1&rel=0&playsinline=1"
         )
     }
 
@@ -86,7 +87,7 @@ final class VideoEmbedURLBuilderTests: XCTestCase {
         XCTAssertNotNil(url)
         XCTAssertEqual(
             url?.absoluteString,
-            "https://www.youtube.com/embed/testID?autoplay=1&rel=0"
+            "https://www.youtube.com/embed/testID?autoplay=1&rel=0&playsinline=1"
         )
     }
 
