@@ -925,6 +925,19 @@ public final class HTTPTransport {
         }
     }
 
+    /// Clean up transport-level state after the observer has resolved a synthetic
+    /// conversation ID to the real server ID. Removes the now-stale SSE remapping
+    /// entry (events should flow through with the server ID that matches the VM),
+    /// replaces the synthetic ID in locallyOwnedConversationIds, and migrates
+    /// privateConversationIds so that the conversationType flag persists.
+    func cleanupAfterConversationIdResolution(localId: String, serverId: String) {
+        serverToLocalConversationMap.removeValue(forKey: serverId)
+        locallyOwnedConversationIds.remove(localId)
+        if privateConversationIds.remove(localId) != nil {
+            privateConversationIds.insert(serverId)
+        }
+    }
+
     private func handleServerMessage(_ message: ServerMessage) {
         if case .tokenRotated(let msg) = message {
             log.info("Received token_rotated event — updating bearer token and reconnecting SSE")

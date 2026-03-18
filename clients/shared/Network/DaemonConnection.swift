@@ -76,13 +76,7 @@ extension DaemonClient {
             guard let self else { return }
             if let resolve = self.onConversationIdResolved {
                 resolve(localId, serverId)
-                self.httpTransport?.serverToLocalConversationMap.removeValue(forKey: serverId)
-                self.httpTransport?.locallyOwnedConversationIds.remove(localId)
-                if let transport = self.httpTransport,
-                   transport.privateConversationIds.contains(localId) {
-                    transport.privateConversationIds.remove(localId)
-                    transport.privateConversationIds.insert(serverId)
-                }
+                self.httpTransport?.cleanupAfterConversationIdResolution(localId: localId, serverId: serverId)
             }
         }
 
