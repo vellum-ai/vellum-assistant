@@ -39,6 +39,7 @@ extension EnvironmentValues {
     }
 
     func updateViewport(height: CGFloat, storedViewportHeight: inout CGFloat) {
+        guard storedViewportHeight != height else { return }
         storedViewportHeight = height
         // Don't recompute visibility before the anchor position has been
         // measured — lastMinY starts at .infinity, and .infinity <= height + 20
@@ -48,6 +49,21 @@ extension EnvironmentValues {
         let newVisible = lastMinY >= -20 && lastMinY <= height + 20
         if isVisible != newVisible { isVisible = newVisible }
     }
+}
+
+/// Holds scroll-related tracking values that must persist across body
+/// evaluations but must NOT trigger SwiftUI re-renders when updated.
+/// These values serve as dead-zone guards and smoothing state — they
+/// are never read during body evaluation for rendering purposes.
+/// Pattern mirrors `AnchorVisibilityTracker.lastMinY` (not @Published).
+@MainActor final class ScrollTrackingState {
+    /// Last reported ConversationTailAnchorYKey value.
+    /// Only used for the 2pt dead-zone check in the preference handler.
+    var lastTailAnchorY: CGFloat = .infinity
+    /// Pending avatar Y position awaiting smoothing delay.
+    var pendingAvatarY: CGFloat?
+    /// Timestamp of the last applied avatar display Y update.
+    var avatarLastAppliedAt: Date?
 }
 
 struct MessageListView: View {
@@ -185,13 +201,11 @@ struct MessageListView: View {
     @State private var hasFreshAnchorMeasurement: Bool = false
     @State private var avatarTargetY: CGFloat = .infinity
     @State private var avatarDisplayY: CGFloat = .infinity
-    @State private var pendingAvatarY: CGFloat?
     @State private var avatarSmoothingTask: Task<Void, Never>?
-    @State private var avatarLastAppliedAt: Date?
     @State private var hasPlayedTailEntryAnimation = false
-    /// Last reported ConversationTailAnchorYKey value. Used to apply a 2pt
-    /// dead-zone so that sub-pixel layout jitter doesn't trigger avatar updates.
-    @State private var lastTailAnchorY: CGFloat = .infinity
+    /// Non-reactive scroll tracking state (dead-zone guards, smoothing).
+    /// Stored on a class so mutations never trigger body re-evaluations.
+    @State private var scrollTracking = ScrollTrackingState()
 
     /// The subset of messages actually shown, honoring the pagination window.
     private var visibleMessages: [ChatMessage] {
@@ -371,8 +385,8 @@ struct MessageListView: View {
         guard anchorY.isFinite else {
             avatarSmoothingTask?.cancel()
             avatarSmoothingTask = nil
-            pendingAvatarY = nil
-            avatarLastAppliedAt = nil
+            scrollTracking.pendingAvatarY = nil
+            scrollTracking.avatarLastAppliedAt = nil
             if avatarDisplayY != .infinity { avatarDisplayY = .infinity }
             return
         }
@@ -386,7 +400,7 @@ struct MessageListView: View {
         guard nowVisible else {
             avatarSmoothingTask?.cancel()
             avatarSmoothingTask = nil
-            pendingAvatarY = nil
+            scrollTracking.pendingAvatarY = nil
             return
         }
 
@@ -395,20 +409,20 @@ struct MessageListView: View {
             isSending: isSending,
             isThinking: isThinking,
             isLastMessageStreaming: isLastMessageStreaming,
-            lastAppliedAt: avatarLastAppliedAt,
+            lastAppliedAt: scrollTracking.avatarLastAppliedAt,
             now: now
         )
 
         if delay <= 0 {
             avatarSmoothingTask?.cancel()
             avatarSmoothingTask = nil
-            pendingAvatarY = nil
-            avatarLastAppliedAt = now
+            scrollTracking.pendingAvatarY = nil
+            scrollTracking.avatarLastAppliedAt = now
             applyAvatarDisplayY(forAnchorY: anchorY)
             return
         }
 
-        pendingAvatarY = anchorY
+        scrollTracking.pendingAvatarY = anchorY
         guard avatarSmoothingTask == nil else { return }
 
         avatarSmoothingTask = Task { @MainActor in
@@ -418,13 +432,13 @@ struct MessageListView: View {
                 return
             }
             guard !Task.isCancelled else { return }
-            guard let pendingAvatarY else {
+            guard let pending = scrollTracking.pendingAvatarY else {
                 avatarSmoothingTask = nil
                 return
             }
-            self.pendingAvatarY = nil
-            avatarLastAppliedAt = Date()
-            applyAvatarDisplayY(forAnchorY: pendingAvatarY)
+            scrollTracking.pendingAvatarY = nil
+            scrollTracking.avatarLastAppliedAt = Date()
+            applyAvatarDisplayY(forAnchorY: pending)
             avatarSmoothingTask = nil
         }
     }
@@ -510,9 +524,9 @@ struct MessageListView: View {
         avatarSmoothingTask = nil
         avatarTargetY = .infinity
         avatarDisplayY = .infinity
-        pendingAvatarY = nil
-        avatarLastAppliedAt = nil
-        lastTailAnchorY = .infinity
+        scrollTracking.pendingAvatarY = nil
+        scrollTracking.avatarLastAppliedAt = nil
+        scrollTracking.lastTailAnchorY = .infinity
 
         scrollRestoreTask = Task { @MainActor in
             guard !Task.isCancelled else { return }
@@ -851,8 +865,8 @@ struct MessageListView: View {
             .onPreferenceChange(ConversationTailAnchorYKey.self) { anchorY in
                 // 2pt dead-zone: skip update when value hasn't meaningfully changed,
                 // reducing layout invalidation cascades during rapid scroll.
-                guard abs(anchorY - lastTailAnchorY) > 2 else { return }
-                lastTailAnchorY = anchorY
+                guard abs(anchorY - scrollTracking.lastTailAnchorY) > 2 else { return }
+                scrollTracking.lastTailAnchorY = anchorY
                 updateAvatarFollower(anchorY: anchorY)
             }
             .transaction { $0.disablesAnimations = true }
@@ -965,7 +979,7 @@ struct MessageListView: View {
             }
             .onChange(of: shouldCoalesceAvatarUpdates) {
                 if !shouldCoalesceAvatarUpdates {
-                    updateAvatarFollower(anchorY: pendingAvatarY ?? avatarTargetY)
+                    updateAvatarFollower(anchorY: scrollTracking.pendingAvatarY ?? avatarTargetY)
                 }
             }
             .onChange(of: streamingScrollTrigger) {
@@ -1128,8 +1142,8 @@ struct MessageListView: View {
                 }
                 isConversationContentHovered = false
                 hasPlayedTailEntryAnimation = false
-                // Avatar state (avatarTargetY, avatarDisplayY, pendingAvatarY,
-                // avatarLastAppliedAt, lastTailAnchorY) is reset inside
+                // Avatar state (avatarTargetY, avatarDisplayY, scrollTracking)
+                // is reset inside
                 // restoreScrollToBottom so the reset is shared with onAppear.
                 restoreScrollToBottom(proxy: proxy)
             }
