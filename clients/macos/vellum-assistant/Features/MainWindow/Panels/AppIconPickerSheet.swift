@@ -24,7 +24,7 @@ struct AppIconPickerSheet: View {
     private let iconColumns = Array(repeating: GridItem(.flexible(), spacing: VSpacing.sm), count: 6)
 
     var body: some View {
-        VModal(title: "Change Icon", titleFont: VFont.headline, onClose: { dismiss() }) {
+        VModal(title: "Change Icon") {
             VStack(spacing: VSpacing.xl) {
                 // Live preview
                 VStack(spacing: VSpacing.sm) {
@@ -89,22 +89,14 @@ struct AppIconPickerSheet: View {
             }
         } footer: {
             HStack {
-                Button("Cancel") {
+                Spacer()
+                VButton(label: "Cancel", style: .outlined) {
                     dismiss()
                 }
-                .buttonStyle(.plain)
-                .foregroundColor(VColor.contentSecondary)
-                .font(VFont.body)
-
-                Spacer()
-
-                Button("Save") {
+                VButton(label: "Save", style: .primary) {
                     onSave(selectedIcon)
                     dismiss()
                 }
-                .buttonStyle(.plain)
-                .foregroundColor(VColor.primaryBase)
-                .font(VFont.bodyBold)
             }
         }
         .frame(width: 320)

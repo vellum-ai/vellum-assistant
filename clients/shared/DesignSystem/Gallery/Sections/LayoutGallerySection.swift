@@ -11,32 +11,45 @@ struct LayoutGallerySection: View {
             // MARK: - VModal
             GallerySectionHeader(
                 title: "VModal",
-                description: "Standardized modal container with header, scrollable content, and optional footer."
+                description: "Standardized modal container with title, optional subtitle, scrollable content, and optional footer."
             )
 
             VCard(padding: 0) {
-                VModal(title: "Example Modal", titleIcon: .sparkles, onClose: {}) {
-                    VStack(alignment: .leading, spacing: VSpacing.md) {
-                        Text("Modal content goes here")
-                            .font(VFont.body)
-                            .foregroundColor(VColor.contentDefault)
-                        Text("This modal has a standard header with icon, title, and close button, plus a footer with actions.")
-                            .font(VFont.caption)
-                            .foregroundColor(VColor.contentSecondary)
+                VModal(title: "Set PIN", subtitle: "This is a subtitle.") {
+                    VStack(alignment: .leading, spacing: VSpacing.lg) {
+                        VStack(alignment: .leading, spacing: VSpacing.xs) {
+                            Text("Tool Name")
+                                .font(VFont.caption)
+                                .foregroundColor(VColor.contentTertiary)
+                            Text("Select a Tool")
+                                .font(VFont.body)
+                                .foregroundColor(VColor.contentSecondary)
+                                .padding(VSpacing.sm)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .background(VColor.surfaceActive)
+                                .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
+                        }
+                        VStack(alignment: .leading, spacing: VSpacing.xs) {
+                            Text("Tool Name")
+                                .font(VFont.caption)
+                                .foregroundColor(VColor.contentTertiary)
+                            Text("Select a Tool")
+                                .font(VFont.body)
+                                .foregroundColor(VColor.contentSecondary)
+                                .padding(VSpacing.sm)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .background(VColor.surfaceActive)
+                                .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
+                        }
                     }
                 } footer: {
                     HStack {
-                        Button {} label: {
-                            Text("Cancel")
-                                .font(VFont.bodyMedium)
-                                .foregroundColor(VColor.contentSecondary)
-                        }
-                        .buttonStyle(.plain)
                         Spacer()
+                        VButton(label: "Cancel", style: .outlined) {}
                         VButton(label: "Confirm", style: .primary) {}
                     }
                 }
-                .frame(width: 360, height: 220)
+                .frame(width: 360, height: 320)
             }
 
             Divider().background(VColor.borderBase).padding(.vertical, VSpacing.md)

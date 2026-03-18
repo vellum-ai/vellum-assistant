@@ -32,29 +32,7 @@ struct MemoryItemDetailSheet: View {
     }
 
     var body: some View {
-        VModal(title: displayItem.subject, titleFont: VFont.cardTitle, onClose: onDismiss, headerActions: {
-            if !isEditing {
-                HStack(spacing: VSpacing.xs) {
-                    VButton(
-                        label: "Edit",
-                        iconOnly: VIcon.pencil.rawValue,
-                        style: .ghost,
-                        tooltip: "Edit memory"
-                    ) {
-                        isEditing = true
-                    }
-
-                    VButton(
-                        label: "Delete",
-                        iconOnly: VIcon.trash.rawValue,
-                        style: .dangerGhost,
-                        tooltip: "Delete memory"
-                    ) {
-                        showDeleteConfirm = true
-                    }
-                }
-            }
-        }) {
+        VModal(title: displayItem.subject) {
             VStack(alignment: .leading, spacing: VSpacing.xl) {
                 if isEditing {
                     editModeContent
@@ -74,8 +52,9 @@ struct MemoryItemDetailSheet: View {
             }
         } footer: {
             HStack {
+                Spacer()
                 if isEditing {
-                    Button {
+                    VButton(label: "Cancel", style: .outlined) {
                         isEditing = false
                         errorMessage = nil
                         editSubject = item.subject
@@ -83,15 +62,7 @@ struct MemoryItemDetailSheet: View {
                         editKind = item.kind
                         editStatus = item.status
                         editImportance = item.importance ?? 0.5
-                    } label: {
-                        Text("Cancel")
-                            .font(VFont.bodyMedium)
-                            .foregroundColor(VColor.contentSecondary)
                     }
-                    .buttonStyle(.plain)
-
-                    Spacer()
-
                     VButton(
                         label: isSaving ? "Saving..." : "Save",
                         style: .primary,
@@ -100,7 +71,20 @@ struct MemoryItemDetailSheet: View {
                         save()
                     }
                 } else {
-                    Spacer()
+                    VButton(
+                        label: "Delete",
+                        leftIcon: VIcon.trash.rawValue,
+                        style: .dangerOutline
+                    ) {
+                        showDeleteConfirm = true
+                    }
+                    VButton(
+                        label: "Edit",
+                        leftIcon: VIcon.pencil.rawValue,
+                        style: .primary
+                    ) {
+                        isEditing = true
+                    }
                 }
             }
         }

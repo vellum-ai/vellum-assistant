@@ -1,66 +1,51 @@
 import SwiftUI
 
-/// Standardized modal container providing consistent chrome: header with title
-/// and close button, scrollable content area, and an optional footer separated
-/// by dividers. Modeled after `VSidePanel` for panels.
-public struct VModal<HeaderActions: View, Content: View, Footer: View>: View {
+/// Standardized modal container providing consistent chrome: title, optional
+/// subtitle, scrollable content area, and an optional footer. Follows the
+/// Figma modal specification — no dividers, no close button, no header bar.
+public struct VModal<Content: View, Footer: View>: View {
     public let title: String
-    public let titleIcon: VIcon?
-    public let titleFont: Font
-    public let onClose: () -> Void
-    @ViewBuilder public let headerActions: () -> HeaderActions
+    public let subtitle: String?
     @ViewBuilder public let content: () -> Content
     @ViewBuilder public let footer: () -> Footer
 
     public init(
         title: String,
-        titleIcon: VIcon? = nil,
-        titleFont: Font = VFont.display,
-        onClose: @escaping () -> Void,
-        @ViewBuilder headerActions: @escaping () -> HeaderActions,
+        subtitle: String? = nil,
         @ViewBuilder content: @escaping () -> Content,
         @ViewBuilder footer: @escaping () -> Footer
     ) {
         self.title = title
-        self.titleIcon = titleIcon
-        self.titleFont = titleFont
-        self.onClose = onClose
-        self.headerActions = headerActions
+        self.subtitle = subtitle
         self.content = content
         self.footer = footer
     }
 
     public var body: some View {
-        VStack(spacing: 0) {
-            // Header
-            HStack(spacing: VSpacing.sm) {
-                if let titleIcon {
-                    VIconView(titleIcon, size: 14)
-                        .foregroundColor(VColor.primaryBase)
-                }
+        VStack(alignment: .leading, spacing: 0) {
+            // Title area
+            VStack(alignment: .leading, spacing: VSpacing.xs) {
                 Text(title)
-                    .font(titleFont)
+                    .font(VFont.display)
                     .foregroundColor(VColor.contentDefault)
-                    .lineLimit(1)
-                Spacer()
-                headerActions()
-                VButton(label: "Close", iconOnly: VIcon.x.rawValue, style: .ghost, action: onClose)
+                if let subtitle {
+                    Text(subtitle)
+                        .font(VFont.body)
+                        .foregroundColor(VColor.contentSecondary)
+                }
             }
             .padding(.horizontal, VSpacing.xl)
-            .padding(.vertical, VSpacing.lg)
-
-            Divider().background(VColor.borderBase)
+            .padding(.top, VSpacing.xl)
+            .padding(.bottom, VSpacing.lg)
 
             // Scrollable content
             ScrollView {
                 content()
-                    .padding(VSpacing.xl)
+                    .padding(.horizontal, VSpacing.xl)
                     .frame(maxWidth: .infinity, alignment: .top)
             }
 
             if Footer.self != EmptyView.self {
-                Divider().background(VColor.borderBase)
-
                 // Footer
                 footer()
                     .padding(.horizontal, VSpacing.xl)
@@ -76,44 +61,14 @@ public struct VModal<HeaderActions: View, Content: View, Footer: View>: View {
     }
 }
 
-// Convenience: no header actions, no footer.
-public extension VModal where HeaderActions == EmptyView, Footer == EmptyView {
-    init(
-        title: String,
-        titleIcon: VIcon? = nil,
-        titleFont: Font = VFont.display,
-        onClose: @escaping () -> Void,
-        @ViewBuilder content: @escaping () -> Content
-    ) {
-        self.init(title: title, titleIcon: titleIcon, titleFont: titleFont, onClose: onClose, headerActions: { EmptyView() }, content: content, footer: { EmptyView() })
-    }
-}
-
-// Convenience: no header actions, with footer.
-public extension VModal where HeaderActions == EmptyView {
-    init(
-        title: String,
-        titleIcon: VIcon? = nil,
-        titleFont: Font = VFont.display,
-        onClose: @escaping () -> Void,
-        @ViewBuilder content: @escaping () -> Content,
-        @ViewBuilder footer: @escaping () -> Footer
-    ) {
-        self.init(title: title, titleIcon: titleIcon, titleFont: titleFont, onClose: onClose, headerActions: { EmptyView() }, content: content, footer: footer)
-    }
-}
-
-// Convenience: with header actions, no footer.
+// Convenience: no footer.
 public extension VModal where Footer == EmptyView {
     init(
         title: String,
-        titleIcon: VIcon? = nil,
-        titleFont: Font = VFont.display,
-        onClose: @escaping () -> Void,
-        @ViewBuilder headerActions: @escaping () -> HeaderActions,
+        subtitle: String? = nil,
         @ViewBuilder content: @escaping () -> Content
     ) {
-        self.init(title: title, titleIcon: titleIcon, titleFont: titleFont, onClose: onClose, headerActions: headerActions, content: content, footer: { EmptyView() })
+        self.init(title: title, subtitle: subtitle, content: content, footer: { EmptyView() })
     }
 }
 
@@ -121,29 +76,41 @@ public extension VModal where Footer == EmptyView {
 
 private struct VModalPreviewWrapper: View {
     var body: some View {
-        VModal(title: "Example Modal", titleIcon: .sparkles, onClose: {}) {
-            VStack(alignment: .leading, spacing: VSpacing.md) {
-                Text("Modal content goes here")
-                    .font(VFont.body)
-                    .foregroundColor(VColor.contentDefault)
-                Text("This modal has a standard header with icon, title, and close button.")
-                    .font(VFont.caption)
-                    .foregroundColor(VColor.contentSecondary)
+        VModal(title: "Set PIN", subtitle: "This is a subtitle.") {
+            VStack(alignment: .leading, spacing: VSpacing.lg) {
+                VStack(alignment: .leading, spacing: VSpacing.xs) {
+                    Text("Tool Name")
+                        .font(VFont.caption)
+                        .foregroundColor(VColor.contentTertiary)
+                    Text("Select a Tool")
+                        .font(VFont.body)
+                        .foregroundColor(VColor.contentSecondary)
+                        .padding(VSpacing.sm)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .background(VColor.surfaceActive)
+                        .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
+                }
+                VStack(alignment: .leading, spacing: VSpacing.xs) {
+                    Text("Tool Name")
+                        .font(VFont.caption)
+                        .foregroundColor(VColor.contentTertiary)
+                    Text("Select a Tool")
+                        .font(VFont.body)
+                        .foregroundColor(VColor.contentSecondary)
+                        .padding(VSpacing.sm)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .background(VColor.surfaceActive)
+                        .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
+                }
             }
         } footer: {
             HStack {
-                Button {
-                } label: {
-                    Text("Cancel")
-                        .font(VFont.bodyMedium)
-                        .foregroundColor(VColor.contentSecondary)
-                }
-                .buttonStyle(.plain)
                 Spacer()
+                VButton(label: "Cancel", style: .outlined) {}
                 VButton(label: "Confirm", style: .primary) {}
             }
         }
-        .frame(width: 400, height: 300)
+        .frame(width: 400, height: 320)
     }
 }
 

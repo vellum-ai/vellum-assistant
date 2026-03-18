@@ -48,7 +48,7 @@ struct PairingQRCodeSheet: View {
     }
 
     var body: some View {
-        VModal(title: "Pair iOS Device", titleFont: VFont.sectionTitle, onClose: { dismiss() }) {
+        VModal(title: "Pair iOS Device") {
             VStack(spacing: VSpacing.lg) {
                 if daemonClient == nil {
                     errorContent("Cannot generate QR code \u{2014} assistant not connected. Please wait for the assistant to start and try again.")
@@ -118,6 +118,13 @@ struct PairingQRCodeSheet: View {
                         startRefreshTimer()
                     }
                     .buttonStyle(.bordered)
+                }
+            }
+        } footer: {
+            HStack {
+                Spacer()
+                VButton(label: "Done", style: .outlined) {
+                    dismiss()
                 }
             }
         }

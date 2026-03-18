@@ -13,7 +13,7 @@ struct MemoryItemCreateSheet: View {
     @State private var errorMessage: String?
 
     var body: some View {
-        VModal(title: "New Memory", titleIcon: .plus, onClose: onDismiss) {
+        VModal(title: "New Memory") {
             VStack(alignment: .leading, spacing: VSpacing.lg) {
                 // Kind picker
                 VStack(alignment: .leading, spacing: VSpacing.xs) {
@@ -90,17 +90,10 @@ struct MemoryItemCreateSheet: View {
             }
         } footer: {
             HStack {
-                Button {
-                    onDismiss()
-                } label: {
-                    Text("Cancel")
-                        .font(VFont.bodyMedium)
-                        .foregroundColor(VColor.contentSecondary)
-                }
-                .buttonStyle(.plain)
-
                 Spacer()
-
+                VButton(label: "Cancel", style: .outlined) {
+                    onDismiss()
+                }
                 VButton(
                     label: isCreating ? "Creating..." : "Create",
                     leftIcon: isCreating ? nil : VIcon.plus.rawValue,
