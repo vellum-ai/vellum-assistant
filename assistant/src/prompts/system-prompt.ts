@@ -1,4 +1,4 @@
-import { copyFileSync, existsSync, readFileSync, unlinkSync } from "node:fs";
+import { copyFileSync, existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { isAssistantFeatureFlagEnabled } from "../config/assistant-feature-flags.js";
@@ -6,6 +6,7 @@ import { getBaseDataDir, getIsContainerized } from "../config/env-registry.js";
 import { getConfig } from "../config/loader.js";
 import { skillFlagKey } from "../config/skill-state.js";
 import { loadSkillCatalog, type SkillSummary } from "../config/skills.js";
+import { countConversations } from "../memory/conversation-queries.js";
 import { listConnections } from "../oauth/oauth-store.js";
 import { resolveBundledDir } from "../util/bundled-asset.js";
 import { getLogger } from "../util/logger.js";
@@ -143,7 +144,21 @@ export function buildSystemPrompt(options?: BuildSystemPromptOptions): string {
   const bootstrap = readPromptFile(bootstrapPath);
   const updates = readPromptFile(updatesPath);
 
-  const includeBootstrap = !!bootstrap && !options?.excludeBootstrap;
+  // Only include BOOTSTRAP.md when there are zero existing conversations
+  // (truly first-time user).  Once the user has any conversation history,
+  // bootstrap is suppressed so it doesn't re-trigger on new threads — even
+  // if the user skipped or ignored onboarding.
+  let includeBootstrap = !!bootstrap && !options?.excludeBootstrap;
+  if (includeBootstrap) {
+    try {
+      if (countConversations() > 0) {
+        includeBootstrap = false;
+      }
+    } catch {
+      // DB not ready yet (e.g. during early startup) — fall back to
+      // including bootstrap if the file exists.
+    }
+  }
 
   // Template prompt files contain placeholder fields and meta-instructions
   // meant for the assistant to fill in during onboarding.  When included
@@ -166,16 +181,6 @@ export function buildSystemPrompt(options?: BuildSystemPromptOptions): string {
         "BOOTSTRAP.md is present — this is your first conversation. Follow its instructions.\n\n" +
         bootstrap,
     );
-
-    // Auto-delete BOOTSTRAP.md after inclusion so the onboarding ritual
-    // only fires for the very first conversation.  Without this, every new
-    // thread would re-trigger the "Who am I? Who are you?" intro.
-    try {
-      unlinkSync(bootstrapPath);
-      log.info("Deleted BOOTSTRAP.md after first-run inclusion");
-    } catch (err) {
-      log.warn({ err }, "Failed to delete BOOTSTRAP.md after inclusion");
-    }
   }
   if (updates) {
     dynamicParts.push(
