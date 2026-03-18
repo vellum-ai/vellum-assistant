@@ -2388,25 +2388,23 @@ public final class ChatViewModel: ObservableObject {
             errorText = "Failed to send confirmation response."
             return
         }
-        Task {
-            let success = await interactionClient.sendConfirmationResponse(
-                requestId: requestId, decision: decision, selectedPattern: nil, selectedScope: nil
-            )
-            guard success else {
-                self.errorText = "Failed to send confirmation response."
-                return
-            }
-            if let index = self.messages.firstIndex(where: { $0.confirmation?.requestId == requestId }) {
-                let isApproval = decision == "allow" || decision == "allow_10m" || decision == "allow_conversation"
-                self.messages[index].confirmation?.state = isApproval ? .approved : .denied
-                if isApproval {
-                    self.messages[index].confirmation?.approvedDecision = decision
-                }
-            }
-            self.clearPendingConfirmation(requestId: requestId)
-            self.onInlineConfirmationResponse?(requestId, decision)
-            self.inlineResponseHandledRequestIds.insert(requestId)
+        do {
+            try daemonClient.send(ConfirmationResponseMessage(requestId: requestId, decision: decision, selectedPattern: nil, selectedScope: nil))
+        } catch {
+            log.error("Failed to send confirmation response: \(error.localizedDescription)")
+            errorText = "Failed to send confirmation response."
+            return
         }
+        if let index = messages.firstIndex(where: { $0.confirmation?.requestId == requestId }) {
+            let isApproval = decision == "allow" || decision == "allow_10m" || decision == "allow_conversation"
+            messages[index].confirmation?.state = isApproval ? .approved : .denied
+            if isApproval {
+                messages[index].confirmation?.approvedDecision = decision
+            }
+        }
+        clearPendingConfirmation(requestId: requestId)
+        onInlineConfirmationResponse?(requestId, decision)
+        inlineResponseHandledRequestIds.insert(requestId)
     }
 
     /// Respond to a tool confirmation with "always_allow", sending the selected pattern and scope
@@ -2420,23 +2418,24 @@ public final class ChatViewModel: ObservableObject {
             errorText = "Cannot send confirmation — assistant is not connected."
             return
         }
-        Task {
-            let success = await interactionClient.sendConfirmationResponse(
-                requestId: requestId, decision: decision, selectedPattern: selectedPattern, selectedScope: selectedScope
-            )
-            guard success else {
-                log.warning("Always-allow send failed, trying one-time allow fallback")
-                self.respondToConfirmation(requestId: requestId, decision: "allow")
-                return
+        do {
+            try daemonClient.send(ConfirmationResponseMessage(requestId: requestId, decision: decision, selectedPattern: selectedPattern, selectedScope: selectedScope))
+        } catch {
+            log.warning("Always-allow send failed: \(error.localizedDescription)")
+            respondToConfirmation(requestId: requestId, decision: "allow")
+            if let index = messages.firstIndex(where: { $0.confirmation?.requestId == requestId }),
+               messages[index].confirmation?.state == .approved {
+                errorText = "Preference could not be saved. This action was allowed once."
             }
-            if let index = self.messages.firstIndex(where: { $0.confirmation?.requestId == requestId }) {
-                self.messages[index].confirmation?.state = .approved
-                self.messages[index].confirmation?.approvedDecision = decision
-            }
-            self.clearPendingConfirmation(requestId: requestId)
-            self.onInlineConfirmationResponse?(requestId, "allow")
-            self.inlineResponseHandledRequestIds.insert(requestId)
+            return
         }
+        if let index = messages.firstIndex(where: { $0.confirmation?.requestId == requestId }) {
+            messages[index].confirmation?.state = .approved
+            messages[index].confirmation?.approvedDecision = decision
+        }
+        clearPendingConfirmation(requestId: requestId)
+        onInlineConfirmationResponse?(requestId, "allow")
+        inlineResponseHandledRequestIds.insert(requestId)
     }
 
     /// Update the inline confirmation message state without sending a response to the daemon.

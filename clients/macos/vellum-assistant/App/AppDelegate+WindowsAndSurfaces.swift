@@ -204,14 +204,15 @@ extension AppDelegate {
         daemonClient.onSecretRequest = { [weak self] msg in
             self?.secretPromptManager.showPrompt(msg)
         }
-        secretPromptManager.onResponse = { requestId, value, delivery in
-            Task {
-                let success = await InteractionClient().sendSecretResponse(requestId: requestId, value: value, delivery: delivery)
-                if !success {
-                    log.error("sendSecretResponse failed for request \(requestId)")
-                }
+        secretPromptManager.onResponse = { [weak self] requestId, value, delivery in
+            guard let self else { return false }
+            do {
+                try self.daemonClient.sendSecretResponse(requestId: requestId, value: value, delivery: delivery)
+                return true
+            } catch {
+                log.error("Failed to send secret response: \(error.localizedDescription)")
+                return false
             }
-            return true
         }
     }
 }

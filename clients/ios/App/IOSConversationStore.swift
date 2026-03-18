@@ -378,6 +378,7 @@ class IOSConversationStore: ObservableObject {
         Task { [weak self] in
             guard let self else { return }
             if let response = await ConversationListClient().fetchConversationList(offset: 0, limit: Self.conversationPageSize) {
+                guard self.conversationListGeneration == currentGeneration else { return }
                 self.expectedConversationListGeneration = currentGeneration
                 self.handleConversationListResponse(response)
             }
@@ -990,14 +991,7 @@ class IOSConversationStore: ObservableObject {
         Task { @MainActor [weak self] in
             guard let self else { return }
             do {
-                try await ConversationListClient().sendConversationUnread(
-                    conversationId: conversationId,
-                    sourceChannel: signal.sourceChannel,
-                    signalType: signal.signalType,
-                    confidence: signal.confidence,
-                    source: signal.source,
-                    evidenceText: signal.evidenceText
-                )
+                try await self.daemonClient.sendConversationUnread(signal)
             } catch {
                 self.rollbackUnreadMutationIfNeeded(
                     conversationLocalId: conversation.id,
