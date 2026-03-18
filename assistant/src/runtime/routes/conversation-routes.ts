@@ -108,6 +108,7 @@ async function tryConsumeCanonicalGuardianReply(params: {
     filename: string;
     mimeType: string;
     data: string;
+    filePath?: string;
   }>;
   conversation: import("../../daemon/conversation.js").Conversation;
   onEvent: (msg: ServerMessage) => void;
@@ -185,13 +186,10 @@ async function tryConsumeCanonicalGuardianReply(params: {
   let messageId: string | undefined;
   try {
     const guardianImageSourcePaths: Record<string, string> = {};
-    for (const a of attachments) {
-      const filePath = (a as Record<string, unknown>).filePath;
-      if (
-        typeof filePath === "string" &&
-        a.mimeType.toLowerCase().startsWith("image/")
-      ) {
-        guardianImageSourcePaths[a.filename] = filePath;
+    for (let i = 0; i < attachments.length; i++) {
+      const a = attachments[i];
+      if (a.filePath && a.mimeType.toLowerCase().startsWith("image/")) {
+        guardianImageSourcePaths[`${i}:${a.filename}`] = a.filePath;
       }
     }
     const channelMeta = {

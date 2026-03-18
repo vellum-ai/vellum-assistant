@@ -310,9 +310,10 @@ export async function drainQueue(
         conversation.trustContext,
       );
       const drainImageSourcePaths: Record<string, string> = {};
-      for (const a of next.attachments) {
+      for (let i = 0; i < next.attachments.length; i++) {
+        const a = next.attachments[i];
         if (a.filePath && a.mimeType.toLowerCase().startsWith("image/")) {
-          drainImageSourcePaths[a.filename] = a.filePath;
+          drainImageSourcePaths[`${i}:${a.filename}`] = a.filePath;
         }
       }
       const drainChannelMeta = {
@@ -617,9 +618,10 @@ export async function processMessage(
     if (routerResult.consumed) {
       const guardianIfCtx = conversation.getTurnInterfaceContext();
       const guardianImageSourcePaths: Record<string, string> = {};
-      for (const a of attachments) {
+      for (let i = 0; i < attachments.length; i++) {
+        const a = attachments[i];
         if (a.filePath && a.mimeType.toLowerCase().startsWith("image/")) {
-          guardianImageSourcePaths[a.filename] = a.filePath;
+          guardianImageSourcePaths[`${i}:${a.filename}`] = a.filePath;
         }
       }
       const routerChannelMeta = {
@@ -694,9 +696,10 @@ export async function processMessage(
     const pmInterfaceCtx = conversation.getTurnInterfaceContext();
     const pmProvenance = provenanceFromTrustContext(conversation.trustContext);
     const pmImageSourcePaths: Record<string, string> = {};
-    for (const a of attachments) {
+    for (let i = 0; i < attachments.length; i++) {
+      const a = attachments[i];
       if (a.filePath && a.mimeType.toLowerCase().startsWith("image/")) {
-        pmImageSourcePaths[a.filename] = a.filePath;
+        pmImageSourcePaths[`${i}:${a.filename}`] = a.filePath;
       }
     }
     const pmChannelMeta = {
