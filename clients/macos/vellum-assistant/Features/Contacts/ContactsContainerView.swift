@@ -247,6 +247,8 @@ struct ContactsContainerView: View {
                 .padding(VSpacing.lg)
             }
         }
+        .scrollContentBackground(.hidden)
+        .contentMargins(0)
         .id(contact.id)
         .onAppear {
             guardianEditedName = contact.displayName
@@ -311,6 +313,8 @@ struct ContactsContainerView: View {
                 }
             }
         }
+        .scrollContentBackground(.hidden)
+        .contentMargins(0)
         .task {
             cachedAssistantName = AssistantDisplayName.firstUserFacing(from: [IdentityInfo.load()?.name]) ?? AssistantDisplayName.placeholder
         }

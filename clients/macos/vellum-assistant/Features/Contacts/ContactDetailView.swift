@@ -49,6 +49,8 @@ struct ContactDetailView: View {
                 }
             }
         }
+        .scrollContentBackground(.hidden)
+        .contentMargins(0)
         .confirmationDialog(
             "Delete \(displayContact.displayName)?",
             isPresented: $showDeleteConfirmation,
