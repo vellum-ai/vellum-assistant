@@ -181,6 +181,11 @@ public final class HTTPTransport {
     /// Clients should persist the new token (e.g. to Keychain).
     var onTokenRefreshed: ((String) -> Void)?
 
+    /// Called when the server-assigned conversation ID differs from the
+    /// client-local ID. Observers should replace the local ID so that
+    /// subsequent API calls use the ID the daemon recognises.
+    var onConversationIdResolved: ((_ localId: String, _ serverId: String) -> Void)?
+
     /// Maps the daemon's server-side conversationId → client-local conversationId.
     /// Used to remap conversationId in incoming SSE events so ChatViewModel's
     /// belongsToConversation() filter passes. Supports multiple concurrent conversations.
@@ -920,6 +925,19 @@ public final class HTTPTransport {
         }
     }
 
+    /// Clean up transport-level state after the observer has resolved a synthetic
+    /// conversation ID to the real server ID. Removes the now-stale SSE remapping
+    /// entry (events should flow through with the server ID that matches the VM),
+    /// replaces the synthetic ID in locallyOwnedConversationIds, and migrates
+    /// privateConversationIds so that the conversationType flag persists.
+    func cleanupAfterConversationIdResolution(localId: String, serverId: String) {
+        serverToLocalConversationMap.removeValue(forKey: serverId)
+        locallyOwnedConversationIds.remove(localId)
+        if privateConversationIds.remove(localId) != nil {
+            privateConversationIds.insert(serverId)
+        }
+    }
+
     private func handleServerMessage(_ message: ServerMessage) {
         if case .tokenRotated(let msg) = message {
             log.info("Received token_rotated event — updating bearer token and reconnecting SSE")
@@ -1074,6 +1092,9 @@ public final class HTTPTransport {
                    let serverConvId = json["conversationId"] as? String,
                    serverConvId != conversationId {
                     self.serverToLocalConversationMap[serverConvId] = conversationId
+                    self.locallyOwnedConversationIds.insert(serverConvId)
+                    self.onConversationIdResolved?(conversationId, serverConvId)
+
                     // Evict arbitrary entries when over cap to prevent unbounded growth.
                     // Lost mappings are benign — unmapped events are filtered by belongsToConversation.
                     while self.serverToLocalConversationMap.count > self.serverToLocalConversationMapCap {
@@ -1081,7 +1102,8 @@ public final class HTTPTransport {
                             self.serverToLocalConversationMap.removeValue(forKey: key)
                         }
                     }
-                    log.info("Mapped server conversation \(serverConvId, privacy: .public) → local conversation \(conversationId, privacy: .public)")
+
+                    log.info("Mapped conversation \(conversationId, privacy: .public) → server ID \(serverConvId, privacy: .public)")
                 }
             } else if http.statusCode == 401 && !isRetry {
                 let refreshResult = await handleAuthenticationFailureAsync(responseData: data)
