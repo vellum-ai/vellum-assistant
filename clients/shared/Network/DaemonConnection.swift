@@ -78,6 +78,11 @@ extension DaemonClient {
                 resolve(localId, serverId)
                 self.httpTransport?.serverToLocalConversationMap.removeValue(forKey: serverId)
                 self.httpTransport?.locallyOwnedConversationIds.remove(localId)
+                if let transport = self.httpTransport,
+                   transport.privateConversationIds.contains(localId) {
+                    transport.privateConversationIds.remove(localId)
+                    transport.privateConversationIds.insert(serverId)
+                }
             }
         }
 
