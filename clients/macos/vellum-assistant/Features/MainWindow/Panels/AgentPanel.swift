@@ -13,7 +13,7 @@ struct AgentPanelContent: View {
     @StateObject private var skillsManager: SkillsManager
     @State private var selectedInstalledSkillId: String?
     @State private var skillToDelete: SkillInfo?
-    @State private var selectedCategory: SkillCategory?
+    @State private var selectedCategories: Set<SkillCategory> = []
     @State private var globalSkillSearchQuery = ""
     @State private var expandedFilePath: String?
     @State private var skillFileViewMode: FileViewMode = .source
@@ -53,7 +53,7 @@ struct AgentPanelContent: View {
         .onChange(of: globalSkillSearchQuery) {
             // Clear stale selections when search filters them out
             if let selectedId = selectedInstalledSkillId,
-               !filteredUserSkills.contains(where: { $0.id == selectedId }) {
+               !categoryFilteredSkills.contains(where: { $0.id == selectedId }) {
                 selectedInstalledSkillId = nil
             }
         }
@@ -90,10 +90,12 @@ struct AgentPanelContent: View {
         }
     }
 
-    /// Installed skills further filtered by the selected category.
+    /// Installed skills further filtered by the selected categories.
     private var categoryFilteredSkills: [SkillInfo] {
-        guard let category = selectedCategory else { return filteredUserSkills }
-        return filteredUserSkills.filter { inferCategory($0) == category }
+        guard !selectedCategories.isEmpty else { return filteredUserSkills }
+        return filteredUserSkills.filter { skill in
+            selectedCategories.contains(inferCategory(skill))
+        }
     }
 
     /// Count of installed skills per category (based on search-filtered list).
@@ -101,32 +103,65 @@ struct AgentPanelContent: View {
         filteredUserSkills.filter { inferCategory($0) == category }.count
     }
 
-    // MARK: - Category Sidebar
+    // MARK: - Category Filter Dropdown
 
     @ViewBuilder
-    private var categorySidebar: some View {
-        VStack(alignment: .leading, spacing: VSpacing.xxs) {
-            SidebarPrimaryRow(
-                icon: VIcon.layoutGrid.rawValue,
-                label: "All",
-                isActive: selectedCategory == nil
-            ) {
-                withAnimation(VAnimation.fast) { selectedCategory = nil }
-            }
-
-            ForEach(SkillCategory.allCases, id: \.rawValue) { category in
-                SidebarPrimaryRow(
-                    icon: category.icon.rawValue,
-                    label: category.displayName,
-                    isActive: selectedCategory == category
-                ) {
-                    withAnimation(VAnimation.fast) { selectedCategory = category }
+    private var categoryFilterDropdown: some View {
+        Menu {
+            Button {
+                withAnimation(VAnimation.fast) { selectedCategories.removeAll() }
+            } label: {
+                HStack {
+                    Image(systemName: "square.grid.2x2")
+                    Text("All")
+                    if selectedCategories.isEmpty {
+                        Spacer()
+                        Image(systemName: "checkmark")
+                    }
                 }
             }
-
-            Spacer()
+            Divider()
+            ForEach(SkillCategory.allCases, id: \.rawValue) { category in
+                Button {
+                    withAnimation(VAnimation.fast) {
+                        if selectedCategories.contains(category) {
+                            selectedCategories.remove(category)
+                        } else {
+                            selectedCategories.insert(category)
+                        }
+                    }
+                } label: {
+                    HStack {
+                        VIconView(category.icon, size: 12)
+                        Text(category.displayName)
+                        if selectedCategories.contains(category) {
+                            Spacer()
+                            Image(systemName: "checkmark")
+                        }
+                    }
+                }
+            }
+        } label: {
+            HStack(spacing: VSpacing.xs) {
+                VIconView(.slidersHorizontal, size: 12)
+                Text(selectedCategories.isEmpty ? "Filter" : "\(selectedCategories.count)")
+                    .font(VFont.caption)
+                VIconView(.chevronDown, size: 10)
+            }
+            .foregroundColor(selectedCategories.isEmpty ? VColor.contentSecondary : VColor.primaryBase)
+            .padding(.horizontal, VSpacing.md)
+            .padding(.vertical, VSpacing.sm)
+            .background(
+                RoundedRectangle(cornerRadius: VRadius.md)
+                    .fill(selectedCategories.isEmpty ? VColor.surfaceOverlay : VColor.primaryBase.opacity(0.1))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: VRadius.md)
+                    .stroke(selectedCategories.isEmpty ? VColor.borderBase : VColor.primaryBase.opacity(0.3), lineWidth: 1)
+            )
         }
-        .frame(width: 180)
+        .menuStyle(.borderlessButton)
+        .fixedSize()
     }
 
     // MARK: - Skills Content
@@ -175,30 +210,28 @@ struct AgentPanelContent: View {
                 .padding(.vertical, VSpacing.sm)
             }
         } else {
-            HStack(alignment: .top, spacing: VSpacing.lg) {
-                categorySidebar
-
-                VStack(spacing: VSpacing.md) {
+            VStack(spacing: VSpacing.md) {
+                HStack(spacing: VSpacing.sm) {
                     VSearchBar(placeholder: "Search skills", text: $globalSkillSearchQuery)
+                    categoryFilterDropdown
+                }
 
-                    if categoryFilteredSkills.isEmpty {
-                        VEmptyState(
-                            title: "No skills in this category",
-                            subtitle: selectedCategory.map { "No installed skills matched \($0.displayName)" } ?? "",
-                            icon: "tray"
-                        )
-                        .frame(minHeight: 100)
-                    } else {
-                        ScrollView {
-                            VStack(spacing: VSpacing.md) {
-                                ForEach(categoryFilteredSkills) { skill in
-                                    skillCard(skill)
-                                }
+                if categoryFilteredSkills.isEmpty {
+                    VEmptyState(
+                        title: "No skills in selected categories",
+                        subtitle: "No installed skills in selected categories",
+                        icon: "tray"
+                    )
+                    .frame(minHeight: 100)
+                } else {
+                    ScrollView {
+                        VStack(spacing: VSpacing.md) {
+                            ForEach(categoryFilteredSkills) { skill in
+                                skillCard(skill)
                             }
                         }
                     }
                 }
-                .frame(maxWidth: .infinity)
             }
         }
     }
