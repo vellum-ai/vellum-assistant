@@ -4,13 +4,14 @@
  *
  * Finds the most recent release tag (e.g. v0.4.55), increments the patch
  * version (v0.4.56), creates a `release/v0.4.56` branch from that tag's
- * commit, adds a no-op [skip ci] commit, and pushes the branch.
+ * commit, bumps all package versions to match, and pushes the branch.
  *
  * Usage:
  *   bun scripts/create-hotfix-branch.ts
  */
 
 import { execSync } from "node:child_process";
+import { readFileSync, writeFileSync } from "node:fs";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -20,8 +21,12 @@ function git(cmd: string): string {
   return execSync(`git ${cmd}`, { encoding: "utf-8" }).trim();
 }
 
-function run(cmd: string): string {
-  return execSync(cmd, { encoding: "utf-8" }).trim();
+function readJson(path: string): Record<string, unknown> {
+  return JSON.parse(readFileSync(path, "utf-8"));
+}
+
+function writeJson(path: string, data: Record<string, unknown>): void {
+  writeFileSync(path, JSON.stringify(data, null, 2) + "\n");
 }
 
 // ---------------------------------------------------------------------------
@@ -60,17 +65,42 @@ console.log(`Branching from commit: ${tagCommit.slice(0, 12)}`);
 git(`checkout -b ${branchName} ${tagCommit}`);
 console.log(`Created branch: ${branchName}`);
 
-// 4. Add a no-op [skip ci] commit
-const readmePath = "README.md";
-const timestamp = new Date().toISOString();
-run(`echo "" >> ${readmePath}`);
-run(
-  `echo "<!-- Hotfix branch ${newVersion} initialized at ${timestamp} -->" >> ${readmePath}`
-);
+// 4. Bump package versions to match the new release version
+const versionStr = `${major}.${minor}.${Number(patch) + 1}`;
 
-git(`add ${readmePath}`);
-git(`commit -m "chore: initialize hotfix branch ${newVersion} [skip ci]"`);
-console.log(`Added [skip ci] commit to ${branchName}`);
+const packages = ["assistant", "cli", "credential-executor", "gateway", "meta"];
+for (const pkg of packages) {
+  const pkgPath = `${pkg}/package.json`;
+  const pkgJson = readJson(pkgPath);
+  pkgJson.version = versionStr;
+  writeJson(pkgPath, pkgJson);
+  console.log(`  Bumped ${pkgPath} to ${versionStr}`);
+}
+
+// Bump meta-package dependency versions
+const metaPkgPath = "meta/package.json";
+const metaPkg = readJson(metaPkgPath);
+const deps = metaPkg.dependencies as Record<string, string>;
+deps["@vellumai/assistant"] = versionStr;
+deps["@vellumai/cli"] = versionStr;
+deps["@vellumai/credential-executor"] = versionStr;
+deps["@vellumai/vellum-gateway"] = versionStr;
+writeJson(metaPkgPath, metaPkg);
+console.log(`  Bumped meta dependencies to ${versionStr}`);
+
+// Bump macOS app version in clients/Package.swift
+const swiftPath = "clients/Package.swift";
+const swiftContent = readFileSync(swiftPath, "utf-8");
+const updatedSwift = swiftContent.replace(
+  /^let appVersion = .*/m,
+  `let appVersion = "${versionStr}"`
+);
+writeFileSync(swiftPath, updatedSwift);
+console.log(`  Bumped ${swiftPath} to ${versionStr}`);
+
+git("add -A");
+git(`commit -m "Release v${versionStr} [skip ci]"`);
+console.log(`Added version bump commit to ${branchName}`);
 
 // 5. Push the branch
 git(`push origin ${branchName}`);
