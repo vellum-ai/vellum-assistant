@@ -4,6 +4,7 @@
 import { existsSync, readdirSync, statSync } from "node:fs";
 import { join, relative } from "node:path";
 
+import { enrichMessageWithSourcePaths } from "../../agent/attachments.js";
 import {
   createAssistantMessage,
   createUserMessage,
@@ -923,6 +924,12 @@ export async function handleSendMessage(
     let cleanupDeferred = false;
     try {
       const provenance = provenanceFromTrustContext(conversation.trustContext);
+      const imageSourcePaths: Record<string, string> = {};
+      for (const a of attachments) {
+        if (a.filePath && a.mimeType.toLowerCase().startsWith("image/")) {
+          imageSourcePaths[a.filename] = a.filePath;
+        }
+      }
       const channelMeta = {
         ...provenance,
         userMessageChannel: sourceChannel,
@@ -930,15 +937,19 @@ export async function handleSendMessage(
         userMessageInterface: sourceInterface,
         assistantMessageInterface: sourceInterface,
         ...(body.automated === true ? { automated: true } : {}),
+        ...(Object.keys(imageSourcePaths).length > 0
+          ? { imageSourcePaths }
+          : {}),
       };
-      const userMsg = createUserMessage(rawContent, attachments);
+      const cleanMsg = createUserMessage(rawContent, attachments);
+      const llmMsg = enrichMessageWithSourcePaths(cleanMsg, attachments);
       const persisted = await addMessage(
         mapping.conversationId,
         "user",
-        JSON.stringify(userMsg.content),
+        JSON.stringify(cleanMsg.content),
         channelMeta,
       );
-      conversation.getMessages().push(userMsg);
+      conversation.getMessages().push(llmMsg);
 
       const assistantMsg = createAssistantMessage(slashResult.message);
       await addMessage(
