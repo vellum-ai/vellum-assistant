@@ -34,17 +34,10 @@ struct ContactsContainerView: View {
     var body: some View {
         HStack(alignment: .top, spacing: 0) {
             // Left pane: contacts list (full height, internal scrolling)
-            VStack(spacing: VSpacing.sm) {
-                ContactsListView(
-                    viewModel: viewModel,
-                    selection: $selection
-                )
-                .frame(maxHeight: .infinity, alignment: .top)
-
-                if let createContactError {
-                    VInlineMessage(createContactError)
-                }
-            }
+            ContactsListView(
+                viewModel: viewModel,
+                selection: $selection
+            )
             .frame(width: 320)
             .frame(maxHeight: .infinity, alignment: .top)
 
