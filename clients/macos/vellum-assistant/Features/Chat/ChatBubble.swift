@@ -12,6 +12,8 @@ struct ChatBubble: View {
     let onDismissDocumentWidget: (String) -> Void
     let dismissedDocumentSurfaceIds: Set<String>
     var onReportMessage: ((String?) -> Void)?
+    var showInspectButton: Bool = false
+    var onInspectMessage: ((String?) -> Void)?
     /// Called when a stripped surface scrolls into view and needs its data re-fetched.
     var onSurfaceRefetch: ((String, String) -> Void)?
     /// Called when expanding a tool call with truncated content to fetch the full text.
@@ -58,8 +60,11 @@ struct ChatBubble: View {
     private var hasCopyableText: Bool {
         !message.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
+    private var canInspectMessage: Bool {
+        showInspectButton && !isUser && message.daemonMessageId != nil
+    }
     private var hasOverflowActions: Bool {
-        hasCopyableText || canReportMessage
+        hasCopyableText || canReportMessage || canInspectMessage
     }
     private var showOverflowMenu: Bool {
         hasOverflowActions && !message.isStreaming && (isHovered || showCopyConfirmation)
@@ -325,6 +330,19 @@ struct ChatBubble: View {
                 .buttonStyle(.plain)
                 .pointerCursor()
                 .accessibilityLabel("Report message")
+            }
+            if showInspectButton, !isUser, let daemonMsgId = message.daemonMessageId {
+                Button {
+                    onInspectMessage?(daemonMsgId)
+                } label: {
+                    VIconView(.fileCode, size: 11)
+                        .foregroundColor(VColor.contentTertiary)
+                        .frame(width: 24, height: 24)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .pointerCursor()
+                .accessibilityLabel("Inspect LLM context")
             }
         }
     }

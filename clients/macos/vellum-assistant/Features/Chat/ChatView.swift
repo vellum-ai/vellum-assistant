@@ -39,6 +39,8 @@ struct ChatView: View {
     let watchSession: WatchSession?
     let onStopWatch: () -> Void
     var onReportMessage: ((String?) -> Void)?
+    var showInspectButton: Bool = false
+    var onInspectMessage: ((String?) -> Void)?
     var mediaEmbedSettings: MediaEmbedResolverSettings?
     var isTemporaryChat: Bool = false
     var activeSubagents: [SubagentInfo] = []
@@ -232,6 +234,8 @@ struct ChatView: View {
                             onGuardianAction: onGuardianAction,
                             onDismissDocumentWidget: onDismissDocumentWidget,
                             onReportMessage: onReportMessage,
+                            showInspectButton: showInspectButton,
+                            onInspectMessage: onInspectMessage,
                             mediaEmbedSettings: mediaEmbedSettings,
                             resolveHttpPort: resolveHttpPort,
                             onModelPickerSelect: onModelPickerSelect,
