@@ -116,8 +116,8 @@ extension DaemonClient {
             onConversationTitleUpdated?(msg)
         case .historyResponse(let msg):
             onHistoryResponse?(msg)
-        case .messageContentResponse(let msg):
-            onMessageContentResponse?(msg)
+        case .messageContentResponse:
+            break // Handled by ConversationClient via GatewayHTTPClient.
         case .shareAppCloudResponse:
             break // Handled by AppsClient via GatewayHTTPClient.
         case .slackWebhookConfigResponse(let msg):

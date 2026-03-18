@@ -305,9 +305,6 @@ class IOSConversationStore: ObservableObject {
         daemon.onHistoryResponse = { [weak self] response in
             self?.handleHistoryResponse(response)
         }
-        daemon.onMessageContentResponse = { [weak self] response in
-            self?.handleMessageContentResponse(response)
-        }
         daemon.onScheduleConversationCreated = { [weak self] msg in
             guard let self else { return }
             // Avoid duplicates
@@ -407,7 +404,6 @@ class IOSConversationStore: ObservableObject {
         if let oldDaemon = daemonClient as? DaemonClient {
             oldDaemon.onConversationListResponse = nil
             oldDaemon.onHistoryResponse = nil
-            oldDaemon.onMessageContentResponse = nil
             oldDaemon.onScheduleConversationCreated = nil
         }
 
@@ -668,15 +664,6 @@ class IOSConversationStore: ObservableObject {
         if vm.onLoadMoreHistory == nil {
             vm.onLoadMoreHistory = { [weak self] conversationId, beforeTimestamp in
                 self?.requestPaginatedHistory(conversationId: conversationId, beforeTimestamp: beforeTimestamp)
-            }
-        }
-    }
-
-    private func handleMessageContentResponse(_ response: MessageContentResponse) {
-        for (_, vm) in viewModels {
-            if vm.messages.contains(where: { $0.daemonMessageId == response.messageId }) {
-                vm.handleMessageContentResponse(response)
-                return
             }
         }
     }

@@ -286,7 +286,6 @@ public final class HTTPTransport {
         case conversationRegenerate(id: String)
         case model
         case conversationSearch(query: String, limit: Int?, maxMessagesPerConversation: Int?)
-        case messageContent(id: String, conversationId: String?)
         case deleteQueuedMessage(id: String, conversationId: String)
         case conversationsReorder
         // Computer Use
@@ -436,13 +435,6 @@ public final class HTTPTransport {
             if let limit { qs += "&limit=\(limit)" }
             if let maxMessages { qs += "&maxMessagesPerConversation=\(maxMessages)" }
             return ("/v1/conversations/search", qs)
-        case .messageContent(let id, let conversationId):
-            let idEncoded = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
-            if let conversationId {
-                let sEncoded = conversationId.addingPercentEncoding(withAllowedCharacters: Self.queryValueAllowed) ?? conversationId
-                return ("/v1/messages/\(idEncoded)/content", "conversationId=\(sEncoded)")
-            }
-            return ("/v1/messages/\(idEncoded)/content", nil)
         case .deleteQueuedMessage(let id, let conversationId):
             let idEncoded = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
             let sEncoded = conversationId.addingPercentEncoding(withAllowedCharacters: Self.queryValueAllowed) ?? conversationId
@@ -585,13 +577,6 @@ public final class HTTPTransport {
             if let limit { qs += "&limit=\(limit)" }
             if let maxMessages { qs += "&maxMessagesPerConversation=\(maxMessages)" }
             return ("\(prefix)/conversations/search/", qs)
-        case .messageContent(let id, let conversationId):
-            let idEncoded = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
-            if let conversationId {
-                let sEncoded = conversationId.addingPercentEncoding(withAllowedCharacters: Self.queryValueAllowed) ?? conversationId
-                return ("\(prefix)/messages/\(idEncoded)/content/", "conversationId=\(sEncoded)")
-            }
-            return ("\(prefix)/messages/\(idEncoded)/content/", nil)
         case .deleteQueuedMessage(let id, let conversationId):
             let idEncoded = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
             let sEncoded = conversationId.addingPercentEncoding(withAllowedCharacters: Self.queryValueAllowed) ?? conversationId
@@ -1773,34 +1758,6 @@ public final class HTTPTransport {
             }
         } catch {
             log.error("Conversation search error: \(error.localizedDescription)")
-        }
-    }
-
-    func fetchMessageContent(conversationId: String, messageId: String, isRetry: Bool = false) async {
-        guard let url = buildURL(for: .messageContent(id: messageId, conversationId: conversationId)) else { return }
-
-        var request = URLRequest(url: url)
-        applyAuth(&request)
-
-        do {
-            let (data, response) = try await URLSession.shared.data(for: request)
-
-            guard let http = response as? HTTPURLResponse else { return }
-
-            if http.statusCode == 200 {
-                let patched = injectType("message_content_response", into: data)
-                let decoded = try decoder.decode(MessageContentResponse.self, from: patched)
-                onMessage?(.messageContentResponse(decoded))
-            } else if http.statusCode == 401 && !isRetry {
-                let refreshResult = await handleAuthenticationFailureAsync(responseData: data)
-                if case .success = refreshResult {
-                    await fetchMessageContent(conversationId: conversationId, messageId: messageId, isRetry: true)
-                }
-            } else {
-                log.error("Message content fetch failed (HTTP \(http.statusCode))")
-            }
-        } catch {
-            log.error("Message content fetch error: \(error.localizedDescription)")
         }
     }
 

@@ -66,10 +66,6 @@ final class ConversationRestorer {
         daemonClient.onConversationTitleUpdated = { [weak self] response in
             self?.handleConversationTitleUpdated(response)
         }
-        daemonClient.onMessageContentResponse = { [weak self] response in
-            self?.handleMessageContentResponse(response)
-        }
-
         // On first launch after onboarding, skip the initial conversation list fetch
         // so the conversation restorer doesn't override the wake-up conversation.
         // The handlers above are still registered for later use (e.g. history loading).
@@ -301,19 +297,6 @@ final class ConversationRestorer {
         guard let delegate else { return }
         guard let index = delegate.conversations.firstIndex(where: { $0.conversationId == response.conversationId }) else { return }
         delegate.conversations[index].title = response.title
-    }
-
-    func handleMessageContentResponse(_ response: MessageContentResponse) {
-        guard let delegate else { return }
-        // Route the full content back to the ChatViewModel that owns this message.
-        // We check all conversations with existing VMs for a matching daemonMessageId.
-        for conversation in delegate.conversations {
-            guard let viewModel = delegate.existingChatViewModel(for: conversation.id) else { continue }
-            if viewModel.messages.contains(where: { $0.daemonMessageId == response.messageId }) {
-                viewModel.handleMessageContentResponse(response)
-                return
-            }
-        }
     }
 
     // MARK: - Private
