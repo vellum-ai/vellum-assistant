@@ -42,6 +42,17 @@ export class PlatformOAuthConnection implements OAuthConnection {
   private readonly apiKey: string;
 
   constructor(options: PlatformOAuthConnectionOptions) {
+    const missing: string[] = [];
+    if (!options.platformBaseUrl) missing.push("platform base URL");
+    if (!options.apiKey) missing.push("assistant API key");
+    if (!options.assistantId) missing.push("assistant ID");
+    if (missing.length > 0) {
+      throw new BackendError(
+        `Platform-managed connection for "${options.providerKey}" cannot be created: missing ${missing.join(", ")}. ` +
+          `Log in to the Vellum platform or switch to using your own OAuth app.`,
+      );
+    }
+
     this.id = options.id;
     this.providerKey = options.providerKey;
     this.externalId = options.externalId;
