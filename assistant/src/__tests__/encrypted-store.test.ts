@@ -68,11 +68,23 @@ const SALT_LENGTH = 32;
 /** Local copy of the legacy machine entropy derivation (the export was removed). */
 function legacyMachineEntropy(): string {
   const parts: string[] = [];
-  try { parts.push(hostname()); } catch { parts.push("unknown-host"); }
-  try { parts.push(userInfo().username); } catch { parts.push("unknown-user"); }
+  try {
+    parts.push(hostname());
+  } catch {
+    parts.push("unknown-host");
+  }
+  try {
+    parts.push(userInfo().username);
+  } catch {
+    parts.push("unknown-user");
+  }
   parts.push(process.platform);
   parts.push(process.arch);
-  try { parts.push(userInfo().homedir); } catch { parts.push("/tmp"); }
+  try {
+    parts.push(userInfo().homedir);
+  } catch {
+    parts.push("/tmp");
+  }
   return parts.join(":");
 }
 
