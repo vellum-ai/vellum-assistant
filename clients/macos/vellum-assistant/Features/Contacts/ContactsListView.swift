@@ -138,8 +138,8 @@ struct ContactsListView: View {
 
                 ContactTypeBadge(role: role)
             }
-            .padding(.horizontal, VSpacing.sm)
-            .padding(.vertical, VSpacing.md)
+            .padding(.horizontal, VSpacing.md)
+            .padding(.vertical, VSpacing.sm)
             .background(rowBackground(isSelected: isSelected, isHovered: isHovered))
             .animation(VAnimation.fast, value: isHovered)
             .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
