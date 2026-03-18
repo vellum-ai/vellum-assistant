@@ -304,13 +304,12 @@ struct SettingsDeveloperTab: View {
         Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String
     }
 
-    /// The best-available assistant version: prefer the healthz-reported version,
-    /// fall back to the desktop app bundle version so every environment shows one.
+    /// The assistant version reported by the healthz endpoint, if available.
     private var effectiveVersion: String? {
         if let version = healthz?.version, !version.isEmpty {
             return version
         }
-        return desktopAppVersion
+        return nil
     }
 
     private var assistantVersionBehind: Bool {
@@ -323,14 +322,14 @@ struct SettingsDeveloperTab: View {
 
     @ViewBuilder
     private var healthzInfoRows: some View {
-        // Always show version when available (healthz or desktop app bundle fallback)
-        if let version = effectiveVersion {
-            HStack(alignment: .top) {
-                Text("Version")
-                    .font(VFont.caption)
-                    .foregroundColor(VColor.contentTertiary)
-                    .frame(width: 100, alignment: .leading)
+        // Always show a version row
+        HStack(alignment: .top) {
+            Text("Version")
+                .font(VFont.caption)
+                .foregroundColor(VColor.contentTertiary)
+                .frame(width: 100, alignment: .leading)
 
+            if let version = effectiveVersion {
                 Text(version)
                     .font(VFont.mono)
                     .foregroundColor(assistantVersionBehind ? VColor.systemNegativeStrong : VColor.contentDefault)
@@ -347,32 +346,36 @@ struct SettingsDeveloperTab: View {
                         .disabled(isUpgradingInline)
                     }
                 }
-
-                Spacer()
+            } else {
+                Text("Not available")
+                    .font(VFont.body)
+                    .foregroundColor(VColor.contentTertiary)
             }
 
-            if assistantVersionBehind, let appVersion = desktopAppVersion {
-                HStack(spacing: VSpacing.xs) {
-                    Text("Desktop is on")
-                        .font(VFont.caption)
-                        .foregroundColor(VColor.contentTertiary)
-                    Text(appVersion)
-                        .font(VFont.mono)
-                        .foregroundColor(VColor.primaryBase)
-                }
-            }
+            Spacer()
+        }
 
-            if let error = inlineUpgradeError {
-                Text(error)
+        if assistantVersionBehind, let appVersion = desktopAppVersion {
+            HStack(spacing: VSpacing.xs) {
+                Text("Desktop is on")
                     .font(VFont.caption)
-                    .foregroundColor(VColor.systemNegativeStrong)
+                    .foregroundColor(VColor.contentTertiary)
+                Text(appVersion)
+                    .font(VFont.mono)
+                    .foregroundColor(VColor.primaryBase)
             }
+        }
 
-            if let success = inlineUpgradeSuccess {
-                Text(success)
-                    .font(VFont.caption)
-                    .foregroundColor(VColor.systemPositiveStrong)
-            }
+        if let error = inlineUpgradeError {
+            Text(error)
+                .font(VFont.caption)
+                .foregroundColor(VColor.systemNegativeStrong)
+        }
+
+        if let success = inlineUpgradeSuccess {
+            Text(success)
+                .font(VFont.caption)
+                .foregroundColor(VColor.systemPositiveStrong)
         }
 
         if let healthz {
