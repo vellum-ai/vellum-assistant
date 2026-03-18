@@ -624,6 +624,17 @@ describe("access-request-helper unit tests", () => {
   });
 
   test("notifyGuardianOfAccessRequest skips vellum fallback for same-channel-only routing (telegram)", async () => {
+    // Set up a telegram guardian binding with the anchor principal so
+    // guardianResolutionSource resolves to "source-channel-contact" and
+    // sameChannelOnly is true.
+    createGuardianBinding({
+      channel: "telegram",
+      guardianExternalUserId: "guardian-user-456",
+      guardianDeliveryChatId: "guardian-chat-456",
+      guardianPrincipalId: anchorPrincipalId,
+      verifiedVia: "test",
+    });
+
     mockEmitResult = {
       signalId: "sig-no-vellum",
       deduplicated: false,

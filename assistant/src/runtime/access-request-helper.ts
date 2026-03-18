@@ -234,7 +234,7 @@ export function notifyGuardianOfAccessRequest(
     },
     contextPayload: {
       requestId,
-      requestCode: canonicalRequest.requestCode,
+      requestCode: canonicalRequest.requestCode ?? "",
       sourceChannel,
       conversationExternalId,
       actorExternalId,

@@ -220,7 +220,7 @@ export async function emitNotificationSignal<TEventName extends string>(
       sourceChannel: params.sourceChannel,
       sourceContextId: params.sourceContextId,
       attentionHints: params.attentionHints,
-      payload: params.contextPayload ?? {},
+      payload: (params.contextPayload ?? {}) as Record<string, unknown>,
       dedupeKey: params.dedupeKey,
     });
 
