@@ -356,7 +356,7 @@ public final class ChatViewModel: ObservableObject {
     let daemonClient: any DaemonClientProtocol
     private let surfaceClient: any SurfaceClientProtocol = SurfaceClient()
     private let conversationStarterClient: any ConversationStarterClientProtocol = ConversationStarterClient()
-    let interactionClient: any InteractionClientProtocol = InteractionClient()
+    let interactionClient: any InteractionClientProtocol
     let surfaceActionClient: any SurfaceActionClientProtocol = SurfaceActionClient()
     /// Tracks the action submitted for each guardian decision requestId so the
     /// response handler can display the correct resolved state (the server does
@@ -887,8 +887,9 @@ public final class ChatViewModel: ObservableObject {
     /// Set via the onPageChanged callback when the user navigates within a multi-page app.
     public var currentPage: String?
 
-    public init(daemonClient: any DaemonClientProtocol, onToolCallsComplete: ((_ toolCalls: [ToolCallData]) -> Void)? = nil) {
+    public init(daemonClient: any DaemonClientProtocol, interactionClient: any InteractionClientProtocol = InteractionClient(), onToolCallsComplete: ((_ toolCalls: [ToolCallData]) -> Void)? = nil) {
         self.daemonClient = daemonClient
+        self.interactionClient = interactionClient
         self.onToolCallsComplete = onToolCallsComplete
 
         // Coalesce sub-manager objectWillChange signals through a single
