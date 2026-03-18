@@ -743,10 +743,6 @@ class IOSConversationStore: ObservableObject {
     /// Request an older page of history for pagination.
     private func requestPaginatedHistory(conversationId: String, beforeTimestamp: Double) {
         guard let conversation = conversations.first(where: { $0.conversationId == conversationId }) else {
-            if let conversation = conversations.first(where: { $0.conversationId == conversationId }),
-               let vm = viewModels[conversation.id] {
-                vm.isLoadingMoreMessages = false
-            }
             return
         }
         pendingHistoryByConversationId[conversationId] = conversation.id

@@ -7,8 +7,8 @@ private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.
 /// routed through the gateway.
 @MainActor
 public protocol InteractionClientProtocol {
-    func sendConfirmationResponse(requestId: String, decision: String, selectedPattern: String?, selectedScope: String?) async
-    func sendSecretResponse(requestId: String, value: String?, delivery: String?) async
+    func sendConfirmationResponse(requestId: String, decision: String, selectedPattern: String?, selectedScope: String?) async -> Bool
+    func sendSecretResponse(requestId: String, value: String?, delivery: String?) async -> Bool
 }
 
 /// Gateway-backed implementation of ``InteractionClientProtocol``.
@@ -16,12 +16,13 @@ public protocol InteractionClientProtocol {
 public struct InteractionClient: InteractionClientProtocol {
     nonisolated public init() {}
 
+    @discardableResult
     public func sendConfirmationResponse(
         requestId: String,
         decision: String,
         selectedPattern: String? = nil,
         selectedScope: String? = nil
-    ) async {
+    ) async -> Bool {
         do {
             var body: [String: Any] = [
                 "requestId": requestId,
@@ -33,17 +34,21 @@ public struct InteractionClient: InteractionClientProtocol {
             let response = try await GatewayHTTPClient.post(path: "confirm", json: body, timeout: 10)
             if !response.isSuccess {
                 log.error("sendConfirmationResponse failed (HTTP \(response.statusCode))")
+                return false
             }
+            return true
         } catch {
             log.error("sendConfirmationResponse error: \(error.localizedDescription)")
+            return false
         }
     }
 
+    @discardableResult
     public func sendSecretResponse(
         requestId: String,
         value: String? = nil,
         delivery: String? = nil
-    ) async {
+    ) async -> Bool {
         do {
             var body: [String: Any] = [
                 "requestId": requestId,
@@ -54,9 +59,12 @@ public struct InteractionClient: InteractionClientProtocol {
             let response = try await GatewayHTTPClient.post(path: "secret", json: body, timeout: 10)
             if !response.isSuccess {
                 log.error("sendSecretResponse failed (HTTP \(response.statusCode))")
+                return false
             }
+            return true
         } catch {
             log.error("sendSecretResponse error: \(error.localizedDescription)")
+            return false
         }
     }
 }

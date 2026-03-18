@@ -36,7 +36,7 @@ public struct ConversationListClient: ConversationListClientProtocol {
             )
             guard response.isSuccess else {
                 log.error("fetchConversationList failed (HTTP \(response.statusCode))")
-                return ConversationListResponse(type: "conversation_list_response", conversations: [], hasMore: nil)
+                return nil
             }
             // The HTTP API returns a raw list; decode via the private DTO then
             // map into the public ConversationListResponse type.
@@ -64,7 +64,7 @@ public struct ConversationListClient: ConversationListClientProtocol {
             )
         } catch {
             log.error("fetchConversationList error: \(error.localizedDescription)")
-            return ConversationListResponse(type: "conversation_list_response", conversations: [], hasMore: nil)
+            return nil
         }
     }
 

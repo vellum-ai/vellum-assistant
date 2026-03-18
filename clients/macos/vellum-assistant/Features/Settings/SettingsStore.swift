@@ -1699,17 +1699,20 @@ public final class SettingsStore: ObservableObject {
                         break
                     }
                 } else if let response {
-                    self.applyOutboundResponseState(channel: channel, response: response)
+                    self.applyChannelVerificationResponse(response)
                 }
             }
     }
 
     func resendOutboundVerification(channel: String) {
         Task {
-            _ = await settingsClient.sendChannelVerificationSession(
+            let response = await settingsClient.sendChannelVerificationSession(
                 action: "resend_session",
                 channel: channel
             )
+            if let response {
+                self.applyChannelVerificationResponse(response)
+            }
         }
     }
 

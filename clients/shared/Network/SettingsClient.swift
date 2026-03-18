@@ -230,9 +230,25 @@ public struct SettingsClient: SettingsClientProtocol {
             if let purpose { body["purpose"] = purpose }
             if let contactChannelId { body["contactChannelId"] = contactChannelId }
 
-            let response = try await GatewayHTTPClient.post(
-                path: "channel-verification-sessions", json: body, timeout: 10
-            )
+            let response: GatewayHTTPClient.Response
+            switch action {
+            case "cancel_session":
+                response = try await GatewayHTTPClient.delete(
+                    path: "channel-verification-sessions", timeout: 10
+                )
+            case "resend_session":
+                response = try await GatewayHTTPClient.post(
+                    path: "channel-verification-sessions/resend", json: body, timeout: 10
+                )
+            case "revoke":
+                response = try await GatewayHTTPClient.post(
+                    path: "channel-verification-sessions/revoke", json: body, timeout: 10
+                )
+            default:
+                response = try await GatewayHTTPClient.post(
+                    path: "channel-verification-sessions", json: body, timeout: 10
+                )
+            }
             guard response.isSuccess else {
                 log.error("sendChannelVerificationSession failed (HTTP \(response.statusCode))")
                 return nil

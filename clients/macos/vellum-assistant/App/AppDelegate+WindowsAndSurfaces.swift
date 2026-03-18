@@ -153,14 +153,16 @@ extension AppDelegate {
                 // Auto-approve low/medium risk tool confirmations during CU sessions
                 if self.currentSession?.autoApproveTools == true,
                    msg.riskLevel == "low" || msg.riskLevel == "medium" {
-                    await InteractionClient().sendConfirmationResponse(
+                    let success = await InteractionClient().sendConfirmationResponse(
                         requestId: msg.requestId,
                         decision: "allow"
                     )
-                    self.mainWindow?.conversationManager.updateConfirmationStateAcrossConversations(
-                        requestId: msg.requestId,
-                        decision: "allow"
-                    )
+                    if success {
+                        self.mainWindow?.conversationManager.updateConfirmationStateAcrossConversations(
+                            requestId: msg.requestId,
+                            decision: "allow"
+                        )
+                    }
                     return
                 }
 
@@ -184,14 +186,16 @@ extension AppDelegate {
                 guard decision != ToolConfirmationNotificationService.inlineHandledSentinel else {
                     return
                 }
-                await InteractionClient().sendConfirmationResponse(
+                let success = await InteractionClient().sendConfirmationResponse(
                     requestId: msg.requestId,
                     decision: decision
                 )
-                self.mainWindow?.conversationManager.updateConfirmationStateAcrossConversations(
-                    requestId: msg.requestId,
-                    decision: decision
-                )
+                if success {
+                    self.mainWindow?.conversationManager.updateConfirmationStateAcrossConversations(
+                        requestId: msg.requestId,
+                        decision: decision
+                    )
+                }
             }
         }
     }
@@ -202,7 +206,10 @@ extension AppDelegate {
         }
         secretPromptManager.onResponse = { requestId, value, delivery in
             Task {
-                await InteractionClient().sendSecretResponse(requestId: requestId, value: value, delivery: delivery)
+                let success = await InteractionClient().sendSecretResponse(requestId: requestId, value: value, delivery: delivery)
+                if !success {
+                    log.error("sendSecretResponse failed for request \(requestId)")
+                }
             }
             return true
         }
