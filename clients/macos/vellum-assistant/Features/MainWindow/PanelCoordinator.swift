@@ -98,12 +98,14 @@ extension MainWindowView {
                 pendingMemoryId: $windowState.pendingMemoryId
             )
         case .contacts:
-            ContactsContainerView(
-                daemonClient: daemonClient,
-                store: settingsStore,
-                isEmailEnabled: assistantFeatureFlagStore.isEnabled("feature_flags.email-channel.enabled"),
-                showToast: { msg, style in windowState.showToast(message: msg, style: style) }
-            )
+            VSidePanel(title: "Contacts", contentPadding: EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 0), onClose: { windowState.selection = nil }, pinnedContent: { EmptyView() }) {
+                ContactsContainerView(
+                    daemonClient: daemonClient,
+                    store: settingsStore,
+                    isEmailEnabled: assistantFeatureFlagStore.isEnabled("feature_flags.email-channel.enabled"),
+                    showToast: { msg, style in windowState.showToast(message: msg, style: style) }
+                )
+            }
         case .usageDashboard:
             UsageDashboardPanel(
                 store: usageDashboardStore,
@@ -480,13 +482,14 @@ extension MainWindowView {
             .overlay(alignment: .topTrailing) { panelDismissButton }
             .background(VColor.surfaceOverlay)
         case .contacts:
-            ContactsContainerView(
-                daemonClient: daemonClient,
-                store: settingsStore,
-                isEmailEnabled: assistantFeatureFlagStore.isEnabled("feature_flags.email-channel.enabled"),
-                showToast: { msg, style in windowState.showToast(message: msg, style: style) }
-            )
-            .overlay(alignment: .topTrailing) { panelDismissButton }
+            VSidePanel(title: "Contacts", contentPadding: EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 0), onClose: { windowState.dismissOverlay() }, pinnedContent: { EmptyView() }) {
+                ContactsContainerView(
+                    daemonClient: daemonClient,
+                    store: settingsStore,
+                    isEmailEnabled: assistantFeatureFlagStore.isEnabled("feature_flags.email-channel.enabled"),
+                    showToast: { msg, style in windowState.showToast(message: msg, style: style) }
+                )
+            }
         case .usageDashboard:
             UsageDashboardPanel(
                 store: usageDashboardStore,
