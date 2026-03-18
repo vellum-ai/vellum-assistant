@@ -6,6 +6,7 @@ enum SidePanelType: Hashable, CaseIterable {
     case avatarCustomization
     case apps
     case intelligence
+    case contacts
     case usageDashboard
 
     init?(rawValue: String) {
@@ -17,6 +18,7 @@ enum SidePanelType: Hashable, CaseIterable {
         case "avatarCustomization": self = .avatarCustomization
         case "apps": self = .apps
         case "intelligence": self = .intelligence
+        case "contacts": self = .contacts
         case "usageDashboard": self = .usageDashboard
         // Legacy values from older builds — map to the unified Intelligence panel
         case "identity", "agent": self = .intelligence

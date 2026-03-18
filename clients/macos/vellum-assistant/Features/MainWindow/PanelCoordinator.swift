@@ -97,6 +97,13 @@ extension MainWindowView {
                 initialTab: windowState.pendingMemoryId != nil ? "Memories" : nil,
                 pendingMemoryId: $windowState.pendingMemoryId
             )
+        case .contacts:
+            ContactsContainerView(
+                daemonClient: daemonClient,
+                store: settingsStore,
+                isEmailEnabled: assistantFeatureFlagStore.isEnabled("feature_flags.email-channel.enabled"),
+                showToast: { msg, style in windowState.showToast(message: msg, style: style) }
+            )
         case .usageDashboard:
             UsageDashboardPanel(
                 store: usageDashboardStore,
@@ -469,6 +476,15 @@ extension MainWindowView {
                 daemonClient: daemonClient,
                 initialTab: windowState.pendingMemoryId != nil ? "Memories" : nil,
                 pendingMemoryId: $windowState.pendingMemoryId
+            )
+            .overlay(alignment: .topTrailing) { panelDismissButton }
+            .background(VColor.surfaceOverlay)
+        case .contacts:
+            ContactsContainerView(
+                daemonClient: daemonClient,
+                store: settingsStore,
+                isEmailEnabled: assistantFeatureFlagStore.isEnabled("feature_flags.email-channel.enabled"),
+                showToast: { msg, style in windowState.showToast(message: msg, style: style) }
             )
             .overlay(alignment: .topTrailing) { panelDismissButton }
             .background(VColor.surfaceOverlay)
