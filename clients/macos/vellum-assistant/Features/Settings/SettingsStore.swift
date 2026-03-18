@@ -206,11 +206,6 @@ public final class SettingsStore: ObservableObject {
     /// Current Google OAuth mode. Values: "managed" or "your-own".
     @Published var googleOAuthMode: String = "your-own"
 
-    /// True when any service is configured to use managed mode.
-    var hasManagedServices: Bool {
-        inferenceMode == "managed" || webSearchMode == "managed" || imageGenMode == "managed" || googleOAuthMode == "managed"
-    }
-
     static let availableWebSearchProviders = ["inference-provider-native", "perplexity", "brave"]
 
     static let webSearchProviderDisplayNames: [String: String] = [
