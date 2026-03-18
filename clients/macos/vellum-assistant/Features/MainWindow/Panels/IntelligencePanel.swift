@@ -47,6 +47,7 @@ struct IntelligencePanel: View {
                 Spacer()
             }
             .padding(.bottom, VSpacing.md)
+            .padding(.horizontal, VSpacing.xl)
 
             // Tab bar
             VStack(spacing: 0) {
@@ -61,11 +62,18 @@ struct IntelligencePanel: View {
             }
             .padding(.top, VSpacing.md)
             .padding(.bottom, VSpacing.md)
+            .padding(.horizontal, VSpacing.xl)
 
-            // Tab content
-            tabContent
+            // Tab content — contacts goes edge-to-edge, others get padding
+            if selectedTab == .contacts {
+                tabContent
+            } else {
+                tabContent
+                    .padding(.horizontal, VSpacing.xl)
+                    .padding(.bottom, VSpacing.xl)
+            }
         }
-        .padding(VSpacing.xl)
+        .padding(.top, VSpacing.xl)
         .onChange(of: pendingMemoryId) {
             if pendingMemoryId != nil {
                 withAnimation(VAnimation.fast) { selectedTab = .memories }
@@ -118,8 +126,6 @@ struct IntelligencePanel: View {
                 isEmailEnabled: isEmailEnabled,
                 showToast: showToast
             )
-            .padding(-VSpacing.xl)
-            .padding(.top, VSpacing.xl)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
 
         case .installedSkills:
