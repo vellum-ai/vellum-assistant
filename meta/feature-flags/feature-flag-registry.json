@@ -256,6 +256,14 @@
       "label": "Quick Input",
       "description": "Enable the Quick Input popover on right-click of the menu bar icon",
       "defaultEnabled": false
+    },
+    {
+      "id": "expand-completed-steps",
+      "scope": "macos",
+      "key": "expand_completed_steps",
+      "label": "Expand Completed Steps",
+      "description": "Auto-expand completed tool call step groups instead of showing them collapsed",
+      "defaultEnabled": false
     }
   ]
 }
