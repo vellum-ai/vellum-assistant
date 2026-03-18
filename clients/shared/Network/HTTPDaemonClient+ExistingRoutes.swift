@@ -42,9 +42,6 @@ extension HTTPTransport {
             } else if message is ConversationListRequestMessage {
                 // Handled by ConversationListClient via GatewayHTTPClient.
                 return true
-            } else if let msg = message as? HistoryRequestMessage {
-                Task { await self.fetchHistory(conversationId: msg.conversationId) }
-                return true
             } else if let msg = message as? ConversationSeenSignal {
                 Task { await self.sendConversationSeen(msg) }
                 return true

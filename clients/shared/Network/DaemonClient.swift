@@ -340,6 +340,9 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     /// Called when a notification delivery creates a new vellum conversation.
     public var onNotificationConversationCreated: ((NotificationConversationCreated) -> Void)?
 
+    /// Called when the server-assigned conversation ID differs from the
+    /// client-local ID. Parameters: (localId, serverId).
+    public var onConversationIdResolved: ((_ localId: String, _ serverId: String) -> Void)?
 
     /// Called when the daemon sends a `skills_state_changed` push event.
     public var onSkillStateChanged: ((SkillStateChangedMessage) -> Void)?
@@ -747,17 +750,6 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
 
     // MARK: - Conversations
 
-    /// Request message history for a specific conversation.
-    /// - Parameters:
-    ///   - conversationId: The conversation to fetch history for.
-    ///   - limit: Max messages to return per page.
-    ///   - beforeTimestamp: Pagination cursor — only return messages before this timestamp (ms since epoch).
-    ///   - mode: `"light"` omits heavy payloads (attachments, tool images, surface data); `"full"` includes everything.
-    ///   - maxTextChars: When set, truncates assistant text content to this many characters.
-    ///   - maxToolResultChars: When set, truncates tool result content to this many characters.
-    public func sendHistoryRequest(conversationId: String, limit: Int? = nil, beforeTimestamp: Double? = nil, mode: String? = nil, maxTextChars: Int? = nil, maxToolResultChars: Int? = nil) throws {
-        try send(HistoryRequestMessage(conversationId: conversationId, limit: limit, beforeTimestamp: beforeTimestamp, mode: mode, maxTextChars: maxTextChars, maxToolResultChars: maxToolResultChars))
-    }
 
     /// Get, set, or delete the Vercel API token configuration.
     public func sendVercelApiConfig(action: String, apiToken: String? = nil) throws {

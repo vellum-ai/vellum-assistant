@@ -102,6 +102,7 @@ class IOSConversationStore: ObservableObject {
     /// ViewModels keyed by conversation ID, created lazily on first access.
     private var viewModels: [UUID: ChatViewModel] = [:]
     private var daemonClient: any DaemonClientProtocol
+    private let conversationHistoryClient: any ConversationHistoryClientProtocol = ConversationHistoryClient()
     private static let persistenceKey = "ios_conversations_v1"
     private static let connectedCacheKey = "ios_connected_conversations_cache_v1"
     private static let legacyPersistenceKey = "ios_threads_v1"
@@ -680,7 +681,6 @@ class IOSConversationStore: ObservableObject {
     func loadHistoryIfNeeded(for conversationLocalId: UUID) {
         guard let conversation = conversations.first(where: { $0.id == conversationLocalId }),
               let conversationId = conversation.conversationId,
-              let daemon = daemonClient as? DaemonClient,
               let vm = viewModels[conversationLocalId],
               !vm.isHistoryLoaded else { return }
 
@@ -691,7 +691,15 @@ class IOSConversationStore: ObservableObject {
             self?.requestPaginatedHistory(conversationId: conversationId, beforeTimestamp: beforeTimestamp)
         }
 
-        try? daemon.sendHistoryRequest(conversationId: conversationId, limit: 50, mode: "light", maxToolResultChars: 1000)
+        Task { [weak self] in
+            guard let self else { return }
+            let response = await self.conversationHistoryClient.fetchHistory(conversationId: conversationId, limit: 50, beforeTimestamp: nil, mode: "light", maxTextChars: nil, maxToolResultChars: 1000)
+            if let response {
+                self.handleHistoryResponse(response)
+            } else {
+                self.pendingHistoryByConversationId.removeValue(forKey: conversationId)
+            }
+        }
     }
 
     /// Mark a connected conversation as seen when the user explicitly opens it.
@@ -732,23 +740,20 @@ class IOSConversationStore: ObservableObject {
 
     /// Request an older page of history for pagination.
     private func requestPaginatedHistory(conversationId: String, beforeTimestamp: Double) {
-        guard let daemon = daemonClient as? DaemonClient,
-              let conversation = conversations.first(where: { $0.conversationId == conversationId }) else {
-            // Clear loading state so the user isn't stuck with a permanent spinner.
-            // The daemon cast may fail (e.g. HTTP transport) while the conversation is still findable.
-            if let conversation = conversations.first(where: { $0.conversationId == conversationId }),
-               let vm = viewModels[conversation.id] {
-                vm.isLoadingMoreMessages = false
-            }
+        guard let conversation = conversations.first(where: { $0.conversationId == conversationId }) else {
             return
         }
         pendingHistoryByConversationId[conversationId] = conversation.id
-        do {
-            try daemon.sendHistoryRequest(conversationId: conversationId, limit: 50, beforeTimestamp: beforeTimestamp, mode: "light", maxToolResultChars: 1000)
-        } catch {
-            pendingHistoryByConversationId.removeValue(forKey: conversationId)
-            if let vm = viewModels[conversation.id] {
-                vm.isLoadingMoreMessages = false
+        Task { [weak self] in
+            guard let self else { return }
+            let response = await self.conversationHistoryClient.fetchHistory(conversationId: conversationId, limit: 50, beforeTimestamp: beforeTimestamp, mode: "light", maxTextChars: nil, maxToolResultChars: 1000)
+            if let response {
+                self.handleHistoryResponse(response)
+            } else {
+                self.pendingHistoryByConversationId.removeValue(forKey: conversationId)
+                if let vm = self.viewModels[conversation.id] {
+                    vm.isLoadingMoreMessages = false
+                }
             }
         }
     }
@@ -784,10 +789,18 @@ class IOSConversationStore: ObservableObject {
     /// pendingHistoryByConversationId and the response is properly routed back.
     private func wireReconnectCallback(vm: ChatViewModel, conversationLocalId: UUID) {
         guard vm.onReconnectHistoryNeeded == nil else { return }
-        vm.onReconnectHistoryNeeded = { [weak self, weak vm] conversationId in
-            guard let self, let _ = vm, let daemon = self.daemonClient as? DaemonClient else { return }
+        vm.onReconnectHistoryNeeded = { [weak self] conversationId in
+            guard let self else { return }
             self.pendingHistoryByConversationId[conversationId] = conversationLocalId
-            try? daemon.sendHistoryRequest(conversationId: conversationId, limit: 50, mode: "light", maxToolResultChars: 1000)
+            Task { [weak self] in
+                guard let self else { return }
+                let response = await self.conversationHistoryClient.fetchHistory(conversationId: conversationId, limit: 50, beforeTimestamp: nil, mode: "light", maxTextChars: nil, maxToolResultChars: 1000)
+                if let response {
+                    self.handleHistoryResponse(response)
+                } else {
+                    self.pendingHistoryByConversationId.removeValue(forKey: conversationId)
+                }
+            }
         }
     }
 

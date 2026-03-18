@@ -43,8 +43,8 @@ struct VoiceSettingsView: View {
         .onDisappear {
             stopRecordingCustomKey()
         }
-        .onChange(of: conversationTimeoutSeconds) { newValue in
-            VoiceModeManager.conversationTimeoutOverride = newValue
+        .onChange(of: conversationTimeoutSeconds) {
+            VoiceModeManager.conversationTimeoutOverride = conversationTimeoutSeconds
         }
     }
 

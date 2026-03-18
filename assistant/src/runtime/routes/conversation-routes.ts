@@ -97,6 +97,32 @@ function collectCanonicalGuardianRequestHintIds(
     .map((req) => req.id);
 }
 
+/**
+ * Expire orphaned canonical guardian requests for a conversation.
+ *
+ * After the in-memory auto-deny loop runs, there may still be "pending"
+ * canonical requests in the DB that have no corresponding in-memory
+ * pending interaction (e.g. the prompter timed out and resolved the
+ * confirmation directly without syncing canonical status). This sweep
+ * catches those stragglers so they don't get falsely matched by the
+ * guardian reply router on subsequent messages.
+ */
+function expireOrphanedCanonicalRequests(
+  conversationId: string,
+  sourceChannel: string,
+): void {
+  const orphaned = listPendingRequestsByConversationScope(
+    conversationId,
+    sourceChannel,
+  ).filter((r) => r.kind === "tool_approval");
+
+  for (const req of orphaned) {
+    resolveCanonicalGuardianRequest(req.id, "pending", {
+      status: "expired",
+    });
+  }
+}
+
 async function tryConsumeCanonicalGuardianReply(params: {
   conversationId: string;
   sourceChannel: string;
@@ -139,8 +165,12 @@ async function tryConsumeCanonicalGuardianReply(params: {
     sourceChannel,
     conversation,
   );
-  const pendingRequestIds =
-    pendingRequestHintIds.length > 0 ? pendingRequestHintIds : undefined;
+  // Always pass the hints array (even when empty) so
+  // findPendingCanonicalRequests respects the in-memory staleness filter
+  // applied by collectCanonicalGuardianRequestHintIds. Converting empty
+  // hints to `undefined` caused the router to fall through to raw DB
+  // queries that rediscovered stale canonical requests.
+  const pendingRequestIds = pendingRequestHintIds;
 
   const routerResult = await routeGuardianReply({
     messageText: trimmedContent,
@@ -856,6 +886,10 @@ export async function handleSendMessage(
       pendingInteractions.removeByConversation(conversation);
     }
 
+    // Expire any orphaned canonical requests that survived without a
+    // matching in-memory pending interaction (e.g. prompter timeouts).
+    expireOrphanedCanonicalRequests(mapping.conversationId, sourceChannel);
+
     return Response.json(
       { accepted: true, queued: true, conversationId: mapping.conversationId },
       { status: 202 },
@@ -891,6 +925,10 @@ export async function handleSendMessage(
     conversation.denyAllPendingConfirmations();
     pendingInteractions.removeByConversation(conversation);
   }
+
+  // Expire any orphaned canonical requests that survived without a
+  // matching in-memory pending interaction (e.g. prompter timeouts).
+  expireOrphanedCanonicalRequests(mapping.conversationId, sourceChannel);
 
   // Conversation is idle — persist and fire agent loop immediately
   conversation.setTurnChannelContext({

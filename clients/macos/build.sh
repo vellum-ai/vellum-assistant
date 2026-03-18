@@ -59,6 +59,7 @@ swift_with_retry() {
         if [ "$_pch_cleaned" -eq 0 ] && grep -q "PCH was compiled with module cache path" "$_stderr_log" 2>/dev/null; then
             echo "warning: stale module cache detected, cleaning and retrying..."
             find -L "$SCRIPT_DIR/../.build" -type d -name "ModuleCache" -exec rm -rf {} + 2>/dev/null || true
+            [ -d "$SPM_MODULE_CACHE" ] && rm -rf "$SPM_MODULE_CACHE"
             _pch_cleaned=1
             continue
         fi
@@ -87,6 +88,14 @@ export DEVELOPER_DIR
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 cd "$SCRIPT_DIR"
+
+# Derive a per-repo module cache path so parallel worktrees (which share
+# the same .build directory via symlink) don't race on PCH files.
+# Uses a hash of the repo root's real path to produce a short, stable slug.
+_repo_root="$(cd "$SCRIPT_DIR/../.." && pwd -P)"
+_cache_slug="$(printf '%s' "$_repo_root" | md5 -q 2>/dev/null || printf '%s' "$_repo_root" | md5sum | cut -d' ' -f1)"
+SPM_MODULE_CACHE="/tmp/spm-module-cache/${_cache_slug}"
+MODULE_CACHE_FLAGS="-Xswiftc -module-cache-path -Xswiftc $SPM_MODULE_CACHE"
 
 BUNDLE_ID="com.vellum.vellum-assistant"
 APP_NAME="vellum-assistant"
@@ -312,7 +321,7 @@ case "$CMD" in
             SWIFT_TEST_ARGS=("${CMD_ARGS[@]}")
         fi
         set +e
-        TEST_OUTPUT=$(swift_with_retry swift test "${SWIFT_TEST_ARGS[@]}" 2>&1)
+        TEST_OUTPUT=$(swift_with_retry swift test $MODULE_CACHE_FLAGS "${SWIFT_TEST_ARGS[@]}" 2>&1)
         TEST_EXIT=$?
         set -e
         echo "$TEST_OUTPUT"
@@ -337,7 +346,7 @@ case "$CMD" in
         ;;
     lint)
         echo "Linting (strict concurrency)..."
-        swift_with_retry swift build --product "$APP_NAME" -Xswiftc -strict-concurrency=complete
+        swift_with_retry swift build --product "$APP_NAME" -Xswiftc -strict-concurrency=complete $MODULE_CACHE_FLAGS
         echo "Lint passed."
         exit 0
         ;;
@@ -402,7 +411,7 @@ else
     echo "Building ($CONFIG)..."
     # Only build the macOS product — the shared Package.swift also contains an iOS
     # target that cannot compile on macOS (UIKit), so we must scope the build.
-    SWIFT_FLAGS="$SWIFT_FLAGS --product $APP_NAME"
+    SWIFT_FLAGS="$SWIFT_FLAGS --product $APP_NAME $MODULE_CACHE_FLAGS"
     # Get bin path first (fast, doesn't rebuild)
     BIN_PATH=$(swift build $SWIFT_FLAGS --show-bin-path)
 

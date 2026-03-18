@@ -139,6 +139,7 @@ export async function handleConfirm(
       source: "button",
     },
   );
+
   return Response.json({ accepted: true });
 }
 

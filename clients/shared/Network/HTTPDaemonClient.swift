@@ -181,6 +181,11 @@ public final class HTTPTransport {
     /// Clients should persist the new token (e.g. to Keychain).
     var onTokenRefreshed: ((String) -> Void)?
 
+    /// Called when the server-assigned conversation ID differs from the
+    /// client-local ID. Observers should replace the local ID so that
+    /// subsequent API calls use the ID the daemon recognises.
+    var onConversationIdResolved: ((_ localId: String, _ serverId: String) -> Void)?
+
     /// Maps the daemon's server-side conversationId → client-local conversationId.
     /// Used to remap conversationId in incoming SSE events so ChatViewModel's
     /// belongsToConversation() filter passes. Supports multiple concurrent conversations.
@@ -263,7 +268,6 @@ public final class HTTPTransport {
         case healthz
         case eventsAll  // SSE subscription for all events
         case sendMessage
-        case getMessages(conversationId: String?)
         case conversationsSeen
         case conversationsUnread
         case identity
@@ -371,12 +375,6 @@ public final class HTTPTransport {
         case .eventsAll:
             return ("/v1/events", nil)
         case .sendMessage:
-            return ("/v1/messages", nil)
-        case .getMessages(let conversationId):
-            if let id = conversationId {
-                let encoded = id.addingPercentEncoding(withAllowedCharacters: Self.queryValueAllowed) ?? id
-                return ("/v1/messages", "conversationId=\(encoded)")
-            }
             return ("/v1/messages", nil)
         case .conversationsSeen:
             return ("/v1/conversations/seen", nil)
@@ -511,12 +509,6 @@ public final class HTTPTransport {
         case .eventsAll:
             return ("\(prefix)/events/", nil)
         case .sendMessage:
-            return ("\(prefix)/messages/", nil)
-        case .getMessages(let conversationId):
-            if let id = conversationId {
-                let encoded = id.addingPercentEncoding(withAllowedCharacters: Self.queryValueAllowed) ?? id
-                return ("\(prefix)/messages/", "conversationId=\(encoded)")
-            }
             return ("\(prefix)/messages/", nil)
         case .conversationsSeen:
             return ("\(prefix)/conversations/seen/", nil)
@@ -920,6 +912,19 @@ public final class HTTPTransport {
         }
     }
 
+    /// Clean up transport-level state after the observer has resolved a synthetic
+    /// conversation ID to the real server ID. Removes the now-stale SSE remapping
+    /// entry (events should flow through with the server ID that matches the VM),
+    /// replaces the synthetic ID in locallyOwnedConversationIds, and migrates
+    /// privateConversationIds so that the conversationType flag persists.
+    func cleanupAfterConversationIdResolution(localId: String, serverId: String) {
+        serverToLocalConversationMap.removeValue(forKey: serverId)
+        locallyOwnedConversationIds.remove(localId)
+        if privateConversationIds.remove(localId) != nil {
+            privateConversationIds.insert(serverId)
+        }
+    }
+
     private func handleServerMessage(_ message: ServerMessage) {
         if case .tokenRotated(let msg) = message {
             log.info("Received token_rotated event — updating bearer token and reconnecting SSE")
@@ -1074,6 +1079,9 @@ public final class HTTPTransport {
                    let serverConvId = json["conversationId"] as? String,
                    serverConvId != conversationId {
                     self.serverToLocalConversationMap[serverConvId] = conversationId
+                    self.locallyOwnedConversationIds.insert(serverConvId)
+                    self.onConversationIdResolved?(conversationId, serverConvId)
+
                     // Evict arbitrary entries when over cap to prevent unbounded growth.
                     // Lost mappings are benign — unmapped events are filtered by belongsToConversation.
                     while self.serverToLocalConversationMap.count > self.serverToLocalConversationMapCap {
@@ -1081,7 +1089,8 @@ public final class HTTPTransport {
                             self.serverToLocalConversationMap.removeValue(forKey: key)
                         }
                     }
-                    log.info("Mapped server conversation \(serverConvId, privacy: .public) → local conversation \(conversationId, privacy: .public)")
+
+                    log.info("Mapped conversation \(conversationId, privacy: .public) → server ID \(serverConvId, privacy: .public)")
                 }
             } else if http.statusCode == 401 && !isRetry {
                 let refreshResult = await handleAuthenticationFailureAsync(responseData: data)
@@ -1378,100 +1387,6 @@ public final class HTTPTransport {
             .trimmingCharacters(in: .whitespacesAndNewlines),
             !body.isEmpty else { return nil }
         return body
-    }
-
-    func fetchHistory(conversationId: String, isRetry: Bool = false) async {
-        guard let url = buildURL(for: .getMessages(conversationId: conversationId)) else { return }
-
-        var request = URLRequest(url: url)
-        applyAuth(&request)
-
-        do {
-            let (data, response) = try await URLSession.shared.data(for: request)
-
-            guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
-                let statusCode = (response as? HTTPURLResponse)?.statusCode ?? -1
-                if statusCode == 401 && !isRetry {
-                    let refreshResult = await handleAuthenticationFailureAsync(responseData: data)
-                    if case .success = refreshResult {
-                        await fetchHistory(conversationId: conversationId, isRetry: true)
-                        return
-                    }
-                }
-                log.error("Fetch history failed (HTTP \(statusCode))")
-                return
-            }
-
-            // The runtime's /v1/messages endpoint returns messages with `content`
-            // (string) and `timestamp` (ISO 8601 string), but HistoryResponseMessage
-            // expects `text` and `timestamp` as a Double (ms since epoch). Transform
-            // the response to match the expected message format.
-            //
-            // The HTTP API also omits the `data` field from attachments when content
-            // was not requested (returning only metadata like `sizeBytes`), but
-            // UserMessageAttachment.data is non-optional. We backfill missing fields
-            // to avoid decode failures.
-            do {
-                if let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
-                   let messages = json["messages"] as? [[String: Any]] {
-
-                    let isoFormatter = ISO8601DateFormatter()
-                    isoFormatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-                    let fallbackFormatter = ISO8601DateFormatter()
-
-                    let transformed: [[String: Any]] = messages.compactMap { msg in
-                        var m = msg
-                        // Rename `content` → `text`, defaulting to empty string if absent/null.
-                        let content = m.removeValue(forKey: "content")
-                        if let content, !(content is NSNull) {
-                            m["text"] = content
-                        } else {
-                            m["text"] = ""
-                        }
-                        // Convert ISO 8601 timestamp string → Double (ms since epoch)
-                        if let tsString = m["timestamp"] as? String {
-                            if let date = isoFormatter.date(from: tsString) {
-                                m["timestamp"] = date.timeIntervalSince1970 * 1000.0
-                            } else if let date = fallbackFormatter.date(from: tsString) {
-                                m["timestamp"] = date.timeIntervalSince1970 * 1000.0
-                            } else {
-                                log.warning("Unparseable timestamp in history message, using epoch: \(tsString, privacy: .public)")
-                                m["timestamp"] = 0.0
-                            }
-                        } else if m["timestamp"] == nil || m["timestamp"] is NSNull {
-                            m["timestamp"] = 0.0
-                        }
-                        // Normalize attachments: the HTTP API omits `data` for large
-                        // attachments (returns sizeBytes instead), but
-                        // UserMessageAttachment.data is non-optional String.
-                        if var attachments = m["attachments"] as? [[String: Any]] {
-                            for i in attachments.indices {
-                                if attachments[i]["data"] == nil || attachments[i]["data"] is NSNull {
-                                    attachments[i]["data"] = ""
-                                }
-                            }
-                            m["attachments"] = attachments
-                        }
-                        return m
-                    }
-
-                    let historyPayload: [String: Any] = [
-                        "type": "history_response",
-                        "conversationId": conversationId,
-                        "messages": transformed,
-                        "hasMore": false
-                    ]
-
-                    let historyData = try JSONSerialization.data(withJSONObject: historyPayload)
-                    let historyResponse = try decoder.decode(ServerMessage.self, from: historyData)
-                    onMessage?(historyResponse)
-                }
-            } catch {
-                log.error("Failed to deserialize history response for conversation \(conversationId, privacy: .public): \(String(describing: error), privacy: .public)")
-            }
-        } catch {
-            log.error("Fetch history error: \(error.localizedDescription)")
-        }
     }
 
     // MARK: - Conversation Management HTTP Handlers

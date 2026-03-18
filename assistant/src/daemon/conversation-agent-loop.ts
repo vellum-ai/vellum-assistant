@@ -801,7 +801,16 @@ export async function runAgentLoopImpl(
           mode: currentInjectionMode,
         });
 
-        if (step.estimatedTokens <= preflightBudget) break;
+        // Re-estimate with injections included — step.estimatedTokens was
+        // computed on bare history (ctx.messages) and doesn't account for
+        // tokens added by runtime injections.
+        const postInjectionTokens = estimatePromptTokens(
+          runMessages,
+          ctx.systemPrompt,
+          { providerName: ctx.provider.name, toolTokenBudget },
+        );
+
+        if (postInjectionTokens <= preflightBudget) break;
       }
     }
 
