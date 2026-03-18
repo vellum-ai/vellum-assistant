@@ -2214,8 +2214,10 @@ public final class SettingsStore: ObservableObject {
                 clientPlatform: "macos"
             )
         } catch {
-            log.error("Lazy bootstrap failed: \(error.localizedDescription)")
-            return nil
+            // Bootstrap can persist the keychain mapping during ensure-registration
+            // but then throw on daemon injection (e.g. gateway not reachable yet).
+            // Always retry the resolve — the mapping may already be cached.
+            log.warning("Lazy bootstrap threw (mapping may still be cached): \(error.localizedDescription)")
         }
 
         // Re-resolve userId after bootstrap (it may have become available).
