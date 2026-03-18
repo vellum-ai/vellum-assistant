@@ -561,15 +561,6 @@ struct MessageListView: View {
                 log.debug("Scroll restore: stage 2 skipped (anchor=\(String(describing: anchorMessageId)) scrollEvent=\(hasReceivedScrollEvent))")
             }
 
-            // Stage 3: ~500ms total — final attempt for conversations with many
-            // messages where LazyVStack materialization is slow.
-            try? await Task.sleep(nanoseconds: 300_000_000)
-            guard !Task.isCancelled else { return }
-            let scrollLanded = hasFreshAnchorMeasurement && anchorTracker.isVisible
-            if anchorMessageId == nil && !hasReceivedScrollEvent && !scrollLanded {
-                proxy.scrollTo("scroll-bottom-anchor", anchor: .bottom)
-                log.debug("Scroll restore: stage 3 (500ms) — final scrollTo")
-            }
             if !Task.isCancelled { scrollRestoreTask = nil }
         }
     }
@@ -818,7 +809,6 @@ struct MessageListView: View {
                 .frame(maxWidth: .infinity)
             }
             .scrollContentBackground(.hidden)
-            .defaultScrollAnchor(.bottom)
             .coordinateSpace(name: "chatScrollView")
             .scrollDisabled(messages.isEmpty && !isSending)
             .environment(\.suppressAutoScroll, { [self] in
