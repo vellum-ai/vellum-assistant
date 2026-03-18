@@ -570,6 +570,49 @@ export async function stopContainers(
 }
 
 /**
+ * Capture the current image references for running service containers.
+ * Returns a partial record of service → image tag string (e.g.
+ * "vellumai/vellum-assistant:v1.2.3"). Used before stopping containers
+ * so we can roll back to these exact images if the new version fails
+ * readiness checks.
+ *
+ * Returns null if no containers could be inspected (e.g. fresh install).
+ */
+export async function captureImageRefs(
+  res: ReturnType<typeof dockerResourceNames>,
+): Promise<Record<ServiceName, string> | null> {
+  const containerForService: Record<ServiceName, string> = {
+    assistant: res.assistantContainer,
+    "credential-executor": res.cesContainer,
+    gateway: res.gatewayContainer,
+  };
+
+  const refs: Partial<Record<ServiceName, string>> = {};
+  let foundAny = false;
+
+  for (const [service, container] of Object.entries(containerForService)) {
+    try {
+      const imageRef = (
+        await execOutput("docker", [
+          "inspect",
+          "--format",
+          "{{.Config.Image}}",
+          container,
+        ])
+      ).trim();
+      if (imageRef) {
+        refs[service as ServiceName] = imageRef;
+        foundAny = true;
+      }
+    } catch {
+      // Container doesn't exist or can't be inspected — skip
+    }
+  }
+
+  return foundAny ? (refs as Record<ServiceName, string>) : null;
+}
+
+/**
  * Determine which services are affected by a changed file path relative
  * to the repository root.
  */
