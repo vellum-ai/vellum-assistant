@@ -9,6 +9,12 @@ public protocol ConversationListClientProtocol {
     func fetchConversationList(offset: Int, limit: Int) async -> ConversationListResponse?
 }
 
+extension ConversationListClientProtocol {
+    func fetchConversationList() async -> ConversationListResponse? {
+        await fetchConversationList(offset: 0, limit: 50)
+    }
+}
+
 /// Gateway-backed implementation of ``ConversationListClientProtocol``.
 @MainActor
 public struct ConversationListClient: ConversationListClientProtocol {
