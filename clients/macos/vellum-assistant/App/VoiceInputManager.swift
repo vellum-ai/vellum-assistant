@@ -69,8 +69,6 @@ final class VoiceInputManager {
     /// Floating overlay showing dictation state (recording/processing/done).
     private let overlayWindow = DictationOverlayWindow()
 
-    /// Overlay for first-use permission prompts (microphone/speech recognition).
-    private let permissionOverlay = PermissionPromptOverlay()
 
     /// True after a dictation request has been sent and we're awaiting a response.
     /// Used by `stopRecording()` to decide whether the overlay should stay visible.
@@ -189,7 +187,6 @@ final class VoiceInputManager {
         isActivatorHeld = false
         stopRecording()
         overlayWindow.dismiss()
-        permissionOverlay.dismiss()
     }
 
     /// Directly toggle recording on/off — used by UI mic buttons that bypass the Fn-key hold flow.
@@ -563,15 +560,16 @@ final class VoiceInputManager {
         let micDenied = micStatus == .denied || micStatus == .restricted
         let speechDenied = speechStatus == .denied || speechStatus == .restricted
         if micDenied || speechDenied {
-            let deniedPermission: PermissionPromptOverlay.DeniedPermission
-            if micDenied && speechDenied {
-                deniedPermission = .both
-            } else if micDenied {
-                deniedPermission = .microphone
+            // Open the relevant System Settings pane directly.
+            // Calling requestAccess first ensures the app is registered in TCC
+            // so it actually appears in System Settings.
+            if micDenied {
+                AVCaptureDevice.requestAccess(for: .audio) { _ in }
+                PermissionManager.openMicrophoneSettings()
             } else {
-                deniedPermission = .speechRecognition
+                SFSpeechRecognizer.requestAuthorization { _ in }
+                PermissionManager.openSpeechRecognitionSettings()
             }
-            showDeniedPermissionPrompt(deniedPermission: deniedPermission)
             currentDictationContext = nil
             return
         }
@@ -691,24 +689,7 @@ final class VoiceInputManager {
 
     // MARK: - Permission Prompt
 
-    /// Display name for the currently configured activation key, for use in user-facing copy.
-    private var activationKeyDisplayName: String {
-        let current = activator
-        if current.kind == .none { return "the activation key" }
-        return current.displayName
-    }
 
-    /// Show the denied-permission overlay directing the user to System Settings.
-    private func showDeniedPermissionPrompt(deniedPermission: PermissionPromptOverlay.DeniedPermission) {
-        let keyName = activationKeyDisplayName
-        permissionOverlay.show(
-            kind: deniedPermission,
-            keyName: keyName,
-            onDismiss: { [weak self] in
-                self?.permissionOverlay.dismiss()
-            }
-        )
-    }
 
     /// Request both microphone and speech recognition permissions sequentially,
     /// then start recording if both are granted.
@@ -716,7 +697,7 @@ final class VoiceInputManager {
         let micGranted = await AVCaptureDevice.requestAccess(for: .audio)
         guard micGranted else {
             log.warning("Microphone access denied by user")
-            showDeniedPermissionPrompt(deniedPermission: .microphone)
+            PermissionManager.openMicrophoneSettings()
             return
         }
 
@@ -727,7 +708,7 @@ final class VoiceInputManager {
         }
         guard speechGranted else {
             log.warning("Speech recognition access denied by user")
-            showDeniedPermissionPrompt(deniedPermission: .speechRecognition)
+            PermissionManager.openSpeechRecognitionSettings()
             return
         }
 
@@ -738,11 +719,6 @@ final class VoiceInputManager {
         self.beginRecording()
     }
 
-    private func openPrivacySettings(for pane: String) {
-        if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?\(pane)") {
-            NSWorkspace.shared.open(url)
-        }
-    }
 
     /// Routes a final transcription based on the current mode.
     func handleFinalTranscription(_ text: String) {
