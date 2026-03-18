@@ -132,12 +132,14 @@ export async function run(
   const meta = VOICE_SETTINGS[setting as VoiceSettingName];
   const friendlyName = FRIENDLY_NAMES[setting as VoiceSettingName];
 
-  // Send client_settings_update message to write to UserDefaults
+  // Send client_settings_update message to write to UserDefaults.
+  // Always stringify the value — Swift's ClientSettingsUpdate.value is typed
+  // as String, so a bare JSON number would fail to decode.
   if (context.sendToClient) {
     context.sendToClient({
       type: "client_settings_update",
       key: meta.userDefaultsKey,
-      value: validation.coerced,
+      value: String(validation.coerced),
     });
   }
 
