@@ -78,7 +78,6 @@ struct ComposerView: View {
     @State private var avatarSeed: String = "default"
     /// Snapshot of inputText captured when dictation starts, used to restore on cancel.
     @State private var preDictationText: String = ""
-    @State private var showVoiceModeHover: Bool = false
     /// Live amplitude from VoiceInputManager, bypassing ChatViewModel's 100ms coalescing.
     @State private var liveAmplitude: Float = 0
     @State private var isComposerDropTargeted = false
@@ -454,10 +453,6 @@ struct ComposerView: View {
         }
     }
 
-    /// Gap between a ghost button and a filled (primary/contrast) button — uses the standard
-    /// small spacing token for consistent spacing across the composer action bar.
-    private let composerFilledGap: CGFloat = VSpacing.sm
-
     /// Bottom action bar: paperclip on the left, send/mic/stop on the right.
     @ViewBuilder
     private var composerActionBar: some View {
@@ -499,31 +494,14 @@ struct ComposerView: View {
                 }
             } else if inputText.isEmpty && !hasPendingConfirmation {
                 VButton(
-                    label: "Dictate",
+                    label: micButtonLabel,
                     iconOnly: VIcon.mic.rawValue,
                     style: .ghost,
                     iconSize: composerActionButtonSize,
-                    action: { (onDictateToggle ?? onMicrophoneToggle)() }
+                    action: { handleMicTap() }
                 )
                 .disabled(!hasAPIKey)
-
-                Spacer().frame(width: composerFilledGap)
-                VButton(
-                    label: "Voice mode",
-                    iconOnly: VIcon.audioWaveform.rawValue,
-                    style: .contrast,
-                    iconSize: composerActionButtonSize,
-                    action: { onVoiceModeToggle?() }
-                )
-                .disabled(!hasAPIKey)
-                .popover(isPresented: $showVoiceModeHover, arrowEdge: .top) {
-                    Text("Live voice conversation (not dictation)")
-                        .font(VFont.caption)
-                        .padding(VSpacing.sm)
-                }
-                .onHover { hovering in
-                    showVoiceModeHover = hovering
-                }
+                .help("Tap: dictation. Tap again: live voice. Tap in live: off")
             } else {
                 VButton(
                     label: isRecording ? "Stop recording" : "Start voice input",
@@ -534,6 +512,33 @@ struct ComposerView: View {
                 )
                 .disabled(!hasAPIKey)
             }
+        }
+    }
+
+    // MARK: - Mic Button 3-State Toggle
+
+    /// Accessibility label for the mic button based on current mode.
+    private var micButtonLabel: String {
+        switch currentMode {
+        case .textEntry: return "Start dictation"
+        case .dictationInline: return "Switch to live voice"
+        case .voiceConversation: return "End voice mode"
+        }
+    }
+
+    /// Cycles the mic button through: off → dictation → live voice → off.
+    private func handleMicTap() {
+        switch currentMode {
+        case .textEntry:
+            // Start dictation
+            (onDictateToggle ?? onMicrophoneToggle)()
+        case .dictationInline:
+            // Stop dictation, then activate live voice
+            onMicrophoneToggle()
+            onVoiceModeToggle?()
+        case .voiceConversation:
+            // Turn off voice mode
+            onVoiceModeToggle?()
         }
     }
 
