@@ -51,7 +51,6 @@ struct ContactDetailView: View {
                         .padding(.bottom, VSpacing.lg)
                 }
             }
-            .vCard(radius: VRadius.lg, background: VColor.surfaceOverlay)
         }
         .confirmationDialog(
             "Delete \(displayContact.displayName)?",

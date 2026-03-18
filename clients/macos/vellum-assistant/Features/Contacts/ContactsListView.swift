@@ -97,7 +97,6 @@ struct ContactsListView: View {
         }
         .padding(VSpacing.lg)
         .frame(maxHeight: .infinity, alignment: .top)
-        .vCard(radius: VRadius.lg, background: VColor.surfaceOverlay)
     }
 
     /// Whether a name matches the current search query (or query is empty).
@@ -171,7 +170,6 @@ struct ContactsListView: View {
         }
         .padding(VSpacing.lg)
         .frame(maxHeight: .infinity, alignment: .top)
-        .vCard(radius: VRadius.lg, background: VColor.surfaceOverlay)
         .accessibilityHidden(true)
     }
 

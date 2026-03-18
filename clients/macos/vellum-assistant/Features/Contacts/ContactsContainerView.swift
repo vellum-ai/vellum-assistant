@@ -78,7 +78,8 @@ struct ContactsContainerView: View {
                             VSkeletonBone(width: 60, height: 28, radius: VRadius.md)
                         }
                         .padding(VSpacing.lg)
-                        .vCard(radius: VRadius.lg, background: VColor.surfaceOverlay)
+
+                        SettingsDivider()
 
                         // Channels card skeleton
                         VStack(alignment: .leading, spacing: VSpacing.lg) {
@@ -101,7 +102,6 @@ struct ContactsContainerView: View {
                             }
                         }
                         .padding(VSpacing.lg)
-                        .vCard(radius: VRadius.lg, background: VColor.surfaceOverlay)
                     }
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -148,10 +148,10 @@ struct ContactsContainerView: View {
                             .frame(maxWidth: 240)
                     }
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .background(VColor.surfaceOverlay)
                 }
             }
         }
+        .frame(maxHeight: .infinity)
         .onReceive(viewModel.$contacts) { newContacts in
             // Default to assistant on first load (don't override existing selection)
             if selection == nil && !newContacts.isEmpty {
@@ -242,7 +242,6 @@ struct ContactsContainerView: View {
                 )
                 .padding(VSpacing.lg)
             }
-            .vCard(radius: VRadius.lg, background: VColor.surfaceOverlay)
         }
         .id(contact.id)
         .onAppear {
@@ -304,7 +303,6 @@ struct ContactsContainerView: View {
                 if let store {
                     AssistantChannelsDetailView(store: store, daemonClient: daemonClient, assistantName: cachedAssistantName, isEmailEnabled: isEmailEnabled, showCardBorders: false)
                         .padding(VSpacing.lg)
-                        .vCard(radius: VRadius.lg, background: VColor.surfaceOverlay)
                 }
             }
         }
