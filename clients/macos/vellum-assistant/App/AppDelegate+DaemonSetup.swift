@@ -314,11 +314,13 @@ extension AppDelegate {
             self.handleRecordingResume(msg)
         }
 
-        // Handle client_settings_update from daemon: route ttsVoiceId to the voice service
-        // override property; write all other keys to UserDefaults as before.
+        // Handle client_settings_update from daemon: route specific keys to their
+        // override properties; write all other keys to UserDefaults as before.
         daemonClient.onClientSettingsUpdate = { msg in
             if msg.key == "ttsVoiceId" {
                 OpenAIVoiceService.overrideVoiceId = msg.value as? String
+            } else if msg.key == "voiceConversationTimeoutSeconds" {
+                VoiceModeManager.conversationTimeoutOverride = msg.value as? Int
             } else {
                 UserDefaults.standard.set(msg.value, forKey: msg.key)
             }

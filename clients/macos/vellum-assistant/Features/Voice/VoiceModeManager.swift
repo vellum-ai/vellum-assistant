@@ -7,6 +7,10 @@ private let log = Logger(subsystem: "com.vellum.vellum-assistant", category: "Vo
 
 @MainActor
 final class VoiceModeManager: ObservableObject {
+    /// Override set via `client_settings_update` from the daemon.
+    /// When non-nil, used instead of the default 30-second conversation timeout.
+    static var conversationTimeoutOverride: Int?
+
     enum State: Equatable {
         case off, idle, listening, processing, speaking
     }
@@ -595,9 +599,13 @@ final class VoiceModeManager: ObservableObject {
 
     private func startConversationTimeout() {
         cancelConversationTimeout()
-        // Read the user's preference each time so changes take effect immediately
-        let storedTimeout = UserDefaults.standard.integer(forKey: "voiceConversationTimeoutSeconds")
-        let interval = storedTimeout > 0 ? TimeInterval(storedTimeout) : conversationTimeoutInterval
+        // Read the override each time so daemon broadcasts take effect immediately
+        let interval: TimeInterval
+        if let override = Self.conversationTimeoutOverride, override > 0 {
+            interval = TimeInterval(override)
+        } else {
+            interval = conversationTimeoutInterval
+        }
         let clampedInterval = max(1.0, interval.isFinite ? interval : 30.0)
         conversationTimeoutTask = Task { [weak self] in
             try? await Task.sleep(nanoseconds: UInt64(clampedInterval * 1_000_000_000))
