@@ -52,6 +52,11 @@ struct GoogleOAuthServiceCard: View {
                 Task { await store.fetchGoogleOAuthConnections() }
             }
         }
+        .onChange(of: isLoggedIn) { _, loggedIn in
+            if loggedIn && draftMode == "managed" {
+                Task { await store.fetchGoogleOAuthConnections() }
+            }
+        }
     }
 
     // MARK: - Managed Content
@@ -108,8 +113,13 @@ struct GoogleOAuthServiceCard: View {
             ForEach(store.googleOAuthConnections, id: \.id) { entry in
                 connectionRow(for: entry)
             }
-            VButton(label: "Connect Another Account", style: .outlined) {
+            VButton(label: "Connect Another Account", style: .outlined, isDisabled: store.googleOAuthIsConnecting) {
                 store.startGoogleOAuthConnect()
+            }
+            if store.googleOAuthIsConnecting {
+                Text("Waiting for authorization...")
+                    .font(VFont.caption)
+                    .foregroundColor(VColor.contentTertiary)
             }
         }
     }
