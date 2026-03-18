@@ -1549,52 +1549,51 @@ public final class SettingsStore: ObservableObject {
         default:
             return
         }
-        do {
-            guard let daemonClient else {
-                clearVerificationSessionPending(for: channel)
+        guard let daemonClient else {
+            clearVerificationSessionPending(for: channel)
+            switch channel {
+            case "telegram":
+                telegramVerificationInProgress = false
+                telegramVerificationError = "Daemon is not connected. Reconnect and try again."
+            case "phone":
+                voiceVerificationInProgress = false
+                voiceVerificationError = "Daemon is not connected. Reconnect and try again."
+            case "slack":
+                slackVerificationInProgress = false
+                slackVerificationError = "Daemon is not connected. Reconnect and try again."
+            default:
+                break
+            }
+            return
+        }
+        pendingVerificationSessionChannel = channel
+        armVerificationSessionTimeout(for: channel)
+        Task {
+            let response = await settingsClient.sendChannelVerificationSession(
+                action: "create_session",
+                channel: channel,
+                rebind: rebind ? true : nil
+            )
+            if response == nil {
+                log.error("Failed to start \(channel) channel verification")
+                self.clearVerificationSessionPending(for: channel)
                 switch channel {
                 case "telegram":
-                    telegramVerificationInProgress = false
-                    telegramVerificationError = "Daemon is not connected. Reconnect and try again."
+                    self.telegramVerificationInProgress = false
+                    self.telegramVerificationError = "Failed to start verification. Try again."
                 case "phone":
-                    voiceVerificationInProgress = false
-                    voiceVerificationError = "Daemon is not connected. Reconnect and try again."
+                    self.voiceVerificationInProgress = false
+                    self.voiceVerificationError = "Failed to start verification. Try again."
                 case "slack":
-                    slackVerificationInProgress = false
-                    slackVerificationError = "Daemon is not connected. Reconnect and try again."
+                    self.slackVerificationInProgress = false
+                    self.slackVerificationError = "Failed to start verification. Try again."
                 default:
                     break
                 }
-                return
+            } else if let response {
+                self.applyChannelVerificationResponse(response)
             }
-            pendingVerificationSessionChannel = channel
-            armVerificationSessionTimeout(for: channel)
-            Task {
-                let response = await settingsClient.sendChannelVerificationSession(
-                    action: "create_session",
-                    channel: channel,
-                    rebind: rebind ? true : nil
-                )
-                if response == nil {
-                    log.error("Failed to start \(channel) channel verification")
-                    self.clearVerificationSessionPending(for: channel)
-                    switch channel {
-                    case "telegram":
-                        self.telegramVerificationInProgress = false
-                        self.telegramVerificationError = "Failed to start verification. Try again."
-                    case "phone":
-                        self.voiceVerificationInProgress = false
-                        self.voiceVerificationError = "Failed to start verification. Try again."
-                    case "slack":
-                        self.slackVerificationInProgress = false
-                        self.slackVerificationError = "Failed to start verification. Try again."
-                    default:
-                        break
-                    }
-                } else if let response {
-                    self.applyChannelVerificationResponse(response)
-                }
-            }
+        }
     }
 
     func cancelVerificationSession(channel: String) {
@@ -1660,48 +1659,47 @@ public final class SettingsStore: ObservableObject {
         default:
             return
         }
-        do {
-            guard let daemonClient else {
+        guard let daemonClient else {
+            switch channel {
+            case "telegram":
+                telegramVerificationInProgress = false
+                telegramVerificationError = "Daemon is not connected. Reconnect and try again."
+            case "phone":
+                voiceVerificationInProgress = false
+                voiceVerificationError = "Daemon is not connected. Reconnect and try again."
+            case "slack":
+                slackVerificationInProgress = false
+                slackVerificationError = "Daemon is not connected. Reconnect and try again."
+            default:
+                break
+            }
+            return
+        }
+        Task {
+            let response = await self.settingsClient.sendChannelVerificationSession(
+                action: "create_session",
+                channel: channel,
+                destination: destination
+            )
+            if response == nil {
+                log.error("Failed to start outbound \(channel) channel verification")
                 switch channel {
                 case "telegram":
-                    telegramVerificationInProgress = false
-                    telegramVerificationError = "Daemon is not connected. Reconnect and try again."
+                    self.telegramVerificationInProgress = false
+                    self.telegramVerificationError = "Failed to start verification. Try again."
                 case "phone":
-                    voiceVerificationInProgress = false
-                    voiceVerificationError = "Daemon is not connected. Reconnect and try again."
+                    self.voiceVerificationInProgress = false
+                    self.voiceVerificationError = "Failed to start verification. Try again."
                 case "slack":
-                    slackVerificationInProgress = false
-                    slackVerificationError = "Daemon is not connected. Reconnect and try again."
+                    self.slackVerificationInProgress = false
+                    self.slackVerificationError = "Failed to start verification. Try again."
                 default:
                     break
                 }
-                return
+            } else if let response {
+                self.applyChannelVerificationResponse(response)
             }
-            Task {
-                let response = await self.settingsClient.sendChannelVerificationSession(
-                    action: "create_session",
-                    channel: channel,
-                    destination: destination
-                )
-                if response == nil {
-                    log.error("Failed to start outbound \(channel) channel verification")
-                    switch channel {
-                    case "telegram":
-                        self.telegramVerificationInProgress = false
-                        self.telegramVerificationError = "Failed to start verification. Try again."
-                    case "phone":
-                        self.voiceVerificationInProgress = false
-                        self.voiceVerificationError = "Failed to start verification. Try again."
-                    case "slack":
-                        self.slackVerificationInProgress = false
-                        self.slackVerificationError = "Failed to start verification. Try again."
-                    default:
-                        break
-                    }
-                } else if let response {
-                    self.applyChannelVerificationResponse(response)
-                }
-            }
+        }
     }
 
     func resendOutboundVerification(channel: String) {

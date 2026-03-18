@@ -19,11 +19,11 @@ extension HTTPTransport {
             if let msg = message as? UserMessageMessage {
                 Task { await self.sendMessage(content: msg.content, conversationId: msg.conversationId, attachments: msg.attachments, automated: msg.automated) }
                 return true
-            } else if message is ConfirmationResponseMessage {
-                // Handled by InteractionClient via GatewayHTTPClient.
+            } else if let msg = message as? ConfirmationResponseMessage {
+                Task { await self.sendDecision(requestId: msg.requestId, decision: msg.decision, selectedPattern: msg.selectedPattern, selectedScope: msg.selectedScope) }
                 return true
-            } else if message is SecretResponseMessage {
-                // Handled by InteractionClient via GatewayHTTPClient.
+            } else if let msg = message as? SecretResponseMessage {
+                Task { await self.sendSecret(requestId: msg.requestId, value: msg.value, delivery: msg.delivery) }
                 return true
             } else if let msg = message as? ConversationCreateMessage {
                 // For HTTP transport, conversation creation is implicit — the conversationKey
@@ -48,8 +48,14 @@ extension HTTPTransport {
             } else if let msg = message as? ConversationSeenSignal {
                 Task { await self.sendConversationSeen(msg) }
                 return true
-            } else if message is ConversationUnreadSignal {
-                // Handled by ConversationListClient via GatewayHTTPClient.
+            } else if let msg = message as? ConversationUnreadSignal {
+                Task {
+                    do {
+                        try await self.sendConversationUnread(msg)
+                    } catch {
+                        log.error("Conversation unread signal error: \(error.localizedDescription)")
+                    }
+                }
                 return true
             } else if message is GuardianActionsPendingRequestMessage
                         || message is GuardianActionDecisionMessage {
