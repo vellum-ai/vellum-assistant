@@ -2,6 +2,7 @@ import OpenAI from "openai";
 
 import { SYSTEM_PROMPT_CACHE_BOUNDARY } from "../../prompts/cache-boundary.js";
 import { ProviderError } from "../../util/errors.js";
+import { getLogger } from "../../util/logger.js";
 import { extractRetryAfterMs } from "../../util/retry.js";
 import { escapeXmlAttr } from "../../util/xml.js";
 import { createStreamTimeout } from "../stream-timeout.js";
@@ -13,6 +14,47 @@ import type {
   SendMessageOptions,
   ToolDefinition,
 } from "../types.js";
+
+const log = getLogger("openai-client");
+
+/**
+ * Validate an OpenAI API key by making a lightweight GET /v1/models call.
+ * Returns `{ valid: true }` on success or `{ valid: false, reason: string }` on failure.
+ */
+export async function validateOpenAIApiKey(
+  apiKey: string,
+): Promise<{ valid: true } | { valid: false; reason: string }> {
+  try {
+    const client = new OpenAI({ apiKey });
+    await client.models.list();
+    return { valid: true };
+  } catch (error) {
+    if (error instanceof OpenAI.APIError) {
+      if (error.status === 401) {
+        return { valid: false, reason: "API key is invalid or expired." };
+      }
+      if (error.status === 403) {
+        return {
+          valid: false,
+          reason: `OpenAI API error (${error.status}): ${error.message}`,
+        };
+      }
+      // Transient errors (429, 5xx, etc.) — validation is inconclusive,
+      // allow the key to be stored rather than blocking the user.
+      log.warn(
+        { status: error.status },
+        "OpenAI API returned a transient error during key validation — allowing key storage",
+      );
+      return { valid: true };
+    }
+    // Network errors — validation is inconclusive, allow key storage.
+    log.warn(
+      { error: error instanceof Error ? error.message : String(error) },
+      "Network error during OpenAI key validation — allowing key storage",
+    );
+    return { valid: true };
+  }
+}
 
 export interface OpenAICompatibleProviderOptions {
   baseURL?: string;

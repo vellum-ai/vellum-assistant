@@ -13,6 +13,8 @@ import type { CesClient } from "../../credential-execution/client.js";
 import { setSentryOrganizationId } from "../../instrument.js";
 import { syncManualTokenConnection } from "../../oauth/manual-token-connection.js";
 import { validateAnthropicApiKey } from "../../providers/anthropic/client.js";
+import { validateGeminiApiKey } from "../../providers/gemini/client.js";
+import { validateOpenAIApiKey } from "../../providers/openai/client.js";
 import { initializeProviders } from "../../providers/registry.js";
 import { credentialKey } from "../../security/credential-key.js";
 import {
@@ -131,7 +133,7 @@ export async function handleAddSecret(
           400,
         );
       }
-      // Validate Anthropic API keys before storing
+      // Validate API keys before storing (Anthropic, OpenAI, Gemini)
       if (name === "anthropic") {
         const validation = await validateAnthropicApiKey(value);
         if (!validation.valid) {
@@ -144,7 +146,32 @@ export async function handleAddSecret(
             { status: 422 },
           );
         }
+      } else if (name === "openai") {
+        const validation = await validateOpenAIApiKey(value);
+        if (!validation.valid) {
+          log.warn(
+            { provider: name, reason: validation.reason },
+            "API key validation failed",
+          );
+          return Response.json(
+            { success: false, error: validation.reason },
+            { status: 422 },
+          );
+        }
+      } else if (name === "gemini") {
+        const validation = await validateGeminiApiKey(value);
+        if (!validation.valid) {
+          log.warn(
+            { provider: name, reason: validation.reason },
+            "API key validation failed",
+          );
+          return Response.json(
+            { success: false, error: validation.reason },
+            { status: 422 },
+          );
+        }
       }
+      // fireworks, openrouter, ollama — no validation (allow storage)
 
       const stored = await setSecureKeyAsync(name, value);
       if (!stored) {
