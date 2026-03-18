@@ -95,24 +95,14 @@ public struct GuardianClient: GuardianClientProtocol {
             }
 
             let decoded = try JSONDecoder().decode(GuardianBootstrapResponse.self, from: response.data)
-            if let refreshToken = decoded.refreshToken,
-               let accessTokenExpiresAt = decoded.accessTokenExpiresAt,
-               let refreshTokenExpiresAt = decoded.refreshTokenExpiresAt,
-               let refreshAfter = decoded.refreshAfter {
-                ActorTokenManager.storeCredentials(
-                    actorToken: decoded.accessToken,
-                    actorTokenExpiresAt: accessTokenExpiresAt,
-                    refreshToken: refreshToken,
-                    refreshTokenExpiresAt: refreshTokenExpiresAt,
-                    refreshAfter: refreshAfter,
-                    guardianPrincipalId: decoded.guardianPrincipalId
-                )
-            } else {
-                // Legacy fallback for older runtimes that don't return refresh tokens.
-                ActorTokenManager.setToken(decoded.accessToken)
-                ActorTokenManager.setGuardianPrincipalId(decoded.guardianPrincipalId)
-                ActorTokenManager.clearRefreshMetadata()
-            }
+            ActorTokenManager.storeCredentials(
+                actorToken: decoded.accessToken,
+                actorTokenExpiresAt: decoded.accessTokenExpiresAt,
+                refreshToken: decoded.refreshToken,
+                refreshTokenExpiresAt: decoded.refreshTokenExpiresAt,
+                refreshAfter: decoded.refreshAfter,
+                guardianPrincipalId: decoded.guardianPrincipalId
+            )
             log.info("Access token bootstrap succeeded (isNew=\(decoded.isNew))")
             return true
         } catch {
@@ -132,47 +122,12 @@ public struct GuardianClient: GuardianClientProtocol {
 // MARK: - Guardian Bootstrap Response
 
 /// Response from `POST /v1/guardian/init`.
-/// Accepts both `accessToken` (new) and `actorToken` (legacy) field names.
 public struct GuardianBootstrapResponse: Decodable {
     public let guardianPrincipalId: String
-    /// The JWT access token — accepts either `accessToken` or legacy `actorToken`.
     public let accessToken: String
-    public let accessTokenExpiresAt: Int?
-    public let refreshToken: String?
-    public let refreshTokenExpiresAt: Int?
-    public let refreshAfter: Int?
+    public let accessTokenExpiresAt: Int
+    public let refreshToken: String
+    public let refreshTokenExpiresAt: Int
+    public let refreshAfter: Int
     public let isNew: Bool
-
-    private enum CodingKeys: String, CodingKey {
-        case guardianPrincipalId
-        case accessToken
-        case actorToken
-        case accessTokenExpiresAt
-        case actorTokenExpiresAt
-        case refreshToken
-        case refreshTokenExpiresAt
-        case refreshAfter
-        case isNew
-    }
-
-    public init(from decoder: Decoder) throws {
-        let container = try decoder.container(keyedBy: CodingKeys.self)
-        guardianPrincipalId = try container.decode(String.self, forKey: .guardianPrincipalId)
-        // Accept "accessToken" first, fall back to legacy "actorToken"
-        if let token = try container.decodeIfPresent(String.self, forKey: .accessToken) {
-            accessToken = token
-        } else {
-            accessToken = try container.decode(String.self, forKey: .actorToken)
-        }
-        // Accept "accessTokenExpiresAt" first, fall back to legacy "actorTokenExpiresAt"
-        if let expiresAt = try container.decodeIfPresent(Int.self, forKey: .accessTokenExpiresAt) {
-            accessTokenExpiresAt = expiresAt
-        } else {
-            accessTokenExpiresAt = try container.decodeIfPresent(Int.self, forKey: .actorTokenExpiresAt)
-        }
-        refreshToken = try container.decodeIfPresent(String.self, forKey: .refreshToken)
-        refreshTokenExpiresAt = try container.decodeIfPresent(Int.self, forKey: .refreshTokenExpiresAt)
-        refreshAfter = try container.decodeIfPresent(Int.self, forKey: .refreshAfter)
-        isNew = try container.decode(Bool.self, forKey: .isNew)
-    }
 }

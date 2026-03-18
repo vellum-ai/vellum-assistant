@@ -159,19 +159,19 @@ function matchRoute(
   // Check method first (cheapest check)
   if (route.method && route.method !== method) return null;
 
-  // Normalize trailing slashes so "/v1/foo/" matches "/v1/foo"
-  const normalized =
-    pathname.length > 1 && pathname.endsWith("/")
-      ? pathname.slice(0, -1)
-      : pathname;
-
   if (typeof route.path === "string") {
+    // Normalize trailing slashes so "/v1/foo/" matches "/v1/foo"
+    const normalized =
+      pathname.length > 1 && pathname.endsWith("/")
+        ? pathname.slice(0, -1)
+        : pathname;
     if (normalized !== route.path) return null;
     return { params: [] };
   }
 
-  // Regex path
-  const match = normalized.match(route.path);
+  // Regex path — use original pathname since regex routes may
+  // explicitly include trailing slashes in their patterns.
+  const match = pathname.match(route.path);
   if (!match) return null;
   return { params: match.slice(1) };
 }
