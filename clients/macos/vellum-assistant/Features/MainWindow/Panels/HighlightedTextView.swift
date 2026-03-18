@@ -59,6 +59,14 @@ struct HighlightedTextView: View {
             }
         }
         .task { contentReady = true }
+        .onChange(of: isActivelyEditing) { _, editing in
+            if !editing {
+                // readOnlyView's .onChange(of: text) doesn't fire while
+                // editableView is shown, so the cache may hold stale content.
+                cachedHighlight = nil
+                highlightVersion &+= 1
+            }
+        }
         .onChange(of: language) { _, _ in
             isActivelyEditing = false
         }
