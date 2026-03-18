@@ -153,6 +153,7 @@ struct ContactsContainerView: View {
             }
         }
         .frame(maxHeight: .infinity)
+        .background(VColor.surfaceOverlay)
         .clipShape(RoundedRectangle(cornerRadius: VRadius.lg))
         .overlay(
             RoundedRectangle(cornerRadius: VRadius.lg)
