@@ -357,6 +357,7 @@ public final class ChatViewModel: ObservableObject {
     private let surfaceClient: any SurfaceClientProtocol = SurfaceClient()
     private let conversationStarterClient: any ConversationStarterClientProtocol = ConversationStarterClient()
     let interactionClient: any InteractionClientProtocol = InteractionClient()
+    let surfaceActionClient: any SurfaceActionClientProtocol = SurfaceActionClient()
     /// Tracks the action submitted for each guardian decision requestId so the
     /// response handler can display the correct resolved state (the server does
     /// not echo back the action in its acknowledgement).
@@ -1715,16 +1716,13 @@ public final class ChatViewModel: ObservableObject {
         }
 
         guard let conversationId else { return }
-        let msg = UiSurfaceActionMessage(
-            conversationId: conversationId,
-            surfaceId: surfaceId,
-            actionId: actionId,
-            data: data
-        )
-        do {
-            try daemonClient.send(msg)
-        } catch {
-            log.error("Failed to send UiSurfaceAction: \(error)")
+        Task {
+            await surfaceActionClient.sendSurfaceAction(
+                conversationId: conversationId,
+                surfaceId: surfaceId,
+                actionId: actionId,
+                data: data
+            )
         }
     }
 
@@ -2008,10 +2006,8 @@ public final class ChatViewModel: ObservableObject {
     public func undoSurfaceRefinement() {
         guard let conversationId, let surfaceId = activeSurfaceId else { return }
         guard surfaceUndoCount > 0 else { return }
-        do {
-            try daemonClient.send(UiSurfaceUndoMessage(conversationId: conversationId, surfaceId: surfaceId))
-        } catch {
-            log.error("Failed to send surface undo: \(error.localizedDescription)")
+        Task {
+            await surfaceActionClient.sendSurfaceUndo(conversationId: conversationId, surfaceId: surfaceId)
         }
     }
 

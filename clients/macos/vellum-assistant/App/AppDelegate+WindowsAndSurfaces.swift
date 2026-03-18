@@ -82,19 +82,16 @@ extension AppDelegate {
             }
         }
 
-        // Wire SurfaceManager action callback to DaemonClient
-        surfaceManager.onAction = { [weak self] conversationId, surfaceId, actionId, data in
-            guard let self else { return }
+        // Wire SurfaceManager action callback to SurfaceActionClient
+        surfaceManager.onAction = { conversationId, surfaceId, actionId, data in
             let codableData: [String: AnyCodable]? = data?.mapValues { AnyCodable($0) }
-            do {
-                try self.daemonClient.sendSurfaceAction(
+            Task {
+                await SurfaceActionClient().sendSurfaceAction(
                     conversationId: conversationId,
                     surfaceId: surfaceId,
                     actionId: actionId,
                     data: codableData
                 )
-            } catch {
-                log.error("Failed to send surface action \(actionId) for surface \(surfaceId): \(error)")
             }
         }
 

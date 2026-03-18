@@ -650,20 +650,6 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
         try await httpTransport.sendConversationUnread(signal)
     }
 
-    // MARK: - Surface Actions
-
-    /// Convenience method for sending a surface action response to the daemon.
-    /// Keeps the message construction co-located with the client.
-    public func sendSurfaceAction(conversationId: String?, surfaceId: String, actionId: String, data: [String: AnyCodable]?) throws {
-        let message = UiSurfaceActionMessage(
-            conversationId: conversationId,
-            surfaceId: surfaceId,
-            actionId: actionId,
-            data: data
-        )
-        try send(message)
-    }
-
     // MARK: - BTW Side-Chain
 
     /// Send a /btw side-chain question and stream the response text.
@@ -746,14 +732,6 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
             }
             continuation.onTermination = { @Sendable _ in task.cancel() }
         }
-    }
-
-    // MARK: - Surface Undo
-
-    /// Send a surface undo request to revert the last refinement on a workspace surface.
-    public func sendSurfaceUndo(conversationId: String, surfaceId: String) throws {
-        let message = UiSurfaceUndoMessage(conversationId: conversationId, surfaceId: surfaceId)
-        try send(message)
     }
 
     // MARK: - Queue Management
