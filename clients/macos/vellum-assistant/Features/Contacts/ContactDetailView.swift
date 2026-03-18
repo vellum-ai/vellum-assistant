@@ -126,10 +126,11 @@ struct ContactDetailView: View {
             }
             Spacer()
             VButton(
-                label: "Delete Contact",
-                leftIcon: VIcon.trash.rawValue,
+                label: "Delete",
+                iconOnly: VIcon.trash.rawValue,
                 style: .dangerGhost,
-                isDisabled: isDeleting
+                isDisabled: isDeleting,
+                tooltip: "Delete Contact"
             ) {
                 // Skip confirmation for empty/placeholder contacts
                 if displayContact.displayName == "New Contact" && displayContact.channels.isEmpty && displayContact.interactionCount == 0 {
