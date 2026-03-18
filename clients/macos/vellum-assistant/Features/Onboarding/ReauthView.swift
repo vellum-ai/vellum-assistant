@@ -40,7 +40,7 @@ struct ReauthView: View {
                 .padding(.bottom, VSpacing.xs)
 
             Text("Log in to continue.")
-                .font(.system(size: 16))
+                .font(VFont.buttonLarge)
                 .foregroundColor(VColor.contentSecondary)
                 .padding(.bottom, VSpacing.xxl)
 
@@ -51,7 +51,7 @@ struct ReauthView: View {
                             .controlSize(.small)
                             .progressViewStyle(.circular)
                         Text("Checking...")
-                            .font(VFont.monoMedium)
+                            .font(VFont.buttonLarge)
                             .foregroundColor(VColor.contentSecondary)
                     }
                     .frame(height: 36)
@@ -61,7 +61,7 @@ struct ReauthView: View {
                             .controlSize(.small)
                             .progressViewStyle(.circular)
                         Text("Logging in...")
-                            .font(VFont.monoMedium)
+                            .font(VFont.buttonLarge)
                             .foregroundColor(VColor.contentSecondary)
                     }
                     .frame(height: 36)
