@@ -33,7 +33,6 @@ struct ContactDetailView: View {
             VStack(alignment: .leading, spacing: VSpacing.lg) {
                 headerSection
                     .padding(VSpacing.lg)
-                    .vCard(radius: VRadius.lg, background: VColor.surfaceOverlay)
 
                 GuardianChannelsDetailView(
                     contact: displayContact,
@@ -43,7 +42,6 @@ struct ContactDetailView: View {
                     showCardBorders: false
                 )
                 .padding(VSpacing.lg)
-                .vCard(radius: VRadius.lg, background: VColor.surfaceOverlay)
 
                 if let errorMessage {
                     VInlineMessage(errorMessage)

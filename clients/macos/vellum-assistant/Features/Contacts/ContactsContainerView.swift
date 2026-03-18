@@ -34,7 +34,7 @@ struct ContactsContainerView: View {
     }
 
     var body: some View {
-        HStack(alignment: .top, spacing: VSpacing.lg) {
+        HStack(alignment: .top, spacing: 0) {
             // Left pane: contacts list (full height, internal scrolling)
             VStack(spacing: VSpacing.sm) {
                 ContactsListView(
@@ -49,6 +49,13 @@ struct ContactsContainerView: View {
             }
             .frame(width: 320)
             .frame(maxHeight: .infinity, alignment: .top)
+
+            // Thin vertical separator with shadow
+            VColor.borderDisabled
+                .frame(width: 1)
+                .frame(maxHeight: .infinity)
+                .shadow(color: Color.black.opacity(0.08), radius: 2, x: 1, y: 0)
+
             // Right pane: detail, loading, or placeholder
             if viewModel.isLoading && viewModel.contacts.isEmpty {
                 // Skeleton loading state for detail pane
@@ -74,7 +81,6 @@ struct ContactsContainerView: View {
                             VSkeletonBone(width: 60, height: 28, radius: VRadius.md)
                         }
                         .padding(VSpacing.lg)
-                        .vCard(radius: VRadius.lg, background: VColor.surfaceOverlay)
 
                         // Channels card skeleton
                         VStack(alignment: .leading, spacing: VSpacing.lg) {
@@ -97,7 +103,6 @@ struct ContactsContainerView: View {
                             }
                         }
                         .padding(VSpacing.lg)
-                        .vCard(radius: VRadius.lg, background: VColor.surfaceOverlay)
                     }
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -226,7 +231,6 @@ struct ContactsContainerView: View {
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(VSpacing.lg)
-                .vCard(radius: VRadius.lg, background: VColor.surfaceOverlay)
 
                 GuardianChannelsDetailView(
                     contact: contact,
@@ -236,7 +240,6 @@ struct ContactsContainerView: View {
                     showCardBorders: false
                 )
                 .padding(VSpacing.lg)
-                .vCard(radius: VRadius.lg, background: VColor.surfaceOverlay)
             }
         }
         .id(contact.id)
@@ -299,7 +302,6 @@ struct ContactsContainerView: View {
                 if let store {
                     AssistantChannelsDetailView(store: store, daemonClient: daemonClient, conversationManager: conversationManager, assistantName: cachedAssistantName, isEmailEnabled: isEmailEnabled, showCardBorders: false)
                         .padding(VSpacing.lg)
-                        .vCard(radius: VRadius.lg, background: VColor.surfaceOverlay)
                 }
             }
         }

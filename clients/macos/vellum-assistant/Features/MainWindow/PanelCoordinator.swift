@@ -94,6 +94,9 @@ extension MainWindowView {
                     windowState.selection = nil
                 },
                 daemonClient: daemonClient,
+                store: settingsStore,
+                conversationManager: conversationManager,
+                showToast: { msg, style in windowState.showToast(message: msg, style: style) },
                 initialTab: windowState.pendingMemoryId != nil ? "Memories" : nil,
                 pendingMemoryId: $windowState.pendingMemoryId
             )
@@ -467,6 +470,9 @@ extension MainWindowView {
                     windowState.dismissOverlay()
                 },
                 daemonClient: daemonClient,
+                store: settingsStore,
+                conversationManager: conversationManager,
+                showToast: { msg, style in windowState.showToast(message: msg, style: style) },
                 initialTab: windowState.pendingMemoryId != nil ? "Memories" : nil,
                 pendingMemoryId: $windowState.pendingMemoryId
             )
