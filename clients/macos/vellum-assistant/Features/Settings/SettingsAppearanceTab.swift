@@ -36,7 +36,7 @@ struct SettingsAppearanceTab: View {
                         get: { themePreference },
                         set: { newValue in
                             themePreference = newValue
-                            AppDelegate.shared?.applyThemePreference()
+                            VThemeToggle.applyTheme(newValue)
                         }
                     ),
                     style: .pill

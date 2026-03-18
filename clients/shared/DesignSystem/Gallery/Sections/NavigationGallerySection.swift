@@ -213,6 +213,17 @@ struct NavigationGallerySection: View {
                 }
             }
 
+            Divider().background(VColor.borderBase).padding(.vertical, VSpacing.md)
+
+            // MARK: - VThemeToggle
+            GallerySectionHeader(
+                title: "VThemeToggle",
+                description: "Compact three-way theme toggle (System / Light / Dark) using pill-style icons. Reads and writes the themePreference key in UserDefaults."
+            )
+
+            VCard {
+                VThemeToggle()
+            }
         }
     }
 }
