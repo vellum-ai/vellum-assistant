@@ -154,16 +154,16 @@ describe("CES flags do not affect unrelated flags", () => {
     ).toBe(true);
   });
 
-  test("enabling all CES flags does not change contacts flag (defaultEnabled: false)", () => {
+  test("enabling all CES flags does not change contacts flag (defaultEnabled: true)", () => {
     const overrides: Record<string, boolean> = {};
     for (const key of ALL_CES_FLAG_KEYS) {
       overrides[key] = true;
     }
     const config = makeConfig(overrides);
 
-    // contacts defaults to false in the registry and should stay false
+    // contacts defaults to true in the registry and should stay true
     expect(
       isAssistantFeatureFlagEnabled("feature_flags.contacts.enabled", config),
-    ).toBe(false);
+    ).toBe(true);
   });
 });

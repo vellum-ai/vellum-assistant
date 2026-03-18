@@ -228,7 +228,7 @@ describe("buildSystemPrompt assistant feature flag filtering", () => {
     expect(result).not.toContain(`**${DECLARED_SKILL_ID}**`);
   });
 
-  test("declared skills hidden when no flag overrides set (registry defaults to false)", () => {
+  test("contacts visible but email-channel hidden when no flag overrides set (contacts defaults true, email-channel defaults false)", () => {
     createSkillOnDisk(
       DECLARED_SKILL_ID,
       "Contacts",
@@ -263,8 +263,8 @@ describe("buildSystemPrompt assistant feature flag filtering", () => {
 
     const result = buildSystemPrompt();
 
-    // Both skills declare feature flags with registry defaultEnabled: false
-    expect(result).not.toContain(`**${DECLARED_SKILL_ID}**`);
+    // contacts defaults to true, email-channel defaults to false
+    expect(result).toContain(`**${DECLARED_SKILL_ID}**`);
     expect(result).not.toContain("**email-channel**");
   });
 
@@ -466,12 +466,10 @@ describe("isAssistantFeatureFlagEnabled", () => {
 
   test("missing persisted value falls back to defaults registry defaultEnabled", () => {
     // No explicit config at all — should fall back to defaults registry
-    // which has defaultEnabled: false for contacts
+    // which has defaultEnabled: true for contacts
     const config = {} as any;
 
-    expect(isAssistantFeatureFlagEnabled(DECLARED_FLAG_KEY, config)).toBe(
-      false,
-    );
+    expect(isAssistantFeatureFlagEnabled(DECLARED_FLAG_KEY, config)).toBe(true);
   });
 
   test("unknown flag defaults to true when no persisted override", () => {
@@ -510,7 +508,7 @@ describe("isAssistantFeatureFlagEnabled with skillFlagKey", () => {
     ).toBe(false);
   });
 
-  test("disabled when no override set (registry default is false)", () => {
+  test("enabled when no override set (registry default is true)", () => {
     const config = {} as any;
 
     expect(
@@ -518,6 +516,6 @@ describe("isAssistantFeatureFlagEnabled with skillFlagKey", () => {
         skillFlagKey({ featureFlag: DECLARED_FLAG_ID })!,
         config,
       ),
-    ).toBe(false);
+    ).toBe(true);
   });
 });
