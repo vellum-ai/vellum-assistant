@@ -182,9 +182,6 @@ extension AppDelegate {
             // Capture assistant ID before logout clears it from UserDefaults
             let connectedAssistantId = UserDefaults.standard.string(forKey: "connectedAssistantId")
 
-            // Capture actor token before logout clears session state
-            let actorToken = ActorTokenManager.getToken()
-
             // Capture managed status before logout clears UserDefaults
             let wasManaged = isCurrentAssistantManaged
 
@@ -200,21 +197,9 @@ extension AppDelegate {
             // Skip when the daemon was never set up (e.g. logout during onboarding) —
             // there are no credentials to clear and no daemon to stop.
             if !isCurrentAssistantManaged && !isCurrentAssistantRemote && hasSetupDaemon {
-                if let token = actorToken, !token.isEmpty {
-                    let assistantId = connectedAssistantId ?? ""
-                    let port = LockfileAssistant.loadByName(assistantId)?.daemonPort ?? 7821
-                    let daemonBaseURL = "http://localhost:\(port)"
-                    let cleared = await LocalAssistantBootstrapService.clearDaemonCredentials(
-                        daemonBaseURL: daemonBaseURL,
-                        daemonToken: token
-                    )
-                    if !cleared {
-                        log.warning("Credential cleanup incomplete — stopping daemon to prevent stale managed proxy state")
-                        daemonClient.disconnect()
-                        assistantCli.stop(name: connectedAssistantId)
-                    }
-                } else {
-                    log.warning("No actor token available during logout — stopping daemon to ensure stale credentials are not retained")
+                let cleared = await LocalAssistantBootstrapService.clearDaemonCredentials()
+                if !cleared {
+                    log.warning("Credential cleanup incomplete — stopping daemon to prevent stale managed proxy state")
                     daemonClient.disconnect()
                     assistantCli.stop(name: connectedAssistantId)
                 }

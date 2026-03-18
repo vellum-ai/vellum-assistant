@@ -341,16 +341,9 @@ public final class LocalAssistantBootstrapService {
     /// Clears all managed proxy credentials from the daemon's secret store
     /// by issuing `DELETE /v1/secrets` for each vellum-namespaced credential.
     ///
-    /// Uses a direct HTTP call to the daemon (not GatewayHTTPClient) because
-    /// this is called during logout teardown when gateway routing may no
-    /// longer be available.
-    ///
     /// Returns `true` if all credentials were successfully cleared (or didn't exist).
     @discardableResult
-    public static func clearDaemonCredentials(
-        daemonBaseURL: String,
-        daemonToken: String
-    ) async -> Bool {
+    public static func clearDaemonCredentials() async -> Bool {
         let credentialNames = [
             "vellum:assistant_api_key",
             "vellum:platform_assistant_id",
@@ -360,24 +353,15 @@ public final class LocalAssistantBootstrapService {
         ]
         var allCleared = true
         for name in credentialNames {
-            guard let url = URL(string: "\(daemonBaseURL)/v1/secrets") else {
-                allCleared = false
-                continue
-            }
-            var request = URLRequest(url: url)
-            request.httpMethod = "DELETE"
-            request.timeoutInterval = 5
-            request.setValue("Bearer \(daemonToken)", forHTTPHeaderField: "Authorization")
-            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
             let body: [String: String] = ["type": "credential", "name": name]
-            request.httpBody = try? JSONSerialization.data(withJSONObject: body)
             do {
-                let (_, response) = try await URLSession.shared.data(for: request)
-                let statusCode = (response as? HTTPURLResponse)?.statusCode ?? 0
-                if statusCode == 200 || statusCode == 404 {
-                    log.info("Cleared daemon credential: \(name, privacy: .public) (status \(statusCode))")
+                let response = try await GatewayHTTPClient.delete(
+                    path: "assistants/{assistantId}/secrets", json: body, timeout: 5
+                )
+                if response.isSuccess || response.statusCode == 404 {
+                    log.info("Cleared daemon credential: \(name, privacy: .public) (status \(response.statusCode))")
                 } else {
-                    log.warning("Failed to clear daemon credential: \(name, privacy: .public) (status \(statusCode))")
+                    log.warning("Failed to clear daemon credential: \(name, privacy: .public) (status \(response.statusCode))")
                     allCleared = false
                 }
             } catch {
