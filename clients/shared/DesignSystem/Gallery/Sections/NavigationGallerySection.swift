@@ -218,11 +218,26 @@ struct NavigationGallerySection: View {
             // MARK: - VThemeToggle
             GallerySectionHeader(
                 title: "VThemeToggle",
-                description: "Compact three-way theme toggle (System / Light / Dark) using pill-style icons. Reads and writes the themePreference key in UserDefaults."
+                description: "Three-way theme toggle (System / Light / Dark). Reads and writes the themePreference key in UserDefaults and applies the appearance app-wide."
             )
 
             VCard {
-                VThemeToggle()
+                VStack(alignment: .leading, spacing: VSpacing.lg) {
+                    VStack(alignment: .leading, spacing: VSpacing.xs) {
+                        Text("Icon Pill (default)").font(VFont.caption).foregroundColor(VColor.contentTertiary)
+                        VThemeToggle()
+                    }
+                    Divider().background(VColor.borderBase)
+                    VStack(alignment: .leading, spacing: VSpacing.xs) {
+                        Text("Label Pill").font(VFont.caption).foregroundColor(VColor.contentTertiary)
+                        VThemeToggle(style: .labelPill)
+                    }
+                    Divider().background(VColor.borderBase)
+                    VStack(alignment: .leading, spacing: VSpacing.xs) {
+                        Text("No label").font(VFont.caption).foregroundColor(VColor.contentTertiary)
+                        VThemeToggle(showLabel: false)
+                    }
+                }
             }
         }
     }
