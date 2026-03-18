@@ -35,6 +35,7 @@ struct ContactDetailView: View {
                     .padding(VSpacing.lg)
 
                 SettingsDivider()
+                    .padding(.horizontal, VSpacing.xl)
 
                 GuardianChannelsDetailView(
                     contact: displayContact,
