@@ -5,12 +5,10 @@ private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.
 
 // MARK: - Settings, Schedules, Diagnostics, and Remaining HTTP Dispatchers
 
-/// Registers domain dispatchers for identity, voice config, avatar generation,
-/// schedules, diagnostics, dictation, tools, OAuth, suggestion, heartbeat,
-/// pairing, integration config, publishing, link open, workspace files,
-/// and all remaining client-to-server message types not covered by the
-/// dedicated domain dispatchers (Sessions, Skills, Apps, Documents,
-/// WorkItems, Subagents, ComputerUse).
+/// Registers domain dispatchers for voice config, dictation, tools, OAuth,
+/// suggestion, integration config (ingress, vercel), channel verification,
+/// workspace files, and all remaining client-to-server message types not
+/// covered by the dedicated domain dispatchers or focused clients.
 extension HTTPTransport {
 
     // swiftlint:disable:next function_body_length cyclomatic_complexity
@@ -24,25 +22,9 @@ extension HTTPTransport {
                 return true
             }
 
-            // --- Avatar Generate ---
-            if let msg = message as? GenerateAvatarRequestMessage {
-                Task { await self.sendEncodablePost(.settingsAvatarGenerate, body: msg, label: "generate_avatar") }
-                return true
-            }
-
-            // --- Diagnostics ---
-            if let msg = message as? DiagnosticsExportRequestMessage {
-                Task { await self.sendDiagnosticsExport(msg) }
-                return true
-            }
-            if message is EnvVarsRequestMessage {
-                Task { await self.sendGenericPost(.diagnosticsEnvVars, method: "GET", label: "env_vars_request") }
-                return true
-            }
-
             // --- Dictation ---
-            if let msg = message as? DictationRequest {
-                Task { await self.sendEncodablePost(.dictation, body: msg, label: "dictation_request") }
+            if message is DictationRequest {
+                // Handled by DictationClient via GatewayHTTPClient.
                 return true
             }
 
@@ -57,8 +39,8 @@ extension HTTPTransport {
             }
 
             // --- Surface Undo ---
-            if let msg = message as? UiSurfaceUndoMessage {
-                Task { await self.sendEncodablePost(.surfaceUndo(surfaceId: msg.surfaceId), body: msg, label: "ui_surface_undo") }
+            if message is UiSurfaceUndoMessage {
+                // Handled by SurfaceActionClient via GatewayHTTPClient.
                 return true
             }
 
@@ -75,10 +57,6 @@ extension HTTPTransport {
             }
 
             // --- Integration Config ---
-            if let msg = message as? SlackWebhookConfigRequestMessage {
-                Task { await self.sendEncodablePost(.integrationsSlackConfig, body: msg, label: "slack_webhook_config") }
-                return true
-            }
             if let msg = message as? IngressConfigRequestMessage {
                 if msg.action == "get" {
                     Task { await self.sendEncodablePostAndDispatch(.integrationsIngressConfig, body: msg, method: "GET", messageType: "ingress_config_response", label: "ingress_config_get") }
@@ -91,16 +69,6 @@ extension HTTPTransport {
             // it continues to use SSE message handlers and is not dispatched here.
             if let msg = message as? VercelApiConfigRequestMessage {
                 Task { await self.sendEncodablePost(.integrationsVercelConfig, body: msg, label: "vercel_api_config") }
-                return true
-            }
-            if let msg = message as? TelegramConfigRequestMessage {
-                switch msg.action {
-                case "clear":
-                    Task { await self.sendEncodablePostAndDispatch(.integrationsTelegramConfig, body: msg, method: "DELETE", messageType: "telegram_config_response", label: "telegram_config_clear") }
-                default:
-                    // "set" and any future actions use POST
-                    Task { await self.sendEncodablePostAndDispatch(.integrationsTelegramConfig, body: msg, messageType: "telegram_config_response", label: "telegram_config_set") }
-                }
                 return true
             }
             if let msg = message as? ChannelVerificationSessionRequestMessage {
@@ -116,12 +84,6 @@ extension HTTPTransport {
                 }
                 return true
             }
-            // --- Publishing ---
-            if let msg = message as? UnpublishPageRequestMessage {
-                Task { await self.sendEncodablePost(.unpublishPage, body: msg, label: "unpublish_page") }
-                return true
-            }
-
             // --- Workspace Files (legacy HTTP) ---
             if message is WorkspaceFilesListRequestMessage {
                 Task { await self.sendGenericPost(.workspaceFiles, method: "GET", label: "workspace_files_list") }
@@ -154,68 +116,6 @@ extension HTTPTransport {
             }
 
             return false
-        }
-    }
-
-    // MARK: - Diagnostics Export
-
-    /// Send a diagnostics export request and route the response through the message router.
-    func sendDiagnosticsExport(_ msg: DiagnosticsExportRequestMessage) async {
-        guard let url = buildURL(for: .diagnosticsExport) else {
-            log.error("Failed to build URL for diagnostics_export")
-            self.onMessage?(.diagnosticsExportResponse(DiagnosticsExportResponseMessage(
-                success: false,
-                filePath: nil,
-                error: "Failed to build URL"
-            )))
-            return
-        }
-
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        applyAuth(&request)
-
-        do {
-            request.httpBody = try encoder.encode(msg)
-            let (data, response) = try await URLSession.shared.data(for: request)
-            guard let http = response as? HTTPURLResponse else {
-                log.error("diagnostics_export failed: no HTTP response")
-                self.onMessage?(.diagnosticsExportResponse(DiagnosticsExportResponseMessage(
-                    success: false,
-                    filePath: nil,
-                    error: "No HTTP response"
-                )))
-                return
-            }
-
-            if (200...299).contains(http.statusCode) {
-                // Parse successful response
-                let responseMessage = try JSONDecoder().decode(DiagnosticsExportResponseMessage.self, from: data)
-                log.debug("diagnostics_export succeeded")
-                self.onMessage?(.diagnosticsExportResponse(responseMessage))
-            } else {
-                // Try to parse error message from response
-                var errorMessage = "HTTP \(http.statusCode)"
-                if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-                   let error = json["error"] as? [String: Any],
-                   let message = error["message"] as? String {
-                    errorMessage = message
-                }
-                log.error("diagnostics_export failed: \(errorMessage)")
-                self.onMessage?(.diagnosticsExportResponse(DiagnosticsExportResponseMessage(
-                    success: false,
-                    filePath: nil,
-                    error: errorMessage
-                )))
-            }
-        } catch {
-            log.error("diagnostics_export error: \(error.localizedDescription)")
-            self.onMessage?(.diagnosticsExportResponse(DiagnosticsExportResponseMessage(
-                success: false,
-                filePath: nil,
-                error: error.localizedDescription
-            )))
         }
     }
 

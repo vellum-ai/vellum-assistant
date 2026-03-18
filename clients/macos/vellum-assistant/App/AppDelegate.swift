@@ -62,7 +62,6 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
     var surfaceManager: SurfaceManager { services.surfaceManager }
     var secretPromptManager: SecretPromptManager { services.secretPromptManager }
     var zoomManager: ZoomManager { services.zoomManager }
-    var conversationZoomManager: ConversationZoomManager { services.conversationZoomManager }
 
     let toolConfirmationNotificationService = ToolConfirmationNotificationService()
     lazy var recordingManager: RecordingManager = RecordingManager(daemonClient: daemonClient)
@@ -208,11 +207,8 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
         // Gated on sendDiagnostics: if the user has previously disabled diagnostics,
         // Sentry is never initialized. Otherwise, initialize eagerly so crashes
         // before the daemon connects are captured.
-        // Falls back through legacy keys so users who opted out via the old
-        // collectUsageDataEnabled master switch keep Sentry disabled.
         let sendDiagnostics = UserDefaults.standard.object(forKey: "sendDiagnostics") as? Bool
             ?? UserDefaults.standard.object(forKey: "collectUsageData") as? Bool
-            ?? UserDefaults.standard.object(forKey: "collectUsageDataEnabled") as? Bool
             ?? true
         if sendDiagnostics {
             let appVersion = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "unknown"
@@ -251,6 +247,10 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
         // renders EmptyView — we handle settings in the main window panel).
         UserDefaults.standard.removeObject(forKey: "NSWindow Frame com_apple_SwiftUI_Settings_window")
 
+        // Migrate API keys from plaintext UserDefaults to credential storage
+        // (Keychain in Release, file-based in DEBUG). Safe to call on every
+        // launch — skips providers already present in credential storage.
+        APIKeyManager.migrateFromUserDefaults()
 
         if let envPath = MacOSClientFeatureFlagManager.findRepoEnvFile() {
             MacOSClientFeatureFlagManager.shared.loadFromFile(at: envPath)

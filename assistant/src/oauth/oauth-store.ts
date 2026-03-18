@@ -45,7 +45,7 @@ export type OAuthConnectionRow = typeof oauthConnections.$inferSelect;
  * Seed well-known provider profiles into the database. Uses INSERT … ON
  * CONFLICT DO UPDATE so that implementation fields (authUrl, tokenUrl,
  * tokenEndpointAuthMethod, userinfoUrl, extraParams, callbackTransport,
- * pingUrl) propagate to existing installations on every startup, while
+ * pingUrl, managedServiceConfigKey) propagate to existing installations on every startup, while
  * user-customizable fields (defaultScopes, scopePolicy, baseUrl) are
  * only written on the initial insert.
  */
@@ -62,6 +62,7 @@ export function seedProviders(
     scopePolicy: Record<string, unknown>;
     extraParams?: Record<string, string>;
     callbackTransport?: string;
+    managedServiceConfigKey?: string;
   }>,
 ): void {
   const db = getDb();
@@ -77,6 +78,7 @@ export function seedProviders(
     const scopePolicy = JSON.stringify(p.scopePolicy);
     const extraParams = p.extraParams ? JSON.stringify(p.extraParams) : null;
     const callbackTransport = p.callbackTransport ?? null;
+    const managedServiceConfigKey = p.managedServiceConfigKey ?? null;
 
     db.insert(oauthProviders)
       .values({
@@ -91,6 +93,7 @@ export function seedProviders(
         extraParams,
         callbackTransport,
         pingUrl,
+        managedServiceConfigKey,
         createdAt: now,
         updatedAt: now,
       })
@@ -104,6 +107,7 @@ export function seedProviders(
           extraParams,
           callbackTransport,
           pingUrl,
+          managedServiceConfigKey,
           updatedAt: now,
         },
       })
@@ -143,6 +147,7 @@ export function registerProvider(params: {
   scopePolicy: Record<string, unknown>;
   extraParams?: Record<string, string>;
   callbackTransport?: string;
+  managedServiceConfigKey?: string;
 }): OAuthProviderRow {
   const db = getDb();
   const now = Date.now();
@@ -164,6 +169,7 @@ export function registerProvider(params: {
     extraParams: params.extraParams ? JSON.stringify(params.extraParams) : null,
     callbackTransport: params.callbackTransport ?? null,
     pingUrl: params.pingUrl ?? null,
+    managedServiceConfigKey: params.managedServiceConfigKey ?? null,
     createdAt: now,
     updatedAt: now,
   };
@@ -407,71 +413,59 @@ export function getConnection(id: string): OAuthConnectionRow | undefined {
 
 /**
  * Get the most recent active connection for a provider.
- * When `clientId` is provided, only connections linked to the matching app are considered.
- * Returns undefined if no active connection exists.
+ *
+ * Optional filters narrow the result:
+ * - `account` — match a specific account identifier (e.g. email).
+ * - `clientId` — restrict to connections linked to a specific OAuth app.
+ *
+ * Returns `undefined` when no matching active connection exists.
  */
-export function getConnectionByProvider(
+export function getActiveConnection(
   providerKey: string,
-  clientId?: string,
+  options?: { clientId?: string; account?: string },
 ): OAuthConnectionRow | undefined {
+  const { clientId, account } = options ?? {};
   const db = getDb();
+
+  const conditions = [
+    eq(oauthConnections.providerKey, providerKey),
+    eq(oauthConnections.status, "active"),
+  ];
+
+  if (account) {
+    conditions.push(eq(oauthConnections.accountInfo, account));
+  }
 
   if (clientId) {
     const app = getAppByProviderAndClientId(providerKey, clientId);
     if (!app) return undefined;
-    return db
-      .select()
-      .from(oauthConnections)
-      .where(
-        and(
-          eq(oauthConnections.providerKey, providerKey),
-          eq(oauthConnections.oauthAppId, app.id),
-          eq(oauthConnections.status, "active"),
-        ),
-      )
-      .orderBy(desc(oauthConnections.createdAt), sql`rowid DESC`)
-      .limit(1)
-      .get();
+    conditions.push(eq(oauthConnections.oauthAppId, app.id));
   }
 
   return db
     .select()
     .from(oauthConnections)
-    .where(
-      and(
-        eq(oauthConnections.providerKey, providerKey),
-        eq(oauthConnections.status, "active"),
-      ),
-    )
+    .where(and(...conditions))
     .orderBy(desc(oauthConnections.createdAt), sql`rowid DESC`)
     .limit(1)
     .get();
 }
 
-/**
- * Get the active connection for a provider matching a specific account.
- * Falls back to getConnectionByProvider when accountInfo is undefined.
- */
+/** @deprecated Use {@link getActiveConnection} instead. */
+export function getConnectionByProvider(
+  providerKey: string,
+  clientId?: string,
+): OAuthConnectionRow | undefined {
+  return getActiveConnection(providerKey, { clientId });
+}
+
+/** @deprecated Use {@link getActiveConnection} instead. */
 export function getConnectionByProviderAndAccount(
   providerKey: string,
   accountInfo?: string,
+  clientId?: string,
 ): OAuthConnectionRow | undefined {
-  if (!accountInfo) return getConnectionByProvider(providerKey);
-
-  const db = getDb();
-  return db
-    .select()
-    .from(oauthConnections)
-    .where(
-      and(
-        eq(oauthConnections.providerKey, providerKey),
-        eq(oauthConnections.accountInfo, accountInfo),
-        eq(oauthConnections.status, "active"),
-      ),
-    )
-    .orderBy(desc(oauthConnections.createdAt), sql`rowid DESC`)
-    .limit(1)
-    .get();
+  return getActiveConnection(providerKey, { clientId, account: accountInfo });
 }
 
 /**
@@ -505,7 +499,7 @@ export function listActiveConnectionsByProvider(
 export async function isProviderConnected(
   providerKey: string,
 ): Promise<boolean> {
-  const conn = getConnectionByProvider(providerKey);
+  const conn = getActiveConnection(providerKey);
   if (!conn || conn.status !== "active") return false;
   return (
     (await getSecureKeyAsync(oauthConnectionAccessTokenPath(conn.id))) !==
@@ -623,7 +617,7 @@ export async function disconnectOAuthProvider(
 ): Promise<"disconnected" | "not-found" | "error"> {
   const conn = connectionId
     ? getConnection(connectionId)
-    : getConnectionByProvider(providerKey, clientId);
+    : getActiveConnection(providerKey, { clientId });
   if (!conn) return "not-found";
 
   // Wrap the assistant's secure-key functions into the SecureKeyBackend

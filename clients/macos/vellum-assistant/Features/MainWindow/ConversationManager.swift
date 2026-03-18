@@ -58,6 +58,7 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
     }
     /// Tracks the number of rows already fetched from the daemon so pagination
     /// offsets stay correct even when the client filters out some conversations.
+    private let conversationListClient: any ConversationListClientProtocol = ConversationListClient()
     var serverOffset: Int = 0
     @Published var activeConversationId: UUID? {
         didSet {
@@ -115,7 +116,6 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
     private let daemonClient: DaemonClient
     private let conversationClient: ConversationClientProtocol
     private let conversationRestorer: ConversationRestorer
-    private let activityNotificationService: ActivityNotificationService?
     /// Queued renames for conversations that don't yet have a conversationId.
     /// Flushed in backfillConversationId when the daemon assigns a conversation ID.
     private var pendingRenames: [UUID: String] = [:]
@@ -241,11 +241,10 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
         }
     }
 
-    init(daemonClient: DaemonClient, conversationClient: ConversationClientProtocol = ConversationClient(), activityNotificationService: ActivityNotificationService? = nil, isFirstLaunch: Bool = false) {
+    init(daemonClient: DaemonClient, conversationClient: ConversationClientProtocol = ConversationClient(), isFirstLaunch: Bool = false) {
         Self.migrateStorageKeysIfNeeded()
         self.daemonClient = daemonClient
         self.conversationClient = conversationClient
-        self.activityNotificationService = activityNotificationService
         self.conversationRestorer = ConversationRestorer(daemonClient: daemonClient)
         // On first launch (post-onboarding), skip conversation restoration — there are
         // no meaningful prior conversations. Allow activeConversationId writes immediately so
@@ -681,11 +680,13 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
     func loadMoreConversations() {
         guard !isLoadingMoreConversations else { return }
         isLoadingMoreConversations = true
-        do {
-            try daemonClient.sendConversationList(offset: serverOffset, limit: 50)
-        } catch {
-            log.error("Failed to request more conversations: \(error.localizedDescription)")
-            isLoadingMoreConversations = false
+        Task { [weak self] in
+            guard let self else { return }
+            if let response = await conversationListClient.fetchConversationList(offset: serverOffset, limit: 50) {
+                self.appendConversations(from: response)
+            } else {
+                self.isLoadingMoreConversations = false
+            }
         }
     }
 
@@ -1204,22 +1205,6 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
 
     func makeViewModel() -> ChatViewModel {
         let viewModel = ChatViewModel(daemonClient: daemonClient)
-        viewModel.onToolCallsComplete = { [weak self, weak viewModel] toolCalls in
-            guard let self, let service = self.activityNotificationService else { return }
-            let conversationId = viewModel?.conversationId ?? ""
-            // Pass empty summary so ActivityNotificationService derives the title
-            // from the tool calls themselves (friendly name + target for single tool,
-            // count-based for multiple tools)
-            let summary = ""
-            Task { @MainActor in
-                await service.notifyConversationComplete(
-                    summary: summary,
-                    steps: toolCalls.count,
-                    toolCalls: toolCalls,
-                    conversationId: conversationId
-                )
-            }
-        }
         viewModel.shouldAcceptConfirmation = { [weak self, weak viewModel] in
             guard let self, let viewModel else { return false }
             return self.isLatestToolUseRecipient(viewModel)

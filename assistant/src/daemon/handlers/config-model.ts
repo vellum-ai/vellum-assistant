@@ -4,6 +4,12 @@ import {
   saveRawConfig,
 } from "../../config/loader.js";
 import { setServiceField } from "../../config/raw-config-utils.js";
+import { VALID_INFERENCE_PROVIDERS } from "../../config/schemas/services.js";
+import {
+  isModelInCatalog,
+  PROVIDER_MODEL_CATALOG,
+} from "../../providers/model-catalog.js";
+import { getProviderDefaultModel } from "../../providers/model-intents.js";
 import {
   getConfiguredProviders,
   isProviderAvailable,
@@ -28,15 +34,18 @@ export interface ModelInfo {
   model: string;
   provider: string;
   configuredProviders?: string[];
+  availableModels?: Array<{ id: string; displayName: string }>;
 }
 
 /** Return current model configuration. */
 export async function getModelInfo(): Promise<ModelInfo> {
   const config = getConfig();
+  const provider = config.services.inference.provider;
   return {
     model: config.services.inference.model,
-    provider: config.services.inference.provider,
+    provider,
     configuredProviders: await getConfiguredProviders(),
+    availableModels: PROVIDER_MODEL_CATALOG[provider],
   };
 }
 
@@ -58,28 +67,52 @@ export interface ModelSetContext {
 /**
  * Set the active model. Returns the resulting ModelInfo, or throws on failure.
  * The caller is responsible for sending the response to the client.
+ *
+ * When `explicitProvider` is supplied, it takes precedence over automatic
+ * provider inference from the model ID. If the provider changes and the
+ * current model doesn't belong to the new provider's catalog, the model
+ * is auto-reset to the provider's default.
  */
 export async function setModel(
   modelId: string,
   ctx: ModelSetContext,
+  explicitProvider?: string,
 ): Promise<ModelInfo> {
-  // If the requested model is already the current model AND the provider
-  // is already aligned with what MODEL_TO_PROVIDER expects, skip expensive
-  // reinitialization but still return model_info so the client confirms.
-  {
-    const current = getConfig();
-    const expectedProvider = MODEL_TO_PROVIDER[modelId];
-    const providerAligned =
-      !expectedProvider ||
-      current.services.inference.provider === expectedProvider;
-    if (modelId === current.services.inference.model && providerAligned) {
-      return await getModelInfo();
-    }
+  const validProviders = new Set<string>(VALID_INFERENCE_PROVIDERS);
+
+  // Validate explicit provider against allowlist
+  if (explicitProvider && !validProviders.has(explicitProvider)) {
+    throw new Error(
+      `Invalid provider "${explicitProvider}". Valid providers: ${[...validProviders].join(", ")}`,
+    );
+  }
+
+  // Resolve provider: explicit > MODEL_TO_PROVIDER lookup > current
+  const current = getConfig();
+  const resolvedProvider =
+    explicitProvider ??
+    MODEL_TO_PROVIDER[modelId] ??
+    current.services.inference.provider;
+
+  // Auto-reset model when provider changes and current modelId doesn't
+  // belong to the new provider's catalog.
+  if (
+    resolvedProvider !== current.services.inference.provider &&
+    !isModelInCatalog(resolvedProvider, modelId)
+  ) {
+    modelId = getProviderDefaultModel(resolvedProvider);
+  }
+
+  // No-op guard: skip expensive reinitialization when nothing changed
+  if (
+    modelId === current.services.inference.model &&
+    resolvedProvider === current.services.inference.provider
+  ) {
+    return await getModelInfo();
   }
 
   // Validate provider availability (secure key, env var, or managed proxy) before switching
-  const provider = MODEL_TO_PROVIDER[modelId];
-  if (provider && !(await isProviderAvailable(provider))) {
+  if (!(await isProviderAvailable(resolvedProvider))) {
     // Return current model_info so the client resyncs its optimistic state
     return await getModelInfo();
   }
@@ -87,10 +120,7 @@ export async function setModel(
   // Use raw config to avoid persisting env-var API keys to disk
   const raw = loadRawConfig();
   setServiceField(raw, "inference", "model", modelId);
-  // Infer provider from model ID to keep provider and model in sync
-  if (provider) {
-    setServiceField(raw, "inference", "provider", provider);
-  }
+  setServiceField(raw, "inference", "provider", resolvedProvider);
 
   // Suppress the file watcher callback — setModel already does
   // the full reload sequence; a redundant watcher-triggered reload
@@ -128,10 +158,12 @@ export async function setModel(
 
   ctx.updateConfigFingerprint();
 
+  const newProvider = config.services.inference.provider;
   return {
     model: config.services.inference.model,
-    provider: config.services.inference.provider,
+    provider: newProvider,
     configuredProviders: await getConfiguredProviders(),
+    availableModels: PROVIDER_MODEL_CATALOG[newProvider],
   };
 }
 
@@ -179,7 +211,7 @@ export async function handleModelSet(
   ctx: HandlerContext,
 ): Promise<void> {
   try {
-    const info = await setModel(msg.model, ctx);
+    const info = await setModel(msg.model, ctx, msg.provider);
     ctx.send({ type: "model_info", ...info });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);

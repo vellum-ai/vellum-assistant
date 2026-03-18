@@ -7,7 +7,6 @@ struct MainWindowView: View {
     @ObservedObject var conversationManager: ConversationManager
     @ObservedObject var appListManager: AppListManager
     var zoomManager: ZoomManager
-    var conversationZoomManager: ConversationZoomManager
     /// Plain `let` instead of `@ObservedObject` so SwiftUI doesn't observe
     /// TraceStore mutations when the DebugPanel isn't visible. DebugPanel
     /// itself uses `@ObservedObject` and is only instantiated when shown.
@@ -65,11 +64,10 @@ struct MainWindowView: View {
     /// daemon loading overlay when a structured error arrives or is cleared.
     @State private var daemonStartupError: DaemonStartupError?
 
-    init(conversationManager: ConversationManager, appListManager: AppListManager, zoomManager: ZoomManager, conversationZoomManager: ConversationZoomManager, traceStore: TraceStore, usageDashboardStore: UsageDashboardStore, daemonClient: DaemonClient, surfaceManager: SurfaceManager, ambientAgent: AmbientAgent, settingsStore: SettingsStore, authManager: AuthManager, windowState: MainWindowState, documentManager: DocumentManager, onMicrophoneToggle: @escaping () -> Void = {}, voiceModeManager: VoiceModeManager, updateManager: UpdateManager, onSendWakeUp: (() -> Void)? = nil) {
+    init(conversationManager: ConversationManager, appListManager: AppListManager, zoomManager: ZoomManager, traceStore: TraceStore, usageDashboardStore: UsageDashboardStore, daemonClient: DaemonClient, surfaceManager: SurfaceManager, ambientAgent: AmbientAgent, settingsStore: SettingsStore, authManager: AuthManager, windowState: MainWindowState, documentManager: DocumentManager, onMicrophoneToggle: @escaping () -> Void = {}, voiceModeManager: VoiceModeManager, updateManager: UpdateManager, onSendWakeUp: (() -> Void)? = nil) {
         self.conversationManager = conversationManager
         self.appListManager = appListManager
         self.zoomManager = zoomManager
-        self.conversationZoomManager = conversationZoomManager
         self.traceStore = traceStore
         self.usageDashboardStore = usageDashboardStore
         self.daemonClient = daemonClient
@@ -835,7 +833,7 @@ struct MainWindowView: View {
                 windowState.selection = .app(reopenId)
                 let env = daemonClient.config.instanceDir.map { ["BASE_DATA_DIR": $0] }
                 windowState.activeDynamicUserAppsDirectory = VellumAppSchemeHandler.resolveUserAppsDirectory(environment: env)
-                try? daemonClient.sendAppOpen(appId: reopenId)
+                Task { await AppsClient.openAppAndDispatchSurface(id: reopenId, daemonClient: daemonClient) }
             }
         }
         .onReceive(NotificationCenter.default.publisher(for: .shareAppCloud)) { notification in
@@ -875,8 +873,23 @@ struct MainWindowView: View {
                 // Document already in memory — just show the panel
                 windowState.selection = .panel(.documentEditor)
             } else {
-                // Load from daemon — handleDocumentLoadResponse will open the panel when ready
-                try? daemonClient.sendDocumentLoad(surfaceId: surfaceId)
+                Task {
+                    guard let response = await DocumentClient().fetchDocument(surfaceId: surfaceId) else { return }
+                    guard response.success else {
+                        windowState.showToast(
+                            message: "Failed to load document\(response.error.map { ": \($0)" } ?? "")",
+                            style: .error
+                        )
+                        return
+                    }
+                    documentManager.createDocument(
+                        surfaceId: response.surfaceId,
+                        conversationId: response.conversationId,
+                        title: response.title,
+                        initialContent: response.content
+                    )
+                    windowState.selection = .panel(.documentEditor)
+                }
             }
         }
         .onReceive(NotificationCenter.default.publisher(for: .updateDynamicWorkspace)) { notification in
@@ -888,30 +901,23 @@ struct MainWindowView: View {
         .onReceive(NotificationCenter.default.publisher(for: .requestAppPreview)) { notification in
             guard let appId = notification.userInfo?["appId"] as? String else { return }
             let html = notification.userInfo?["html"] as? String
-            let stream = daemonClient.subscribe()
-            do { try daemonClient.sendAppPreview(appId: appId) } catch { return }
             Task { @MainActor in
-                for await message in stream {
-                    if case .appPreviewResponse(let response) = message,
-                       response.appId == appId {
-                        if let base64 = response.preview, !base64.isEmpty {
-                            NotificationCenter.default.post(
-                                name: .appPreviewImageCaptured,
-                                object: nil,
-                                userInfo: ["appId": appId, "previewImage": base64]
-                            )
-                        } else if let html = html {
-                            // No stored preview — capture one via offscreen WKWebView
-                            if let base64 = await OffscreenPreviewCapture.capture(html: html) {
-                                try? daemonClient.sendAppUpdatePreview(appId: appId, preview: base64)
-                                NotificationCenter.default.post(
-                                    name: .appPreviewImageCaptured,
-                                    object: nil,
-                                    userInfo: ["appId": appId, "previewImage": base64]
-                                )
-                            }
-                        }
-                        return
+                let response = await AppsClient().fetchAppPreview(appId: appId)
+                if let base64 = response?.preview, !base64.isEmpty {
+                    NotificationCenter.default.post(
+                        name: .appPreviewImageCaptured,
+                        object: nil,
+                        userInfo: ["appId": appId, "previewImage": base64]
+                    )
+                } else if let html = html {
+                    // No stored preview — capture one via offscreen WKWebView
+                    if let base64 = await OffscreenPreviewCapture.capture(html: html) {
+                        _ = await AppsClient().updateAppPreview(appId: appId, preview: base64)
+                        NotificationCenter.default.post(
+                            name: .appPreviewImageCaptured,
+                            object: nil,
+                            userInfo: ["appId": appId, "previewImage": base64]
+                        )
                     }
                 }
             }

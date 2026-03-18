@@ -179,7 +179,11 @@ GATEWAY_SRC_DIR="$SCRIPT_DIR/../../gateway"
 # Packages that must stay external in compiled Bun binaries.
 # playwright-core has optional requires (electron, chromium-bidi) that cannot
 # be resolved at bundle time.  Mark them external so bun --compile skips them.
-BUN_EXTERNAL_FLAGS=(--external electron --external "chromium-bidi/*")
+# @resvg/resvg-js contains a platform-specific native .node addon; bun --compile
+# bundles and extracts it at runtime, but macOS rejects the dlopen because the
+# extracted binary's Team ID differs from the main process.  Externalising it
+# lets the lazy wrapper in avatar/resvg-lazy.ts handle the missing module.
+BUN_EXTERNAL_FLAGS=(--external electron --external "chromium-bidi/*" --external "@resvg/resvg-js" --external "@resvg/resvg-js-darwin-arm64" --external "@resvg/resvg-js-darwin-x64")
 
 # ---------------------------------------------------------------------------
 # build_bun_binary — compile a TypeScript project to a native binary via Bun.

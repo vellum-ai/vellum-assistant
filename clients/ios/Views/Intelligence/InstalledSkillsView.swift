@@ -48,16 +48,14 @@ struct InstalledSkillsView: View {
                 .swipeActions(edge: .leading) {
                     if skill.state == "enabled" {
                         Button {
-                            try? skillsStore.disableSkill(name: skill.name)
-                            skillsStore.fetchSkills(force: true)
+                            skillsStore.disableSkill(name: skill.name)
                         } label: {
                             Label { Text("Disable") } icon: { VIconView(.circlePlay, size: 12) }
                         }
                         .tint(.orange)
                     } else {
                         Button {
-                            try? skillsStore.enableSkill(name: skill.name)
-                            skillsStore.fetchSkills(force: true)
+                            skillsStore.enableSkill(name: skill.name)
                         } label: {
                             Label { Text("Enable") } icon: { VIconView(.circlePlay, size: 12) }
                         }

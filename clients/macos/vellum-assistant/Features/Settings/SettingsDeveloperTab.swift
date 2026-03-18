@@ -52,6 +52,12 @@ struct SettingsDeveloperTab: View {
     @State private var inlineUpgradeError: String?
     @State private var inlineUpgradeSuccess: String?
 
+    // -- Revoke API key state --
+    @State private var showingRevokeApiKeyConfirmation: Bool = false
+    @State private var isRevokingApiKey: Bool = false
+    @State private var revokeApiKeyStatus: String?
+    @State private var revokeApiKeyDismissTask: Task<Void, Never>?
+
     // -- Sentry testing state --
     @State private var lastSentryStatus: String?
     @State private var sentryDismissTask: Task<Void, Never>?
@@ -107,6 +113,11 @@ struct SettingsDeveloperTab: View {
             // Retire Assistant
             retireAssistantSection
 
+            // Revoke Assistant API Key (dev mode only)
+            if devModeManager.isDevMode {
+                revokeAssistantApiKeySection
+            }
+
             // Permission Simulator
             if let model = testerModel {
                 ToolPermissionTesterView(model: model)
@@ -125,7 +136,7 @@ struct SettingsDeveloperTab: View {
             // Assistant info setup
             lockfileAssistants = LockfileAssistant.loadAll()
             selectedAssistantId = UserDefaults.standard.string(forKey: "connectedAssistantId") ?? ""
-            refreshAwakeStates()
+            Task { await refreshAwakeStates() }
             refreshDisplayNames()
             identity = IdentityInfo.load()
             if identity == nil,
@@ -148,7 +159,6 @@ struct SettingsDeveloperTab: View {
             // Sentry setup
             isSentryEnabled = UserDefaults.standard.object(forKey: "sendDiagnostics") as? Bool
                 ?? UserDefaults.standard.object(forKey: "collectUsageData") as? Bool
-                ?? UserDefaults.standard.object(forKey: "collectUsageDataEnabled") as? Bool
                 ?? true
         }
         .alert("Retire Assistant", isPresented: $showingRetireConfirmation) {
@@ -189,6 +199,14 @@ struct SettingsDeveloperTab: View {
         } message: {
             Text("Are you sure you want to restart the assistant? It will be briefly unavailable.")
         }
+        .alert("Revoke Assistant API Key", isPresented: $showingRevokeApiKeyConfirmation) {
+            Button("Cancel", role: .cancel) {}
+            Button("Revoke", role: .destructive) {
+                Task { await revokeAssistantApiKey() }
+            }
+        } message: {
+            Text("This will disable managed inference. Services set to \"managed\" mode will stop working until you log in again or switch them to use your own API keys.")
+        }
         .sheet(isPresented: $isRestarting) {
             VStack(spacing: VSpacing.lg) {
                 ProgressView()
@@ -227,6 +245,7 @@ struct SettingsDeveloperTab: View {
         .onDisappear {
             daemonClient?.onEnvVarsResponse = nil
             sentryDismissTask?.cancel()
+            revokeApiKeyDismissTask?.cancel()
         }
     }
 
@@ -304,6 +323,14 @@ struct SettingsDeveloperTab: View {
         Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String
     }
 
+    /// The assistant version reported by the healthz endpoint, if available.
+    private var effectiveVersion: String? {
+        if let version = healthz?.version, !version.isEmpty {
+            return version
+        }
+        return nil
+    }
+
     private var assistantVersionBehind: Bool {
         guard let assistantVersion = healthz?.version, !assistantVersion.isEmpty,
               let appVersion = desktopAppVersion, !appVersion.isEmpty else {
@@ -314,58 +341,63 @@ struct SettingsDeveloperTab: View {
 
     @ViewBuilder
     private var healthzInfoRows: some View {
-        if let healthz {
-            if let version = healthz.version, !version.isEmpty {
-                HStack(alignment: .top) {
-                    Text("Version")
-                        .font(VFont.caption)
-                        .foregroundColor(VColor.contentTertiary)
-                        .frame(width: 100, alignment: .leading)
+        // Always show a version row
+        HStack(alignment: .top) {
+            Text("Version")
+                .font(VFont.caption)
+                .foregroundColor(VColor.contentTertiary)
+                .frame(width: 100, alignment: .leading)
 
-                    Text(version)
-                        .font(VFont.mono)
-                        .foregroundColor(assistantVersionBehind ? VColor.systemNegativeStrong : VColor.contentDefault)
-                        .textSelection(.enabled)
+            if let version = effectiveVersion {
+                Text(version)
+                    .font(VFont.mono)
+                    .foregroundColor(assistantVersionBehind ? VColor.systemNegativeStrong : VColor.contentDefault)
+                    .textSelection(.enabled)
 
-                    if assistantVersionBehind {
-                        if isUpgradingInline {
-                            ProgressView()
-                                .controlSize(.small)
-                        } else {
-                            VButton(label: "Upgrade", style: .primary) {
-                                showingInlineUpgradeConfirmation = true
-                            }
-                            .disabled(isUpgradingInline)
+                if assistantVersionBehind {
+                    if isUpgradingInline {
+                        ProgressView()
+                            .controlSize(.small)
+                    } else {
+                        VButton(label: "Upgrade", style: .primary) {
+                            showingInlineUpgradeConfirmation = true
                         }
-                    }
-
-                    Spacer()
-                }
-
-                if assistantVersionBehind, let appVersion = desktopAppVersion {
-                    HStack(spacing: VSpacing.xs) {
-                        Text("Desktop is on")
-                            .font(VFont.caption)
-                            .foregroundColor(VColor.contentTertiary)
-                        Text(appVersion)
-                            .font(VFont.mono)
-                            .foregroundColor(VColor.primaryBase)
+                        .disabled(isUpgradingInline)
                     }
                 }
-
-                if let error = inlineUpgradeError {
-                    Text(error)
-                        .font(VFont.caption)
-                        .foregroundColor(VColor.systemNegativeStrong)
-                }
-
-                if let success = inlineUpgradeSuccess {
-                    Text(success)
-                        .font(VFont.caption)
-                        .foregroundColor(VColor.systemPositiveStrong)
-                }
+            } else {
+                Text("Not available")
+                    .font(VFont.body)
+                    .foregroundColor(VColor.contentTertiary)
             }
 
+            Spacer()
+        }
+
+        if assistantVersionBehind, let appVersion = desktopAppVersion {
+            HStack(spacing: VSpacing.xs) {
+                Text("Desktop is on")
+                    .font(VFont.caption)
+                    .foregroundColor(VColor.contentTertiary)
+                Text(appVersion)
+                    .font(VFont.mono)
+                    .foregroundColor(VColor.primaryBase)
+            }
+        }
+
+        if let error = inlineUpgradeError {
+            Text(error)
+                .font(VFont.caption)
+                .foregroundColor(VColor.systemNegativeStrong)
+        }
+
+        if let success = inlineUpgradeSuccess {
+            Text(success)
+                .font(VFont.caption)
+                .foregroundColor(VColor.systemPositiveStrong)
+        }
+
+        if let healthz {
             if let disk = healthz.disk {
                 VStack(alignment: .leading, spacing: VSpacing.xs) {
                     HStack(alignment: .center) {
@@ -608,13 +640,12 @@ struct SettingsDeveloperTab: View {
         displayNames[assistant.assistantId] ?? assistant.assistantId
     }
 
-    private func refreshAwakeStates() {
+    private func refreshAwakeStates() async {
         for assistant in lockfileAssistants {
             if assistant.isRemote {
                 awakeStates[assistant.assistantId] = true
             } else {
-                let env: [String: String]? = assistant.instanceDir.map { ["BASE_DATA_DIR": $0] }
-                awakeStates[assistant.assistantId] = DaemonClient.isDaemonProcessAlive(environment: env)
+                awakeStates[assistant.assistantId] = await HealthCheckClient.isReachable(for: assistant)
             }
         }
     }
@@ -641,8 +672,7 @@ struct SettingsDeveloperTab: View {
                     }
                 }
             } catch {
-                let env: [String: String]? = assistant.instanceDir.map { ["BASE_DATA_DIR": $0] }
-                awakeStates[assistant.assistantId] = DaemonClient.isDaemonProcessAlive(environment: env)
+                awakeStates[assistant.assistantId] = await HealthCheckClient.isReachable(for: assistant)
             }
             transitioningStates.remove(assistant.assistantId)
         }
@@ -726,6 +756,67 @@ struct SettingsDeveloperTab: View {
         ) {
             VButton(label: "Retire", style: .danger) {
                 showingRetireConfirmation = true
+            }
+        }
+    }
+
+    // MARK: - Revoke Assistant API Key
+
+    private var revokeAssistantApiKeySection: some View {
+        SettingsCard(
+            title: "Revoke Assistant API Key",
+            subtitle: "Revokes the API key used by the assistant to interact with the Vellum platform."
+        ) {
+            VButton(label: "Revoke", style: .danger, isDisabled: isRevokingApiKey) {
+                showingRevokeApiKeyConfirmation = true
+            }
+
+            if let status = revokeApiKeyStatus {
+                Text(status)
+                    .font(VFont.caption)
+                    .foregroundColor(status.starts(with: "Failed") ? VColor.systemNegativeStrong : VColor.systemPositiveStrong)
+                    .transition(.opacity)
+            }
+        }
+    }
+
+    private func revokeAssistantApiKey() async {
+        isRevokingApiKey = true
+        defer { isRevokingApiKey = false }
+
+        let body: [String: String] = ["type": "credential", "name": "vellum:assistant_api_key"]
+        do {
+            let response = try await GatewayHTTPClient.delete(
+                path: "assistants/{assistantId}/secrets", json: body, timeout: 10
+            )
+            if response.isSuccess || response.statusCode == 404 {
+                // Clear the locally-cached credential so the key is not
+                // re-injected on the next daemon restart or bootstrap.
+                #if DEBUG
+                let credStorage = FileCredentialStorage()
+                #else
+                let credStorage = KeychainCredentialStorage()
+                #endif
+                let credentialAccount = LocalAssistantBootstrapService.credentialAccount(for: selectedAssistantId)
+                _ = credStorage.delete(account: credentialAccount)
+
+                showRevokeStatus("Assistant API key revoked", isError: false)
+            } else {
+                showRevokeStatus("Failed to revoke (HTTP \(response.statusCode))", isError: true)
+            }
+        } catch {
+            showRevokeStatus("Failed to revoke: \(error.localizedDescription)", isError: true)
+        }
+    }
+
+    private func showRevokeStatus(_ message: String, isError: Bool) {
+        revokeApiKeyDismissTask?.cancel()
+        withAnimation { revokeApiKeyStatus = message }
+        revokeApiKeyDismissTask = Task {
+            try? await Task.sleep(nanoseconds: 4_000_000_000)
+            guard !Task.isCancelled else { return }
+            withAnimation {
+                if revokeApiKeyStatus == message { revokeApiKeyStatus = nil }
             }
         }
     }
@@ -914,14 +1005,14 @@ struct SettingsDeveloperTab: View {
                             .sorted(by: { $0.key < $1.key })
                             .map { ($0.key, $0.value) }
                         daemonEnvVars = []
-                        daemonClient?.onEnvVarsResponse = { response in
-                            Task { @MainActor in
+                        Task {
+                            let response = await DiagnosticsClient().fetchEnvVars()
+                            if let response {
                                 self.daemonEnvVars = response.vars
                                     .sorted(by: { $0.key < $1.key })
                                     .map { ($0.key, $0.value) }
                             }
                         }
-                        try? daemonClient?.sendEnvVarsRequest()
                         showingEnvVars = true
                 }
             }

@@ -110,9 +110,7 @@ struct GuardianChannelsDetailView: View {
             }
 
             if isLoadingReadiness && visibleTypes.isEmpty {
-                ProgressView()
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, VSpacing.xl)
+                channelSkeletonRows()
             } else if visibleTypes.isEmpty {
                 VStack(spacing: VSpacing.md) {
                     VIconView(.messageCircle, size: 24)
@@ -448,6 +446,33 @@ struct GuardianChannelsDetailView: View {
     private func stopVerificationCountdownTimer() {
         verificationCountdownTimer?.invalidate()
         verificationCountdownTimer = nil
+    }
+
+    // MARK: - Skeleton Loading
+
+    /// Skeleton placeholder rows matching the number of channels the assistant has set up.
+    private func channelSkeletonRows() -> some View {
+        let configuredCount = Self.allChannelTypes.filter { type in
+            let status = store?.channelSetupStatus[type]
+            return status == "ready"
+        }.count
+        let rowCount = max(configuredCount, 1)
+        return VStack(alignment: .leading, spacing: 0) {
+            ForEach(0..<rowCount, id: \.self) { index in
+                HStack(spacing: VSpacing.sm) {
+                    VSkeletonBone(width: 16, height: 16, radius: VRadius.xs)
+                    VSkeletonBone(width: 100, height: 14)
+                    Spacer()
+                    VSkeletonBone(width: 72, height: 28, radius: VRadius.md)
+                }
+                .frame(minHeight: 36)
+                .padding(.vertical, VSpacing.sm)
+                if index < rowCount - 1 {
+                    SettingsDivider()
+                }
+            }
+        }
+        .accessibilityHidden(true)
     }
 
     // MARK: - Helpers

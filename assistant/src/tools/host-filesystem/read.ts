@@ -1,13 +1,19 @@
+import { extname } from "node:path";
+
 import { RiskLevel } from "../../permissions/types.js";
 import type { ToolDefinition } from "../../providers/types.js";
 import { FileSystemOps } from "../shared/filesystem/file-ops-service.js";
+import {
+  IMAGE_EXTENSIONS,
+  readImageFile,
+} from "../shared/filesystem/image-read.js";
 import { hostPolicy } from "../shared/filesystem/path-policy.js";
 import type { Tool, ToolContext, ToolExecutionResult } from "../types.js";
 
 class HostFileReadTool implements Tool {
   name = "host_file_read";
   description =
-    "Read the contents of a file on the host filesystem. Not for workspace files under .vellum (use file_read instead).";
+    "Read the contents of a file on the host filesystem, including images (JPEG, PNG, GIF, WebP). Not for workspace files under .vellum (use file_read instead).";
   category = "host-filesystem";
   defaultRiskLevel = RiskLevel.Medium;
 
@@ -61,6 +67,16 @@ class HostFileReadTool implements Tool {
         context.conversationId,
         context.signal,
       );
+    }
+
+    // For image files, delegate to the shared image reader.
+    const ext = extname(rawPath).toLowerCase();
+    if (IMAGE_EXTENSIONS.has(ext)) {
+      const pathCheck = hostPolicy(rawPath);
+      if (!pathCheck.ok) {
+        return { content: `Error: ${pathCheck.error}`, isError: true };
+      }
+      return readImageFile(pathCheck.resolved);
     }
 
     const ops = new FileSystemOps(hostPolicy);

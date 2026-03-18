@@ -132,12 +132,14 @@ export async function run(
   const meta = VOICE_SETTINGS[setting as VoiceSettingName];
   const friendlyName = FRIENDLY_NAMES[setting as VoiceSettingName];
 
-  // Send client_settings_update message to write to UserDefaults
+  // Send client_settings_update message to write to UserDefaults.
+  // Always stringify the value — Swift's ClientSettingsUpdate.value is typed
+  // as String, so a bare JSON number would fail to decode.
   if (context.sendToClient) {
     context.sendToClient({
       type: "client_settings_update",
       key: meta.userDefaultsKey,
-      value: validation.coerced,
+      value: String(validation.coerced),
     });
   }
 
@@ -146,6 +148,19 @@ export async function run(
   if (setting === "tts_voice_id") {
     const raw = loadRawConfig();
     setNestedValue(raw, "elevenlabs.voiceId", validation.coerced);
+    saveRawConfig(raw);
+    invalidateConfigCache();
+  }
+
+  // For conversation_timeout, persist to the config file
+  // (elevenlabs.conversationTimeoutSeconds).
+  if (setting === "conversation_timeout") {
+    const raw = loadRawConfig();
+    setNestedValue(
+      raw,
+      "elevenlabs.conversationTimeoutSeconds",
+      validation.coerced,
+    );
     saveRawConfig(raw);
     invalidateConfigCache();
   }

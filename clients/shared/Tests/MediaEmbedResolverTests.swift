@@ -52,6 +52,39 @@ final class MediaEmbedResolverTests: XCTestCase {
         XCTAssertEqual(result?.videoID, "xyz789")
     }
 
+    // MARK: - VideoEmbedURLBuilder
+
+    func testYouTubeEmbedBuilderAddsPlaysinline() {
+        let url = VideoEmbedURLBuilder.buildEmbedURL(provider: "youtube", videoID: "abc123")
+        let components = URLComponents(url: url!, resolvingAgainstBaseURL: false)
+        let queryItems = components?.queryItems ?? []
+
+        XCTAssertTrue(queryItems.contains(where: { $0.name == "playsinline" && $0.value == "1" }))
+    }
+
+    // MARK: - VideoEmbedRequestBuilder
+
+    func testYouTubeEmbedRequestAddsRefererHeader() {
+        let request = VideoEmbedRequestBuilder.buildRequest(
+            url: URL(string: "https://www.youtube.com/embed/abc123")!,
+            provider: "youtube"
+        )
+
+        XCTAssertEqual(
+            request.value(forHTTPHeaderField: "Referer"),
+            VideoEmbedRequestBuilder.defaultReferer
+        )
+    }
+
+    func testNonYouTubeEmbedRequestOmitsRefererHeader() {
+        let request = VideoEmbedRequestBuilder.buildRequest(
+            url: URL(string: "https://player.vimeo.com/video/123")!,
+            provider: "vimeo"
+        )
+
+        XCTAssertNil(request.value(forHTTPHeaderField: "Referer"))
+    }
+
     // MARK: - DomainAllowlistMatcher
 
     func testExactDomainMatch() {

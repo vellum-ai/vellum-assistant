@@ -34,5 +34,4 @@ export interface OAuthConnection {
   readonly id: string;
   readonly providerKey: string;
   readonly accountInfo: string | null;
-  readonly grantedScopes: string[];
 }

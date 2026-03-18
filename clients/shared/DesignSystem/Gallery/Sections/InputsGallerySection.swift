@@ -166,6 +166,11 @@ struct InputsGallerySection: View {
                         Text("Without label").font(VFont.caption).foregroundColor(VColor.contentTertiary)
                         VToggle(isOn: $toggleB)
                     }
+
+                    VStack(alignment: .leading, spacing: VSpacing.md) {
+                        Text("Non-interactive").font(VFont.caption).foregroundColor(VColor.contentTertiary)
+                        VToggle(isOn: .constant(true), label: "Read-only toggle", interactive: false)
+                    }
                 }
             }
 

@@ -31,6 +31,9 @@ public final class SettingsStore: ObservableObject {
     @Published var maskedKey: String = ""
     @Published var apiKeySaveError: String?
     @Published var apiKeySaving: Bool = false
+    @Published var braveKeySaveError: String?
+    @Published var perplexityKeySaveError: String?
+    @Published var imageGenKeySaveError: String?
     @Published var maskedBraveKey: String = ""
     @Published var maskedPerplexityKey: String = ""
     @Published var maskedImageGenKey: String = ""
@@ -54,6 +57,61 @@ public final class SettingsStore: ObservableObject {
         "claude-haiku-4-5-20251001": "Claude Haiku 4.5",
     ]
 
+    // MARK: - Inference Provider Selection
+
+    @Published var selectedInferenceProvider: String = "anthropic"
+    @Published var inferenceAvailableModels: [CatalogModel] = []
+
+    static let inferenceProviders: [String] = [
+        "anthropic", "openai", "gemini", "ollama", "fireworks", "openrouter",
+    ]
+    static let inferenceProviderDisplayNames: [String: String] = [
+        "anthropic": "Anthropic",
+        "openai": "OpenAI",
+        "gemini": "Google Gemini",
+        "ollama": "Ollama",
+        "fireworks": "Fireworks",
+        "openrouter": "OpenRouter",
+    ]
+    /// Client-side model catalog for immediate UI updates on provider change.
+    /// Mirrors PROVIDER_MODEL_CATALOG on the daemon.
+    static let inferenceProviderModels: [String: [(id: String, displayName: String)]] = [
+        "anthropic": [
+            ("claude-opus-4-6", "Claude Opus 4.6"),
+            ("claude-sonnet-4-6", "Claude Sonnet 4.6"),
+            ("claude-haiku-4-5-20251001", "Claude Haiku 4.5"),
+        ],
+        "openai": [
+            ("gpt-5.2", "GPT-5.2"),
+            ("gpt-5.4", "GPT-5.4"),
+            ("gpt-5.4-nano", "GPT-5.4 Nano"),
+        ],
+        "gemini": [
+            ("gemini-3-flash", "Gemini 3 Flash"),
+            ("gemini-3-pro", "Gemini 3 Pro"),
+        ],
+        "ollama": [
+            ("llama3.2", "Llama 3.2"),
+            ("mistral", "Mistral"),
+        ],
+        "fireworks": [
+            ("accounts/fireworks/models/kimi-k2p5", "Kimi K2.5"),
+        ],
+        "openrouter": [
+            ("x-ai/grok-4", "Grok 4"),
+            ("x-ai/grok-4.20-beta", "Grok 4.20 Beta"),
+        ],
+    ]
+    /// Default model per provider (first entry from the catalog).
+    static let inferenceProviderDefaultModel: [String: String] = [
+        "anthropic": "claude-opus-4-6",
+        "openai": "gpt-5.2",
+        "gemini": "gemini-3-flash",
+        "ollama": "llama3.2",
+        "fireworks": "accounts/fireworks/models/kimi-k2p5",
+        "openrouter": "x-ai/grok-4",
+    ]
+
     static let availableImageGenModels: [String] = [
         "gemini-3.1-flash-image-preview",
         "gemini-3-pro-image-preview",
@@ -66,8 +124,6 @@ public final class SettingsStore: ObservableObject {
 
     // MARK: - Settings Values
 
-    @Published var maxSteps: Double
-    @Published var activityNotificationsEnabled: Bool
     @Published var globalHotkeyShortcut: String
     @Published var quickInputHotkeyShortcut: String
     @Published var quickInputHotkeyKeyCode: Int
@@ -203,11 +259,6 @@ public final class SettingsStore: ObservableObject {
     /// Current Google OAuth mode. Values: "managed" or "your-own".
     @Published var googleOAuthMode: String = "your-own"
 
-    /// True when any service is configured to use managed mode.
-    var hasManagedServices: Bool {
-        inferenceMode == "managed" || webSearchMode == "managed" || imageGenMode == "managed" || googleOAuthMode == "managed"
-    }
-
     static let availableWebSearchProviders = ["inference-provider-native", "perplexity", "brave"]
 
     static let webSearchProviderDisplayNames: [String: String] = [
@@ -257,13 +308,11 @@ public final class SettingsStore: ObservableObject {
     /// performance metrics. Defaults to `true`. Controls Sentry independently from usage analytics.
     @Published var sendDiagnostics: Bool = UserDefaults.standard.object(forKey: "sendDiagnostics") as? Bool
         ?? UserDefaults.standard.object(forKey: "collectUsageData") as? Bool
-        ?? UserDefaults.standard.object(forKey: "collectUsageDataEnabled") as? Bool
         ?? true
 
     /// Whether the user has opted in to sharing anonymized usage analytics (e.g. token counts,
     /// feature adoption). Defaults to `true`. Independent from diagnostics.
     @Published var collectUsageData: Bool = UserDefaults.standard.object(forKey: "collectUsageData") as? Bool
-        ?? UserDefaults.standard.object(forKey: "collectUsageDataEnabled") as? Bool
         ?? true
 
     // MARK: - Private
@@ -294,6 +343,7 @@ public final class SettingsStore: ObservableObject {
     /// Last model reported by the daemon — used to skip redundant model_set calls
     /// that would otherwise reinitialize providers and evict idle conversations.
     private var lastDaemonModel: String?
+    private var lastDaemonProvider: String?
     private var pendingVerificationSessionChannel: String?
     private var verificationSessionTimeoutWorkItem: DispatchWorkItem?
     private var verificationStatusPollingWorkItems: [String: DispatchWorkItem] = [:]
@@ -354,16 +404,8 @@ public final class SettingsStore: ObservableObject {
         let elevenLabsKey = APIKeyManager.getKey(for: "elevenlabs")
         self.hasElevenLabsKey = elevenLabsKey != nil
         self.maskedElevenLabsKey = Self.maskKey(elevenLabsKey)
-        let storedImageGenModel = UserDefaults.standard.string(forKey: "selectedImageGenModel")
-        if let storedImageGenModel, Self.availableImageGenModels.contains(storedImageGenModel) {
-            self.selectedImageGenModel = storedImageGenModel
-        }
-
-        let storedMaxSteps = UserDefaults.standard.double(forKey: "maxStepsPerSession")
-        self.maxSteps = storedMaxSteps == 0 ? 50 : storedMaxSteps
-
-        // Default to enabled for notifications
-        self.activityNotificationsEnabled = UserDefaults.standard.object(forKey: "activityNotificationsEnabled") as? Bool ?? true
+        // selectedImageGenModel is initialized with a hardcoded default and
+        // populated from the daemon's workspace config via loadServiceModes().
 
         self.cmdEnterToSend = UserDefaults.standard.object(forKey: "cmdEnterToSend") as? Bool ?? false
 
@@ -439,24 +481,11 @@ public final class SettingsStore: ObservableObject {
             }
             .store(in: &cancellables)
 
-        // maxStepsPerSession is read at conversation startup, so it must be persisted synchronously
-        // to avoid a race where a new conversation reads a stale value before the debounced write fires.
-        $maxSteps
-            .dropFirst()
-            .sink { value in UserDefaults.standard.set(value, forKey: "maxStepsPerSession") }
-            .store(in: &cancellables)
-
         // Debounce UserDefaults writes so rapid toggle changes don't thrash disk I/O.
         // dropFirst must come before debounce: it consumes the synchronous initial emission so that
         // only genuine user-driven changes flow into debounce and are eventually persisted.
         // Placing dropFirst after debounce would cause the first real user change to be silently
         // dropped whenever it arrives within the 300ms debounce window of the initial value.
-        $activityNotificationsEnabled
-            .dropFirst()
-            .debounce(for: .milliseconds(300), scheduler: RunLoop.main)
-            .sink { value in UserDefaults.standard.set(value, forKey: "activityNotificationsEnabled") }
-            .store(in: &cancellables)
-
         $cmdEnterToSend
             .dropFirst()
             .debounce(for: .milliseconds(300), scheduler: RunLoop.main)
@@ -670,12 +699,24 @@ public final class SettingsStore: ObservableObject {
     func saveBraveKey(_ raw: String) {
         let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
+        braveKeySaveError = nil
         APIKeyManager.setKey(trimmed, for: "brave")
         removeDeletionTombstone(type: "api_key", name: "brave")
-        syncKeyToDaemon(provider: "brave", value: trimmed)
         hasBraveKey = true
         maskedBraveKey = Self.maskKey(trimmed)
-        scheduleRoutingSourceRefresh()
+        Task {
+            let result = await syncKeyToDaemonWithValidation(provider: "brave", value: trimmed)
+            if result.success {
+                scheduleRoutingSourceRefresh()
+            } else if let error = result.error {
+                braveKeySaveError = error
+                if !result.isTransient {
+                    APIKeyManager.deleteKey(for: "brave")
+                    hasBraveKey = false
+                    maskedBraveKey = ""
+                }
+            }
+        }
     }
 
     func clearBraveKey() {
@@ -690,12 +731,24 @@ public final class SettingsStore: ObservableObject {
     func savePerplexityKey(_ raw: String) {
         let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
+        perplexityKeySaveError = nil
         APIKeyManager.setKey(trimmed, for: "perplexity")
         removeDeletionTombstone(type: "api_key", name: "perplexity")
-        syncKeyToDaemon(provider: "perplexity", value: trimmed)
         hasPerplexityKey = true
         maskedPerplexityKey = Self.maskKey(trimmed)
-        scheduleRoutingSourceRefresh()
+        Task {
+            let result = await syncKeyToDaemonWithValidation(provider: "perplexity", value: trimmed)
+            if result.success {
+                scheduleRoutingSourceRefresh()
+            } else if let error = result.error {
+                perplexityKeySaveError = error
+                if !result.isTransient {
+                    APIKeyManager.deleteKey(for: "perplexity")
+                    hasPerplexityKey = false
+                    maskedPerplexityKey = ""
+                }
+            }
+        }
     }
 
     func clearPerplexityKey() {
@@ -710,12 +763,24 @@ public final class SettingsStore: ObservableObject {
     func saveImageGenKey(_ raw: String) {
         let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
+        imageGenKeySaveError = nil
         APIKeyManager.setKey(trimmed, for: "gemini")
         removeDeletionTombstone(type: "api_key", name: "gemini")
-        syncKeyToDaemon(provider: "gemini", value: trimmed)
         hasImageGenKey = true
         maskedImageGenKey = Self.maskKey(trimmed)
-        scheduleRoutingSourceRefresh()
+        Task {
+            let result = await syncKeyToDaemonWithValidation(provider: "gemini", value: trimmed)
+            if result.success {
+                scheduleRoutingSourceRefresh()
+            } else if let error = result.error {
+                imageGenKeySaveError = error
+                if !result.isTransient {
+                    APIKeyManager.deleteKey(for: "gemini")
+                    hasImageGenKey = false
+                    maskedImageGenKey = ""
+                }
+            }
+        }
     }
 
     func clearImageGenKey() {
@@ -745,13 +810,46 @@ public final class SettingsStore: ObservableObject {
         maskedElevenLabsKey = ""
     }
 
+    func clearAPIKeyForProvider(_ provider: String) {
+        APIKeyManager.deleteKey(for: provider)
+        addDeletionTombstone(type: "api_key", name: provider)
+        deleteKeyFromDaemon(provider: provider)
+        refreshAPIKeyState()
+        scheduleRoutingSourceRefresh()
+    }
+
+    func saveInferenceAPIKey(_ raw: String, provider: String, onSuccess: (() -> Void)? = nil) {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        apiKeySaveError = nil
+        apiKeySaving = true
+
+        // Persist locally first
+        APIKeyManager.setKey(trimmed, for: provider)
+
+        // Remove any stale deletion tombstone
+        removeDeletionTombstone(type: "api_key", name: provider)
+
+        Task {
+            let result = await syncKeyToDaemonWithValidation(provider: provider, value: trimmed)
+            apiKeySaving = false
+            if result.success {
+                scheduleRoutingSourceRefresh()
+                onSuccess?()
+            } else if let error = result.error {
+                apiKeySaveError = error
+                if !result.isTransient {
+                    // Definitive validation failure — revert optimistic local state
+                    APIKeyManager.deleteKey(for: provider)
+                }
+            }
+        }
+    }
+
     func setImageGenModel(_ model: String) {
         selectedImageGenModel = model
-        UserDefaults.standard.set(model, forKey: "selectedImageGenModel")
-        do {
-            try daemonClient?.sendImageGenModelSet(model: model)
-        } catch {
-            log.error("Failed to send image gen model set: \(error)")
+        Task {
+            _ = await settingsClient.setImageGenModel(modelId: model)
         }
     }
 
@@ -776,6 +874,14 @@ public final class SettingsStore: ObservableObject {
         hasElevenLabsKey = elevenLabsKey != nil
         maskedElevenLabsKey = Self.maskKey(elevenLabsKey)
 
+    }
+
+    func hasKeyForProvider(_ provider: String) -> Bool {
+        APIKeyManager.getKey(for: provider) != nil
+    }
+
+    func maskedKeyForProvider(_ provider: String) -> String {
+        Self.maskKey(APIKeyManager.getKey(for: provider))
     }
 
     /// Shows the first 10 and last 4 characters of a key, e.g. "sk-ant-api...Ab1x".
@@ -832,9 +938,14 @@ public final class SettingsStore: ObservableObject {
 
     private func applyModelInfoResponse(_ response: ModelInfoMessage) {
         self.lastDaemonModel = response.model
+        self.lastDaemonProvider = response.provider
         self.selectedModel = response.model
+        self.selectedInferenceProvider = response.provider
         if let providers = response.configuredProviders {
             self.configuredProviders = Set(providers)
+        }
+        if let models = response.availableModels {
+            self.inferenceAvailableModels = models
         }
     }
 
@@ -868,30 +979,26 @@ public final class SettingsStore: ObservableObject {
         guard !trimmed.isEmpty else { return }
         telegramSaveInProgress = true
         telegramError = nil
-        do {
-            guard let daemonClient else {
+        Task {
+            guard let response = await settingsClient.setTelegramConfig(action: "set", botToken: trimmed, commands: nil) else {
                 telegramSaveInProgress = false
+                telegramError = "Failed to save Telegram config"
                 return
             }
-            try daemonClient.sendTelegramConfig(action: "set", botToken: trimmed)
-        } catch {
-            telegramSaveInProgress = false
-            telegramError = "Failed to save: \(error.localizedDescription)"
+            applyTelegramConfigResponse(response)
         }
     }
 
     func clearTelegramCredentials() {
         telegramSaveInProgress = true
         telegramError = nil
-        do {
-            guard let daemonClient else {
+        Task {
+            guard let response = await settingsClient.setTelegramConfig(action: "clear", botToken: nil, commands: nil) else {
                 telegramSaveInProgress = false
+                log.error("Failed to send Telegram config clear")
                 return
             }
-            try daemonClient.sendTelegramConfig(action: "clear")
-        } catch {
-            telegramSaveInProgress = false
-            log.error("Failed to send Telegram config clear: \(error)")
+            applyTelegramConfigResponse(response)
         }
     }
 
@@ -1971,13 +2078,18 @@ public final class SettingsStore: ObservableObject {
     func loadServiceModes() {
         let config = WorkspaceConfigIO.read(from: configPath)
         guard let services = config["services"] as? [String: Any] else { return }
-        if let inference = services["inference"] as? [String: Any],
-           let mode = inference["mode"] as? String {
-            self.inferenceMode = mode
+        if let inference = services["inference"] as? [String: Any] {
+            if let mode = inference["mode"] as? String { self.inferenceMode = mode }
+            if let provider = inference["provider"] as? String { self.selectedInferenceProvider = provider }
         }
-        if let imageGen = services["image-generation"] as? [String: Any],
-           let mode = imageGen["mode"] as? String {
-            self.imageGenMode = mode
+        if let imageGen = services["image-generation"] as? [String: Any] {
+            if let mode = imageGen["mode"] as? String {
+                self.imageGenMode = mode
+            }
+            if let model = imageGen["model"] as? String,
+               Self.availableImageGenModels.contains(model) {
+                self.selectedImageGenModel = model
+            }
         }
         if let webSearch = services["web-search"] as? [String: Any],
            let mode = webSearch["mode"] as? String {
@@ -2066,6 +2178,21 @@ public final class SettingsStore: ObservableObject {
             log.error("Failed to merge workspace config for web search provider: \(error)")
         }
         scheduleRoutingSourceRefresh()
+    }
+
+    func setInferenceProvider(_ provider: String) {
+        selectedInferenceProvider = provider
+        guard !isCurrentAssistantRemote else { return }
+        let existingConfig = WorkspaceConfigIO.read(from: configPath)
+        var services = existingConfig["services"] as? [String: Any] ?? [:]
+        var inference = services["inference"] as? [String: Any] ?? [:]
+        inference["provider"] = provider
+        services["inference"] = inference
+        do {
+            try WorkspaceConfigIO.merge(["services": services], into: configPath)
+        } catch {
+            log.error("Failed to persist inference provider: \(error.localizedDescription)")
+        }
     }
 
     /// Schedules a delayed refresh of provider routing sources, giving the
@@ -2237,16 +2364,21 @@ public final class SettingsStore: ObservableObject {
 
     // MARK: - Model Actions
 
-    func setModel(_ model: String) {
-        guard model != lastDaemonModel else { return }
+    func setModel(_ model: String, provider: String? = nil) {
+        // Skip if neither model nor provider changed
+        let modelUnchanged = model == lastDaemonModel
+        let providerUnchanged = provider == nil || provider == lastDaemonProvider
+        guard !modelUnchanged || !providerUnchanged else { return }
         lastDaemonModel = model
+        if let provider { lastDaemonProvider = provider }
         Task {
-            let info = await settingsClient.setModel(model: model)
+            let info = await settingsClient.setModel(model: model, provider: provider)
             if let info {
                 applyModelInfoResponse(info)
             } else if lastDaemonModel == model {
                 // Request failed — revert only if no newer call overwrote lastDaemonModel
                 lastDaemonModel = nil
+                lastDaemonProvider = nil
             }
         }
     }

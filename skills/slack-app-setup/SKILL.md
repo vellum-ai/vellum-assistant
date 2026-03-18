@@ -135,22 +135,50 @@ Use the most recent `credential_store` result as the source of truth:
 
 Guardian verification depends on Socket Mode being live, so only proceed once the connection is confirmed.
 
-## Step 5: Guardian Verification (Optional)
+Show the user their setup progress:
+"Setup progress:
+✅ App created
+✅ Tokens configured
+✅ Connection active
+⬜ Connection tested
 
-Link the user's Slack account as the trusted guardian. Load the **guardian-verify-setup** skill:
+Almost there — let's complete the last step!"
+
+## Step 5: Test Your Connection
+
+Now let's test the connection by verifying the user can receive messages from the bot. This also sets them up as the trusted guardian for this Slack workspace.
+
+Load the **guardian-verify-setup** skill:
 
 - Call `skill_load` with `skill: "guardian-verify-setup"`.
 
-If the user declines, skip and continue.
+If the user explicitly wants to skip this step, proceed to Step 6, but let them know they can always verify later by saying "verify me on slack".
 
 ## Step 6: Report Success
 
-Summarize:
+Summarize with the completed checklist.
 
-- Bot connected: {username} in {workspace}
-- Socket Mode: active (gateway auto-connects when credentials are stored)
-- Guardian: {verified | skipped}
-- Usage: @{botUsername} in any channel, or DM the bot directly
+If guardian was verified:
+"Setup complete!
+✅ App created
+✅ Tokens configured
+✅ Connection active
+✅ Connection tested
+
+Bot connected: {username} in {workspace}
+Socket Mode: active (gateway auto-connects when credentials are stored)
+Usage: @{botUsername} in any channel, or DM the bot directly"
+
+If guardian was skipped:
+"Setup complete!
+✅ App created
+✅ Tokens configured
+✅ Connection active
+⬜ Connection tested — You can complete this anytime by saying 'help me verify as guardian on slack'
+
+Bot connected: {username} in {workspace}
+Socket Mode: active (gateway auto-connects when credentials are stored)
+Usage: @{botUsername} in any channel, or DM the bot directly"
 
 # Clearing Credentials
 

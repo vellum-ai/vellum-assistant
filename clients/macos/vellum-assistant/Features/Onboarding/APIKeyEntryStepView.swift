@@ -131,7 +131,6 @@ struct APIKeyEntryStepView: View {
         let trimmed = apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
         APIKeyManager.setKey(trimmed, for: "anthropic")
-        APIKeyManager.syncKeyToDaemon(provider: "anthropic", value: trimmed)
 
         // Set service modes to "your-own" for any services that don't already
         // have a mode configured (first-time BYOK onboarding).

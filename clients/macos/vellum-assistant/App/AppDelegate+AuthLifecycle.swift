@@ -162,28 +162,9 @@ extension AppDelegate {
     }
 
     @objc public func performLogout() {
-        // Warn when managed services are active — they'll stop working after logout.
-        if services.settingsStore.hasManagedServices {
-            let alert = NSAlert()
-            alert.messageText = "Heads up"
-            alert.informativeText = "Some of your services rely on being logged in."
-                + " They won't work until you log back in or switch them to use your own API keys."
-            alert.addButton(withTitle: "Log Out")
-            alert.addButton(withTitle: "Cancel")
-            // Style the primary button as destructive (caution icon).
-            alert.alertStyle = .warning
-            let response = alert.runModal()
-            if response != .alertFirstButtonReturn {
-                return
-            }
-        }
-
         Task {
             // Capture assistant ID before logout clears it from UserDefaults
             let connectedAssistantId = UserDefaults.standard.string(forKey: "connectedAssistantId")
-
-            // Capture actor token before logout clears session state
-            let actorToken = ActorTokenManager.getToken()
 
             // Capture managed status before logout clears UserDefaults
             let wasManaged = isCurrentAssistantManaged
@@ -196,25 +177,13 @@ extension AppDelegate {
                 await authManager.logout()
             }
 
-            // Clear managed proxy credentials from the running daemon (local assistants only).
+            // Clear platform identity credentials from the running daemon (local assistants only).
             // Skip when the daemon was never set up (e.g. logout during onboarding) —
             // there are no credentials to clear and no daemon to stop.
             if !isCurrentAssistantManaged && !isCurrentAssistantRemote && hasSetupDaemon {
-                if let token = actorToken, !token.isEmpty {
-                    let assistantId = connectedAssistantId ?? ""
-                    let port = LockfileAssistant.loadByName(assistantId)?.daemonPort ?? 7821
-                    let daemonBaseURL = "http://localhost:\(port)"
-                    let cleared = await LocalAssistantBootstrapService.clearDaemonCredentials(
-                        daemonBaseURL: daemonBaseURL,
-                        daemonToken: token
-                    )
-                    if !cleared {
-                        log.warning("Credential cleanup incomplete — stopping daemon to prevent stale managed proxy state")
-                        daemonClient.disconnect()
-                        assistantCli.stop(name: connectedAssistantId)
-                    }
-                } else {
-                    log.warning("No actor token available during logout — stopping daemon to ensure stale credentials are not retained")
+                let cleared = await LocalAssistantBootstrapService.clearDaemonCredentials()
+                if !cleared {
+                    log.warning("Credential cleanup incomplete — stopping daemon to prevent stale platform identity state")
                     daemonClient.disconnect()
                     assistantCli.stop(name: connectedAssistantId)
                 }
@@ -236,7 +205,7 @@ extension AppDelegate {
                 _ = credStorage.delete(account: credentialAccount)
             }
 
-            // Stop all non-current local daemons to clear in-memory managed proxy
+            // Stop all non-current local daemons to clear in-memory platform identity
             // credentials. Assistant switches intentionally leave old daemons running
             // for fast switching, but on full logout there's no reason to keep them
             // alive with potentially stale state.
@@ -609,8 +578,7 @@ extension AppDelegate {
 
             // Try local assistants — check if awake, otherwise wake them
             for candidate in remaining {
-                let env: [String: String]? = candidate.instanceDir.map { ["BASE_DATA_DIR": $0] }
-                if DaemonClient.isDaemonProcessAlive(environment: env) {
+                if await HealthCheckClient.isReachable(for: candidate) {
                     performSwitchAssistant(to: candidate)
                     return true
                 }

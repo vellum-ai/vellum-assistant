@@ -26,6 +26,7 @@ import { resolveManagedProxyContext } from "../providers/managed-proxy/context.j
 import { getExternalAssistantId } from "../runtime/auth/external-assistant-id.js";
 import { getDeviceId } from "../util/device-id.js";
 import { getLogger } from "../util/logger.js";
+import { APP_VERSION } from "../version.js";
 import type { TelemetryEvent } from "./types.js";
 
 const log = getLogger("usage-telemetry");
@@ -192,6 +193,7 @@ export class UsageTelemetryReporter {
       const payload = {
         installation_id: getDeviceId(),
         assistant_id: assistantId,
+        app_version: APP_VERSION,
         ...(organizationId ? { organization_id: organizationId } : {}),
         ...(userId ? { user_id: userId } : {}),
         events: typedEvents,

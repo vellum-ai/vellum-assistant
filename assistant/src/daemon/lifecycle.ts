@@ -42,6 +42,7 @@ import { startMemoryJobsWorker } from "../memory/jobs-worker.js";
 import { initQdrantClient } from "../memory/qdrant-client.js";
 import { QdrantManager } from "../memory/qdrant-manager.js";
 import { rotateToolInvocations } from "../memory/tool-usage-store.js";
+import { deleteOldTraceEvents } from "../memory/trace-event-store.js";
 import {
   emitNotificationSignal,
   registerBroadcastFn,
@@ -61,6 +62,7 @@ import {
 import { ensureVellumGuardianBinding } from "../runtime/guardian-vellum-migration.js";
 import { RuntimeHttpServer } from "../runtime/http-server.js";
 import { startScheduler } from "../schedule/scheduler.js";
+import { seedCatalogSkillMemories } from "../skills/skill-memory.js";
 import { UsageTelemetryReporter } from "../telemetry/usage-telemetry-reporter.js";
 import { getLogger, initLogger } from "../util/logger.js";
 import {
@@ -105,7 +107,6 @@ import {
   registerWatcherProviders,
 } from "./providers-setup.js";
 import { seedInterfaceFiles } from "./seed-files.js";
-import { seedCatalogSkillMemories } from "../skills/skill-memory.js";
 import { DaemonServer } from "./server.js";
 import { installShutdownHandlers } from "./shutdown-handlers.js";
 import { handleWatchObservation } from "./watch-handler.js";
@@ -830,6 +831,22 @@ export async function runDaemon(): Promise<void> {
         log.warn({ err }, "Audit log rotation failed");
       }
     }
+
+    // Prune trace events older than 7 days to keep the database lean.
+    // Deferred so synchronous cleanup doesn't block the startup path.
+    setTimeout(() => {
+      try {
+        const deletedTraceEvents = deleteOldTraceEvents(7);
+        if (deletedTraceEvents > 0) {
+          log.debug(
+            { deletedTraceEvents },
+            `Pruned ${deletedTraceEvents} trace event(s) older than 7 days`,
+          );
+        }
+      } catch (err) {
+        log.warn({ err }, "Trace event cleanup failed");
+      }
+    }, 0);
 
     const workspaceHeartbeat = new WorkspaceHeartbeatService();
     workspaceHeartbeat.start();

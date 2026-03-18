@@ -196,6 +196,14 @@ export function hasInviteFlowDirective(text: string | undefined): boolean {
  * Build the deterministic access-request contract text from payload fields.
  * This is the canonical baseline that enforcement can append when generated
  * copy is missing required elements.
+ *
+ * Channel-agnostic by design: this function reads from the generic
+ * `contextPayload` and works identically regardless of which channel
+ * (Slack, Telegram, desktop, etc.) the notification is delivered to.
+ * When `guardianResolutionSource` is present and not `"source-channel-contact"`,
+ * the guardian was resolved via fallback (e.g. vellum anchor) rather than
+ * a verified same-channel contact — downstream copy or routing can use
+ * this to append verification CTAs like "Was this you?".
  */
 export function buildAccessRequestContractText(
   payload: Record<string, unknown>,
@@ -206,6 +214,15 @@ export function buildAccessRequestContractText(
   const previousMemberStatus =
     typeof payload.previousMemberStatus === "string"
       ? payload.previousMemberStatus
+      : undefined;
+
+  const guardianResolutionSource =
+    typeof payload.guardianResolutionSource === "string"
+      ? payload.guardianResolutionSource
+      : undefined;
+  const sourceChannel =
+    typeof payload.sourceChannel === "string"
+      ? payload.sourceChannel
       : undefined;
 
   const lines: string[] = [];
@@ -220,6 +237,15 @@ export function buildAccessRequestContractText(
     );
   }
   lines.push(buildAccessRequestInviteDirective());
+  if (
+    (guardianResolutionSource === "vellum-anchor" ||
+      guardianResolutionSource === "none") &&
+    sourceChannel
+  ) {
+    lines.push(
+      `Note: You haven't verified your identity on ${sourceChannel} yet. If this was you trying to message your assistant, say "help me verify as guardian on ${sourceChannel}" to set up direct access.`,
+    );
+  }
   return lines.join("\n");
 }
 

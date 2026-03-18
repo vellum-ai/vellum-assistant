@@ -1,5 +1,11 @@
 import { execFileSync, spawn, type ChildProcess } from "node:child_process";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  openSync,
+  readFileSync,
+  writeFileSync,
+} from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 
@@ -111,12 +117,29 @@ export async function findExistingTunnel(
 
 /**
  * Start an ngrok process tunneling HTTP traffic to the given local port.
+ *
+ * When `logFilePath` is provided, stdout/stderr are redirected to that file
+ * instead of being piped. This avoids keeping pipe handles open in the
+ * parent process — which would either prevent the CLI from exiting (if
+ * handles are left open) or send SIGPIPE to ngrok (if destroyed).
+ *
  * Returns the spawned child process.
  */
-export function startNgrokProcess(targetPort: number): ChildProcess {
+export function startNgrokProcess(
+  targetPort: number,
+  logFilePath?: string,
+): ChildProcess {
+  let stdio: ("ignore" | "pipe" | number)[] = ["ignore", "pipe", "pipe"];
+  if (logFilePath) {
+    const dir = dirname(logFilePath);
+    if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
+    const fd = openSync(logFilePath, "a");
+    stdio = ["ignore", fd, fd];
+  }
+
   const child = spawn("ngrok", ["http", String(targetPort), "--log=stdout"], {
     detached: true,
-    stdio: ["ignore", "pipe", "pipe"],
+    stdio,
   });
   return child;
 }
@@ -170,14 +193,16 @@ function clearIngressUrl(): void {
 }
 
 /**
- * Check whether any webhook-based integrations (e.g. Telegram) are configured
- * that require a public ingress URL.
+ * Check whether any webhook-based integrations (e.g. Telegram, Twilio) are
+ * configured that require a public ingress URL.
  */
 function hasWebhookIntegrationsConfigured(): boolean {
   try {
     const config = loadRawConfig();
     const telegram = config.telegram as Record<string, unknown> | undefined;
     if (telegram?.botUsername) return true;
+    const twilio = config.twilio as Record<string, unknown> | undefined;
+    if (twilio?.accountSid || twilio?.phoneNumber) return true;
     return false;
   } catch {
     return false;
@@ -225,30 +250,22 @@ export async function maybeStartNgrokTunnel(
   }
 
   console.log(`   Starting ngrok tunnel for webhook integrations...`);
-  const ngrokProcess = startNgrokProcess(targetPort);
 
-  // Pipe output for debugging but don't block on it
-  ngrokProcess.stdout?.on("data", (data: Buffer) => {
-    const line = data.toString().trim();
-    if (line) console.log(`[ngrok] ${line}`);
-  });
-  ngrokProcess.stderr?.on("data", (data: Buffer) => {
-    const line = data.toString().trim();
-    if (line) console.error(`[ngrok] ${line}`);
-  });
+  // Spawn ngrok with stdout/stderr redirected to a log file instead of pipes.
+  // This avoids two problems that occur with piped stdio:
+  //   1. If pipe handles are left open, the CLI process hangs after hatch/wake.
+  //   2. If pipe handles are destroyed, SIGPIPE kills ngrok on its next write.
+  // Writing to a log file sidesteps both issues — the file descriptor is
+  // inherited by the detached ngrok process and remains valid after CLI exit.
+  const root = join(process.env.BASE_DATA_DIR?.trim() || homedir(), ".vellum");
+  const ngrokLogPath = join(root, "workspace", "data", "logs", "ngrok.log");
+  const ngrokProcess = startNgrokProcess(targetPort, ngrokLogPath);
+  ngrokProcess.unref();
 
   try {
     const publicUrl = await waitForNgrokUrl();
     saveIngressUrl(publicUrl);
     console.log(`   Tunnel established: ${publicUrl}`);
-
-    // Detach the ngrok process so the CLI (hatch/wake) can exit without
-    // keeping it alive. Remove stdout/stderr listeners and unref all handles.
-    ngrokProcess.stdout?.removeAllListeners("data");
-    ngrokProcess.stderr?.removeAllListeners("data");
-    ngrokProcess.stdout?.destroy();
-    ngrokProcess.stderr?.destroy();
-    ngrokProcess.unref();
 
     return ngrokProcess;
   } catch {

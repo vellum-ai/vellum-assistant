@@ -15,10 +15,11 @@ export type RpcError = z.infer<typeof RpcErrorSchema>;
 
 /**
  * Error returned when a local_static credential handle is used in managed
- * mode. The encrypted key store uses PBKDF2 key derivation from user
- * identity (username, homedir), but the assistant container runs as root
- * while CES runs as ces — different derived keys make decryption silently
- * fail. Managed deployments must use platform_oauth handles exclusively.
+ * mode. v2 stores use a UID-independent `store.key` file that removes the
+ * technical barrier (legacy v1 relied on PBKDF2 key derivation from user
+ * identity, which broke across container users). The restriction is now a
+ * policy choice: managed deployments use platform_oauth handles exclusively
+ * for simpler lifecycle and centralized token management.
  */
 export const MANAGED_LOCAL_STATIC_REJECTION_ERROR =
   "local_static credential handles are not supported in managed mode. " +

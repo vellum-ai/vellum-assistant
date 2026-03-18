@@ -25,7 +25,7 @@ extension MainWindowView {
         case .chat:
             chatView
         case .settings:
-            SettingsPanel(onClose: { windowState.selection = nil }, store: settingsStore, daemonClient: daemonClient, conversationManager: conversationManager, authManager: authManager, showToast: { msg, style in windowState.showToast(message: msg, style: style) })
+            SettingsPanel(onClose: { windowState.selection = nil }, store: settingsStore, daemonClient: daemonClient, conversationManager: conversationManager, authManager: authManager, assistantFeatureFlagStore: assistantFeatureFlagStore, showToast: { msg, style in windowState.showToast(message: msg, style: style) })
         case .debug:
             DebugPanel(
                 traceStore: traceStore,
@@ -60,7 +60,7 @@ extension MainWindowView {
                 daemonClient: daemonClient,
                 gatewayBaseURL: settingsStore.localGatewayTarget,
                 onOpenApp: { appId in
-                    try? daemonClient.sendAppOpen(appId: appId)
+                    Task { await AppsClient.openAppAndDispatchSurface(id: appId, daemonClient: daemonClient) }
                     windowState.selection = .app(appId)
                 },
                 onOpenSharedApp: { surfaceMsg in
@@ -245,7 +245,7 @@ extension MainWindowView {
                 AppLoadingView(
                     appId: appId,
                     onRetry: { appId in
-                        try? daemonClient.sendAppOpen(appId: appId)
+                        Task { await AppsClient.openAppAndDispatchSurface(id: appId, daemonClient: daemonClient) }
                     },
                     onClose: {
                         windowState.closeDynamicPanel()
@@ -260,7 +260,7 @@ extension MainWindowView {
                     daemonClient: daemonClient,
                     gatewayBaseURL: settingsStore.localGatewayTarget,
                     onOpenApp: { appId in
-                        try? daemonClient.sendAppOpen(appId: appId)
+                        Task { await AppsClient.openAppAndDispatchSurface(id: appId, daemonClient: daemonClient) }
                         windowState.selection = .app(appId)
                     },
                     onOpenSharedApp: { surfaceMsg in
@@ -397,15 +397,6 @@ extension MainWindowView {
                 anchorMessageId: $conversationManager.pendingAnchorMessageId,
                 highlightedMessageId: $conversationManager.highlightedMessageId
             )
-            .environment(\.conversationZoomScale, conversationZoomManager.zoomLevel)
-            .overlay(alignment: .top) {
-                if conversationZoomManager.showZoomIndicator {
-                    ZoomIndicatorView(percentage: conversationZoomManager.zoomPercentage, label: "Text")
-                        .transition(.move(edge: .top).combined(with: .opacity))
-                        .padding(.top, VSpacing.xl)
-                }
-            }
-            .animation(VAnimation.fast, value: conversationZoomManager.showZoomIndicator)
         }
     }
 
@@ -413,7 +404,7 @@ extension MainWindowView {
     func fullWindowPanel(_ panel: SidePanelType) -> some View {
         switch panel {
         case .settings:
-            SettingsPanel(onClose: { windowState.dismissOverlay() }, store: settingsStore, daemonClient: daemonClient, conversationManager: conversationManager, authManager: authManager, showToast: { msg, style in windowState.showToast(message: msg, style: style) })
+            SettingsPanel(onClose: { windowState.dismissOverlay() }, store: settingsStore, daemonClient: daemonClient, conversationManager: conversationManager, authManager: authManager, assistantFeatureFlagStore: assistantFeatureFlagStore, showToast: { msg, style in windowState.showToast(message: msg, style: style) })
         case .debug:
             DebugPanel(
                 traceStore: traceStore,
@@ -440,7 +431,7 @@ extension MainWindowView {
                 daemonClient: daemonClient,
                 gatewayBaseURL: settingsStore.localGatewayTarget,
                 onOpenApp: { appId in
-                    try? daemonClient.sendAppOpen(appId: appId)
+                    Task { await AppsClient.openAppAndDispatchSurface(id: appId, daemonClient: daemonClient) }
                     windowState.selection = .app(appId)
                 },
                 onOpenSharedApp: { surfaceMsg in
@@ -657,16 +648,17 @@ struct ActiveChatViewWrapper: View {
             onStopWatch: { viewModel.stopWatchSession() },
             onReportMessage: { daemonMessageId in
                 guard let conversationId = viewModel.conversationId else { return }
-                do {
-                    try daemonClient.sendDiagnosticsExportRequest(
+                Task {
+                    let response = await DiagnosticsClient().exportDiagnostics(
                         conversationId: conversationId,
                         anchorMessageId: daemonMessageId
                     )
-                } catch {
-                    windowState.showToast(
-                        message: "Failed to request report export.",
-                        style: .error
-                    )
+                    if response?.success != true {
+                        windowState.showToast(
+                            message: "Failed to request report export.",
+                            style: .error
+                        )
+                    }
                 }
             },
             mediaEmbedSettings: MediaEmbedResolverSettings(
@@ -930,9 +922,9 @@ struct DynamicWorkspaceWrapper: View {
                         onPageChanged: { [weak viewModel] page in
                             viewModel?.currentPage = page
                         },
-                        onSnapshotCaptured: data.appId != nil ? { [weak daemonClient] base64 in
+                        onSnapshotCaptured: data.appId != nil ? { base64 in
                             guard let appId = data.appId else { return }
-                            try? daemonClient?.sendAppUpdatePreview(appId: appId, preview: base64)
+                            Task { await AppsClient().updateAppPreview(appId: appId, preview: base64) }
                             NotificationCenter.default.post(
                                 name: .appPreviewImageCaptured,
                                 object: nil,

@@ -1,4 +1,3 @@
-import Combine
 import Foundation
 
 /// Cross-platform store for skills data operations.
@@ -88,7 +87,10 @@ public final class SkillsStore: ObservableObject {
 
     // MARK: - Private State
 
-    private let daemonClient: DaemonClient
+    private let skillsClient: SkillsClientProtocol
+    /// Legacy daemon client retained only for `fetchSkillBody` which uses a
+    /// message-transport endpoint without a REST equivalent.
+    private weak var daemonClient: DaemonClient?
     private var inspectCache: [String: ClawhubInspectData] = [:]
     private var currentInspectSlug: String?
     private var lastSearchQuery: String?
@@ -104,6 +106,12 @@ public final class SkillsStore: ObservableObject {
     // MARK: - Init
 
     public init(daemonClient: DaemonClient) {
+        self.skillsClient = SkillsClient()
+        self.daemonClient = daemonClient
+    }
+
+    public init(skillsClient: SkillsClientProtocol, daemonClient: DaemonClient? = nil) {
+        self.skillsClient = skillsClient
         self.daemonClient = daemonClient
     }
 
@@ -115,22 +123,10 @@ public final class SkillsStore: ObservableObject {
         isLoading = true
 
         Task {
-            let stream = daemonClient.subscribe()
-
-            do {
-                try daemonClient.send(SkillsListRequestMessage())
-            } catch {
-                isLoading = false
-                return
+            let response = await skillsClient.fetchSkillsList()
+            if let response {
+                skills = response.skills
             }
-
-            let result = await stream.firstMatch { message -> [SkillInfo]? in
-                if case .skillsListResponse(let response) = message {
-                    return response.skills
-                }
-                return nil
-            }
-            skills = result ?? skills
             isLoading = false
         }
     }
@@ -139,6 +135,7 @@ public final class SkillsStore: ObservableObject {
 
     public func fetchSkillBody(skillId: String) {
         guard loadedBodies[skillId] == nil else { return }
+        guard let daemonClient else { return }
 
         Task {
             let stream = daemonClient.subscribe()
@@ -173,29 +170,13 @@ public final class SkillsStore: ObservableObject {
         isSearching = true
 
         Task {
-            let stream = daemonClient.subscribe()
-
-            do {
-                try daemonClient.searchSkills(query: query)
-            } catch {
-                isSearching = false
-                return
+            let response = await skillsClient.searchSkills(query: query)
+            if let response, response.success, let data = response.data {
+                searchResults = data.skills
+            } else {
+                searchResults = []
             }
-
-            let result = await stream.firstMatch { message -> [ClawhubSkillItem]? in
-                if case .skillsOperationResponse(let response) = message,
-                   response.operation == "search" {
-                    if response.success, let data = response.data {
-                        return data.skills
-                    }
-                    return [] // signal completion with empty on failure
-                }
-                return nil
-            }
-            if let result {
-                searchResults = result
-                lastSearchQuery = query
-            }
+            lastSearchQuery = query
             isSearching = false
         }
     }
@@ -206,37 +187,22 @@ public final class SkillsStore: ObservableObject {
         installResult = nil
 
         Task {
-            let stream = daemonClient.subscribe()
-
-            do {
-                try daemonClient.installSkill(slug: slug)
-            } catch {
-                installResult = InstallResult(slug: slug, success: false, error: "Failed to connect")
-                return
+            let response = await skillsClient.installSkill(slug: slug, version: nil)
+            let result: InstallResult
+            if let response, response.success {
+                result = InstallResult(slug: slug, success: true, error: nil)
+            } else {
+                result = InstallResult(slug: slug, success: false, error: response?.error ?? "Failed to connect")
             }
-
-            let result = await stream.firstMatch { message -> InstallResult? in
-                if case .skillsOperationResponse(let response) = message,
-                   response.operation == "install" {
-                    if response.success {
-                        return InstallResult(slug: slug, success: true, error: nil)
-                    } else {
-                        return InstallResult(slug: slug, success: false, error: response.error)
-                    }
-                }
-                return nil
+            installResult = result
+            if result.success {
+                inspectCache.removeValue(forKey: slug)
+                fetchSkills(force: true)
             }
-            if let result {
-                installResult = result
-                if result.success {
-                    inspectCache.removeValue(forKey: slug)
-                    fetchSkills(force: true)
-                }
-                Task { @MainActor in
-                    try? await Task.sleep(nanoseconds: 3_000_000_000)
-                    if self.installResult?.slug == slug {
-                        self.installResult = nil
-                    }
+            Task { @MainActor in
+                try? await Task.sleep(nanoseconds: 3_000_000_000)
+                if self.installResult?.slug == slug {
+                    self.installResult = nil
                 }
             }
         }
@@ -258,24 +224,7 @@ public final class SkillsStore: ObservableObject {
         inspectedSkill = nil
 
         Task {
-            let stream = daemonClient.subscribe()
-
-            do {
-                try daemonClient.inspectSkill(slug: slug)
-            } catch {
-                guard currentInspectSlug == slug else { return }
-                isInspecting = false
-                inspectError = "Failed to connect"
-                return
-            }
-
-            let response = await stream.firstMatch { message -> SkillsInspectResponseMessage? in
-                if case .skillsInspectResponse(let response) = message,
-                   response.slug == slug {
-                    return response
-                }
-                return nil
-            }
+            let response = await skillsClient.inspectSkill(slug: slug)
             guard currentInspectSlug == slug else { return }
             if let data = response?.data {
                 inspectedSkill = data
@@ -295,38 +244,22 @@ public final class SkillsStore: ObservableObject {
         uninstallResult = nil
 
         Task {
-            let stream = daemonClient.subscribe()
-
-            do {
-                try daemonClient.uninstallSkill(id)
-            } catch {
-                isUninstalling = false
-                uninstallResult = UninstallResult(id: id, success: false, error: "Failed to connect")
-                return
+            let response = await skillsClient.uninstallSkill(name: id)
+            let result: UninstallResult
+            if let response, response.success {
+                result = UninstallResult(id: id, success: true, error: nil)
+            } else {
+                result = UninstallResult(id: id, success: false, error: response?.error ?? "Failed to connect")
             }
-
-            let result = await stream.firstMatch { message -> UninstallResult? in
-                if case .skillsOperationResponse(let response) = message,
-                   response.operation == "uninstall" {
-                    if response.success {
-                        return UninstallResult(id: id, success: true, error: nil)
-                    } else {
-                        return UninstallResult(id: id, success: false, error: response.error)
-                    }
-                }
-                return nil
+            uninstallResult = result
+            if result.success {
+                inspectCache.removeAll()
+                fetchSkills(force: true)
             }
-            if let result {
-                uninstallResult = result
-                if result.success {
-                    inspectCache.removeAll()
-                    fetchSkills(force: true)
-                }
-                Task { @MainActor in
-                    try? await Task.sleep(nanoseconds: 3_000_000_000)
-                    if self.uninstallResult?.id == id {
-                        self.uninstallResult = nil
-                    }
+            Task { @MainActor in
+                try? await Task.sleep(nanoseconds: 3_000_000_000)
+                if self.uninstallResult?.id == id {
+                    self.uninstallResult = nil
                 }
             }
             isUninstalling = false
@@ -335,18 +268,24 @@ public final class SkillsStore: ObservableObject {
 
     // MARK: - Enable / Disable
 
-    public func enableSkill(name: String) throws {
-        try daemonClient.enableSkill(name)
+    public func enableSkill(name: String) {
+        Task {
+            _ = await skillsClient.enableSkill(name: name)
+            fetchSkills(force: true)
+        }
     }
 
-    public func disableSkill(name: String) throws {
-        try daemonClient.disableSkill(name)
+    public func disableSkill(name: String) {
+        Task {
+            _ = await skillsClient.disableSkill(name: name)
+            fetchSkills(force: true)
+        }
     }
 
     // MARK: - Configure Skill
 
-    public func configureSkill(name: String, env: [String: String]? = nil, apiKey: String? = nil, config: [String: AnyCodable]? = nil) throws {
-        try daemonClient.configureSkill(name: name, env: env, apiKey: apiKey, config: config)
+    public func configureSkill(name: String, env: [String: String]? = nil, apiKey: String? = nil, config: [String: AnyCodable]? = nil) {
+        Task { _ = await skillsClient.configureSkill(name: name, env: env, apiKey: apiKey, config: config) }
     }
 
     // MARK: - Clear Inspection
@@ -369,25 +308,7 @@ public final class SkillsStore: ObservableObject {
         let generation = draftGeneration
 
         draftTask = Task {
-            let stream = daemonClient.subscribe()
-
-            do {
-                try daemonClient.draftSkill(sourceText: sourceText)
-            } catch {
-                if generation == self.draftGeneration {
-                    isDrafting = false
-                    draftError = "Failed to send draft request"
-                }
-                return
-            }
-
-            // Extract the raw response; handle success/failure outside.
-            let response = await stream.firstMatch { message -> SkillsDraftResponseMessage? in
-                if case .skillsDraftResponse(let response) = message {
-                    return response
-                }
-                return nil
-            }
+            let response = await skillsClient.draftSkill(sourceText: sourceText)
             guard generation == self.draftGeneration else { return }
             if let response {
                 if response.success, let draft = response.draft {
@@ -402,6 +323,8 @@ public final class SkillsStore: ObservableObject {
                 } else {
                     draftError = response.error ?? "Draft generation failed"
                 }
+            } else {
+                draftError = "Failed to send draft request"
             }
             isDrafting = false
         }
@@ -417,36 +340,19 @@ public final class SkillsStore: ObservableObject {
         let generation = createGeneration
 
         createTask = Task {
-            let stream = daemonClient.subscribe()
-
-            do {
-                try daemonClient.createSkill(
-                    skillId: skillId,
-                    name: name,
-                    description: description,
-                    emoji: emoji,
-                    bodyMarkdown: bodyMarkdown
-                )
-            } catch {
-                if generation == self.createGeneration {
-                    isCreating = false
-                    createError = "Failed to send create request"
-                }
-                return
-            }
-
-            let response = await stream.firstMatch { message -> SkillsOperationResponseMessage? in
-                if case .skillsOperationResponse(let response) = message,
-                   response.operation == "create" {
-                    return response
-                }
-                return nil
-            }
+            let response = await skillsClient.createSkill(
+                skillId: skillId,
+                name: name,
+                description: description,
+                emoji: emoji,
+                bodyMarkdown: bodyMarkdown,
+                overwrite: nil
+            )
             guard generation == self.createGeneration else { return }
             if response?.success == true {
                 fetchSkills(force: true)
-            } else if let response {
-                createError = response.error ?? "Failed to create skill"
+            } else {
+                createError = response?.error ?? "Failed to create skill"
             }
             isCreating = false
         }
@@ -462,7 +368,7 @@ public final class SkillsStore: ObservableObject {
         selectedSkillDetail = nil
 
         skillDetailTask = Task {
-            let result = await daemonClient.httpTransport?.fetchSkillDetail(skillId: skillId)
+            let result = await skillsClient.fetchSkillDetail(skillId: skillId)
             guard self.currentDetailSkillId == skillId else { return }
             if let result {
                 selectedSkillDetail = result
@@ -483,7 +389,7 @@ public final class SkillsStore: ObservableObject {
         selectedSkillFiles = nil
 
         skillFilesTask = Task {
-            let result = await daemonClient.httpTransport?.fetchSkillFiles(skillId: skillId)
+            let result = await skillsClient.fetchSkillFiles(skillId: skillId)
             guard self.currentFilesSkillId == skillId else { return }
             if let result {
                 selectedSkillFiles = result

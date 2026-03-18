@@ -43,7 +43,7 @@ public final class MacOSClientFeatureFlagManager: @unchecked Sendable {
 
         // Env var overrides take priority over UserDefaults
         for (key, value) in env where key.hasPrefix(flagPrefix) {
-            let name = String(key.dropFirst(flagPrefix.count)).lowercased().replacingOccurrences(of: "_", with: "")
+            let name = Self.normalize(String(key.dropFirst(flagPrefix.count)))
             guard !name.isEmpty else { continue }
             loaded[name] = Self.parseBool(value)
         }
@@ -122,7 +122,7 @@ public final class MacOSClientFeatureFlagManager: @unchecked Sendable {
             guard parts.count == 2 else { continue }
             let key = String(parts[0]).trimmingCharacters(in: .whitespaces)
             guard key.hasPrefix(flagPrefix) else { continue }
-            let name = String(key.dropFirst(flagPrefix.count)).lowercased().replacingOccurrences(of: "_", with: "")
+            let name = Self.normalize(String(key.dropFirst(flagPrefix.count)))
             guard !name.isEmpty else { continue }
             let value = String(parts[1]).trimmingCharacters(in: .whitespaces)
             overrides[name] = Self.parseBool(value)
@@ -148,7 +148,9 @@ public final class MacOSClientFeatureFlagManager: @unchecked Sendable {
     }
 
     private static func normalize(_ name: String) -> String {
-        name.lowercased().replacingOccurrences(of: "_", with: "")
+        name.lowercased()
+            .replacingOccurrences(of: "_", with: "")
+            .replacingOccurrences(of: "-", with: "")
     }
 
     private static func parseBool(_ value: String) -> Bool {

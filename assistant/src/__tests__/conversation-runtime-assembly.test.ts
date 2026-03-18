@@ -1055,39 +1055,61 @@ describe("applyRuntimeInjections with inboundActorContext", () => {
 
 describe("buildTurnContextBlock (channel-only)", () => {
   test("collapses to single field when all channels match", () => {
-    const block = buildTurnContextBlock({
-      turnContext: {
-        userMessageChannel: "telegram",
-        assistantMessageChannel: "telegram",
+    const block = buildTurnContextBlock(
+      {
+        turnContext: {
+          userMessageChannel: "telegram",
+          assistantMessageChannel: "telegram",
+        },
+        conversationOriginChannel: "telegram",
       },
-      conversationOriginChannel: "telegram",
-    }, undefined);
-    expect(block).toBe(
-      "<turn_context>\n" +
-        "channel: telegram\n" +
-        "</turn_context>",
+      undefined,
     );
+    expect(block).toContain("<turn_context>");
+    expect(block).toContain("channel: telegram");
+    expect(block).toContain("response_discretion:");
+    expect(block).toContain("</turn_context>");
+  });
+
+  test("omits response_discretion for vellum channel", () => {
+    const block = buildTurnContextBlock(
+      {
+        turnContext: {
+          userMessageChannel: "vellum",
+          assistantMessageChannel: "vellum",
+        },
+        conversationOriginChannel: "vellum",
+      },
+      undefined,
+    );
+    expect(block).not.toContain("response_discretion:");
   });
 
   test('uses "unknown" when conversationOriginChannel is null', () => {
-    const block = buildTurnContextBlock({
-      turnContext: {
-        userMessageChannel: "vellum",
-        assistantMessageChannel: "vellum",
+    const block = buildTurnContextBlock(
+      {
+        turnContext: {
+          userMessageChannel: "vellum",
+          assistantMessageChannel: "vellum",
+        },
+        conversationOriginChannel: null,
       },
-      conversationOriginChannel: null,
-    }, undefined);
+      undefined,
+    );
     expect(block).toContain("conversation_origin_channel: unknown");
   });
 
   test("handles mixed channels", () => {
-    const block = buildTurnContextBlock({
-      turnContext: {
-        userMessageChannel: "telegram",
-        assistantMessageChannel: "vellum",
+    const block = buildTurnContextBlock(
+      {
+        turnContext: {
+          userMessageChannel: "telegram",
+          assistantMessageChannel: "vellum",
+        },
+        conversationOriginChannel: "vellum",
       },
-      conversationOriginChannel: "vellum",
-    }, undefined);
+      undefined,
+    );
     expect(block).toContain("user_message_channel: telegram");
     expect(block).toContain("assistant_message_channel: vellum");
     expect(block).toContain("conversation_origin_channel: vellum");

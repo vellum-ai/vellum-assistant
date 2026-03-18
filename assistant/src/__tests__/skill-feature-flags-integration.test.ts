@@ -138,14 +138,15 @@ describe("frontmatter feature-flag integration", () => {
     expect(key).toBeUndefined();
   });
 
-  test("resolveSkillStates gates skill with featureFlag when flag is OFF", () => {
+  test("resolveSkillStates includes skill with featureFlag when flag defaults to ON", () => {
     const skill = buildSkillSummary("contacts", SKILL_MD_WITH_FLAG)!;
-    // "contacts" is in the registry with defaultEnabled: false
+    // "contacts" is in the registry with defaultEnabled: true
     const config = makeConfig();
 
     const resolved = resolveSkillStates([skill], config);
-    // Flag defaults to false → skill is filtered out
-    expect(resolved.length).toBe(0);
+    // Flag defaults to true → skill passes through
+    expect(resolved.length).toBe(1);
+    expect(resolved[0].summary.id).toBe("contacts");
   });
 
   test("resolveSkillStates includes skill with featureFlag when flag is ON", () => {
@@ -192,22 +193,22 @@ describe("frontmatter feature-flag integration", () => {
     const key = skillFlagKey(skill);
     expect(key).toBe("feature_flags.contacts.enabled");
 
-    // Step 4: Check flag state — "contacts" has defaultEnabled: false in registry
-    const configOff = makeConfig();
+    // Step 4: Check flag state — "contacts" has defaultEnabled: true in registry
+    const configDefault = makeConfig();
+    expect(isAssistantFeatureFlagEnabled(key!, configDefault)).toBe(true);
+
+    // Step 5: resolveSkillStates includes it by default
+    const resolvedDefault = resolveSkillStates([skill], configDefault);
+    expect(resolvedDefault.length).toBe(1);
+    expect(resolvedDefault[0].summary.id).toBe("contacts");
+
+    // Step 6: With override disabled, skill is filtered out
+    const configOff = makeConfig({
+      assistantFeatureFlagValues: { [key!]: false },
+    });
     expect(isAssistantFeatureFlagEnabled(key!, configOff)).toBe(false);
 
-    // Step 5: resolveSkillStates correctly filters it out
     const resolvedOff = resolveSkillStates([skill], configOff);
     expect(resolvedOff.length).toBe(0);
-
-    // Step 6: With override enabled, skill passes through
-    const configOn = makeConfig({
-      assistantFeatureFlagValues: { [key!]: true },
-    });
-    expect(isAssistantFeatureFlagEnabled(key!, configOn)).toBe(true);
-
-    const resolvedOn = resolveSkillStates([skill], configOn);
-    expect(resolvedOn.length).toBe(1);
-    expect(resolvedOn[0].summary.id).toBe("contacts");
   });
 });

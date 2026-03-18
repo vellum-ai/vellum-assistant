@@ -30,6 +30,7 @@ export interface ShutdownDeps {
 
 export function installShutdownHandlers(deps: ShutdownDeps): void {
   let shuttingDown = false;
+  let exitCode = 0;
 
   const shutdown = async () => {
     if (shuttingDown) return;
@@ -134,19 +135,27 @@ export function installShutdownHandlers(deps: ShutdownDeps): void {
     await Sentry.flush(2000);
     clearTimeout(forceTimer);
     deps.cleanupPidFile();
-    process.exit(0);
+    process.exit(exitCode);
   };
 
   process.on("SIGTERM", shutdown);
   process.on("SIGINT", shutdown);
+  process.on("SIGHUP", shutdown);
 
   process.on("unhandledRejection", (reason) => {
-    log.error({ err: reason }, "Unhandled promise rejection");
+    log.error(
+      { err: reason },
+      "Unhandled promise rejection — initiating shutdown",
+    );
     Sentry.captureException(reason);
+    exitCode = 1;
+    void shutdown();
   });
 
   process.on("uncaughtException", (err) => {
-    log.error({ err }, "Uncaught exception");
+    log.error({ err }, "Uncaught exception — initiating shutdown");
     Sentry.captureException(err);
+    exitCode = 1;
+    void shutdown();
   });
 }

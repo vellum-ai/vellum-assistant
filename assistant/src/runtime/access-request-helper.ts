@@ -21,7 +21,10 @@ import {
   updateCanonicalGuardianDelivery,
 } from "../memory/canonical-guardian-store.js";
 import { emitNotificationSignal } from "../notifications/emit-signal.js";
-import type { NotificationSourceChannel } from "../notifications/signal.js";
+import type {
+  GuardianResolutionSource,
+  NotificationSourceChannel,
+} from "../notifications/signal.js";
 import type { NotificationDeliveryResult } from "../notifications/types.js";
 import { getLogger } from "../util/logger.js";
 import { ensureVellumGuardianBinding } from "./guardian-vellum-migration.js";
@@ -100,10 +103,7 @@ export function notifyGuardianOfAccessRequest(
   let guardianExternalUserId: string | null = null;
   let guardianPrincipalId: string | null = null;
   let guardianBindingChannel: string | null = null;
-  let guardianResolutionSource:
-    | "source-channel-contact"
-    | "vellum-anchor"
-    | "none" = "none";
+  let guardianResolutionSource: GuardianResolutionSource = "none";
 
   const assistantGuardianPrincipalId =
     ensureVellumGuardianBinding(canonicalAssistantId);
@@ -200,10 +200,32 @@ export function notifyGuardianOfAccessRequest(
   });
 
   let vellumDeliveryId: string | null = null;
+  // When the access request originates from a text channel with
+  // notification delivery support (Slack, Telegram), route the guardian
+  // notification to that same channel only. Delivering on the macOS
+  // client as well is noisy and approving from there doesn't work
+  // because the desktop path lacks the channel delivery context needed
+  // to deliver the verification code. Phone is excluded because it is
+  // not a deliverable notification channel.
+  // When the guardian was resolved via a verified same-channel contact,
+  // route only to that channel — delivering on desktop as well is noisy
+  // and the desktop path lacks the channel delivery context for approval.
+  // When the guardian was NOT verified on the source channel (e.g. resolved
+  // via vellum anchor), route to all channels so the guardian can see
+  // the request on desktop/other channels where they ARE verified.
+  const TEXT_CHANNELS_WITH_DELIVERY: ReadonlySet<string> = new Set([
+    "slack",
+    "telegram",
+  ]);
+  const sameChannelOnly =
+    TEXT_CHANNELS_WITH_DELIVERY.has(sourceChannel) &&
+    guardianResolutionSource === "source-channel-contact";
+
   void emitNotificationSignal({
     sourceEventName: "ingress.access_request",
     sourceChannel: sourceChannel as NotificationSourceChannel,
     sourceContextId: `access-req-${sourceChannel}-${actorExternalId}`,
+    ...(sameChannelOnly ? { routingIntent: "single_channel" as const } : {}),
     attentionHints: {
       requiresAction: true,
       urgency: "high",
@@ -212,7 +234,7 @@ export function notifyGuardianOfAccessRequest(
     },
     contextPayload: {
       requestId,
-      requestCode: canonicalRequest.requestCode,
+      requestCode: canonicalRequest.requestCode ?? "",
       sourceChannel,
       conversationExternalId,
       actorExternalId,
@@ -220,6 +242,7 @@ export function notifyGuardianOfAccessRequest(
       actorUsername: actorUsername ?? null,
       senderIdentifier,
       guardianBindingChannel,
+      guardianResolutionSource,
       previousMemberStatus: previousMemberStatus ?? null,
     },
     dedupeKey: `access-request:${canonicalRequest.id}`,
@@ -258,7 +281,7 @@ export function notifyGuardianOfAccessRequest(
         applyDeliveryStatus(delivery.id, result);
       }
 
-      if (!vellumDeliveryId) {
+      if (!vellumDeliveryId && !sameChannelOnly) {
         const fallback = createCanonicalGuardianDelivery({
           requestId: canonicalRequest.id,
           destinationChannel: "vellum",

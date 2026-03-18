@@ -62,9 +62,7 @@ extension AppDelegate {
                 viewModel.inputText = prefix.isEmpty ? text : "\(prefix) \(text)"
                 return
             }
-
         }
-        voiceInput?.daemonClient = daemonClient
         voiceInput?.onActionModeTriggered = { [weak self] text in
             guard let self else { return }
             log.info("Action mode triggered from voice dictation — submitting task")

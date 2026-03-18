@@ -65,7 +65,10 @@ export function conversationQueryRouteDefinitions(
         if (!deps.getModelSetContext) {
           return httpError("INTERNAL_ERROR", "Model set not available", 500);
         }
-        const body = (await req.json()) as { modelId?: string };
+        const body = (await req.json()) as {
+          modelId?: string;
+          provider?: string;
+        };
         if (!body.modelId || typeof body.modelId !== "string") {
           return httpError(
             "BAD_REQUEST",
@@ -74,7 +77,11 @@ export function conversationQueryRouteDefinitions(
           );
         }
         try {
-          const info = await setModel(body.modelId, deps.getModelSetContext());
+          const info = await setModel(
+            body.modelId,
+            deps.getModelSetContext(),
+            body.provider,
+          );
           return Response.json(info);
         } catch (err) {
           const message = err instanceof Error ? err.message : String(err);

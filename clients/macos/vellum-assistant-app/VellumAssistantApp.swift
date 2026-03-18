@@ -25,10 +25,10 @@ struct VellumAssistantApp: App {
                 Button("About Vellum") {
                     appDelegate.showAboutPanel()
                 }
-                Button("Check for Updates...") {
+                Button(appDelegate.updateManager.updateMenuItemTitle) {
                     appDelegate.updateManager.checkForUpdates()
                 }
-                .disabled(!appDelegate.updateManager.canCheckForUpdates)
+                .disabled(!appDelegate.updateManager.updateMenuItemIsEnabled)
                 Divider()
                 Button("Send Logs to Vellum") {
                     appDelegate.sendLogsToSentry()

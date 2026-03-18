@@ -61,7 +61,10 @@ class FileReadTool implements Tool {
     if (IMAGE_EXTENSIONS.has(ext)) {
       const pathCheck = sandboxPolicy(rawPath, context.workingDir);
       if (!pathCheck.ok) {
-        return { content: `Error: ${pathCheck.error}`, isError: true };
+        return {
+          content: `Error: ${pathCheck.error}. To read files outside the workspace, use the host_file_read tool instead.`,
+          isError: true,
+        };
       }
       return readImageFile(pathCheck.resolved);
     }
@@ -89,8 +92,16 @@ class FileReadTool implements Tool {
             content: `Error reading file "${rawPath}": ${error.message}`,
             isError: true,
           };
-        default:
-          return { content: `Error: ${error.message}`, isError: true };
+        default: {
+          const hint =
+            error.code === "PATH_OUT_OF_BOUNDS"
+              ? ". To read files outside the workspace, use the host_file_read tool instead."
+              : "";
+          return {
+            content: `Error: ${error.message}${hint}`,
+            isError: true,
+          };
+        }
       }
     }
 

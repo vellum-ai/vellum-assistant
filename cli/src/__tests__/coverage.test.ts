@@ -5,6 +5,11 @@ import { resolve } from "node:path";
 import { expect, test } from "bun:test";
 
 const EXCLUDE_PATTERNS = [".test.ts", ".d.ts"];
+const EXCLUDE_DIRS = [
+  // Ink components import yoga-layout whose WASM binary crashes
+  // intermittently during headless import (null reference in za()).
+  "components/",
+];
 const EXCLUDE_FILES = [
   // index.ts calls main() at module level, causing side effects on import
   "index.ts",
@@ -15,6 +20,7 @@ async function importAllModules(dir: string): Promise<string[]> {
   const files = [...glob.scanSync(dir)].filter(
     (f) =>
       !EXCLUDE_PATTERNS.some((pattern) => f.endsWith(pattern)) &&
+      !EXCLUDE_DIRS.some((dir) => f.startsWith(dir)) &&
       !EXCLUDE_FILES.some((excluded) => f === excluded) &&
       !f.includes("__tests__"),
   );

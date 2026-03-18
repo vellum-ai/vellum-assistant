@@ -1,19 +1,20 @@
 /**
- * Watches the assistant's credential metadata file for changes and
- * triggers a callback when Telegram or Twilio credentials are added,
+ * Watches the assistant's credential metadata file and the v2 store key
+ * for changes, triggering a callback when channel credentials are added,
  * updated, or removed.
  *
- * Watches the parent directory rather than the file itself because
+ * Watches parent directories rather than files themselves because
  * metadata.json is rewritten via atomic rename. File-scoped fs.watch()
  * subscriptions can stay attached to the old inode after the first write,
  * causing later credential changes to be missed until restart.
  */
 
 import { mkdirSync, watch, type FSWatcher } from "node:fs";
-import { dirname } from "node:path";
+import { dirname, join } from "node:path";
 import { getLogger } from "./logger.js";
 import {
   getMetadataPath,
+  getRootDir,
   readTelegramCredentials,
   readTwilioCredentials,
   readWhatsAppCredentials,
@@ -42,7 +43,7 @@ export type CredentialChangeEvent = {
 export type CredentialChangeCallback = (event: CredentialChangeEvent) => void;
 
 export class CredentialWatcher {
-  private watcher: FSWatcher | null = null;
+  private watchers: FSWatcher[] = [];
   private debounceTimer: ReturnType<typeof setTimeout> | null = null;
   private lastSerialized: Map<string, string> = new Map();
   private polling = false;
@@ -58,30 +59,38 @@ export class CredentialWatcher {
   async start(): Promise<void> {
     await this.pollOnce();
 
-    const watchTarget = dirname(this.metadataPath);
+    const metadataDir = dirname(this.metadataPath);
+    const protectedDir = join(getRootDir(), "protected");
 
-    // Ensure the directory exists so fs.watch() doesn't throw ENOENT
+    // Ensure directories exist so fs.watch() doesn't throw ENOENT
     // on a fresh hatch where no credentials have been written yet.
-    mkdirSync(watchTarget, { recursive: true });
+    mkdirSync(metadataDir, { recursive: true });
+    mkdirSync(protectedDir, { recursive: true });
 
+    // Watch the metadata directory for metadata.json changes.
+    this.startWatcher(metadataDir, "metadata.json");
+
+    // Watch the protected directory for store.key changes so that
+    // creating or restoring the v2 store key triggers a credential reload.
+    this.startWatcher(protectedDir, "store.key");
+  }
+
+  private startWatcher(dir: string, targetFilename: string): void {
     try {
-      this.watcher = watch(
-        watchTarget,
-        { persistent: false },
-        (_event, filename) => {
-          if (filename && filename !== "metadata.json") {
-            return;
-          }
-          this.scheduleCheck();
-        },
-      );
+      const watcher = watch(dir, { persistent: false }, (_event, filename) => {
+        if (filename && filename !== targetFilename) {
+          return;
+        }
+        this.scheduleCheck();
+      });
+      this.watchers.push(watcher);
 
-      log.info({ path: watchTarget }, "Watching for credential changes");
-    } catch (err) {
-      log.warn(
-        { err, path: watchTarget },
-        "Failed to start credential file watcher",
+      log.info(
+        { path: dir, file: targetFilename },
+        "Watching for credential changes",
       );
+    } catch (err) {
+      log.warn({ err, path: dir }, "Failed to start credential file watcher");
     }
   }
 
@@ -91,10 +100,10 @@ export class CredentialWatcher {
       this.debounceTimer = null;
     }
     this.pendingPoll = false;
-    if (this.watcher) {
-      this.watcher.close();
-      this.watcher = null;
+    for (const watcher of this.watchers) {
+      watcher.close();
     }
+    this.watchers = [];
   }
 
   private scheduleCheck(): void {

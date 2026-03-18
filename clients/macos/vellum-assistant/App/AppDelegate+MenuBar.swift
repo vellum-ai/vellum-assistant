@@ -222,23 +222,23 @@ extension AppDelegate {
 
         let currentConversationItem = NSMenuItem(title: "Current Conversation", action: #selector(openCurrentConversation), keyEquivalent: "")
         currentConversationItem.target = self
-        currentConversationItem.image = VIcon.messageSquare.nsImage
+        currentConversationItem.image = VIcon.messageSquare.nsImage(size: 16)
         menu.addItem(currentConversationItem)
 
         let newChatItem = NSMenuItem(title: "New Chat", action: #selector(openNewChat), keyEquivalent: "n")
         newChatItem.target = self
-        newChatItem.image = VIcon.messageCirclePlus.nsImage
+        newChatItem.image = VIcon.messageCirclePlus.nsImage(size: 16)
         menu.addItem(newChatItem)
 
         menu.addItem(NSMenuItem.separator())
 
-        let updateItem = NSMenuItem(title: "Check for Updates...", action: #selector(checkForUpdates), keyEquivalent: "")
+        let updateItem = NSMenuItem(title: updateManager.updateMenuItemTitle, action: #selector(checkForUpdates), keyEquivalent: "")
         updateItem.target = self
-        updateItem.isEnabled = updateManager.canCheckForUpdates
-        updateItem.image = VIcon.circleArrowDown.nsImage
+        updateItem.isEnabled = updateManager.updateMenuItemIsEnabled
+        updateItem.image = VIcon.circleArrowDown.nsImage(size: 16)
         menu.addItem(updateItem)
 
-        if MacOSClientFeatureFlagManager.shared.isEnabled("developer-menu-items") {
+        if MacOSClientFeatureFlagManager.shared.isEnabled("developer_menu_items_enabled") {
             menu.addItem(NSMenuItem.separator())
 
             let onboardingItem = NSMenuItem(title: "Replay Onboarding", action: #selector(replayOnboarding), keyEquivalent: "")
@@ -256,19 +256,24 @@ extension AppDelegate {
 
         let settingsItem = NSMenuItem(title: "Settings...", action: #selector(showSettingsWindow(_:)), keyEquivalent: ",")
         settingsItem.target = self
-        settingsItem.image = VIcon.settings.nsImage
+        settingsItem.image = VIcon.settings.nsImage(size: 16)
         menu.addItem(settingsItem)
 
         let restartItem = NSMenuItem(title: "Restart", action: #selector(performRestart), keyEquivalent: "")
         restartItem.target = self
-        restartItem.image = VIcon.refreshCw.nsImage
+        restartItem.image = VIcon.refreshCw.nsImage(size: 16)
         menu.addItem(restartItem)
 
         let quitItem = NSMenuItem(title: "Quit", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
-        quitItem.image = VIcon.power.nsImage
+        quitItem.image = VIcon.power.nsImage(size: 16)
         menu.addItem(quitItem)
 
-        menu.popUp(positioning: nil, at: NSPoint(x: 0, y: button.bounds.height + 2), in: button)
+        // Use native status item menu display for standard macOS positioning.
+        // performClick blocks until the menu closes, so clearing the menu
+        // afterward restores custom click handling in statusBarButtonClicked.
+        self.statusItem.menu = menu
+        button.performClick(nil)
+        self.statusItem.menu = nil
     }
 
     @objc func markAllConversationsSeen() {
@@ -350,27 +355,15 @@ extension AppDelegate {
         let storedIcon = info["icon"]
         let appIcon = cachedApp?.icon ?? (storedIcon?.isEmpty == false ? storedIcon : nil)
         mainWindow?.appListManager.recordAppOpen(id: appId, name: appName, icon: appIcon)
-        do {
-            try daemonClient.sendAppOpen(appId: appId)
-        } catch {
-            log.error("Failed to send app open for \(appId, privacy: .public): \(error)")
-        }
+        Task { await AppsClient.openAppAndDispatchSurface(id: appId, daemonClient: daemonClient) }
     }
 
     @objc func toggleSkill(_ sender: NSMenuItem) {
         guard let name = sender.representedObject as? String else { return }
         if sender.state == .on {
-            do {
-                try daemonClient.disableSkill(name)
-            } catch {
-                log.error("Failed to disable skill \(name, privacy: .public): \(error)")
-            }
+            Task { await SkillsClient().disableSkill(name: name) }
         } else {
-            do {
-                try daemonClient.enableSkill(name)
-            } catch {
-                log.error("Failed to enable skill \(name, privacy: .public): \(error)")
-            }
+            Task { await SkillsClient().enableSkill(name: name) }
         }
         refreshSkillsCache()
     }
@@ -378,26 +371,16 @@ extension AppDelegate {
     func refreshAppsCache() {
         refreshAppsTask?.cancel()
         refreshAppsTask = Task {
-            let stream = daemonClient.subscribe()
-            do {
-                try daemonClient.sendAppsList()
-            } catch { return }
-            for await message in stream {
-                guard !Task.isCancelled else { return }
-                if case .appsListResponse(let response) = message {
-                    if response.success {
-                        self.cachedApps = response.apps
-                        let daemonItems = response.apps.map {
-                            AppListManager.AppItem_Daemon(
-                                id: $0.id, name: $0.name, description: $0.description,
-                                icon: $0.icon, appType: nil, createdAt: $0.createdAt
-                            )
-                        }
-                        self.mainWindow?.appListManager.syncFromDaemon(daemonItems)
-                    }
-                    return
-                }
+            let response = await AppsClient().fetchAppsList()
+            guard let response, response.success else { return }
+            self.cachedApps = response.apps
+            let daemonItems = response.apps.map {
+                AppListManager.AppItem_Daemon(
+                    id: $0.id, name: $0.name, description: $0.description,
+                    icon: $0.icon, appType: nil, createdAt: $0.createdAt
+                )
             }
+            self.mainWindow?.appListManager.syncFromDaemon(daemonItems)
         }
     }
 
@@ -513,22 +496,11 @@ extension AppDelegate {
     }
 
     func refreshSkillsCache() {
-        // Cancel any in-flight refresh so we don't consume a stale response.
-        // The new task will send its own request and wait for the next response,
-        // ensuring the cache always reflects the latest daemon state.
         refreshSkillsTask?.cancel()
         refreshSkillsTask = Task {
-            let stream = daemonClient.subscribe()
-            do {
-                try daemonClient.send(SkillsListRequestMessage())
-            } catch { return }
-            for await message in stream {
-                guard !Task.isCancelled else { return }
-                if case .skillsListResponse(let response) = message {
-                    self.cachedSkills = response.skills
-                    return
-                }
-            }
+            let response = await SkillsClient().fetchSkillsList()
+            guard let response else { return }
+            self.cachedSkills = response.skills
         }
     }
 

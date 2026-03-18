@@ -12,16 +12,24 @@
  * encrypted store so subsequent reads (by both CES and the assistant)
  * see the updated value.
  *
- * The encrypted store uses AES-256-GCM with a key derived from machine-
- * specific entropy via PBKDF2. The derivation includes `userInfo().username`
- * and `userInfo().homedir`, so the key is only correct when CES runs as the
- * same OS user as the assistant.
+ * Two store formats are supported:
  *
- * **This backend must NOT be used in managed mode.** In managed (sidecar)
- * deployments, the assistant container runs as `root` while the CES
- * container runs as `ces` (uid 1001). The different user identity produces
- * a different PBKDF2-derived key, causing silent decryption failures.
- * Managed deployments must use `platform_oauth` handles exclusively.
+ * - **v2 (primary):** AES-256-GCM with a random 32-byte key stored at
+ *   `<vellumRoot>/protected/store.key`. The key is machine-independent —
+ *   any process that can read the key file can decrypt the store.
+ *
+ * - **v1 (legacy):** AES-256-GCM with a key derived from machine-specific
+ *   entropy via PBKDF2. The derivation includes `userInfo().username` and
+ *   `userInfo().homedir`, so the key is only correct when CES runs as the
+ *   same OS user as the assistant.
+ *
+ * **Managed-mode restriction (v1 only):** For legacy v1 stores, the
+ * different container user identity produces a different PBKDF2-derived
+ * key, causing silent decryption failures. v2 stores use a
+ * UID-independent `store.key` file that can be shared via volume mount,
+ * removing this technical barrier. Managed deployments currently use
+ * `platform_oauth` handles exclusively as a policy choice (simpler
+ * lifecycle, centralized token management).
  */
 
 import {

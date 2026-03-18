@@ -10,22 +10,7 @@ extension AppDelegate {
 
     func applyThemePreference() {
         let pref = UserDefaults.standard.string(forKey: "themePreference") ?? "system"
-        let appearance: NSAppearance?
-        switch pref {
-        case "light":
-            appearance = NSAppearance(named: .aqua)
-        case "dark":
-            appearance = NSAppearance(named: .darkAqua)
-        default:
-            appearance = nil // follow system
-        }
-
-        NSApp.appearance = appearance
-        for window in NSApp.windows {
-            window.appearance = appearance
-            window.invalidateShadow()
-            window.contentView?.needsDisplay = true
-        }
+        VThemeToggle.applyTheme(pref)
     }
 
     // MARK: - Lockfile & Transport
@@ -89,7 +74,7 @@ extension AppDelegate {
                 transportMetadata: metadata
             )
             services.reconfigureDaemonClient(config: config)
-            log.info("Configured managed transport for assistant \(assistant.assistantId) via platform at \(platformBaseURL, privacy: .public)")
+            log.info("Configured managed transport for assistant \(assistant.assistantId, privacy: .public) via platform at \(platformBaseURL, privacy: .public)")
             return
         }
 
@@ -121,7 +106,7 @@ extension AppDelegate {
         // object identity so all long-lived holders keep a valid reference.
         services.reconfigureDaemonClient(config: config)
 
-        log.info("Configured HTTP transport for remote assistant \(assistant.assistantId) at \(runtimeUrl, privacy: .public)")
+        log.info("Configured HTTP transport for remote assistant \(assistant.assistantId, privacy: .public) at \(runtimeUrl, privacy: .public)")
     }
 
     // MARK: - Daemon Client Setup
@@ -171,12 +156,6 @@ extension AppDelegate {
 
         daemonClient.onNotificationIntent = { [weak self] msg in
             self?.deliverNotificationIntent(msg)
-        }
-
-        // Handle open_bundle_response from the daemon
-        daemonClient.onOpenBundleResponse = { [weak self] response in
-            guard let self else { return }
-            self.handleOpenBundleResponse(response)
         }
 
         // Refresh skills cache whenever skill state changes through any path
@@ -243,11 +222,6 @@ extension AppDelegate {
         daemonClient.onNotificationConversationCreated = { [weak self] msg in
             guard let self, !self.isBootstrapping else { return }
             self.handleNotificationConversationCreated(msg)
-        }
-
-        // Forward dictation responses from the daemon to VoiceInputManager
-        daemonClient.onDictationResponse = { [weak self] msg in
-            self?.voiceInput?.onDictationResponse?(msg)
         }
 
         daemonClient.onDocumentEditorShow = { [weak self] msg in
@@ -320,9 +294,16 @@ extension AppDelegate {
             self.handleRecordingResume(msg)
         }
 
-        // Handle client_settings_update from daemon: write to UserDefaults and post notification
+        // Handle client_settings_update from daemon: route specific keys to their
+        // override properties; write all other keys to UserDefaults as before.
         daemonClient.onClientSettingsUpdate = { msg in
-            UserDefaults.standard.set(msg.value, forKey: msg.key)
+            if msg.key == "ttsVoiceId" {
+                OpenAIVoiceService.overrideVoiceId = msg.value as? String
+            } else if msg.key == "voiceConversationTimeoutSeconds" {
+                VoiceModeManager.conversationTimeoutOverride = Int(msg.value)
+            } else {
+                UserDefaults.standard.set(msg.value, forKey: msg.key)
+            }
             if msg.key == "activationKey" {
                 NotificationCenter.default.post(name: .activationKeyChanged, object: nil)
             }
@@ -384,11 +365,10 @@ extension AppDelegate {
                 if lockfileExists && gatewayHealthy {
                     log.info("Lockfile and gateway already present — skipping CLI hatch to avoid duplicate gateway")
                 } else {
-                    // On first launch post-onboarding, use daemonOnly: false so the CLI
-                    // creates a lockfile entry. On subsequent launches, daemonOnly: true
-                    // prevents duplicates.
+                    // Start the gateway when the lockfile needs creating (first launch)
+                    // OR when the gateway is unhealthy (crashed/died since last hatch).
                     let needsLockfileEntry = isFirstLaunch && !lockfileExists
-                    let daemonOnly = !needsLockfileEntry
+                    let daemonOnly = !needsLockfileEntry && gatewayHealthy
                     // Pass the selected assistant ID so the gateway starts
                     // with the correct default assistant (not a random name).
                     let assistantName = assistant?.assistantId

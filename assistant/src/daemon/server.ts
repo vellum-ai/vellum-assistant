@@ -806,6 +806,7 @@ export class DaemonServer {
           await newConversation.ensureActorScopedHistory();
         }
         this.applyTransportMetadata(newConversation, storedOptions);
+        newConversation.modelSetContext = this.handlerContext();
         this.conversations.set(conversationId, newConversation);
         return newConversation;
       })();

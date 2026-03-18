@@ -47,6 +47,7 @@ final class ConversationRestorer {
     var pendingHistoryByConversationId: [String: UUID] = [:]
 
     private let daemonClient: DaemonClient
+    private let conversationListClient: any ConversationListClientProtocol = ConversationListClient()
     private var connectionCancellable: AnyCancellable?
     private var disconnectCancellable: AnyCancellable?
 
@@ -66,10 +67,6 @@ final class ConversationRestorer {
         daemonClient.onConversationTitleUpdated = { [weak self] response in
             self?.handleConversationTitleUpdated(response)
         }
-        daemonClient.onMessageContentResponse = { [weak self] response in
-            self?.handleMessageContentResponse(response)
-        }
-
         // On first launch after onboarding, skip the initial conversation list fetch
         // so the conversation restorer doesn't override the wake-up conversation.
         // The handlers above are still registered for later use (e.g. history loading).
@@ -303,26 +300,16 @@ final class ConversationRestorer {
         delegate.conversations[index].title = response.title
     }
 
-    func handleMessageContentResponse(_ response: MessageContentResponse) {
-        guard let delegate else { return }
-        // Route the full content back to the ChatViewModel that owns this message.
-        // We check all conversations with existing VMs for a matching daemonMessageId.
-        for conversation in delegate.conversations {
-            guard let viewModel = delegate.existingChatViewModel(for: conversation.id) else { continue }
-            if viewModel.messages.contains(where: { $0.daemonMessageId == response.messageId }) {
-                viewModel.handleMessageContentResponse(response)
-                return
-            }
-        }
-    }
-
     // MARK: - Private
 
     private func fetchConversationList() {
-        do {
-            try daemonClient.sendConversationList()
-        } catch {
-            log.error("Failed to send conversation_list: \(error.localizedDescription)")
+        Task { [weak self] in
+            guard let self else { return }
+            if let response = await conversationListClient.fetchConversationList(offset: 0, limit: 50) {
+                self.handleConversationListResponse(response)
+            } else {
+                self.delegate?.restoreLastActiveConversation()
+            }
         }
     }
 }

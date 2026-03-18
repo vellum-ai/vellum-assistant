@@ -5,7 +5,8 @@ import { seedProviders } from "./oauth-store.js";
  *
  * These values are upserted into the `oauth_providers` SQLite table on
  * every startup. Only Vellum implementation fields (authUrl, tokenUrl,
- * tokenEndpointAuthMethod, extraParams, callbackTransport, pingUrl) are
+ * tokenEndpointAuthMethod, extraParams, callbackTransport, pingUrl,
+ * managedServiceConfigKey) are
  * overwritten on subsequent startups — user-customizable
  * fields (defaultScopes, scopePolicy, userinfoUrl, baseUrl) are only
  * written on initial insert and preserved across restarts.
@@ -32,6 +33,7 @@ const PROVIDER_SEED_DATA: Record<
     };
     extraParams?: Record<string, string>;
     callbackTransport?: string;
+    managedServiceConfigKey?: string;
   }
 > = {
   "integration:google": {
@@ -60,6 +62,7 @@ const PROVIDER_SEED_DATA: Record<
     },
     extraParams: { access_type: "offline", prompt: "consent" },
     callbackTransport: "loopback",
+    managedServiceConfigKey: "google-oauth",
   },
 
   "integration:slack": {

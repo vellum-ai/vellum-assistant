@@ -68,7 +68,7 @@ function encrypt(
   value: string,
   key: Buffer,
 ): { iv: string; tag: string; data: string } {
-  const iv = cryptoRandomBytes(12);
+  const iv = cryptoRandomBytes(16);
   const cipher = createCipheriv(ALGORITHM, key, iv, {
     authTagLength: AUTH_TAG_LENGTH,
   });
@@ -118,10 +118,7 @@ function writeEncryptedStore(botToken: string, webhookSecret: string): void {
  * Write Telegram credentials into a v2 encrypted store using a random
  * store.key file (no PBKDF2 derivation).
  */
-function writeEncryptedStoreV2(
-  botToken: string,
-  webhookSecret: string,
-): void {
+function writeEncryptedStoreV2(botToken: string, webhookSecret: string): void {
   const protectedDir = join(testDir, ".vellum", "protected");
   mkdirSync(protectedDir, { recursive: true });
 

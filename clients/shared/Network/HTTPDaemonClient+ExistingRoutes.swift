@@ -19,11 +19,11 @@ extension HTTPTransport {
             if let msg = message as? UserMessageMessage {
                 Task { await self.sendMessage(content: msg.content, conversationId: msg.conversationId, attachments: msg.attachments, automated: msg.automated) }
                 return true
-            } else if let msg = message as? ConfirmationResponseMessage {
-                Task { await self.sendDecision(requestId: msg.requestId, decision: msg.decision, selectedPattern: msg.selectedPattern, selectedScope: msg.selectedScope) }
+            } else if message is ConfirmationResponseMessage {
+                // Handled by InteractionClient via GatewayHTTPClient.
                 return true
-            } else if let msg = message as? SecretResponseMessage {
-                Task { await self.sendSecret(requestId: msg.requestId, value: msg.value, delivery: msg.delivery) }
+            } else if message is SecretResponseMessage {
+                // Handled by InteractionClient via GatewayHTTPClient.
                 return true
             } else if let msg = message as? ConversationCreateMessage {
                 // For HTTP transport, conversation creation is implicit — the conversationKey
@@ -39,8 +39,8 @@ extension HTTPTransport {
                 )
                 self.onMessage?(info)
                 return true
-            } else if let msg = message as? ConversationListRequestMessage {
-                Task { await self.fetchConversationList(offset: Int(msg.offset ?? 0), limit: Int(msg.limit ?? 50)) }
+            } else if message is ConversationListRequestMessage {
+                // Handled by ConversationListClient via GatewayHTTPClient.
                 return true
             } else if let msg = message as? HistoryRequestMessage {
                 Task { await self.fetchHistory(conversationId: msg.conversationId) }
@@ -57,14 +57,12 @@ extension HTTPTransport {
                     }
                 }
                 return true
-            } else if let msg = message as? GuardianActionsPendingRequestMessage {
-                Task { await self.fetchGuardianActionsPending(conversationId: msg.conversationId) }
+            } else if message is GuardianActionsPendingRequestMessage
+                        || message is GuardianActionDecisionMessage {
+                // Handled by GuardianClient via GatewayHTTPClient.
                 return true
-            } else if let msg = message as? GuardianActionDecisionMessage {
-                Task { await self.submitGuardianActionDecision(requestId: msg.requestId, action: msg.action, conversationId: msg.conversationId) }
-                return true
-            } else if let msg = message as? UiSurfaceActionMessage {
-                Task { await self.sendSurfaceAction(msg) }
+            } else if message is UiSurfaceActionMessage {
+                // Handled by SurfaceActionClient via GatewayHTTPClient.
                 return true
             } else if message is AddTrustRuleMessage
                         || message is TrustRulesListMessage

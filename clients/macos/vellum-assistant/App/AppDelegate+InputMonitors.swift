@@ -476,10 +476,6 @@ extension AppDelegate {
         }
         guard let viewModel = mainWindow.activeViewModel else { return }
 
-        if notifyOnComplete {
-            setupQuickInputNotification(on: viewModel)
-        }
-
         if let imageData {
             viewModel.addAttachment(imageData: imageData, filename: "Screenshot.jpg")
             viewModel.inputText = message
@@ -499,26 +495,11 @@ extension AppDelegate {
     func handleQuickInputSubmitToConversation(_ message: String, imageData: Data?, notifyOnComplete: Bool) {
         guard let mainWindow else { return }
         if let viewModel = mainWindow.activeViewModel {
-            if notifyOnComplete {
-                setupQuickInputNotification(on: viewModel)
-            }
             if let imageData {
                 viewModel.addAttachment(imageData: imageData, filename: "Screenshot.jpg")
             }
             viewModel.inputText = message
             viewModel.sendMessage()
-        }
-    }
-
-    /// Sets a one-shot `onResponseComplete` callback on the view model to send a macOS notification.
-    func setupQuickInputNotification(on viewModel: ChatViewModel) {
-        let notificationService = services.activityNotificationService
-        viewModel.onResponseComplete = { [weak viewModel] summary in
-            // One-shot — clear the callback after firing
-            viewModel?.onResponseComplete = nil
-            Task {
-                await notificationService.notifyQuickInputComplete(summary: summary)
-            }
         }
     }
 

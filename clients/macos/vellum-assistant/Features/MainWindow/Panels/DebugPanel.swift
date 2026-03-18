@@ -7,6 +7,14 @@ struct DebugPanel: View {
     let activeSessionId: String?
     var onClose: () -> Void
 
+    @State private var loadingConversationId: String?
+    @State private var hydrationTask: Task<Void, Never>?
+    private let traceEventClient: any TraceEventClientProtocol = TraceEventClient()
+
+    private var isLoadingHistory: Bool {
+        loadingConversationId != nil && loadingConversationId == activeSessionId
+    }
+
     private var hasEvents: Bool {
         guard let conversationId = activeSessionId else { return false }
         return !(traceStore.eventsByConversation[conversationId] ?? []).isEmpty
@@ -30,11 +38,19 @@ struct DebugPanel: View {
             if !hasEvents {
                 Spacer()
                 if activeSessionId != nil {
-                    VEmptyState(
-                        title: "No trace events yet",
-                        subtitle: "Events will appear as the session runs",
-                        icon: "waveform.path"
-                    )
+                    if isLoadingHistory {
+                        VEmptyState(
+                            title: "Loading trace history...",
+                            subtitle: "Fetching persisted events from the assistant",
+                            icon: "waveform.path"
+                        )
+                    } else {
+                        VEmptyState(
+                            title: "No trace events yet",
+                            subtitle: "Events will appear as the session runs",
+                            icon: "waveform.path"
+                        )
+                    }
                 } else {
                     VEmptyState(
                         title: "No session selected",
@@ -49,8 +65,40 @@ struct DebugPanel: View {
             // state is rendered in pinnedContent above to avoid scrolling.
             EmptyView()
         }
-        .onAppear { traceStore.isObserved = true }
+        .onAppear {
+            traceStore.isObserved = true
+            hydrateIfNeeded()
+        }
         .onDisappear { traceStore.isObserved = false }
+        .onChange(of: activeSessionId) { _, _ in
+            hydrationTask?.cancel()
+            hydrationTask = nil
+            loadingConversationId = nil
+            hydrateIfNeeded()
+        }
+    }
+
+    // MARK: - History Hydration
+
+    private func hydrateIfNeeded() {
+        guard let conversationId = activeSessionId else { return }
+        guard loadingConversationId != conversationId else { return }
+        loadingConversationId = conversationId
+        hydrationTask = Task {
+            defer {
+                if !Task.isCancelled {
+                    loadingConversationId = nil
+                    hydrationTask = nil
+                }
+            }
+            do {
+                let events = try await traceEventClient.fetchHistory(conversationId: conversationId)
+                guard !Task.isCancelled else { return }
+                traceStore.loadHistory(events)
+            } catch {
+                // Fetch failed — fall back to the existing "No trace events yet" empty state.
+            }
+        }
     }
 
     // MARK: - Metrics Strip

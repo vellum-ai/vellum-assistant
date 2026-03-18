@@ -1,72 +1,100 @@
+import { getPlatformAssistantId } from "../config/env.js";
+import { getConfig } from "../config/loader.js";
+import { type Services, ServicesSchema } from "../config/schemas/services.js";
+import { resolveManagedProxyContext } from "../providers/managed-proxy/context.js";
 import { getSecureKeyAsync } from "../security/secure-keys.js";
 import { BYOOAuthConnection } from "./byo-connection.js";
 import type { OAuthConnection } from "./connection.js";
-import {
-  getApp,
-  getConnectionByProvider,
-  getConnectionByProviderAndAccount,
-  getProvider,
-} from "./oauth-store.js";
+import { getActiveConnection, getProvider } from "./oauth-store.js";
+import { PlatformOAuthConnection } from "./platform-connection.js";
+
+export interface ResolveOAuthConnectionOptions {
+  /** OAuth app client ID — narrows to a specific app when multiple BYO apps
+   *  exist for the same provider. */
+  clientId?: string;
+  /** Account identifier (e.g. email, username) — disambiguates when multiple
+   *  accounts are connected for the same provider. Best-effort: not guaranteed
+   *  to be present on all connections. */
+  account?: string;
+}
 
 /**
- * Resolve an OAuthConnection for a given credential service.
+ * Resolve an OAuthConnection for a given provider.
  *
- * When `accountInfo` is provided, resolves the connection for that specific
- * account (e.g. "user@gmail.com"). Otherwise falls back to the most recent
- * active connection.
+ * Managed providers (where the service config `mode` is `"managed"`) are
+ * routed through the platform proxy with no local state required.
  *
- * Reads exclusively from the SQLite oauth-store. Throws if no connection
- * exists (authorization required).
+ * BYO providers resolve from the local SQLite oauth-store and require an
+ * active connection row and a stored access token.
+ *
+ * @param providerKey - Provider identifier (e.g. "integration:google").
+ *   Maps to the `provider_key` primary key in the `oauth_providers` table.
+ * @param options.clientId - Optional OAuth app client ID. When multiple BYO
+ *   apps exist for the same provider, narrows the connection lookup to the
+ *   app matching this client ID. Ignored for managed providers.
+ * @param options.account - Optional account identifier to disambiguate
+ *   multi-account connections.
  */
 export async function resolveOAuthConnection(
-  credentialService: string,
-  accountInfo?: string,
+  providerKey: string,
+  options?: ResolveOAuthConnectionOptions,
 ): Promise<OAuthConnection> {
-  const conn = accountInfo
-    ? getConnectionByProviderAndAccount(credentialService, accountInfo)
-    : getConnectionByProvider(credentialService);
+  const { clientId, account } = options ?? {};
+  const provider = getProvider(providerKey);
+  const managedKey = provider?.managedServiceConfigKey;
+
+  if (managedKey && managedKey in ServicesSchema.shape) {
+    const services: Services = getConfig().services;
+    if (services[managedKey as keyof Services].mode === "managed") {
+      const ctx = await resolveManagedProxyContext();
+      const assistantId = getPlatformAssistantId();
+      return new PlatformOAuthConnection({
+        id: providerKey,
+        providerKey,
+        externalId: providerKey,
+        accountInfo: account ?? null,
+        assistantId,
+        platformBaseUrl: ctx.platformBaseUrl,
+        apiKey: ctx.assistantApiKey,
+      });
+    }
+  }
+
+  // BYO path — requires a local connection row, access token, and base URL.
+  const conn = getActiveConnection(providerKey, { clientId, account });
   if (!conn) {
+    const filters = [
+      account && `account "${account}"`,
+      clientId && `client ID "${clientId}"`,
+    ].filter(Boolean);
+    const qualifier = filters.length
+      ? ` matching ${filters.join(" and ")}`
+      : "";
     throw new Error(
-      `No credential found for "${credentialService}". Authorization required.`,
+      `No active OAuth connection found for "${providerKey}"${qualifier}. Connect the service first with oauth2_connect.`,
     );
   }
 
   const accessToken = await getSecureKeyAsync(
     `oauth_connection/${conn.id}/access_token`,
   );
-
   if (!accessToken) {
     throw new Error(
-      `No access token found for "${credentialService}". Authorization required.`,
+      `OAuth connection for "${providerKey}" exists but has no access token. Re-authorize with oauth2_connect.`,
     );
   }
 
-  // Look up the provider by credentialService first; fall back to the
-  // connection's app's canonical providerKey so custom credential_service
-  // overrides (e.g. "integration:github-work") still resolve to the well-known
-  // provider's base URL. We traverse conn -> oauthApp -> providerKey because
-  // conn.providerKey equals credentialService (getConnectionByProvider queries
-  // WHERE providerKey = credentialService), whereas the app's providerKey is a
-  // foreign key to the oauthProviders table.
-  const provider =
-    getProvider(credentialService) ??
-    getProvider(getApp(conn.oauthAppId)?.providerKey ?? "");
   const baseUrl = provider?.baseUrl;
-
   if (!baseUrl) {
-    throw new Error(`No base URL configured for "${credentialService}".`);
+    throw new Error(
+      `OAuth provider "${providerKey}" has no base URL configured. Check provider setup.`,
+    );
   }
-
-  const grantedScopes: string[] = conn.grantedScopes
-    ? JSON.parse(conn.grantedScopes)
-    : [];
 
   return new BYOOAuthConnection({
     id: conn.id,
     providerKey: conn.providerKey,
     baseUrl,
     accountInfo: conn.accountInfo,
-    grantedScopes,
-    credentialService,
   });
 }

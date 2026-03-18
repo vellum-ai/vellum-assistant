@@ -20,10 +20,19 @@ extension Notification.Name {
     static let localBootstrapCompleted = Notification.Name("localBootstrapCompleted")
 }
 
-/// Manages API keys using UserDefaults. The daemon owns the canonical encrypted
-/// store; the app syncs keys to the daemon via HTTP on save/clear/reconnect.
+/// Manages API keys using CredentialStorage (Keychain in Release, file-based
+/// in DEBUG). The daemon owns the canonical encrypted store; the app syncs
+/// keys to the daemon via HTTP on save/clear/reconnect.
 enum APIKeyManager {
     private static let udPrefix = "vellum_provider_"
+
+    private static let storage: CredentialStorage = {
+        #if DEBUG
+        return FileCredentialStorage()
+        #else
+        return KeychainCredentialStorage()
+        #endif
+    }()
 
     /// All provider identifiers whose API keys should be synced to the daemon.
     /// Every call site that iterates over syncable providers must use this list
@@ -31,6 +40,7 @@ enum APIKeyManager {
     static let allSyncableProviders = [
         "anthropic",
         "brave",
+        "elevenlabs",
         "fireworks",
         "gemini",
         "openai",
@@ -45,47 +55,53 @@ enum APIKeyManager {
         return false
     }
 
+    // MARK: - Migration from UserDefaults
+
+    /// One-time migration: copies API keys from UserDefaults to credential
+    /// storage for existing users, then removes them from UserDefaults.
+    /// Safe to call multiple times — skips providers that already have a
+    /// value in credential storage.
+    static func migrateFromUserDefaults() {
+        for provider in allSyncableProviders {
+            let udKey = udPrefix + provider
+            if let udValue = UserDefaults.standard.string(forKey: udKey),
+               !udValue.isEmpty,
+               storage.get(account: udKey) == nil {
+                _ = storage.set(account: udKey, value: udValue)
+            }
+            // Always remove from UserDefaults regardless — keys should not
+            // remain in the plaintext plist after migration.
+            UserDefaults.standard.removeObject(forKey: udKey)
+        }
+    }
+
     // MARK: - Generic provider access
 
     static func getKey(for provider: String) -> String? {
-        UserDefaults.standard.string(forKey: udPrefix + provider)
+        storage.get(account: udPrefix + provider)
     }
 
     static func setKey(_ key: String, for provider: String) {
-        UserDefaults.standard.set(key, forKey: udPrefix + provider)
+        _ = storage.set(account: udPrefix + provider, value: key)
         notifyKeyDidChange()
     }
 
     static func deleteKey(for provider: String) {
-        UserDefaults.standard.removeObject(forKey: udPrefix + provider)
+        _ = storage.delete(account: udPrefix + provider)
         notifyKeyDidChange()
     }
 
-    /// Push an API key to the daemon's encrypted store via its HTTP endpoint.
+    /// Push an API key to the daemon's encrypted store via the gateway.
     /// Waits up to 15s for the actor token if it's not yet available (e.g.
     /// during initial onboarding before JWT bootstrap completes). Failures
     /// are silently ignored — the reconnect sync will retry.
     static func syncKeyToDaemon(provider: String, value: String) {
-        Task.detached {
-            guard let token = await ActorTokenManager.waitForToken(timeout: 15),
-                  !token.isEmpty else { return }
-            // Resolve port from the connected assistant's lockfile entry so
-            // multi-instance switching targets the correct daemon.
-            let connectedId = UserDefaults.standard.string(forKey: "connectedAssistantId")
-            let lockfilePort = connectedId
-                .flatMap { LockfileAssistant.loadByName($0) }?.daemonPort
-            let port = lockfilePort
-                ?? Int(ProcessInfo.processInfo.environment["RUNTIME_HTTP_PORT"] ?? "")
-                ?? 7821
-            guard let url = URL(string: "http://localhost:\(port)/v1/secrets") else { return }
-            var request = URLRequest(url: url)
-            request.httpMethod = "POST"
-            request.timeoutInterval = 5
-            request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
-            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-            let body: [String: String] = ["type": "api_key", "name": provider, "value": value]
-            request.httpBody = try? JSONSerialization.data(withJSONObject: body)
-            _ = try? await URLSession.shared.data(for: request)
+        Task {
+            guard let _ = await ActorTokenManager.waitForToken(timeout: 15) else { return }
+            let body: [String: Any] = ["type": "api_key", "name": provider, "value": value]
+            _ = try? await GatewayHTTPClient.post(
+                path: "assistants/{assistantId}/secrets", json: body, timeout: 5
+            )
         }
     }
 

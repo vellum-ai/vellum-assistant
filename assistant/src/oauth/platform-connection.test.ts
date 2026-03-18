@@ -12,7 +12,6 @@ const DEFAULT_OPTIONS = {
   providerKey: "integration:google",
   externalId: "ext-123",
   accountInfo: "user@example.com",
-  grantedScopes: ["https://www.googleapis.com/auth/gmail.readonly"],
   assistantId: "asst-abc",
   platformBaseUrl: "https://platform.example.com",
   apiKey: "test-api-key",

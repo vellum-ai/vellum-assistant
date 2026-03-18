@@ -1,8 +1,4 @@
-import {
-  createCipheriv,
-  pbkdf2Sync,
-  randomBytes,
-} from "node:crypto";
+import { createCipheriv, pbkdf2Sync, randomBytes } from "node:crypto";
 import {
   chmodSync,
   existsSync,
@@ -42,7 +38,6 @@ import {
   _setStoreKeyPath,
   _setStorePath,
   deleteKey,
-  getMachineEntropy,
   getKey,
   listKeys,
   setKey,
@@ -70,8 +65,31 @@ const AUTH_TAG_LENGTH = 16;
 const PBKDF2_ITERATIONS = process.env.BUN_TEST === "1" ? 1 : 100_000;
 const SALT_LENGTH = 32;
 
+/** Local copy of the legacy machine entropy derivation (the export was removed). */
+function legacyMachineEntropy(): string {
+  const parts: string[] = [];
+  try {
+    parts.push(hostname());
+  } catch {
+    parts.push("unknown-host");
+  }
+  try {
+    parts.push(userInfo().username);
+  } catch {
+    parts.push("unknown-user");
+  }
+  parts.push(process.platform);
+  parts.push(process.arch);
+  try {
+    parts.push(userInfo().homedir);
+  } catch {
+    parts.push("/tmp");
+  }
+  return parts.join(":");
+}
+
 function legacyDeriveKey(salt: Buffer): Buffer {
-  const entropy = getMachineEntropy();
+  const entropy = legacyMachineEntropy();
   return pbkdf2Sync(entropy, salt, PBKDF2_ITERATIONS, KEY_LENGTH, "sha512");
 }
 
@@ -336,7 +354,8 @@ describe("encrypted-store", () => {
       // Create a v1 store using legacy encryption
       const salt = randomBytes(SALT_LENGTH);
       const legacyKey = legacyDeriveKey(salt);
-      const entries: Record<string, { iv: string; tag: string; data: string }> = {};
+      const entries: Record<string, { iv: string; tag: string; data: string }> =
+        {};
       entries["api-key"] = legacyEncrypt("secret-123", legacyKey);
       entries["other-key"] = legacyEncrypt("secret-456", legacyKey);
       writeV1Store(STORE_PATH, salt, entries);
@@ -362,7 +381,8 @@ describe("encrypted-store", () => {
       // Create a v1 store
       const salt = randomBytes(SALT_LENGTH);
       const legacyKey = legacyDeriveKey(salt);
-      const entries: Record<string, { iv: string; tag: string; data: string }> = {};
+      const entries: Record<string, { iv: string; tag: string; data: string }> =
+        {};
       entries["my-key"] = legacyEncrypt("my-value", legacyKey);
       writeV1Store(STORE_PATH, salt, entries);
 
@@ -383,7 +403,8 @@ describe("encrypted-store", () => {
       // Create a v1 store with one good entry and one tampered entry
       const salt = randomBytes(SALT_LENGTH);
       const legacyKey = legacyDeriveKey(salt);
-      const entries: Record<string, { iv: string; tag: string; data: string }> = {};
+      const entries: Record<string, { iv: string; tag: string; data: string }> =
+        {};
       entries["good"] = legacyEncrypt("good-value", legacyKey);
       entries["bad"] = legacyEncrypt("bad-value", legacyKey);
       // Tamper with the bad entry
@@ -413,7 +434,8 @@ describe("encrypted-store", () => {
       // write v1 store + store.key but leave store as v1
       const salt = randomBytes(SALT_LENGTH);
       const legacyKey = legacyDeriveKey(salt);
-      const entries: Record<string, { iv: string; tag: string; data: string }> = {};
+      const entries: Record<string, { iv: string; tag: string; data: string }> =
+        {};
       entries["test-key"] = legacyEncrypt("test-value", legacyKey);
       writeV1Store(STORE_PATH, salt, entries);
 

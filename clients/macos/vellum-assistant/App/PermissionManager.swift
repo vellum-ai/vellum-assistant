@@ -88,6 +88,11 @@ enum PermissionManager {
     private static let hasRequestedScreenRecordingFlag = "hasRequestedScreenRecording"
 
     static func requestScreenRecordingAccess() {
+        if CGPreflightScreenCaptureAccess() {
+            openScreenRecordingSettings()
+            return
+        }
+
         let hasRequestedBefore = UserDefaults.standard.bool(forKey: hasRequestedScreenRecordingFlag)
 
         // CGRequestScreenCaptureAccess() only shows the native OS prompt on
@@ -100,7 +105,7 @@ enum PermissionManager {
 
         if !hasRequestedBefore {
             UserDefaults.standard.set(true, forKey: hasRequestedScreenRecordingFlag)
-        } else if !CGPreflightScreenCaptureAccess() {
+        } else {
             openScreenRecordingSettings()
         }
     }
@@ -108,7 +113,7 @@ enum PermissionManager {
     static func requestMicrophoneAccess() {
         switch AVCaptureDevice.authorizationStatus(for: .audio) {
         case .authorized:
-            return
+            openMicrophoneSettings()
         case .notDetermined:
             AVCaptureDevice.requestAccess(for: .audio) { _ in }
         case .denied, .restricted:
@@ -121,7 +126,7 @@ enum PermissionManager {
     static func requestSpeechRecognitionAccess() {
         switch SFSpeechRecognizer.authorizationStatus() {
         case .authorized:
-            return
+            openSpeechRecognitionSettings()
         case .notDetermined:
             SFSpeechRecognizer.requestAuthorization { _ in }
         case .denied, .restricted:
@@ -138,7 +143,7 @@ enum PermissionManager {
             case .notDetermined:
                 _ = try? await UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound, .badge])
             case .authorized, .provisional, .ephemeral:
-                return
+                _ = openNotificationSettings()
             case .denied:
                 _ = openNotificationSettings()
             @unknown default:
@@ -154,15 +159,17 @@ enum PermissionManager {
             case .notDetermined:
                 _ = try? await UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound, .badge])
             case .authorized, .provisional, .ephemeral:
-                if settings.badgeSetting != .enabled {
-                    _ = openNotificationSettings()
-                }
+                _ = openNotificationSettings()
             case .denied:
                 _ = openNotificationSettings()
             @unknown default:
                 _ = openNotificationSettings()
             }
         }
+    }
+
+    static func openAccessibilitySettings() {
+        _ = openPrivacySettingsPane("Privacy_Accessibility")
     }
 
     static func openScreenRecordingSettings() {

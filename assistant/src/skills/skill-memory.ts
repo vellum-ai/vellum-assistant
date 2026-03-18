@@ -1,6 +1,8 @@
 import { and, eq } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 
+import { isAssistantFeatureFlagEnabled } from "../config/assistant-feature-flags.js";
+import { getConfig } from "../config/loader.js";
 import { getDb } from "../memory/db.js";
 import { computeMemoryFingerprint } from "../memory/fingerprint.js";
 import { enqueueMemoryJob } from "../memory/jobs-store.js";
@@ -15,8 +17,7 @@ const log = getLogger("skill-memory");
  * Truncated to 500 chars max (matching the limit used by memory item extraction).
  */
 export function buildCapabilityStatement(entry: CatalogSkill): string {
-  const displayName =
-    entry.metadata?.vellum?.["display-name"] ?? entry.name;
+  const displayName = entry.metadata?.vellum?.["display-name"] ?? entry.name;
   const activationHints = entry.metadata?.vellum?.["activation-hints"];
 
   let statement = `The "${displayName}" skill (${entry.id}) is available. ${entry.description}.`;
@@ -69,7 +70,10 @@ export function upsertSkillCapabilityMemory(
       .get();
 
     if (existing) {
-      if (existing.status === "active" && existing.fingerprint === fingerprint) {
+      if (
+        existing.status === "active" &&
+        existing.fingerprint === fingerprint
+      ) {
         // Same content — just touch lastSeenAt
         db.update(memoryItems)
           .set({ lastSeenAt: now })
@@ -171,9 +175,19 @@ export function deleteSkillCapabilityMemory(skillId: string): void {
 export async function seedCatalogSkillMemories(): Promise<void> {
   try {
     const catalog = await resolveCatalog();
+    const config = getConfig();
     const catalogIds = new Set<string>();
 
     for (const entry of catalog) {
+      // Skip skills whose feature flag is disabled
+      const flagId = entry.metadata?.vellum?.["feature-flag"];
+      if (flagId) {
+        const flagKey = `feature_flags.${flagId}.enabled`;
+        if (!isAssistantFeatureFlagEnabled(flagKey, config)) {
+          continue;
+        }
+      }
+
       catalogIds.add(entry.id);
       upsertSkillCapabilityMemory(entry.id, entry);
     }

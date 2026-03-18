@@ -23,6 +23,14 @@
       "key": "feature_flags.contacts.enabled",
       "label": "Contacts",
       "description": "Show the Contacts tab in Settings for viewing and managing contacts",
+      "defaultEnabled": true
+    },
+    {
+      "id": "custom-inference-provider",
+      "scope": "assistant",
+      "key": "feature_flags.custom-inference-provider.enabled",
+      "label": "Custom Inference Provider",
+      "description": "Allow selecting a specific LLM provider and model for inference in Your Own mode",
       "defaultEnabled": false
     },
     {
@@ -218,6 +226,14 @@
       "defaultEnabled": false
     },
     {
+      "id": "integration-notion",
+      "scope": "assistant",
+      "key": "feature_flags.integration-notion.enabled",
+      "label": "Notion Integration",
+      "description": "Enable the Notion setup skill for connecting to Notion",
+      "defaultEnabled": false
+    },
+    {
       "id": "conversation-starters",
       "scope": "assistant",
       "key": "feature_flags.conversation-starters.enabled",
@@ -247,6 +263,14 @@
       "key": "quick_input_enabled",
       "label": "Quick Input",
       "description": "Enable the Quick Input popover on right-click of the menu bar icon",
+      "defaultEnabled": false
+    },
+    {
+      "id": "expand-completed-steps",
+      "scope": "macos",
+      "key": "expand_completed_steps",
+      "label": "Expand Completed Steps",
+      "description": "Auto-expand completed tool call step groups instead of showing them collapsed",
       "defaultEnabled": false
     }
   ]

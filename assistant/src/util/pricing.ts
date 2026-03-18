@@ -24,6 +24,9 @@ const PROVIDER_PRICING: Record<string, Record<string, ModelPricing>> = {
     "claude-haiku-4": { inputPer1M: 0.8, outputPer1M: 4 },
   },
   openai: {
+    "gpt-5.4": { inputPer1M: 2.5, outputPer1M: 15 },
+    "gpt-5.4-nano": { inputPer1M: 0.2, outputPer1M: 1.25 },
+    "gpt-5.2": { inputPer1M: 1.75, outputPer1M: 14 },
     "gpt-4o": { inputPer1M: 2.5, outputPer1M: 10 },
     "gpt-4o-mini": { inputPer1M: 0.15, outputPer1M: 0.6 },
     "gpt-4.1": { inputPer1M: 2.0, outputPer1M: 8.0 },
@@ -35,6 +38,7 @@ const PROVIDER_PRICING: Record<string, Record<string, ModelPricing>> = {
     "o4-mini": { inputPer1M: 1.1, outputPer1M: 4.4 },
   },
   gemini: {
+    "gemini-3-flash": { inputPer1M: 0.5, outputPer1M: 3 },
     "gemini-2.5-pro": { inputPer1M: 1.25, outputPer1M: 10 },
     "gemini-2.5-flash": { inputPer1M: 0.15, outputPer1M: 0.6 },
     "gemini-2.0-flash": { inputPer1M: 0.1, outputPer1M: 0.4 },

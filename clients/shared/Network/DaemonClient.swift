@@ -344,53 +344,11 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     /// Called when the daemon sends a `skills_state_changed` push event.
     public var onSkillStateChanged: ((SkillStateChangedMessage) -> Void)?
 
-    /// Called when the daemon sends a `skills_operation_response` message.
-    public var onSkillsOperationResponse: ((SkillsOperationResponseMessage) -> Void)?
-
-    /// Called when the daemon sends a `skills_inspect_response` message.
-    public var onSkillsInspectResponse: ((SkillsInspectResponseMessage) -> Void)?
-
-    /// Called when the daemon sends a `skills_draft_response` message.
-    public var onSkillsDraftResponse: ((SkillsDraftResponseMessage) -> Void)?
-
     /// Called when the daemon sends a `trace_event` message.
     public var onTraceEvent: ((TraceEventMessage) -> Void)?
 
     /// Called when the daemon sends a `usage_update` message.
     public var onUsageUpdate: ((UsageUpdate) -> Void)?
-
-    /// Called when the daemon sends an `apps_list_response` message.
-    public var onAppsListResponse: ((AppsListResponseMessage) -> Void)?
-
-    /// Called when the daemon sends an `app_preview_response` message.
-    public var onAppPreviewResponse: ((AppPreviewResponseMessage) -> Void)?
-
-    /// Called when the daemon sends a `shared_apps_list_response` message.
-    public var onSharedAppsListResponse: ((SharedAppsListResponseMessage) -> Void)?
-
-    /// Called when the daemon sends an `app_delete_response` message.
-    public var onAppDeleteResponse: ((AppDeleteResponseMessage) -> Void)?
-
-    /// Called when the daemon sends a `shared_app_delete_response` message.
-    public var onSharedAppDeleteResponse: ((SharedAppDeleteResponseMessage) -> Void)?
-
-    /// Called when the daemon sends a `fork_shared_app_response` message.
-    public var onForkSharedAppResponse: ((ForkSharedAppResponseMessage) -> Void)?
-
-    /// Called when the daemon sends an `app_history_response` message.
-    public var onAppHistoryResponse: ((AppHistoryResponse) -> Void)?
-
-    /// Called when the daemon sends an `app_diff_response` message.
-    public var onAppDiffResponse: ((AppDiffResponse) -> Void)?
-
-    /// Called when the daemon sends an `app_restore_response` message.
-    public var onAppRestoreResponse: ((AppRestoreResponse) -> Void)?
-
-    /// Called when the daemon sends a `bundle_app_response` message.
-    public var onBundleAppResponse: ((BundleAppResponseMessage) -> Void)?
-
-    /// Called when the daemon sends an `open_bundle_response` message.
-    public var onOpenBundleResponse: ((OpenBundleResponseMessage) -> Void)?
 
     /// Called when the daemon sends a `conversation_list_response` message.
     public var onConversationListResponse: ((ConversationListResponseMessage) -> Void)?
@@ -400,12 +358,6 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
 
     /// Called when the daemon sends a `history_response` message.
     public var onHistoryResponse: ((HistoryResponse) -> Void)?
-
-    /// Called when the daemon sends a `message_content_response` with full (untruncated) content.
-    public var onMessageContentResponse: ((MessageContentResponse) -> Void)?
-
-    /// Called when the daemon sends a `share_app_cloud_response` message.
-    public var onShareAppCloudResponse: ((ShareAppCloudResponseMessage) -> Void)?
 
     /// Called when the daemon sends a `slack_webhook_config_response` message.
     public var onSlackWebhookConfigResponse: ((SlackWebhookConfigResponseMessage) -> Void)?
@@ -516,6 +468,17 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     /// Set by the app layer — `DaemonClient` never imports platform-specific types.
     public var wakeHandler: (@MainActor @Sendable () async throws -> Void)?
 
+    #if os(macOS)
+    /// Timestamp of the last auto-wake attempt from the health-check disconnect path.
+    /// Used to prevent crash loops: if the daemon dies again within the cooldown window
+    /// after a wake, we stop retrying. Expires naturally after the cooldown period.
+    var lastAutoWakeAttempt: Date?
+
+    /// The in-flight auto-wake task, stored so it can be cancelled on intentional
+    /// disconnect or reconfigure to prevent reconnecting after teardown.
+    var autoWakeTask: Task<Void, Never>?
+    #endif
+
     // MARK: - Broadcast Subscribers
 
     /// Creates a new message stream for the caller. Each subscriber receives all messages
@@ -566,6 +529,10 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     /// and resets connection-specific state. Callers must call `connect()`
     /// after reconfiguring to establish the new connection.
     public func reconfigure(config newConfig: DaemonConfig) {
+        #if os(macOS)
+        autoWakeTask?.cancel()
+        autoWakeTask = nil
+        #endif
         disconnect()
         self.config = newConfig
         // Reset connection-specific state
@@ -575,11 +542,17 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
         keyFingerprint = nil
         latestMemoryStatus = nil
         currentModel = nil
+        #if os(macOS)
+        lastAutoWakeAttempt = nil
+        #endif
     }
 
     deinit {
         // Swift 5.9+: deinit on @MainActor class is NOT guaranteed to run on main actor.
         // Only call thread-safe cancellation methods here — Task.cancel() is safe from any thread.
+        #if os(macOS)
+        autoWakeTask?.cancel()
+        #endif
         //
         // We must finish subscriber continuations to prevent hanging `for await` loops.
         // deinit guarantees exclusive access (no other strong references exist), so
@@ -590,23 +563,6 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
         }
         // httpTransport is cleaned up via disconnectInternal() before dealloc;
     }
-
-    // MARK: - PID Validation
-
-    /// Check whether the daemon process is alive by reading the PID file and
-    /// sending signal 0 to the process. Returns `false` if the PID file is
-    /// missing, unreadable, or the process is not running.
-    #if os(macOS)
-    public static func isDaemonProcessAlive(environment: [String: String]? = nil) -> Bool {
-        let pidPath = VellumAssistantShared.resolvePidPath(environment: environment)
-        guard let data = try? Data(contentsOf: URL(fileURLWithPath: pidPath)),
-              let pidString = String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines),
-              let pid = pid_t(pidString) else {
-            return false
-        }
-        return kill(pid, 0) == 0
-    }
-    #endif
 
     // MARK: - Send
 
@@ -689,20 +645,6 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
             throw SendError.notConnected
         }
         try await httpTransport.sendConversationUnread(signal)
-    }
-
-    // MARK: - Surface Actions
-
-    /// Convenience method for sending a surface action response to the daemon.
-    /// Keeps the message construction co-located with the client.
-    public func sendSurfaceAction(conversationId: String?, surfaceId: String, actionId: String, data: [String: AnyCodable]?) throws {
-        let message = UiSurfaceActionMessage(
-            conversationId: conversationId,
-            surfaceId: surfaceId,
-            actionId: actionId,
-            data: data
-        )
-        try send(message)
     }
 
     // MARK: - BTW Side-Chain
@@ -789,97 +731,6 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
         }
     }
 
-    // MARK: - Surface Undo
-
-    /// Send a surface undo request to revert the last refinement on a workspace surface.
-    public func sendSurfaceUndo(conversationId: String, surfaceId: String) throws {
-        let message = UiSurfaceUndoMessage(conversationId: conversationId, surfaceId: surfaceId)
-        try send(message)
-    }
-
-    // MARK: - Confirmation Response
-
-    /// Send a confirmation response for a tool permission request.
-    public func sendConfirmationResponse(
-        requestId: String,
-        decision: String,
-        selectedPattern: String? = nil,
-        selectedScope: String? = nil
-    ) throws {
-        try send(ConfirmationResponseMessage(
-            requestId: requestId,
-            decision: decision,
-            selectedPattern: selectedPattern,
-            selectedScope: selectedScope
-        ))
-    }
-
-    // MARK: - Secret Response
-
-    /// Send a secret response for a credential prompt request.
-    public func sendSecretResponse(requestId: String, value: String?, delivery: String? = nil) throws {
-        try send(SecretResponseMessage(requestId: requestId, value: value, delivery: delivery))
-    }
-
-
-
-    // MARK: - Skills Management
-
-    /// Enable a skill by name.
-    public func enableSkill(_ name: String) throws {
-        try send(SkillsEnableMessage(name: name))
-    }
-
-    /// Disable a skill by name.
-    public func disableSkill(_ name: String) throws {
-        try send(SkillsDisableMessage(name: name))
-    }
-
-    /// Install a skill from ClaWHub.
-    public func installSkill(slug: String, version: String? = nil) throws {
-        try send(SkillsInstallMessage(slug: slug, version: version))
-    }
-
-    /// Uninstall a skill by name.
-    public func uninstallSkill(_ name: String) throws {
-        try send(SkillsUninstallMessage(name: name))
-    }
-
-    /// Update a skill to its latest version.
-    public func updateSkill(_ name: String) throws {
-        try send(SkillsUpdateMessage(name: name))
-    }
-
-    /// Check for available skill updates.
-    public func checkSkillUpdates() throws {
-        try send(SkillsCheckUpdatesMessage())
-    }
-
-    /// Search for skills on ClaWHub.
-    public func searchSkills(query: String) throws {
-        try send(SkillsSearchMessage(query: query))
-    }
-
-    /// Inspect a ClaWHub skill for detailed metadata.
-    public func inspectSkill(slug: String) throws {
-        try send(SkillsInspectMessage(slug: slug))
-    }
-
-    /// Configure a skill's environment, API key, or config.
-    public func configureSkill(name: String, env: [String: String]? = nil, apiKey: String? = nil, config: [String: AnyCodable]? = nil) throws {
-        try send(SkillsConfigureMessage(name: name, env: env, apiKey: apiKey, config: config))
-    }
-
-    /// Draft metadata for a skill from source text.
-    public func draftSkill(sourceText: String) throws {
-        try send(SkillsDraftRequestMessage(sourceText: sourceText))
-    }
-
-    /// Create a new managed skill.
-    public func createSkill(skillId: String, name: String, description: String, emoji: String? = nil, bodyMarkdown: String, overwrite: Bool? = nil) throws {
-        try send(SkillsCreateMessage(skillId: skillId, name: name, description: description, emoji: emoji, bodyMarkdown: bodyMarkdown, overwrite: overwrite))
-    }
-
     // MARK: - Queue Management
 
     /// Delete a specific queued message by its requestId.
@@ -896,11 +747,6 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
 
     // MARK: - Conversations
 
-    /// Request the list of past conversations from the daemon.
-    public func sendConversationList(offset: Int? = nil, limit: Int? = nil) throws {
-        try send(ConversationListRequestMessage(offset: offset, limit: limit))
-    }
-
     /// Request message history for a specific conversation.
     /// - Parameters:
     ///   - conversationId: The conversation to fetch history for.
@@ -911,89 +757,6 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     ///   - maxToolResultChars: When set, truncates tool result content to this many characters.
     public func sendHistoryRequest(conversationId: String, limit: Int? = nil, beforeTimestamp: Double? = nil, mode: String? = nil, maxTextChars: Int? = nil, maxToolResultChars: Int? = nil) throws {
         try send(HistoryRequestMessage(conversationId: conversationId, limit: limit, beforeTimestamp: beforeTimestamp, mode: mode, maxTextChars: maxTextChars, maxToolResultChars: maxToolResultChars))
-    }
-
-    /// Request full (untruncated) content for a specific message.
-    /// Used to rehydrate messages that were loaded with truncated text/tool results.
-    public func sendMessageContentRequest(conversationId: String, messageId: String) throws {
-        try send(MessageContentRequest(type: "message_content_request", conversationId: conversationId, messageId: messageId))
-    }
-
-    // MARK: - Apps
-
-    /// Request opening an app by ID. The daemon responds with a `ui_surface_show` message.
-    public func sendAppOpen(appId: String) throws {
-        try send(AppOpenRequestMessage(appId: appId))
-    }
-
-    /// Send a preview screenshot for an app.
-    public func sendAppUpdatePreview(appId: String, preview: String) throws {
-        try send(AppUpdatePreviewRequestMessage(appId: appId, preview: preview))
-    }
-
-    /// Request the list of all apps from the daemon.
-    public func sendAppsList() throws {
-        try send(AppsListRequestMessage())
-    }
-
-    /// Request a single app's preview screenshot.
-    public func sendAppPreview(appId: String) throws {
-        try send(AppPreviewRequestMessage(type: "app_preview_request", appId: appId))
-    }
-
-    /// Request version history for an app.
-    public func sendAppHistory(appId: String, limit: Int? = nil) throws {
-        try send(AppHistoryRequest(type: "app_history_request", appId: appId, limit: limit.map { Double($0) }))
-    }
-
-    /// Request a diff between two versions of an app.
-    public func sendAppDiff(appId: String, fromCommit: String, toCommit: String? = nil) throws {
-        try send(AppDiffRequest(type: "app_diff_request", appId: appId, fromCommit: fromCommit, toCommit: toCommit))
-    }
-
-    /// Restore an app to a previous version.
-    public func sendAppRestore(appId: String, commitHash: String) throws {
-        try send(AppRestoreRequest(type: "app_restore_request", appId: appId, commitHash: commitHash))
-    }
-
-    /// Request bundling an app for sharing.
-    public func sendBundleApp(appId: String) throws {
-        try send(BundleAppRequestMessage(appId: appId))
-    }
-
-    /// Request opening and scanning a .vellum bundle.
-    public func sendOpenBundle(filePath: String) throws {
-        try send(OpenBundleMessage(filePath: filePath))
-    }
-
-    /// Request the list of shared/received apps.
-    public func sendSharedAppsList() throws {
-        try send(SharedAppsListRequestMessage())
-    }
-
-    /// Delete a persistent user-created app by ID.
-    public func sendAppDelete(appId: String) throws {
-        try send(AppDeleteRequestMessage(appId: appId))
-    }
-
-    /// Delete a shared app by UUID.
-    public func sendSharedAppDelete(uuid: String) throws {
-        try send(SharedAppDeleteRequestMessage(uuid: uuid))
-    }
-
-    /// Fork a shared app into a local editable copy.
-    public func sendForkSharedApp(uuid: String) throws {
-        try send(ForkSharedAppRequestMessage(uuid: uuid))
-    }
-
-    /// Share a local app via a cloud link.
-    public func sendShareAppCloud(appId: String) throws {
-        try send(ShareAppCloudRequestMessage(appId: appId))
-    }
-
-    /// Get or set the Slack webhook URL configuration.
-    public func sendSlackWebhookConfig(action: String, webhookUrl: String? = nil) throws {
-        try send(SlackWebhookConfigRequestMessage(action: action, webhookUrl: webhookUrl))
     }
 
     /// Get, set, or delete the Vercel API token configuration.
@@ -1022,45 +785,6 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
             purpose: purpose,
             contactChannelId: contactChannelId
         ))
-    }
-
-    /// Get, set, or clear Telegram bot token configuration.
-    public func sendTelegramConfig(action: String, botToken: String? = nil, commands: [TelegramConfigRequestCommand]? = nil) throws {
-        try send(TelegramConfigRequestMessage(action: action, botToken: botToken, commands: commands))
-    }
-
-
-    /// Unpublish a page and delete its Vercel deployment.
-    public func sendUnpublishPage(deploymentId: String) throws {
-        try send(UnpublishPageRequestMessage(deploymentId: deploymentId))
-    }
-
-    // MARK: - Model Config
-
-    /// Set the image generation model on the daemon.
-    public func sendImageGenModelSet(model: String) throws {
-        try send(ImageGenModelSetRequestMessage(model: model))
-    }
-
-    // MARK: - Diagnostics Export
-
-    /// Request a diagnostics export (zip) for a conversation.
-    public func sendDiagnosticsExportRequest(conversationId: String, anchorMessageId: String? = nil) throws {
-        try send(DiagnosticsExportRequestMessage(conversationId: conversationId, anchorMessageId: anchorMessageId))
-    }
-
-    // MARK: - Environment Variables (Debug)
-
-    /// Request the daemon's environment variables (debug builds only).
-    public func sendEnvVarsRequest() throws {
-        try send(EnvVarsRequestMessage())
-    }
-
-
-
-    /// Request avatar generation via the daemon's avatar generation endpoint.
-    public func sendGenerateAvatar(description: String) throws {
-        try send(GenerateAvatarRequestMessage(description: description))
     }
 
     // MARK: - Local Daemon HTTP Helpers
@@ -1114,76 +838,6 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
         return request
     }
 
-    /// Execute a local HTTP request with automatic 401 recovery.
-    ///
-    /// On 401, attempts to re-bootstrap the actor token via `guardian/init`
-    /// and retries the request once. Logs all failure paths for diagnostics.
-    private func executeLocalRequest<T: Decodable>(
-        target: LocalHTTPTarget = .daemon,
-        path: String,
-        method: String = "GET",
-        body: Data? = nil,
-        timeout: TimeInterval = 10,
-        tokenOverride: String? = nil
-    ) async -> T? {
-        guard var request = buildLocalRequest(target: target, path: path, method: method, timeout: timeout, tokenOverride: tokenOverride) else {
-            log.warning("Local HTTP: no port available for \(path, privacy: .public)")
-            return nil
-        }
-        if let body {
-            request.httpBody = body
-            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        }
-
-        do {
-            let (data, response) = try await URLSession.shared.data(for: request)
-            guard let http = response as? HTTPURLResponse else {
-                log.warning("Local HTTP: no HTTPURLResponse for \(path, privacy: .public)")
-                return nil
-            }
-
-            if http.statusCode == 401 {
-                // If caller provided an explicit token override, 401 recovery via
-                // actor-token re-bootstrap won't help — it's a different credential.
-                if tokenOverride != nil {
-                    log.warning("Local HTTP 401 for \(path, privacy: .public) — tokenOverride set, skipping retry")
-                    return nil
-                }
-                guard let platform = recoveryPlatform, let deviceId = recoveryDeviceId else {
-                    log.warning("Local HTTP 401 for \(path, privacy: .public) — no recovery credentials configured")
-                    return nil
-                }
-                log.info("Local HTTP 401 for \(path, privacy: .public) — attempting re-bootstrap")
-                let success = await bootstrapActorToken(platform: platform, deviceId: deviceId)
-                guard success else {
-                    log.warning("Local HTTP re-bootstrap failed for \(path, privacy: .public)")
-                    return nil
-                }
-                // Retry with fresh token
-                guard var retryRequest = buildLocalRequest(target: target, path: path, method: method, timeout: timeout) else { return nil }
-                if let body {
-                    retryRequest.httpBody = body
-                    retryRequest.setValue("application/json", forHTTPHeaderField: "Content-Type")
-                }
-                let (retryData, retryResponse) = try await URLSession.shared.data(for: retryRequest)
-                guard let retryHttp = retryResponse as? HTTPURLResponse, (200...299).contains(retryHttp.statusCode) else {
-                    log.warning("Local HTTP retry failed for \(path, privacy: .public) status=\((retryResponse as? HTTPURLResponse)?.statusCode ?? -1)")
-                    return nil
-                }
-                return try JSONDecoder().decode(T.self, from: retryData)
-            }
-
-            guard (200...299).contains(http.statusCode) else {
-                log.warning("Local HTTP \(http.statusCode) for \(path, privacy: .public)")
-                return nil
-            }
-            return try JSONDecoder().decode(T.self, from: data)
-        } catch {
-            log.warning("Local HTTP error for \(path, privacy: .public): \(error.localizedDescription, privacy: .public)")
-            return nil
-        }
-    }
-
     // MARK: - Interface Files
 
     /// Fetch an interface file from the daemon via HTTP (`GET /v1/interfaces/<path>`).
@@ -1215,45 +869,6 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
         }
     }
 
-    // MARK: - Document Persistence
-
-    public func sendDocumentSave(surfaceId: String, conversationId: String, title: String, content: String, wordCount: Int) throws {
-        try send(DocumentSaveRequestMessage(
-            type: "document_save",
-            surfaceId: surfaceId,
-            conversationId: conversationId,
-            title: title,
-            content: content,
-            wordCount: wordCount
-        ))
-    }
-
-    public func sendDocumentLoad(surfaceId: String) throws {
-        try send(DocumentLoadRequestMessage(
-            type: "document_load",
-            surfaceId: surfaceId
-        ))
-    }
-
-    public func sendDocumentList(conversationId: String? = nil) throws {
-        try send(DocumentListRequestMessage(
-            type: "document_list",
-            conversationId: conversationId
-        ))
-    }
-
-
-    // MARK: - Guardian Actions
-
-    /// Request pending guardian action prompts for a conversation.
-    public func sendGuardianActionsPendingRequest(conversationId: String) throws {
-        try send(GuardianActionsPendingRequestMessage(conversationId: conversationId))
-    }
-
-    /// Submit a guardian action decision.
-    public func sendGuardianActionDecision(requestId: String, action: String, conversationId: String? = nil) throws {
-        try send(GuardianActionDecisionMessage(requestId: requestId, action: action, conversationId: conversationId))
-    }
 
     // MARK: - Contacts Management
 

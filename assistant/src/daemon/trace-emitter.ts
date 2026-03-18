@@ -1,8 +1,16 @@
 import { v4 as uuid } from "uuid";
 
+import {
+  getMaxSequence,
+  persistTraceEvent,
+} from "../memory/trace-event-store.js";
+import { getLogger } from "../util/logger.js";
 import type { ServerMessage, TraceEventKind } from "./message-protocol.js";
+import type { TraceEvent } from "./message-types/messages.js";
 
 export type TraceEventStatus = "info" | "success" | "warning" | "error";
+
+const log = getLogger("trace-emitter");
 
 const SUMMARY_MAX_LENGTH = 200;
 const ATTRIBUTE_VALUE_MAX_LENGTH = 500;
@@ -19,12 +27,21 @@ export interface TraceEmitOptions {
  * even if timestamps collide.
  */
 export class TraceEmitter {
-  private sequence = 0;
+  private sequence: number;
 
   constructor(
     private readonly conversationId: string,
     private sendToClient: (msg: ServerMessage) => void,
-  ) {}
+  ) {
+    // Seed from the highest persisted sequence so that new events always
+    // have strictly higher sequence numbers, even across daemon restarts.
+    try {
+      const maxPersisted = getMaxSequence(conversationId);
+      this.sequence = maxPersisted + 1;
+    } catch {
+      this.sequence = 0;
+    }
+  }
 
   updateSender(sendToClient: (msg: ServerMessage) => void): void {
     this.sendToClient = sendToClient;
@@ -50,7 +67,14 @@ export class TraceEmitter {
       attributes,
     };
 
+    // Send to client first so synchronous DB writes don't block SSE delivery.
     this.sendToClient(event);
+
+    try {
+      persistTraceEvent(event as TraceEvent);
+    } catch (err) {
+      log.warn({ err, eventId }, "Failed to persist trace event");
+    }
   }
 }
 

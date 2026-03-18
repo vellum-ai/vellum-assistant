@@ -140,6 +140,14 @@ export function readImageFile(resolvedPath: string): ToolExecutionResult {
         buffer = readFileSync(tmpPath) as Buffer;
         optimized = true;
       } else {
+        // sips unavailable — fast-fail if original file exceeds the transport limit
+        if (stat.size > MAX_SIZE_BYTES) {
+          const sizeMB = (stat.size / (1024 * 1024)).toFixed(1);
+          return {
+            content: `Error: image too large (${sizeMB} MB). Maximum is 20 MB. Image optimization (sips) is unavailable on this platform.`,
+            isError: true,
+          };
+        }
         buffer = readFileSync(resolvedPath) as Buffer;
       }
     } else {
@@ -160,8 +168,11 @@ export function readImageFile(resolvedPath: string): ToolExecutionResult {
 
   if (buffer.length > MAX_SIZE_BYTES) {
     const sizeMB = (buffer.length / (1024 * 1024)).toFixed(1);
+    const msg = optimized
+      ? `Error: image too large after optimization (${sizeMB} MB). Maximum is 20 MB.`
+      : `Error: image too large (${sizeMB} MB). Maximum is 20 MB.`;
     return {
-      content: `Error: image too large after optimization (${sizeMB} MB). Maximum is 20 MB.`,
+      content: msg,
       isError: true,
     };
   }

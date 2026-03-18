@@ -634,6 +634,15 @@ export function buildTurnContextBlock(
       lines.push(`assistant_message_channel: ${assistant}`);
       lines.push(`conversation_origin_channel: ${origin}`);
     }
+    // Only inject response discretion for external channels (Slack, Telegram,
+    // etc.) where the assistant may receive thread replies not directed at it.
+    // The "vellum" channel is the web/desktop interface where every message is
+    // intentionally directed at the assistant.
+    if (user !== "vellum") {
+      lines.push(
+        `response_discretion: Not every message in a channel thread requires your response. If a message is clearly not directed at you (e.g. people talking among themselves, acknowledgements, reactions), output exactly <no_response/> as your entire reply to stay silent.`,
+      );
+    }
   }
 
   lines.push("</turn_context>");
@@ -654,7 +663,6 @@ export function injectTurnContext(
     content: [{ type: "text", text: block }, ...message.content],
   };
 }
-
 
 /**
  * Build the `<inbound_actor_context>` text block used for model grounding.
@@ -737,7 +745,10 @@ export function buildInboundActorContextBlock(
   }
   // Contact metadata - only included when the sender has a contact record
   // with non-default values.
-  if (ctx.contactNotes && sanitizeInlineContextValue(ctx.contactNotes) !== ctx.trustClass) {
+  if (
+    ctx.contactNotes &&
+    sanitizeInlineContextValue(ctx.contactNotes) !== ctx.trustClass
+  ) {
     lines.push(
       `contact_notes: ${sanitizeInlineContextValue(ctx.contactNotes)}`,
     );
@@ -931,7 +942,6 @@ export interface InterfaceTurnContextParams {
   turnContext: TurnInterfaceContext;
   conversationOriginInterface: InterfaceId | null;
 }
-
 
 /** Strip interface turn context blocks (both legacy separate and unified). */
 export function stripInterfaceTurnContext(messages: Message[]): Message[] {

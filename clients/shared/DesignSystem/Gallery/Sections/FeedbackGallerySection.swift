@@ -65,6 +65,43 @@ struct FeedbackGallerySection: View {
                         VBadge(style: .label("Error"), color: VColor.systemNegativeStrong)
                         VBadge(style: .label("Warn"), color: VColor.systemNegativeHover)
                     }
+
+                    // Icon label row
+                    HStack(spacing: VSpacing.lg) {
+                        VStack(spacing: VSpacing.xs) {
+                            Text("With iconColor").font(VFont.caption).foregroundColor(VColor.contentTertiary)
+                            VBadge(label: "Guardian", icon: .shieldCheck, iconColor: VColor.primaryBase, tone: .neutral)
+                        }
+                        VStack(spacing: VSpacing.xs) {
+                            Text("Default iconColor").font(VFont.caption).foregroundColor(VColor.contentTertiary)
+                            VBadge(label: "Status", icon: .sparkles, tone: .accent)
+                        }
+                    }
+
+                    Divider().background(VColor.borderBase)
+
+                    // Rounded shape
+                    VStack(alignment: .leading, spacing: VSpacing.sm) {
+                        Text("Rounded shape").font(VFont.caption).foregroundColor(VColor.contentTertiary)
+                        HStack(spacing: VSpacing.lg) {
+                            VBadge(label: "Identity", color: VColor.funTeal, shape: .rounded)
+                            VBadge(label: "Preference", color: VColor.funPurple, shape: .rounded)
+                            VBadge(label: "Project", color: VColor.funGreen, shape: .rounded)
+                            VBadge(label: "Decision", color: VColor.funYellow, shape: .rounded)
+                            VBadge(label: "Constraint", color: VColor.funCoral, shape: .rounded)
+                            VBadge(label: "Event", color: VColor.funPink, shape: .rounded)
+                        }
+                    }
+
+                    // Pill shape with custom color
+                    VStack(alignment: .leading, spacing: VSpacing.sm) {
+                        Text("Pill shape with custom color").font(VFont.caption).foregroundColor(VColor.contentTertiary)
+                        HStack(spacing: VSpacing.lg) {
+                            VBadge(label: "Teal", color: VColor.funTeal)
+                            VBadge(label: "Purple", color: VColor.funPurple)
+                            VBadge(label: "Coral", color: VColor.funCoral)
+                        }
+                    }
                 }
             }
 

@@ -1,6 +1,6 @@
 import type { ModelIntent } from "./types.js";
 
-const PROVIDER_DEFAULT_MODELS = {
+export const PROVIDER_DEFAULT_MODELS = {
   anthropic: "claude-opus-4-6",
   openai: "gpt-5.2",
   gemini: "gemini-3-flash",
@@ -18,12 +18,12 @@ const PROVIDER_MODEL_INTENTS: Record<
   anthropic: {
     "latency-optimized": "claude-haiku-4-5-20251001",
     "quality-optimized": "claude-opus-4-6",
-    "vision-optimized": "claude-sonnet-4-6",
+    "vision-optimized": "claude-opus-4-6",
   },
   openai: {
-    "latency-optimized": "gpt-4o-mini",
-    "quality-optimized": "gpt-5.2",
-    "vision-optimized": "gpt-4o",
+    "latency-optimized": "gpt-5.4-nano",
+    "quality-optimized": "gpt-5.4",
+    "vision-optimized": "gpt-5.4",
   },
   gemini: {
     "latency-optimized": "gemini-3-flash",

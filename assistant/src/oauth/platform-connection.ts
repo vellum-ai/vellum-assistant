@@ -24,7 +24,6 @@ export interface PlatformOAuthConnectionOptions {
   providerKey: string;
   externalId: string;
   accountInfo: string | null;
-  grantedScopes: string[];
   assistantId: string;
   platformBaseUrl: string;
   apiKey: string;
@@ -35,18 +34,27 @@ export class PlatformOAuthConnection implements OAuthConnection {
   readonly providerKey: string;
   readonly externalId: string;
   readonly accountInfo: string | null;
-  readonly grantedScopes: string[];
 
   private readonly assistantId: string;
   private readonly platformBaseUrl: string;
   private readonly apiKey: string;
 
   constructor(options: PlatformOAuthConnectionOptions) {
+    const missing: string[] = [];
+    if (!options.platformBaseUrl) missing.push("platform base URL");
+    if (!options.apiKey) missing.push("assistant API key");
+    if (!options.assistantId) missing.push("assistant ID");
+    if (missing.length > 0) {
+      throw new BackendError(
+        `Platform-managed connection for "${options.providerKey}" cannot be created: missing ${missing.join(", ")}. ` +
+          `Log in to the Vellum platform or switch to using your own OAuth app.`,
+      );
+    }
+
     this.id = options.id;
     this.providerKey = options.providerKey;
     this.externalId = options.externalId;
     this.accountInfo = options.accountInfo;
-    this.grantedScopes = options.grantedScopes;
     this.assistantId = options.assistantId;
     this.platformBaseUrl = options.platformBaseUrl.replace(/\/+$/, "");
     this.apiKey = options.apiKey;

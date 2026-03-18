@@ -38,13 +38,21 @@ struct ComponentGalleryView: View {
 
     var body: some View {
         NavigationSplitView {
-            List(selection: $selectedCategory) {
-                ForEach(ComponentGalleryCategory.allCases) { category in
-                    Label { Text(category.rawValue) } icon: { VIconView(category.vIcon, size: 14) }
-                        .tag(category)
+            VStack(spacing: 0) {
+                List(selection: $selectedCategory) {
+                    ForEach(ComponentGalleryCategory.allCases) { category in
+                        Label { Text(category.rawValue) } icon: { VIconView(category.vIcon, size: 14) }
+                            .tag(category)
+                    }
                 }
+                .listStyle(.sidebar)
+
+                Divider()
+
+                VThemeToggle()
+                    .padding(.horizontal, VSpacing.md)
+                    .padding(.vertical, VSpacing.sm)
             }
-            .listStyle(.sidebar)
             .navigationSplitViewColumnWidth(min: 180, ideal: 200, max: 240)
         } detail: {
             ScrollView {

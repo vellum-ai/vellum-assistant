@@ -94,18 +94,6 @@ struct ContactsListView: View {
                 }
             }
 
-            if viewModel.contacts.isEmpty {
-                Spacer()
-                VEmptyState(
-                    title: "No contacts yet",
-                    icon: VIcon.users.rawValue,
-                    actionLabel: "Add Contact",
-                    actionIcon: VIcon.plus.rawValue,
-                    action: { viewModel.isCreatingContact = true }
-                )
-                .frame(maxWidth: .infinity)
-                Spacer()
-            }
         }
         .padding(VSpacing.lg)
         .frame(maxHeight: .infinity, alignment: .top)
@@ -160,13 +148,31 @@ struct ContactsListView: View {
     // MARK: - Loading State
 
     private var loadingState: some View {
-        VStack(spacing: VSpacing.md) {
-            ProgressView()
-                .controlSize(.regular)
-            Text("Loading contacts...")
-                .font(VFont.body)
-                .foregroundColor(VColor.contentSecondary)
+        VStack(alignment: .leading, spacing: VSpacing.lg) {
+            HStack {
+                VSkeletonBone(width: 80, height: 16)
+                Spacer()
+                VSkeletonBone(width: 24, height: 24, radius: VRadius.xs)
+            }
+
+            VSkeletonBone(height: 28, radius: VRadius.md)
+
+            VStack(alignment: .leading, spacing: VSpacing.sm) {
+                ForEach(0..<4, id: \.self) { _ in
+                    HStack {
+                        VSkeletonBone(width: 120, height: 14)
+                        Spacer()
+                        VSkeletonBone(width: 60, height: 12)
+                    }
+                    .padding(.horizontal, VSpacing.sm)
+                    .padding(.vertical, VSpacing.md)
+                }
+            }
         }
+        .padding(VSpacing.lg)
+        .frame(maxHeight: .infinity, alignment: .top)
+        .vCard(radius: VRadius.lg, background: VColor.surfaceOverlay)
+        .accessibilityHidden(true)
     }
 
     // MARK: - Empty State

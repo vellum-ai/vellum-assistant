@@ -19,19 +19,13 @@ extension AppDelegate {
             guard url.pathExtension == "vellum" else { continue }
             log.info("Opening .vellum file: \(url.path, privacy: .public)")
 
-            guard daemonClient.isConnected else {
-                log.warning("Cannot open bundle: daemon not connected")
-                continue
-            }
-
-            do {
-                pendingBundleFilePaths.append(url.path)
-                try daemonClient.sendOpenBundle(filePath: url.path)
-            } catch {
-                log.error("Failed to send open_bundle message: \(error.localizedDescription)")
-                // Remove the path we just appended since the send failed
-                if let idx = pendingBundleFilePaths.lastIndex(of: url.path) {
-                    pendingBundleFilePaths.remove(at: idx)
+            let path = url.path
+            Task { @MainActor in
+                let result = await AppsClient().openBundle(filePath: path)
+                if let result {
+                    self.handleOpenBundleResponse(result, filePath: path)
+                } else {
+                    log.error("Failed to open bundle at \(path, privacy: .public)")
                 }
             }
         }
@@ -57,8 +51,7 @@ extension AppDelegate {
 
     // MARK: - Bundle Open Handling
 
-    func handleOpenBundleResponse(_ response: OpenBundleResponseMessage) {
-        let filePath = pendingBundleFilePaths.isEmpty ? "" : pendingBundleFilePaths.removeFirst()
+    func handleOpenBundleResponse(_ response: OpenBundleResponseMessage, filePath: String = "") {
 
         // Check format version compatibility (1 = legacy single-HTML, 2 = multi-file TSX)
         if response.manifest.format_version > 2 {

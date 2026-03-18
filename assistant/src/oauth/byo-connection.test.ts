@@ -236,8 +236,6 @@ function createConnection(service = "integration:google"): BYOOAuthConnection {
     providerKey: service,
     baseUrl: "https://gmail.googleapis.com/gmail/v1/users/me",
     accountInfo: null,
-    grantedScopes: ["read", "write"],
-    credentialService: service,
   });
 }
 
@@ -500,12 +498,11 @@ describe("resolveOAuthConnection", () => {
 
     expect(conn).toBeInstanceOf(BYOOAuthConnection);
     expect(conn.providerKey).toBe("integration:google");
-    expect(conn.grantedScopes).toEqual(["read", "write"]);
   });
 
   test("throws when no credential metadata exists", async () => {
     await expect(resolveOAuthConnection("integration:unknown")).rejects.toThrow(
-      /No credential found for "integration:unknown"/,
+      /No active OAuth connection found for "integration:unknown"/,
     );
   });
 
@@ -516,46 +513,5 @@ describe("resolveOAuthConnection", () => {
     ).rejects.toThrow(
       /No base URL configured for "integration:custom-service"/,
     );
-  });
-
-  test("resolves base URL via app's canonical providerKey for custom credential_service", async () => {
-    // Set up a well-known provider with a baseUrl
-    mockProviders.set("github", {
-      key: "github",
-      tokenUrl: "https://github.com/login/oauth/access_token",
-      baseUrl: "https://api.github.com",
-    });
-    // The custom credential service has no provider entry of its own
-    // (getProvider("integration:github-work") returns undefined)
-
-    // App points to the canonical "github" provider
-    const appId = "app-github-work";
-    mockApps.set(appId, {
-      id: appId,
-      providerKey: "github",
-      clientId: "test-client-id",
-      clientSecretCredentialPath: `oauth_app/${appId}/client_secret`,
-    });
-
-    // Connection uses the custom credential service as its providerKey
-    const connId = "conn-github-work";
-    mockConnections.set("integration:github-work", {
-      id: connId,
-      providerKey: "integration:github-work",
-      oauthAppId: appId,
-      expiresAt: Date.now() + 3600 * 1000,
-      grantedScopes: JSON.stringify(["repo"]),
-      accountInfo: null,
-    });
-    await setSecureKeyAsync(
-      `oauth_connection/${connId}/access_token`,
-      "ghp-test-token",
-    );
-
-    const conn = await resolveOAuthConnection("integration:github-work");
-
-    expect(conn).toBeInstanceOf(BYOOAuthConnection);
-    expect(conn.providerKey).toBe("integration:github-work");
-    expect(conn.grantedScopes).toEqual(["repo"]);
   });
 });

@@ -5,16 +5,16 @@ import { join } from "node:path";
 import QRCode from "qrcode";
 
 import { getGatewayPort, getIngressPublicBaseUrl } from "../config/env.js";
-import { getConfig, loadRawConfig, saveRawConfig } from "../config/loader.js";
-import { setServiceField } from "../config/raw-config-utils.js";
+import { getConfig } from "../config/loader.js";
 import {
   getConfiguredProviders,
   isProviderAvailable,
 } from "../providers/provider-availability.js";
-import { initializeProviders } from "../providers/registry.js";
 import { getLocalIPv4 } from "../util/network-info.js";
 import { getWorkspaceDir } from "../util/platform.js";
 import { silentlyWithLog } from "../util/silently.js";
+import type { ModelSetContext } from "./handlers/config-model.js";
+import { setModel } from "./handlers/config-model.js";
 import { getAssistantName } from "./identity-helpers.js";
 import type { PairingStore } from "./pairing-store.js";
 
@@ -45,6 +45,8 @@ export interface SlashContext {
   model: string;
   provider: string;
   estimatedCost: number;
+  /** Model set context for delegating model/provider changes to shared setModel(). */
+  modelSetContext?: ModelSetContext;
 }
 
 // ── /model command ───────────────────────────────────────────────────
@@ -120,6 +122,7 @@ function matchModel(input: string): string | undefined {
 
 async function resolveProviderModelCommand(
   content: string,
+  ctx?: ModelSetContext,
 ): Promise<SlashResolution | null> {
   const trimmed = content.trim();
   if (!trimmed.startsWith("/")) return null;
@@ -158,15 +161,10 @@ async function resolveProviderModelCommand(
     };
   }
 
-  // Update config with both provider and model
-  const raw = loadRawConfig();
-  setServiceField(raw, "inference", "provider", provider);
-  setServiceField(raw, "inference", "model", model);
-  saveRawConfig(raw);
-
-  // Re-initialize providers with new config
-  const newConfig = getConfig();
-  await initializeProviders(newConfig);
+  // Delegate to shared setModel for config write, provider reinit, and conversation eviction
+  if (ctx) {
+    await setModel(model, ctx, provider);
+  }
 
   const switchedMsg = name
     ? `Switched ${name} to **${displayName}**. New conversations will use this model.`
@@ -209,6 +207,7 @@ async function resolveModelList(): Promise<SlashResolution> {
 
 async function resolveModelCommand(
   content: string,
+  ctx?: ModelSetContext,
 ): Promise<SlashResolution | null> {
   const trimmed = content.trim();
   // Match /models → route to list
@@ -275,13 +274,10 @@ async function resolveModelCommand(
     };
   }
 
-  // Change model: save config and re-initialize providers
-  const raw = loadRawConfig();
-  setServiceField(raw, "inference", "provider", "anthropic"); // Ensure provider is set for Anthropic models
-  setServiceField(raw, "inference", "model", matched);
-  saveRawConfig(raw);
-  const config = getConfig();
-  await initializeProviders(config);
+  // Delegate to shared setModel for config write, provider reinit, and conversation eviction
+  if (ctx) {
+    await setModel(matched, ctx, "anthropic");
+  }
 
   const displayName = MODEL_DISPLAY_NAMES[matched] ?? matched;
   const switchedMsg = name
@@ -334,12 +330,17 @@ export async function resolveSlash(
   content: string,
   context?: SlashContext,
 ): Promise<SlashResolution> {
+  const modelSetCtx = context?.modelSetContext;
+
   // Check provider shortcuts first (/gpt4, /opus, etc.)
-  const providerResult = await resolveProviderModelCommand(content);
+  const providerResult = await resolveProviderModelCommand(
+    content,
+    modelSetCtx,
+  );
   if (providerResult) return providerResult;
 
   // Handle /model command
-  const modelResult = await resolveModelCommand(content);
+  const modelResult = await resolveModelCommand(content, modelSetCtx);
   if (modelResult) return modelResult;
 
   // Handle /pair command

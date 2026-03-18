@@ -398,62 +398,104 @@ final class ChatViewModelIOSTests: XCTestCase {
 
     // MARK: - Always Allow Decision Plumbing
 
-    func testRespondToAlwaysAllowSendsHighRiskDecision() {
-        viewModel.conversationId = "sess-hr"
+    func testRespondToAlwaysAllowSendsHighRiskDecision() async {
+        let mockInteraction = MockInteractionClient()
+        mockInteraction.results = [true]
+        mockInteraction.expectedCallCount = 1
+        let exp = expectation(description: "interaction call")
+        mockInteraction.expectation = exp
 
-        viewModel.respondToAlwaysAllow(
+        let vm = ChatViewModel(daemonClient: mockClient, interactionClient: mockInteraction)
+        vm.conversationId = "sess-hr"
+
+        vm.respondToAlwaysAllow(
             requestId: "req-1",
             selectedPattern: "rm -rf *",
             selectedScope: "project",
             decision: "always_allow_high_risk"
         )
 
-        // Verify the sent message carries the high-risk decision
-        let confirmations = mockClient.sentMessages.compactMap { $0 as? ConfirmationResponseMessage }
-        XCTAssertEqual(confirmations.count, 1)
-        XCTAssertEqual(confirmations[0].decision, "always_allow_high_risk")
-        XCTAssertEqual(confirmations[0].selectedPattern, "rm -rf *")
-        XCTAssertEqual(confirmations[0].selectedScope, "project")
+        await fulfillment(of: [exp], timeout: 2.0)
+
+        XCTAssertEqual(mockInteraction.calls.count, 1)
+        XCTAssertEqual(mockInteraction.calls[0].decision, "always_allow_high_risk")
+        XCTAssertEqual(mockInteraction.calls[0].selectedPattern, "rm -rf *")
+        XCTAssertEqual(mockInteraction.calls[0].selectedScope, "project")
     }
 
-    func testRespondToAlwaysAllowSendsDefaultDecision() {
-        viewModel.conversationId = "sess-default"
+    func testRespondToAlwaysAllowSendsDefaultDecision() async {
+        let mockInteraction = MockInteractionClient()
+        mockInteraction.results = [true]
+        mockInteraction.expectedCallCount = 1
+        let exp = expectation(description: "interaction call")
+        mockInteraction.expectation = exp
 
-        viewModel.respondToAlwaysAllow(
+        let vm = ChatViewModel(daemonClient: mockClient, interactionClient: mockInteraction)
+        vm.conversationId = "sess-default"
+
+        vm.respondToAlwaysAllow(
             requestId: "req-2",
             selectedPattern: "npm test",
             selectedScope: "project"
         )
 
-        // Default decision should be "always_allow"
-        let confirmations = mockClient.sentMessages.compactMap { $0 as? ConfirmationResponseMessage }
-        XCTAssertEqual(confirmations.count, 1)
-        XCTAssertEqual(confirmations[0].decision, "always_allow")
+        await fulfillment(of: [exp], timeout: 2.0)
+
+        XCTAssertEqual(mockInteraction.calls.count, 1)
+        XCTAssertEqual(mockInteraction.calls[0].decision, "always_allow")
     }
 
-    func testRespondToAlwaysAllowFailsWhenDisconnected() {
-        viewModel.conversationId = "sess-fallback"
-        mockClient.isConnected = false
+    func testRespondToAlwaysAllowFallsBackWhenSendFails() async {
+        let mockInteraction = MockInteractionClient()
+        // First call (always_allow_high_risk) fails, fallback (allow) also fails
+        mockInteraction.results = [false, false]
+        mockInteraction.expectedCallCount = 2
+        let exp = expectation(description: "both calls complete")
+        mockInteraction.expectation = exp
 
-        viewModel.respondToAlwaysAllow(
+        let vm = ChatViewModel(daemonClient: mockClient, interactionClient: mockInteraction)
+        vm.conversationId = "sess-fallback"
+
+        // Seed a confirmation message so revertConfirmationInFlight can find it
+        let confirmation = ToolConfirmationData(
+            requestId: "req-3",
+            toolName: "bash",
+            input: ["command": AnyCodable("npm install")],
+            riskLevel: "high",
+            diff: nil,
+            allowlistOptions: [],
+            scopeOptions: [],
+            executionTarget: nil,
+            persistentDecisionsAllowed: true
+        )
+        let msg = ChatMessage(role: .assistant, text: "Run npm install?", confirmation: confirmation)
+        vm.messages.append(msg)
+
+        vm.respondToAlwaysAllow(
             requestId: "req-3",
             selectedPattern: "npm install",
             selectedScope: "project",
             decision: "always_allow_high_risk"
         )
 
-        // Should set error text when daemon is not connected
-        XCTAssertNotNil(viewModel.errorText)
-        // No messages should have been sent
-        let confirmations = mockClient.sentMessages.compactMap { $0 as? ConfirmationResponseMessage }
-        XCTAssertTrue(confirmations.isEmpty)
+        await fulfillment(of: [exp], timeout: 2.0)
+
+        // Both attempts failed — confirmation should be reverted to pending
+        XCTAssertEqual(mockInteraction.calls.count, 2)
+        XCTAssertEqual(mockInteraction.calls[0].decision, "always_allow_high_risk")
+        XCTAssertEqual(mockInteraction.calls[1].decision, "allow")
+        XCTAssertEqual(vm.messages[0].confirmation?.state, .pending)
     }
 
-    func testRespondToAlwaysAllowConnectedSendFailureFallsBackToAllow() {
-        // Use a test double that fails the first send but succeeds on the second.
-        let failOnceClient = FailOnceDaemonClient()
-        failOnceClient.isConnected = true
-        let vm = ChatViewModel(daemonClient: failOnceClient)
+    func testRespondToAlwaysAllowConnectedSendFailureFallsBackToAllow() async {
+        let mockInteraction = MockInteractionClient()
+        // First call (always_allow_high_risk) fails, fallback (allow) succeeds
+        mockInteraction.results = [false, true]
+        mockInteraction.expectedCallCount = 2
+        let exp = expectation(description: "both calls complete")
+        mockInteraction.expectation = exp
+
+        let vm = ChatViewModel(daemonClient: mockClient, interactionClient: mockInteraction)
         vm.conversationId = "sess-fail-once"
 
         // Seed a confirmation message so the fallback path can update its state
@@ -478,61 +520,49 @@ final class ChatViewModelIOSTests: XCTestCase {
             decision: "always_allow_high_risk"
         )
 
+        await fulfillment(of: [exp], timeout: 2.0)
+
         // First attempted decision should be always_allow_high_risk (the one that failed)
-        XCTAssertEqual(failOnceClient.allAttemptedMessages.count, 2)
-        let first = failOnceClient.allAttemptedMessages[0] as? ConfirmationResponseMessage
-        XCTAssertEqual(first?.decision, "always_allow_high_risk")
+        XCTAssertEqual(mockInteraction.calls.count, 2)
+        XCTAssertEqual(mockInteraction.calls[0].decision, "always_allow_high_risk")
 
         // Fallback should be a one-time "allow"
-        let second = failOnceClient.allAttemptedMessages[1] as? ConfirmationResponseMessage
-        XCTAssertEqual(second?.decision, "allow")
+        XCTAssertEqual(mockInteraction.calls[1].decision, "allow")
 
         // The fallback succeeded, so errorText should reflect the preference-not-saved message
         XCTAssertEqual(vm.errorText, "Preference could not be saved. This action was allowed once.")
-
-        // The client was connected the whole time — no disconnected error
-        XCTAssertTrue(failOnceClient.isConnected)
     }
 }
 
 // MARK: - Test Doubles
 
-/// A `DaemonClientProtocol` implementation that throws on the first `send` call
-/// and succeeds on subsequent calls. Used to test the connected send-failure
-/// fallback path in `respondToAlwaysAllow`.
+/// Mock `InteractionClientProtocol` that records calls and returns configurable results.
 @MainActor
-private final class FailOnceDaemonClient: DaemonClientProtocol {
-    var isConnected: Bool = false
-
-    /// All messages attempted (including failed ones).
-    private(set) var allAttemptedMessages: [Any] = []
-
-    /// Messages that were successfully sent (after the first failure).
-    private(set) var sentMessages: [Any] = []
-
-    private var sendCount = 0
-
-    func subscribe() -> AsyncStream<ServerMessage> {
-        AsyncStream { _ in }
+private final class MockInteractionClient: InteractionClientProtocol {
+    struct Call {
+        let requestId: String
+        let decision: String
+        let selectedPattern: String?
+        let selectedScope: String?
     }
 
-    func send<T: Encodable>(_ message: T) throws {
-        allAttemptedMessages.append(message)
-        sendCount += 1
-        if sendCount == 1 {
-            throw NSError(domain: "TestSendFailure", code: 1, userInfo: [NSLocalizedDescriptionKey: "Simulated first-send failure"])
+    private(set) var calls: [Call] = []
+    /// Return values for successive calls. Last value repeats for any extra calls.
+    var results: [Bool] = [true]
+    /// Fulfilled when `calls.count` reaches `expectedCallCount`.
+    var expectation: XCTestExpectation?
+    var expectedCallCount: Int = 1
+
+    func sendConfirmationResponse(requestId: String, decision: String, selectedPattern: String?, selectedScope: String?) async -> Bool {
+        let result = calls.count < results.count ? results[calls.count] : results.last ?? true
+        calls.append(Call(requestId: requestId, decision: decision, selectedPattern: selectedPattern, selectedScope: selectedScope))
+        if calls.count >= expectedCallCount {
+            expectation?.fulfill()
         }
-        sentMessages.append(message)
+        return result
     }
 
-    func connect() async throws {
-        isConnected = true
+    func sendSecretResponse(requestId: String, value: String?, delivery: String?) async -> Bool {
+        true
     }
-
-    func disconnect() {
-        isConnected = false
-    }
-
-    func startSSE() {}
-    func stopSSE() {}
 }

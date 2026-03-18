@@ -325,12 +325,14 @@ describe("formatEditDiff", () => {
     expect(result).not.toContain("+ ");
   });
 
-  test("truncates long diffs beyond 8 lines", () => {
+  test("shows all diff lines without truncation", () => {
     const longOld = Array.from({ length: 12 }, (_, i) => `old-line-${i}`).join(
       "\n",
     );
     const result = formatEditDiff(longOld, "short");
-    expect(result).toContain("more lines");
+    expect(result).not.toContain("more lines");
+    expect(result).toContain("old-line-11");
+    expect(result).toContain("+ short");
   });
 });
 

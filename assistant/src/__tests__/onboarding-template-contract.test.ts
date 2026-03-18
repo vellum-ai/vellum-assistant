@@ -35,10 +35,10 @@ describe("onboarding template contracts", () => {
 
     test("asks about user after assistant identity", () => {
       const nameIdx = bootstrap.indexOf("Your name");
-      const guardianIdx = bootstrap.indexOf("Your guardian");
+      const theirNameIdx = bootstrap.indexOf("Their name");
       expect(nameIdx).toBeGreaterThan(-1);
-      expect(guardianIdx).toBeGreaterThan(-1);
-      expect(nameIdx).toBeLessThan(guardianIdx);
+      expect(theirNameIdx).toBeGreaterThan(-1);
+      expect(nameIdx).toBeLessThan(theirNameIdx);
     });
 
     test("gathers user context: work role, hobbies, daily tools", () => {
@@ -54,11 +54,10 @@ describe("onboarding template contracts", () => {
       expect(bootstrap).toContain("relay_prompt");
     });
 
-    test("contains completion gate with required conditions", () => {
+    test("contains wrapping-up criteria with required conditions", () => {
       const lower = bootstrap.toLowerCase();
-      expect(lower).toContain("completion gate");
-      expect(lower).toContain("do not delete this file");
-      expect(lower).toContain("you have a name");
+      expect(lower).toContain("wrapping up");
+      expect(lower).toContain("done with onboarding");
       expect(lower).toContain("vibe");
       expect(lower).toContain("two suggestions");
     });
@@ -68,7 +67,7 @@ describe("onboarding template contracts", () => {
       expect(lower).toContain("hard-required");
       expect(lower).toContain("best-effort");
       expect(lower).toContain("declined");
-      expect(lower).toContain("don't push");
+      expect(lower).toContain("not interrogation");
     });
 
     test("defines resolved as provided, inferred, or declined", () => {

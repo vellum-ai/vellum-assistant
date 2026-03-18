@@ -42,6 +42,26 @@ public protocol ContactClientProtocol {
 public struct ContactClient: ContactClientProtocol {
     nonisolated public init() {}
 
+    enum ContactClientError: LocalizedError {
+        case httpError(statusCode: Int, serverMessage: String?)
+
+        var errorDescription: String? {
+            switch self {
+            case .httpError(let statusCode, let serverMessage):
+                if let serverMessage {
+                    return "Contact request failed (HTTP \(statusCode)): \(serverMessage)"
+                }
+                return "Contact request failed (HTTP \(statusCode))"
+            }
+        }
+    }
+
+    /// Attempt to extract a human-readable error message from a non-2xx response body.
+    private static func parseServerError(from data: Data) -> String? {
+        guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return nil }
+        return json["message"] as? String ?? json["error"] as? String
+    }
+
     private struct UpsertResponse: Decodable {
         let ok: Bool
         let contact: ContactPayload
@@ -78,7 +98,7 @@ public struct ContactClient: ContactClientProtocol {
         )
         guard response.isSuccess else {
             log.error("updateContact failed (HTTP \(response.statusCode))")
-            return nil
+            throw ContactClientError.httpError(statusCode: response.statusCode, serverMessage: Self.parseServerError(from: response.data))
         }
         return try JSONDecoder().decode(UpsertResponse.self, from: response.data).contact
     }
@@ -101,7 +121,7 @@ public struct ContactClient: ContactClientProtocol {
         )
         guard response.isSuccess else {
             log.error("createContact failed (HTTP \(response.statusCode))")
-            return nil
+            throw ContactClientError.httpError(statusCode: response.statusCode, serverMessage: Self.parseServerError(from: response.data))
         }
         return try JSONDecoder().decode(UpsertResponse.self, from: response.data).contact
     }
@@ -130,7 +150,7 @@ public struct ContactClient: ContactClientProtocol {
         )
         guard response.isSuccess else {
             log.error("createInvite failed (HTTP \(response.statusCode))")
-            return nil
+            throw ContactClientError.httpError(statusCode: response.statusCode, serverMessage: Self.parseServerError(from: response.data))
         }
         let decoded = try JSONDecoder().decode(CreateInviteResponse.self, from: response.data)
         guard let invite = decoded.invite else { return nil }
@@ -151,7 +171,7 @@ public struct ContactClient: ContactClientProtocol {
         )
         guard response.isSuccess else {
             log.error("triggerInviteCall failed (HTTP \(response.statusCode))")
-            return false
+            throw ContactClientError.httpError(statusCode: response.statusCode, serverMessage: Self.parseServerError(from: response.data))
         }
         return true
     }
@@ -177,7 +197,7 @@ public struct ContactClient: ContactClientProtocol {
         )
         guard response.isSuccess else {
             log.error("fetchContactsList failed (HTTP \(response.statusCode))")
-            return []
+            throw ContactClientError.httpError(statusCode: response.statusCode, serverMessage: Self.parseServerError(from: response.data))
         }
         return try JSONDecoder().decode(ContactsListResponse.self, from: response.data).contacts
     }
@@ -188,7 +208,7 @@ public struct ContactClient: ContactClientProtocol {
         )
         guard response.isSuccess else {
             log.error("fetchContact failed (HTTP \(response.statusCode))")
-            return nil
+            throw ContactClientError.httpError(statusCode: response.statusCode, serverMessage: Self.parseServerError(from: response.data))
         }
         return try JSONDecoder().decode(SingleContactResponse.self, from: response.data).contact
     }
@@ -199,7 +219,7 @@ public struct ContactClient: ContactClientProtocol {
         )
         guard response.isSuccess || response.statusCode == 204 else {
             log.error("deleteContact failed (HTTP \(response.statusCode))")
-            return false
+            throw ContactClientError.httpError(statusCode: response.statusCode, serverMessage: Self.parseServerError(from: response.data))
         }
         return true
     }
@@ -220,7 +240,7 @@ public struct ContactClient: ContactClientProtocol {
         )
         guard response.isSuccess else {
             log.error("updateContactChannel failed (HTTP \(response.statusCode))")
-            return nil
+            throw ContactClientError.httpError(statusCode: response.statusCode, serverMessage: Self.parseServerError(from: response.data))
         }
         return try JSONDecoder().decode(SingleContactResponse.self, from: response.data).contact
     }

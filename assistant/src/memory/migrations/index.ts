@@ -118,6 +118,8 @@ export { migrateRenameSourceSessionIdColumn } from "./173-rename-source-session-
 export { migrateRenameThreadStartersTable } from "./174-rename-thread-starters-table.js";
 export { createLifecycleEventsTable } from "./175-create-lifecycle-events.js";
 export { migrateDropCapabilityCardState } from "./176-drop-capability-card-state.js";
+export { migrateCreateTraceEventsTable } from "./177-create-trace-events-table.js";
+export { migrateOAuthProvidersManagedServiceConfigKey } from "./178-oauth-providers-managed-service-config-key.js";
 export {
   MIGRATION_REGISTRY,
   type MigrationRegistryEntry,

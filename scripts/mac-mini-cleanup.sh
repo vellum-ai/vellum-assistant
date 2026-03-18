@@ -15,7 +15,7 @@ echo "⚠️  WARNING: This script performs destructive operations."
 echo "   Only run on environments you are comfortable completely resetting."
 echo ""
 
-TOTAL_STEPS=13
+TOTAL_STEPS=16
 
 # 1. Kill any processes running via "bun run"
 echo "1/$TOTAL_STEPS — Killing bun run processes..."
@@ -190,6 +190,122 @@ if [ -f "$DOCK_PLIST" ]; then
     fi
 else
     echo "       ⏭️  No Dock plist found, skipping"
+fi
+
+# 14. Uninstall Docker
+echo "14/$TOTAL_STEPS — Uninstalling Docker..."
+DOCKER_REMOVED=false
+if [ -d "/Applications/Docker.app" ]; then
+    # Quit Docker if running
+    osascript -e 'quit app "Docker"' 2>/dev/null || true
+    sleep 2
+    rm -rf /Applications/Docker.app
+    echo "       ✅ Removed /Applications/Docker.app"
+    DOCKER_REMOVED=true
+fi
+# Remove Docker data and config directories
+for docker_dir in "$HOME/Library/Group Containers/group.com.docker" \
+                   "$HOME/Library/Containers/com.docker.docker" \
+                   "$HOME/Library/Application Support/Docker Desktop" \
+                   "$HOME/.docker"; do
+    if [ -d "$docker_dir" ]; then
+        rm -rf "$docker_dir"
+        echo "       ✅ Removed $docker_dir"
+        DOCKER_REMOVED=true
+    fi
+done
+# Remove docker binaries — use `which` to find the actual location, plus check known paths
+DOCKER_BINS_TO_CHECK="docker docker-compose docker-credential-desktop docker-credential-ecr-login docker-credential-osxkeychain"
+for docker_bin in $DOCKER_BINS_TO_CHECK; do
+    # Try `which` first to find the actual install location
+    DOCKER_BIN_PATH=$(which "$docker_bin" 2>/dev/null || true)
+    if [ -n "$DOCKER_BIN_PATH" ] && [ -f "$DOCKER_BIN_PATH" ]; then
+        rm -f "$DOCKER_BIN_PATH"
+        echo "       ✅ Removed $DOCKER_BIN_PATH"
+        DOCKER_REMOVED=true
+    fi
+    # Also check known install locations in case they weren't on PATH
+    for known_dir in /usr/local/bin /opt/homebrew/bin "$HOME/.vellum/bin"; do
+        if [ -f "$known_dir/$docker_bin" ] || [ -L "$known_dir/$docker_bin" ]; then
+            rm -f "$known_dir/$docker_bin"
+            echo "       ✅ Removed $known_dir/$docker_bin"
+            DOCKER_REMOVED=true
+        fi
+    done
+done
+if [ "$DOCKER_REMOVED" = false ]; then
+    echo "       ⏭️  Docker not found, skipping"
+fi
+
+# 15. Uninstall Colima
+echo "15/$TOTAL_STEPS — Uninstalling Colima..."
+COLIMA_REMOVED=false
+# Find colima binary — try `which`, then known paths
+COLIMA_BIN=$(which colima 2>/dev/null || true)
+if [ -z "$COLIMA_BIN" ]; then
+    for known_dir in /usr/local/bin /opt/homebrew/bin "$HOME/.vellum/bin"; do
+        if [ -f "$known_dir/colima" ]; then
+            COLIMA_BIN="$known_dir/colima"
+            break
+        fi
+    done
+fi
+if [ -n "$COLIMA_BIN" ]; then
+    "$COLIMA_BIN" stop 2>/dev/null || true
+    "$COLIMA_BIN" delete --force 2>/dev/null || true
+    echo "       ✅ Stopped and deleted Colima VM"
+    COLIMA_REMOVED=true
+fi
+if [ -d "$HOME/.colima" ]; then
+    rm -rf "$HOME/.colima"
+    echo "       ✅ Removed ~/.colima"
+    COLIMA_REMOVED=true
+fi
+# Remove colima and lima binaries from all known locations
+for colima_bin_name in colima lima limactl; do
+    FOUND_PATH=$(which "$colima_bin_name" 2>/dev/null || true)
+    if [ -n "$FOUND_PATH" ] && [ -f "$FOUND_PATH" ]; then
+        rm -f "$FOUND_PATH"
+        echo "       ✅ Removed $FOUND_PATH"
+        COLIMA_REMOVED=true
+    fi
+    for known_dir in /usr/local/bin /opt/homebrew/bin "$HOME/.vellum/bin"; do
+        if [ -f "$known_dir/$colima_bin_name" ] || [ -L "$known_dir/$colima_bin_name" ]; then
+            rm -f "$known_dir/$colima_bin_name"
+            echo "       ✅ Removed $known_dir/$colima_bin_name"
+            COLIMA_REMOVED=true
+        fi
+    done
+done
+if [ "$COLIMA_REMOVED" = false ]; then
+    echo "       ⏭️  Colima not found, skipping"
+fi
+
+# 16. Uninstall Homebrew
+echo "16/$TOTAL_STEPS — Uninstalling Homebrew..."
+# Find brew binary — try `which`, then check known install locations directly
+BREW_BIN=$(which brew 2>/dev/null || true)
+if [ -z "$BREW_BIN" ]; then
+    for known_brew in /opt/homebrew/bin/brew /usr/local/bin/brew; do
+        if [ -f "$known_brew" ]; then
+            BREW_BIN="$known_brew"
+            break
+        fi
+    done
+fi
+if [ -n "$BREW_BIN" ]; then
+    # Use Homebrew's official uninstall script
+    NONINTERACTIVE=1 /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/uninstall.sh)" 2>/dev/null || true
+    # Clean up any remaining Homebrew directories
+    for brew_dir in /usr/local/Homebrew /usr/local/Caskroom /usr/local/Cellar /opt/homebrew; do
+        if [ -d "$brew_dir" ]; then
+            rm -rf "$brew_dir"
+            echo "       ✅ Removed $brew_dir"
+        fi
+    done
+    echo "       ✅ Uninstalled Homebrew"
+else
+    echo "       ⏭️  Homebrew not found, skipping"
 fi
 
 echo ""

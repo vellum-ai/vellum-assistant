@@ -82,9 +82,14 @@ final class OpenAIVoiceService: ObservableObject, VoiceServiceProtocol {
     /// Mirrored from: assistant/src/config/elevenlabs-schema.ts (DEFAULT_ELEVENLABS_VOICE_ID)
     private static let defaultVoiceId = "ZF6FPAbjXT4488VcRRnw"
 
-    /// ElevenLabs voice ID — reads from UserDefaults (set via daemon HTTP), falls back to Amelia.
+    /// Override voice ID set by daemon broadcasts (client_settings_update).
+    static var overrideVoiceId: String?
+
+    /// ElevenLabs voice ID — reads from daemon-provided override, then UserDefaults
+    /// (so the user's last-configured value survives app restarts), falls back to Amelia.
     private static var elevenLabsVoiceId: String {
-        UserDefaults.standard.string(forKey: "ttsVoiceId").flatMap { $0.isEmpty ? nil : $0 }
+        overrideVoiceId.flatMap { $0.isEmpty ? nil : $0 }
+            ?? UserDefaults.standard.string(forKey: "ttsVoiceId").flatMap { $0.isEmpty ? nil : $0 }
             ?? Self.defaultVoiceId
     }
 

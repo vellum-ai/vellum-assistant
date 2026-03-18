@@ -164,9 +164,7 @@ extension ChatViewModel {
             }
         }
 
-        var result = lines.joined(separator: "\n")
-        if result.count > 10_000 { result = String(result.prefix(10_000)) + "... [truncated]" }
-        return result
+        return lines.joined(separator: "\n")
     }
 
     private func stringifyValue(_ value: AnyCodable) -> String {
@@ -1527,8 +1525,7 @@ extension ChatViewModel {
                 }
             }
             if let msgIndex = targetMsgIndex, let tcIndex = targetTcIndex {
-                let truncatedResult = msg.result.count > 20000 ? String(msg.result.prefix(20000)) + "...[truncated]" : msg.result
-                messages[msgIndex].toolCalls[tcIndex].result = truncatedResult
+                messages[msgIndex].toolCalls[tcIndex].result = msg.result
                 messages[msgIndex].toolCalls[tcIndex].isError = msg.isError ?? false
                 messages[msgIndex].toolCalls[tcIndex].isComplete = true
                 messages[msgIndex].toolCalls[tcIndex].completedAt = Date()
@@ -1544,10 +1541,10 @@ extension ChatViewModel {
                 let toolErrored = msg.isError ?? false
                 downgradeAdjacentApprovedConfirmationForPermissionDeniedError(
                     assistantMessageIndex: msgIndex,
-                    toolResult: truncatedResult,
+                    toolResult: msg.result,
                     isError: toolErrored
                 )
-                if toolErrored, Self.isOSPermissionDeniedError(truncatedResult),
+                if toolErrored, Self.isOSPermissionDeniedError(msg.result),
                    messages[msgIndex].toolCalls[tcIndex].confirmationDecision == .approved {
                     messages[msgIndex].toolCalls[tcIndex].confirmationDecision = .denied
                 }
@@ -1899,6 +1896,15 @@ extension ChatViewModel {
                         messages[i].toolCalls[tcIdx].pendingConfirmation = nil
                         break
                     }
+                }
+
+                // Clean up the native notification path. If respondToConfirmation /
+                // respondToAlwaysAllow already called onInlineConfirmationResponse
+                // for this requestId, skip the duplicate call; otherwise forward
+                // so externally-resolved confirmations still dismiss notifications.
+                if inlineResponseHandledRequestIds.remove(msg.requestId) == nil {
+                    let decisionString = msg.state == "approved" ? "allow" : "deny"
+                    onInlineConfirmationResponse?(msg.requestId, decisionString)
                 }
             }
 

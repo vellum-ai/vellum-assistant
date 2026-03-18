@@ -69,7 +69,10 @@ export function repairHistory(messages: Message[]): RepairResult {
       }
 
       // Ensure every server_tool_use has a paired web_search_tool_result
-      // in the same assistant message (handles interrupted streams)
+      // in the same assistant message (handles interrupted streams).
+      // Synthetic results are inserted IMMEDIATELY AFTER their corresponding
+      // server_tool_use block — not appended to the end — so that
+      // ensureToolPairing's split at tool_use boundaries cannot separate them.
       const serverToolIds = new Set(
         cleanedContent
           .filter(
@@ -82,18 +85,35 @@ export function repairHistory(messages: Message[]): RepairResult {
           .filter((b) => b.type === "web_search_tool_result")
           .map((b) => (b as { tool_use_id: string }).tool_use_id),
       );
+      const orphanedServerIds = new Set<string>();
       for (const id of serverToolIds) {
         if (!matchedServerIds.has(id)) {
-          cleanedContent.push({
-            type: "web_search_tool_result",
-            tool_use_id: id,
-            content: SYNTHETIC_WEB_SEARCH_ERROR,
-          });
-          stats.missingToolResultsInserted++;
+          orphanedServerIds.add(id);
         }
       }
 
-      result.push({ role: "assistant", content: cleanedContent });
+      let repairedContent: ContentBlock[];
+      if (orphanedServerIds.size > 0) {
+        repairedContent = [];
+        for (const block of cleanedContent) {
+          repairedContent.push(block);
+          if (
+            block.type === "server_tool_use" &&
+            orphanedServerIds.has(block.id)
+          ) {
+            repairedContent.push({
+              type: "web_search_tool_result",
+              tool_use_id: block.id,
+              content: SYNTHETIC_WEB_SEARCH_ERROR,
+            });
+            stats.missingToolResultsInserted++;
+          }
+        }
+      } else {
+        repairedContent = cleanedContent;
+      }
+
+      result.push({ role: "assistant", content: repairedContent });
 
       // Only track client-side tool_use IDs as pending (not server_tool_use)
       pendingToolUseIds = new Set(

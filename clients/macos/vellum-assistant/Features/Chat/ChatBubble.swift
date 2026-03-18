@@ -51,8 +51,6 @@ struct ChatBubble: View {
     /// manager publishes any change (the "thundering herd" problem).
     var activeSurfaceId: String?
 
-    @Environment(\.conversationZoomScale) var conversationZoomScale
-
     var isUser: Bool { message.role == .user }
     private var canReportMessage: Bool {
         !isUser && onReportMessage != nil

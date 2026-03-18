@@ -232,7 +232,6 @@ public final class HTTPTransport {
         registerWorkItemsRoutes()
         registerSubagentsRoutes()
         registerConversationRoutes()
-        registerSkillRoutes()
     }
 
     // MARK: - Endpoint Builder
@@ -265,41 +264,16 @@ public final class HTTPTransport {
         case eventsAll  // SSE subscription for all events
         case sendMessage
         case getMessages(conversationId: String?)
-        case conversations(limit: Int, offset: Int)
-        case confirm
-        case secret
-        case guardianActionsPending(conversationId: String)
-        case guardianActionsDecision
         case conversationsSeen
         case conversationsUnread
         case identity
-        case surfaceAction
         case trustRulesManage
         case trustRuleManageById(id: String)
         case pendingInteractions(conversationKey: String?)
         // Apps
-        case appsList
         case appData(id: String)
-        case appOpen(id: String)
-        case appDelete(id: String)
-        case appPreview(id: String)
-        case appHistory(id: String)
-        case appDiff(id: String)
-        case appRestore(id: String)
-        case appBundle(id: String)
-        case appsOpenBundle
-        case appsShared
-        case appsSharedDelete(uuid: String)
-        case appsFork
-        case appsShareCloud(id: String)
-        case appsGallery
-        case appsGalleryInstall
         case appsSignBundle
         case appsSigningIdentity
-        // Documents
-        case documentsList
-        case documentLoad(id: String)
-        case documentSave
         // Subagents
         case subagentMessage(id: String)
         // Conversation management
@@ -310,27 +284,9 @@ public final class HTTPTransport {
         case conversationUndo(id: String)
         case conversationRegenerate(id: String)
         case model
-        case modelImageGen
         case conversationSearch(query: String, limit: Int?, maxMessagesPerConversation: Int?)
-        case messageContent(id: String, conversationId: String?)
         case deleteQueuedMessage(id: String, conversationId: String)
         case conversationsReorder
-        // Skill management
-        case skillsList
-        case skillEnable(id: String)
-        case skillDisable(id: String)
-        case skillConfigure(id: String)
-        case skillInstall
-        case skillUninstall(id: String)
-        case skillUpdate(id: String)
-        case skillsCheckUpdates
-        case skillsSearch(query: String)
-        case skillInspect(id: String)
-        case skillsDraft
-        case skillsCreate
-        case skillDetail(id: String)
-        case skillFiles(id: String)
-
         // Computer Use
         case cuWatch
 
@@ -339,12 +295,9 @@ public final class HTTPTransport {
 
         // Settings
         case settingsVoice
-        case settingsAvatarGenerate
         case settingsClient
 
         // Diagnostics
-        case diagnosticsExport
-        case diagnosticsEnvVars
         case dictation
 
         // Tools
@@ -353,19 +306,11 @@ public final class HTTPTransport {
 
         // Integrations
         case integrationsOAuthStart
-        case integrationsSlackConfig
         case integrationsVercelConfig
-        case integrationsTelegramConfig
         case integrationsIngressConfig
-
-        // Surface Undo
-        case surfaceUndo(surfaceId: String)
 
         // Suggestion
         case suggestion
-
-        // Publishing
-        case unpublishPage
 
         // Workspace Files (legacy HTTP)
         case workspaceFiles
@@ -433,25 +378,12 @@ public final class HTTPTransport {
                 return ("/v1/messages", "conversationId=\(encoded)")
             }
             return ("/v1/messages", nil)
-        case .conversations(let limit, let offset):
-            return ("/v1/conversations", "limit=\(limit)&offset=\(offset)")
-        case .confirm:
-            return ("/v1/confirm", nil)
-        case .secret:
-            return ("/v1/secret", nil)
-        case .guardianActionsPending(let conversationId):
-            let encoded = conversationId.addingPercentEncoding(withAllowedCharacters: Self.queryValueAllowed) ?? conversationId
-            return ("/v1/guardian-actions/pending", "conversationId=\(encoded)")
-        case .guardianActionsDecision:
-            return ("/v1/guardian-actions/decision", nil)
         case .conversationsSeen:
             return ("/v1/conversations/seen", nil)
         case .conversationsUnread:
             return ("/v1/conversations/unread", nil)
         case .identity:
             return ("/v1/identity", nil)
-        case .surfaceAction:
-            return ("/v1/surface-actions", nil)
         case .trustRulesManage:
             return ("/v1/trust-rules/manage", nil)
         case .trustRuleManageById(let id):
@@ -464,60 +396,13 @@ public final class HTTPTransport {
             }
             return ("/v1/pending-interactions", nil)
         // Apps
-        case .appsList:
-            return ("/v1/apps", nil)
         case .appData(let id):
             let encoded = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
             return ("/v1/apps/\(encoded)/data", nil)
-        case .appOpen(let id):
-            let encoded = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
-            return ("/v1/apps/\(encoded)/open", nil)
-        case .appDelete(let id):
-            let encoded = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
-            return ("/v1/apps/\(encoded)/delete", nil)
-        case .appPreview(let id):
-            let encoded = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
-            return ("/v1/apps/\(encoded)/preview", nil)
-        case .appHistory(let id):
-            let encoded = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
-            return ("/v1/apps/\(encoded)/history", nil)
-        case .appDiff(let id):
-            let encoded = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
-            return ("/v1/apps/\(encoded)/diff", nil)
-        case .appRestore(let id):
-            let encoded = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
-            return ("/v1/apps/\(encoded)/restore", nil)
-        case .appBundle(let id):
-            let encoded = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
-            return ("/v1/apps/\(encoded)/bundle", nil)
-        case .appsOpenBundle:
-            return ("/v1/apps/open-bundle", nil)
-        case .appsShared:
-            return ("/v1/apps/shared", nil)
-        case .appsSharedDelete(let uuid):
-            let encoded = uuid.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? uuid
-            return ("/v1/apps/shared/\(encoded)", nil)
-        case .appsFork:
-            return ("/v1/apps/fork", nil)
-        case .appsShareCloud(let id):
-            let encoded = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
-            return ("/v1/apps/\(encoded)/share-cloud", nil)
-        case .appsGallery:
-            return ("/v1/apps/gallery", nil)
-        case .appsGalleryInstall:
-            return ("/v1/apps/gallery/install", nil)
         case .appsSignBundle:
             return ("/v1/apps/sign-bundle", nil)
         case .appsSigningIdentity:
             return ("/v1/apps/signing-identity", nil)
-        // Documents
-        case .documentsList:
-            return ("/v1/documents", nil)
-        case .documentLoad(let id):
-            let encoded = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
-            return ("/v1/documents/\(encoded)", nil)
-        case .documentSave:
-            return ("/v1/documents", nil)
         // Subagents
         case .subagentMessage(let id):
             let encoded = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
@@ -541,65 +426,18 @@ public final class HTTPTransport {
             return ("/v1/conversations/\(encoded)/regenerate", nil)
         case .model:
             return ("/v1/model", nil)
-        case .modelImageGen:
-            return ("/v1/model/image-gen", nil)
         case .conversationSearch(let query, let limit, let maxMessages):
             let qEncoded = query.addingPercentEncoding(withAllowedCharacters: Self.queryValueAllowed) ?? query
             var qs = "q=\(qEncoded)"
             if let limit { qs += "&limit=\(limit)" }
             if let maxMessages { qs += "&maxMessagesPerConversation=\(maxMessages)" }
             return ("/v1/conversations/search", qs)
-        case .messageContent(let id, let conversationId):
-            let idEncoded = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
-            if let conversationId {
-                let sEncoded = conversationId.addingPercentEncoding(withAllowedCharacters: Self.queryValueAllowed) ?? conversationId
-                return ("/v1/messages/\(idEncoded)/content", "conversationId=\(sEncoded)")
-            }
-            return ("/v1/messages/\(idEncoded)/content", nil)
         case .deleteQueuedMessage(let id, let conversationId):
             let idEncoded = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
             let sEncoded = conversationId.addingPercentEncoding(withAllowedCharacters: Self.queryValueAllowed) ?? conversationId
             return ("/v1/messages/queued/\(idEncoded)", "conversationId=\(sEncoded)")
         case .conversationsReorder:
             return ("/v1/conversations/reorder", nil)
-        // Skill management
-        case .skillsList:
-            return ("/v1/skills", nil)
-        case .skillEnable(let id):
-            let encoded = id.addingPercentEncoding(withAllowedCharacters: Self.pathComponentAllowed) ?? id
-            return ("/v1/skills/\(encoded)/enable", nil)
-        case .skillDisable(let id):
-            let encoded = id.addingPercentEncoding(withAllowedCharacters: Self.pathComponentAllowed) ?? id
-            return ("/v1/skills/\(encoded)/disable", nil)
-        case .skillConfigure(let id):
-            let encoded = id.addingPercentEncoding(withAllowedCharacters: Self.pathComponentAllowed) ?? id
-            return ("/v1/skills/\(encoded)/config", nil)
-        case .skillInstall:
-            return ("/v1/skills/install", nil)
-        case .skillUninstall(let id):
-            let encoded = id.addingPercentEncoding(withAllowedCharacters: Self.pathComponentAllowed) ?? id
-            return ("/v1/skills/\(encoded)", nil)
-        case .skillUpdate(let id):
-            let encoded = id.addingPercentEncoding(withAllowedCharacters: Self.pathComponentAllowed) ?? id
-            return ("/v1/skills/\(encoded)/update", nil)
-        case .skillsCheckUpdates:
-            return ("/v1/skills/check-updates", nil)
-        case .skillsSearch(let query):
-            let encoded = query.addingPercentEncoding(withAllowedCharacters: Self.queryValueAllowed) ?? query
-            return ("/v1/skills/search", "q=\(encoded)")
-        case .skillInspect(let id):
-            let encoded = id.addingPercentEncoding(withAllowedCharacters: Self.pathComponentAllowed) ?? id
-            return ("/v1/skills/\(encoded)/inspect", nil)
-        case .skillsDraft:
-            return ("/v1/skills/draft", nil)
-        case .skillsCreate:
-            return ("/v1/skills", nil)
-        case .skillDetail(let id):
-            let encoded = id.addingPercentEncoding(withAllowedCharacters: Self.pathComponentAllowed) ?? id
-            return ("/v1/skills/\(encoded)", nil)
-        case .skillFiles(let id):
-            let encoded = id.addingPercentEncoding(withAllowedCharacters: Self.pathComponentAllowed) ?? id
-            return ("/v1/skills/\(encoded)/files", nil)
         // Computer Use
         case .cuWatch:
             return ("/v1/computer-use/watch", nil)
@@ -609,15 +447,9 @@ public final class HTTPTransport {
         // Settings
         case .settingsVoice:
             return ("/v1/settings/voice", nil)
-        case .settingsAvatarGenerate:
-            return ("/v1/settings/avatar/generate", nil)
         case .settingsClient:
             return ("/v1/settings/client", nil)
         // Diagnostics
-        case .diagnosticsExport:
-            return ("/v1/diagnostics/export", nil)
-        case .diagnosticsEnvVars:
-            return ("/v1/diagnostics/env-vars", nil)
         case .dictation:
             return ("/v1/dictation", nil)
         // Tools
@@ -628,24 +460,13 @@ public final class HTTPTransport {
         // Integrations
         case .integrationsOAuthStart:
             return ("/v1/integrations/oauth/start", nil)
-        case .integrationsSlackConfig:
-            return ("/v1/integrations/slack/config", nil)
         case .integrationsVercelConfig:
             return ("/v1/integrations/vercel/config", nil)
-        case .integrationsTelegramConfig:
-            return ("/v1/integrations/telegram/config", nil)
         case .integrationsIngressConfig:
             return ("/v1/integrations/ingress/config", nil)
-        // Surface Undo
-        case .surfaceUndo(let surfaceId):
-            let encoded = surfaceId.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? surfaceId
-            return ("/v1/surfaces/\(encoded)/undo", nil)
         // Suggestion
         case .suggestion:
             return ("/v1/suggestion", nil)
-        // Publishing
-        case .unpublishPage:
-            return ("/v1/unpublish", nil)
         // Workspace Files (legacy HTTP)
         case .workspaceFiles:
             return ("/v1/workspace-files", nil)
@@ -697,25 +518,12 @@ public final class HTTPTransport {
                 return ("\(prefix)/messages/", "conversationId=\(encoded)")
             }
             return ("\(prefix)/messages/", nil)
-        case .conversations(let limit, let offset):
-            return ("\(prefix)/conversations/", "limit=\(limit)&offset=\(offset)")
-        case .confirm:
-            return ("\(prefix)/confirm/", nil)
-        case .secret:
-            return ("\(prefix)/secret/", nil)
-        case .guardianActionsPending(let conversationId):
-            let encoded = conversationId.addingPercentEncoding(withAllowedCharacters: Self.queryValueAllowed) ?? conversationId
-            return ("\(prefix)/guardian-actions/pending/", "conversationId=\(encoded)")
-        case .guardianActionsDecision:
-            return ("\(prefix)/guardian-actions/decision/", nil)
         case .conversationsSeen:
             return ("\(prefix)/conversations/seen/", nil)
         case .conversationsUnread:
             return ("\(prefix)/conversations/unread/", nil)
         case .identity:
             return ("\(prefix)/identity/", nil)
-        case .surfaceAction:
-            return ("\(prefix)/surface-actions/", nil)
         case .trustRulesManage:
             return ("\(prefix)/trust-rules/manage/", nil)
         case .trustRuleManageById(let id):
@@ -728,60 +536,13 @@ public final class HTTPTransport {
             }
             return ("\(prefix)/pending-interactions/", nil)
         // Apps
-        case .appsList:
-            return ("\(prefix)/apps/", nil)
         case .appData(let id):
             let encoded = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
             return ("\(prefix)/apps/\(encoded)/data/", nil)
-        case .appOpen(let id):
-            let encoded = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
-            return ("\(prefix)/apps/\(encoded)/open/", nil)
-        case .appDelete(let id):
-            let encoded = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
-            return ("\(prefix)/apps/\(encoded)/delete/", nil)
-        case .appPreview(let id):
-            let encoded = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
-            return ("\(prefix)/apps/\(encoded)/preview/", nil)
-        case .appHistory(let id):
-            let encoded = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
-            return ("\(prefix)/apps/\(encoded)/history/", nil)
-        case .appDiff(let id):
-            let encoded = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
-            return ("\(prefix)/apps/\(encoded)/diff/", nil)
-        case .appRestore(let id):
-            let encoded = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
-            return ("\(prefix)/apps/\(encoded)/restore/", nil)
-        case .appBundle(let id):
-            let encoded = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
-            return ("\(prefix)/apps/\(encoded)/bundle/", nil)
-        case .appsOpenBundle:
-            return ("\(prefix)/apps/open-bundle/", nil)
-        case .appsShared:
-            return ("\(prefix)/apps/shared/", nil)
-        case .appsSharedDelete(let uuid):
-            let encoded = uuid.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? uuid
-            return ("\(prefix)/apps/shared/\(encoded)/", nil)
-        case .appsFork:
-            return ("\(prefix)/apps/fork/", nil)
-        case .appsShareCloud(let id):
-            let encoded = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
-            return ("\(prefix)/apps/\(encoded)/share-cloud/", nil)
-        case .appsGallery:
-            return ("\(prefix)/apps/gallery/", nil)
-        case .appsGalleryInstall:
-            return ("\(prefix)/apps/gallery/install/", nil)
         case .appsSignBundle:
             return ("\(prefix)/apps/sign-bundle/", nil)
         case .appsSigningIdentity:
             return ("\(prefix)/apps/signing-identity/", nil)
-        // Documents
-        case .documentsList:
-            return ("\(prefix)/documents/", nil)
-        case .documentLoad(let id):
-            let encoded = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
-            return ("\(prefix)/documents/\(encoded)/", nil)
-        case .documentSave:
-            return ("\(prefix)/documents/", nil)
         // Subagents
         case .subagentMessage(let id):
             let encoded = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
@@ -805,65 +566,18 @@ public final class HTTPTransport {
             return ("\(prefix)/conversations/\(encoded)/regenerate/", nil)
         case .model:
             return ("\(prefix)/model/", nil)
-        case .modelImageGen:
-            return ("\(prefix)/model/image-gen/", nil)
         case .conversationSearch(let query, let limit, let maxMessages):
             let qEncoded = query.addingPercentEncoding(withAllowedCharacters: Self.queryValueAllowed) ?? query
             var qs = "q=\(qEncoded)"
             if let limit { qs += "&limit=\(limit)" }
             if let maxMessages { qs += "&maxMessagesPerConversation=\(maxMessages)" }
             return ("\(prefix)/conversations/search/", qs)
-        case .messageContent(let id, let conversationId):
-            let idEncoded = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
-            if let conversationId {
-                let sEncoded = conversationId.addingPercentEncoding(withAllowedCharacters: Self.queryValueAllowed) ?? conversationId
-                return ("\(prefix)/messages/\(idEncoded)/content/", "conversationId=\(sEncoded)")
-            }
-            return ("\(prefix)/messages/\(idEncoded)/content/", nil)
         case .deleteQueuedMessage(let id, let conversationId):
             let idEncoded = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
             let sEncoded = conversationId.addingPercentEncoding(withAllowedCharacters: Self.queryValueAllowed) ?? conversationId
             return ("\(prefix)/messages/queued/\(idEncoded)/", "conversationId=\(sEncoded)")
         case .conversationsReorder:
             return ("\(prefix)/conversations/reorder/", nil)
-        // Skill management
-        case .skillsList:
-            return ("\(prefix)/skills/", nil)
-        case .skillEnable(let id):
-            let encoded = id.addingPercentEncoding(withAllowedCharacters: Self.pathComponentAllowed) ?? id
-            return ("\(prefix)/skills/\(encoded)/enable/", nil)
-        case .skillDisable(let id):
-            let encoded = id.addingPercentEncoding(withAllowedCharacters: Self.pathComponentAllowed) ?? id
-            return ("\(prefix)/skills/\(encoded)/disable/", nil)
-        case .skillConfigure(let id):
-            let encoded = id.addingPercentEncoding(withAllowedCharacters: Self.pathComponentAllowed) ?? id
-            return ("\(prefix)/skills/\(encoded)/config/", nil)
-        case .skillInstall:
-            return ("\(prefix)/skills/install/", nil)
-        case .skillUninstall(let id):
-            let encoded = id.addingPercentEncoding(withAllowedCharacters: Self.pathComponentAllowed) ?? id
-            return ("\(prefix)/skills/\(encoded)/", nil)
-        case .skillUpdate(let id):
-            let encoded = id.addingPercentEncoding(withAllowedCharacters: Self.pathComponentAllowed) ?? id
-            return ("\(prefix)/skills/\(encoded)/update/", nil)
-        case .skillsCheckUpdates:
-            return ("\(prefix)/skills/check-updates/", nil)
-        case .skillsSearch(let query):
-            let encoded = query.addingPercentEncoding(withAllowedCharacters: Self.queryValueAllowed) ?? query
-            return ("\(prefix)/skills/search/", "q=\(encoded)")
-        case .skillInspect(let id):
-            let encoded = id.addingPercentEncoding(withAllowedCharacters: Self.pathComponentAllowed) ?? id
-            return ("\(prefix)/skills/\(encoded)/inspect/", nil)
-        case .skillsDraft:
-            return ("\(prefix)/skills/draft/", nil)
-        case .skillsCreate:
-            return ("\(prefix)/skills/", nil)
-        case .skillDetail(let id):
-            let encoded = id.addingPercentEncoding(withAllowedCharacters: Self.pathComponentAllowed) ?? id
-            return ("\(prefix)/skills/\(encoded)/", nil)
-        case .skillFiles(let id):
-            let encoded = id.addingPercentEncoding(withAllowedCharacters: Self.pathComponentAllowed) ?? id
-            return ("\(prefix)/skills/\(encoded)/files/", nil)
         // Computer Use
         case .cuWatch:
             return ("\(prefix)/computer-use/watch/", nil)
@@ -873,15 +587,9 @@ public final class HTTPTransport {
         // Settings
         case .settingsVoice:
             return ("\(prefix)/settings/voice/", nil)
-        case .settingsAvatarGenerate:
-            return ("\(prefix)/settings/avatar/generate/", nil)
         case .settingsClient:
             return ("\(prefix)/settings/client/", nil)
         // Diagnostics
-        case .diagnosticsExport:
-            return ("\(prefix)/diagnostics/export/", nil)
-        case .diagnosticsEnvVars:
-            return ("\(prefix)/diagnostics/env-vars/", nil)
         case .dictation:
             return ("\(prefix)/dictation/", nil)
         // Tools
@@ -892,24 +600,13 @@ public final class HTTPTransport {
         // Integrations
         case .integrationsOAuthStart:
             return ("\(prefix)/integrations/oauth/start/", nil)
-        case .integrationsSlackConfig:
-            return ("\(prefix)/integrations/slack/config/", nil)
         case .integrationsVercelConfig:
             return ("\(prefix)/integrations/vercel/config/", nil)
-        case .integrationsTelegramConfig:
-            return ("\(prefix)/integrations/telegram/config/", nil)
         case .integrationsIngressConfig:
             return ("\(prefix)/integrations/ingress/config/", nil)
-        // Surface Undo
-        case .surfaceUndo(let surfaceId):
-            let encoded = surfaceId.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? surfaceId
-            return ("\(prefix)/surfaces/\(encoded)/undo/", nil)
         // Suggestion
         case .suggestion:
             return ("\(prefix)/suggestion/", nil)
-        // Publishing
-        case .unpublishPage:
-            return ("\(prefix)/unpublish/", nil)
         // Workspace Files (legacy HTTP)
         case .workspaceFiles:
             return ("\(prefix)/workspace-files/", nil)
@@ -1556,208 +1253,6 @@ public final class HTTPTransport {
         }
     }
 
-    func sendDecision(requestId: String, decision: String, selectedPattern: String? = nil, selectedScope: String? = nil, isRetry: Bool = false) async {
-        guard let url = buildURL(for: .confirm) else { return }
-
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        applyAuth(&request)
-
-        var body: [String: Any] = [
-            "requestId": requestId,
-            "decision": decision,
-        ]
-        if let selectedPattern {
-            body["selectedPattern"] = selectedPattern
-        }
-        if let selectedScope {
-            body["selectedScope"] = selectedScope
-        }
-
-        do {
-            request.httpBody = try JSONSerialization.data(withJSONObject: body)
-            let (data, response) = try await URLSession.shared.data(for: request)
-
-            if let http = response as? HTTPURLResponse {
-                if http.statusCode == 401 && !isRetry {
-                    let refreshResult = await handleAuthenticationFailureAsync(responseData: data)
-                    switch refreshResult {
-                    case .success:
-                        await sendDecision(requestId: requestId, decision: decision, selectedPattern: selectedPattern, selectedScope: selectedScope, isRetry: true)
-                    case .terminalFailure:
-                        break
-                    case .transientFailure:
-                        log.error("Decision response failed: authentication error after 401 refresh")
-                    }
-                } else if http.statusCode != 200 {
-                    log.error("Decision response failed (\(http.statusCode))")
-                }
-            }
-        } catch {
-            log.error("Decision response error: \(error.localizedDescription)")
-        }
-    }
-
-    func sendSecret(requestId: String, value: String?, delivery: String? = nil, isRetry: Bool = false) async {
-        guard let url = buildURL(for: .secret) else { return }
-
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        applyAuth(&request)
-
-        var body: [String: Any] = [
-            "requestId": requestId,
-            "value": value ?? "",
-        ]
-        if let delivery {
-            body["delivery"] = delivery
-        }
-
-        do {
-            request.httpBody = try JSONSerialization.data(withJSONObject: body)
-            let (data, response) = try await URLSession.shared.data(for: request)
-
-            if let http = response as? HTTPURLResponse {
-                if http.statusCode == 401 && !isRetry {
-                    let refreshResult = await handleAuthenticationFailureAsync(responseData: data)
-                    switch refreshResult {
-                    case .success:
-                        await sendSecret(requestId: requestId, value: value, delivery: delivery, isRetry: true)
-                    case .terminalFailure:
-                        break
-                    case .transientFailure:
-                        log.error("Secret response failed: authentication error after 401 refresh")
-                    }
-                } else if http.statusCode != 200 {
-                    log.error("Secret response failed (\(http.statusCode))")
-                }
-            }
-        } catch {
-            log.error("Secret response error: \(error.localizedDescription)")
-        }
-    }
-
-    func fetchGuardianActionsPending(conversationId: String, isRetry: Bool = false) async {
-        guard let url = buildURL(for: .guardianActionsPending(conversationId: conversationId)) else { return }
-
-        var request = URLRequest(url: url)
-        applyAuth(&request)
-
-        do {
-            let (data, response) = try await URLSession.shared.data(for: request)
-
-            if let http = response as? HTTPURLResponse {
-                if http.statusCode == 401 && !isRetry {
-                    let refreshResult = await handleAuthenticationFailureAsync(responseData: data)
-                    switch refreshResult {
-                    case .success:
-                        await fetchGuardianActionsPending(conversationId: conversationId, isRetry: true)
-                    case .terminalFailure:
-                        break
-                    case .transientFailure:
-                        log.error("Fetch guardian actions pending failed: authentication error after 401 refresh")
-                    }
-                    return
-                }
-                guard http.statusCode == 200 else {
-                    log.error("Fetch guardian actions pending failed (\(http.statusCode))")
-                    return
-                }
-            }
-
-            do {
-                let decoded = try JSONDecoder().decode(GuardianActionsPendingHTTPResponse.self, from: data)
-                onMessage?(.guardianActionsPendingResponse(GuardianActionsPendingResponseMessage(conversationId: decoded.conversationId, prompts: decoded.prompts)))
-            } catch {
-                log.error("Failed to decode guardian actions pending response: \(error)")
-            }
-        } catch {
-            log.error("Fetch guardian actions pending error: \(error.localizedDescription)")
-        }
-    }
-
-    func submitGuardianActionDecision(requestId: String, action: String, conversationId: String?, isRetry: Bool = false) async {
-        guard let url = buildURL(for: .guardianActionsDecision) else { return }
-
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        applyAuth(&request)
-
-        var body: [String: Any] = [
-            "requestId": requestId,
-            "action": action
-        ]
-        if let conversationId {
-            body["conversationId"] = conversationId
-        }
-
-        do {
-            request.httpBody = try JSONSerialization.data(withJSONObject: body)
-            let (data, response) = try await URLSession.shared.data(for: request)
-
-            if let http = response as? HTTPURLResponse {
-                if http.statusCode == 401 && !isRetry {
-                    let refreshResult = await handleAuthenticationFailureAsync(responseData: data)
-                    switch refreshResult {
-                    case .success:
-                        await submitGuardianActionDecision(requestId: requestId, action: action, conversationId: conversationId, isRetry: true)
-                        return
-                    case .terminalFailure:
-                        break
-                    case .transientFailure:
-                        break
-                    }
-                    onMessage?(.guardianActionDecisionResponse(GuardianActionDecisionResponseMessage(
-                        applied: false,
-                        reason: "authentication_failed",
-                        resolverFailureReason: nil,
-                        requestId: requestId,
-                        userText: nil
-                    )))
-                    return
-                }
-                guard (200..<300).contains(http.statusCode) else {
-                    log.error("Guardian action decision failed (\(http.statusCode))")
-                    // Emit a synthetic failure response so the UI clears isSubmitting state
-                    onMessage?(.guardianActionDecisionResponse(GuardianActionDecisionResponseMessage(
-                        applied: false,
-                        reason: "HTTP \(http.statusCode)",
-                        resolverFailureReason: nil,
-                        requestId: requestId,
-                        userText: nil
-                    )))
-                    return
-                }
-            }
-
-            do {
-                let decoded = try JSONDecoder().decode(GuardianActionDecisionResponseMessage.self, from: data)
-                onMessage?(.guardianActionDecisionResponse(decoded))
-            } catch {
-                log.error("Failed to decode guardian action decision response: \(error)")
-            }
-        } catch {
-            log.error("Guardian action decision error: \(error.localizedDescription)")
-            // Emit a synthetic failure response so the UI clears isSubmitting state
-            onMessage?(.guardianActionDecisionResponse(GuardianActionDecisionResponseMessage(
-                applied: false,
-                reason: error.localizedDescription,
-                resolverFailureReason: nil,
-                requestId: requestId,
-                userText: nil
-            )))
-        }
-    }
-
-    /// Response wrapper for the HTTP guardian actions pending endpoint.
-    private struct GuardianActionsPendingHTTPResponse: Decodable {
-        let conversationId: String?
-        let prompts: [GuardianDecisionPromptWire]
-    }
-
     /// JSONSerialization cannot encode AnyCodable wrappers directly, so unwrap
     /// them before inserting arbitrary payloads into request bodies.
     func jsonCompatibleDictionary(_ values: [String: AnyCodable]) -> [String: Any] {
@@ -1883,94 +1378,6 @@ public final class HTTPTransport {
             .trimmingCharacters(in: .whitespacesAndNewlines),
             !body.isEmpty else { return nil }
         return body
-    }
-
-    // MARK: - Surface Actions
-
-    func sendSurfaceAction(_ action: UiSurfaceActionMessage, isRetry: Bool = false) async {
-        guard let url = buildURL(for: .surfaceAction) else { return }
-
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        applyAuth(&request)
-
-        var body: [String: Any] = [
-            "surfaceId": action.surfaceId,
-            "actionId": action.actionId,
-        ]
-        // Omit conversationId — the server resolves the conversation via
-        // findSessionBySurfaceId(surfaceId), which is reliable regardless
-        // of conversationKey vs conversationId differences.
-        if let data = action.data {
-            body["data"] = jsonCompatibleDictionary(data)
-        }
-
-        do {
-            request.httpBody = try JSONSerialization.data(withJSONObject: body)
-            let (_, response) = try await URLSession.shared.data(for: request)
-
-            if let http = response as? HTTPURLResponse {
-                if http.statusCode == 401 && !isRetry {
-                    let refreshResult = await handleAuthenticationFailureAsync()
-                    if case .success = refreshResult {
-                        await sendSurfaceAction(action, isRetry: true)
-                    }
-                } else if http.statusCode != 200 {
-                    log.error("HTTPTransport: surface action failed (\(http.statusCode))")
-                }
-            }
-        } catch {
-            log.error("HTTPTransport: surface action error: \(error.localizedDescription)")
-        }
-    }
-
-    func fetchConversationList(offset: Int = 0, limit: Int = 50, isRetry: Bool = false, authRetryCount: Int = 0) async {
-        guard let url = buildURL(for: .conversations(limit: limit, offset: offset)) else { return }
-
-        var request = URLRequest(url: url)
-        applyAuth(&request)
-
-        do {
-            let (data, response) = try await URLSession.shared.data(for: request)
-
-            guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
-                let statusCode = (response as? HTTPURLResponse)?.statusCode ?? -1
-                if statusCode == 401 && !isRetry {
-                    let refreshResult = await handleAuthenticationFailureAsync(responseData: data)
-                    if case .success = refreshResult {
-                        await fetchConversationList(offset: offset, limit: limit, isRetry: true)
-                        return
-                    }
-                }
-                // 403 during assistant switch: the actor token hasn't been
-                // bootstrapped yet. Retry a few times with a delay to let
-                // ensureActorCredentials() finish.
-                if statusCode == 403 && authRetryCount < 6 {
-                    log.info("Conversation list fetch got 403 — waiting for actor token (attempt \(authRetryCount + 1)/6)")
-                    try? await Task.sleep(nanoseconds: 2_000_000_000)
-                    await fetchConversationList(offset: offset, limit: limit, isRetry: isRetry, authRetryCount: authRetryCount + 1)
-                    return
-                }
-                log.error("Fetch conversation list failed (HTTP \(statusCode))")
-                onMessage?(.conversationListResponse(ConversationListResponseMessage(type: "conversation_list_response", conversations: [], hasMore: nil)))
-                return
-            }
-
-            do {
-                let decoded = try decoder.decode(ConversationsListResponse.self, from: data)
-                let conversations = decoded.conversations.map {
-                    ConversationListResponseItem(id: $0.id, title: $0.title, createdAt: $0.createdAt ?? $0.updatedAt, updatedAt: $0.updatedAt, conversationType: $0.conversationType, source: $0.source, scheduleJobId: $0.scheduleJobId, channelBinding: $0.channelBinding, conversationOriginChannel: $0.conversationOriginChannel, conversationOriginInterface: $0.conversationOriginInterface, assistantAttention: $0.assistantAttention, displayOrder: $0.displayOrder, isPinned: $0.isPinned)
-                }
-                onMessage?(.conversationListResponse(ConversationListResponseMessage(type: "conversation_list_response", conversations: conversations, hasMore: decoded.hasMore)))
-            } catch {
-                log.error("Failed to decode conversation list response: \(error)")
-                onMessage?(.conversationListResponse(ConversationListResponseMessage(type: "conversation_list_response", conversations: [], hasMore: nil)))
-            }
-        } catch {
-            log.error("Fetch conversation list error: \(error.localizedDescription)")
-            onMessage?(.conversationListResponse(ConversationListResponseMessage(type: "conversation_list_response", conversations: [], hasMore: nil)))
-        }
     }
 
     func fetchHistory(conversationId: String, isRetry: Bool = false) async {
@@ -2273,41 +1680,6 @@ public final class HTTPTransport {
         }
     }
 
-    func setImageGenModel(modelId: String, isRetry: Bool = false) async {
-        guard let url = buildURL(for: .modelImageGen) else { return }
-
-        var request = URLRequest(url: url)
-        request.httpMethod = "PUT"
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        applyAuth(&request)
-
-        let body: [String: Any] = ["modelId": modelId]
-
-        do {
-            request.httpBody = try JSONSerialization.data(withJSONObject: body)
-            let (data, response) = try await URLSession.shared.data(for: request)
-
-            guard let http = response as? HTTPURLResponse else { return }
-
-            if http.statusCode == 200 {
-                // model_info will arrive via SSE or the response itself
-                let patched = injectType("model_info", into: data)
-                if let decoded = try? decoder.decode(ModelInfoMessage.self, from: patched) {
-                    onMessage?(.modelInfo(decoded))
-                }
-            } else if http.statusCode == 401 && !isRetry {
-                let refreshResult = await handleAuthenticationFailureAsync(responseData: data)
-                if case .success = refreshResult {
-                    await setImageGenModel(modelId: modelId, isRetry: true)
-                }
-            } else {
-                log.error("Image gen model set failed (HTTP \(http.statusCode))")
-            }
-        } catch {
-            log.error("Image gen model set error: \(error.localizedDescription)")
-        }
-    }
-
     func searchConversations(query: String, limit: Int?, maxMessagesPerConversation: Int?, isRetry: Bool = false) async {
         guard let url = buildURL(for: .conversationSearch(query: query, limit: limit, maxMessagesPerConversation: maxMessagesPerConversation)) else { return }
 
@@ -2333,34 +1705,6 @@ public final class HTTPTransport {
             }
         } catch {
             log.error("Conversation search error: \(error.localizedDescription)")
-        }
-    }
-
-    func fetchMessageContent(conversationId: String, messageId: String, isRetry: Bool = false) async {
-        guard let url = buildURL(for: .messageContent(id: messageId, conversationId: conversationId)) else { return }
-
-        var request = URLRequest(url: url)
-        applyAuth(&request)
-
-        do {
-            let (data, response) = try await URLSession.shared.data(for: request)
-
-            guard let http = response as? HTTPURLResponse else { return }
-
-            if http.statusCode == 200 {
-                let patched = injectType("message_content_response", into: data)
-                let decoded = try decoder.decode(MessageContentResponse.self, from: patched)
-                onMessage?(.messageContentResponse(decoded))
-            } else if http.statusCode == 401 && !isRetry {
-                let refreshResult = await handleAuthenticationFailureAsync(responseData: data)
-                if case .success = refreshResult {
-                    await fetchMessageContent(conversationId: conversationId, messageId: messageId, isRetry: true)
-                }
-            } else {
-                log.error("Message content fetch failed (HTTP \(http.statusCode))")
-            }
-        } catch {
-            log.error("Message content fetch error: \(error.localizedDescription)")
         }
     }
 
@@ -2433,538 +1777,6 @@ public final class HTTPTransport {
             }
         } catch {
             log.error("Reorder conversations error: \(error.localizedDescription)")
-        }
-    }
-
-    // MARK: - Skill Management HTTP Handlers
-
-    func fetchSkillsList(isRetry: Bool = false) async {
-        guard let url = buildURL(for: .skillsList) else { return }
-
-        var request = URLRequest(url: url)
-        applyAuth(&request)
-
-        do {
-            let (data, response) = try await URLSession.shared.data(for: request)
-
-            guard let http = response as? HTTPURLResponse else { return }
-
-            if http.statusCode == 200 {
-                let patched = injectType("skills_list_response", into: data)
-                let decoded = try decoder.decode(SkillsListResponseMessage.self, from: patched)
-                onMessage?(.skillsListResponse(decoded))
-            } else if http.statusCode == 401 && !isRetry {
-                let refreshResult = await handleAuthenticationFailureAsync(responseData: data)
-                if case .success = refreshResult {
-                    await fetchSkillsList(isRetry: true)
-                }
-            } else {
-                log.error("Skills list failed (HTTP \(http.statusCode))")
-            }
-        } catch {
-            log.error("Skills list error: \(error.localizedDescription)")
-        }
-    }
-
-    func enableSkill(name: String, isRetry: Bool = false) async {
-        guard let url = buildURL(for: .skillEnable(id: name)) else { return }
-
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        applyAuth(&request)
-
-        do {
-            let (data, response) = try await URLSession.shared.data(for: request)
-
-            guard let http = response as? HTTPURLResponse else { return }
-
-            if http.statusCode == 200 {
-                onMessage?(.skillsOperationResponse(SkillsOperationResponseMessage(
-                    operation: "enable",
-                    success: true,
-                    error: nil,
-                    data: nil
-                )))
-            } else if http.statusCode == 401 && !isRetry {
-                let refreshResult = await handleAuthenticationFailureAsync(responseData: data)
-                if case .success = refreshResult {
-                    await enableSkill(name: name, isRetry: true)
-                }
-            } else {
-                let errorMsg = extractErrorMessage(from: data)
-                onMessage?(.skillsOperationResponse(SkillsOperationResponseMessage(
-                    operation: "enable",
-                    success: false,
-                    error: errorMsg,
-                    data: nil
-                )))
-            }
-        } catch {
-            log.error("Enable skill error: \(error.localizedDescription)")
-            onMessage?(.skillsOperationResponse(SkillsOperationResponseMessage(
-                operation: "enable",
-                success: false,
-                error: error.localizedDescription,
-                data: nil
-            )))
-        }
-    }
-
-    func disableSkill(name: String, isRetry: Bool = false) async {
-        guard let url = buildURL(for: .skillDisable(id: name)) else { return }
-
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        applyAuth(&request)
-
-        do {
-            let (data, response) = try await URLSession.shared.data(for: request)
-
-            guard let http = response as? HTTPURLResponse else { return }
-
-            if http.statusCode == 200 {
-                onMessage?(.skillsOperationResponse(SkillsOperationResponseMessage(
-                    operation: "disable",
-                    success: true,
-                    error: nil,
-                    data: nil
-                )))
-            } else if http.statusCode == 401 && !isRetry {
-                let refreshResult = await handleAuthenticationFailureAsync(responseData: data)
-                if case .success = refreshResult {
-                    await disableSkill(name: name, isRetry: true)
-                }
-            } else {
-                let errorMsg = extractErrorMessage(from: data)
-                onMessage?(.skillsOperationResponse(SkillsOperationResponseMessage(
-                    operation: "disable",
-                    success: false,
-                    error: errorMsg,
-                    data: nil
-                )))
-            }
-        } catch {
-            log.error("Disable skill error: \(error.localizedDescription)")
-            onMessage?(.skillsOperationResponse(SkillsOperationResponseMessage(
-                    operation: "disable",
-                    success: false,
-                    error: error.localizedDescription,
-                    data: nil
-                )))
-        }
-    }
-
-    func configureSkill(name: String, env: [String: String]?, apiKey: String?, config: [String: AnyCodable]?, isRetry: Bool = false) async {
-        guard let url = buildURL(for: .skillConfigure(id: name)) else { return }
-
-        var request = URLRequest(url: url)
-        request.httpMethod = "PATCH"
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        applyAuth(&request)
-
-        var body: [String: Any] = [:]
-        if let env { body["env"] = env }
-        if let apiKey { body["apiKey"] = apiKey }
-        if let config {
-            // Convert AnyCodable values to raw dictionary
-            var rawConfig: [String: Any] = [:]
-            for (key, value) in config {
-                rawConfig[key] = value.value
-            }
-            body["config"] = rawConfig
-        }
-
-        do {
-            request.httpBody = try JSONSerialization.data(withJSONObject: body)
-            let (data, response) = try await URLSession.shared.data(for: request)
-
-            guard let http = response as? HTTPURLResponse else { return }
-
-            if http.statusCode == 200 {
-                onMessage?(.skillsOperationResponse(SkillsOperationResponseMessage(
-                    operation: "configure",
-                    success: true,
-                    error: nil,
-                    data: nil
-                )))
-            } else if http.statusCode == 401 && !isRetry {
-                let refreshResult = await handleAuthenticationFailureAsync(responseData: data)
-                if case .success = refreshResult {
-                    await configureSkill(name: name, env: env, apiKey: apiKey, config: config, isRetry: true)
-                }
-            } else {
-                let errorMsg = extractErrorMessage(from: data)
-                onMessage?(.skillsOperationResponse(SkillsOperationResponseMessage(
-                    operation: "configure",
-                    success: false,
-                    error: errorMsg,
-                    data: nil
-                )))
-            }
-        } catch {
-            log.error("Configure skill error: \(error.localizedDescription)")
-            onMessage?(.skillsOperationResponse(SkillsOperationResponseMessage(
-                    operation: "configure",
-                    success: false,
-                    error: error.localizedDescription,
-                    data: nil
-                )))
-        }
-    }
-
-    func installSkill(slug: String, version: String?, isRetry: Bool = false) async {
-        guard let url = buildURL(for: .skillInstall) else { return }
-
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        applyAuth(&request)
-
-        var body: [String: Any] = ["slug": slug]
-        if let version { body["version"] = version }
-
-        do {
-            request.httpBody = try JSONSerialization.data(withJSONObject: body)
-            let (data, response) = try await URLSession.shared.data(for: request)
-
-            guard let http = response as? HTTPURLResponse else { return }
-
-            if http.statusCode == 200 {
-                onMessage?(.skillsOperationResponse(SkillsOperationResponseMessage(
-                    operation: "install",
-                    success: true,
-                    error: nil,
-                    data: nil
-                )))
-            } else if http.statusCode == 401 && !isRetry {
-                let refreshResult = await handleAuthenticationFailureAsync(responseData: data)
-                if case .success = refreshResult {
-                    await installSkill(slug: slug, version: version, isRetry: true)
-                }
-            } else {
-                let errorMsg = extractErrorMessage(from: data)
-                onMessage?(.skillsOperationResponse(SkillsOperationResponseMessage(
-                    operation: "install",
-                    success: false,
-                    error: errorMsg,
-                    data: nil
-                )))
-            }
-        } catch {
-            log.error("Install skill error: \(error.localizedDescription)")
-            onMessage?(.skillsOperationResponse(SkillsOperationResponseMessage(
-                    operation: "install",
-                    success: false,
-                    error: error.localizedDescription,
-                    data: nil
-                )))
-        }
-    }
-
-    func uninstallSkill(name: String, isRetry: Bool = false) async {
-        guard let url = buildURL(for: .skillUninstall(id: name)) else { return }
-
-        var request = URLRequest(url: url)
-        request.httpMethod = "DELETE"
-        applyAuth(&request)
-
-        do {
-            let (data, response) = try await URLSession.shared.data(for: request)
-
-            guard let http = response as? HTTPURLResponse else { return }
-
-            if http.statusCode == 204 || http.statusCode == 200 {
-                onMessage?(.skillsOperationResponse(SkillsOperationResponseMessage(
-                    operation: "uninstall",
-                    success: true,
-                    error: nil,
-                    data: nil
-                )))
-            } else if http.statusCode == 401 && !isRetry {
-                let refreshResult = await handleAuthenticationFailureAsync(responseData: data)
-                if case .success = refreshResult {
-                    await uninstallSkill(name: name, isRetry: true)
-                }
-            } else {
-                let errorMsg = extractErrorMessage(from: data)
-                onMessage?(.skillsOperationResponse(SkillsOperationResponseMessage(
-                    operation: "uninstall",
-                    success: false,
-                    error: errorMsg,
-                    data: nil
-                )))
-            }
-        } catch {
-            log.error("Uninstall skill error: \(error.localizedDescription)")
-            onMessage?(.skillsOperationResponse(SkillsOperationResponseMessage(
-                    operation: "uninstall",
-                    success: false,
-                    error: error.localizedDescription,
-                    data: nil
-                )))
-        }
-    }
-
-    func updateSkill(name: String, isRetry: Bool = false) async {
-        guard let url = buildURL(for: .skillUpdate(id: name)) else { return }
-
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        applyAuth(&request)
-
-        do {
-            let (data, response) = try await URLSession.shared.data(for: request)
-
-            guard let http = response as? HTTPURLResponse else { return }
-
-            if http.statusCode == 200 {
-                onMessage?(.skillsOperationResponse(SkillsOperationResponseMessage(
-                    operation: "update",
-                    success: true,
-                    error: nil,
-                    data: nil
-                )))
-            } else if http.statusCode == 401 && !isRetry {
-                let refreshResult = await handleAuthenticationFailureAsync(responseData: data)
-                if case .success = refreshResult {
-                    await updateSkill(name: name, isRetry: true)
-                }
-            } else {
-                let errorMsg = extractErrorMessage(from: data)
-                onMessage?(.skillsOperationResponse(SkillsOperationResponseMessage(
-                    operation: "update",
-                    success: false,
-                    error: errorMsg,
-                    data: nil
-                )))
-            }
-        } catch {
-            log.error("Update skill error: \(error.localizedDescription)")
-            onMessage?(.skillsOperationResponse(SkillsOperationResponseMessage(
-                    operation: "update",
-                    success: false,
-                    error: error.localizedDescription,
-                    data: nil
-                )))
-        }
-    }
-
-    func checkSkillUpdates(isRetry: Bool = false) async {
-        guard let url = buildURL(for: .skillsCheckUpdates) else { return }
-
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        applyAuth(&request)
-
-        do {
-            let (data, response) = try await URLSession.shared.data(for: request)
-
-            guard let http = response as? HTTPURLResponse else { return }
-
-            if http.statusCode == 200 {
-                // The check-updates endpoint returns {data: ...}
-                // Emit as a skills_operation_response with success
-                onMessage?(.skillsOperationResponse(SkillsOperationResponseMessage(
-                    operation: "check_updates",
-                    success: true,
-                    error: nil,
-                    data: nil
-                )))
-            } else if http.statusCode == 401 && !isRetry {
-                let refreshResult = await handleAuthenticationFailureAsync(responseData: data)
-                if case .success = refreshResult {
-                    await checkSkillUpdates(isRetry: true)
-                }
-            } else {
-                let errorMsg = extractErrorMessage(from: data)
-                onMessage?(.skillsOperationResponse(SkillsOperationResponseMessage(
-                    operation: "check_updates",
-                    success: false,
-                    error: errorMsg,
-                    data: nil
-                )))
-            }
-        } catch {
-            log.error("Check skill updates error: \(error.localizedDescription)")
-            onMessage?(.skillsOperationResponse(SkillsOperationResponseMessage(
-                    operation: "check_updates",
-                    success: false,
-                    error: error.localizedDescription,
-                    data: nil
-                )))
-        }
-    }
-
-    func searchSkills(query: String, isRetry: Bool = false) async {
-        guard let url = buildURL(for: .skillsSearch(query: query)) else { return }
-
-        var request = URLRequest(url: url)
-        applyAuth(&request)
-
-        do {
-            let (data, response) = try await URLSession.shared.data(for: request)
-
-            guard let http = response as? HTTPURLResponse else { return }
-
-            if http.statusCode == 200 {
-                // The HTTP route returns { data: ... }. The handler emits
-                // skills_operation_response with operation: "search".
-                // Try to decode the `data` field as ClawhubSearchData.
-                var searchData: ClawhubSearchData?
-                if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-                   let dataObj = json["data"],
-                   let dataBytes = try? JSONSerialization.data(withJSONObject: dataObj) {
-                    searchData = try? decoder.decode(ClawhubSearchData.self, from: dataBytes)
-                }
-                onMessage?(.skillsOperationResponse(SkillsOperationResponseMessage(
-                    operation: "search",
-                    success: true,
-                    error: nil,
-                    data: searchData
-                )))
-            } else if http.statusCode == 401 && !isRetry {
-                let refreshResult = await handleAuthenticationFailureAsync(responseData: data)
-                if case .success = refreshResult {
-                    await searchSkills(query: query, isRetry: true)
-                }
-            } else {
-                let errorMsg = extractErrorMessage(from: data)
-                onMessage?(.skillsOperationResponse(SkillsOperationResponseMessage(
-                    operation: "search",
-                    success: false,
-                    error: errorMsg,
-                    data: nil
-                )))
-            }
-        } catch {
-            log.error("Skills search error: \(error.localizedDescription)")
-            onMessage?(.skillsOperationResponse(SkillsOperationResponseMessage(
-                    operation: "search",
-                    success: false,
-                    error: error.localizedDescription,
-                    data: nil
-                )))
-        }
-    }
-
-    func inspectSkill(slug: String, isRetry: Bool = false) async {
-        guard let url = buildURL(for: .skillInspect(id: slug)) else { return }
-
-        var request = URLRequest(url: url)
-        applyAuth(&request)
-
-        do {
-            let (data, response) = try await URLSession.shared.data(for: request)
-
-            guard let http = response as? HTTPURLResponse else { return }
-
-            if http.statusCode == 200 {
-                let patched = injectType("skills_inspect_response", into: data)
-                // The HTTP response may not contain "slug", inject it
-                var json = (try? JSONSerialization.jsonObject(with: patched) as? [String: Any]) ?? [:]
-                if json["slug"] == nil { json["slug"] = slug }
-                json["type"] = "skills_inspect_response"
-                let enriched = (try? JSONSerialization.data(withJSONObject: json)) ?? patched
-                let decoded = try decoder.decode(SkillsInspectResponseMessage.self, from: enriched)
-                onMessage?(.skillsInspectResponse(decoded))
-            } else if http.statusCode == 401 && !isRetry {
-                let refreshResult = await handleAuthenticationFailureAsync(responseData: data)
-                if case .success = refreshResult {
-                    await inspectSkill(slug: slug, isRetry: true)
-                }
-            } else {
-                log.error("Skill inspect failed (HTTP \(http.statusCode))")
-            }
-        } catch {
-            log.error("Skill inspect error: \(error.localizedDescription)")
-        }
-    }
-
-    func draftSkill(sourceText: String, isRetry: Bool = false) async {
-        guard let url = buildURL(for: .skillsDraft) else { return }
-
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        applyAuth(&request)
-
-        let body: [String: Any] = ["sourceText": sourceText]
-
-        do {
-            request.httpBody = try JSONSerialization.data(withJSONObject: body)
-            let (data, response) = try await URLSession.shared.data(for: request)
-
-            guard let http = response as? HTTPURLResponse else { return }
-
-            if http.statusCode == 200 {
-                let patched = injectType("skills_draft_response", into: data)
-                let decoded = try decoder.decode(SkillsDraftResponseMessage.self, from: patched)
-                onMessage?(.skillsDraftResponse(decoded))
-            } else if http.statusCode == 401 && !isRetry {
-                let refreshResult = await handleAuthenticationFailureAsync(responseData: data)
-                if case .success = refreshResult {
-                    await draftSkill(sourceText: sourceText, isRetry: true)
-                }
-            } else {
-                log.error("Skill draft failed (HTTP \(http.statusCode))")
-            }
-        } catch {
-            log.error("Skill draft error: \(error.localizedDescription)")
-        }
-    }
-
-    func createSkill(skillId: String, name: String, description: String, emoji: String?, bodyMarkdown: String, overwrite: Bool?, isRetry: Bool = false) async {
-        guard let url = buildURL(for: .skillsCreate) else { return }
-
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        applyAuth(&request)
-
-        var body: [String: Any] = [
-            "skillId": skillId,
-            "name": name,
-            "description": description,
-            "bodyMarkdown": bodyMarkdown
-        ]
-        if let emoji { body["emoji"] = emoji }
-        if let overwrite { body["overwrite"] = overwrite }
-
-        do {
-            request.httpBody = try JSONSerialization.data(withJSONObject: body)
-            let (data, response) = try await URLSession.shared.data(for: request)
-
-            guard let http = response as? HTTPURLResponse else { return }
-
-            if http.statusCode == 201 || http.statusCode == 200 {
-                onMessage?(.skillsOperationResponse(SkillsOperationResponseMessage(
-                    operation: "create",
-                    success: true,
-                    error: nil,
-                    data: nil
-                )))
-            } else if http.statusCode == 401 && !isRetry {
-                let refreshResult = await handleAuthenticationFailureAsync(responseData: data)
-                if case .success = refreshResult {
-                    await createSkill(skillId: skillId, name: name, description: description, emoji: emoji, bodyMarkdown: bodyMarkdown, overwrite: overwrite, isRetry: true)
-                }
-            } else {
-                let errorMsg = extractErrorMessage(from: data)
-                onMessage?(.skillsOperationResponse(SkillsOperationResponseMessage(
-                    operation: "create",
-                    success: false,
-                    error: errorMsg,
-                    data: nil
-                )))
-            }
-        } catch {
-            log.error("Create skill error: \(error.localizedDescription)")
-            onMessage?(.skillsOperationResponse(SkillsOperationResponseMessage(
-                    operation: "create",
-                    success: false,
-                    error: error.localizedDescription,
-                    data: nil
-                )))
         }
     }
 

@@ -304,12 +304,10 @@ struct MarkdownTableView: View {
     let rows: [[String]]
     var maxWidth: CGFloat = VSpacing.chatBubbleMaxWidth
 
-    @Environment(\.conversationZoomScale) private var zoomScale
-
     // MARK: - Table Cell AttributedString Cache
 
     /// Simple LRU cache for table cell inline markdown AttributedString results.
-    /// Keyed by "\(cellText)\t\(zoomScale)" to account for zoom changes.
+    /// Keyed by the cell text content.
     private static let cellCacheLimit = 200
 
     /// Ordered dictionary acting as an LRU cache: most-recently-used entries are at the end.
@@ -319,8 +317,8 @@ struct MarkdownTableView: View {
         cellCache.removeAll()
     }
 
-    @MainActor private static func cachedAttributedString(for text: String, zoomScale: CGFloat) -> AttributedString {
-        let key = "\(text)\t\(zoomScale)"
+    @MainActor private static func cachedAttributedString(for text: String) -> AttributedString {
+        let key = text
 
         // Check if already cached — if so, move to end (most-recently-used)
         if let idx = cellCache.firstIndex(where: { $0.key == key }) {
@@ -351,7 +349,7 @@ struct MarkdownTableView: View {
             HStack(spacing: 0) {
                 ForEach(Array(headers.enumerated()), id: \.offset) { _, header in
                     Text(header)
-                        .font(.custom("Inter-Medium", size: 11 * zoomScale))
+                        .font(.custom("Inter-Medium", size: 11))
                         .foregroundColor(VColor.contentSecondary)
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .padding(.horizontal, VSpacing.sm)
@@ -387,9 +385,9 @@ struct MarkdownTableView: View {
     }
 
     private func inlineMarkdownCell(_ text: String) -> some View {
-        let attributed = Self.cachedAttributedString(for: text, zoomScale: zoomScale)
+        let attributed = Self.cachedAttributedString(for: text)
         return Text(attributed)
-            .font(.custom("Inter", size: 13 * zoomScale))
+            .font(.custom("Inter", size: 13))
             .foregroundColor(VColor.contentDefault)
             .textSelection(.enabled)
             // lineLimit(nil) ensures text wraps within the column width

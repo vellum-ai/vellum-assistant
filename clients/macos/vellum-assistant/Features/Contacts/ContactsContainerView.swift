@@ -16,47 +16,97 @@ struct ContactsContainerView: View {
     var daemonClient: DaemonClient?
     var store: SettingsStore?
     var isEmailEnabled: Bool = false
+    var showToast: ((String, ToastInfo.Style) -> Void)?
 
     @StateObject private var viewModel: ContactsViewModel
     @State private var selection: ContactSelection? = .assistant
 
     private let contactClient: ContactClientProtocol = ContactClient()
 
-    init(daemonClient: DaemonClient?, store: SettingsStore? = nil, isEmailEnabled: Bool = false) {
+    init(daemonClient: DaemonClient?, store: SettingsStore? = nil, isEmailEnabled: Bool = false, showToast: ((String, ToastInfo.Style) -> Void)? = nil) {
         self.daemonClient = daemonClient
         self.store = store
         self.isEmailEnabled = isEmailEnabled
+        self.showToast = showToast
         _viewModel = StateObject(wrappedValue: ContactsViewModel(daemonClient: daemonClient))
     }
 
     var body: some View {
         HStack(alignment: .top, spacing: VSpacing.lg) {
             // Left pane: contacts list (full height, internal scrolling)
-            ContactsListView(
-                viewModel: viewModel,
-                selection: $selection
-            )
+            VStack(spacing: VSpacing.sm) {
+                ContactsListView(
+                    viewModel: viewModel,
+                    selection: $selection
+                )
+                .frame(maxHeight: .infinity, alignment: .top)
+
+                if let createContactError {
+                    VInlineMessage(createContactError)
+                }
+            }
             .frame(width: 320)
             .frame(maxHeight: .infinity, alignment: .top)
             // Right pane: detail, loading, or placeholder
             if viewModel.isLoading && viewModel.contacts.isEmpty {
-                // Loading state — contacts are being fetched
-                VStack(spacing: VSpacing.md) {
-                    ProgressView()
-                        .controlSize(.regular)
-                    Text("Loading contacts...")
-                        .font(VFont.body)
-                        .foregroundColor(VColor.contentSecondary)
+                // Skeleton loading state for detail pane
+                ScrollView {
+                    VStack(alignment: .leading, spacing: VSpacing.lg) {
+                        // Header card skeleton
+                        VStack(alignment: .leading, spacing: VSpacing.lg) {
+                            HStack(spacing: VSpacing.sm) {
+                                VSkeletonBone(width: 140, height: 18)
+                                VSkeletonBone(width: 60, height: 20, radius: VRadius.sm)
+                            }
+                            VSkeletonBone(width: 100, height: 12)
+                            VStack(alignment: .leading, spacing: VSpacing.md) {
+                                VStack(alignment: .leading, spacing: VSpacing.xs) {
+                                    VSkeletonBone(width: 40, height: 12)
+                                    VSkeletonBone(height: 28, radius: VRadius.md)
+                                }
+                                VStack(alignment: .leading, spacing: VSpacing.xs) {
+                                    VSkeletonBone(width: 40, height: 12)
+                                    VSkeletonBone(height: 80, radius: VRadius.md)
+                                }
+                            }
+                            VSkeletonBone(width: 60, height: 28, radius: VRadius.md)
+                        }
+                        .padding(VSpacing.lg)
+                        .vCard(radius: VRadius.lg, background: VColor.surfaceOverlay)
+
+                        // Channels card skeleton
+                        VStack(alignment: .leading, spacing: VSpacing.lg) {
+                            VSkeletonBone(width: 80, height: 16)
+                            VSkeletonBone(width: 200, height: 12)
+                            VStack(alignment: .leading, spacing: 0) {
+                                ForEach(0..<2, id: \.self) { index in
+                                    HStack(spacing: VSpacing.sm) {
+                                        VSkeletonBone(width: 16, height: 16, radius: VRadius.xs)
+                                        VSkeletonBone(width: 100, height: 14)
+                                        Spacer()
+                                        VSkeletonBone(width: 72, height: 28, radius: VRadius.md)
+                                    }
+                                    .frame(minHeight: 36)
+                                    .padding(.vertical, VSpacing.sm)
+                                    if index < 1 {
+                                        SettingsDivider()
+                                    }
+                                }
+                            }
+                        }
+                        .padding(VSpacing.lg)
+                        .vCard(radius: VRadius.lg, background: VColor.surfaceOverlay)
+                    }
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .background(VColor.surfaceOverlay)
+                .accessibilityHidden(true)
             } else {
                 switch selection {
                 case .assistant:
                     assistantDetailView
                         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
                 case .contact(let contactId):
-                    if let contact = viewModel.contacts.first(where: { $0.id == contactId }) {
+                    if let contact = viewModel.deduplicatedContacts.first(where: { $0.id == contactId }) {
                         if contact.role == "guardian" {
                             guardianDetailView(contact: contact)
                                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
@@ -70,6 +120,7 @@ struct ContactsContainerView: View {
                                     viewModel.loadContacts()
                                 },
                                 onSelectAssistant: { selection = .assistant },
+                                showToast: showToast,
                                 guardianName: viewModel.guardianContact?.displayName
                             )
                             .id(contactId)
@@ -135,6 +186,8 @@ struct ContactsContainerView: View {
                                 .font(VFont.inputLabel)
                                 .foregroundColor(VColor.contentSecondary)
                             VTextField(placeholder: "Your name", text: $guardianEditedName)
+                                .disabled(true)
+                                .opacity(0.6)
                         }
 
                         VStack(alignment: .leading, spacing: VSpacing.xs) {
@@ -164,6 +217,10 @@ struct ContactsContainerView: View {
                                 .controlSize(.small)
                         }
                     }
+
+                    if let guardianErrorMessage {
+                        VInlineMessage(guardianErrorMessage)
+                    }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(VSpacing.lg)
@@ -186,6 +243,9 @@ struct ContactsContainerView: View {
             guardianEditedNotes = contact.notes ?? ""
         }
         .onChange(of: contact) { _, newContact in
+            // Don't reset fields while a save is in flight — the reload
+            // triggers this with stale data before the API response propagates.
+            guard !guardianIsSaving else { return }
             guardianEditedName = newContact.displayName
             guardianEditedNotes = newContact.notes ?? ""
         }
@@ -198,6 +258,7 @@ struct ContactsContainerView: View {
         let trimmedNotes = guardianEditedNotes.trimmingCharacters(in: .whitespacesAndNewlines)
 
         guardianIsSaving = true
+        guardianErrorMessage = nil
         do {
             if let updated = try await contactClient.updateContact(
                 contactId: contact.id,
@@ -207,9 +268,14 @@ struct ContactsContainerView: View {
                 guardianEditedName = updated.displayName
                 guardianEditedNotes = updated.notes ?? ""
                 viewModel.loadContacts()
+                showToast?("Contact saved", .success)
+            } else {
+                guardianErrorMessage = "Failed to save changes. Please try again."
+                showToast?("Failed to save contact", .error)
             }
         } catch {
-            // Silently fail — user can retry
+            guardianErrorMessage = "Failed to save changes. Please try again."
+            showToast?("Failed to save contact", .error)
         }
         guardianIsSaving = false
     }
@@ -217,6 +283,9 @@ struct ContactsContainerView: View {
     @State private var guardianEditedName: String = ""
     @State private var guardianEditedNotes: String = ""
     @State private var guardianIsSaving: Bool = false
+    @State private var guardianErrorMessage: String?
+    @State private var isCreatingContact: Bool = false
+    @State private var createContactError: String?
 
     @State private var cachedAssistantName: String = AssistantDisplayName.placeholder
 
@@ -241,6 +310,9 @@ struct ContactsContainerView: View {
     /// list, and shows the detail pane so the user can edit inline.
     private func createPlaceholderContact() async {
         viewModel.isCreatingContact = false
+        guard !isCreatingContact else { return }
+        isCreatingContact = true
+        createContactError = nil
         do {
             let contact = try await contactClient.createContact(
                 displayName: "New Contact",
@@ -254,7 +326,8 @@ struct ContactsContainerView: View {
                 selection = .contact(contact.id)
             }
         } catch {
-            // Silently fail — user can retry via the + button
+            createContactError = "Failed to create contact: \(error.localizedDescription)"
         }
+        isCreatingContact = false
     }
 }

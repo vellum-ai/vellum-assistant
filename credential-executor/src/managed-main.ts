@@ -133,14 +133,16 @@ function buildHandlers(sessionIdRef: SessionIdRef, apiKeyRef: ApiKeyRef): RpcHan
 
   // -- Build handler registry ------------------------------------------------
   // NOTE: local_static credential handles are NOT supported in managed mode.
-  // The encrypted key store uses PBKDF2 key derivation from user identity
-  // (username, homedir), but the assistant container runs as root while CES
-  // runs as ces — different derived keys make decryption silently fail.
-  // Managed deployments must use platform_oauth handles exclusively.
+  // v2 stores use a UID-independent `store.key` file that removes the
+  // technical barrier (legacy v1 stores relied on PBKDF2 key derivation
+  // from user identity, which broke across container users). The managed-
+  // mode restriction is now a policy choice: managed deployments use
+  // platform_oauth handles exclusively for simpler lifecycle and
+  // centralized token management.
   //
   // We provide error-returning stubs for localMaterialiser/localSubjectDeps
   // so the HTTP handler compiles but any local_static request gets a clear
-  // error message rather than a silent decryption failure.
+  // rejection message.
 
   const localMaterialiserStub = {
     materialise: async () => ({

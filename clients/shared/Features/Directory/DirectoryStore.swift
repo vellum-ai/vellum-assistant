@@ -1,4 +1,3 @@
-import Combine
 import Foundation
 
 /// Cross-platform store for directory data operations (local apps, shared apps, documents).
@@ -20,20 +19,39 @@ public final class DirectoryStore: ObservableObject {
 
     // MARK: - Private State
 
-    private let daemonClient: DaemonClient
+    private let appsClient: AppsClientProtocol
+    private let documentClient: DocumentClientProtocol
+    /// Daemon client retained for push event subscriptions (appFilesChanged)
+    /// which use message transport.
+    private weak var daemonClient: DaemonClient?
     private var appFilesChangedTask: Task<Void, Never>?
     private var debounceTask: Task<Void, Never>?
+    private var reconnectObserver: NSObjectProtocol?
 
     // MARK: - Init
 
-    public init(daemonClient: DaemonClient) {
+    public init(daemonClient: DaemonClient, documentClient: DocumentClientProtocol = DocumentClient()) {
+        self.appsClient = AppsClient()
+        self.documentClient = documentClient
         self.daemonClient = daemonClient
         subscribeToAppFilesChanged()
+        reconnectObserver = NotificationCenter.default.addObserver(
+            forName: .daemonDidReconnect,
+            object: nil,
+            queue: nil
+        ) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                self?.subscribeToAppFilesChanged()
+            }
+        }
     }
 
     deinit {
         appFilesChangedTask?.cancel()
         debounceTask?.cancel()
+        if let reconnectObserver {
+            NotificationCenter.default.removeObserver(reconnectObserver)
+        }
     }
 
     // MARK: - Local Apps
@@ -43,51 +61,32 @@ public final class DirectoryStore: ObservableObject {
         isLoadingApps = true
 
         Task {
-            let stream = daemonClient.subscribe()
-
-            do {
-                try daemonClient.sendAppsList()
-            } catch {
-                isLoadingApps = false
-                return
-            }
-
-            let result = await stream.firstMatch { message -> (success: Bool, apps: [AppItem])? in
-                if case .appsListResponse(let response) = message {
-                    return (success: response.success, apps: response.apps)
-                }
-                return nil
-            }
-            if let result, result.success {
-                self.localApps = result.apps
+            let response = await appsClient.fetchAppsList()
+            if let response, response.success {
+                self.localApps = response.apps
             }
             isLoadingApps = false
         }
     }
 
-    /// Open a local app by ID.
+    /// Open a local app by ID (fire-and-forget).
     public func openApp(id: String) {
-        try? daemonClient.sendAppOpen(appId: id)
+        guard let daemonClient else { return }
+        Task { await AppsClient.openAppAndDispatchSurface(id: id, daemonClient: daemonClient) }
+    }
+
+    /// Open a local app by ID, returning the result for callers that need to
+    /// dispatch a surface show event.
+    @discardableResult
+    public func openAppAsync(id: String) async -> AppOpenResult? {
+        await appsClient.openApp(id: id)
     }
 
     /// Delete a local app by ID.
     public func deleteApp(id: String) {
         Task {
-            let stream = daemonClient.subscribe()
-
-            do {
-                try daemonClient.sendAppDelete(appId: id)
-            } catch {
-                return
-            }
-
-            let success = await stream.firstMatch { message -> Bool? in
-                if case .appDeleteResponse(let response) = message {
-                    return response.success
-                }
-                return nil
-            }
-            if success == true {
+            let response = await appsClient.deleteApp(id: id)
+            if response?.success == true {
                 fetchApps()
             }
         }
@@ -95,21 +94,8 @@ public final class DirectoryStore: ObservableObject {
 
     /// Share a local app to the cloud. Returns `true` on success.
     public func shareAppCloud(id: String) async -> Bool {
-        let stream = daemonClient.subscribe()
-
-        do {
-            try daemonClient.sendShareAppCloud(appId: id)
-        } catch {
-            return false
-        }
-
-        let result = await stream.firstMatch { message -> Bool? in
-            if case .shareAppCloudResponse(let response) = message {
-                return response.success
-            }
-            return nil
-        }
-        return result ?? false
+        let response = await appsClient.shareAppCloud(appId: id)
+        return response?.success ?? false
     }
 
     // MARK: - Shared Apps
@@ -119,22 +105,12 @@ public final class DirectoryStore: ObservableObject {
         isLoadingSharedApps = true
 
         Task {
-            let stream = daemonClient.subscribe()
-
-            do {
-                try daemonClient.sendSharedAppsList()
-            } catch {
-                isLoadingSharedApps = false
-                return
-            }
-
-            let result = await stream.firstMatch { message -> [SharedAppItem]? in
-                if case .sharedAppsListResponse(let response) = message {
-                    return response.apps
+            let response = await appsClient.fetchSharedAppsList()
+            if let response {
+                if !response.apps.isEmpty || self.sharedApps.isEmpty {
+                    self.sharedApps = response.apps
                 }
-                return nil
             }
-            self.sharedApps = result ?? self.sharedApps
             isLoadingSharedApps = false
         }
     }
@@ -142,21 +118,8 @@ public final class DirectoryStore: ObservableObject {
     /// Delete a shared app by UUID.
     public func deleteSharedApp(uuid: String) {
         Task {
-            let stream = daemonClient.subscribe()
-
-            do {
-                try daemonClient.sendSharedAppDelete(uuid: uuid)
-            } catch {
-                return
-            }
-
-            let success = await stream.firstMatch { message -> Bool? in
-                if case .sharedAppDeleteResponse(let response) = message {
-                    return response.success
-                }
-                return nil
-            }
-            if success == true {
+            let response = await appsClient.deleteSharedApp(uuid: uuid)
+            if response?.success == true {
                 fetchSharedApps()
             }
         }
@@ -164,61 +127,37 @@ public final class DirectoryStore: ObservableObject {
 
     /// Fork a shared app by UUID. Returns `true` on success.
     public func forkSharedApp(uuid: String) async -> Bool {
-        let stream = daemonClient.subscribe()
-
-        do {
-            try daemonClient.sendForkSharedApp(uuid: uuid)
-        } catch {
-            return false
-        }
-
-        let result = await stream.firstMatch { message -> Bool? in
-            if case .forkSharedAppResponse(let response) = message {
-                return response.success
-            }
-            return nil
-        }
-        if result == true {
+        let response = await appsClient.forkSharedApp(uuid: uuid)
+        let success = response?.success ?? false
+        if success {
             fetchApps()
         }
-        return result ?? false
+        return success
     }
 
     /// Bundle a local app for sharing.
     public func bundleApp(id: String) {
-        try? daemonClient.sendBundleApp(appId: id)
+        Task { _ = await appsClient.bundleApp(appId: id) }
     }
 
     // MARK: - Documents
 
-    /// Fetch the list of documents from the daemon.
+    /// Fetch the list of documents via the gateway.
     public func fetchDocuments(conversationId: String? = nil) {
         isLoadingDocuments = true
 
         Task {
-            let stream = daemonClient.subscribe()
-
-            do {
-                try daemonClient.sendDocumentList(conversationId: conversationId)
-            } catch {
-                isLoadingDocuments = false
-                return
-            }
-
-            let result = await stream.firstMatch { message -> [DocumentListItem]? in
-                if case .documentListResponse(let response) = message {
-                    return response.documents.map { doc in
-                        DocumentListItem(
-                            id: doc.surfaceId,
-                            title: doc.title,
-                            wordCount: doc.wordCount,
-                            updatedAt: Date(timeIntervalSince1970: TimeInterval(doc.updatedAt) / 1000.0)
-                        )
-                    }
+            let response = await documentClient.fetchList(conversationId: conversationId)
+            if let response {
+                self.documents = response.documents.map { doc in
+                    DocumentListItem(
+                        id: doc.surfaceId,
+                        title: doc.title,
+                        wordCount: doc.wordCount,
+                        updatedAt: Date(timeIntervalSince1970: TimeInterval(doc.updatedAt) / 1000.0)
+                    )
                 }
-                return nil
             }
-            self.documents = result ?? self.documents
             isLoadingDocuments = false
         }
     }
@@ -226,20 +165,7 @@ public final class DirectoryStore: ObservableObject {
     /// Load a specific document by surface ID.
     public func loadDocument(surfaceId: String) {
         Task {
-            let stream = daemonClient.subscribe()
-
-            do {
-                try daemonClient.sendDocumentLoad(surfaceId: surfaceId)
-            } catch {
-                return
-            }
-
-            _ = await stream.firstMatch { message -> Bool? in
-                if case .documentLoadResponse = message {
-                    return true
-                }
-                return nil
-            }
+            _ = await documentClient.fetchDocument(surfaceId: surfaceId)
         }
     }
 
@@ -247,6 +173,7 @@ public final class DirectoryStore: ObservableObject {
 
     /// Subscribe to appFilesChanged broadcasts with debounce, then refresh local apps.
     private func subscribeToAppFilesChanged() {
+        appFilesChangedTask?.cancel()
         appFilesChangedTask = Task { [weak self] in
             guard let daemonClient = self?.daemonClient else { return }
             let stream = daemonClient.subscribe()

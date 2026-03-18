@@ -119,6 +119,16 @@ public final class TraceStore: ObservableObject {
         schedulePublish()
     }
 
+    // MARK: - History Loading
+
+    /// Load persisted trace events from the daemon, deduplicating against any
+    /// already-ingested real-time events.
+    public func loadHistory(_ events: [TraceEventMessage]) {
+        for event in events {
+            ingest(event) // ingest() already handles dedup via seenIds
+        }
+    }
+
     // MARK: - Queries
 
     /// Events for a conversation grouped by requestId. Events with nil requestId go under an empty-string key.

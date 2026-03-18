@@ -220,7 +220,7 @@ export async function emitNotificationSignal<TEventName extends string>(
       sourceChannel: params.sourceChannel,
       sourceContextId: params.sourceContextId,
       attentionHints: params.attentionHints,
-      payload: params.contextPayload ?? {},
+      payload: (params.contextPayload ?? {}) as Record<string, unknown>,
       dedupeKey: params.dedupeKey,
     });
 
@@ -256,6 +256,7 @@ export async function emitNotificationSignal<TEventName extends string>(
       decision,
       signal.routingIntent,
       connectedChannels,
+      signal.sourceChannel,
     );
 
     // Re-persist the decision if routing intent enforcement changed it,

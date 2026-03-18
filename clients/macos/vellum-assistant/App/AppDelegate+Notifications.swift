@@ -46,7 +46,7 @@ extension AppDelegate {
             identifier: "TOOL_CONFIRMATION",
             actions: [confirmAllowAction, confirmDenyAction],
             intentIdentifiers: [],
-            options: [.customDismissAction]
+            options: []
         )
 
         let viewResponseAction = UNNotificationAction(
@@ -485,15 +485,27 @@ extension AppDelegate: UNUserNotificationCenterDelegate {
                 decision = "allow"
             case "CONFIRM_DENY":
                 decision = "deny"
-            case UNNotificationDismissActionIdentifier:
-                decision = "deny"
             default:
-                // Default action (clicked banner) — deny and bring app forward
-                decision = "deny"
+                // User clicked the notification banner — bring app forward to the
+                // confirmation's conversation and let the inline bubble handle it.
+                // Do NOT auto-deny.
                 await MainActor.run {
                     guard !self.isBootstrapping else { return }
-                    self.showMainWindow()
+                    let conversationId = response.notification.request.content.userInfo["conversationId"] as? String
+                    if let conversationId {
+                        self.openConversation(conversationId: conversationId)
+                    } else {
+                        self.showMainWindow()
+                    }
                 }
+                await MainActor.run {
+                    self.toolConfirmationNotificationService.handleInlineResponse(requestId: requestId)
+                }
+                // Remove the delivered notification since the user is now in the app
+                UNUserNotificationCenter.current().removeDeliveredNotifications(
+                    withIdentifiers: [response.notification.request.identifier]
+                )
+                return
             }
             await MainActor.run {
                 self.toolConfirmationNotificationService.handleResponse(requestId: requestId, decision: decision)

@@ -701,32 +701,36 @@ async function hatchLocal(
 
   await startLocalDaemon(watch, resources);
 
-  let runtimeUrl: string;
-  try {
-    runtimeUrl = await startGateway(watch, resources);
-  } catch (error) {
-    // Gateway failed — stop the daemon we just started so we don't leave
-    // orphaned processes with no lock file entry.
-    console.error(
-      `\n❌ Gateway startup failed — stopping assistant to avoid orphaned processes.`,
-    );
-    await stopLocalProcesses(resources);
-    throw error;
-  }
+  // When daemonOnly is set, skip gateway and ngrok — the caller only wants
+  // the daemon restarted (e.g. macOS app bootstrap retry).
+  let runtimeUrl = `http://127.0.0.1:${resources.gatewayPort}`;
+  if (!daemonOnly) {
+    try {
+      runtimeUrl = await startGateway(watch, resources);
+    } catch (error) {
+      // Gateway failed — stop the daemon we just started so we don't leave
+      // orphaned processes with no lock file entry.
+      console.error(
+        `\n❌ Gateway startup failed — stopping assistant to avoid orphaned processes.`,
+      );
+      await stopLocalProcesses(resources);
+      throw error;
+    }
 
-  // Auto-start ngrok if webhook integrations (e.g. Telegram) are configured.
-  // Set BASE_DATA_DIR so ngrok reads the correct instance config.
-  const prevBaseDataDir = process.env.BASE_DATA_DIR;
-  process.env.BASE_DATA_DIR = resources.instanceDir;
-  const ngrokChild = await maybeStartNgrokTunnel(resources.gatewayPort);
-  if (ngrokChild?.pid) {
-    const ngrokPidFile = join(resources.instanceDir, ".vellum", "ngrok.pid");
-    writeFileSync(ngrokPidFile, String(ngrokChild.pid));
-  }
-  if (prevBaseDataDir !== undefined) {
-    process.env.BASE_DATA_DIR = prevBaseDataDir;
-  } else {
-    delete process.env.BASE_DATA_DIR;
+    // Auto-start ngrok if webhook integrations (e.g. Telegram, Twilio) are configured.
+    // Set BASE_DATA_DIR so ngrok reads the correct instance config.
+    const prevBaseDataDir = process.env.BASE_DATA_DIR;
+    process.env.BASE_DATA_DIR = resources.instanceDir;
+    const ngrokChild = await maybeStartNgrokTunnel(resources.gatewayPort);
+    if (ngrokChild?.pid) {
+      const ngrokPidFile = join(resources.instanceDir, ".vellum", "ngrok.pid");
+      writeFileSync(ngrokPidFile, String(ngrokChild.pid));
+    }
+    if (prevBaseDataDir !== undefined) {
+      process.env.BASE_DATA_DIR = prevBaseDataDir;
+    } else {
+      delete process.env.BASE_DATA_DIR;
+    }
   }
 
   const localEntry: AssistantEntry = {
@@ -757,7 +761,12 @@ async function hatchLocal(
   }
 
   if (keepAlive) {
-    const gatewayHealthUrl = `http://127.0.0.1:${resources.gatewayPort}/healthz`;
+    // When --daemon-only is set, no gateway is running — poll the daemon
+    // health endpoint instead of the gateway to avoid self-termination.
+    const healthUrl = daemonOnly
+      ? `http://127.0.0.1:${resources.daemonPort}/healthz`
+      : `http://127.0.0.1:${resources.gatewayPort}/healthz`;
+    const healthTarget = daemonOnly ? "Assistant" : "Gateway";
     const POLL_INTERVAL_MS = 5000;
     const MAX_FAILURES = 3;
     let consecutiveFailures = 0;
@@ -771,11 +780,11 @@ async function hatchLocal(
     process.on("SIGTERM", () => void shutdown());
     process.on("SIGINT", () => void shutdown());
 
-    // Poll the gateway health endpoint until it stops responding.
+    // Poll the health endpoint until it stops responding.
     while (true) {
       await new Promise((r) => setTimeout(r, POLL_INTERVAL_MS));
       try {
-        const res = await fetch(gatewayHealthUrl, {
+        const res = await fetch(healthUrl, {
           signal: AbortSignal.timeout(3000),
         });
         if (res.ok) {
@@ -787,7 +796,9 @@ async function hatchLocal(
         consecutiveFailures++;
       }
       if (consecutiveFailures >= MAX_FAILURES) {
-        console.log("\n⚠️  Gateway stopped responding — shutting down.");
+        console.log(
+          `\n⚠️  ${healthTarget} stopped responding — shutting down.`,
+        );
         await stopLocalProcesses(resources);
         process.exit(1);
       }

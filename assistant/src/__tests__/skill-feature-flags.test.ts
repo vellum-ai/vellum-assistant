@@ -81,14 +81,14 @@ describe("skillFlagKey", () => {
 // ---------------------------------------------------------------------------
 
 describe("isAssistantFeatureFlagEnabled with skillFlagKey", () => {
-  test("returns false when no flag overrides (registry default is false)", () => {
+  test("returns true when no flag overrides (registry default is true)", () => {
     const config = makeConfig();
     expect(
       isAssistantFeatureFlagEnabled(
         skillFlagKey({ featureFlag: DECLARED_FLAG_ID })!,
         config,
       ),
-    ).toBe(false);
+    ).toBe(true);
   });
 
   test("returns true when skill key is explicitly true", () => {
@@ -140,10 +140,8 @@ describe("isAssistantFeatureFlagEnabled", () => {
 
   test("falls back to registry default when no override", () => {
     const config = makeConfig();
-    // contacts defaults to false in the registry
-    expect(isAssistantFeatureFlagEnabled(DECLARED_FLAG_KEY, config)).toBe(
-      false,
-    );
+    // contacts defaults to true in the registry
+    expect(isAssistantFeatureFlagEnabled(DECLARED_FLAG_KEY, config)).toBe(true);
   });
 
   test("respects persisted overrides for undeclared keys", () => {
@@ -207,13 +205,14 @@ describe("resolveSkillStates with feature flags", () => {
     expect(ids).toContain("browser");
   });
 
-  test("declared flag key defaults to registry value (false)", () => {
+  test("declared flag key defaults to registry value (true)", () => {
     const catalog = [makeSkill(DECLARED_SKILL_ID, "bundled", DECLARED_FLAG_ID)];
     const config = makeConfig();
 
     const resolved = resolveSkillStates(catalog, config);
-    // contacts registry default is false, so it's filtered out
-    expect(resolved.length).toBe(0);
+    // contacts registry default is true, so it passes through
+    expect(resolved.length).toBe(1);
+    expect(resolved[0].summary.id).toBe(DECLARED_SKILL_ID);
   });
 
   test("skill without featureFlag is never flag-gated", () => {
@@ -280,14 +279,15 @@ describe("resolveSkillStates with feature flags", () => {
 // ---------------------------------------------------------------------------
 
 describe("resolveSkillStates with frontmatter featureFlag", () => {
-  test("skill with featureFlag (defaultEnabled: false) is filtered when no config override", () => {
-    // contacts has defaultEnabled: false in the registry
+  test("skill with featureFlag (defaultEnabled: true) is included when no config override", () => {
+    // contacts has defaultEnabled: true in the registry
     const catalog = [makeSkill(DECLARED_SKILL_ID, "bundled", DECLARED_FLAG_ID)];
     const config = makeConfig();
 
     const resolved = resolveSkillStates(catalog, config);
-    // No override, registry default is false → filtered out
-    expect(resolved.length).toBe(0);
+    // No override, registry default is true → passes through
+    expect(resolved.length).toBe(1);
+    expect(resolved[0].summary.id).toBe(DECLARED_SKILL_ID);
   });
 
   test("skill with featureFlag is included when config override enables it", () => {

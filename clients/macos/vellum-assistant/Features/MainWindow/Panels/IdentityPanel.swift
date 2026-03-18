@@ -175,7 +175,12 @@ struct IdentityPanel: View {
                 }
 
                 if !isBootstrapActive && introText == nil {
-                    generateIntro()
+                    // Prefer SOUL.md intro; fall back to daemon generation
+                    if let soulIntro = IdentityInfo.loadIdentityIntro() {
+                        introText = soulIntro
+                    } else {
+                        generateIntro()
+                    }
                 }
             }
             .onDisappear { introTask?.cancel() }
@@ -215,19 +220,9 @@ struct IdentityPanel: View {
 
     private func fetchSkills() {
         Task {
-            let stream = daemonClient.subscribe()
-
-            do {
-                try daemonClient.send(SkillsListRequestMessage())
-            } catch {
-                return
-            }
-
-            for await message in stream {
-                if case .skillsListResponse(let response) = message {
-                    skills = response.skills.filter { $0.state == "enabled" }
-                    return
-                }
+            let response = await SkillsClient().fetchSkillsList()
+            if let response {
+                skills = response.skills.filter { $0.state == "enabled" }
             }
         }
     }

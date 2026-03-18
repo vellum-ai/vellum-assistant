@@ -46,6 +46,7 @@ import {
   deleteApp,
   deleteConnection,
   disconnectOAuthProvider,
+  getActiveConnection,
   getApp,
   getAppByProviderAndClientId,
   getConnection,
@@ -628,6 +629,120 @@ describe("connection operations", () => {
 
     test("returns undefined for unknown id", () => {
       expect(getConnection("nonexistent-id")).toBeUndefined();
+    });
+  });
+
+  describe("getActiveConnection", () => {
+    test("returns the most recent active connection with no filters", async () => {
+      const app = await createTestApp("github", "client-1");
+
+      createConnection({
+        oauthAppId: app.id,
+        providerKey: "github",
+        grantedScopes: ["repo"],
+        hasRefreshToken: false,
+        createdAt: 1000,
+      });
+
+      const conn2 = createConnection({
+        oauthAppId: app.id,
+        providerKey: "github",
+        grantedScopes: ["repo", "user"],
+        hasRefreshToken: true,
+        createdAt: 2000,
+      });
+
+      const result = getActiveConnection("github");
+      expect(result).toBeDefined();
+      expect(result!.id).toBe(conn2.id);
+    });
+
+    test("narrows by account when provided", async () => {
+      const app = await createTestApp("github", "client-1");
+
+      const conn1 = createConnection({
+        oauthAppId: app.id,
+        providerKey: "github",
+        accountInfo: "user1@example.com",
+        grantedScopes: ["repo"],
+        hasRefreshToken: false,
+        createdAt: 1000,
+      });
+
+      createConnection({
+        oauthAppId: app.id,
+        providerKey: "github",
+        accountInfo: "user2@example.com",
+        grantedScopes: ["repo"],
+        hasRefreshToken: false,
+        createdAt: 2000,
+      });
+
+      const result = getActiveConnection("github", {
+        account: "user1@example.com",
+      });
+      expect(result).toBeDefined();
+      expect(result!.id).toBe(conn1.id);
+    });
+
+    test("narrows by clientId when provided", async () => {
+      const app1 = await createTestApp("github", "client-a");
+      const app2 = await createTestApp("github", "client-b");
+
+      const conn1 = createConnection({
+        oauthAppId: app1.id,
+        providerKey: "github",
+        grantedScopes: ["repo"],
+        hasRefreshToken: false,
+        createdAt: 1000,
+      });
+
+      createConnection({
+        oauthAppId: app2.id,
+        providerKey: "github",
+        grantedScopes: ["repo"],
+        hasRefreshToken: false,
+        createdAt: 2000,
+      });
+
+      const result = getActiveConnection("github", { clientId: "client-a" });
+      expect(result).toBeDefined();
+      expect(result!.id).toBe(conn1.id);
+    });
+
+    test("returns undefined when clientId has no matching app", async () => {
+      const app = await createTestApp("github", "client-1");
+
+      createConnection({
+        oauthAppId: app.id,
+        providerKey: "github",
+        grantedScopes: ["repo"],
+        hasRefreshToken: false,
+      });
+
+      const result = getActiveConnection("github", {
+        clientId: "nonexistent",
+      });
+      expect(result).toBeUndefined();
+    });
+
+    test("skips revoked connections", async () => {
+      const app = await createTestApp("github", "client-1");
+
+      const conn = createConnection({
+        oauthAppId: app.id,
+        providerKey: "github",
+        grantedScopes: ["repo"],
+        hasRefreshToken: false,
+      });
+      updateConnection(conn.id, { status: "revoked" });
+
+      const result = getActiveConnection("github");
+      expect(result).toBeUndefined();
+    });
+
+    test("returns undefined when no connections exist", () => {
+      expect(getActiveConnection("github")).toBeUndefined();
     });
   });
 
