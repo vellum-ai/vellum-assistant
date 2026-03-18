@@ -25,20 +25,24 @@ git diff --cached --name-only -z > "$STAGED_ALL_FILE"
 # so that formatting drift on the incoming branch doesn't block the commit.
 MERGE_HEAD_FILE="$(git rev-parse --git-dir)/MERGE_HEAD"
 if [ -f "$MERGE_HEAD_FILE" ]; then
-    MERGE_HEAD_SHA=$(cat "$MERGE_HEAD_FILE" | head -1)
-    # Files the author changed: diff between the merge base and HEAD (our branch).
-    # This excludes files that only changed on the incoming branch.
+    MERGE_HEAD_SHA=$(head -1 "$MERGE_HEAD_FILE")
     MERGE_BASE=$(git merge-base HEAD "$MERGE_HEAD_SHA" 2>/dev/null || echo "")
     if [ -n "$MERGE_BASE" ]; then
         AUTHOR_CHANGED_FILE=$(mktemp)
         trap 'rm -f "$STAGED_ACM_FILE" "$STAGED_ALL_FILE" "$AUTHOR_ACM_FILE" "$AUTHOR_CHANGED_FILE"' EXIT
+        # Two sources of author-changed files:
+        # 1. Files changed on the author's branch (committed history before the merge).
         git diff --name-only "$MERGE_BASE"..HEAD -z > "$AUTHOR_CHANGED_FILE"
-        # Intersect: keep only staged files that the author changed on their branch.
-        # Both files are NUL-delimited; we convert to newline, sort, intersect, then
-        # convert back to NUL-delimited.
+        # 2. Files where the staged content differs from MERGE_HEAD. This catches
+        #    edits the author made during a --no-commit merge (e.g. conflict
+        #    resolution tweaks or manual fixups to incoming-branch files).
+        git diff --name-only "$MERGE_HEAD_SHA" --cached -z >> "$AUTHOR_CHANGED_FILE"
+        # Intersect: keep only staged files that appear in either source above.
+        # Both files are NUL-delimited; convert to newline, sort -u (deduplicate
+        # the union from the two sources), intersect with staged, convert back.
         comm -12 \
             <(tr '\0' '\n' < "$STAGED_ACM_FILE" | sort) \
-            <(tr '\0' '\n' < "$AUTHOR_CHANGED_FILE" | sort) \
+            <(tr '\0' '\n' < "$AUTHOR_CHANGED_FILE" | sort -u) \
             | tr '\n' '\0' > "$AUTHOR_ACM_FILE"
     else
         # Couldn't determine merge base — fall back to all staged files.

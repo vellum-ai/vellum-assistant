@@ -60,7 +60,7 @@ Runs before pushing to catch issues that would fail CI.
 2. **Lint** — Runs `eslint` on changed `.ts`/`.tsx`/`.js`/`.jsx`/`.mjs` files in `assistant/`, `cli/`, and `gateway/`.
 3. **Related tests** — Finds and runs test files matching changed source file stems using filename heuristics.
 
-**Merge-aware:** Uses triple-dot diff (`REMOTE_SHA...HEAD`) to determine changed files, so after merging main into a feature branch only the feature branch's own changes are checked — not every file that came in from main.
+**Merge-aware:** When the push range contains merge commits, diffs against the `origin/main` merge-base instead of the remote branch tip, so after merging main into a feature branch only the feature branch's own changes are checked — not every file that came in from main.
 
 **Bypass (not recommended):**
 ```bash
