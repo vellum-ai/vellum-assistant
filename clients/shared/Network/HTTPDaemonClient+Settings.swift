@@ -24,7 +24,7 @@ extension HTTPTransport {
 
             // --- Dictation ---
             if let msg = message as? DictationRequest {
-                Task { await self.sendEncodablePost(.dictation, body: msg, label: "dictation_request") }
+                Task { await self.sendDictationPostAndDispatch(msg) }
                 return true
             }
 
@@ -178,6 +178,79 @@ extension HTTPTransport {
         }
     }
 
+    /// Send a dictation request and route the HTTP response back through the
+    /// normal message handler chain as `dictation_response`.
+    ///
+    /// Dictation runs over HTTP, but the macOS UI waits for the corresponding
+    /// callback to dismiss the processing overlay. If the HTTP request fails,
+    /// fall back to the raw transcription so speech input is not lost.
+    func sendDictationPostAndDispatch(_ body: DictationRequest) async {
+        let label = "dictation_request"
+        guard let url = buildURL(for: .dictation) else {
+            log.error("Failed to build URL for \(label)")
+            dispatchFallbackDictationResponse(
+                body: body,
+                errorMessage: "Failed to build URL"
+            )
+            return
+        }
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        applyAuth(&request)
+
+        do {
+            request.httpBody = try encoder.encode(body)
+            let (data, response) = try await URLSession.shared.data(for: request)
+            guard let http = response as? HTTPURLResponse else {
+                dispatchFallbackDictationResponse(
+                    body: body,
+                    errorMessage: "Missing HTTP response"
+                )
+                return
+            }
+
+            if !(200...299).contains(http.statusCode) {
+                log.error("\(label) failed: \(http.statusCode)")
+                var errorMessage = "HTTP \(http.statusCode)"
+                if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                   let error = json["error"] as? [String: Any],
+                   let message = error["message"] as? String {
+                    errorMessage = message
+                } else if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                          let message = json["error"] as? String {
+                    errorMessage = message
+                }
+                dispatchFallbackDictationResponse(
+                    body: body,
+                    errorMessage: errorMessage
+                )
+                return
+            }
+
+            guard var json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+                log.error("\(label): failed to parse response JSON")
+                dispatchFallbackDictationResponse(
+                    body: body,
+                    errorMessage: "Failed to parse response JSON"
+                )
+                return
+            }
+
+            json["type"] = "dictation_response"
+            let enriched = try JSONSerialization.data(withJSONObject: json)
+            let serverMessage = try decoder.decode(ServerMessage.self, from: enriched)
+            onMessage?(serverMessage)
+        } catch {
+            log.error("\(label) error: \(error.localizedDescription)")
+            dispatchFallbackDictationResponse(
+                body: body,
+                errorMessage: error.localizedDescription
+            )
+        }
+    }
+
     /// Send an HTTP request with an Encodable body and dispatch the response
     /// as a `ServerMessage` through the SSE message handler chain.
     ///
@@ -271,6 +344,27 @@ extension HTTPTransport {
         }
         if let syntheticData = try? JSONSerialization.data(withJSONObject: syntheticJSON),
            let serverMessage = try? decoder.decode(ServerMessage.self, from: syntheticData) {
+            onMessage?(serverMessage)
+        }
+    }
+
+    /// Synthesize a dictation response so the UI can recover from transport
+    /// failures without leaving the spinner stuck.
+    ///
+    /// For transform commands, preserve the originally selected text rather
+    /// than replacing it with the spoken instruction.
+    private func dispatchFallbackDictationResponse(body: DictationRequest, errorMessage: String) {
+        log.warning("Falling back to raw dictation response after HTTP failure: \(errorMessage, privacy: .public)")
+        let hasSelectedText = !(body.context.selectedText?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true)
+        let fallbackText = hasSelectedText ? (body.context.selectedText ?? body.transcription) : body.transcription
+        let fallbackMode = hasSelectedText ? "command" : "dictation"
+        let fallbackJSON: [String: Any] = [
+            "type": "dictation_response",
+            "text": fallbackText,
+            "mode": fallbackMode,
+        ]
+        if let fallbackData = try? JSONSerialization.data(withJSONObject: fallbackJSON),
+           let serverMessage = try? decoder.decode(ServerMessage.self, from: fallbackData) {
             onMessage?(serverMessage)
         }
     }
