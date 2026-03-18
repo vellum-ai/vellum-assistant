@@ -2,7 +2,9 @@ import SwiftUI
 import UniformTypeIdentifiers
 import VellumAssistantShared
 
-/// Modal overlay for managing the avatar: build a character, upload, or delete.
+/// Modal for managing the user's avatar: build a character, upload an image,
+/// or delete the current avatar. Uses VModal's `backAction` to navigate
+/// between the action list and the character builder sub-screen.
 struct AvatarManagementSheet: View {
     let onClose: () -> Void
 
@@ -12,75 +14,42 @@ struct AvatarManagementSheet: View {
     @State private var draftBody: AvatarBodyShape?
     @State private var draftEyes: AvatarEyeStyle?
     @State private var draftColor: AvatarColor?
-    // Snapshot of values when builder opened, for dirty tracking
     @State private var initialBody: AvatarBodyShape?
     @State private var initialEyes: AvatarEyeStyle?
     @State private var initialColor: AvatarColor?
 
     var body: some View {
-        VStack(spacing: 0) {
-            // Header with close/back button
-            HStack {
-                if showingCharacterBuilder {
-                    Button {
-                        withAnimation(VAnimation.fast) {
-                            draftImage = nil
-                            draftBody = nil
-                            draftEyes = nil
-                            draftColor = nil
-                            showingCharacterBuilder = false
-                        }
-                    } label: {
-                        HStack(spacing: VSpacing.xs) {
-                            VIconView(.chevronLeft, size: 10)
-                            Text("Back")
-                                .font(VFont.bodyMedium)
-                        }
-                        .foregroundColor(VColor.contentSecondary)
-                        .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
-                    .pointerCursor()
-                    .accessibilityLabel("Back to options")
-                } else {
-                    Text("Update Avatar")
-                        .font(VFont.cardTitle)
-                        .foregroundColor(VColor.contentDefault)
+        VModal(
+            title: showingCharacterBuilder ? "" : "Update Avatar",
+            closeAction: onClose,
+            backAction: showingCharacterBuilder ? {
+                withAnimation(VAnimation.fast) {
+                    draftImage = nil
+                    draftBody = nil
+                    draftEyes = nil
+                    draftColor = nil
+                    showingCharacterBuilder = false
                 }
-                Spacer()
-                Button(action: onClose) {
-                    VIconView(.x, size: 12)
-                        .foregroundColor(VColor.contentTertiary)
-                        .frame(width: 32, height: 32)
-                        .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel("Close")
-            }
-            .padding(.horizontal, VSpacing.xl)
-            .padding(.top, VSpacing.xl)
-            .padding(.bottom, VSpacing.lg)
-
+            } : nil
+        ) {
             if showingCharacterBuilder {
                 characterBuilder
             } else {
                 actionList
             }
         }
-        .background(VColor.surfaceBase)
     }
 
     // MARK: - Action List
 
     private var actionList: some View {
-        Group {
-            // Avatar preview
+        VStack(spacing: 0) {
             VAvatarImage(image: appearance.fullAvatarImage, size: 120, showBorder: false)
                 .padding(.bottom, VSpacing.xl)
 
             Divider().background(VColor.borderBase)
+                .padding(.horizontal, -VSpacing.xl)
 
-            // Action rows
             VStack(spacing: 0) {
                 actionRow(
                     icon: "paintbrush",
@@ -108,7 +77,6 @@ struct AvatarManagementSheet: View {
                 }
 
                 Divider().background(VColor.borderBase)
-                    .padding(.horizontal, VSpacing.xl)
 
                 actionRow(
                     icon: "photo",
@@ -120,7 +88,6 @@ struct AvatarManagementSheet: View {
 
                 if appearance.customAvatarImage != nil {
                     Divider().background(VColor.borderBase)
-                        .padding(.horizontal, VSpacing.xl)
 
                     actionRow(
                         icon: VIcon.trash.rawValue,
@@ -146,11 +113,9 @@ struct AvatarManagementSheet: View {
 
     private var characterBuilder: some View {
         VStack(spacing: 0) {
-            // Draft avatar preview
             VAvatarImage(image: draftImage ?? appearance.fullAvatarImage, size: 120, showBorder: false)
                 .padding(.bottom, VSpacing.lg)
 
-            // Generate Random button
             VButton(label: "Generate Random", icon: VIcon.dices.rawValue, style: .outlined) {
                 draftBody = AvatarBodyShape.allCases.randomElement()!
                 draftEyes = AvatarEyeStyle.allCases.randomElement()!
@@ -159,12 +124,9 @@ struct AvatarManagementSheet: View {
             }
             .padding(.bottom, VSpacing.lg)
 
-            // Cycle controls for body, eyes, and color
             cycleControls
-                .padding(.horizontal, VSpacing.lg)
                 .padding(.bottom, VSpacing.lg)
 
-            // Confirm and Discard buttons
             HStack(spacing: VSpacing.md) {
                 VButton(label: "Discard", style: .dangerOutline, isDisabled: !isDirty) {
                     onClose()
@@ -176,7 +138,6 @@ struct AvatarManagementSheet: View {
                     onClose()
                 }
             }
-            .padding(.horizontal, VSpacing.lg)
             .padding(.vertical, VSpacing.lg)
         }
     }
@@ -358,7 +319,6 @@ struct AvatarManagementSheet: View {
                 VIconView(.chevronRight, size: 11)
                     .foregroundColor(VColor.contentTertiary)
             }
-            .padding(.horizontal, VSpacing.xl)
             .padding(.vertical, VSpacing.md)
             .contentShape(Rectangle())
         }

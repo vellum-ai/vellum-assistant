@@ -54,6 +54,28 @@ struct LayoutGallerySection: View {
 
             Divider().background(VColor.borderBase).padding(.vertical, VSpacing.md)
 
+            // MARK: - VModal (Navigation)
+            GallerySectionHeader(
+                title: "VModal (Navigation)",
+                description: "Modal with back and close navigation actions. The back button replaces the title; the close button appears in the trailing position."
+            )
+
+            VCard(padding: 0) {
+                VModal(title: "", closeAction: {}, backAction: {}) {
+                    VStack(alignment: .leading, spacing: VSpacing.lg) {
+                        Text("Sub-screen content goes here")
+                            .font(VFont.body)
+                            .foregroundColor(VColor.contentDefault)
+                        Text("Use backAction and closeAction to add navigation controls to the modal header.")
+                            .font(VFont.caption)
+                            .foregroundColor(VColor.contentSecondary)
+                    }
+                }
+                .frame(width: 360, height: 200)
+            }
+
+            Divider().background(VColor.borderBase).padding(.vertical, VSpacing.md)
+
             // MARK: - VToolbar
             GallerySectionHeader(
                 title: "VToolbar",
