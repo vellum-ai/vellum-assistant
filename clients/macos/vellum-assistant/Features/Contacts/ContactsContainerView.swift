@@ -308,7 +308,7 @@ struct ContactsContainerView: View {
             VStack(alignment: .leading, spacing: VSpacing.lg) {
                 // Header matching contact/guardian detail pattern
                 HStack(spacing: VSpacing.sm) {
-                    Text(cachedAssistantName)
+                    Text("\(cachedAssistantName) (Your Assistant)")
                         .font(VFont.display)
                         .foregroundColor(VColor.contentDefault)
                     ContactTypeBadge(role: "assistant")
