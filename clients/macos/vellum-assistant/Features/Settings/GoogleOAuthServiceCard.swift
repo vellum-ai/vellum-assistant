@@ -24,10 +24,6 @@ struct GoogleOAuthServiceCard: View {
         authManager.isAuthenticated
     }
 
-    private var currentUserId: String? {
-        authManager.currentUser?.id
-    }
-
     var body: some View {
         ServiceModeCard(
             title: "Google OAuth",
@@ -48,13 +44,13 @@ struct GoogleOAuthServiceCard: View {
         .onAppear {
             draftMode = store.googleOAuthMode
             if store.googleOAuthMode == "managed" {
-                Task { await store.fetchGoogleOAuthConnections(userId: currentUserId) }
+                Task { await store.fetchGoogleOAuthConnections() }
             }
         }
         .onChange(of: store.googleOAuthMode) { _, newValue in
             draftMode = newValue
             if newValue == "managed" {
-                Task { await store.fetchGoogleOAuthConnections(userId: currentUserId) }
+                Task { await store.fetchGoogleOAuthConnections() }
             }
         }
     }
@@ -72,7 +68,7 @@ struct GoogleOAuthServiceCard: View {
                 managedConnectingState
             } else {
                 VButton(label: "Connect Google Account", style: .primary) {
-                    store.startGoogleOAuthConnect(userId: currentUserId)
+                    store.startGoogleOAuthConnect()
                 }
             }
 
@@ -97,12 +93,12 @@ struct GoogleOAuthServiceCard: View {
                 Task {
                     if let showToast {
                         await authManager.loginWithToast(showToast: showToast, onSuccess: {
-                            Task { await store.fetchGoogleOAuthConnections(userId: currentUserId) }
+                            Task { await store.fetchGoogleOAuthConnections() }
                         })
                     } else {
                         await authManager.startWorkOSLogin()
                         if authManager.isAuthenticated {
-                            await store.fetchGoogleOAuthConnections(userId: currentUserId)
+                            await store.fetchGoogleOAuthConnections()
                         }
                     }
                 }
@@ -125,7 +121,7 @@ struct GoogleOAuthServiceCard: View {
                 connectionRow(for: entry)
             }
             VButton(label: "Connect Another Account", style: .outlined, isDisabled: store.googleOAuthIsConnecting) {
-                store.startGoogleOAuthConnect(userId: currentUserId)
+                store.startGoogleOAuthConnect()
             }
             if store.googleOAuthIsConnecting {
                 Text("Waiting for authorization...")
@@ -153,7 +149,7 @@ struct GoogleOAuthServiceCard: View {
                 .font(VFont.caption)
                 .foregroundColor(VColor.systemPositiveStrong)
             VButton(label: "Disconnect", style: .danger) {
-                store.disconnectGoogleOAuthConnection(entry.id, userId: currentUserId)
+                store.disconnectGoogleOAuthConnection(entry.id)
             }
         }
     }

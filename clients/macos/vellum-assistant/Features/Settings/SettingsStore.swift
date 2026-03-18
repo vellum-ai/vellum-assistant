@@ -2172,27 +2172,9 @@ public final class SettingsStore: ObservableObject {
 
     // MARK: - Google OAuth Connections
 
-    /// Resolves the platform assistant UUID for OAuth endpoints.
-    /// For managed assistants, the lockfile ID is the platform UUID.
-    /// For self-hosted local assistants, looks up the persisted mapping via PlatformAssistantIdResolver.
-    private func resolvePlatformAssistantId(userId: String?) -> String? {
-        guard let connectedId = UserDefaults.standard.string(forKey: "connectedAssistantId"), !connectedId.isEmpty,
-              let assistant = LockfileAssistant.loadByName(connectedId) else {
-            return nil
-        }
-        let orgId = UserDefaults.standard.string(forKey: "connectedOrganizationId")
-        return PlatformAssistantIdResolver.resolve(
-            lockfileAssistantId: assistant.assistantId,
-            isManaged: assistant.isManaged,
-            organizationId: orgId,
-            userId: userId,
-            credentialStorage: KeychainCredentialStorage()
-        )
-    }
-
-    func fetchGoogleOAuthConnections(userId: String? = nil) async {
+    func fetchGoogleOAuthConnections() async {
         guard googleOAuthMode == "managed" else { return }
-        guard let assistantId = resolvePlatformAssistantId(userId: userId) else { return }
+        guard let assistantId = UserDefaults.standard.string(forKey: "connectedAssistantId"), !assistantId.isEmpty else { return }
 
         do {
             let connections = try await PlatformOAuthService.shared.listConnections(assistantId: assistantId)
@@ -2205,13 +2187,13 @@ public final class SettingsStore: ObservableObject {
         }
     }
 
-    func startGoogleOAuthConnect(userId: String? = nil) {
+    func startGoogleOAuthConnect() {
         Task {
             googleOAuthIsConnecting = true
             googleOAuthError = nil
             defer { googleOAuthIsConnecting = false }
 
-            guard let assistantId = resolvePlatformAssistantId(userId: userId) else {
+            guard let assistantId = UserDefaults.standard.string(forKey: "connectedAssistantId"), !assistantId.isEmpty else {
                 googleOAuthError = "No connected assistant"
                 return
             }
@@ -2248,7 +2230,7 @@ public final class SettingsStore: ObservableObject {
                 let oauthStatus = components?.queryItems?.first(where: { $0.name == "oauth_status" })?.value
 
                 if oauthStatus == "connected" {
-                    await fetchGoogleOAuthConnections(userId: userId)
+                    await fetchGoogleOAuthConnections()
                 } else if oauthStatus == "error" {
                     let errorCode = components?.queryItems?.first(where: { $0.name == "oauth_code" })?.value
                     googleOAuthError = errorCode ?? "OAuth connection failed"
@@ -2260,16 +2242,16 @@ public final class SettingsStore: ObservableObject {
         }
     }
 
-    func disconnectGoogleOAuthConnection(_ connectionId: String, userId: String? = nil) {
+    func disconnectGoogleOAuthConnection(_ connectionId: String) {
         Task {
-            guard let assistantId = resolvePlatformAssistantId(userId: userId) else {
+            guard let assistantId = UserDefaults.standard.string(forKey: "connectedAssistantId"), !assistantId.isEmpty else {
                 googleOAuthError = "No connected assistant"
                 return
             }
 
             do {
                 try await PlatformOAuthService.shared.disconnectConnection(assistantId: assistantId, connectionId: connectionId)
-                await fetchGoogleOAuthConnections(userId: userId)
+                await fetchGoogleOAuthConnections()
             } catch {
                 log.error("Failed to disconnect Google OAuth connection: \(error)")
                 googleOAuthError = error.localizedDescription
