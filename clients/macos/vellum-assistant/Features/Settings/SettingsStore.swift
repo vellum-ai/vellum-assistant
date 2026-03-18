@@ -255,13 +255,11 @@ public final class SettingsStore: ObservableObject {
     /// performance metrics. Defaults to `true`. Controls Sentry independently from usage analytics.
     @Published var sendDiagnostics: Bool = UserDefaults.standard.object(forKey: "sendDiagnostics") as? Bool
         ?? UserDefaults.standard.object(forKey: "collectUsageData") as? Bool
-        ?? UserDefaults.standard.object(forKey: "collectUsageDataEnabled") as? Bool
         ?? true
 
     /// Whether the user has opted in to sharing anonymized usage analytics (e.g. token counts,
     /// feature adoption). Defaults to `true`. Independent from diagnostics.
     @Published var collectUsageData: Bool = UserDefaults.standard.object(forKey: "collectUsageData") as? Bool
-        ?? UserDefaults.standard.object(forKey: "collectUsageDataEnabled") as? Bool
         ?? true
 
     // MARK: - Private

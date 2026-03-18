@@ -208,11 +208,8 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
         // Gated on sendDiagnostics: if the user has previously disabled diagnostics,
         // Sentry is never initialized. Otherwise, initialize eagerly so crashes
         // before the daemon connects are captured.
-        // Falls back through legacy keys so users who opted out via the old
-        // collectUsageDataEnabled master switch keep Sentry disabled.
         let sendDiagnostics = UserDefaults.standard.object(forKey: "sendDiagnostics") as? Bool
             ?? UserDefaults.standard.object(forKey: "collectUsageData") as? Bool
-            ?? UserDefaults.standard.object(forKey: "collectUsageDataEnabled") as? Bool
             ?? true
         if sendDiagnostics {
             let appVersion = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "unknown"

@@ -42,6 +42,16 @@ export const ElevenLabsConfigSchema = z
       .describe(
         "How closely the output matches the original voice — higher values increase similarity",
       ),
+    conversationTimeoutSeconds: z
+      .number({
+        error: "elevenlabs.conversationTimeoutSeconds must be a number",
+      })
+      .refine((v) => [5, 10, 15, 30, 60].includes(v), {
+        message:
+          "elevenlabs.conversationTimeoutSeconds must be one of: 5, 10, 15, 30, 60",
+      })
+      .default(30)
+      .describe("Seconds of silence before voice conversation auto-ends"),
   })
   .describe("ElevenLabs text-to-speech configuration");
 

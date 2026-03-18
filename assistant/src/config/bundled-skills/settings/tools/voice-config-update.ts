@@ -150,6 +150,19 @@ export async function run(
     invalidateConfigCache();
   }
 
+  // For conversation_timeout, persist to the config file
+  // (elevenlabs.conversationTimeoutSeconds).
+  if (setting === "conversation_timeout") {
+    const raw = loadRawConfig();
+    setNestedValue(
+      raw,
+      "elevenlabs.conversationTimeoutSeconds",
+      validation.coerced,
+    );
+    saveRawConfig(raw);
+    invalidateConfigCache();
+  }
+
   return {
     content: `${friendlyName} updated to ${JSON.stringify(
       validation.coerced,
