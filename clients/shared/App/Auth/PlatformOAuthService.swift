@@ -56,7 +56,7 @@ public final class PlatformOAuthService {
     /// On macOS, reads the lockfile `runtimeUrl` for the connected assistant
     /// (same resolution as `GatewayHTTPClient`) so that staging, self-hosted,
     /// or `VELLUM_PLATFORM_URL`-overridden connections hit the correct host.
-    /// Falls back to `resolvePlatformBaseURL()` when no override is stored.
+    /// Falls back to `AuthService.shared.baseURL` when no override is stored.
     private func resolvePlatformBaseURL() -> String {
         #if os(macOS)
         if let id = UserDefaults.standard.string(forKey: "connectedAssistantId"), !id.isEmpty,
@@ -69,7 +69,7 @@ public final class PlatformOAuthService {
             return url
         }
         #endif
-        return resolvePlatformBaseURL()
+        return AuthService.shared.baseURL
     }
 
     private func authenticatedRequest(url: URL, method: String) async throws -> URLRequest {
