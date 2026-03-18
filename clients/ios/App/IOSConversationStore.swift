@@ -305,9 +305,6 @@ class IOSConversationStore: ObservableObject {
         daemon.onHistoryResponse = { [weak self] response in
             self?.handleHistoryResponse(response)
         }
-        daemon.onMessageContentResponse = { [weak self] response in
-            self?.handleMessageContentResponse(response)
-        }
         daemon.onScheduleConversationCreated = { [weak self] msg in
             guard let self else { return }
             // Avoid duplicates
@@ -407,7 +404,6 @@ class IOSConversationStore: ObservableObject {
         if let oldDaemon = daemonClient as? DaemonClient {
             oldDaemon.onConversationListResponse = nil
             oldDaemon.onHistoryResponse = nil
-            oldDaemon.onMessageContentResponse = nil
             oldDaemon.onScheduleConversationCreated = nil
         }
 

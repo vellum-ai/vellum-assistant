@@ -49,8 +49,8 @@ extension HTTPTransport {
                     )
                 }
                 return true
-            } else if let msg = message as? MessageContentRequest {
-                Task { await self.fetchMessageContent(conversationId: msg.conversationId, messageId: msg.messageId) }
+            } else if message is MessageContentRequest {
+                // Handled by ConversationClient via GatewayHTTPClient.
                 return true
             } else if let msg = message as? DeleteQueuedMessageMessage {
                 Task { await self.deleteQueuedMessage(conversationId: msg.conversationId, requestId: msg.requestId) }

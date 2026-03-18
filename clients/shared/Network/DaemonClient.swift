@@ -359,9 +359,6 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     /// Called when the daemon sends a `history_response` message.
     public var onHistoryResponse: ((HistoryResponse) -> Void)?
 
-    /// Called when the daemon sends a `message_content_response` with full (untruncated) content.
-    public var onMessageContentResponse: ((MessageContentResponse) -> Void)?
-
     /// Called when the daemon sends a `slack_webhook_config_response` message.
     public var onSlackWebhookConfigResponse: ((SlackWebhookConfigResponseMessage) -> Void)?
 
@@ -813,12 +810,6 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     ///   - maxToolResultChars: When set, truncates tool result content to this many characters.
     public func sendHistoryRequest(conversationId: String, limit: Int? = nil, beforeTimestamp: Double? = nil, mode: String? = nil, maxTextChars: Int? = nil, maxToolResultChars: Int? = nil) throws {
         try send(HistoryRequestMessage(conversationId: conversationId, limit: limit, beforeTimestamp: beforeTimestamp, mode: mode, maxTextChars: maxTextChars, maxToolResultChars: maxToolResultChars))
-    }
-
-    /// Request full (untruncated) content for a specific message.
-    /// Used to rehydrate messages that were loaded with truncated text/tool results.
-    public func sendMessageContentRequest(conversationId: String, messageId: String) throws {
-        try send(MessageContentRequest(type: "message_content_request", conversationId: conversationId, messageId: messageId))
     }
 
     /// Get, set, or delete the Vercel API token configuration.

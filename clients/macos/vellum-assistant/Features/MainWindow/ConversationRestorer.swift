@@ -66,10 +66,6 @@ final class ConversationRestorer {
         daemonClient.onConversationTitleUpdated = { [weak self] response in
             self?.handleConversationTitleUpdated(response)
         }
-        daemonClient.onMessageContentResponse = { [weak self] response in
-            self?.handleMessageContentResponse(response)
-        }
-
         // On first launch after onboarding, skip the initial conversation list fetch
         // so the conversation restorer doesn't override the wake-up conversation.
         // The handlers above are still registered for later use (e.g. history loading).

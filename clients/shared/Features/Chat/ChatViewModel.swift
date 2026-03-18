@@ -734,10 +734,10 @@ public final class ChatViewModel: ObservableObject {
               messages[idx].wasTruncated || messages[idx].isContentStripped,
               let conversationId = conversationId,
               let daemonMessageId = messages[idx].daemonMessageId else { return }
-        do {
-            try daemonClient.send(MessageContentRequest(type: "message_content_request", conversationId: conversationId, messageId: daemonMessageId))
-        } catch {
-            log.error("Failed to send message_content_request: \(error)")
+        Task {
+            if let response = await ConversationClient().fetchMessageContent(conversationId: conversationId, messageId: daemonMessageId) {
+                self.handleMessageContentResponse(response)
+            }
         }
     }
 
