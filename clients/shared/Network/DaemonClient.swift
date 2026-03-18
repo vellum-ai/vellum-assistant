@@ -756,32 +756,6 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
         try send(message)
     }
 
-    // MARK: - Confirmation Response
-
-    /// Send a confirmation response for a tool permission request.
-    public func sendConfirmationResponse(
-        requestId: String,
-        decision: String,
-        selectedPattern: String? = nil,
-        selectedScope: String? = nil
-    ) throws {
-        try send(ConfirmationResponseMessage(
-            requestId: requestId,
-            decision: decision,
-            selectedPattern: selectedPattern,
-            selectedScope: selectedScope
-        ))
-    }
-
-    // MARK: - Secret Response
-
-    /// Send a secret response for a credential prompt request.
-    public func sendSecretResponse(requestId: String, value: String?, delivery: String? = nil) throws {
-        try send(SecretResponseMessage(requestId: requestId, value: value, delivery: delivery))
-    }
-
-
-
     // MARK: - Queue Management
 
     /// Delete a specific queued message by its requestId.

@@ -265,8 +265,6 @@ public final class HTTPTransport {
         case sendMessage
         case getMessages(conversationId: String?)
         case conversations(limit: Int, offset: Int)
-        case confirm
-        case secret
         case conversationsSeen
         case conversationsUnread
         case identity
@@ -388,10 +386,6 @@ public final class HTTPTransport {
             return ("/v1/messages", nil)
         case .conversations(let limit, let offset):
             return ("/v1/conversations", "limit=\(limit)&offset=\(offset)")
-        case .confirm:
-            return ("/v1/confirm", nil)
-        case .secret:
-            return ("/v1/secret", nil)
         case .conversationsSeen:
             return ("/v1/conversations/seen", nil)
         case .conversationsUnread:
@@ -547,10 +541,6 @@ public final class HTTPTransport {
             return ("\(prefix)/messages/", nil)
         case .conversations(let limit, let offset):
             return ("\(prefix)/conversations/", "limit=\(limit)&offset=\(offset)")
-        case .confirm:
-            return ("\(prefix)/confirm/", nil)
-        case .secret:
-            return ("\(prefix)/secret/", nil)
         case .conversationsSeen:
             return ("\(prefix)/conversations/seen/", nil)
         case .conversationsUnread:
@@ -1296,89 +1286,6 @@ public final class HTTPTransport {
                 }
             }
             continuation.onTermination = { _ in task.cancel() }
-        }
-    }
-
-    func sendDecision(requestId: String, decision: String, selectedPattern: String? = nil, selectedScope: String? = nil, isRetry: Bool = false) async {
-        guard let url = buildURL(for: .confirm) else { return }
-
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        applyAuth(&request)
-
-        var body: [String: Any] = [
-            "requestId": requestId,
-            "decision": decision,
-        ]
-        if let selectedPattern {
-            body["selectedPattern"] = selectedPattern
-        }
-        if let selectedScope {
-            body["selectedScope"] = selectedScope
-        }
-
-        do {
-            request.httpBody = try JSONSerialization.data(withJSONObject: body)
-            let (data, response) = try await URLSession.shared.data(for: request)
-
-            if let http = response as? HTTPURLResponse {
-                if http.statusCode == 401 && !isRetry {
-                    let refreshResult = await handleAuthenticationFailureAsync(responseData: data)
-                    switch refreshResult {
-                    case .success:
-                        await sendDecision(requestId: requestId, decision: decision, selectedPattern: selectedPattern, selectedScope: selectedScope, isRetry: true)
-                    case .terminalFailure:
-                        break
-                    case .transientFailure:
-                        log.error("Decision response failed: authentication error after 401 refresh")
-                    }
-                } else if http.statusCode != 200 {
-                    log.error("Decision response failed (\(http.statusCode))")
-                }
-            }
-        } catch {
-            log.error("Decision response error: \(error.localizedDescription)")
-        }
-    }
-
-    func sendSecret(requestId: String, value: String?, delivery: String? = nil, isRetry: Bool = false) async {
-        guard let url = buildURL(for: .secret) else { return }
-
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        applyAuth(&request)
-
-        var body: [String: Any] = [
-            "requestId": requestId,
-            "value": value ?? "",
-        ]
-        if let delivery {
-            body["delivery"] = delivery
-        }
-
-        do {
-            request.httpBody = try JSONSerialization.data(withJSONObject: body)
-            let (data, response) = try await URLSession.shared.data(for: request)
-
-            if let http = response as? HTTPURLResponse {
-                if http.statusCode == 401 && !isRetry {
-                    let refreshResult = await handleAuthenticationFailureAsync(responseData: data)
-                    switch refreshResult {
-                    case .success:
-                        await sendSecret(requestId: requestId, value: value, delivery: delivery, isRetry: true)
-                    case .terminalFailure:
-                        break
-                    case .transientFailure:
-                        log.error("Secret response failed: authentication error after 401 refresh")
-                    }
-                } else if http.statusCode != 200 {
-                    log.error("Secret response failed (\(http.statusCode))")
-                }
-            }
-        } catch {
-            log.error("Secret response error: \(error.localizedDescription)")
         }
     }
 

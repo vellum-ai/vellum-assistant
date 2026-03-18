@@ -19,11 +19,11 @@ extension HTTPTransport {
             if let msg = message as? UserMessageMessage {
                 Task { await self.sendMessage(content: msg.content, conversationId: msg.conversationId, attachments: msg.attachments, automated: msg.automated) }
                 return true
-            } else if let msg = message as? ConfirmationResponseMessage {
-                Task { await self.sendDecision(requestId: msg.requestId, decision: msg.decision, selectedPattern: msg.selectedPattern, selectedScope: msg.selectedScope) }
+            } else if message is ConfirmationResponseMessage {
+                // Handled by InteractionClient via GatewayHTTPClient.
                 return true
-            } else if let msg = message as? SecretResponseMessage {
-                Task { await self.sendSecret(requestId: msg.requestId, value: msg.value, delivery: msg.delivery) }
+            } else if message is SecretResponseMessage {
+                // Handled by InteractionClient via GatewayHTTPClient.
                 return true
             } else if let msg = message as? ConversationCreateMessage {
                 // For HTTP transport, conversation creation is implicit — the conversationKey
