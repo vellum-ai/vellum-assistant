@@ -83,6 +83,7 @@ import {
   migrateNormalizePhoneIdentities,
   migrateNotificationDeliveryThreadDecision,
   migrateOAuthAppsClientSecretPath,
+  migrateOAuthProvidersManagedServiceConfigKey,
   migrateOAuthProvidersPingUrl,
   migrateReminderRoutingIntent,
   migrateRemindersToSchedules,
@@ -455,6 +456,9 @@ export function initializeDb(): void {
 
   // 80. Trace events table for persistent trace/activity storage across sessions
   migrateCreateTraceEventsTable(database);
+
+  // 81. Add managed_service_config_key column to oauth_providers
+  migrateOAuthProvidersManagedServiceConfigKey(database);
 
   validateMigrationState(database);
 

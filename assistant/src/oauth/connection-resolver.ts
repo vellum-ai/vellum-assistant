@@ -1,3 +1,7 @@
+import { getPlatformAssistantId } from "../config/env.js";
+import { getConfig } from "../config/loader.js";
+import type { Services } from "../config/schemas/services.js";
+import { resolveManagedProxyContext } from "../providers/managed-proxy/context.js";
 import { getSecureKeyAsync } from "../security/secure-keys.js";
 import { BYOOAuthConnection } from "./byo-connection.js";
 import type { OAuthConnection } from "./connection.js";
@@ -7,6 +11,7 @@ import {
   getConnectionByProviderAndAccount,
   getProvider,
 } from "./oauth-store.js";
+import { PlatformOAuthConnection } from "./platform-connection.js";
 
 /**
  * Resolve an OAuthConnection for a given credential service.
@@ -60,6 +65,32 @@ export async function resolveOAuthConnection(
   const grantedScopes: string[] = conn.grantedScopes
     ? JSON.parse(conn.grantedScopes)
     : [];
+
+  const managedKey = provider?.managedServiceConfigKey;
+  if (managedKey) {
+    const services: Services = getConfig().services;
+    const serviceConfig = services[managedKey as keyof Services];
+    if (
+      serviceConfig &&
+      "mode" in serviceConfig &&
+      serviceConfig.mode === "managed"
+    ) {
+      const ctx = await resolveManagedProxyContext();
+      const assistantId = getPlatformAssistantId();
+      if (ctx.enabled && assistantId) {
+        return new PlatformOAuthConnection({
+          id: conn.id,
+          providerKey: conn.providerKey,
+          externalId: conn.id,
+          accountInfo: conn.accountInfo,
+          grantedScopes,
+          assistantId,
+          platformBaseUrl: ctx.platformBaseUrl,
+          apiKey: ctx.assistantApiKey,
+        });
+      }
+    }
+  }
 
   return new BYOOAuthConnection({
     id: conn.id,
