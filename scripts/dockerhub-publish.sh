@@ -257,7 +257,7 @@ echo ""
 
 for svc in "${SELECTED_SERVICES[@]}"; do
   IMAGE="${DOCKERHUB_ORG}/$(image_name_for "$svc")"
-  if printf '%s\n' "${FAILED_SERVICES[@]}" 2>/dev/null | grep -qx "$svc"; then
+  if [[ ${#FAILED_SERVICES[@]} -gt 0 ]] && printf '%s\n' "${FAILED_SERVICES[@]}" | grep -qx "$svc"; then
     echo "  [FAIL] ${IMAGE}:v${VERSION}"
   elif [[ "$DRY_RUN" == "true" ]]; then
     echo "  [DRY]  ${IMAGE}:v${VERSION}  (not pushed)"
