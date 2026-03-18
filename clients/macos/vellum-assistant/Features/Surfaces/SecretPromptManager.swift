@@ -83,36 +83,32 @@ final class SecretPromptManager {
         panel.collectionBehavior = [.canJoinAllSpaces, .stationary]
         panel.identifier = NSUserInterfaceItemIdentifier("SecureCredentialPanel")
 
-        // Position at the right edge of the screen so the panel doesn't cover
-        // chat content (e.g. setup instructions the user needs to reference
-        // while filling in credentials). Vertically centered relative to the
-        // app window when available, clamped within the visible screen area.
-        // If another floating panel (e.g. a SurfaceManager panel) already
-        // occupies the right edge, shift left to avoid overlap.
+        // Position at the top-right corner of the screen so the panel
+        // doesn't cover chat content (e.g. setup instructions the user
+        // needs to reference while filling in credentials).
+        // If another floating panel on the same screen (e.g. a
+        // SurfaceManager panel) already occupies the right edge, shift
+        // left to avoid overlap.
         let margin: CGFloat = 20
         let appWindow = NSApp.windows.first { $0 is TitleBarZoomableWindow && $0.isVisible }
         let screen = appWindow?.screen ?? NSScreen.main
         if let screenFrame = screen?.visibleFrame {
-            // Detect other visible floating panels near the right edge so we
-            // can shift left and avoid covering them.
+            // Detect other visible floating panels on the same screen
+            // near the right edge so we can shift left to avoid overlap.
             let rightEdgeBound = screenFrame.maxX - margin
             let occupiedWidth: CGFloat = NSApp.windows
                 .compactMap { $0 as? NSPanel }
-                .filter { $0.isVisible && $0 !== panel && $0.level == .floating && $0.frame.maxX >= rightEdgeBound - 10 }
+                .filter {
+                    $0.isVisible && $0 !== panel && $0.level == .floating
+                    && $0.screen == screen
+                    && $0.frame.maxX >= rightEdgeBound - 10
+                }
                 .map(\.frame.width)
                 .max() ?? 0
             let rightOffset = occupiedWidth > 0 ? occupiedWidth + margin : 0
 
             let x = screenFrame.maxX - panelWidth - margin - rightOffset
-            let y: CGFloat
-            if let anchor = appWindow {
-                y = max(
-                    screenFrame.minY + margin,
-                    min(anchor.frame.midY - panelHeight / 2, screenFrame.maxY - panelHeight - margin)
-                )
-            } else {
-                y = screenFrame.midY - panelHeight / 2
-            }
+            let y = screenFrame.maxY - panelHeight - margin
             panel.setFrameOrigin(NSPoint(x: x, y: y))
         }
 
