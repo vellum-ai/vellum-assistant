@@ -317,8 +317,6 @@ A CSS/JS widget library is auto-injected alongside the design system. Use these 
 | `.v-gradient-text`                               | Accent-colored gradient text                        |
 | `.v-animate-in`                                  | Staggered fade-in for children                      |
 
-**Slideshow** (`.v-slideshow`): Presentation slide deck with transitions. Init with `vellum.widgets.slideshow()`. Slide helpers: `.v-slide`, `.v-slide-label`, `.v-slide-title`, `.v-slide-body`, `.v-slide-stats`, `.v-slide-stat`, `.v-slide-quote`, `.v-slide-list`, `.v-slide-columns`.
-
 #### Widget JavaScript utilities
 
 Interactive utilities at `window.vellum.widgets.*`:
@@ -384,19 +382,11 @@ vellum.widgets.toast("Saved!", "success", 4000); // Auto-dismiss notification
 vellum.widgets.countdown("timer-el", "2025-12-31T00:00:00Z", {
   onComplete: () => {},
 });
-vellum.widgets.slideshow("deck", {
-  transition: "fade",
-  showDots: true,
-  showArrows: true,
-  showCounter: true,
-  keyboard: true,
-  loop: true,
-});
 ```
 
 #### When to use widgets vs custom HTML
 
-- **Use widgets** for standard patterns - tables, metrics, timelines, notifications, presentations
+- **Use widgets** for standard patterns - tables, metrics, timelines, notifications
 - **Use custom HTML** for novel or creative UIs - games, art tools, unique dashboards
 - **Mix freely** - widgets compose well together and with custom elements
 - **ALWAYS use `vellum.widgets.*` chart functions** instead of hand-coding SVG/CSS charts. They handle overflow clipping, bounds, scaling, and dark mode. Hand-coded charts break layouts.
@@ -524,7 +514,7 @@ Every app must meet these baselines:
 
 ## Presentation Slide Design
 
-Slides are a different domain from apps. Skip app-specific patterns (contextual headers, search/filter, toast notifications, form validation, data bridge). Slides are static content.
+Slides are a different domain from apps. Skip app-specific patterns (contextual headers, search/filter, toast notifications, form validation, data bridge). Slides are static content — build navigation and layouts with custom HTML/CSS.
 
 **Key principles:**
 
@@ -534,8 +524,6 @@ Slides are a different domain from apps. Skip app-specific patterns (contextual 
 - Bold backgrounds - dark, gradient, or strongly tinted
 - Max 6 bullets per slide, max 3 sentences body text
 - Never go below 15px for any visible text
-
-Init with `vellum.widgets.slideshow()`. Use `.v-slide` with helpers: `.v-slide-label`, `.v-slide-title`, `.v-slide-body`, `.v-slide-stats`, `.v-slide-stat`, `.v-slide-quote`, `.v-slide-list`, `.v-slide-columns`.
 
 ## Error Handling
 
