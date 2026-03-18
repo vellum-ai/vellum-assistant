@@ -8,6 +8,12 @@ import type { ToolContext } from "../tools/types.js";
 
 const testDirs: string[] = [];
 
+function makeTempDir(): string {
+  const dir = mkdtempSync(join(tmpdir(), "host-file-read-test-"));
+  testDirs.push(dir);
+  return dir;
+}
+
 function makeContext(): ToolContext {
   return {
     workingDir: "/tmp",
@@ -21,6 +27,18 @@ afterEach(() => {
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+// Minimal valid JPEG: FF D8 FF E0 header
+const JPEG_HEADER = Buffer.from([
+  0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10, 0x4a, 0x46, 0x49, 0x46, 0x00, 0x01, 0x01,
+  0x00, 0x00, 0x01, 0x00, 0x01, 0x00, 0x00,
+]);
+
+// Minimal PNG header
+const PNG_HEADER = Buffer.from([
+  0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x00, 0x00, 0x0d, 0x49,
+  0x48, 0x44, 0x52,
+]);
 
 describe("host_file_read tool", () => {
   test("rejects relative paths", async () => {
@@ -143,5 +161,74 @@ describe("host_file_read tool", () => {
     );
     expect(result.isError).toBe(false);
     expect(result.content).toContain("symlink-content");
+  });
+});
+
+describe("host_file_read image support", () => {
+  test("returns image content block for .png file", async () => {
+    const dir = makeTempDir();
+    const filePath = join(dir, "screenshot.png");
+    writeFileSync(filePath, PNG_HEADER);
+
+    const result = await hostFileReadTool.execute(
+      { path: filePath },
+      makeContext(),
+    );
+
+    expect(result.isError).toBe(false);
+    expect(result.content).toContain("Image loaded");
+    expect(result.content).toContain("image/png");
+    expect((result as any).contentBlocks).toBeDefined();
+    expect((result as any).contentBlocks[0].type).toBe("image");
+    expect((result as any).contentBlocks[0].source.media_type).toBe(
+      "image/png",
+    );
+  });
+
+  test("returns correct media type for .jpg file", async () => {
+    const dir = makeTempDir();
+    const filePath = join(dir, "photo.jpg");
+    writeFileSync(filePath, JPEG_HEADER);
+
+    const result = await hostFileReadTool.execute(
+      { path: filePath },
+      makeContext(),
+    );
+
+    expect(result.isError).toBe(false);
+    expect(result.content).toContain("Image loaded");
+    expect(result.content).toContain("image/jpeg");
+    expect((result as any).contentBlocks).toBeDefined();
+    expect((result as any).contentBlocks[0].type).toBe("image");
+    expect((result as any).contentBlocks[0].source.media_type).toBe(
+      "image/jpeg",
+    );
+  });
+
+  test("returns error for non-existent image path", async () => {
+    const filePath = join(tmpdir(), `host-file-read-missing-${Date.now()}.png`);
+    const result = await hostFileReadTool.execute(
+      { path: filePath },
+      makeContext(),
+    );
+
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain("file not found");
+  });
+
+  test("text file still works as before (regression)", async () => {
+    const dir = makeTempDir();
+    const filePath = join(dir, "notes.txt");
+    writeFileSync(filePath, "hello world\nsecond line\n");
+
+    const result = await hostFileReadTool.execute(
+      { path: filePath },
+      makeContext(),
+    );
+
+    expect(result.isError).toBe(false);
+    expect(result.content).toContain("1  hello world");
+    expect(result.content).toContain("2  second line");
+    expect((result as any).contentBlocks).toBeUndefined();
   });
 });
