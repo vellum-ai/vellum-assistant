@@ -161,9 +161,8 @@ public struct ConversationListClient: ConversationListClientProtocol {
 
     public func fetchMessageContent(conversationId: String, messageId: String) async -> MessageContentResponse? {
         do {
-            let encoded = messageId.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? messageId
             let response = try await GatewayHTTPClient.get(
-                path: "messages/\(encoded)/content",
+                path: "messages/\(messageId)/content",
                 params: ["conversationId": conversationId],
                 timeout: 10
             )
@@ -181,9 +180,8 @@ public struct ConversationListClient: ConversationListClientProtocol {
 
     public func deleteQueuedMessage(conversationId: String, requestId: String) async -> Bool {
         do {
-            let encoded = requestId.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? requestId
             let response = try await GatewayHTTPClient.delete(
-                path: "messages/queued/\(encoded)",
+                path: "messages/queued/\(requestId)?conversationId=\(conversationId)",
                 timeout: 10
             )
             if !response.isSuccess {
@@ -200,9 +198,8 @@ public struct ConversationListClient: ConversationListClientProtocol {
     @discardableResult
     public func regenerate(conversationId: String) async -> Bool {
         do {
-            let encoded = conversationId.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? conversationId
             let response = try await GatewayHTTPClient.post(
-                path: "conversations/\(encoded)/regenerate", timeout: 10
+                path: "conversations/\(conversationId)/regenerate", timeout: 10
             )
             if !response.isSuccess {
                 log.error("regenerate failed (HTTP \(response.statusCode))")
