@@ -268,7 +268,14 @@ extension AppDelegate {
         quitItem.image = VIcon.power.nsImage
         menu.addItem(quitItem)
 
-        menu.popUp(positioning: nil, at: NSPoint(x: 0, y: button.bounds.height + 2), in: button)
+        // Temporarily assign the menu to the status item so macOS handles
+        // positioning natively (directly below the icon, left-aligned).
+        // performClick is synchronous for menus — it blocks until the menu
+        // closes — so we can nil it out immediately after to re-enable
+        // custom click handling in statusBarButtonClicked.
+        self.statusItem.menu = menu
+        button.performClick(nil)
+        self.statusItem.menu = nil
     }
 
     @objc func markAllConversationsSeen() {
