@@ -140,7 +140,6 @@ struct ContactsContainerView: View {
                 }
             }
         }
-        .padding(VSpacing.sm)
         .frame(maxWidth: 900, maxHeight: .infinity, alignment: .leading)
         .frame(maxWidth: .infinity, alignment: .leading)
         .onReceive(viewModel.$contacts) { newContacts in
