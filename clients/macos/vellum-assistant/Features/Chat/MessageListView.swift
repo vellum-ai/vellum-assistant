@@ -808,16 +808,28 @@ struct MessageListView: View {
             .coordinateSpace(name: "chatScrollView")
             .scrollDisabled(messages.isEmpty && !isSending)
             .environment(\.suppressAutoScroll, { [self] in
-                isSuppressingBottomScroll = true
                 expandSuppressionTask?.cancel()
-                expandSuppressionTask = Task { @MainActor in
-                    try? await Task.sleep(nanoseconds: 200_000_000)
-                    guard !Task.isCancelled else { return }
-                    // Only clear if no other mechanism (resize, pagination) still needs suppression.
-                    let resizeActive = resizeScrollTask != nil && !resizeScrollTask!.isCancelled
-                    let paginationActive = isPaginationInFlight
-                    if !resizeActive && !paginationActive {
-                        isSuppressingBottomScroll = false
+                if isNearBottom {
+                    // When pinned to bottom, maintain that state after the content
+                    // expansion by scrolling to bottom once layout settles.
+                    expandSuppressionTask = Task { @MainActor in
+                        try? await Task.sleep(nanoseconds: 50_000_000) // ~3 frames for layout
+                        guard !Task.isCancelled else { return }
+                        proxy.scrollTo("scroll-bottom-anchor", anchor: .bottom)
+                    }
+                } else {
+                    // When scrolled away from bottom, suppress auto-scroll so the
+                    // expansion doesn't yank the viewport to the bottom.
+                    isSuppressingBottomScroll = true
+                    expandSuppressionTask = Task { @MainActor in
+                        try? await Task.sleep(nanoseconds: 200_000_000)
+                        guard !Task.isCancelled else { return }
+                        // Only clear if no other mechanism (resize, pagination) still needs suppression.
+                        let resizeActive = resizeScrollTask != nil && !resizeScrollTask!.isCancelled
+                        let paginationActive = isPaginationInFlight
+                        if !resizeActive && !paginationActive {
+                            isSuppressingBottomScroll = false
+                        }
                     }
                 }
             })
