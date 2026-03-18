@@ -54,7 +54,7 @@ struct ContactsContainerView: View {
             VColor.borderDisabled
                 .frame(width: 1)
                 .frame(maxHeight: .infinity)
-                .shadow(color: Color.black.opacity(0.08), radius: 2, x: 1, y: 0)
+                .shadow(color: VColor.auxBlack.opacity(0.08), radius: 2, x: 1, y: 0)
 
             // Right pane: detail, loading, or placeholder
             if viewModel.isLoading && viewModel.contacts.isEmpty {
