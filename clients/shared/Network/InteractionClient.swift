@@ -53,7 +53,7 @@ public struct InteractionClient: InteractionClientProtocol {
             var body: [String: Any] = [
                 "requestId": requestId,
             ]
-            if let value { body["value"] = value }
+            body["value"] = value ?? ""
             if let delivery { body["delivery"] = delivery }
 
             let response = try await GatewayHTTPClient.post(path: "secret", json: body, timeout: 10)

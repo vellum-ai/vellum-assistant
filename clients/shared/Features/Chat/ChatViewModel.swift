@@ -2391,23 +2391,12 @@ public final class ChatViewModel: ObservableObject {
             return
         }
         Task {
-            let success = await interactionClient.sendConfirmationResponse(
+            let success = await performConfirmationResponse(
                 requestId: requestId, decision: decision, selectedPattern: nil, selectedScope: nil
             )
-            guard success else {
+            if !success {
                 self.errorText = "Failed to send confirmation response."
-                return
             }
-            if let index = self.messages.firstIndex(where: { $0.confirmation?.requestId == requestId }) {
-                let isApproval = decision == "allow" || decision == "allow_10m" || decision == "allow_conversation"
-                self.messages[index].confirmation?.state = isApproval ? .approved : .denied
-                if isApproval {
-                    self.messages[index].confirmation?.approvedDecision = decision
-                }
-            }
-            self.clearPendingConfirmation(requestId: requestId)
-            self.onInlineConfirmationResponse?(requestId, decision)
-            self.inlineResponseHandledRequestIds.insert(requestId)
         }
     }
 
@@ -2428,7 +2417,12 @@ public final class ChatViewModel: ObservableObject {
             )
             guard success else {
                 log.warning("Always-allow send failed, trying one-time allow fallback")
-                self.respondToConfirmation(requestId: requestId, decision: "allow")
+                let fallbackSuccess = await self.performConfirmationResponse(
+                    requestId: requestId, decision: "allow", selectedPattern: nil, selectedScope: nil
+                )
+                if fallbackSuccess {
+                    self.errorText = "Preference could not be saved. This action was allowed once."
+                }
                 return
             }
             if let index = self.messages.firstIndex(where: { $0.confirmation?.requestId == requestId }) {
@@ -2439,6 +2433,31 @@ public final class ChatViewModel: ObservableObject {
             self.onInlineConfirmationResponse?(requestId, "allow")
             self.inlineResponseHandledRequestIds.insert(requestId)
         }
+    }
+
+    /// Shared async helper that sends a confirmation response and updates UI state on success.
+    /// Returns `true` if the send succeeded, `false` otherwise.
+    private func performConfirmationResponse(
+        requestId: String,
+        decision: String,
+        selectedPattern: String?,
+        selectedScope: String?
+    ) async -> Bool {
+        let success = await interactionClient.sendConfirmationResponse(
+            requestId: requestId, decision: decision, selectedPattern: selectedPattern, selectedScope: selectedScope
+        )
+        guard success else { return false }
+        if let index = messages.firstIndex(where: { $0.confirmation?.requestId == requestId }) {
+            let isApproval = decision == "allow" || decision == "allow_10m" || decision == "allow_conversation"
+            messages[index].confirmation?.state = isApproval ? .approved : .denied
+            if isApproval {
+                messages[index].confirmation?.approvedDecision = decision
+            }
+        }
+        clearPendingConfirmation(requestId: requestId)
+        onInlineConfirmationResponse?(requestId, decision)
+        inlineResponseHandledRequestIds.insert(requestId)
+        return true
     }
 
     /// Update the inline confirmation message state without sending a response to the daemon.
