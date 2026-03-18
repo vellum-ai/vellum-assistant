@@ -170,6 +170,7 @@ struct SettingsBillingTab: View {
                     placeholder: "Enter amount",
                     text: $topUpAmount
                 )
+                .frame(maxWidth: 400)
             }
 
             VButton(
