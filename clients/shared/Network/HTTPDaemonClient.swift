@@ -268,7 +268,6 @@ public final class HTTPTransport {
         case conversationsSeen
         case conversationsUnread
         case identity
-        case surfaceAction
         case trustRulesManage
         case trustRuleManageById(id: String)
         case pendingInteractions(conversationKey: String?)
@@ -311,9 +310,6 @@ public final class HTTPTransport {
         case integrationsOAuthStart
         case integrationsVercelConfig
         case integrationsIngressConfig
-
-        // Surface Undo
-        case surfaceUndo(surfaceId: String)
 
         // Suggestion
         case suggestion
@@ -392,8 +388,6 @@ public final class HTTPTransport {
             return ("/v1/conversations/unread", nil)
         case .identity:
             return ("/v1/identity", nil)
-        case .surfaceAction:
-            return ("/v1/surface-actions", nil)
         case .trustRulesManage:
             return ("/v1/trust-rules/manage", nil)
         case .trustRuleManageById(let id):
@@ -481,10 +475,6 @@ public final class HTTPTransport {
             return ("/v1/integrations/vercel/config", nil)
         case .integrationsIngressConfig:
             return ("/v1/integrations/ingress/config", nil)
-        // Surface Undo
-        case .surfaceUndo(let surfaceId):
-            let encoded = surfaceId.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? surfaceId
-            return ("/v1/surfaces/\(encoded)/undo", nil)
         // Suggestion
         case .suggestion:
             return ("/v1/suggestion", nil)
@@ -547,8 +537,6 @@ public final class HTTPTransport {
             return ("\(prefix)/conversations/unread/", nil)
         case .identity:
             return ("\(prefix)/identity/", nil)
-        case .surfaceAction:
-            return ("\(prefix)/surface-actions/", nil)
         case .trustRulesManage:
             return ("\(prefix)/trust-rules/manage/", nil)
         case .trustRuleManageById(let id):
@@ -636,10 +624,6 @@ public final class HTTPTransport {
             return ("\(prefix)/integrations/vercel/config/", nil)
         case .integrationsIngressConfig:
             return ("\(prefix)/integrations/ingress/config/", nil)
-        // Surface Undo
-        case .surfaceUndo(let surfaceId):
-            let encoded = surfaceId.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? surfaceId
-            return ("\(prefix)/surfaces/\(encoded)/undo/", nil)
         // Suggestion
         case .suggestion:
             return ("\(prefix)/suggestion/", nil)

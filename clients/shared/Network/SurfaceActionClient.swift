@@ -26,7 +26,9 @@ public struct SurfaceActionClient: SurfaceActionClientProtocol {
                 "surfaceId": surfaceId,
                 "actionId": actionId,
             ]
-            if let conversationId { body["conversationId"] = conversationId }
+            // Omit conversationId — the server resolves the conversation via
+            // findSessionBySurfaceId(surfaceId), which is reliable regardless
+            // of conversationKey vs conversationId differences.
             if let data {
                 body["data"] = data.mapValues { $0.value }
             }
