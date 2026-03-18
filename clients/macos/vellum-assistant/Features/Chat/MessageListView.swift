@@ -822,6 +822,8 @@ struct MessageListView: View {
                         try? await Task.sleep(nanoseconds: 250_000_000)
                         guard !Task.isCancelled else { return }
                         scrollTracking.isPinningDuringExpansion = false
+                        // Refresh avatar position now that layout has settled.
+                        updateAvatarFollower(anchorY: scrollTracking.lastTailAnchorY)
                     }
                 } else {
                     // When scrolled away from bottom, suppress auto-scroll so the
@@ -890,6 +892,11 @@ struct MessageListView: View {
                 // reducing layout invalidation cascades during rapid scroll.
                 guard abs(anchorY - scrollTracking.lastTailAnchorY) > 2 else { return }
                 scrollTracking.lastTailAnchorY = anchorY
+                // Skip avatar updates during expansion pinning — the rapid scrollTo
+                // calls cause the tail anchor to momentarily leave the viewport,
+                // which would hide the avatar for a frame. Position is refreshed
+                // when the pinning flag clears.
+                guard !scrollTracking.isPinningDuringExpansion else { return }
                 updateAvatarFollower(anchorY: anchorY)
             }
             .transaction { $0.disablesAnimations = true }
