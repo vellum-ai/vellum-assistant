@@ -181,8 +181,9 @@ All design system types use the `V` prefix (VButton, VColor, VFont, etc.). Alway
 - `body` (13pt), `bodyMedium` (13pt medium), `bodyBold` (13pt semibold)
 - `caption` (11pt), `captionMedium` (11pt medium), `small` (10pt)
 - `mono` (13pt monospaced), `monoSmall` (11pt monospaced)
-- `display` (18pt black monospaced — for panel headers like "AGENT", "GENERATED CONTENT")
-- `cardTitle` (17pt semibold), `cardEmoji` (32pt)
+- `display` (18pt semibold — for panel headers like "AGENT", "GENERATED CONTENT")
+- `modalTitle` (18pt semibold — for VModal sheet/dialog titles)
+- `cardTitle` (16pt semibold), `cardEmoji` (32pt)
 
 **VSpacing** — 4pt grid: `xxs`(2), `xs`(4), `sm`(8), `md`(12), `lg`(16), `xl`(24), `xxl`(32), `xxxl`(48). Semantic aliases: `inline`=sm, `content`=lg, `section`=xl, `page`=xxl.
 
