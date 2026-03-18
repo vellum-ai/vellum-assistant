@@ -487,7 +487,6 @@ extension MainWindowView {
                 showToast: { msg, style in windowState.showToast(message: msg, style: style) }
             )
             .overlay(alignment: .topTrailing) { panelDismissButton }
-            .background(VColor.surfaceOverlay)
         case .usageDashboard:
             UsageDashboardPanel(
                 store: usageDashboardStore,

@@ -152,8 +152,14 @@ struct ContactsContainerView: View {
             }
         }
         .frame(maxHeight: .infinity)
+        .clipShape(RoundedRectangle(cornerRadius: VRadius.lg))
+        .overlay(
+            RoundedRectangle(cornerRadius: VRadius.lg)
+                .strokeBorder(VColor.borderDisabled, lineWidth: 1)
+        )
         .frame(maxWidth: 900)
         .frame(maxWidth: .infinity)
+        .padding(VSpacing.lg)
         .onReceive(viewModel.$contacts) { newContacts in
             // Default to assistant on first load (don't override existing selection)
             if selection == nil && !newContacts.isEmpty {
