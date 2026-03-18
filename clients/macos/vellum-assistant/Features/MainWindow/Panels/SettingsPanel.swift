@@ -436,7 +436,7 @@ struct SettingsPanel: View {
                     .background(VColor.borderBase)
                     .padding(.vertical, VSpacing.sm)
 
-                GoogleOAuthServiceCard(store: store)
+                GoogleOAuthServiceCard(store: store, authManager: authManager)
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
