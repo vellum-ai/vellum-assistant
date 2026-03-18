@@ -41,9 +41,9 @@ export const GATEWAY_INTERNAL_PORT = 7830;
 export const DOCKER_READY_TIMEOUT_MS = 3 * 60 * 1000;
 
 /** Directory for user-local binary installs (no sudo required). */
-const VELLUM_BIN_DIR = join(
+const LOCAL_BIN_DIR = join(
   process.env.HOME || process.env.USERPROFILE || ".",
-  ".vellum",
+  ".local",
   "bin",
 );
 
@@ -116,10 +116,10 @@ async function installDockerToolchain(): Promise<void> {
 
   // Direct binary install — no sudo required.
   console.log(
-    "🐳 Docker not found. Installing Docker, Colima, and Lima to ~/.vellum/bin/...",
+    "🐳 Docker not found. Installing Docker, Colima, and Lima to ~/.local/bin/...",
   );
 
-  mkdirSync(VELLUM_BIN_DIR, { recursive: true });
+  mkdirSync(LOCAL_BIN_DIR, { recursive: true });
 
   const cpuArch = releaseArch();
   const isMac = platform() === "darwin";
@@ -135,16 +135,16 @@ async function installDockerToolchain(): Promise<void> {
   // Docker publishes static binaries at download.docker.com.
   const dockerArch = cpuArch === "aarch64" ? "aarch64" : "x86_64";
   const dockerTarUrl = `https://download.docker.com/mac/static/stable/${dockerArch}/docker-27.5.1.tgz`;
-  const dockerTmpDir = join(VELLUM_BIN_DIR, ".docker-tmp");
+  const dockerTmpDir = join(LOCAL_BIN_DIR, ".docker-tmp");
   mkdirSync(dockerTmpDir, { recursive: true });
   try {
     await downloadAndExtract(dockerTarUrl, dockerTmpDir, "Docker CLI");
     // The archive extracts to docker/docker — move it to our bin dir.
     await exec("mv", [
       join(dockerTmpDir, "docker", "docker"),
-      join(VELLUM_BIN_DIR, "docker"),
+      join(LOCAL_BIN_DIR, "docker"),
     ]);
-    chmodSync(join(VELLUM_BIN_DIR, "docker"), 0o755);
+    chmodSync(join(LOCAL_BIN_DIR, "docker"), 0o755);
   } finally {
     await exec("rm", ["-rf", dockerTmpDir]).catch(() => {});
   }
@@ -152,7 +152,7 @@ async function installDockerToolchain(): Promise<void> {
   // --- Colima ---
   const colimaArch = cpuArch === "aarch64" ? "arm64" : "x86_64";
   const colimaUrl = `https://github.com/abiosoft/colima/releases/latest/download/colima-Darwin-${colimaArch}`;
-  await downloadBinary(colimaUrl, join(VELLUM_BIN_DIR, "colima"), "Colima");
+  await downloadBinary(colimaUrl, join(LOCAL_BIN_DIR, "colima"), "Colima");
 
   // --- Lima ---
   // Lima publishes tar.gz archives with bin/limactl and other tools.
@@ -162,44 +162,50 @@ async function installDockerToolchain(): Promise<void> {
   let limaVersion: string;
   try {
     const resp = await fetch(limaVersionUrl);
-    const data = (await resp.json()) as { tag_name: string };
+    if (!resp.ok) {
+      throw new Error(
+        `GitHub API returned ${resp.status}` +
+          (resp.status === 403
+            ? " (rate-limited) — try again later."
+            : `. Check your network connection.`),
+      );
+    }
+    const data = (await resp.json()) as { tag_name?: string };
+    if (!data.tag_name) {
+      throw new Error("GitHub API response missing tag_name.");
+    }
     limaVersion = data.tag_name; // e.g. "v1.0.3"
-  } catch {
-    throw new Error(
-      "Failed to fetch latest Lima version. Check your network connection.",
-    );
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    throw new Error(`Failed to fetch latest Lima version: ${message}`);
   }
   const limaVersionNum = limaVersion.replace(/^v/, ""); // "1.0.3"
   const limaTarUrl = `https://github.com/lima-vm/lima/releases/download/${limaVersion}/lima-${limaVersionNum}-Darwin-${limaArch}.tar.gz`;
-  await downloadAndExtract(limaTarUrl, VELLUM_BIN_DIR, "Lima");
+  // Lima archives contain bin/limactl, bin/lima, share/lima/..., so extract
+  // into the parent (~/.local/) so that limactl lands in ~/.local/bin/.
+  const localDir = dirname(LOCAL_BIN_DIR);
+  await downloadAndExtract(limaTarUrl, localDir, "Lima");
 
   // Verify all binaries are in place.
   for (const bin of ["docker", "colima", "limactl"]) {
-    const binPath = join(VELLUM_BIN_DIR, "bin", bin);
-    const topPath = join(VELLUM_BIN_DIR, bin);
-    // Lima extracts to bin/ subdirectory; docker and colima are at top level.
-    if (!existsSync(topPath) && !existsSync(binPath)) {
+    if (!existsSync(join(LOCAL_BIN_DIR, bin))) {
       throw new Error(
         `${bin} binary not found after installation. Please install Docker manually.`,
       );
     }
   }
 
-  console.log("  ✅ Docker toolchain installed to ~/.vellum/bin/");
+  console.log("  ✅ Docker toolchain installed to ~/.local/bin/");
 }
 
 /**
- * Ensures ~/.vellum/bin/ is on PATH for this process so that docker, colima,
+ * Ensures ~/.local/bin/ is on PATH for this process so that docker, colima,
  * and limactl are discoverable.
  */
-function ensureVellumBinOnPath(): void {
-  // Lima extracts binaries into a bin/ subdirectory.
-  const limaBinDir = join(VELLUM_BIN_DIR, "bin");
-  const dirs = [VELLUM_BIN_DIR, limaBinDir];
+function ensureLocalBinOnPath(): void {
   const currentPath = process.env.PATH || "";
-  const missing = dirs.filter((d) => !currentPath.includes(d));
-  if (missing.length > 0) {
-    process.env.PATH = `${missing.join(":")}:${currentPath}`;
+  if (!currentPath.includes(LOCAL_BIN_DIR)) {
+    process.env.PATH = `${LOCAL_BIN_DIR}:${currentPath}`;
   }
 }
 
@@ -209,21 +215,26 @@ function ensureVellumBinOnPath(): void {
  * required), and starts Colima if the Docker daemon is not reachable.
  */
 async function ensureDockerInstalled(): Promise<void> {
-  // Always add ~/.vellum/bin to PATH so previously installed binaries are found.
-  ensureVellumBinOnPath();
+  // Always add ~/.local/bin to PATH so previously installed binaries are found.
+  ensureLocalBinOnPath();
 
-  let installed = false;
-  try {
-    await execOutput("docker", ["--version"]);
-    installed = true;
-  } catch {
-    // docker CLI not found — install it
-  }
+  // Check that docker, colima, and limactl are all available. If any is
+  // missing (e.g. partial install from a previous failure), re-run install.
+  const toolchainComplete = await (async () => {
+    try {
+      await execOutput("docker", ["--version"]);
+      await execOutput("colima", ["version"]);
+      await execOutput("limactl", ["--version"]);
+      return true;
+    } catch {
+      return false;
+    }
+  })();
 
-  if (!installed) {
+  if (!toolchainComplete) {
     await installDockerToolchain();
     // Re-check PATH after install.
-    ensureVellumBinOnPath();
+    ensureLocalBinOnPath();
 
     try {
       await execOutput("docker", ["--version"]);
