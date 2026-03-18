@@ -17,6 +17,8 @@ public protocol SettingsClientProtocol {
     func setTelegramConfig(action: String, botToken: String?, commands: [TelegramConfigRequestCommand]?) async -> TelegramConfigResponseMessage?
     func setSlackWebhookConfig(action: String, webhookUrl: String?) async -> Bool
     func fetchChannelVerificationStatus(channel: String) async -> ChannelVerificationSessionResponseMessage?
+    func saveVercelConfig(action: String, apiToken: String?) async -> VercelApiConfigResponseMessage?
+    func sendChannelVerificationSession(action: String, channel: String?, conversationId: String?, rebind: Bool?, destination: String?, originConversationId: String?, purpose: String?, contactChannelId: String?) async -> ChannelVerificationSessionResponseMessage?
 }
 
 /// Gateway-backed implementation of ``SettingsClientProtocol``.
@@ -177,6 +179,84 @@ public struct SettingsClient: SettingsClientProtocol {
             return try JSONDecoder().decode(ChannelVerificationSessionResponseMessage.self, from: patched)
         } catch {
             log.error("fetchChannelVerificationStatus(\(channel)) error: \(error.localizedDescription)")
+            return nil
+        }
+    }
+
+    public func saveVercelConfig(action: String, apiToken: String? = nil) async -> VercelApiConfigResponseMessage? {
+        do {
+            var body: [String: Any] = ["action": action]
+            if let apiToken { body["apiToken"] = apiToken }
+
+            let response: GatewayHTTPClient.Response
+            if action == "delete" {
+                response = try await GatewayHTTPClient.delete(
+                    path: "integrations/vercel/config", timeout: 10
+                )
+            } else {
+                response = try await GatewayHTTPClient.post(
+                    path: "integrations/vercel/config", json: body, timeout: 10
+                )
+            }
+            guard response.isSuccess else {
+                log.error("saveVercelConfig failed (HTTP \(response.statusCode))")
+                return nil
+            }
+            let patched = injectType("vercel_api_config_response", into: response.data)
+            return try JSONDecoder().decode(VercelApiConfigResponseMessage.self, from: patched)
+        } catch {
+            log.error("saveVercelConfig error: \(error.localizedDescription)")
+            return nil
+        }
+    }
+
+    public func sendChannelVerificationSession(
+        action: String,
+        channel: String? = nil,
+        conversationId: String? = nil,
+        rebind: Bool? = nil,
+        destination: String? = nil,
+        originConversationId: String? = nil,
+        purpose: String? = nil,
+        contactChannelId: String? = nil
+    ) async -> ChannelVerificationSessionResponseMessage? {
+        do {
+            var body: [String: Any] = ["action": action]
+            if let channel { body["channel"] = channel }
+            if let conversationId { body["conversationId"] = conversationId }
+            if let rebind { body["rebind"] = rebind }
+            if let destination { body["destination"] = destination }
+            if let originConversationId { body["originConversationId"] = originConversationId }
+            if let purpose { body["purpose"] = purpose }
+            if let contactChannelId { body["contactChannelId"] = contactChannelId }
+
+            let response: GatewayHTTPClient.Response
+            switch action {
+            case "cancel_session":
+                response = try await GatewayHTTPClient.delete(
+                    path: "channel-verification-sessions", timeout: 10
+                )
+            case "resend_session":
+                response = try await GatewayHTTPClient.post(
+                    path: "channel-verification-sessions/resend", json: body, timeout: 10
+                )
+            case "revoke":
+                response = try await GatewayHTTPClient.post(
+                    path: "channel-verification-sessions/revoke", json: body, timeout: 10
+                )
+            default:
+                response = try await GatewayHTTPClient.post(
+                    path: "channel-verification-sessions", json: body, timeout: 10
+                )
+            }
+            guard response.isSuccess else {
+                log.error("sendChannelVerificationSession failed (HTTP \(response.statusCode))")
+                return nil
+            }
+            let patched = injectType("channel_verification_session_response", into: response.data)
+            return try JSONDecoder().decode(ChannelVerificationSessionResponseMessage.self, from: patched)
+        } catch {
+            log.error("sendChannelVerificationSession error: \(error.localizedDescription)")
             return nil
         }
     }
