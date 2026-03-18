@@ -206,7 +206,7 @@ final class OnboardingState {
     }
 
     static func clearPersistedState() {
-        for key in ["onboarding.step", "onboarding.name", "onboarding.key", "onboarding.hatched", "onboarding.interviewCompleted", "onboarding.flowVersion", "onboarding.cloudProvider", "onboarding.skippedAPIKeyEntry"] {
+        for key in ["onboarding.step", "onboarding.name", "onboarding.key", "onboarding.hatched", "onboarding.interviewCompleted", "onboarding.flowVersion", "onboarding.cloudProvider", "onboarding.skippedAPIKeyEntry", "onboarding.variant", "onboarding.firstMeetingCrackProgress"] {
             UserDefaults.standard.removeObject(forKey: key)
         }
     }
