@@ -226,6 +226,10 @@ public struct ToolConfirmationBubble: View {
                 }
             }
 
+            if hasAllow10m || hasAllowConversation {
+                VInlineMessage("Your selection becomes the default action.", tone: .info)
+            }
+
             // First-time educational banner for command confirmations
             if isCommandTool && !hasSeenCommandExplanation {
                 commandExplanationBanner
