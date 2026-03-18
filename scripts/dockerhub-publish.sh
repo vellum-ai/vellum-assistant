@@ -30,7 +30,7 @@
 set -euo pipefail
 
 # ---------------------------------------------------------------------------
-# Load .env (same pattern as production-release.sh / preview-release.sh)
+# Load .env — fills only unset variables so inline overrides take precedence
 # ---------------------------------------------------------------------------
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -39,7 +39,18 @@ ENV_FILE="${SCRIPT_DIR}/.env"
 if [ -f "$ENV_FILE" ]; then
   set -a
   # shellcheck source=/dev/null
-  source "$ENV_FILE"
+  source <(
+    # Read .env but only emit lines whose variable is not already set
+    while IFS='=' read -r key value; do
+      # Skip comments and blank lines
+      [[ "$key" =~ ^[[:space:]]*# ]] && continue
+      [[ -z "$key" ]] && continue
+      key="${key%%[[:space:]]}"
+      if [ -z "${!key+x}" ]; then
+        printf '%s=%s\n' "$key" "$value"
+      fi
+    done < "$ENV_FILE"
+  )
   set +a
 fi
 
