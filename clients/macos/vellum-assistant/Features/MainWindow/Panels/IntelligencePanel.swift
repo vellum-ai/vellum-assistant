@@ -122,7 +122,7 @@ struct IntelligencePanel: View {
                 isEmailEnabled: isEmailEnabled,
                 showToast: showToast
             )
-            .padding(.top, VSpacing.xl)
+            .padding(.top, VSpacing.lg)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
 
         case .installedSkills:

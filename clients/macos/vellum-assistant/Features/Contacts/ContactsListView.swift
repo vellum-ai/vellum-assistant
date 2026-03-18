@@ -141,8 +141,7 @@ struct ContactsListView: View {
             .padding(.vertical, VSpacing.sm)
             .background(rowBackground(isSelected: isSelected, isHovered: isHovered))
             .animation(VAnimation.fast, value: isHovered)
-            .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
-            .contentShape(RoundedRectangle(cornerRadius: VRadius.md))
+            .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .onHover(perform: onHover)
@@ -206,7 +205,7 @@ struct ContactsListView: View {
     // MARK: - Helpers
 
     private func rowBackground(isSelected: Bool, isHovered: Bool) -> some View {
-        RoundedRectangle(cornerRadius: VRadius.md)
+        Rectangle()
             .fill(
                 isSelected
                     ? VColor.surfaceActive
