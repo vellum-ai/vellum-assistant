@@ -1065,9 +1065,24 @@ describe("buildTurnContextBlock (channel-only)", () => {
       },
       undefined,
     );
-    expect(block).toBe(
-      "<turn_context>\n" + "channel: telegram\n" + "</turn_context>",
+    expect(block).toContain("<turn_context>");
+    expect(block).toContain("channel: telegram");
+    expect(block).toContain("response_discretion:");
+    expect(block).toContain("</turn_context>");
+  });
+
+  test("omits response_discretion for vellum channel", () => {
+    const block = buildTurnContextBlock(
+      {
+        turnContext: {
+          userMessageChannel: "vellum",
+          assistantMessageChannel: "vellum",
+        },
+        conversationOriginChannel: "vellum",
+      },
+      undefined,
     );
+    expect(block).not.toContain("response_discretion:");
   });
 
   test('uses "unknown" when conversationOriginChannel is null', () => {
