@@ -16,9 +16,6 @@ struct ContactsListView: View {
             if viewModel.isLoading && viewModel.contacts.isEmpty {
                 loadingState
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
-            } else if viewModel.contacts.isEmpty {
-                emptyState
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
                 contactsCard
             }
@@ -50,50 +47,64 @@ struct ContactsListView: View {
                 .accessibilityLabel("Add contact")
             }
 
-            searchBar
+            // Sticky system contacts (always visible, not affected by search)
+            VStack(alignment: .leading, spacing: VSpacing.sm) {
+                contactListRow(
+                    name: cachedAssistantDisplayName,
+                    role: "assistant",
+                    isSelected: selection == .assistant,
+                    isHovered: isAssistantHovered,
+                    onTap: { selection = .assistant },
+                    onHover: { isAssistantHovered = $0 }
+                )
 
-            ScrollView {
-                VStack(alignment: .leading, spacing: VSpacing.sm) {
-                    // Assistant row (virtual — not a real contact)
-                    if matchesSearch(cachedAssistantDisplayName) {
-                        contactListRow(
-                            name: cachedAssistantDisplayName,
-                            role: "assistant",
-                            isSelected: selection == .assistant,
-                            isHovered: isAssistantHovered,
-                            onTap: { selection = .assistant },
-                            onHover: { isAssistantHovered = $0 }
-                        )
-                    }
-
-                    // All contacts in natural order
-                    ForEach(viewModel.filteredContacts, id: \.id) { contact in
-                        let isGuardian = contact.role == "guardian"
-                        contactListRow(
-                            name: isGuardian ? "\(contact.displayName) (You)" : contact.displayName,
-                            role: contact.role,
-                            isSelected: selection == .contact(contact.id),
-                            isHovered: hoveredContactId == contact.id,
-                            onTap: { selection = .contact(contact.id) },
-                            onHover: { hoveredContactId = $0 ? contact.id : nil }
-                        )
-                    }
-
-                    if viewModel.filteredContacts.isEmpty && !viewModel.contacts.isEmpty && !matchesSearch(cachedAssistantDisplayName) {
-                        VStack(spacing: VSpacing.sm) {
-                            Text("No matching contacts")
-                                .font(VFont.body)
-                                .foregroundColor(VColor.contentSecondary)
-                            Text("Try a different search term")
-                                .font(VFont.caption)
-                                .foregroundColor(VColor.contentTertiary)
-                        }
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, VSpacing.xl)
-                    }
+                if let guardian = viewModel.guardianContact {
+                    contactListRow(
+                        name: "\(guardian.displayName) (You)",
+                        role: guardian.role,
+                        isSelected: selection == .contact(guardian.id),
+                        isHovered: hoveredContactId == guardian.id,
+                        onTap: { selection = .contact(guardian.id) },
+                        onHover: { hoveredContactId = $0 ? guardian.id : nil }
+                    )
                 }
             }
 
+            Divider()
+
+            if viewModel.regularContacts.isEmpty {
+                regularContactsEmptyState
+            } else {
+                searchBar
+
+                ScrollView {
+                    VStack(alignment: .leading, spacing: VSpacing.sm) {
+                        ForEach(viewModel.filteredRegularContacts, id: \.id) { contact in
+                            contactListRow(
+                                name: contact.displayName,
+                                role: contact.role,
+                                isSelected: selection == .contact(contact.id),
+                                isHovered: hoveredContactId == contact.id,
+                                onTap: { selection = .contact(contact.id) },
+                                onHover: { hoveredContactId = $0 ? contact.id : nil }
+                            )
+                        }
+
+                        if viewModel.filteredRegularContacts.isEmpty {
+                            VStack(spacing: VSpacing.sm) {
+                                Text("No matching contacts")
+                                    .font(VFont.body)
+                                    .foregroundColor(VColor.contentSecondary)
+                                Text("Try a different search term")
+                                    .font(VFont.caption)
+                                    .foregroundColor(VColor.contentTertiary)
+                            }
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, VSpacing.xl)
+                        }
+                    }
+                }
+            }
         }
         .padding(VSpacing.lg)
         .frame(maxHeight: .infinity, alignment: .top)
@@ -177,22 +188,19 @@ struct ContactsListView: View {
 
     // MARK: - Empty State
 
-    private var emptyState: some View {
+    private var regularContactsEmptyState: some View {
         VStack(spacing: VSpacing.md) {
-            VIconView(.users, size: 32)
+            VIconView(.users, size: 24)
                 .foregroundColor(VColor.contentTertiary)
             Text("No contacts yet")
-                .font(VFont.headline)
-                .foregroundColor(VColor.contentDefault)
-            Text("Contacts are created automatically when people interact with your assistant, or you can add one manually.")
-                .font(VFont.caption)
-                .foregroundColor(VColor.contentTertiary)
-                .multilineTextAlignment(.center)
-                .frame(maxWidth: 300)
-            VButton(label: "Add Contact", leftIcon: VIcon.plus.rawValue, style: .primary) {
+                .font(VFont.body)
+                .foregroundColor(VColor.contentSecondary)
+            VButton(label: "Add Contact", leftIcon: VIcon.plus.rawValue, style: .primary, size: .compact) {
                 viewModel.isCreatingContact = true
             }
         }
+        .frame(maxWidth: .infinity)
+        .padding(.top, VSpacing.xl)
     }
 
     // MARK: - Helpers
