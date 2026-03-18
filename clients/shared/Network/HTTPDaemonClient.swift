@@ -1078,9 +1078,15 @@ public final class HTTPTransport {
                    serverConvId != conversationId {
                     self.serverToLocalConversationMap[serverConvId] = conversationId
                     self.locallyOwnedConversationIds.insert(serverConvId)
-                    self.onConversationIdResolved?(conversationId, serverConvId)
-                    self.serverToLocalConversationMap.removeValue(forKey: serverConvId)
-                    log.info("Resolved conversation \(conversationId, privacy: .public) → server ID \(serverConvId, privacy: .public)")
+
+                    if let resolve = self.onConversationIdResolved {
+                        resolve(conversationId, serverConvId)
+                        // The resolver updated ChatViewModel.conversationId to the
+                        // real ID, so SSE events no longer need remapping.
+                        self.serverToLocalConversationMap.removeValue(forKey: serverConvId)
+                    }
+
+                    log.info("Mapped conversation \(conversationId, privacy: .public) → server ID \(serverConvId, privacy: .public)")
                 }
             } else if http.statusCode == 401 && !isRetry {
                 let refreshResult = await handleAuthenticationFailureAsync(responseData: data)
