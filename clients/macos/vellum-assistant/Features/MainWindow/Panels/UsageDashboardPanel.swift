@@ -17,13 +17,7 @@ struct UsageDashboardPanel: View {
             timeRangeStrip(store: store)
         }) {
             if !allFailed {
-                VStack(alignment: .leading, spacing: VSpacing.lg) {
-                    totalsSection(store: store)
-                    dailySection(store: store)
-                    breakdownSection(store: store)
-                }
-                .frame(maxWidth: 900)
-                .frame(maxWidth: .infinity)
+                contentView(store: store)
             }
         }
         .overlay {
@@ -91,6 +85,19 @@ struct UsageDashboardPanel: View {
         .frame(maxWidth: 900)
         .frame(maxWidth: .infinity)
         .padding(.vertical, VSpacing.lg)
+    }
+
+    // MARK: - Content
+
+    @ViewBuilder
+    func contentView(store: UsageDashboardStore) -> some View {
+        VStack(alignment: .leading, spacing: VSpacing.lg) {
+            totalsSection(store: store)
+            dailySection(store: store)
+            breakdownSection(store: store)
+        }
+        .frame(maxWidth: 900)
+        .frame(maxWidth: .infinity)
     }
 
 
