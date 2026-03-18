@@ -19,7 +19,10 @@ import {
   provenanceFromTrustContext,
   updateMessageContent,
 } from "../memory/conversation-crud.js";
-import { recordRequestLog } from "../memory/llm-request-log-store.js";
+import {
+  backfillMessageIdOnLogs,
+  recordRequestLog,
+} from "../memory/llm-request-log-store.js";
 import type { ContentBlock, ImageContent } from "../providers/types.js";
 import type { DirectiveRequest } from "./assistant-attachments.js";
 import {
@@ -696,6 +699,18 @@ export async function handleMessageComplete(
     assistantChannelMetadata,
   );
   state.lastAssistantMessageId = assistantMsg.id;
+
+  // Backfill message_id on all LLM request logs from this turn.
+  // The agent loop is single-threaded per conversation, so all rows with
+  // message_id IS NULL belong to the current turn.
+  try {
+    backfillMessageIdOnLogs(deps.ctx.conversationId, assistantMsg.id);
+  } catch (err) {
+    deps.rlog.warn(
+      { err },
+      "Failed to backfill message_id on LLM request logs (non-fatal)",
+    );
+  }
 
   deps.ctx.currentTurnSurfaces = [];
 
