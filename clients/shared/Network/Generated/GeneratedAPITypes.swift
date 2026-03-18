@@ -2661,27 +2661,41 @@ public struct ModelGetRequest: Codable, Sendable {
     }
 }
 
+public struct CatalogModel: Codable, Sendable {
+    public let id: String
+    public let displayName: String
+
+    public init(id: String, displayName: String) {
+        self.id = id
+        self.displayName = displayName
+    }
+}
+
 public struct ModelInfo: Codable, Sendable {
     public let type: String
     public let model: String
     public let provider: String
     public let configuredProviders: [String]?
+    public let availableModels: [CatalogModel]?
 
-    public init(type: String, model: String, provider: String, configuredProviders: [String]? = nil) {
+    public init(type: String, model: String, provider: String, configuredProviders: [String]? = nil, availableModels: [CatalogModel]? = nil) {
         self.type = type
         self.model = model
         self.provider = provider
         self.configuredProviders = configuredProviders
+        self.availableModels = availableModels
     }
 }
 
 public struct ModelSetRequest: Codable, Sendable {
     public let type: String
     public let model: String
+    public let provider: String?
 
-    public init(type: String, model: String) {
+    public init(type: String, model: String, provider: String? = nil) {
         self.type = type
         self.model = model
+        self.provider = provider
     }
 }
 
