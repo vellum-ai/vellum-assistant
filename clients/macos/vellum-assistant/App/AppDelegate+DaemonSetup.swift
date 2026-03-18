@@ -239,11 +239,6 @@ extension AppDelegate {
             self.handleNotificationConversationCreated(msg)
         }
 
-        // Forward dictation responses from the daemon to VoiceInputManager
-        daemonClient.onDictationResponse = { [weak self] msg in
-            self?.voiceInput?.onDictationResponse?(msg)
-        }
-
         daemonClient.onDocumentEditorShow = { [weak self] msg in
             guard let self else { return }
             self.ensureMainWindowExists()

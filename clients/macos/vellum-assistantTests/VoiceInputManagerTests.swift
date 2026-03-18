@@ -3,17 +3,37 @@ import VellumAssistantShared
 @testable import VellumAssistantLib
 
 @MainActor
+private final class MockDictationClient: DictationClientProtocol {
+    var sentRequests: [DictationRequest] = []
+    var response = DictationResponseMessage(
+        type: "dictation_response",
+        text: "cleaned text",
+        mode: "dictation"
+    )
+    var onProcess: (() -> Void)?
+
+    func process(_ request: DictationRequest) async -> DictationResponseMessage {
+        sentRequests.append(request)
+        onProcess?()
+        return response
+    }
+}
+
+@MainActor
 final class VoiceInputManagerTests: XCTestCase {
 
     private var manager: VoiceInputManager!
+    private var dictationClient: MockDictationClient!
 
     override func setUp() {
         super.setUp()
-        manager = VoiceInputManager()
+        dictationClient = MockDictationClient()
+        manager = VoiceInputManager(dictationClient: dictationClient)
     }
 
     override func tearDown() {
         manager = nil
+        dictationClient = nil
         super.tearDown()
     }
 
@@ -119,26 +139,28 @@ final class VoiceInputManagerTests: XCTestCase {
         XCTAssertEqual(receivedText, "fallback text")
     }
 
-    func testDictationModeSendsRequestToDaemon() {
-        let mockDaemon = MockDaemonClient()
+    func testDictationModeSendsRequestToDictationClient() {
         manager.currentMode = .dictation
-        manager.daemonClient = mockDaemon
         manager.currentDictationContext = makeDictationContext(appName: "Notes")
+        let requestExpectation = expectation(description: "dictation request sent")
+        dictationClient.onProcess = {
+            requestExpectation.fulfill()
+        }
 
         manager.handleFinalTranscription("take a note")
 
-        XCTAssertEqual(mockDaemon.sentMessages.count, 1)
-        let sent = mockDaemon.sentMessages.first as? DictationRequest
+        wait(for: [requestExpectation], timeout: 1.0)
+
+        XCTAssertEqual(dictationClient.sentRequests.count, 1)
+        let sent = dictationClient.sentRequests.first
         XCTAssertNotNil(sent)
         XCTAssertEqual(sent?.transcription, "take a note")
         XCTAssertEqual(sent?.context.appName, "Notes")
         XCTAssertEqual(sent?.type, "dictation_request")
     }
 
-    func testDictationModeSetsAwaitingDaemonResponse() {
-        let mockDaemon = MockDaemonClient()
+    func testDictationModeSetsAwaitingDictationResponse() {
         manager.currentMode = .dictation
-        manager.daemonClient = mockDaemon
         manager.currentDictationContext = makeDictationContext()
 
         manager.handleFinalTranscription("some text")
@@ -147,50 +169,76 @@ final class VoiceInputManagerTests: XCTestCase {
     }
 
     func testDictationModeIncludesSelectedTextInContext() {
-        let mockDaemon = MockDaemonClient()
         manager.currentMode = .dictation
-        manager.daemonClient = mockDaemon
         manager.currentDictationContext = makeDictationContext(selectedText: "selected snippet")
+        let requestExpectation = expectation(description: "dictation request sent")
+        dictationClient.onProcess = {
+            requestExpectation.fulfill()
+        }
 
         manager.handleFinalTranscription("replace this")
 
-        let sent = mockDaemon.sentMessages.first as? DictationRequest
+        wait(for: [requestExpectation], timeout: 1.0)
+
+        let sent = dictationClient.sentRequests.first
         XCTAssertEqual(sent?.context.selectedText, "selected snippet")
     }
 
-    func testDictationModeWithNoDaemonFallsBackToConversation() {
+    func testDictationModeUsesClientResponseToTriggerActionRouting() {
         manager.currentMode = .dictation
-        manager.daemonClient = nil
         manager.currentDictationContext = makeDictationContext()
-        var receivedText: String?
-        manager.onTranscription = { receivedText = $0 }
+        dictationClient.response = DictationResponseMessage(
+            type: "dictation_response",
+            text: "open Slack",
+            mode: "action"
+        )
 
-        manager.handleFinalTranscription("no daemon available")
+        let actionExpectation = expectation(description: "action mode triggered")
+        manager.onDictationResponse = { [weak manager] response in
+            manager?.handleDictationResponse(text: response.text, mode: response.mode)
+        }
+        var receivedAction: String?
+        manager.onActionModeTriggered = { text in
+            receivedAction = text
+            actionExpectation.fulfill()
+        }
 
-        XCTAssertEqual(receivedText, "no daemon available")
+        manager.handleFinalTranscription("open Slack")
+
+        wait(for: [actionExpectation], timeout: 1.0)
+        XCTAssertEqual(receivedAction, "open Slack")
+        XCTAssertFalse(manager.awaitingDaemonResponse)
     }
 
     func testDictationRequestIncludesBundleIdentifier() {
-        let mockDaemon = MockDaemonClient()
         manager.currentMode = .dictation
-        manager.daemonClient = mockDaemon
         manager.currentDictationContext = makeDictationContext(bundleIdentifier: "com.apple.Safari")
+        let requestExpectation = expectation(description: "dictation request sent")
+        dictationClient.onProcess = {
+            requestExpectation.fulfill()
+        }
 
         manager.handleFinalTranscription("search for this")
 
-        let sent = mockDaemon.sentMessages.first as? DictationRequest
+        wait(for: [requestExpectation], timeout: 1.0)
+
+        let sent = dictationClient.sentRequests.first
         XCTAssertEqual(sent?.context.bundleIdentifier, "com.apple.Safari")
     }
 
     func testDictationRequestIncludesCursorInTextFieldFlag() {
-        let mockDaemon = MockDaemonClient()
         manager.currentMode = .dictation
-        manager.daemonClient = mockDaemon
         manager.currentDictationContext = makeDictationContext(cursorInTextField: false)
+        let requestExpectation = expectation(description: "dictation request sent")
+        dictationClient.onProcess = {
+            requestExpectation.fulfill()
+        }
 
         manager.handleFinalTranscription("type something")
 
-        let sent = mockDaemon.sentMessages.first as? DictationRequest
+        wait(for: [requestExpectation], timeout: 1.0)
+
+        let sent = dictationClient.sentRequests.first
         XCTAssertEqual(sent?.context.cursorInTextField, false)
     }
 

@@ -23,8 +23,8 @@ extension HTTPTransport {
             }
 
             // --- Dictation ---
-            if let msg = message as? DictationRequest {
-                Task { await self.sendEncodablePost(.dictation, body: msg, label: "dictation_request") }
+            if message is DictationRequest {
+                // Handled by DictationClient via GatewayHTTPClient.
                 return true
             }
 
