@@ -83,7 +83,7 @@ final class WorkspaceBrowserState {
     private static func prettyPrintJSON(_ text: String) -> String {
         guard let data = text.data(using: .utf8),
               let json = try? JSONSerialization.jsonObject(with: data, options: .fragmentsAllowed),
-              let pretty = try? JSONSerialization.data(withJSONObject: json, options: [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]),
+              let pretty = try? JSONSerialization.data(withJSONObject: json, options: [.prettyPrinted, .withoutEscapingSlashes]),
               let result = String(data: pretty, encoding: .utf8) else {
             return text
         }

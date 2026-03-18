@@ -170,7 +170,6 @@ struct HighlightedTextView: View {
     private func applySearchHighlighting(
         to line: inout AttributedString,
         lineText: Substring,
-        lineStartOffset: Int,
         matchRanges: [Range<String.Index>]
     ) {
         let lineRange = lineText.startIndex..<lineText.endIndex
@@ -180,10 +179,10 @@ struct HighlightedTextView: View {
             let clampedUpper = min(range.upperBound, lineText.endIndex)
             let localLower = lineText.distance(from: lineText.startIndex, to: clampedLower)
             let localUpper = lineText.distance(from: lineText.startIndex, to: clampedUpper)
-            guard let attrLower = line.index(line.startIndex, offsetByCharacters: localLower, limitedBy: line.endIndex),
-                  let attrUpper = line.index(line.startIndex, offsetByCharacters: localUpper, limitedBy: line.endIndex) else {
-                continue
-            }
+            let charCount = String(line.characters).count
+            guard localLower <= charCount, localUpper <= charCount else { continue }
+            let attrLower = line.index(line.startIndex, offsetByCharacters: localLower)
+            let attrUpper = line.index(line.startIndex, offsetByCharacters: localUpper)
             let attrRange = attrLower..<attrUpper
             if index == currentMatchIndex {
                 line[attrRange].backgroundColor = VColor.primaryBase.opacity(0.3)
@@ -291,8 +290,34 @@ struct HighlightedTextView: View {
         }
     }
 
-    /// Renders a single line of text, using the highlighted version when
-    /// available and falling back to plain monospaced text.
+    /// Builds the `Text` view for a single line, using the highlighted version
+    /// when available and falling back to plain monospaced text.
+    private func buildLineText(
+        index: Int,
+        plainLines: [Substring],
+        highlightedLines: [AttributedString]?,
+        matchRanges: [Range<String.Index>]
+    ) -> Text {
+        if let hLines = highlightedLines, index < hLines.count {
+            var attrLine = hLines[index]
+            if !matchRanges.isEmpty, index < plainLines.count {
+                applySearchHighlighting(
+                    to: &attrLine,
+                    lineText: plainLines[index],
+                    matchRanges: matchRanges
+                )
+            }
+            return Text(attrLine)
+        } else {
+            // Lightweight fallback — no AttributedString creation on the main thread
+            let str = index < plainLines.count ? String(plainLines[index]) : ""
+            return Text(str)
+                .font(VFont.mono)
+                .foregroundColor(VColor.contentDefault)
+        }
+    }
+
+    /// Renders a single line of text with the correct selection and frame.
     @ViewBuilder
     private func lineView(
         index: Int,
@@ -300,25 +325,12 @@ struct HighlightedTextView: View {
         highlightedLines: [AttributedString]?,
         matchRanges: [Range<String.Index>]
     ) -> some View {
-        let lineText: Text
-        if let hLines = highlightedLines, index < hLines.count {
-            var attrLine = hLines[index]
-            if !matchRanges.isEmpty, index < plainLines.count {
-                applySearchHighlighting(
-                    to: &attrLine,
-                    lineText: plainLines[index],
-                    lineStartOffset: plainLines[0..<index].reduce(0) { $0 + $1.count + 1 },
-                    matchRanges: matchRanges
-                )
-            }
-            lineText = Text(attrLine)
-        } else {
-            // Lightweight fallback — no AttributedString creation on the main thread
-            let str = index < plainLines.count ? String(plainLines[index]) : ""
-            lineText = Text(str)
-                .font(VFont.mono)
-                .foregroundColor(VColor.contentDefault)
-        }
+        let lineText = buildLineText(
+            index: index,
+            plainLines: plainLines,
+            highlightedLines: highlightedLines,
+            matchRanges: matchRanges
+        )
 
         if isEditable {
             lineText
