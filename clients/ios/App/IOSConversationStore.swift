@@ -375,6 +375,7 @@ class IOSConversationStore: ObservableObject {
         Task { [weak self] in
             guard let self else { return }
             if let response = await ConversationListClient().fetchConversationList(offset: 0, limit: Self.conversationPageSize) {
+                guard currentGeneration == self.conversationListGeneration else { return }
                 self.expectedConversationListGeneration = currentGeneration
                 self.handleConversationListResponse(response)
             }
