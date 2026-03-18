@@ -211,7 +211,9 @@ export function notifyGuardianOfAccessRequest(
     "slack",
     "telegram",
   ]);
-  const sameChannelOnly = TEXT_CHANNELS_WITH_DELIVERY.has(sourceChannel);
+  const sameChannelOnly =
+    TEXT_CHANNELS_WITH_DELIVERY.has(sourceChannel) &&
+    guardianResolutionSource === "source-channel-contact";
 
   void emitNotificationSignal({
     sourceEventName: "ingress.access_request",
@@ -234,6 +236,7 @@ export function notifyGuardianOfAccessRequest(
       actorUsername: actorUsername ?? null,
       senderIdentifier,
       guardianBindingChannel,
+      guardianResolutionSource,
       previousMemberStatus: previousMemberStatus ?? null,
     },
     dedupeKey: `access-request:${canonicalRequest.id}`,

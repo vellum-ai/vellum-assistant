@@ -208,6 +208,15 @@ export function buildAccessRequestContractText(
       ? payload.previousMemberStatus
       : undefined;
 
+  const guardianResolutionSource =
+    typeof payload.guardianResolutionSource === "string"
+      ? payload.guardianResolutionSource
+      : undefined;
+  const sourceChannel =
+    typeof payload.sourceChannel === "string"
+      ? payload.sourceChannel
+      : undefined;
+
   const lines: string[] = [];
   lines.push(buildAccessRequestIdentityLine(payload));
   if (previousMemberStatus === "revoked") {
@@ -220,6 +229,15 @@ export function buildAccessRequestContractText(
     );
   }
   lines.push(buildAccessRequestInviteDirective());
+  if (
+    (guardianResolutionSource === "vellum-anchor" ||
+      guardianResolutionSource === "none") &&
+    sourceChannel
+  ) {
+    lines.push(
+      `Note: You haven't verified your identity on ${sourceChannel} yet. If this was you trying to message your assistant, say "verify me on ${sourceChannel}" to set up direct access.`,
+    );
+  }
   return lines.join("\n");
 }
 
