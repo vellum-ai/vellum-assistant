@@ -32,7 +32,7 @@ struct ContactsContainerView: View {
     }
 
     var body: some View {
-        HStack(alignment: .top, spacing: VSpacing.lg) {
+        HStack(alignment: .top, spacing: 0) {
             // Left pane: contacts list (full height, internal scrolling)
             VStack(spacing: VSpacing.sm) {
                 ContactsListView(
@@ -47,6 +47,12 @@ struct ContactsContainerView: View {
             }
             .frame(width: 320)
             .frame(maxHeight: .infinity, alignment: .top)
+
+            // Vertical separator
+            VColor.borderDisabled
+                .frame(width: 1)
+                .frame(maxHeight: .infinity)
+
             // Right pane: detail, loading, or placeholder
             if viewModel.isLoading && viewModel.contacts.isEmpty {
                 // Skeleton loading state for detail pane
