@@ -1416,46 +1416,6 @@ public final class HTTPTransport {
         return body
     }
 
-    // MARK: - Surface Actions
-
-    func sendSurfaceAction(_ action: UiSurfaceActionMessage, isRetry: Bool = false) async {
-        guard let url = buildURL(for: .surfaceAction) else { return }
-
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        applyAuth(&request)
-
-        var body: [String: Any] = [
-            "surfaceId": action.surfaceId,
-            "actionId": action.actionId,
-        ]
-        // Omit conversationId — the server resolves the conversation via
-        // findSessionBySurfaceId(surfaceId), which is reliable regardless
-        // of conversationKey vs conversationId differences.
-        if let data = action.data {
-            body["data"] = jsonCompatibleDictionary(data)
-        }
-
-        do {
-            request.httpBody = try JSONSerialization.data(withJSONObject: body)
-            let (_, response) = try await URLSession.shared.data(for: request)
-
-            if let http = response as? HTTPURLResponse {
-                if http.statusCode == 401 && !isRetry {
-                    let refreshResult = await handleAuthenticationFailureAsync()
-                    if case .success = refreshResult {
-                        await sendSurfaceAction(action, isRetry: true)
-                    }
-                } else if http.statusCode != 200 {
-                    log.error("HTTPTransport: surface action failed (\(http.statusCode))")
-                }
-            }
-        } catch {
-            log.error("HTTPTransport: surface action error: \(error.localizedDescription)")
-        }
-    }
-
     func fetchConversationList(offset: Int = 0, limit: Int = 50, isRetry: Bool = false, authRetryCount: Int = 0) async {
         guard let url = buildURL(for: .conversations(limit: limit, offset: offset)) else { return }
 
