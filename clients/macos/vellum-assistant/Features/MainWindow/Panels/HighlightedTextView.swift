@@ -233,25 +233,13 @@ struct HighlightedTextView: View {
 
                         // Text content — lazy per-line rendering with horizontal scroll
                         ScrollView(.horizontal, showsIndicators: true) {
-                            if isEditable {
-                                lazyLineStack(
-                                    plainLines: plainLines,
-                                    highlightedLines: highlightedLines,
-                                    matchRanges: matchRanges
-                                )
-                                .textSelection(.disabled)
-                                .padding(.vertical, VSpacing.sm)
-                                .padding(.horizontal, VSpacing.md)
-                            } else {
-                                lazyLineStack(
-                                    plainLines: plainLines,
-                                    highlightedLines: highlightedLines,
-                                    matchRanges: matchRanges
-                                )
-                                .textSelection(.enabled)
-                                .padding(.vertical, VSpacing.sm)
-                                .padding(.horizontal, VSpacing.md)
-                            }
+                            lazyLineStack(
+                                plainLines: plainLines,
+                                highlightedLines: highlightedLines,
+                                matchRanges: matchRanges
+                            )
+                            .padding(.vertical, VSpacing.sm)
+                            .padding(.horizontal, VSpacing.md)
                         }
                         .frame(minWidth: geometry.size.width - gutterWidth)
                     }
@@ -345,23 +333,35 @@ struct HighlightedTextView: View {
         }
     }
 
-    /// Renders a single line of text with the correct frame.
-    /// Text selection is controlled at the `LazyVStack` container level
-    /// so that multi-line selection works across lines.
+    /// Renders a single line of text with the correct frame and selection.
+    /// `.textSelection` is applied per-line because SwiftUI on macOS does
+    /// not propagate container-level `.textSelection(.enabled)` into lazy
+    /// child views.
+    @ViewBuilder
     private func lineView(
         index: Int,
         plainLines: [Substring],
         highlightedLines: [AttributedString]?,
         matchRanges: [Range<String.Index>]
     ) -> some View {
-        buildLineText(
+        let lineText = buildLineText(
             index: index,
             plainLines: plainLines,
             highlightedLines: highlightedLines,
             matchRanges: matchRanges
         )
-        .frame(height: Self.lineHeight, alignment: .leading)
-        .fixedSize(horizontal: true, vertical: false)
+
+        if isEditable {
+            lineText
+                .textSelection(.disabled)
+                .frame(height: Self.lineHeight, alignment: .leading)
+                .fixedSize(horizontal: true, vertical: false)
+        } else {
+            lineText
+                .textSelection(.enabled)
+                .frame(height: Self.lineHeight, alignment: .leading)
+                .fixedSize(horizontal: true, vertical: false)
+        }
     }
 
     // MARK: - Search
