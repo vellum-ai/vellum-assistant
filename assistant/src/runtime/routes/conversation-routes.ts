@@ -843,6 +843,10 @@ export async function handleSendMessage(
         onEvent({ type: "assistant_text_delta", text: cannedGreeting });
         onEvent({ type: "message_complete", conversationId });
         conversation.processing = false;
+        silentlyWithLog(
+          conversation.drainQueue(),
+          "canned-greeting queue drain",
+        );
       }, 0);
 
       log.info(
