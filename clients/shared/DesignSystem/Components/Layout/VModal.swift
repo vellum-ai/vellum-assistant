@@ -85,6 +85,7 @@ public struct VModal<Content: View, Footer: View>: View {
                             .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
+                    .pointerCursor()
                     .accessibilityLabel("Close")
                 }
             }
