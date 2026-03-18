@@ -52,8 +52,8 @@ struct MemoryItemDetailSheet: View {
             }
         } footer: {
             HStack {
-                Spacer()
                 if isEditing {
+                    Spacer()
                     VButton(label: "Cancel", style: .outlined) {
                         isEditing = false
                         errorMessage = nil
@@ -77,6 +77,10 @@ struct MemoryItemDetailSheet: View {
                         style: .dangerOutline
                     ) {
                         showDeleteConfirm = true
+                    }
+                    Spacer()
+                    VButton(label: "Close", style: .outlined) {
+                        onDismiss()
                     }
                     VButton(
                         label: "Edit",
