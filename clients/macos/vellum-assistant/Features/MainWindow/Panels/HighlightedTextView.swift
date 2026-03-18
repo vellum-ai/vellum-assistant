@@ -243,6 +243,7 @@ struct HighlightedTextView: View {
                                     )
                                 }
                             }
+                            .textSelection(isEditable ? .disabled : .enabled)
                             .padding(.vertical, VSpacing.sm)
                             .padding(.horizontal, VSpacing.md)
                         }
@@ -317,32 +318,23 @@ struct HighlightedTextView: View {
         }
     }
 
-    /// Renders a single line of text with the correct selection and frame.
-    @ViewBuilder
+    /// Renders a single line of text with the correct frame.
+    /// Text selection is controlled at the `LazyVStack` container level
+    /// so that multi-line selection works across lines.
     private func lineView(
         index: Int,
         plainLines: [Substring],
         highlightedLines: [AttributedString]?,
         matchRanges: [Range<String.Index>]
     ) -> some View {
-        let lineText = buildLineText(
+        buildLineText(
             index: index,
             plainLines: plainLines,
             highlightedLines: highlightedLines,
             matchRanges: matchRanges
         )
-
-        if isEditable {
-            lineText
-                .textSelection(.disabled)
-                .frame(height: Self.lineHeight, alignment: .leading)
-                .fixedSize(horizontal: true, vertical: false)
-        } else {
-            lineText
-                .textSelection(.enabled)
-                .frame(height: Self.lineHeight, alignment: .leading)
-                .fixedSize(horizontal: true, vertical: false)
-        }
+        .frame(height: Self.lineHeight, alignment: .leading)
+        .fixedSize(horizontal: true, vertical: false)
     }
 
     // MARK: - Search
