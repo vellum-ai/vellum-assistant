@@ -17,7 +17,9 @@ struct SettingsBillingTab: View {
     var body: some View {
         VStack(alignment: .leading, spacing: VSpacing.lg) {
             balanceCard
-            if summary != nil {
+            if isLoading {
+                addFundsSkeleton
+            } else if summary != nil {
                 addFundsCard
             }
         }
@@ -39,13 +41,28 @@ struct SettingsBillingTab: View {
     private var balanceCard: some View {
         SettingsCard(title: "Balance") {
             if isLoading {
-                HStack(spacing: VSpacing.sm) {
-                    ProgressView()
-                        .controlSize(.small)
-                    Text("Loading billing info...")
-                        .font(VFont.body)
-                        .foregroundColor(VColor.contentSecondary)
+                VStack(alignment: .leading, spacing: VSpacing.lg) {
+                    // Effective balance skeleton
+                    VStack(alignment: .leading, spacing: VSpacing.xs) {
+                        VSkeletonBone(width: 110, height: 12)
+                        VSkeletonBone(width: 80, height: 24)
+                    }
+
+                    SettingsDivider()
+
+                    // Two-column breakdown skeleton
+                    HStack(spacing: VSpacing.xl) {
+                        VStack(alignment: .leading, spacing: VSpacing.xs) {
+                            VSkeletonBone(width: 100, height: 12)
+                            VSkeletonBone(width: 60, height: 14)
+                        }
+                        VStack(alignment: .leading, spacing: VSpacing.xs) {
+                            VSkeletonBone(width: 110, height: 12)
+                            VSkeletonBone(width: 60, height: 14)
+                        }
+                    }
                 }
+                .accessibilityHidden(true)
             } else if let summary {
                 balanceContent(summary)
             } else if let error {
@@ -111,6 +128,21 @@ struct SettingsBillingTab: View {
                         .foregroundColor(summary.is_degraded ? VColor.contentSecondary : VColor.contentDefault)
                 }
             }
+        }
+    }
+
+    // MARK: - Add Funds Skeleton
+
+    private var addFundsSkeleton: some View {
+        SettingsCard(title: "Add Funds") {
+            VStack(alignment: .leading, spacing: VSpacing.md) {
+                VStack(alignment: .leading, spacing: VSpacing.xs) {
+                    VSkeletonBone(width: 90, height: 12)
+                    VSkeletonBone(height: 28, radius: VRadius.md)
+                }
+                VSkeletonBone(width: 80, height: 28, radius: VRadius.md)
+            }
+            .accessibilityHidden(true)
         }
     }
 
