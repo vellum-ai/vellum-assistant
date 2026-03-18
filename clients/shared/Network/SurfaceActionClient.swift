@@ -26,7 +26,9 @@ public struct SurfaceActionClient: SurfaceActionClientProtocol {
                 "surfaceId": surfaceId,
                 "actionId": actionId,
             ]
-            if let conversationId { body["conversationId"] = conversationId }
+            // Omit conversationId — the server resolves the conversation via
+            // findSessionBySurfaceId(surfaceId), which is reliable regardless
+            // of conversationKey vs conversationId differences.
             if let data {
                 body["data"] = data.mapValues { $0.value }
             }
@@ -42,12 +44,11 @@ public struct SurfaceActionClient: SurfaceActionClientProtocol {
 
     public func sendSurfaceUndo(conversationId: String, surfaceId: String) async {
         do {
-            let encoded = surfaceId.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? surfaceId
             let body: [String: Any] = [
                 "conversationId": conversationId,
                 "surfaceId": surfaceId,
             ]
-            let response = try await GatewayHTTPClient.post(path: "surfaces/\(encoded)/undo", json: body, timeout: 10)
+            let response = try await GatewayHTTPClient.post(path: "surfaces/\(surfaceId)/undo", json: body, timeout: 10)
             if !response.isSuccess {
                 log.error("sendSurfaceUndo failed (HTTP \(response.statusCode))")
             }
