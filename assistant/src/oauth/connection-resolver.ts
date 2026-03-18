@@ -1,6 +1,6 @@
 import { getPlatformAssistantId } from "../config/env.js";
 import { getConfig } from "../config/loader.js";
-import type { Services } from "../config/schemas/services.js";
+import { type Services, ServicesSchema } from "../config/schemas/services.js";
 import { resolveManagedProxyContext } from "../providers/managed-proxy/context.js";
 import { getSecureKeyAsync } from "../security/secure-keys.js";
 import { BYOOAuthConnection } from "./byo-connection.js";
@@ -16,17 +16,38 @@ import { PlatformOAuthConnection } from "./platform-connection.js";
 /**
  * Resolve an OAuthConnection for a given credential service.
  *
- * When `accountInfo` is provided, resolves the connection for that specific
- * account (e.g. "user@gmail.com"). Otherwise falls back to the most recent
- * active connection.
+ * Managed providers (where the service config `mode` is `"managed"`) are
+ * routed through the platform proxy with no local state required.
  *
- * Reads exclusively from the SQLite oauth-store. Throws if no connection
- * exists (authorization required).
+ * BYO providers resolve from the local SQLite oauth-store and require an
+ * active connection row and a stored access token.
  */
 export async function resolveOAuthConnection(
   credentialService: string,
   accountInfo?: string,
 ): Promise<OAuthConnection> {
+  const provider = getProvider(credentialService);
+  const managedKey = provider?.managedServiceConfigKey;
+
+  if (managedKey && managedKey in ServicesSchema.shape) {
+    const services: Services = getConfig().services;
+    if (services[managedKey as keyof Services].mode === "managed") {
+      const ctx = await resolveManagedProxyContext();
+      const assistantId = getPlatformAssistantId();
+      return new PlatformOAuthConnection({
+        id: credentialService,
+        providerKey: credentialService,
+        externalId: credentialService,
+        accountInfo: accountInfo ?? null,
+        grantedScopes: [],
+        assistantId,
+        platformBaseUrl: ctx.platformBaseUrl,
+        apiKey: ctx.assistantApiKey,
+      });
+    }
+  }
+
+  // BYO path — requires a local connection row, access token, and base URL.
   const conn = accountInfo
     ? getConnectionByProviderAndAccount(credentialService, accountInfo)
     : getConnectionByProvider(credentialService);
@@ -39,25 +60,17 @@ export async function resolveOAuthConnection(
   const accessToken = await getSecureKeyAsync(
     `oauth_connection/${conn.id}/access_token`,
   );
-
   if (!accessToken) {
     throw new Error(
       `No access token found for "${credentialService}". Authorization required.`,
     );
   }
 
-  // Look up the provider by credentialService first; fall back to the
-  // connection's app's canonical providerKey so custom credential_service
-  // overrides (e.g. "integration:github-work") still resolve to the well-known
-  // provider's base URL. We traverse conn -> oauthApp -> providerKey because
-  // conn.providerKey equals credentialService (getConnectionByProvider queries
-  // WHERE providerKey = credentialService), whereas the app's providerKey is a
-  // foreign key to the oauthProviders table.
-  const provider =
-    getProvider(credentialService) ??
-    getProvider(getApp(conn.oauthAppId)?.providerKey ?? "");
-  const baseUrl = provider?.baseUrl;
-
+  // When credentialService is a custom override (e.g. "integration:github-work")
+  // with no provider row, fall back to the app's canonical providerKey for baseUrl.
+  const byoProvider =
+    provider ?? getProvider(getApp(conn.oauthAppId)?.providerKey ?? "");
+  const baseUrl = byoProvider?.baseUrl;
   if (!baseUrl) {
     throw new Error(`No base URL configured for "${credentialService}".`);
   }
@@ -65,40 +78,6 @@ export async function resolveOAuthConnection(
   const grantedScopes: string[] = conn.grantedScopes
     ? JSON.parse(conn.grantedScopes)
     : [];
-
-  const managedKey = provider?.managedServiceConfigKey;
-  if (managedKey) {
-    const services: Services = getConfig().services;
-    const serviceConfig = services[managedKey as keyof Services];
-    if (
-      serviceConfig &&
-      "mode" in serviceConfig &&
-      serviceConfig.mode === "managed"
-    ) {
-      const ctx = await resolveManagedProxyContext();
-      const assistantId = getPlatformAssistantId();
-      if (!ctx.enabled || !assistantId) {
-        const missing: string[] = [];
-        if (!ctx.platformBaseUrl) missing.push("platform base URL");
-        if (!ctx.assistantApiKey) missing.push("assistant API key");
-        if (!assistantId) missing.push("assistant ID");
-        throw new Error(
-          `"${credentialService}" is configured in managed mode but platform prerequisites are not met (missing: ${missing.join(", ")}). ` +
-            `Set up your platform connection or switch to "your-own" mode in your assistant config.`,
-        );
-      }
-      return new PlatformOAuthConnection({
-        id: conn.id,
-        providerKey: conn.providerKey,
-        externalId: conn.id,
-        accountInfo: conn.accountInfo,
-        grantedScopes,
-        assistantId,
-        platformBaseUrl: ctx.platformBaseUrl,
-        apiKey: ctx.assistantApiKey,
-      });
-    }
-  }
 
   return new BYOOAuthConnection({
     id: conn.id,
