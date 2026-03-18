@@ -268,11 +268,9 @@ extension AppDelegate {
         quitItem.image = VIcon.power.nsImage
         menu.addItem(quitItem)
 
-        // Temporarily assign the menu to the status item so macOS handles
-        // positioning natively (directly below the icon, left-aligned).
-        // performClick is synchronous for menus — it blocks until the menu
-        // closes — so we can nil it out immediately after to re-enable
-        // custom click handling in statusBarButtonClicked.
+        // Use native status item menu display for standard macOS positioning.
+        // performClick blocks until the menu closes, so clearing the menu
+        // afterward restores custom click handling in statusBarButtonClicked.
         self.statusItem.menu = menu
         button.performClick(nil)
         self.statusItem.menu = nil
