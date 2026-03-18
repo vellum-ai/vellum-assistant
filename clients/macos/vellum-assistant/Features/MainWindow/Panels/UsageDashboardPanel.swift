@@ -18,7 +18,31 @@ struct UsageDashboardPanel: View {
                 timeRangeStrip(store: store)
             }
         }) {
-            contentView(store: store)
+            if !allFailed {
+                VStack(alignment: .leading, spacing: VSpacing.lg) {
+                    totalsSection(store: store)
+                    dailySection(store: store)
+                    breakdownSection(store: store)
+                }
+            }
+        }
+        .overlay {
+            if allFailed {
+                VStack(spacing: VSpacing.lg) {
+                    VIconView(.circleAlert, size: 32)
+                        .foregroundColor(VColor.systemNegativeHover)
+                    Text("Unable to load usage data")
+                        .font(VFont.headline)
+                        .foregroundColor(VColor.contentDefault)
+                    Text("Please check your connection and try again.")
+                        .font(VFont.body)
+                        .foregroundColor(VColor.contentSecondary)
+                    VButton(label: "Try Again", style: .outlined) {
+                        refreshTask?.cancel()
+                        refreshTask = Task { await store.refresh() }
+                    }
+                }
+            }
         }
         .onAppear {
             refreshTask = Task {
@@ -68,36 +92,7 @@ struct UsageDashboardPanel: View {
         .padding(.bottom, VSpacing.sm)
     }
 
-    // MARK: - Content
 
-    @ViewBuilder
-    func contentView(store: UsageDashboardStore) -> some View {
-        if allFailed {
-            GeometryReader { geo in
-                VStack(spacing: VSpacing.lg) {
-                    VIconView(.circleAlert, size: 32)
-                        .foregroundColor(VColor.systemNegativeHover)
-                    Text("Unable to load usage data")
-                        .font(VFont.headline)
-                        .foregroundColor(VColor.contentDefault)
-                    Text("Please check your connection and try again.")
-                        .font(VFont.body)
-                        .foregroundColor(VColor.contentSecondary)
-                    VButton(label: "Try Again", style: .outlined) {
-                        refreshTask?.cancel()
-                        refreshTask = Task { await store.refresh() }
-                    }
-                }
-                .frame(width: geo.size.width, height: geo.size.height)
-            }
-        } else {
-            VStack(alignment: .leading, spacing: VSpacing.lg) {
-                totalsSection(store: store)
-                dailySection(store: store)
-                breakdownSection(store: store)
-            }
-        }
-    }
 
     // MARK: - Totals Section
 
