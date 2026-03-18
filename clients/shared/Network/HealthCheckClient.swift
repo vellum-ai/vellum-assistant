@@ -3,15 +3,21 @@ import os
 
 private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "HealthCheckClient")
 
-/// Checks assistant reachability via the authenticated gateway healthz endpoint.
+/// Checks assistant reachability via the gateway healthz endpoint.
 ///
-/// Uses `GET /v1/assistants/{id}/healthz` which verifies gateway connectivity,
-/// daemon availability, and JWT validity — unlike the bare `/healthz` which
-/// only confirms the gateway process is alive.
+/// For the connected assistant, uses `GatewayHTTPClient` to hit the
+/// authenticated `GET /v1/assistants/{id}/healthz` which verifies
+/// gateway connectivity, daemon availability, and JWT validity.
+///
+/// For non-connected local assistants, hits the unauthenticated
+/// `GET /healthz` on the assistant's own gateway port because each
+/// local gateway has its own JWT signing key and we only hold a token
+/// for the currently connected assistant.
 @MainActor
 public enum HealthCheckClient {
 
-    /// Check whether the currently connected assistant is reachable.
+    /// Check whether the currently connected assistant is reachable
+    /// using the authenticated healthz endpoint via `GatewayHTTPClient`.
     public static func isReachable(timeout: TimeInterval = 3) async -> Bool {
         do {
             let response = try await GatewayHTTPClient.get(
@@ -25,34 +31,17 @@ public enum HealthCheckClient {
     }
 
     #if os(macOS)
-    /// Check whether a specific assistant's gateway and daemon are reachable.
+    /// Check whether a specific assistant's gateway is reachable.
+    ///
+    /// For remote assistants, delegates to the connected-assistant path
+    /// through `GatewayHTTPClient`. For local assistants, pings the
+    /// unauthenticated `/healthz` on the assistant's own gateway port.
     public static func isReachable(for assistant: LockfileAssistant, timeout: TimeInterval = 3) async -> Bool {
         if assistant.isRemote {
-            guard let runtimeUrl = assistant.runtimeUrl,
-                  let token = ActorTokenManager.getToken(), !token.isEmpty else {
-                return false
-            }
-            return await pingAssistantHealthz(
-                baseURL: runtimeUrl,
-                assistantId: assistant.assistantId,
-                token: token,
-                authHeader: "Authorization",
-                authValue: "Bearer \(token)",
-                timeout: timeout
-            )
+            return await isReachable(timeout: timeout)
         }
         let port = assistant.gatewayPort ?? LockfilePaths.resolveGatewayPort(connectedAssistantId: assistant.assistantId)
-        guard let token = ActorTokenManager.getToken(), !token.isEmpty else {
-            return false
-        }
-        return await pingAssistantHealthz(
-            baseURL: "http://127.0.0.1:\(port)",
-            assistantId: assistant.assistantId,
-            token: token,
-            authHeader: "Authorization",
-            authValue: "Bearer \(token)",
-            timeout: timeout
-        )
+        return await pingGatewayHealthz(port: port, timeout: timeout)
     }
 
     /// Check whether the assistant matching the given instance directory is reachable.
@@ -64,20 +53,10 @@ public enum HealthCheckClient {
         return await isReachable(timeout: timeout)
     }
 
-    private static func pingAssistantHealthz(
-        baseURL: String,
-        assistantId: String,
-        token: String,
-        authHeader: String,
-        authValue: String,
-        timeout: TimeInterval
-    ) async -> Bool {
-        guard let url = URL(string: "\(baseURL)/v1/assistants/\(assistantId)/healthz/") else { return false }
+    private static func pingGatewayHealthz(port: Int, timeout: TimeInterval) async -> Bool {
+        guard let url = URL(string: "http://127.0.0.1:\(port)/healthz") else { return false }
         var request = URLRequest(url: url)
-        request.httpMethod = "GET"
         request.timeoutInterval = timeout
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.setValue(authValue, forHTTPHeaderField: authHeader)
         do {
             let (_, response) = try await URLSession.shared.data(for: request)
             return (response as? HTTPURLResponse)?.statusCode == 200
