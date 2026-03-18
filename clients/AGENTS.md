@@ -48,7 +48,7 @@ For new view models and state objects targeting macOS 14+ / iOS 17+, prefer the 
 
 **Migration:** Existing `ObservableObject` types should be migrated opportunistically. Use Combine (`@Published`, `sink`, `onReceive`) only for reactive stream processing (SSE event streams, debounce pipelines, `UserDefaults.publisher`) — not for simple state management.
 
-**Previews:** `#Preview` may be used during local development for rapid UI iteration (Apple's recommended workflow per WWDC 2023+). Use `@Previewable` for state bindings in previews. Remove `#Preview` blocks before merging — use the Component Gallery as the canonical visual catalog for design system components.
+**Previews:** Do not add `#Preview` or `PreviewProvider` blocks. Use the Component Gallery as the single visual review surface. If you encounter existing `#Preview` blocks, remove them.
 
 ---
 
@@ -273,7 +273,7 @@ All UI icons use **vendored Lucide PDF assets** rendered through the `VIcon` enu
 - If a needed component does not exist, add it to the appropriate `DesignSystem/` subdirectory (`Core/` for primitives, `Components/` for composed elements, `Modifiers/` for view modifiers).
 - Follow existing naming conventions: prefix with `V`, use descriptive names (for example `VProgressBar`, `VAvatar`).
 - New components must be reusable and platform-agnostic; do not embed platform-specific code.
-- Do not commit `#Preview` / `PreviewProvider` blocks for shared design system components. Use `#Preview` during local development for rapid iteration, but remove before merging. Add or update the corresponding section in `Gallery/` so the component is represented in the catalog.
+- Do not add `#Preview` / `PreviewProvider` blocks. Add or update the corresponding section in `Gallery/` so the component is represented in the catalog.
 - If you create a component inline in a feature and it could be reused elsewhere, extract it into the design system before merging.
 
 ### Avoiding Duplication
