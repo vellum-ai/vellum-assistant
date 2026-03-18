@@ -43,6 +43,9 @@ struct VoiceSettingsView: View {
         .onDisappear {
             stopRecordingCustomKey()
         }
+        .onChange(of: conversationTimeoutSeconds) { newValue in
+            VoiceModeManager.conversationTimeoutOverride = newValue
+        }
     }
 
     // MARK: - Push to Talk Card

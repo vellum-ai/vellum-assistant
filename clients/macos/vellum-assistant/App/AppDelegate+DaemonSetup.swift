@@ -320,7 +320,7 @@ extension AppDelegate {
             if msg.key == "ttsVoiceId" {
                 OpenAIVoiceService.overrideVoiceId = msg.value as? String
             } else if msg.key == "voiceConversationTimeoutSeconds" {
-                VoiceModeManager.conversationTimeoutOverride = msg.value as? Int
+                VoiceModeManager.conversationTimeoutOverride = Int(msg.value)
             } else {
                 UserDefaults.standard.set(msg.value, forKey: msg.key)
             }
