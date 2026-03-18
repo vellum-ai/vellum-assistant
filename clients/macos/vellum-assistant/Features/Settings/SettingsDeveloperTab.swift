@@ -753,7 +753,7 @@ struct SettingsDeveloperTab: View {
     private var revokeAssistantApiKeySection: some View {
         SettingsCard(
             title: "Revoke Assistant API Key",
-            subtitle: "Removes the managed inference API key. Services set to \"managed\" mode will stop working until you log in again or switch them to use your own API keys."
+            subtitle: "Revokes the API key used by the assistant to interact with the Vellum platform."
         ) {
             VButton(label: "Revoke", style: .danger, isDisabled: isRevokingApiKey) {
                 showingRevokeApiKeyConfirmation = true
