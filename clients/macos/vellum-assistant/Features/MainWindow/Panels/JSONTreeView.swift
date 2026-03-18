@@ -175,6 +175,7 @@ struct JSONTreeView: View {
                             expandedPaths: $expandedPaths
                         )
                     }
+                    .textSelection(.enabled)
                     .padding(VSpacing.md)
                     .frame(minWidth: proxy.size.width, minHeight: proxy.size.height, alignment: .topLeading)
                 }
@@ -258,14 +259,12 @@ private struct JSONNodeRow: View {
                 Text("\"\(value)\"")
                     .font(VFont.mono)
                     .foregroundColor(VColor.syntaxString)
-                    .textSelection(.enabled)
             }
         case .number(_, let value):
             primitiveRow {
                 Text("\(value)")
                     .font(VFont.mono)
                     .foregroundColor(VColor.syntaxNumber)
-                    .textSelection(.enabled)
             }
         case .bool(_, let value):
             primitiveRow {
@@ -273,7 +272,6 @@ private struct JSONNodeRow: View {
                     .font(VFont.mono)
                     .foregroundColor(VColor.syntaxNumber)
                     .bold()
-                    .textSelection(.enabled)
             }
         case .null:
             primitiveRow {
@@ -281,7 +279,6 @@ private struct JSONNodeRow: View {
                     .font(VFont.mono)
                     .foregroundColor(VColor.contentTertiary)
                     .italic()
-                    .textSelection(.enabled)
             }
         }
     }
@@ -350,7 +347,6 @@ private struct JSONNodeRow: View {
             Text(key)
                 .font(VFont.mono)
                 .foregroundColor(VColor.contentDefault)
-                .textSelection(.enabled)
             Text(": ")
                 .font(VFont.mono)
                 .foregroundColor(VColor.contentTertiary)
