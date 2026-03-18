@@ -5,6 +5,8 @@ struct LayoutGallerySection: View {
     @State private var showPanel = true
     @State private var panelWidth: Double = 280
     @State private var pinnedTabSelection: Int = 0
+    @State private var dockWidth: Double = 300
+    @State private var showDock: Bool = true
 
     var body: some View {
         VStack(alignment: .leading, spacing: VSpacing.xxl) {
@@ -185,6 +187,58 @@ struct LayoutGallerySection: View {
                                 .font(VFont.body)
                                 .foregroundColor(VColor.contentSecondary)
                         }
+                    }
+                    .frame(height: 250)
+                    .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: VRadius.md)
+                            .stroke(VColor.borderBase, lineWidth: 1)
+                    )
+                }
+            }
+
+            Divider().background(VColor.borderBase).padding(.vertical, VSpacing.md)
+
+            // MARK: - AppWorkspaceDockLayout
+            GallerySectionHeader(
+                title: "AppWorkspaceDockLayout",
+                description: "Workspace layout with a togglable, resizable dock panel and a draggable divider."
+            )
+
+            VCard {
+                VStack(alignment: .leading, spacing: VSpacing.xl) {
+                    HStack(spacing: VSpacing.xl) {
+                        Toggle("Show Dock", isOn: $showDock)
+                        Text("Dock Width: \(Int(dockWidth))")
+                            .font(VFont.mono)
+                            .foregroundColor(VColor.contentTertiary)
+                    }
+
+                    Divider().background(VColor.borderBase)
+
+                    AppWorkspaceDockLayout(
+                        dockWidth: $dockWidth,
+                        showDock: showDock
+                    ) {
+                        VStack {
+                            VIconView(.panelLeft, size: 20)
+                                .foregroundColor(VColor.contentTertiary)
+                            Text("Dock")
+                                .font(VFont.captionMedium)
+                                .foregroundColor(VColor.contentSecondary)
+                        }
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        .background(VColor.surfaceOverlay)
+                    } workspace: {
+                        VStack {
+                            VIconView(.layoutGrid, size: 20)
+                                .foregroundColor(VColor.contentTertiary)
+                            Text("Workspace")
+                                .font(VFont.captionMedium)
+                                .foregroundColor(VColor.contentSecondary)
+                        }
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        .background(VColor.surfaceBase)
                     }
                     .frame(height: 250)
                     .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
