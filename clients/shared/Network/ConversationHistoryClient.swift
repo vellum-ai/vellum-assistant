@@ -31,7 +31,7 @@ public struct ConversationHistoryClient: ConversationHistoryClientProtocol {
             if let maxToolResultChars { params["maxToolResultChars"] = "\(maxToolResultChars)" }
 
             let response = try await GatewayHTTPClient.get(
-                path: "messages", params: params, timeout: 15
+                path: "assistants/{assistantId}/messages", params: params, timeout: 15
             )
             guard response.isSuccess else {
                 log.error("fetchHistory failed (HTTP \(response.statusCode))")
@@ -84,12 +84,15 @@ public struct ConversationHistoryClient: ConversationHistoryClientProtocol {
                 return m
             }
 
-            let historyPayload: [String: Any] = [
+            var historyPayload: [String: Any] = [
                 "type": "history_response",
                 "conversationId": conversationId,
                 "messages": transformed,
                 "hasMore": json["hasMore"] as? Bool ?? false,
             ]
+            if let oldestTimestamp = json["oldestTimestamp"] as? Double {
+                historyPayload["oldestTimestamp"] = oldestTimestamp
+            }
 
             let historyData = try JSONSerialization.data(withJSONObject: historyPayload)
             return try JSONDecoder().decode(HistoryResponse.self, from: historyData)
