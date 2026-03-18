@@ -225,7 +225,13 @@ struct AgentPanelContent: View {
                     .frame(minHeight: 100)
                 } else {
                     ScrollView {
-                        VStack(spacing: VSpacing.md) {
+                        LazyVGrid(
+                            columns: [
+                                GridItem(.flexible(), spacing: VSpacing.md),
+                                GridItem(.flexible(), spacing: VSpacing.md)
+                            ],
+                            spacing: VSpacing.md
+                        ) {
                             ForEach(categoryFilteredSkills) { skill in
                                 skillCard(skill)
                             }
@@ -237,63 +243,52 @@ struct AgentPanelContent: View {
     }
 
     private func skillCard(_ skill: SkillInfo) -> some View {
-        return VStack(alignment: .leading, spacing: 0) {
-            // Top row: icon + info + remove button
-            HStack(alignment: .top, spacing: VSpacing.md) {
+        return VStack(alignment: .leading, spacing: VSpacing.sm) {
+            // Top row: icon + name on one line
+            HStack(spacing: VSpacing.sm) {
                 skillIcon(skill.emoji)
 
-                VStack(alignment: .leading, spacing: VSpacing.xs) {
-                    Text(skill.name)
-                        .font(VFont.bodyBold)
-                        .foregroundColor(VColor.contentDefault)
-
-                    Text(skill.description)
-                        .font(VFont.caption)
-                        .foregroundColor(VColor.contentTertiary)
-                        .lineLimit(2)
-
-                    VSkillTypePill(source: skill.source)
-                        .padding(.top, VSpacing.sm)
-                }
-
-                Spacer(minLength: VSpacing.lg)
-
-                // Remove button
-                Button {
-                    skillToDelete = skill
-                } label: {
-                    Text("Remove")
-                        .font(VFont.caption)
-                        .foregroundColor(VColor.systemNegativeStrong)
-                        .padding(.horizontal, VSpacing.md)
-                        .padding(.vertical, VSpacing.xs)
-                        .background(
-                            RoundedRectangle(cornerRadius: VRadius.md)
-                                .strokeBorder(VColor.systemNegativeStrong, lineWidth: 1)
-                        )
-                }
-                .buttonStyle(.plain)
+                Text(skill.name)
+                    .font(VFont.bodyBold)
+                    .foregroundColor(VColor.contentDefault)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
             }
 
-            // Details navigation
+            // Description
+            Text(skill.description)
+                .font(VFont.caption)
+                .foregroundColor(VColor.contentTertiary)
+                .lineLimit(2)
+
+            // Source pill + Details button
             HStack {
+                VSkillTypePill(source: skill.source)
+
                 Spacer()
+
                 VButton(
                     label: "Details",
                     rightIcon: VIcon.chevronRight.rawValue,
-                    style: .outlined
+                    style: .ghost
                 ) {
                     withAnimation(VAnimation.fast) {
                         selectedInstalledSkillId = skill.id
                     }
                 }
             }
-            .padding(.top, VSpacing.xs)
         }
         .padding(.horizontal, VSpacing.lg)
         .padding(.vertical, VSpacing.md)
         .contentShape(Rectangle())
         .vCard(radius: VRadius.lg, background: VColor.surfaceOverlay)
+        .contextMenu {
+            Button(role: .destructive) {
+                skillToDelete = skill
+            } label: {
+                Label("Remove", systemImage: "trash")
+            }
+        }
     }
 
     // MARK: - Installed Skill Detail View
