@@ -64,8 +64,8 @@ struct UsageDashboardPanel: View {
             .frame(width: 160)
             Spacer()
         }
-        .padding(.horizontal, VSpacing.lg)
-        .padding(.vertical, VSpacing.sm)
+        .padding(.top, VSpacing.md)
+        .padding(.bottom, VSpacing.sm)
     }
 
     // MARK: - Content
