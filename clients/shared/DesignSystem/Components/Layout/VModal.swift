@@ -11,7 +11,8 @@ import UIKit
 /// Supports optional navigation actions:
 /// - `closeAction`: Shows an X button in the header's trailing position.
 /// - `backAction`: Shows a "Back" button in the header's leading position,
-///   replacing the title.
+///   replacing the title. Use this for multi-screen modals where a sub-screen
+///   needs to navigate back to the root (e.g. `AvatarManagementSheet`).
 ///
 /// The modal caps its height at a percentage of the screen height (default
 /// 80%) so content scrolls rather than pushing the modal off-screen.
@@ -56,7 +57,6 @@ public struct VModal<Content: View, Footer: View>: View {
 
     public var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            // Header area
             HStack(alignment: .top) {
                 if let backAction {
                     Button(action: backAction) {
@@ -95,7 +95,6 @@ public struct VModal<Content: View, Footer: View>: View {
             .padding(.top, VSpacing.xl)
             .padding(.bottom, VSpacing.lg)
 
-            // Scrollable content
             ScrollView {
                 content()
                     .padding(.horizontal, VSpacing.xl)
@@ -104,7 +103,6 @@ public struct VModal<Content: View, Footer: View>: View {
             }
 
             if Footer.self != EmptyView.self {
-                // Footer
                 footer()
                     .padding(.horizontal, VSpacing.xl)
                     .padding(.vertical, VSpacing.lg)

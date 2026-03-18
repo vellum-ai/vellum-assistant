@@ -2,7 +2,9 @@ import SwiftUI
 import UniformTypeIdentifiers
 import VellumAssistantShared
 
-/// Modal overlay for managing the avatar: build a character, upload, or delete.
+/// Modal for managing the user's avatar: build a character, upload an image,
+/// or delete the current avatar. Uses VModal's `backAction` to navigate
+/// between the action list and the character builder sub-screen.
 struct AvatarManagementSheet: View {
     let onClose: () -> Void
 
@@ -12,7 +14,6 @@ struct AvatarManagementSheet: View {
     @State private var draftBody: AvatarBodyShape?
     @State private var draftEyes: AvatarEyeStyle?
     @State private var draftColor: AvatarColor?
-    // Snapshot of values when builder opened, for dirty tracking
     @State private var initialBody: AvatarBodyShape?
     @State private var initialEyes: AvatarEyeStyle?
     @State private var initialColor: AvatarColor?
@@ -43,13 +44,12 @@ struct AvatarManagementSheet: View {
 
     private var actionList: some View {
         VStack(spacing: 0) {
-            // Avatar preview
             VAvatarImage(image: appearance.fullAvatarImage, size: 120, showBorder: false)
                 .padding(.bottom, VSpacing.xl)
 
             Divider().background(VColor.borderBase)
+                .padding(.horizontal, -VSpacing.xl)
 
-            // Action rows
             VStack(spacing: 0) {
                 actionRow(
                     icon: "paintbrush",
@@ -113,11 +113,9 @@ struct AvatarManagementSheet: View {
 
     private var characterBuilder: some View {
         VStack(spacing: 0) {
-            // Draft avatar preview
             VAvatarImage(image: draftImage ?? appearance.fullAvatarImage, size: 120, showBorder: false)
                 .padding(.bottom, VSpacing.lg)
 
-            // Generate Random button
             VButton(label: "Generate Random", icon: VIcon.dices.rawValue, style: .outlined) {
                 draftBody = AvatarBodyShape.allCases.randomElement()!
                 draftEyes = AvatarEyeStyle.allCases.randomElement()!
@@ -126,11 +124,9 @@ struct AvatarManagementSheet: View {
             }
             .padding(.bottom, VSpacing.lg)
 
-            // Cycle controls for body, eyes, and color
             cycleControls
                 .padding(.bottom, VSpacing.lg)
 
-            // Confirm and Discard buttons
             HStack(spacing: VSpacing.md) {
                 VButton(label: "Discard", style: .dangerOutline, isDisabled: !isDirty) {
                     onClose()
