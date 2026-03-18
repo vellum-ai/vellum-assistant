@@ -73,22 +73,23 @@ struct UsageDashboardPanel: View {
     @ViewBuilder
     func contentView(store: UsageDashboardStore) -> some View {
         if allFailed {
-            VStack(spacing: VSpacing.lg) {
-                VIconView(.circleAlert, size: 32)
-                    .foregroundColor(VColor.systemNegativeHover)
-                Text("Unable to load usage data")
-                    .font(VFont.headline)
-                    .foregroundColor(VColor.contentDefault)
-                Text("Please check your connection and try again.")
-                    .font(VFont.body)
-                    .foregroundColor(VColor.contentSecondary)
-                VButton(label: "Try Again", style: .outlined) {
-                    refreshTask?.cancel()
-                    refreshTask = Task { await store.refresh() }
+            GeometryReader { geo in
+                VStack(spacing: VSpacing.lg) {
+                    VIconView(.circleAlert, size: 32)
+                        .foregroundColor(VColor.systemNegativeHover)
+                    Text("Unable to load usage data")
+                        .font(VFont.headline)
+                        .foregroundColor(VColor.contentDefault)
+                    Text("Please check your connection and try again.")
+                        .font(VFont.body)
+                        .foregroundColor(VColor.contentSecondary)
+                    VButton(label: "Try Again", style: .outlined) {
+                        refreshTask?.cancel()
+                        refreshTask = Task { await store.refresh() }
+                    }
                 }
+                .frame(width: geo.size.width, height: geo.size.height)
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .padding(.vertical, VSpacing.xxxl)
         } else {
             VStack(alignment: .leading, spacing: VSpacing.lg) {
                 totalsSection(store: store)
