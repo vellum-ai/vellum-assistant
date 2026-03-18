@@ -66,15 +66,18 @@ extension DaemonClient {
 
         // Forward conversation ID resolution to observers. When the observer
         // updates the VM's conversationId to serverId, the SSE remapping entry
-        // becomes stale (it would remap events back to the old synthetic ID).
-        // Remove it so events flow through with the server ID that now matches
-        // the VM. When no observer is wired (iOS), the mapping stays so
+        // becomes stale (it would remap events back to the old synthetic ID)
+        // and the synthetic ID in locallyOwnedConversationIds is no longer the
+        // active ID for host tool request filtering. Clean both up so events
+        // flow through with the server ID that now matches the VM. When no
+        // observer is wired (iOS), the mapping and synthetic ID stay so
         // parseSSEData can continue remapping for the unchanged synthetic ID.
         transport.onConversationIdResolved = { [weak self] localId, serverId in
             guard let self else { return }
             if let resolve = self.onConversationIdResolved {
                 resolve(localId, serverId)
                 self.httpTransport?.serverToLocalConversationMap.removeValue(forKey: serverId)
+                self.httpTransport?.locallyOwnedConversationIds.remove(localId)
             }
         }
 

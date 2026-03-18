@@ -1079,7 +1079,6 @@ public final class HTTPTransport {
                    let serverConvId = json["conversationId"] as? String,
                    serverConvId != conversationId {
                     self.serverToLocalConversationMap[serverConvId] = conversationId
-                    self.locallyOwnedConversationIds.remove(conversationId)
                     self.locallyOwnedConversationIds.insert(serverConvId)
                     self.onConversationIdResolved?(conversationId, serverConvId)
 
