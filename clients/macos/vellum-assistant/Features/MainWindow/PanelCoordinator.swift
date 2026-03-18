@@ -98,7 +98,19 @@ extension MainWindowView {
                 pendingMemoryId: $windowState.pendingMemoryId
             )
         case .contacts:
-            VSidePanel(title: "Contacts", contentPadding: EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 0), onClose: { windowState.selection = nil }, pinnedContent: { EmptyView() }) {
+            VStack(spacing: 0) {
+                HStack {
+                    Text("Contacts")
+                        .font(VFont.panelTitle)
+                        .foregroundColor(VColor.contentDefault)
+                    Spacer()
+                    VButton(label: "Close", iconOnly: "xmark", style: .ghost) {
+                        windowState.selection = nil
+                    }
+                }
+                .padding(.horizontal, VSpacing.lg)
+                .padding(.vertical, VSpacing.lg)
+                Divider().background(VColor.borderBase)
                 ContactsContainerView(
                     daemonClient: daemonClient,
                     store: settingsStore,
@@ -482,7 +494,19 @@ extension MainWindowView {
             .overlay(alignment: .topTrailing) { panelDismissButton }
             .background(VColor.surfaceOverlay)
         case .contacts:
-            VSidePanel(title: "Contacts", contentPadding: EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 0), onClose: { windowState.dismissOverlay() }, pinnedContent: { EmptyView() }) {
+            VStack(spacing: 0) {
+                HStack {
+                    Text("Contacts")
+                        .font(VFont.panelTitle)
+                        .foregroundColor(VColor.contentDefault)
+                    Spacer()
+                    VButton(label: "Close", iconOnly: "xmark", style: .ghost) {
+                        windowState.dismissOverlay()
+                    }
+                }
+                .padding(.horizontal, VSpacing.lg)
+                .padding(.vertical, VSpacing.lg)
+                Divider().background(VColor.borderBase)
                 ContactsContainerView(
                     daemonClient: daemonClient,
                     store: settingsStore,

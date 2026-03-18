@@ -40,7 +40,7 @@ struct ContactsListView: View {
     private var contactsCard: some View {
         VStack(alignment: .leading, spacing: VSpacing.lg) {
             HStack {
-                Text("Contacts")
+                Text("List")
                     .font(VFont.sectionTitle)
                     .foregroundColor(VColor.contentEmphasized)
                 Spacer()
