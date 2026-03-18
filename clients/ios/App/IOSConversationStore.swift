@@ -378,6 +378,8 @@ class IOSConversationStore: ObservableObject {
                 guard currentGeneration == self.conversationListGeneration else { return }
                 self.expectedConversationListGeneration = currentGeneration
                 self.handleConversationListResponse(response)
+            } else {
+                self.isLoadingInitialConversations = false
             }
         }
     }

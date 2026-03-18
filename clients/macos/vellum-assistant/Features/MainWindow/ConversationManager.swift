@@ -681,7 +681,8 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
     func loadMoreConversations() {
         guard !isLoadingMoreConversations else { return }
         isLoadingMoreConversations = true
-        Task {
+        Task { [weak self] in
+            guard let self else { return }
             if let response = await ConversationListClient().fetchConversationList(offset: serverOffset, limit: 50) {
                 self.appendConversations(from: response)
             } else {
