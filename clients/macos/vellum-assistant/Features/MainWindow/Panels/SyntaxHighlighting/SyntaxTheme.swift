@@ -24,6 +24,10 @@ struct SyntaxTheme {
 
     // MARK: - Highlighted AttributedString
 
+    /// Text size threshold above which syntax highlighting is skipped to avoid
+    /// UI freezes from expensive regex tokenization on large files.
+    private static let maxHighlightSize = 500 * 1024 // 500 KB
+
     /// Tokenizes `text` for `language` and returns an `AttributedString` with
     /// syntax-colored foreground colors and appropriate font variants.
     static func highlight(_ text: String, language: SyntaxLanguage) -> AttributedString {
@@ -33,7 +37,7 @@ struct SyntaxTheme {
         attributedString.foregroundColor = VColor.contentDefault
         attributedString.font = baseFont
 
-        guard language != .plain else {
+        guard language != .plain, text.utf8.count <= maxHighlightSize else {
             return attributedString
         }
 

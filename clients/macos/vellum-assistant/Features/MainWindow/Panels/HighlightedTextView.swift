@@ -225,7 +225,7 @@ struct HighlightedTextView: View {
     // MARK: - Line Numbers
 
     private func lineNumberGutter(lineCount: Int, width: CGFloat) -> some View {
-        VStack(alignment: .trailing, spacing: 0) {
+        LazyVStack(alignment: .trailing, spacing: 0) {
             ForEach(1...max(1, lineCount), id: \.self) { num in
                 Text("\(num)")
                     .font(VFont.monoSmall)
