@@ -921,7 +921,7 @@ struct MessageListView: View {
                         }
                         .padding(.horizontal, VSpacing.md)
                         .padding(.vertical, VSpacing.sm)
-                        .background(.ultraThinMaterial)
+                        .background(VColor.surfaceOverlay)
                         .clipShape(Capsule())
                         .shadow(color: VColor.auxBlack.opacity(0.15), radius: 4, y: 2)
                     }
