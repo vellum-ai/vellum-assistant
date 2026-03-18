@@ -226,15 +226,10 @@ export async function notifyRequesterOfApproval(params: {
   bearerToken?: string;
   channel?: string;
   requesterExternalUserId?: string;
-  /** When true, the Slack-specific text references the auto-delivered code. */
-  codeDeliveredToRequester?: boolean;
 }): Promise<void> {
   const text =
-    params.channel === "slack" && params.codeDeliveredToRequester
-      ? "Your access request was approved! " +
-        "I've sent you the verification code — check your DMs and reply with it here."
-      : "Your access request has been approved! " +
-        "Please enter the 6-digit verification code you receive from the guardian.";
+    "Your access request has been approved! " +
+    "Please enter the 6-digit verification code you receive from the guardian.";
 
   const target = resolveRequesterTarget(params);
 
