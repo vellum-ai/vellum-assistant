@@ -135,6 +135,15 @@ Use the most recent `credential_store` result as the source of truth:
 
 Guardian verification depends on Socket Mode being live, so only proceed once the connection is confirmed.
 
+Show the user their setup progress:
+"Setup progress:
+✅ App created
+✅ Tokens configured
+✅ Connection active
+⬜ Connection tested
+
+Almost there — let's complete the last step!"
+
 ## Step 5: Guardian Verification (Optional)
 
 Link the user's Slack account as the trusted guardian. Load the **guardian-verify-setup** skill:
@@ -145,12 +154,29 @@ If the user declines, skip and continue.
 
 ## Step 6: Report Success
 
-Summarize:
+Summarize with the completed checklist.
 
-- Bot connected: {username} in {workspace}
-- Socket Mode: active (gateway auto-connects when credentials are stored)
-- Guardian: {verified | skipped}
-- Usage: @{botUsername} in any channel, or DM the bot directly
+If guardian was verified:
+"Setup complete!
+✅ App created
+✅ Tokens configured
+✅ Connection active
+✅ Connection tested
+
+Bot connected: {username} in {workspace}
+Socket Mode: active (gateway auto-connects when credentials are stored)
+Usage: @{botUsername} in any channel, or DM the bot directly"
+
+If guardian was skipped:
+"Setup complete!
+✅ App created
+✅ Tokens configured
+✅ Connection active
+⬜ Connection tested — You can complete this anytime by saying 'verify me on slack'
+
+Bot connected: {username} in {workspace}
+Socket Mode: active (gateway auto-connects when credentials are stored)
+Usage: @{botUsername} in any channel, or DM the bot directly"
 
 # Clearing Credentials
 
