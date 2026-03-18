@@ -280,6 +280,37 @@ export function getFilePathForAttachment(attachmentId: string): string | null {
 }
 
 /**
+ * Returns the source_path (original file path on disk) for an attachment, or null if not set.
+ * Uses raw SQL since source_path is added via DB migration and is not in the Drizzle schema.
+ */
+export function getSourcePathForAttachment(
+  attachmentId: string,
+): string | null {
+  const row = rawGet<{ source_path: string | null }>(
+    "SELECT source_path FROM attachments WHERE id = ?",
+    attachmentId,
+  );
+  return row?.source_path ?? null;
+}
+
+/**
+ * Batch-fetch source_path values for multiple attachment IDs in a single query.
+ * Returns a Map of attachment ID → source_path for attachments that have a non-null source_path.
+ * Uses raw SQL since source_path is added via runtime migration and is not in the Drizzle schema.
+ */
+export function getSourcePathsForAttachments(
+  attachmentIds: string[],
+): Map<string, string> {
+  if (attachmentIds.length === 0) return new Map();
+  const placeholders = attachmentIds.map(() => "?").join(", ");
+  const rows = rawAll<{ id: string; source_path: string }>(
+    `SELECT id, source_path FROM attachments WHERE id IN (${placeholders}) AND source_path IS NOT NULL`,
+    ...attachmentIds,
+  );
+  return new Map(rows.map((r) => [r.id, r.source_path]));
+}
+
+/**
  * Batch-fetch file_path values for multiple attachment IDs in a single query.
  * Returns a Set of attachment IDs that are file-backed (have a non-null file_path).
  * Uses raw SQL since file_path is added via runtime migration and is not in the Drizzle schema.
@@ -334,6 +365,7 @@ export function uploadAttachment(
   filename: string,
   mimeType: string,
   dataBase64: string,
+  sourcePath?: string,
 ): StoredAttachment {
   if (!isValidBase64(dataBase64)) {
     throw new AttachmentUploadError("Invalid base64 encoding");
@@ -395,6 +427,14 @@ export function uploadAttachment(
   };
 
   db.insert(attachments).values(record).run();
+
+  if (sourcePath) {
+    rawRun(
+      `UPDATE attachments SET source_path = ? WHERE id = ?`,
+      sourcePath,
+      record.id,
+    );
+  }
 
   return {
     id: record.id,

@@ -878,6 +878,7 @@ export class DaemonServer {
       filename: string;
       mimeType: string;
       data: string;
+      filePath?: string;
     }[];
   }> {
     const ingressCheck = checkIngressForSecrets(content);
@@ -960,12 +961,20 @@ export class DaemonServer {
     });
 
     const attachments = attachmentIds
-      ? attachmentsStore.getAttachmentsByIds(attachmentIds).map((a) => ({
-          id: a.id,
-          filename: a.originalFilename,
-          mimeType: a.mimeType,
-          data: a.dataBase64,
-        }))
+      ? (() => {
+          const resolved = attachmentsStore.getAttachmentsByIds(attachmentIds);
+          const sourcePaths =
+            attachmentsStore.getSourcePathsForAttachments(attachmentIds);
+          return resolved.map((a) => ({
+            id: a.id,
+            filename: a.originalFilename,
+            mimeType: a.mimeType,
+            data: a.dataBase64,
+            ...(sourcePaths.has(a.id)
+              ? { filePath: sourcePaths.get(a.id) }
+              : {}),
+          }));
+        })()
       : [];
 
     return { conversation, attachments };
