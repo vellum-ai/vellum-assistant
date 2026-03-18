@@ -94,7 +94,6 @@ struct ContactDetailView: View {
 
     private var headerSection: some View {
         VStack(alignment: .leading, spacing: VSpacing.lg) {
-            headerTitle
             headerFields
             headerActions
         }

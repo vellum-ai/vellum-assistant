@@ -44,7 +44,7 @@ struct ContactsContainerView: View {
 
             // Right pane: detail, loading, or placeholder
             VStack(alignment: .leading, spacing: 0) {
-            // Pinned header — shows selected contact name + role
+            // Pinned header — contact name, role, interactions, delete
             HStack(spacing: VSpacing.sm) {
                 if case .assistant = selection {
                     Text(cachedAssistantName)
@@ -53,19 +53,32 @@ struct ContactsContainerView: View {
                     ContactTypeBadge(role: "assistant")
                 } else if case .contact(let contactId) = selection,
                           let contact = viewModel.deduplicatedContacts.first(where: { $0.id == contactId }) {
-                    Text(contact.displayName)
+                    let isGuardian = contact.role == "guardian"
+                    Text(isGuardian ? "\(contact.displayName) (You)" : contact.displayName)
                         .font(VFont.headline)
                         .foregroundColor(VColor.contentDefault)
                     ContactTypeBadge(role: contact.role)
+                    Text("\(contact.interactionCount) interaction\(contact.interactionCount == 1 ? "" : "s")")
+                        .font(VFont.caption)
+                        .foregroundColor(VColor.contentTertiary)
                 } else {
                     Text("Contact Info")
                         .font(VFont.headline)
                         .foregroundColor(VColor.contentDefault)
                 }
                 Spacer()
-                // Hidden button to match the height of the + button in contacts list
-                VButton(label: "", iconOnly: VIcon.plus.rawValue, style: .ghost, size: .compact) {}
-                    .hidden()
+                if case .contact(let contactId) = selection,
+                   let contact = viewModel.deduplicatedContacts.first(where: { $0.id == contactId }),
+                   contact.role != "guardian" {
+                    VButton(
+                        label: "Delete Contact",
+                        leftIcon: VIcon.trash.rawValue,
+                        style: .dangerGhost,
+                        size: .compact
+                    ) {
+                        pendingDeleteContactId = contactId
+                    }
+                }
             }
             .padding(.horizontal, VSpacing.md)
             .padding(.vertical, VSpacing.sm)
@@ -194,19 +207,6 @@ struct ContactsContainerView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 0) {
                 VStack(alignment: .leading, spacing: VSpacing.lg) {
-                    // Title row: display name + badge + interaction count
-                    VStack(alignment: .leading, spacing: VSpacing.xs) {
-                        HStack(spacing: VSpacing.sm) {
-                            Text("\(contact.displayName) (You)")
-                                .font(VFont.display)
-                                .foregroundColor(VColor.contentDefault)
-                            ContactTypeBadge(role: "guardian")
-                        }
-                        Text("\(contact.interactionCount) interaction\(contact.interactionCount == 1 ? "" : "s")")
-                            .font(VFont.caption)
-                            .foregroundColor(VColor.contentTertiary)
-                    }
-
                     // Editable fields
                     VStack(alignment: .leading, spacing: VSpacing.md) {
                         VStack(alignment: .leading, spacing: VSpacing.xs) {
@@ -317,6 +317,7 @@ struct ContactsContainerView: View {
     @State private var guardianIsSaving: Bool = false
     @State private var guardianErrorMessage: String?
     @State private var isCreatingContact: Bool = false
+    @State private var pendingDeleteContactId: String?
     @State private var createContactError: String?
 
     @State private var cachedAssistantName: String = AssistantDisplayName.placeholder
