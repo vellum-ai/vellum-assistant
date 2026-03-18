@@ -104,6 +104,7 @@ struct ContactsListView: View {
                 .padding(.vertical, VSpacing.xs)
             }
         }
+        .background(VColor.surfaceBase)
         .frame(maxHeight: .infinity, alignment: .top)
     }
 
