@@ -462,11 +462,19 @@ struct DynamicPageSurfaceView: NSViewRepresentable {
                 <script>setTimeout(()=>{window.location.href='\(distSchemeURL)'},2000)</script></body></html>
                 """
                 webView.loadHTMLString(buildingHTML, baseURL: URL(string: origin))
+            } else if FileManager.default.fileExists(atPath: distIndex.path) {
+                let schemeURL = URL(string: "vellumapp://\(appId)/dist/index.html")!
+                webView.load(URLRequest(url: schemeURL))
+            } else if FileManager.default.fileExists(atPath: appDir.appendingPathComponent("index.html").path) {
+                let schemeURL = URL(string: "vellumapp://\(appId)/index.html")!
+                webView.load(URLRequest(url: schemeURL))
+            } else if !data.html.isEmpty {
+                // No files on disk — use daemon-provided HTML from the surface message.
+                // Use the same origin as updateNSView so localStorage persists across reloads.
+                let origin = "https://\(appId).vellum.local/"
+                webView.loadHTMLString(data.html, baseURL: URL(string: origin))
             } else {
-                let entryPath = FileManager.default.fileExists(atPath: distIndex.path)
-                    ? "dist/index.html"
-                    : "index.html"
-                let schemeURL = URL(string: "vellumapp://\(appId)/\(entryPath)")!
+                let schemeURL = URL(string: "vellumapp://\(appId)/index.html")!
                 webView.load(URLRequest(url: schemeURL))
             }
         } else {

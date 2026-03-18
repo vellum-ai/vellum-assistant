@@ -168,6 +168,16 @@ extension AppDelegate {
                         messageId: nil
                     )
                     self.surfaceManager.showSurface(surfaceMsg)
+
+                    // Register in the app list so it appears in Things
+                    self.mainWindow?.appListManager.recordAppOpen(
+                        id: surfaceId,
+                        name: manifest.name,
+                        icon: manifest.icon,
+                        appType: "app",
+                        description: manifest.description
+                    )
+
                     onSuccess?()
                 }
             } catch {
