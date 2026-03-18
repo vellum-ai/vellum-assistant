@@ -222,20 +222,20 @@ extension AppDelegate {
 
         let currentConversationItem = NSMenuItem(title: "Current Conversation", action: #selector(openCurrentConversation), keyEquivalent: "")
         currentConversationItem.target = self
-        currentConversationItem.image = VIcon.messageSquare.nsImage
+        currentConversationItem.image = VIcon.messageSquare.nsImage(size: 16)
         menu.addItem(currentConversationItem)
 
         let newChatItem = NSMenuItem(title: "New Chat", action: #selector(openNewChat), keyEquivalent: "n")
         newChatItem.target = self
-        newChatItem.image = VIcon.messageCirclePlus.nsImage
+        newChatItem.image = VIcon.messageCirclePlus.nsImage(size: 16)
         menu.addItem(newChatItem)
 
         menu.addItem(NSMenuItem.separator())
 
-        let updateItem = NSMenuItem(title: "Check for Updates...", action: #selector(checkForUpdates), keyEquivalent: "")
+        let updateItem = NSMenuItem(title: updateManager.updateMenuItemTitle, action: #selector(checkForUpdates), keyEquivalent: "")
         updateItem.target = self
-        updateItem.isEnabled = updateManager.canCheckForUpdates
-        updateItem.image = VIcon.circleArrowDown.nsImage
+        updateItem.isEnabled = updateManager.updateMenuItemIsEnabled
+        updateItem.image = VIcon.circleArrowDown.nsImage(size: 16)
         menu.addItem(updateItem)
 
         if MacOSClientFeatureFlagManager.shared.isEnabled("developer_menu_items_enabled") {
@@ -256,19 +256,24 @@ extension AppDelegate {
 
         let settingsItem = NSMenuItem(title: "Settings...", action: #selector(showSettingsWindow(_:)), keyEquivalent: ",")
         settingsItem.target = self
-        settingsItem.image = VIcon.settings.nsImage
+        settingsItem.image = VIcon.settings.nsImage(size: 16)
         menu.addItem(settingsItem)
 
         let restartItem = NSMenuItem(title: "Restart", action: #selector(performRestart), keyEquivalent: "")
         restartItem.target = self
-        restartItem.image = VIcon.refreshCw.nsImage
+        restartItem.image = VIcon.refreshCw.nsImage(size: 16)
         menu.addItem(restartItem)
 
         let quitItem = NSMenuItem(title: "Quit", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
-        quitItem.image = VIcon.power.nsImage
+        quitItem.image = VIcon.power.nsImage(size: 16)
         menu.addItem(quitItem)
 
-        menu.popUp(positioning: nil, at: NSPoint(x: 0, y: button.bounds.height + 2), in: button)
+        // Use native status item menu display for standard macOS positioning.
+        // performClick blocks until the menu closes, so clearing the menu
+        // afterward restores custom click handling in statusBarButtonClicked.
+        self.statusItem.menu = menu
+        button.performClick(nil)
+        self.statusItem.menu = nil
     }
 
     @objc func markAllConversationsSeen() {

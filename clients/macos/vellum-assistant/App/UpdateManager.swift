@@ -56,6 +56,23 @@ public final class UpdateManager: NSObject, ObservableObject, SPUUpdaterDelegate
         updaterController.updater.canCheckForUpdates
     }
 
+    // MARK: - Menu Item Helpers
+
+    /// Context-aware title for the update menu item.
+    /// Returns "Update Available..." when an update is ready,
+    /// "Check for Updates..." when a manual check can be triggered,
+    /// or "Up to Date" when neither applies.
+    public var updateMenuItemTitle: String {
+        if isUpdateAvailable { return "Update Available..." }
+        if canCheckForUpdates { return "Check for Updates..." }
+        return "Up to Date"
+    }
+
+    /// Whether the update menu item should accept user interaction.
+    public var updateMenuItemIsEnabled: Bool {
+        isUpdateAvailable || canCheckForUpdates
+    }
+
     /// Whether an update has been downloaded and is waiting to be installed.
     public var hasDeferredUpdate: Bool {
         deferredInstallLock.withLock { $0 != nil }
