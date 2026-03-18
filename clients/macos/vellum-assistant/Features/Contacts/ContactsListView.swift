@@ -62,10 +62,8 @@ struct ContactsListView: View {
             Divider()
 
             if viewModel.regularContacts.isEmpty {
-                // No contacts yet — show full-width add button
-                VButton(label: "Add Contact", leftIcon: VIcon.user.rawValue, style: .outlined, isFullWidth: true) {
-                    viewModel.isCreatingContact = true
-                }
+                // No contacts yet — full-width add button matching contact row height
+                addContactButton
             } else {
                 // Search + Add button
                 HStack(spacing: VSpacing.sm) {
@@ -115,6 +113,34 @@ struct ContactsListView: View {
         let query = viewModel.searchQuery.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !query.isEmpty else { return true }
         return name.lowercased().contains(query.lowercased())
+    }
+
+    // MARK: - Add Contact Button
+
+    @State private var isAddContactHovered = false
+
+    private var addContactButton: some View {
+        Button {
+            viewModel.isCreatingContact = true
+        } label: {
+            HStack(spacing: VSpacing.xs) {
+                Image(systemName: "person.badge.plus")
+                    .font(.system(size: 14))
+                Text("Add Contact")
+                    .font(VFont.bodyMedium)
+            }
+            .foregroundColor(VColor.primaryBase)
+            .frame(maxWidth: .infinity)
+            .padding(.horizontal, VSpacing.sm)
+            .padding(.vertical, VSpacing.md)
+            .background(
+                RoundedRectangle(cornerRadius: VRadius.md)
+                    .fill(VColor.surfaceBase.opacity(isAddContactHovered ? 1 : 0))
+            )
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .onHover { isAddContactHovered = $0 }
     }
 
     // MARK: - Contact List Row
