@@ -32,6 +32,7 @@ struct ContactDetailView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 0) {
                 headerSection
+                    .padding(.top, VSpacing.lg)
                     .padding(.horizontal, VSpacing.lg)
                     .padding(.bottom, VSpacing.lg)
 

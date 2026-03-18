@@ -219,6 +219,7 @@ struct ContactsContainerView: View {
                     }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.top, VSpacing.lg)
                 .padding(.horizontal, VSpacing.lg)
                 .padding(.bottom, VSpacing.lg)
 
@@ -296,6 +297,7 @@ struct ContactsContainerView: View {
             VStack(alignment: .leading, spacing: VSpacing.lg) {
                 if let store {
                     AssistantChannelsDetailView(store: store, daemonClient: daemonClient, assistantName: cachedAssistantName, isEmailEnabled: isEmailEnabled, showCardBorders: false)
+                        .padding(.top, VSpacing.lg)
                         .padding(.horizontal, VSpacing.lg)
                         .padding(.bottom, VSpacing.lg)
                 }
