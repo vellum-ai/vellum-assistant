@@ -634,9 +634,15 @@ export function buildTurnContextBlock(
       lines.push(`assistant_message_channel: ${assistant}`);
       lines.push(`conversation_origin_channel: ${origin}`);
     }
-    lines.push(
-      `response_discretion: Not every message in a channel thread requires your response. If a message is clearly not directed at you (e.g. people talking among themselves, acknowledgements, reactions), output exactly <no_response/> as your entire reply to stay silent.`,
-    );
+    // Only inject response discretion for external channels (Slack, Telegram,
+    // etc.) where the assistant may receive thread replies not directed at it.
+    // The "vellum" channel is the web/desktop interface where every message is
+    // intentionally directed at the assistant.
+    if (user !== "vellum") {
+      lines.push(
+        `response_discretion: Not every message in a channel thread requires your response. If a message is clearly not directed at you (e.g. people talking among themselves, acknowledgements, reactions), output exactly <no_response/> as your entire reply to stay silent.`,
+      );
+    }
   }
 
   lines.push("</turn_context>");
