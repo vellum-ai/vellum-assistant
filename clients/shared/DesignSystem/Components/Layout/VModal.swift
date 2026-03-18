@@ -49,7 +49,7 @@ public struct VModal<Content: View, Footer: View>: View {
             // Title area
             VStack(alignment: .leading, spacing: VSpacing.xs) {
                 Text(title)
-                    .font(VFont.display)
+                    .font(VFont.modalTitle)
                     .foregroundColor(VColor.contentDefault)
                 if let subtitle {
                     Text(subtitle)
