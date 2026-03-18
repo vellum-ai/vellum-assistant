@@ -6,17 +6,13 @@ enum SettingsTab: String {
     case modelsAndServices = "Models & Services"
     case voice = "Voice"
     case permissionsAndPrivacy = "Permissions & Privacy"
-    case contacts = "Contacts"
     case billing = "Billing"
     case archivedConversations = "Archived Conversations"
     case developer = "Developer"
 
     /// Primary tabs shown in the main nav list (excludes feature-flagged bottom tabs).
-    static func primaryTabs(contactsEnabled: Bool = false, billingEnabled: Bool = false) -> [SettingsTab] {
+    static func primaryTabs(billingEnabled: Bool = false) -> [SettingsTab] {
         var tabs: [SettingsTab] = [.general]
-        if contactsEnabled {
-            tabs.append(.contacts)
-        }
         tabs.append(contentsOf: [
             .voice, .modelsAndServices,
             .permissionsAndPrivacy,
@@ -29,10 +25,9 @@ enum SettingsTab: String {
     }
 
     /// Resolves a tab name string to a SettingsTab. Only accepts current canonical names.
-    static func fromRawValue(_ value: String, contactsEnabled: Bool = false, billingEnabled: Bool = false, developerEnabled: Bool = false) -> SettingsTab? {
+    static func fromRawValue(_ value: String, billingEnabled: Bool = false, developerEnabled: Bool = false) -> SettingsTab? {
         guard let tab = SettingsTab(rawValue: value) else { return nil }
         // Block feature-flagged tabs when disabled
-        if tab == .contacts && !contactsEnabled { return nil }
         if tab == .billing && !billingEnabled { return nil }
         if tab == .developer && !developerEnabled { return nil }
         return tab
@@ -88,13 +83,13 @@ struct SettingsPanel: View {
             // so read connectedOrgId directly from UserDefaults.
             let orgId = UserDefaults.standard.string(forKey: "connectedOrganizationId")
             let canShowBilling = billingEnabled && authManager.isAuthenticated && orgId != nil
-            // Contacts and developer flags load asynchronously, so default
-            // to false at init time — those tabs aren't visible yet.
-            let visibleTabs = SettingsTab.primaryTabs(contactsEnabled: false, billingEnabled: canShowBilling)
+            // Developer flag loads asynchronously, so default to false at
+            // init time — the tab isn't visible yet.
+            let visibleTabs = SettingsTab.primaryTabs(billingEnabled: canShowBilling)
             if visibleTabs.contains(pending) {
                 _selectedTab = State(initialValue: pending)
             } else {
-                // Tab may become visible once feature flags load (e.g. .contacts, .developer).
+                // Tab may become visible once feature flags load (e.g. .developer).
                 // Preserve it for deferred evaluation in loadFeatureFlags().
                 _deferredDeepLinkTab = State(initialValue: pending)
             }
@@ -118,20 +113,16 @@ struct SettingsPanel: View {
     /// Deep-linked tab that wasn't visible at init (feature flags not yet loaded).
     /// Re-evaluated after loadFeatureFlags() completes.
     @State private var deferredDeepLinkTab: SettingsTab?
-    @State private var isContactsEnabled: Bool = false
     @State private var isBillingEnabled: Bool = false
     @State private var isDeveloperEnabled: Bool = false
-    @State private var isEmailEnabled: Bool = false
     @State private var isGoogleOAuthEnabled: Bool = false
     @State private var showingDevUnlock: Bool = false
     @State private var devUnlockText: String = ""
     @State private var devUnlockMonitor: Any?
     @State private var bootstrapGeneration: Int = 0
     @AppStorage("connectedOrganizationId") private var connectedOrgId: String?
-    private static let contactsFeatureFlagKey = "feature_flags.contacts.enabled"
     private static let billingFeatureFlagKey = "settings_billing_enabled"
     private static let developerFeatureFlagKey = "feature_flags.settings-developer-nav.enabled"
-    private static let emailFeatureFlagKey = "feature_flags.email-channel.enabled"
     private static let googleOAuthFeatureFlagKey = "feature_flags.managed-google-oauth.enabled"
 
     var body: some View {
@@ -164,25 +155,16 @@ struct SettingsPanel: View {
                 settingsNav
                     .frame(width: 200)
 
-                if selectedTab == .contacts {
+                ScrollView {
                     selectedTabContent
                         .padding(.top, VSpacing.lg)
                         .padding(.trailing, VSpacing.xl)
                         .padding(.bottom, VSpacing.xl)
                         .frame(maxWidth: 900, alignment: .top)
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                } else {
-                    ScrollView {
-                        selectedTabContent
-                            .padding(.top, VSpacing.lg)
-                            .padding(.trailing, VSpacing.xl)
-                            .padding(.bottom, VSpacing.xl)
-                            .frame(maxWidth: 900, alignment: .top)
-                            .frame(maxWidth: .infinity)
-                            .background { OverlayScrollerStyle() }
-                    }
-                    .scrollContentBackground(.hidden)
+                        .frame(maxWidth: .infinity)
+                        .background { OverlayScrollerStyle() }
                 }
+                .scrollContentBackground(.hidden)
             }
             .frame(maxWidth: .infinity)
         }
@@ -216,7 +198,7 @@ struct SettingsPanel: View {
                 // the flag manager directly avoids a stale billingVisible.
                 let billingEnabled = MacOSClientFeatureFlagManager.shared.isEnabled(Self.billingFeatureFlagKey)
                 let canShowBilling = billingEnabled && authManager.isAuthenticated && connectedOrgId != nil
-                let visibleTabs = SettingsTab.primaryTabs(contactsEnabled: isContactsEnabled, billingEnabled: canShowBilling)
+                let visibleTabs = SettingsTab.primaryTabs(billingEnabled: canShowBilling)
                     + (isDeveloperEnabled ? [.developer] : [])
                 if visibleTabs.contains(tab) {
                     selectedTab = tab
@@ -241,20 +223,13 @@ struct SettingsPanel: View {
         .onReceive(NotificationCenter.default.publisher(for: .assistantFeatureFlagDidChange)) { notification in
             if let key = notification.userInfo?["key"] as? String,
                let enabled = notification.userInfo?["enabled"] as? Bool {
-                if key == Self.contactsFeatureFlagKey {
-                    isContactsEnabled = enabled
-                    if !enabled && selectedTab == .contacts {
-                        selectedTab = .general
-                    }
-                } else if key == Self.developerFeatureFlagKey {
+                if key == Self.developerFeatureFlagKey {
                     isDeveloperEnabled = enabled
                     if !enabled && selectedTab == .developer {
                         selectedTab = .general
                     }
                 } else if key == Self.billingFeatureFlagKey {
                     isBillingEnabled = enabled
-                } else if key == Self.emailFeatureFlagKey {
-                    isEmailEnabled = enabled
                 } else if key == Self.googleOAuthFeatureFlagKey {
                     isGoogleOAuthEnabled = enabled
                 }
@@ -332,7 +307,7 @@ struct SettingsPanel: View {
 
     /// All currently visible tabs (primary + gated bottom tabs).
     private var allVisibleTabs: [SettingsTab] {
-        var tabs = SettingsTab.primaryTabs(contactsEnabled: isContactsEnabled, billingEnabled: billingVisible)
+        var tabs = SettingsTab.primaryTabs(billingEnabled: billingVisible)
         if isDeveloperEnabled {
             tabs.append(.developer)
         }
@@ -347,7 +322,7 @@ struct SettingsPanel: View {
 
     private var settingsNav: some View {
         VStack(alignment: .leading, spacing: VSpacing.xs) {
-            ForEach(SettingsTab.primaryTabs(contactsEnabled: isContactsEnabled, billingEnabled: billingVisible), id: \.self) { tab in
+            ForEach(SettingsTab.primaryTabs(billingEnabled: billingVisible), id: \.self) { tab in
                 SettingsNavRow(tab: tab, isSelected: selectedTab == tab) {
                     selectedTab = tab
                 }
@@ -389,8 +364,6 @@ struct SettingsPanel: View {
             VoiceSettingsView(store: store)
         case .permissionsAndPrivacy:
             permissionsAndPrivacyContent
-        case .contacts:
-            ContactsContainerView(daemonClient: daemonClient, store: store, isEmailEnabled: isEmailEnabled, showToast: showToast)
         case .billing:
             SettingsBillingTab(authManager: authManager)
         case .archivedConversations:
@@ -569,14 +542,8 @@ struct SettingsPanel: View {
         if daemonClient != nil {
             do {
                 let flags = try await featureFlagClient.getFeatureFlags()
-                if let contactsFlag = flags.first(where: { $0.key == Self.contactsFeatureFlagKey }) {
-                    isContactsEnabled = contactsFlag.enabled
-                }
                 if let developerFlag = flags.first(where: { $0.key == Self.developerFeatureFlagKey }) {
                     isDeveloperEnabled = developerFlag.enabled
-                }
-                if let emailFlag = flags.first(where: { $0.key == Self.emailFeatureFlagKey }) {
-                    isEmailEnabled = emailFlag.enabled
                 }
                 if let googleOAuthFlag = flags.first(where: { $0.key == Self.googleOAuthFeatureFlagKey }) {
                     isGoogleOAuthEnabled = googleOAuthFlag.enabled
@@ -596,14 +563,8 @@ struct SettingsPanel: View {
         let persistedFlags = (config["assistantFeatureFlagValues"] as? [String: Bool]) ?? [:]
         let resolved = registryDefaults.merging(persistedFlags) { _, persisted in persisted }
 
-        if let contactsEnabled = resolved[Self.contactsFeatureFlagKey] {
-            isContactsEnabled = contactsEnabled
-        }
         if let developerEnabled = resolved[Self.developerFeatureFlagKey] {
             isDeveloperEnabled = developerEnabled
-        }
-        if let emailEnabled = resolved[Self.emailFeatureFlagKey] {
-            isEmailEnabled = emailEnabled
         }
         if let googleOAuthEnabled = resolved[Self.googleOAuthFeatureFlagKey] {
             isGoogleOAuthEnabled = googleOAuthEnabled
