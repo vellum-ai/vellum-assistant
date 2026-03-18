@@ -898,7 +898,6 @@ enum LogExporter {
             "sendDiagnostics",
             "ttsVoiceId",
             "selectedImageGenModel",
-            "activityNotificationsEnabled",
         ]
 
         let boolKeys = [
