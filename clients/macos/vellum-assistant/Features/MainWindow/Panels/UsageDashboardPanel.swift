@@ -20,7 +20,10 @@ struct UsageDashboardPanel: View {
             }
         }
         .onChange(of: store.needsRefresh) {
-            if store.needsRefresh {
+            // Only auto-refresh for idle states, not failed — failed states
+            // have retry buttons and shouldn't trigger an automatic retry loop.
+            let hasIdle = store.totalsState == .idle || store.dailyState == .idle || store.breakdownState == .idle
+            if hasIdle {
                 refreshTask?.cancel()
                 refreshTask = Task {
                     await store.refresh()
