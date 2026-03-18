@@ -816,6 +816,8 @@ struct MessageListView: View {
                 .padding(.bottom, VSpacing.md)
                 .frame(maxWidth: VSpacing.chatColumnMaxWidth)
                 .frame(maxWidth: .infinity)
+                // Push messages to the bottom when content is shorter than viewport
+                .frame(minHeight: scrollViewportHeight, alignment: .bottom)
             }
             .scrollContentBackground(.hidden)
             .coordinateSpace(name: "chatScrollView")
