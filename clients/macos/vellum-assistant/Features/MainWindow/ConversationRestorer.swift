@@ -305,7 +305,7 @@ final class ConversationRestorer {
     private func fetchConversationList() {
         Task { [weak self] in
             guard let self else { return }
-            if let response = await conversationListClient.fetchConversationList() {
+            if let response = await conversationListClient.fetchConversationList(offset: 0, limit: 50) {
                 self.handleConversationListResponse(response)
             } else {
                 self.delegate?.restoreLastActiveConversation()
