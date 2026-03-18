@@ -452,9 +452,9 @@ struct ComposerView: View {
         }
     }
 
-    /// Gap between a ghost button and a filled (primary/contrast) button — larger to visually
-    /// match the ghost-ghost gap, compensating for the filled button having no internal padding.
-    private let composerFilledGap: CGFloat = 12
+    /// Gap between a ghost button and a filled (primary/contrast) button — uses the standard
+    /// small spacing token for consistent spacing across the composer action bar.
+    private let composerFilledGap: CGFloat = VSpacing.sm
 
     /// Bottom action bar: paperclip on the left, send/mic/stop on the right.
     @ViewBuilder
