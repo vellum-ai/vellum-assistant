@@ -692,6 +692,7 @@ async function handleAccessRequestApproval(
   // On Slack, auto-deliver the verification code directly to the requester's
   // DM so the guardian doesn't have to manually share it. The identity binding
   // still protects against abuse — only the bound user can consume the code.
+  let requesterCodeDelivered = false;
   if (
     codeDelivered &&
     approval.channel === "slack" &&
@@ -706,7 +707,9 @@ async function handleAccessRequestApproval(
       channel: approval.channel,
       requesterExternalUserId: approval.requesterExternalUserId,
     });
-    if (!requesterCodeResult.ok) {
+    if (requesterCodeResult.ok) {
+      requesterCodeDelivered = true;
+    } else {
       log.error(
         { reason: requesterCodeResult.reason, approvalId: approval.id },
         "Failed to auto-deliver verification code to requester on Slack",
@@ -714,7 +717,10 @@ async function handleAccessRequestApproval(
     }
   }
 
-  if (codeDelivered) {
+  // Skip the separate approval notification when the requester already
+  // received the verification code directly (on Slack both messages go
+  // to the same DM, so sending both is redundant).
+  if (codeDelivered && !requesterCodeDelivered) {
     await notifyRequesterOfApproval({
       replyCallbackUrl,
       requesterChatId: approval.requesterChatId,
@@ -723,7 +729,7 @@ async function handleAccessRequestApproval(
       channel: approval.channel,
       requesterExternalUserId: approval.requesterExternalUserId,
     });
-  } else {
+  } else if (!codeDelivered) {
     // Let the requester know something went wrong without revealing details
     await notifyRequesterOfDeliveryFailure({
       replyCallbackUrl,
