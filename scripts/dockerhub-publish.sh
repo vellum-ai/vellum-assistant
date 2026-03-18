@@ -11,6 +11,9 @@
 #   - QEMU registered for multi-arch builds (the script sets this up)
 #   - Authenticated to Docker Hub: `docker login`
 #
+# Configuration is read from scripts/.env (see scripts/.env.example).
+# Environment variables can also be set directly in the shell.
+#
 # Usage:
 #   ./scripts/dockerhub-publish.sh --version <semver>
 #   ./scripts/dockerhub-publish.sh --version <semver> --services assistant,gateway
@@ -25,6 +28,20 @@
 #   --dry-run             Build images but do not push to Docker Hub
 
 set -euo pipefail
+
+# ---------------------------------------------------------------------------
+# Load .env (same pattern as production-release.sh / preview-release.sh)
+# ---------------------------------------------------------------------------
+
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+ENV_FILE="${SCRIPT_DIR}/.env"
+
+if [ -f "$ENV_FILE" ]; then
+  set -a
+  # shellcheck source=/dev/null
+  source "$ENV_FILE"
+  set +a
+fi
 
 # ---------------------------------------------------------------------------
 # Parse flags
@@ -76,18 +93,22 @@ if [[ -z "$VERSION" ]]; then
 fi
 
 # ---------------------------------------------------------------------------
-# Configuration
+# Configuration (override via scripts/.env or environment)
 # ---------------------------------------------------------------------------
 
-DOCKERHUB_ORG="vellumai"
-PLATFORMS="linux/amd64,linux/arm64"
-REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+DOCKERHUB_ORG="${DOCKERHUB_ORG:-vellumai}"
+PLATFORMS="${DOCKERHUB_PLATFORMS:-linux/amd64,linux/arm64}"
+REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+
+# Docker Hub credentials (optional — used for automatic login)
+DOCKERHUB_USER="${DOCKERHUB_USER:-}"
+DOCKERHUB_ACCESS_TOKEN="${DOCKERHUB_ACCESS_TOKEN:-}"
 
 # Image name mapping: service → Docker Hub image name
 declare -A IMAGE_NAMES=(
-  [assistant]="vellum-assistant"
-  [gateway]="vellum-gateway"
-  [credential-executor]="vellum-credential-executor"
+  [assistant]="${ASSISTANT_IMAGE_NAME:-vellum-assistant}"
+  [gateway]="${GATEWAY_IMAGE_NAME:-vellum-gateway}"
+  [credential-executor]="${CREDENTIAL_EXECUTOR_IMAGE_NAME:-vellum-credential-executor}"
 )
 
 # Build context mapping: service → build context (relative to repo root)
@@ -135,10 +156,13 @@ if ! docker buildx version &>/dev/null; then
   exit 1
 fi
 
-# Verify Docker Hub authentication
-if ! docker info 2>/dev/null | grep -q "Username"; then
+# Log into Docker Hub if credentials are provided
+if [[ -n "$DOCKERHUB_USER" && -n "$DOCKERHUB_ACCESS_TOKEN" ]]; then
+  echo "  Logging into Docker Hub as ${DOCKERHUB_USER}..."
+  echo "$DOCKERHUB_ACCESS_TOKEN" | docker login --username "$DOCKERHUB_USER" --password-stdin
+elif ! docker info 2>/dev/null | grep -q "Username"; then
   echo "WARNING: You may not be logged into Docker Hub."
-  echo "  Run: docker login"
+  echo "  Set DOCKERHUB_USER and DOCKERHUB_ACCESS_TOKEN in scripts/.env, or run: docker login"
   echo "  Continuing anyway — the push step will fail if not authenticated."
 fi
 
