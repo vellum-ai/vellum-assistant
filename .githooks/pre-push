@@ -112,9 +112,9 @@ fi
 # are checked.
 DIFF_BASE="$REMOTE_SHA"
 if git rev-list --merges "$REMOTE_SHA"..HEAD 2>/dev/null | grep -q .; then
-    # The push range contains at least one merge commit. Use origin/main as the
-    # diff base (triple-dot = from merge-base of origin/main and HEAD) so we only
-    # see the feature branch's own changes.
+    # The push range contains at least one merge commit. Use the merge-base of
+    # origin/main and HEAD as the diff base so we only see the feature branch's
+    # own changes.
     _main_base=$(git merge-base origin/main HEAD 2>/dev/null || echo "")
     if [ -n "$_main_base" ]; then
         DIFF_BASE="$_main_base"
