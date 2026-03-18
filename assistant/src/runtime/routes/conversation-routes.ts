@@ -790,70 +790,81 @@ export async function handleSendMessage(
     const cannedGreeting = getCannedFirstGreeting();
     if (cannedGreeting) {
       conversation.processing = true;
-      const provenance = provenanceFromTrustContext(conversation.trustContext);
-      const channelMeta = {
-        ...provenance,
-        userMessageChannel: sourceChannel,
-        assistantMessageChannel: sourceChannel,
-        userMessageInterface: sourceInterface,
-        assistantMessageInterface: sourceInterface,
-      };
-
-      const rawContent = content ?? "";
-      const attachments = hasAttachments
-        ? smDeps.resolveAttachments(attachmentIds)
-        : [];
-      const userMsg = createUserMessage(rawContent, attachments);
-      const persisted = await addMessage(
-        mapping.conversationId,
-        "user",
-        JSON.stringify(userMsg.content),
-        channelMeta,
-      );
-      conversation.getMessages().push(userMsg);
-
-      setConversationOriginChannelIfUnset(
-        mapping.conversationId,
-        sourceChannel,
-      );
-      setConversationOriginInterfaceIfUnset(
-        mapping.conversationId,
-        sourceInterface,
-      );
-
-      const assistantMsg = createAssistantMessage(cannedGreeting);
-      await addMessage(
-        mapping.conversationId,
-        "assistant",
-        JSON.stringify(assistantMsg.content),
-        channelMeta,
-      );
-      conversation.getMessages().push(assistantMsg);
-
-      const conversationId = mapping.conversationId;
-      const response = Response.json(
-        { accepted: true, messageId: persisted.id, conversationId },
-        { status: 202 },
-      );
-
-      // Defer event publishing to next tick (same pattern as unknown-slash
-      // fast path) so the HTTP response reaches the client before SSE
-      // events arrive.
-      setTimeout(() => {
-        onEvent({ type: "assistant_text_delta", text: cannedGreeting });
-        onEvent({ type: "message_complete", conversationId });
-        conversation.processing = false;
-        silentlyWithLog(
-          conversation.drainQueue(),
-          "canned-greeting queue drain",
+      let cleanupDeferred = false;
+      try {
+        const provenance = provenanceFromTrustContext(
+          conversation.trustContext,
         );
-      }, 0);
+        const channelMeta = {
+          ...provenance,
+          userMessageChannel: sourceChannel,
+          assistantMessageChannel: sourceChannel,
+          userMessageInterface: sourceInterface,
+          assistantMessageInterface: sourceInterface,
+        };
 
-      log.info(
-        { conversationId },
-        "Served canned first greeting — skipped LLM inference",
-      );
-      return response;
+        const rawContent = content ?? "";
+        const attachments = hasAttachments
+          ? smDeps.resolveAttachments(attachmentIds)
+          : [];
+        const userMsg = createUserMessage(rawContent, attachments);
+        const persisted = await addMessage(
+          mapping.conversationId,
+          "user",
+          JSON.stringify(userMsg.content),
+          channelMeta,
+        );
+        conversation.getMessages().push(userMsg);
+
+        setConversationOriginChannelIfUnset(
+          mapping.conversationId,
+          sourceChannel,
+        );
+        setConversationOriginInterfaceIfUnset(
+          mapping.conversationId,
+          sourceInterface,
+        );
+
+        const assistantMsg = createAssistantMessage(cannedGreeting);
+        await addMessage(
+          mapping.conversationId,
+          "assistant",
+          JSON.stringify(assistantMsg.content),
+          channelMeta,
+        );
+        conversation.getMessages().push(assistantMsg);
+
+        const conversationId = mapping.conversationId;
+        const response = Response.json(
+          { accepted: true, messageId: persisted.id, conversationId },
+          { status: 202 },
+        );
+
+        // Defer event publishing to next tick (same pattern as unknown-slash
+        // fast path) so the HTTP response reaches the client before SSE
+        // events arrive.
+        setTimeout(() => {
+          onEvent({ type: "assistant_text_delta", text: cannedGreeting });
+          onEvent({ type: "message_complete", conversationId });
+          conversation.processing = false;
+          silentlyWithLog(
+            conversation.drainQueue(),
+            "canned-greeting queue drain",
+          );
+        }, 0);
+
+        log.info(
+          { conversationId },
+          "Served canned first greeting — skipped LLM inference",
+        );
+        cleanupDeferred = true;
+        return response;
+      } finally {
+        if (!cleanupDeferred && conversation.processing) {
+          conversation.processing = false;
+          silentlyWithLog(conversation.drainQueue(), "error-path queue drain");
+        }
+      }
     }
   }
 
