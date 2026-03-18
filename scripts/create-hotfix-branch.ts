@@ -33,7 +33,10 @@ function writeJson(path: string, data: Record<string, unknown>): void {
 // Main
 // ---------------------------------------------------------------------------
 
-// 1. Find the latest release tag
+// 1. Fetch all tags from remote so we have the latest
+git("fetch origin --tags");
+
+// 2. Find the latest release tag
 const allTags = git("tag -l 'v[0-9]*.[0-9]*.[0-9]*' --sort=-v:refname");
 const latestTag = allTags.split("\n").filter(Boolean)[0];
 
@@ -44,7 +47,7 @@ if (!latestTag) {
 
 console.log(`Latest release tag: ${latestTag}`);
 
-// 2. Parse and increment the patch version
+// 3. Parse and increment the patch version
 const match = latestTag.match(/^v(\d+)\.(\d+)\.(\d+)$/);
 if (!match) {
   console.error(`ERROR: Could not parse version from tag: ${latestTag}`);
@@ -58,14 +61,14 @@ const branchName = `release/${newVersion}`;
 console.log(`New patch version: ${newVersion}`);
 console.log(`Branch name: ${branchName}`);
 
-// 3. Create the branch from the latest tag's commit
+// 4. Create the branch from the latest tag's commit
 const tagCommit = git(`rev-list -n 1 ${latestTag}`);
 console.log(`Branching from commit: ${tagCommit.slice(0, 12)}`);
 
 git(`checkout -b ${branchName} ${tagCommit}`);
 console.log(`Created branch: ${branchName}`);
 
-// 4. Bump package versions to match the new release version
+// 5. Bump package versions to match the new release version
 const versionStr = `${major}.${minor}.${Number(patch) + 1}`;
 
 const packages = ["assistant", "cli", "credential-executor", "gateway", "meta"];
@@ -102,7 +105,7 @@ git("add -A");
 git(`commit -m "Release v${versionStr} [skip ci]"`);
 console.log(`Added version bump commit to ${branchName}`);
 
-// 5. Push the branch
+// 6. Push the branch
 git(`push origin ${branchName}`);
 console.log(`Pushed ${branchName} to origin`);
 
