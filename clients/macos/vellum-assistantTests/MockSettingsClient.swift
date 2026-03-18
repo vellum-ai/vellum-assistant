@@ -14,6 +14,8 @@ final class MockSettingsClient: SettingsClientProtocol {
     var setTelegramConfigCalls: [(action: String, botToken: String?, commands: [TelegramConfigRequestCommand]?)] = []
     var setSlackWebhookConfigCalls: [(action: String, webhookUrl: String?)] = []
     var fetchChannelVerificationStatusCalls: [String] = []
+    var saveVercelConfigCalls: [(action: String, apiToken: String?)] = []
+    var sendChannelVerificationSessionCalls: [(action: String, channel: String?)] = []
 
     // MARK: - Configurable Responses
 
@@ -25,6 +27,8 @@ final class MockSettingsClient: SettingsClientProtocol {
     var setTelegramConfigResponse: TelegramConfigResponseMessage?
     var setSlackWebhookConfigResponse: Bool = true
     var channelVerificationResponses: [String: ChannelVerificationSessionResponseMessage] = [:]
+    var saveVercelConfigResponse: VercelApiConfigResponseMessage?
+    var sendChannelVerificationSessionResponse: ChannelVerificationSessionResponseMessage?
 
     // MARK: - Protocol Methods
 
@@ -66,5 +70,15 @@ final class MockSettingsClient: SettingsClientProtocol {
     func fetchChannelVerificationStatus(channel: String) async -> ChannelVerificationSessionResponseMessage? {
         fetchChannelVerificationStatusCalls.append(channel)
         return channelVerificationResponses[channel]
+    }
+
+    func saveVercelConfig(action: String, apiToken: String?) async -> VercelApiConfigResponseMessage? {
+        saveVercelConfigCalls.append((action: action, apiToken: apiToken))
+        return saveVercelConfigResponse
+    }
+
+    func sendChannelVerificationSession(action: String, channel: String?, conversationId: String?, rebind: Bool?, destination: String?, originConversationId: String?, purpose: String?, contactChannelId: String?) async -> ChannelVerificationSessionResponseMessage? {
+        sendChannelVerificationSessionCalls.append((action: action, channel: channel))
+        return sendChannelVerificationSessionResponse
     }
 }

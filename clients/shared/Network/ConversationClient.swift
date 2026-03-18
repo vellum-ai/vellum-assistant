@@ -180,8 +180,9 @@ public struct ConversationListClient: ConversationListClientProtocol {
 
     public func deleteQueuedMessage(conversationId: String, requestId: String) async -> Bool {
         do {
+            let encodedConversationId = conversationId.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? conversationId
             let response = try await GatewayHTTPClient.delete(
-                path: "messages/queued/\(requestId)?conversationId=\(conversationId)",
+                path: "messages/queued/\(requestId)?conversationId=\(encodedConversationId)",
                 timeout: 10
             )
             if !response.isSuccess {
