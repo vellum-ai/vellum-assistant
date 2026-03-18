@@ -108,6 +108,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
     var connectionStatusCancellable: AnyCancellable?
     var quickInputAttachmentCancellable: AnyCancellable?
     var conversationBadgeCancellable: AnyCancellable?
+    var avatarChangeObserver: NSObjectProtocol?
     var pulseTimer: Timer?
     var pulsePhase: CGFloat = 1.0
     var pulseDirection: CGFloat = -1.0

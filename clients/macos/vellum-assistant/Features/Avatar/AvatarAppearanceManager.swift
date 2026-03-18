@@ -476,10 +476,15 @@ final class AvatarAppearanceManager {
 
     // MARK: - Dock Icon
 
+    /// Posted whenever the avatar changes so other components (e.g. menu bar icon) can update.
+    static let avatarDidChangeNotification = Notification.Name("AvatarAppearanceManager.avatarDidChange")
+
     /// Updates the application dock icon to match the current avatar.
     /// When a custom avatar exists, renders it inside a macOS-style squircle mask.
     /// When cleared, reverts to the default bundle icon.
     private func updateDockIcon() {
+        NotificationCenter.default.post(name: Self.avatarDidChangeNotification, object: nil)
+
         guard let avatar = customAvatarImage else {
             NSApplication.shared.applicationIconImage = nil
             NSApp.dockTile.display()
