@@ -299,9 +299,10 @@ export async function persistUserMessage(
       extractTurnInterfaceContext(metadata) ?? ctx.getTurnInterfaceContext();
     const provenance = provenanceFromTrustContext(ctx.trustContext);
     const imageSourcePaths: Record<string, string> = {};
-    for (const a of attachments) {
+    for (let i = 0; i < attachments.length; i++) {
+      const a = attachments[i];
       if (a.filePath && a.mimeType.toLowerCase().startsWith("image/")) {
-        imageSourcePaths[a.filename] = a.filePath;
+        imageSourcePaths[`${i}:${a.filename}`] = a.filePath;
       }
     }
 
