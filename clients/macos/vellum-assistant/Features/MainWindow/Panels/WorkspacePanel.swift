@@ -932,7 +932,10 @@ private struct AuthenticatedImageView: View {
                   let deviceId = daemonClient.recoveryDeviceId else {
                 return nil
             }
-            let success = await daemonClient.bootstrapActorToken(platform: platform, deviceId: deviceId)
+            let success = await GuardianClient().bootstrapActorToken(
+                platform: platform,
+                deviceId: deviceId
+            )
             guard success else { return nil }
             var retryRequest = URLRequest(url: url)
             if let freshToken = ActorTokenManager.getToken(), !freshToken.isEmpty {
@@ -1041,7 +1044,10 @@ private struct WorkspaceVideoPlayer: View {
                   let deviceId = daemonClient.recoveryDeviceId else {
                 return nil
             }
-            let success = await daemonClient.bootstrapActorToken(platform: platform, deviceId: deviceId)
+            let success = await GuardianClient().bootstrapActorToken(
+                platform: platform,
+                deviceId: deviceId
+            )
             guard success else { return nil }
             var retryRequest = URLRequest(url: url)
             if let freshToken = ActorTokenManager.getToken(), !freshToken.isEmpty {

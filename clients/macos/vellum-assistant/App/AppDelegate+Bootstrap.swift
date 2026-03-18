@@ -248,7 +248,7 @@ extension AppDelegate {
                 continue
             }
 
-            let success = await daemonClient.bootstrapActorToken(
+            let success = await GuardianClient().bootstrapActorToken(
                 platform: "macos",
                 deviceId: deviceId
             )
