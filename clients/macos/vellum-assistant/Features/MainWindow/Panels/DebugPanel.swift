@@ -82,9 +82,10 @@ struct DebugPanel: View {
         isLoadingHistory = true
         hydrationTask = Task {
             defer {
-                guard !Task.isCancelled else { return }
-                isLoadingHistory = false
-                hydrationTask = nil
+                if !Task.isCancelled {
+                    isLoadingHistory = false
+                    hydrationTask = nil
+                }
             }
             do {
                 let events = try await traceEventClient.fetchHistory(conversationId: conversationId)
