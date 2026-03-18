@@ -1,4 +1,5 @@
 import { existsSync } from "node:fs";
+
 import { getWorkspacePromptPath } from "../util/platform.js";
 
 /**
