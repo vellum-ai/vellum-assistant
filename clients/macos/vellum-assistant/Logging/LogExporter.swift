@@ -897,7 +897,6 @@ enum LogExporter {
             "collectUsageData",
             "sendDiagnostics",
             "selectedImageGenModel",
-            "activityNotificationsEnabled",
         ]
 
         let boolKeys = [

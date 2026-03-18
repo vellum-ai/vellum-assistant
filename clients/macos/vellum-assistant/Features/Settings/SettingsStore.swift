@@ -70,7 +70,6 @@ public final class SettingsStore: ObservableObject {
     // MARK: - Settings Values
 
     @Published var maxSteps: Double
-    @Published var activityNotificationsEnabled: Bool
     @Published var globalHotkeyShortcut: String
     @Published var quickInputHotkeyShortcut: String
     @Published var quickInputHotkeyKeyCode: Int
@@ -358,9 +357,6 @@ public final class SettingsStore: ObservableObject {
         let storedMaxSteps = UserDefaults.standard.double(forKey: "maxStepsPerSession")
         self.maxSteps = storedMaxSteps == 0 ? 50 : storedMaxSteps
 
-        // Default to enabled for notifications
-        self.activityNotificationsEnabled = UserDefaults.standard.object(forKey: "activityNotificationsEnabled") as? Bool ?? true
-
         self.cmdEnterToSend = UserDefaults.standard.object(forKey: "cmdEnterToSend") as? Bool ?? false
 
         if UserDefaults.standard.object(forKey: "globalHotkeyShortcut") == nil {
@@ -447,12 +443,6 @@ public final class SettingsStore: ObservableObject {
         // only genuine user-driven changes flow into debounce and are eventually persisted.
         // Placing dropFirst after debounce would cause the first real user change to be silently
         // dropped whenever it arrives within the 300ms debounce window of the initial value.
-        $activityNotificationsEnabled
-            .dropFirst()
-            .debounce(for: .milliseconds(300), scheduler: RunLoop.main)
-            .sink { value in UserDefaults.standard.set(value, forKey: "activityNotificationsEnabled") }
-            .store(in: &cancellables)
-
         $cmdEnterToSend
             .dropFirst()
             .debounce(for: .milliseconds(300), scheduler: RunLoop.main)
