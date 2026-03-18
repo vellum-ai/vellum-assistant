@@ -20,6 +20,7 @@ import {
 import type { ImageContent } from "../../../../providers/types.js";
 import { getProviderKeyAsync } from "../../../../security/secure-keys.js";
 import { getAttachmentSourceConversations } from "../../../../tools/assets/search.js";
+import { sandboxPolicy } from "../../../../tools/shared/filesystem/path-policy.js";
 import type {
   ToolContext,
   ToolExecutionResult,
@@ -88,6 +89,7 @@ export async function run(
   const prompt = input.prompt as string;
   const mode = (input.mode as "generate" | "edit") ?? "generate";
   const attachmentIds = input.attachment_ids as string[] | undefined;
+  const sourcePaths = input.source_paths as string[] | undefined;
   const model =
     (input.model as string | undefined) ??
     config.services["image-generation"].model;
@@ -135,6 +137,36 @@ export async function run(
         };
       })
       .filter((img): img is NonNullable<typeof img> => img !== undefined);
+  }
+
+  // Resolve source images from file paths (sandboxed to workingDir)
+  if (sourcePaths && sourcePaths.length > 0) {
+    const errors: string[] = [];
+    const validPathImages: Array<{ mimeType: string; dataBase64: string }> = [];
+    for (const filePath of sourcePaths) {
+      const pathCheck = sandboxPolicy(filePath, context.workingDir);
+      if (!pathCheck.ok) {
+        errors.push(pathCheck.error);
+        continue;
+      }
+      const file = Bun.file(pathCheck.resolved);
+      if (!(await file.exists())) {
+        errors.push(`File not found: ${filePath}`);
+        continue;
+      }
+      const buffer = Buffer.from(await file.arrayBuffer());
+      validPathImages.push({
+        mimeType: file.type,
+        dataBase64: buffer.toString("base64"),
+      });
+    }
+    if (validPathImages.length === 0) {
+      return {
+        content: `None of the specified file paths could be read.\n${errors.join("\n")}`,
+        isError: true,
+      };
+    }
+    sourceImages = [...(sourceImages ?? []), ...validPathImages];
   }
 
   try {

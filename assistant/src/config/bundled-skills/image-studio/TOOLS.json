@@ -23,7 +23,14 @@
             "items": {
               "type": "string"
             },
-            "description": "IDs of attached source images to edit (required for edit mode)"
+            "description": "IDs of attached source images to edit (for edit mode)"
+          },
+          "source_paths": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "File paths to source images in the workspace (for edit mode). Can be used instead of or in addition to attachment_ids."
           },
           "model": {
             "type": "string",

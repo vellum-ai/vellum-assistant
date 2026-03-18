@@ -328,6 +328,59 @@ describe("image-studio skill script wrapper", () => {
 
     expect(result.isError).toBe(false);
   });
+
+  test("reads source images from file paths on disk", async () => {
+    // Write a temp image file inside the workspace (fakeContext.workingDir = /tmp)
+    const tmpPath = join("/tmp", "test-source-image.png");
+    const pngBytes = Buffer.from(
+      "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8/5+hHgAHggJ/PchI7wAAAABJRU5ErkJggg==",
+      "base64",
+    );
+    await Bun.write(tmpPath, pngBytes);
+
+    try {
+      const result = await run(
+        { prompt: "edit this", mode: "edit", source_paths: [tmpPath] },
+        fakeContext,
+      );
+
+      expect(result.isError).toBe(false);
+      expect(result.content).toContain("Generated 1 image");
+    } finally {
+      const { unlink } = await import("fs/promises");
+      if (await Bun.file(tmpPath).exists()) await unlink(tmpPath);
+    }
+  });
+
+  test("returns error when all source_paths are invalid", async () => {
+    const result = await run(
+      {
+        prompt: "edit this",
+        mode: "edit",
+        source_paths: ["/nonexistent/path.png"],
+      },
+      fakeContext,
+    );
+
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain(
+      "None of the specified file paths could be read",
+    );
+  });
+
+  test("rejects source_paths outside the workspace", async () => {
+    const result = await run(
+      {
+        prompt: "edit this",
+        mode: "edit",
+        source_paths: ["/etc/passwd"],
+      },
+      fakeContext,
+    );
+
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain("outside the working directory");
+  });
 });
 
 describe("image-studio TOOLS.json manifest", () => {
