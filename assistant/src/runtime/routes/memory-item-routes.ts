@@ -103,6 +103,8 @@ export function handleListMemoryItems(url: URL): Response {
 
   // Build WHERE conditions
   const conditions = [];
+  // Hide system-managed capability memories (skill announcements) from the UI
+  conditions.push(ne(memoryItems.kind, "capability"));
   if (statusParam && statusParam !== "all") {
     conditions.push(eq(memoryItems.status, statusParam));
   }
