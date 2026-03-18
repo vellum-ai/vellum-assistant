@@ -42,7 +42,7 @@ struct AvatarManagementSheet: View {
     // MARK: - Action List
 
     private var actionList: some View {
-        Group {
+        VStack(spacing: 0) {
             // Avatar preview
             VAvatarImage(image: appearance.fullAvatarImage, size: 120, showBorder: false)
                 .padding(.bottom, VSpacing.xl)
