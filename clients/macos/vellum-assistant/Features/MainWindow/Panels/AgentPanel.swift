@@ -299,7 +299,11 @@ struct AgentPanelContent: View {
             Button(role: .destructive) {
                 skillToDelete = skill
             } label: {
-                Label("Remove", systemImage: "trash")
+                Label {
+                    Text("Remove")
+                } icon: {
+                    VIconView(.trash, size: 12)
+                }
             }
         }
     }
