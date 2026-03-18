@@ -14,9 +14,7 @@ struct UsageDashboardPanel: View {
 
     var body: some View {
         VSidePanel(title: "Usage", contentPadding: EdgeInsets(top: 0, leading: 0, bottom: VSpacing.lg, trailing: 0), onClose: onClose, pinnedContent: {
-            if !allFailed {
-                timeRangeStrip(store: store)
-            }
+            timeRangeStrip(store: store)
         }) {
             if !allFailed {
                 VStack(alignment: .leading, spacing: VSpacing.lg) {
