@@ -914,14 +914,14 @@ struct SettingsDeveloperTab: View {
                             .sorted(by: { $0.key < $1.key })
                             .map { ($0.key, $0.value) }
                         daemonEnvVars = []
-                        daemonClient?.onEnvVarsResponse = { response in
-                            Task { @MainActor in
+                        Task {
+                            let response = await DiagnosticsClient().fetchEnvVars()
+                            if let response {
                                 self.daemonEnvVars = response.vars
                                     .sorted(by: { $0.key < $1.key })
                                     .map { ($0.key, $0.value) }
                             }
                         }
-                        try? daemonClient?.sendEnvVarsRequest()
                         showingEnvVars = true
                 }
             }

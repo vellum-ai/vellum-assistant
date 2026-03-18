@@ -838,11 +838,6 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
         try send(MessageContentRequest(type: "message_content_request", conversationId: conversationId, messageId: messageId))
     }
 
-    /// Get or set the Slack webhook URL configuration.
-    public func sendSlackWebhookConfig(action: String, webhookUrl: String? = nil) throws {
-        try send(SlackWebhookConfigRequestMessage(action: action, webhookUrl: webhookUrl))
-    }
-
     /// Get, set, or delete the Vercel API token configuration.
     public func sendVercelApiConfig(action: String, apiToken: String? = nil) throws {
         try send(VercelApiConfigRequestMessage(action: action, apiToken: apiToken))
@@ -869,45 +864,6 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
             purpose: purpose,
             contactChannelId: contactChannelId
         ))
-    }
-
-    /// Get, set, or clear Telegram bot token configuration.
-    public func sendTelegramConfig(action: String, botToken: String? = nil, commands: [TelegramConfigRequestCommand]? = nil) throws {
-        try send(TelegramConfigRequestMessage(action: action, botToken: botToken, commands: commands))
-    }
-
-
-    /// Unpublish a page and delete its Vercel deployment.
-    public func sendUnpublishPage(deploymentId: String) throws {
-        try send(UnpublishPageRequestMessage(deploymentId: deploymentId))
-    }
-
-    // MARK: - Model Config
-
-    /// Set the image generation model on the daemon.
-    public func sendImageGenModelSet(model: String) throws {
-        try send(ImageGenModelSetRequestMessage(model: model))
-    }
-
-    // MARK: - Diagnostics Export
-
-    /// Request a diagnostics export (zip) for a conversation.
-    public func sendDiagnosticsExportRequest(conversationId: String, anchorMessageId: String? = nil) throws {
-        try send(DiagnosticsExportRequestMessage(conversationId: conversationId, anchorMessageId: anchorMessageId))
-    }
-
-    // MARK: - Environment Variables (Debug)
-
-    /// Request the daemon's environment variables (debug builds only).
-    public func sendEnvVarsRequest() throws {
-        try send(EnvVarsRequestMessage())
-    }
-
-
-
-    /// Request avatar generation via the daemon's avatar generation endpoint.
-    public func sendGenerateAvatar(description: String) throws {
-        try send(GenerateAvatarRequestMessage(description: description))
     }
 
     // MARK: - Local Daemon HTTP Helpers
@@ -1062,45 +1018,6 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
         }
     }
 
-    // MARK: - Document Persistence
-
-    public func sendDocumentSave(surfaceId: String, conversationId: String, title: String, content: String, wordCount: Int) throws {
-        try send(DocumentSaveRequestMessage(
-            type: "document_save",
-            surfaceId: surfaceId,
-            conversationId: conversationId,
-            title: title,
-            content: content,
-            wordCount: wordCount
-        ))
-    }
-
-    public func sendDocumentLoad(surfaceId: String) throws {
-        try send(DocumentLoadRequestMessage(
-            type: "document_load",
-            surfaceId: surfaceId
-        ))
-    }
-
-    public func sendDocumentList(conversationId: String? = nil) throws {
-        try send(DocumentListRequestMessage(
-            type: "document_list",
-            conversationId: conversationId
-        ))
-    }
-
-
-    // MARK: - Guardian Actions
-
-    /// Request pending guardian action prompts for a conversation.
-    public func sendGuardianActionsPendingRequest(conversationId: String) throws {
-        try send(GuardianActionsPendingRequestMessage(conversationId: conversationId))
-    }
-
-    /// Submit a guardian action decision.
-    public func sendGuardianActionDecision(requestId: String, action: String, conversationId: String? = nil) throws {
-        try send(GuardianActionDecisionMessage(requestId: requestId, action: action, conversationId: conversationId))
-    }
 
     // MARK: - Contacts Management
 

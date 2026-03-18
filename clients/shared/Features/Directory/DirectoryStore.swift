@@ -20,16 +20,18 @@ public final class DirectoryStore: ObservableObject {
     // MARK: - Private State
 
     private let appsClient: AppsClientProtocol
-    /// Legacy daemon client retained for document operations and push event
-    /// subscriptions (appFilesChanged) which use message transport.
+    private let documentClient: DocumentClientProtocol
+    /// Daemon client retained for push event subscriptions (appFilesChanged)
+    /// which use message transport.
     private weak var daemonClient: DaemonClient?
     private var appFilesChangedTask: Task<Void, Never>?
     private var debounceTask: Task<Void, Never>?
 
     // MARK: - Init
 
-    public init(daemonClient: DaemonClient) {
+    public init(daemonClient: DaemonClient, documentClient: DocumentClientProtocol = DocumentClient()) {
         self.appsClient = AppsClient()
+        self.documentClient = documentClient
         self.daemonClient = daemonClient
         subscribeToAppFilesChanged()
     }
@@ -127,58 +129,30 @@ public final class DirectoryStore: ObservableObject {
 
     // MARK: - Documents
 
-    /// Fetch the list of documents from the daemon.
+    /// Fetch the list of documents via the gateway.
     public func fetchDocuments(conversationId: String? = nil) {
-        guard let daemonClient else { return }
         isLoadingDocuments = true
 
         Task {
-            let stream = daemonClient.subscribe()
-
-            do {
-                try daemonClient.sendDocumentList(conversationId: conversationId)
-            } catch {
-                isLoadingDocuments = false
-                return
-            }
-
-            let result = await stream.firstMatch { message -> [DocumentListItem]? in
-                if case .documentListResponse(let response) = message {
-                    return response.documents.map { doc in
-                        DocumentListItem(
-                            id: doc.surfaceId,
-                            title: doc.title,
-                            wordCount: doc.wordCount,
-                            updatedAt: Date(timeIntervalSince1970: TimeInterval(doc.updatedAt) / 1000.0)
-                        )
-                    }
+            let response = await documentClient.fetchList(conversationId: conversationId)
+            if let response {
+                self.documents = response.documents.map { doc in
+                    DocumentListItem(
+                        id: doc.surfaceId,
+                        title: doc.title,
+                        wordCount: doc.wordCount,
+                        updatedAt: Date(timeIntervalSince1970: TimeInterval(doc.updatedAt) / 1000.0)
+                    )
                 }
-                return nil
             }
-            self.documents = result ?? self.documents
             isLoadingDocuments = false
         }
     }
 
     /// Load a specific document by surface ID.
     public func loadDocument(surfaceId: String) {
-        guard let daemonClient else { return }
-
         Task {
-            let stream = daemonClient.subscribe()
-
-            do {
-                try daemonClient.sendDocumentLoad(surfaceId: surfaceId)
-            } catch {
-                return
-            }
-
-            _ = await stream.firstMatch { message -> Bool? in
-                if case .documentLoadResponse = message {
-                    return true
-                }
-                return nil
-            }
+            _ = await documentClient.fetchDocument(surfaceId: surfaceId)
         }
     }
 

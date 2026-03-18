@@ -875,8 +875,23 @@ struct MainWindowView: View {
                 // Document already in memory — just show the panel
                 windowState.selection = .panel(.documentEditor)
             } else {
-                // Load from daemon — handleDocumentLoadResponse will open the panel when ready
-                try? daemonClient.sendDocumentLoad(surfaceId: surfaceId)
+                Task {
+                    guard let response = await DocumentClient().fetchDocument(surfaceId: surfaceId) else { return }
+                    guard response.success else {
+                        windowState.showToast(
+                            message: "Failed to load document\(response.error.map { ": \($0)" } ?? "")",
+                            style: .error
+                        )
+                        return
+                    }
+                    documentManager.createDocument(
+                        surfaceId: response.surfaceId,
+                        conversationId: response.conversationId,
+                        title: response.title,
+                        initialContent: response.content
+                    )
+                    windowState.selection = .panel(.documentEditor)
+                }
             }
         }
         .onReceive(NotificationCenter.default.publisher(for: .updateDynamicWorkspace)) { notification in

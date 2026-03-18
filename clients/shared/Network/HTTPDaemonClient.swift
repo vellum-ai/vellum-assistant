@@ -267,8 +267,6 @@ public final class HTTPTransport {
         case conversations(limit: Int, offset: Int)
         case confirm
         case secret
-        case guardianActionsPending(conversationId: String)
-        case guardianActionsDecision
         case conversationsSeen
         case conversationsUnread
         case identity
@@ -280,10 +278,6 @@ public final class HTTPTransport {
         case appData(id: String)
         case appsSignBundle
         case appsSigningIdentity
-        // Documents
-        case documentsList
-        case documentLoad(id: String)
-        case documentSave
         // Subagents
         case subagentMessage(id: String)
         // Conversation management
@@ -294,7 +288,6 @@ public final class HTTPTransport {
         case conversationUndo(id: String)
         case conversationRegenerate(id: String)
         case model
-        case modelImageGen
         case conversationSearch(query: String, limit: Int?, maxMessagesPerConversation: Int?)
         case messageContent(id: String, conversationId: String?)
         case deleteQueuedMessage(id: String, conversationId: String)
@@ -307,12 +300,9 @@ public final class HTTPTransport {
 
         // Settings
         case settingsVoice
-        case settingsAvatarGenerate
         case settingsClient
 
         // Diagnostics
-        case diagnosticsExport
-        case diagnosticsEnvVars
         case dictation
 
         // Tools
@@ -321,9 +311,7 @@ public final class HTTPTransport {
 
         // Integrations
         case integrationsOAuthStart
-        case integrationsSlackConfig
         case integrationsVercelConfig
-        case integrationsTelegramConfig
         case integrationsIngressConfig
 
         // Surface Undo
@@ -331,9 +319,6 @@ public final class HTTPTransport {
 
         // Suggestion
         case suggestion
-
-        // Publishing
-        case unpublishPage
 
         // Workspace Files (legacy HTTP)
         case workspaceFiles
@@ -407,11 +392,6 @@ public final class HTTPTransport {
             return ("/v1/confirm", nil)
         case .secret:
             return ("/v1/secret", nil)
-        case .guardianActionsPending(let conversationId):
-            let encoded = conversationId.addingPercentEncoding(withAllowedCharacters: Self.queryValueAllowed) ?? conversationId
-            return ("/v1/guardian-actions/pending", "conversationId=\(encoded)")
-        case .guardianActionsDecision:
-            return ("/v1/guardian-actions/decision", nil)
         case .conversationsSeen:
             return ("/v1/conversations/seen", nil)
         case .conversationsUnread:
@@ -439,14 +419,6 @@ public final class HTTPTransport {
             return ("/v1/apps/sign-bundle", nil)
         case .appsSigningIdentity:
             return ("/v1/apps/signing-identity", nil)
-        // Documents
-        case .documentsList:
-            return ("/v1/documents", nil)
-        case .documentLoad(let id):
-            let encoded = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
-            return ("/v1/documents/\(encoded)", nil)
-        case .documentSave:
-            return ("/v1/documents", nil)
         // Subagents
         case .subagentMessage(let id):
             let encoded = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
@@ -470,8 +442,6 @@ public final class HTTPTransport {
             return ("/v1/conversations/\(encoded)/regenerate", nil)
         case .model:
             return ("/v1/model", nil)
-        case .modelImageGen:
-            return ("/v1/model/image-gen", nil)
         case .conversationSearch(let query, let limit, let maxMessages):
             let qEncoded = query.addingPercentEncoding(withAllowedCharacters: Self.queryValueAllowed) ?? query
             var qs = "q=\(qEncoded)"
@@ -500,15 +470,9 @@ public final class HTTPTransport {
         // Settings
         case .settingsVoice:
             return ("/v1/settings/voice", nil)
-        case .settingsAvatarGenerate:
-            return ("/v1/settings/avatar/generate", nil)
         case .settingsClient:
             return ("/v1/settings/client", nil)
         // Diagnostics
-        case .diagnosticsExport:
-            return ("/v1/diagnostics/export", nil)
-        case .diagnosticsEnvVars:
-            return ("/v1/diagnostics/env-vars", nil)
         case .dictation:
             return ("/v1/dictation", nil)
         // Tools
@@ -519,12 +483,8 @@ public final class HTTPTransport {
         // Integrations
         case .integrationsOAuthStart:
             return ("/v1/integrations/oauth/start", nil)
-        case .integrationsSlackConfig:
-            return ("/v1/integrations/slack/config", nil)
         case .integrationsVercelConfig:
             return ("/v1/integrations/vercel/config", nil)
-        case .integrationsTelegramConfig:
-            return ("/v1/integrations/telegram/config", nil)
         case .integrationsIngressConfig:
             return ("/v1/integrations/ingress/config", nil)
         // Surface Undo
@@ -534,9 +494,6 @@ public final class HTTPTransport {
         // Suggestion
         case .suggestion:
             return ("/v1/suggestion", nil)
-        // Publishing
-        case .unpublishPage:
-            return ("/v1/unpublish", nil)
         // Workspace Files (legacy HTTP)
         case .workspaceFiles:
             return ("/v1/workspace-files", nil)
@@ -594,11 +551,6 @@ public final class HTTPTransport {
             return ("\(prefix)/confirm/", nil)
         case .secret:
             return ("\(prefix)/secret/", nil)
-        case .guardianActionsPending(let conversationId):
-            let encoded = conversationId.addingPercentEncoding(withAllowedCharacters: Self.queryValueAllowed) ?? conversationId
-            return ("\(prefix)/guardian-actions/pending/", "conversationId=\(encoded)")
-        case .guardianActionsDecision:
-            return ("\(prefix)/guardian-actions/decision/", nil)
         case .conversationsSeen:
             return ("\(prefix)/conversations/seen/", nil)
         case .conversationsUnread:
@@ -626,14 +578,6 @@ public final class HTTPTransport {
             return ("\(prefix)/apps/sign-bundle/", nil)
         case .appsSigningIdentity:
             return ("\(prefix)/apps/signing-identity/", nil)
-        // Documents
-        case .documentsList:
-            return ("\(prefix)/documents/", nil)
-        case .documentLoad(let id):
-            let encoded = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
-            return ("\(prefix)/documents/\(encoded)/", nil)
-        case .documentSave:
-            return ("\(prefix)/documents/", nil)
         // Subagents
         case .subagentMessage(let id):
             let encoded = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
@@ -657,8 +601,6 @@ public final class HTTPTransport {
             return ("\(prefix)/conversations/\(encoded)/regenerate/", nil)
         case .model:
             return ("\(prefix)/model/", nil)
-        case .modelImageGen:
-            return ("\(prefix)/model/image-gen/", nil)
         case .conversationSearch(let query, let limit, let maxMessages):
             let qEncoded = query.addingPercentEncoding(withAllowedCharacters: Self.queryValueAllowed) ?? query
             var qs = "q=\(qEncoded)"
@@ -687,15 +629,9 @@ public final class HTTPTransport {
         // Settings
         case .settingsVoice:
             return ("\(prefix)/settings/voice/", nil)
-        case .settingsAvatarGenerate:
-            return ("\(prefix)/settings/avatar/generate/", nil)
         case .settingsClient:
             return ("\(prefix)/settings/client/", nil)
         // Diagnostics
-        case .diagnosticsExport:
-            return ("\(prefix)/diagnostics/export/", nil)
-        case .diagnosticsEnvVars:
-            return ("\(prefix)/diagnostics/env-vars/", nil)
         case .dictation:
             return ("\(prefix)/dictation/", nil)
         // Tools
@@ -706,12 +642,8 @@ public final class HTTPTransport {
         // Integrations
         case .integrationsOAuthStart:
             return ("\(prefix)/integrations/oauth/start/", nil)
-        case .integrationsSlackConfig:
-            return ("\(prefix)/integrations/slack/config/", nil)
         case .integrationsVercelConfig:
             return ("\(prefix)/integrations/vercel/config/", nil)
-        case .integrationsTelegramConfig:
-            return ("\(prefix)/integrations/telegram/config/", nil)
         case .integrationsIngressConfig:
             return ("\(prefix)/integrations/ingress/config/", nil)
         // Surface Undo
@@ -721,9 +653,6 @@ public final class HTTPTransport {
         // Suggestion
         case .suggestion:
             return ("\(prefix)/suggestion/", nil)
-        // Publishing
-        case .unpublishPage:
-            return ("\(prefix)/unpublish/", nil)
         // Workspace Files (legacy HTTP)
         case .workspaceFiles:
             return ("\(prefix)/workspace-files/", nil)
@@ -1453,125 +1382,6 @@ public final class HTTPTransport {
         }
     }
 
-    func fetchGuardianActionsPending(conversationId: String, isRetry: Bool = false) async {
-        guard let url = buildURL(for: .guardianActionsPending(conversationId: conversationId)) else { return }
-
-        var request = URLRequest(url: url)
-        applyAuth(&request)
-
-        do {
-            let (data, response) = try await URLSession.shared.data(for: request)
-
-            if let http = response as? HTTPURLResponse {
-                if http.statusCode == 401 && !isRetry {
-                    let refreshResult = await handleAuthenticationFailureAsync(responseData: data)
-                    switch refreshResult {
-                    case .success:
-                        await fetchGuardianActionsPending(conversationId: conversationId, isRetry: true)
-                    case .terminalFailure:
-                        break
-                    case .transientFailure:
-                        log.error("Fetch guardian actions pending failed: authentication error after 401 refresh")
-                    }
-                    return
-                }
-                guard http.statusCode == 200 else {
-                    log.error("Fetch guardian actions pending failed (\(http.statusCode))")
-                    return
-                }
-            }
-
-            do {
-                let decoded = try JSONDecoder().decode(GuardianActionsPendingHTTPResponse.self, from: data)
-                onMessage?(.guardianActionsPendingResponse(GuardianActionsPendingResponseMessage(conversationId: decoded.conversationId, prompts: decoded.prompts)))
-            } catch {
-                log.error("Failed to decode guardian actions pending response: \(error)")
-            }
-        } catch {
-            log.error("Fetch guardian actions pending error: \(error.localizedDescription)")
-        }
-    }
-
-    func submitGuardianActionDecision(requestId: String, action: String, conversationId: String?, isRetry: Bool = false) async {
-        guard let url = buildURL(for: .guardianActionsDecision) else { return }
-
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        applyAuth(&request)
-
-        var body: [String: Any] = [
-            "requestId": requestId,
-            "action": action
-        ]
-        if let conversationId {
-            body["conversationId"] = conversationId
-        }
-
-        do {
-            request.httpBody = try JSONSerialization.data(withJSONObject: body)
-            let (data, response) = try await URLSession.shared.data(for: request)
-
-            if let http = response as? HTTPURLResponse {
-                if http.statusCode == 401 && !isRetry {
-                    let refreshResult = await handleAuthenticationFailureAsync(responseData: data)
-                    switch refreshResult {
-                    case .success:
-                        await submitGuardianActionDecision(requestId: requestId, action: action, conversationId: conversationId, isRetry: true)
-                        return
-                    case .terminalFailure:
-                        break
-                    case .transientFailure:
-                        break
-                    }
-                    onMessage?(.guardianActionDecisionResponse(GuardianActionDecisionResponseMessage(
-                        applied: false,
-                        reason: "authentication_failed",
-                        resolverFailureReason: nil,
-                        requestId: requestId,
-                        userText: nil
-                    )))
-                    return
-                }
-                guard (200..<300).contains(http.statusCode) else {
-                    log.error("Guardian action decision failed (\(http.statusCode))")
-                    // Emit a synthetic failure response so the UI clears isSubmitting state
-                    onMessage?(.guardianActionDecisionResponse(GuardianActionDecisionResponseMessage(
-                        applied: false,
-                        reason: "HTTP \(http.statusCode)",
-                        resolverFailureReason: nil,
-                        requestId: requestId,
-                        userText: nil
-                    )))
-                    return
-                }
-            }
-
-            do {
-                let decoded = try JSONDecoder().decode(GuardianActionDecisionResponseMessage.self, from: data)
-                onMessage?(.guardianActionDecisionResponse(decoded))
-            } catch {
-                log.error("Failed to decode guardian action decision response: \(error)")
-            }
-        } catch {
-            log.error("Guardian action decision error: \(error.localizedDescription)")
-            // Emit a synthetic failure response so the UI clears isSubmitting state
-            onMessage?(.guardianActionDecisionResponse(GuardianActionDecisionResponseMessage(
-                applied: false,
-                reason: error.localizedDescription,
-                resolverFailureReason: nil,
-                requestId: requestId,
-                userText: nil
-            )))
-        }
-    }
-
-    /// Response wrapper for the HTTP guardian actions pending endpoint.
-    private struct GuardianActionsPendingHTTPResponse: Decodable {
-        let conversationId: String?
-        let prompts: [GuardianDecisionPromptWire]
-    }
-
     /// JSONSerialization cannot encode AnyCodable wrappers directly, so unwrap
     /// them before inserting arbitrary payloads into request bodies.
     func jsonCompatibleDictionary(_ values: [String: AnyCodable]) -> [String: Any] {
@@ -2084,41 +1894,6 @@ public final class HTTPTransport {
                 retryable: true,
                 debugDetails: error.localizedDescription
             )))
-        }
-    }
-
-    func setImageGenModel(modelId: String, isRetry: Bool = false) async {
-        guard let url = buildURL(for: .modelImageGen) else { return }
-
-        var request = URLRequest(url: url)
-        request.httpMethod = "PUT"
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        applyAuth(&request)
-
-        let body: [String: Any] = ["modelId": modelId]
-
-        do {
-            request.httpBody = try JSONSerialization.data(withJSONObject: body)
-            let (data, response) = try await URLSession.shared.data(for: request)
-
-            guard let http = response as? HTTPURLResponse else { return }
-
-            if http.statusCode == 200 {
-                // model_info will arrive via SSE or the response itself
-                let patched = injectType("model_info", into: data)
-                if let decoded = try? decoder.decode(ModelInfoMessage.self, from: patched) {
-                    onMessage?(.modelInfo(decoded))
-                }
-            } else if http.statusCode == 401 && !isRetry {
-                let refreshResult = await handleAuthenticationFailureAsync(responseData: data)
-                if case .success = refreshResult {
-                    await setImageGenModel(modelId: modelId, isRetry: true)
-                }
-            } else {
-                log.error("Image gen model set failed (HTTP \(http.statusCode))")
-            }
-        } catch {
-            log.error("Image gen model set error: \(error.localizedDescription)")
         }
     }
 
