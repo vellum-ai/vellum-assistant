@@ -87,11 +87,23 @@ final class SecretPromptManager {
         // chat content (e.g. setup instructions the user needs to reference
         // while filling in credentials). Vertically centered relative to the
         // app window when available, clamped within the visible screen area.
+        // If another floating panel (e.g. a SurfaceManager panel) already
+        // occupies the right edge, shift left to avoid overlap.
         let margin: CGFloat = 20
         let appWindow = NSApp.windows.first { $0 is TitleBarZoomableWindow && $0.isVisible }
         let screen = appWindow?.screen ?? NSScreen.main
         if let screenFrame = screen?.visibleFrame {
-            let x = screenFrame.maxX - panelWidth - margin
+            // Detect other visible floating panels near the right edge so we
+            // can shift left and avoid covering them.
+            let rightEdgeBound = screenFrame.maxX - margin
+            let occupiedWidth: CGFloat = NSApp.windows
+                .compactMap { $0 as? NSPanel }
+                .filter { $0.isVisible && $0 !== panel && $0.level == .floating && $0.frame.maxX >= rightEdgeBound - 10 }
+                .map(\.frame.width)
+                .max() ?? 0
+            let rightOffset = occupiedWidth > 0 ? occupiedWidth + margin : 0
+
+            let x = screenFrame.maxX - panelWidth - margin - rightOffset
             let y: CGFloat
             if let anchor = appWindow {
                 y = max(
