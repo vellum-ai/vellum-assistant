@@ -14,11 +14,7 @@ public enum VThemeToggleStyle {
 /// Three-way theme toggle (System / Light / Dark) using pill-style segments.
 ///
 /// Reads and writes the `themePreference` key in `UserDefaults` and applies the
-/// selected appearance app-wide on macOS. Drop this into any view that needs a
-/// theme switcher — the gallery sidebar, control center drawer, settings, etc.
-///
-/// Use `style: .iconPill` (default) for a compact icon-only variant, or
-/// `style: .labelPill` for text labels in settings forms.
+/// selected appearance app-wide on macOS.
 public struct VThemeToggle: View {
     @AppStorage("themePreference") private var themePreference: String = "system"
 
@@ -45,13 +41,8 @@ public struct VThemeToggle: View {
         }
     }
 
-    // Pill layout math: outer padding(2) on each side + HStack spacing(2) between
-    // 3 segments → total = 4 + 3 * segmentWidth + 2 * 2
-    //
-    // iconPill  — square segments: 32 × 32  → 4 + 96 + 4 = 104
-    // labelPill — equal rectangles: 80 wide → 4 + 240 + 4 = 248
-
-    /// Width of the entire pill control for each style.
+    /// Fixed width of the pill control, sized so segments divide equally
+    /// (icon segments are square, label segments are equal-width rectangles).
     private var pillWidth: CGFloat {
         switch style {
         case .iconPill:  return 104

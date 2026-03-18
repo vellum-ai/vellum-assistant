@@ -1,8 +1,7 @@
 import SwiftUI
 import VellumAssistantShared
 
-/// Compact three-way theme toggle (System / Light / Dark) for the control center drawer.
-/// Thin wrapper around the shared `VThemeToggle` component.
+/// Three-way theme toggle for the control center drawer.
 struct DrawerThemeToggle: View {
     var body: some View {
         VThemeToggle()
