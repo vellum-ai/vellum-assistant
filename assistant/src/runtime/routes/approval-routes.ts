@@ -8,7 +8,6 @@
  * header. Guardian decisions additionally verify that the actor is the
  * bound guardian.
  */
-import { resolveCanonicalGuardianRequest } from "../../memory/canonical-guardian-store.js";
 import { getConversationByKey } from "../../memory/conversation-key-store.js";
 import { addRule } from "../../permissions/trust-store.js";
 import type { UserDecision } from "../../permissions/types.js";
@@ -140,22 +139,6 @@ export async function handleConfirm(
       source: "button",
     },
   );
-
-  // Sync the canonical guardian request status so stale "pending" DB
-  // records don't get matched by later guardian reply routing. Without
-  // this, the desktop /v1/confirm path consumes the in-memory pending
-  // interaction but leaves the canonical request "pending" in the DB,
-  // causing subsequent user messages to be falsely consumed as approvals.
-  const targetStatus =
-    decision === "deny" || decision === "always_deny" ? "denied" : "approved";
-  try {
-    resolveCanonicalGuardianRequest(requestId, "pending", {
-      status: targetStatus,
-    });
-  } catch {
-    // Best-effort — canonical request tracking should not break the
-    // primary approval flow.
-  }
 
   return Response.json({ accepted: true });
 }

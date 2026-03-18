@@ -608,6 +608,18 @@ export class Conversation {
       "Resuming after approval",
     );
 
+    // Sync the canonical guardian request status so stale "pending" DB
+    // records don't get matched by later guardian reply routing. Best-effort:
+    // CAS may harmlessly fail if the canonical decision primitive already
+    // resolved the request (e.g. channel approval path).
+    try {
+      resolveCanonicalGuardianRequest(requestId, "pending", {
+        status: resolvedState,
+      });
+    } catch {
+      // Canonical request tracking should not break the primary approval flow.
+    }
+
     // Cascade to other pending confirmations that match this decision
     this.cascadePendingApprovals(requestId, decision, selectedPattern);
   }
@@ -650,10 +662,11 @@ export class Conversation {
       // Consume from pending-interactions tracker
       pendingInteractions.resolve(candidateId);
 
-      // Resolve via handleConfirmationResponse which emits events.
-      // Use simple "allow"/"deny" so the permission-checker won't save
-      // duplicate rules or re-activate temporary modes. Recursion
-      // terminates because allow/deny exit cascadePendingApprovals early.
+      // Resolve via handleConfirmationResponse which emits events and
+      // syncs canonical status. Use simple "allow"/"deny" so the
+      // permission-checker won't save duplicate rules or re-activate
+      // temporary modes. Recursion terminates because allow/deny exit
+      // cascadePendingApprovals early.
       this.handleConfirmationResponse(
         candidateId,
         cascadeResult.allow ? "allow" : "deny",
@@ -665,17 +678,6 @@ export class Conversation {
           causedByRequestId: primaryRequestId,
         },
       );
-
-      // Sync the canonical guardian request status for the cascaded request.
-      // Best-effort: canonical request tracking should not break the cascade flow.
-      try {
-        const targetStatus = cascadeResult.allow ? "approved" : "denied";
-        resolveCanonicalGuardianRequest(candidateId, "pending", {
-          status: targetStatus,
-        });
-      } catch {
-        // Ignore — canonical request tracking is best-effort
-      }
     }
   }
 
