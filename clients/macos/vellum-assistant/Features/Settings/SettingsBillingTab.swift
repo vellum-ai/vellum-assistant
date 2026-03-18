@@ -211,7 +211,10 @@ struct SettingsBillingTab: View {
     // MARK: - Actions
 
     private func loadSummary() async {
-        isLoading = true
+        // Only show skeleton on initial load — don't flash on background refreshes
+        if summary == nil {
+            isLoading = true
+        }
         error = nil
         do {
             var result = try await BillingService.shared.getBillingSummary()
@@ -220,7 +223,10 @@ struct SettingsBillingTab: View {
             }
             summary = result
         } catch {
-            self.error = "Unable to load billing information. Please try again."
+            // Only show error if we have no cached data to display
+            if summary == nil {
+                self.error = "Unable to load billing information. Please try again."
+            }
         }
         isLoading = false
     }
