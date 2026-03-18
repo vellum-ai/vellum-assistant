@@ -38,7 +38,17 @@ If no Google account → guide them to create one or defer.
 
 Open: `https://console.cloud.google.com`
 
-> I've opened the Google Cloud Console. If it's asking you to sign in, go ahead and do that first.
+If `browser_navigate` reports an auth challenge (Google sign-in page), handle it automatically using stored credentials rather than asking the user to sign in manually:
+
+1. Use `browser_snapshot` to find the email input field
+2. Use `browser_fill_credential` with `service: "google"`, `field: "email"` to fill the email address, then click **Next**
+3. Wait for the password page to load, then use `browser_snapshot` again
+4. Use `browser_fill_credential` with `service: "google"`, `field: "password"` to fill the password, then click **Next**
+5. If a 2FA challenge appears, use `ui_show` with a form to ask the user for the verification code, then fill and submit it
+
+If `browser_fill_credential` returns an error (no stored credential), fall back to asking the user:
+
+> I've opened the Google Cloud Console, but it needs you to sign in. Go ahead and sign in to your Google account - let me know once you're in.
 
 ---
 
