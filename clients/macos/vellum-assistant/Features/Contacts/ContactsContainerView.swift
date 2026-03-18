@@ -43,6 +43,7 @@ struct ContactsContainerView: View {
 
 
             // Right pane: detail, loading, or placeholder
+            Group {
             if viewModel.isLoading && viewModel.contacts.isEmpty {
                 // Skeleton loading state for detail pane
                 ScrollView {
@@ -139,6 +140,10 @@ struct ContactsContainerView: View {
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
             }
+            }
+            .background(VColor.surfaceBase)
+            .clipShape(RoundedRectangle(cornerRadius: VRadius.lg))
+            .frame(maxHeight: .infinity)
         }
         .frame(maxWidth: 900, maxHeight: .infinity, alignment: .leading)
         .frame(maxWidth: .infinity, alignment: .leading)
