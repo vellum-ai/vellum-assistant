@@ -172,7 +172,7 @@ If guardian was skipped:
 ✅ App created
 ✅ Tokens configured
 ✅ Connection active
-⬜ Connection tested — You can complete this anytime by saying 'verify me on slack'
+⬜ Connection tested — You can complete this anytime by saying 'help me verify as guardian on slack'
 
 Bot connected: {username} in {workspace}
 Socket Mode: active (gateway auto-connects when credentials are stored)
