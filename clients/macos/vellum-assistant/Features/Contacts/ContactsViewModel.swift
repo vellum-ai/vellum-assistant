@@ -101,6 +101,30 @@ final class ContactsViewModel: ObservableObject {
         deduplicatedContacts.first { $0.role == "guardian" }
     }
 
+    /// Non-guardian contacts sorted alphabetically.
+    var regularContacts: [ContactPayload] {
+        deduplicatedContacts
+            .filter { $0.role != "guardian" }
+            .sorted { a, b in
+                a.displayName.localizedCaseInsensitiveCompare(b.displayName) == .orderedAscending
+            }
+    }
+
+    /// Regular contacts filtered by the current search query.
+    var filteredRegularContacts: [ContactPayload] {
+        let base = regularContacts
+        guard !searchQuery.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return base
+        }
+        let query = searchQuery.lowercased()
+        return base.filter { contact in
+            if contact.displayName.lowercased().contains(query) { return true }
+            return contact.channels.contains { channel in
+                channel.address.lowercased().contains(query)
+            }
+        }
+    }
+
     // MARK: - Actions
 
     /// Request the list of contacts from the daemon.

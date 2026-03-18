@@ -15,6 +15,7 @@ enum ContactSelection: Hashable {
 struct ContactsContainerView: View {
     var daemonClient: DaemonClient?
     var store: SettingsStore?
+    var conversationManager: ConversationManager?
     var isEmailEnabled: Bool = false
     var showToast: ((String, ToastInfo.Style) -> Void)?
 
@@ -23,9 +24,10 @@ struct ContactsContainerView: View {
 
     private let contactClient: ContactClientProtocol = ContactClient()
 
-    init(daemonClient: DaemonClient?, store: SettingsStore? = nil, isEmailEnabled: Bool = false, showToast: ((String, ToastInfo.Style) -> Void)? = nil) {
+    init(daemonClient: DaemonClient?, store: SettingsStore? = nil, conversationManager: ConversationManager? = nil, isEmailEnabled: Bool = false, showToast: ((String, ToastInfo.Style) -> Void)? = nil) {
         self.daemonClient = daemonClient
         self.store = store
+        self.conversationManager = conversationManager
         self.isEmailEnabled = isEmailEnabled
         self.showToast = showToast
         _viewModel = StateObject(wrappedValue: ContactsViewModel(daemonClient: daemonClient))
@@ -295,7 +297,7 @@ struct ContactsContainerView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: VSpacing.lg) {
                 if let store {
-                    AssistantChannelsDetailView(store: store, daemonClient: daemonClient, assistantName: cachedAssistantName, isEmailEnabled: isEmailEnabled, showCardBorders: false)
+                    AssistantChannelsDetailView(store: store, daemonClient: daemonClient, conversationManager: conversationManager, assistantName: cachedAssistantName, isEmailEnabled: isEmailEnabled, showCardBorders: false)
                         .padding(VSpacing.lg)
                         .vCard(radius: VRadius.lg, background: VColor.surfaceOverlay)
                 }
