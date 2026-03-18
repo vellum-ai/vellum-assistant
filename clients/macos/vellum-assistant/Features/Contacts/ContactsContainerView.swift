@@ -234,7 +234,8 @@ struct ContactsContainerView: View {
                     }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(VSpacing.lg)
+                .padding(.horizontal, VSpacing.lg)
+                .padding(.bottom, VSpacing.lg)
 
                 GuardianChannelsDetailView(
                     contact: contact,
@@ -305,7 +306,8 @@ struct ContactsContainerView: View {
             VStack(alignment: .leading, spacing: VSpacing.lg) {
                 if let store {
                     AssistantChannelsDetailView(store: store, daemonClient: daemonClient, conversationManager: conversationManager, assistantName: cachedAssistantName, isEmailEnabled: isEmailEnabled, showCardBorders: false)
-                        .padding(VSpacing.lg)
+                        .padding(.horizontal, VSpacing.lg)
+                        .padding(.bottom, VSpacing.lg)
                 }
             }
         }

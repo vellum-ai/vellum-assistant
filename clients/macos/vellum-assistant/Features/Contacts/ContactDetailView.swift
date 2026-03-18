@@ -32,7 +32,8 @@ struct ContactDetailView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: VSpacing.lg) {
                 headerSection
-                    .padding(VSpacing.lg)
+                    .padding(.horizontal, VSpacing.lg)
+                    .padding(.bottom, VSpacing.lg)
 
                 GuardianChannelsDetailView(
                     contact: displayContact,
