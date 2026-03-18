@@ -177,13 +177,13 @@ extension AppDelegate {
                 await authManager.logout()
             }
 
-            // Clear managed proxy credentials from the running daemon (local assistants only).
+            // Clear platform identity credentials from the running daemon (local assistants only).
             // Skip when the daemon was never set up (e.g. logout during onboarding) —
             // there are no credentials to clear and no daemon to stop.
             if !isCurrentAssistantManaged && !isCurrentAssistantRemote && hasSetupDaemon {
                 let cleared = await LocalAssistantBootstrapService.clearDaemonCredentials()
                 if !cleared {
-                    log.warning("Credential cleanup incomplete — stopping daemon to prevent stale managed proxy state")
+                    log.warning("Credential cleanup incomplete — stopping daemon to prevent stale platform identity state")
                     daemonClient.disconnect()
                     assistantCli.stop(name: connectedAssistantId)
                 }
@@ -205,7 +205,7 @@ extension AppDelegate {
                 _ = credStorage.delete(account: credentialAccount)
             }
 
-            // Stop all non-current local daemons to clear in-memory managed proxy
+            // Stop all non-current local daemons to clear in-memory platform identity
             // credentials. Assistant switches intentionally leave old daemons running
             // for fast switching, but on full logout there's no reason to keep them
             // alive with potentially stale state.
