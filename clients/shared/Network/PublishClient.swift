@@ -7,6 +7,7 @@ private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.
 @MainActor
 public protocol PublishClientProtocol {
     func publishPage(html: String, title: String?, appId: String?) async throws -> PublishPageResponseMessage?
+    func unpublishPage(deploymentId: String) async -> Bool
     func openLink(url: String, metadata: [String: AnyCodable]?) async throws -> Bool
 }
 
@@ -29,6 +30,23 @@ public struct PublishClient: PublishClientProtocol {
         }
         let patched = injectType("publish_page_response", into: response.data)
         return try JSONDecoder().decode(PublishPageResponseMessage.self, from: patched)
+    }
+
+    public func unpublishPage(deploymentId: String) async -> Bool {
+        do {
+            let body: [String: Any] = ["type": "unpublish_page", "deploymentId": deploymentId]
+            let response = try await GatewayHTTPClient.post(
+                path: "assistants/{assistantId}/unpublish", json: body, timeout: 10
+            )
+            guard response.isSuccess else {
+                log.error("unpublishPage failed (HTTP \(response.statusCode))")
+                return false
+            }
+            return true
+        } catch {
+            log.error("unpublishPage error: \(error.localizedDescription)")
+            return false
+        }
     }
 
     public func openLink(url: String, metadata: [String: AnyCodable]? = nil) async throws -> Bool {

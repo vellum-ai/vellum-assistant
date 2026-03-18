@@ -12,6 +12,8 @@
  * No messages are persisted. `conversation.processing` is never set or checked.
  */
 
+import { existsSync, readFileSync } from "node:fs";
+
 import { buildToolDefinitions } from "../../daemon/conversation-tool-setup.js";
 import { getConversationByKey } from "../../memory/conversation-key-store.js";
 import { buildSystemPrompt } from "../../prompts/system-prompt.js";
@@ -21,12 +23,44 @@ import {
 } from "../../providers/provider-send-message.js";
 import { checkIngressForSecrets } from "../../security/secret-ingress.js";
 import { getLogger } from "../../util/logger.js";
+import { getWorkspacePromptPath } from "../../util/platform.js";
 import type { AuthContext } from "../auth/types.js";
 import { httpError } from "../http-errors.js";
 import type { RouteDefinition } from "../http-router.js";
 import type { SendMessageDeps } from "../http-types.js";
+import { getCachedIntro, setCachedIntro } from "./identity-intro-cache.js";
 
 const log = getLogger("btw-routes");
+
+/** Conversation key used by the client for identity intro generation. */
+const IDENTITY_INTRO_KEY = "identity-intro";
+
+/**
+ * Parse the `## Identity Intro` section from SOUL.md.
+ * Returns the first non-empty line under that heading, or null.
+ */
+function readSoulIdentityIntro(): string | null {
+  try {
+    const soulPath = getWorkspacePromptPath("SOUL.md");
+    if (!existsSync(soulPath)) return null;
+    const content = readFileSync(soulPath, "utf-8");
+
+    let inSection = false;
+    for (const line of content.split("\n")) {
+      const trimmed = line.trim();
+      if (/^#+\s/.test(trimmed)) {
+        inSection = trimmed.toLowerCase().includes("identity intro");
+        continue;
+      }
+      if (inSection && trimmed.length > 0) {
+        return trimmed;
+      }
+    }
+  } catch {
+    // Fall through — no SOUL.md intro available
+  }
+  return null;
+}
 
 // ---------------------------------------------------------------------------
 // Handler
@@ -77,6 +111,43 @@ async function handleBtw(
     );
   }
 
+  // ----- Identity intro fast-path -----
+  // When the client requests the identity intro, check SOUL.md first (persisted
+  // during onboarding), then the LLM-generated cache. Only fall through to a
+  // live LLM call when neither source has a value.
+  if (conversationKey === IDENTITY_INTRO_KEY) {
+    const soulIntro = readSoulIdentityIntro();
+    const fastText = soulIntro ?? getCachedIntro()?.text;
+    if (fastText) {
+      log.debug(
+        soulIntro
+          ? "Returning SOUL.md identity intro"
+          : "Returning cached identity intro",
+      );
+      const encoder = new TextEncoder();
+      const stream = new ReadableStream({
+        start(controller) {
+          controller.enqueue(
+            encoder.encode(
+              `event: btw_text_delta\ndata: ${JSON.stringify({ text: fastText })}\n\n`,
+            ),
+          );
+          controller.enqueue(
+            encoder.encode(`event: btw_complete\ndata: {}\n\n`),
+          );
+          controller.close();
+        },
+      });
+      return new Response(stream, {
+        headers: {
+          "Content-Type": "text/event-stream",
+          "Cache-Control": "no-cache",
+          Connection: "keep-alive",
+        },
+      });
+    }
+  }
+
   // Look up an existing conversation — never create one.  BTW is ephemeral
   // (the file header promises "No messages are persisted"), so we must not
   // call getOrCreateConversation which would insert a DB row.  When no
@@ -116,7 +187,9 @@ async function handleBtw(
             ? conversation.systemPrompt
             : buildSystemPrompt({ excludeBootstrap: true });
 
+          const isIntroRequest = conversationKey === IDENTITY_INTRO_KEY;
           let textDeltaCount = 0;
+          let collectedText = "";
           await conversation.provider.sendMessage(
             messages,
             tools,
@@ -130,6 +203,7 @@ async function handleBtw(
               onEvent: (event) => {
                 if (event.type === "text_delta") {
                   textDeltaCount++;
+                  if (isIntroRequest) collectedText += event.text;
                   controller.enqueue(
                     encoder.encode(
                       `event: btw_text_delta\ndata: ${JSON.stringify({ text: event.text })}\n\n`,
@@ -146,6 +220,16 @@ async function handleBtw(
               { conversationKey, messageCount: messages.length },
               "btw side-chain completed with no text deltas",
             );
+          }
+
+          // Cache the generated identity intro for subsequent requests.
+          if (isIntroRequest && collectedText.trim()) {
+            try {
+              setCachedIntro(collectedText.trim());
+              log.debug("Cached identity intro text");
+            } catch {
+              // Non-fatal — next request will regenerate.
+            }
           }
 
           controller.enqueue(

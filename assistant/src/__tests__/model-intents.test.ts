@@ -65,7 +65,7 @@ describe("model intents", () => {
       "claude-opus-4-6",
     );
     expect(resolveModelIntent("openai", "latency-optimized")).toBe(
-      "gpt-4o-mini",
+      "gpt-5.4-nano",
     );
   });
 

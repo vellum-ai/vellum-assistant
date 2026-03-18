@@ -91,9 +91,7 @@ export function ensureVellumGuardianBinding(
  *
  * Returns true if healing occurred, false otherwise.
  */
-export function healGuardianBindingDrift(
-  incomingPrincipalId: string,
-): boolean {
+export function healGuardianBindingDrift(incomingPrincipalId: string): boolean {
   if (!incomingPrincipalId.startsWith("vellum-principal-")) {
     return false;
   }

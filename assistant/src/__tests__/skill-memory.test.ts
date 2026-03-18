@@ -1,14 +1,7 @@
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import {
-  afterAll,
-  beforeEach,
-  describe,
-  expect,
-  mock,
-  test,
-} from "bun:test";
+import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 
 import { eq } from "drizzle-orm";
 
@@ -46,8 +39,9 @@ mock.module("../memory/qdrant-client.js", () => ({
 }));
 
 // Controllable mock for resolveCatalog used by seedCatalogSkillMemories
-let mockResolveCatalog: () => Promise<import("../skills/catalog-install.js").CatalogSkill[]> =
-  async () => [];
+let mockResolveCatalog: () => Promise<
+  import("../skills/catalog-install.js").CatalogSkill[]
+> = async () => [];
 
 mock.module("../skills/catalog-install.js", () => ({
   resolveCatalog: (..._args: unknown[]) => mockResolveCatalog(),
@@ -453,7 +447,11 @@ describe("seedCatalogSkillMemories", () => {
 
   test("skips skills whose feature flag is disabled", async () => {
     const skills: CatalogSkill[] = [
-      makeSkill({ id: "unflagged-skill", name: "Unflagged", description: "No flag" }),
+      makeSkill({
+        id: "unflagged-skill",
+        name: "Unflagged",
+        description: "No flag",
+      }),
       makeSkill({
         id: "flagged-skill",
         name: "Flagged",
@@ -485,7 +483,11 @@ describe("seedCatalogSkillMemories", () => {
   test("prunes pre-existing capability for a skill whose flag becomes disabled", async () => {
     // First seed with both skills, all flags enabled
     const skills: CatalogSkill[] = [
-      makeSkill({ id: "unflagged-skill", name: "Unflagged", description: "No flag" }),
+      makeSkill({
+        id: "unflagged-skill",
+        name: "Unflagged",
+        description: "No flag",
+      }),
       makeSkill({
         id: "flagged-skill",
         name: "Flagged",

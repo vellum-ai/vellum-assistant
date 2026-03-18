@@ -17,8 +17,7 @@ const log = getLogger("skill-memory");
  * Truncated to 500 chars max (matching the limit used by memory item extraction).
  */
 export function buildCapabilityStatement(entry: CatalogSkill): string {
-  const displayName =
-    entry.metadata?.vellum?.["display-name"] ?? entry.name;
+  const displayName = entry.metadata?.vellum?.["display-name"] ?? entry.name;
   const activationHints = entry.metadata?.vellum?.["activation-hints"];
 
   let statement = `The "${displayName}" skill (${entry.id}) is available. ${entry.description}.`;
@@ -71,7 +70,10 @@ export function upsertSkillCapabilityMemory(
       .get();
 
     if (existing) {
-      if (existing.status === "active" && existing.fingerprint === fingerprint) {
+      if (
+        existing.status === "active" &&
+        existing.fingerprint === fingerprint
+      ) {
         // Same content — just touch lastSeenAt
         db.update(memoryItems)
           .set({ lastSeenAt: now })

@@ -175,7 +175,12 @@ struct IdentityPanel: View {
                 }
 
                 if !isBootstrapActive && introText == nil {
-                    generateIntro()
+                    // Prefer SOUL.md intro; fall back to daemon generation
+                    if let soulIntro = IdentityInfo.loadIdentityIntro() {
+                        introText = soulIntro
+                    } else {
+                        generateIntro()
+                    }
                 }
             }
             .onDisappear { introTask?.cancel() }

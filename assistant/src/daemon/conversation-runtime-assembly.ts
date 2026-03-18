@@ -655,7 +655,6 @@ export function injectTurnContext(
   };
 }
 
-
 /**
  * Build the `<inbound_actor_context>` text block used for model grounding.
  *
@@ -737,7 +736,10 @@ export function buildInboundActorContextBlock(
   }
   // Contact metadata - only included when the sender has a contact record
   // with non-default values.
-  if (ctx.contactNotes && sanitizeInlineContextValue(ctx.contactNotes) !== ctx.trustClass) {
+  if (
+    ctx.contactNotes &&
+    sanitizeInlineContextValue(ctx.contactNotes) !== ctx.trustClass
+  ) {
     lines.push(
       `contact_notes: ${sanitizeInlineContextValue(ctx.contactNotes)}`,
     );
@@ -931,7 +933,6 @@ export interface InterfaceTurnContextParams {
   turnContext: TurnInterfaceContext;
   conversationOriginInterface: InterfaceId | null;
 }
-
 
 /** Strip interface turn context blocks (both legacy separate and unified). */
 export function stripInterfaceTurnContext(messages: Message[]): Message[] {

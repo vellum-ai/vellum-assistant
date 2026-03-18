@@ -10,6 +10,7 @@ struct FileTreeRowLabel: View {
     let depth: Int
     let fileIcon: VIcon
     var minRowWidth: CGFloat = 0
+    var isDimmed: Bool = false
 
     var body: some View {
         HStack(spacing: VSpacing.xs) {
@@ -29,12 +30,13 @@ struct FileTreeRowLabel: View {
             // Name label
             Text(name)
                 .font(VFont.body)
-                .foregroundColor(VColor.contentDefault)
+                .foregroundColor(isDimmed ? VColor.contentTertiary : VColor.contentDefault)
                 .fixedSize(horizontal: true, vertical: false)
         }
         .padding(.leading, CGFloat(depth) * VSpacing.lg + VSpacing.sm)
         .padding(.trailing, VSpacing.sm)
         .padding(.vertical, VSpacing.xs)
         .frame(minWidth: minRowWidth, alignment: .leading)
+        .opacity(isDimmed ? 0.6 : 1.0)
     }
 }

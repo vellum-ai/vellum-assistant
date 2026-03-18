@@ -33,6 +33,7 @@ public final class ContactsStore: ObservableObject {
     private let contactClient: ContactClientProtocol
     private var contactsChangedTask: Task<Void, Never>?
     private var subscriptionTask: Task<Void, Never>?
+    private var reconnectObserver: NSObjectProtocol?
 
     // MARK: - Init
 
@@ -40,11 +41,23 @@ public final class ContactsStore: ObservableObject {
         self.daemonClient = daemonClient
         self.contactClient = contactClient
         subscribeToContactsChanged()
+        reconnectObserver = NotificationCenter.default.addObserver(
+            forName: .daemonDidReconnect,
+            object: nil,
+            queue: nil
+        ) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                self?.subscribeToContactsChanged()
+            }
+        }
     }
 
     deinit {
         subscriptionTask?.cancel()
         contactsChangedTask?.cancel()
+        if let reconnectObserver {
+            NotificationCenter.default.removeObserver(reconnectObserver)
+        }
     }
 
     // MARK: - Actions
@@ -108,6 +121,7 @@ public final class ContactsStore: ObservableObject {
 
     /// Subscribe to contactsChanged broadcasts with 500ms debounce.
     private func subscribeToContactsChanged() {
+        subscriptionTask?.cancel()
         subscriptionTask = Task { [weak self] in
             guard let daemonClient = self?.daemonClient else { return }
             let stream = daemonClient.subscribe()

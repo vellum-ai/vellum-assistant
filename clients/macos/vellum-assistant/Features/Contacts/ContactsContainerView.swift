@@ -16,16 +16,18 @@ struct ContactsContainerView: View {
     var daemonClient: DaemonClient?
     var store: SettingsStore?
     var isEmailEnabled: Bool = false
+    var showToast: ((String, ToastInfo.Style) -> Void)?
 
     @StateObject private var viewModel: ContactsViewModel
     @State private var selection: ContactSelection? = .assistant
 
     private let contactClient: ContactClientProtocol = ContactClient()
 
-    init(daemonClient: DaemonClient?, store: SettingsStore? = nil, isEmailEnabled: Bool = false) {
+    init(daemonClient: DaemonClient?, store: SettingsStore? = nil, isEmailEnabled: Bool = false, showToast: ((String, ToastInfo.Style) -> Void)? = nil) {
         self.daemonClient = daemonClient
         self.store = store
         self.isEmailEnabled = isEmailEnabled
+        self.showToast = showToast
         _viewModel = StateObject(wrappedValue: ContactsViewModel(daemonClient: daemonClient))
     }
 
@@ -47,16 +49,57 @@ struct ContactsContainerView: View {
             .frame(maxHeight: .infinity, alignment: .top)
             // Right pane: detail, loading, or placeholder
             if viewModel.isLoading && viewModel.contacts.isEmpty {
-                // Loading state — contacts are being fetched
-                VStack(spacing: VSpacing.md) {
-                    ProgressView()
-                        .controlSize(.regular)
-                    Text("Loading contacts...")
-                        .font(VFont.body)
-                        .foregroundColor(VColor.contentSecondary)
+                // Skeleton loading state for detail pane
+                ScrollView {
+                    VStack(alignment: .leading, spacing: VSpacing.lg) {
+                        // Header card skeleton
+                        VStack(alignment: .leading, spacing: VSpacing.lg) {
+                            HStack(spacing: VSpacing.sm) {
+                                VSkeletonBone(width: 140, height: 18)
+                                VSkeletonBone(width: 60, height: 20, radius: VRadius.sm)
+                            }
+                            VSkeletonBone(width: 100, height: 12)
+                            VStack(alignment: .leading, spacing: VSpacing.md) {
+                                VStack(alignment: .leading, spacing: VSpacing.xs) {
+                                    VSkeletonBone(width: 40, height: 12)
+                                    VSkeletonBone(height: 28, radius: VRadius.md)
+                                }
+                                VStack(alignment: .leading, spacing: VSpacing.xs) {
+                                    VSkeletonBone(width: 40, height: 12)
+                                    VSkeletonBone(height: 80, radius: VRadius.md)
+                                }
+                            }
+                            VSkeletonBone(width: 60, height: 28, radius: VRadius.md)
+                        }
+                        .padding(VSpacing.lg)
+                        .vCard(radius: VRadius.lg, background: VColor.surfaceOverlay)
+
+                        // Channels card skeleton
+                        VStack(alignment: .leading, spacing: VSpacing.lg) {
+                            VSkeletonBone(width: 80, height: 16)
+                            VSkeletonBone(width: 200, height: 12)
+                            VStack(alignment: .leading, spacing: 0) {
+                                ForEach(0..<2, id: \.self) { index in
+                                    HStack(spacing: VSpacing.sm) {
+                                        VSkeletonBone(width: 16, height: 16, radius: VRadius.xs)
+                                        VSkeletonBone(width: 100, height: 14)
+                                        Spacer()
+                                        VSkeletonBone(width: 72, height: 28, radius: VRadius.md)
+                                    }
+                                    .frame(minHeight: 36)
+                                    .padding(.vertical, VSpacing.sm)
+                                    if index < 1 {
+                                        SettingsDivider()
+                                    }
+                                }
+                            }
+                        }
+                        .padding(VSpacing.lg)
+                        .vCard(radius: VRadius.lg, background: VColor.surfaceOverlay)
+                    }
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .background(VColor.surfaceOverlay)
+                .accessibilityHidden(true)
             } else {
                 switch selection {
                 case .assistant:
@@ -77,6 +120,7 @@ struct ContactsContainerView: View {
                                     viewModel.loadContacts()
                                 },
                                 onSelectAssistant: { selection = .assistant },
+                                showToast: showToast,
                                 guardianName: viewModel.guardianContact?.displayName
                             )
                             .id(contactId)
@@ -142,6 +186,8 @@ struct ContactsContainerView: View {
                                 .font(VFont.inputLabel)
                                 .foregroundColor(VColor.contentSecondary)
                             VTextField(placeholder: "Your name", text: $guardianEditedName)
+                                .disabled(true)
+                                .opacity(0.6)
                         }
 
                         VStack(alignment: .leading, spacing: VSpacing.xs) {
@@ -197,6 +243,9 @@ struct ContactsContainerView: View {
             guardianEditedNotes = contact.notes ?? ""
         }
         .onChange(of: contact) { _, newContact in
+            // Don't reset fields while a save is in flight — the reload
+            // triggers this with stale data before the API response propagates.
+            guard !guardianIsSaving else { return }
             guardianEditedName = newContact.displayName
             guardianEditedNotes = newContact.notes ?? ""
         }
@@ -219,9 +268,14 @@ struct ContactsContainerView: View {
                 guardianEditedName = updated.displayName
                 guardianEditedNotes = updated.notes ?? ""
                 viewModel.loadContacts()
+                showToast?("Contact saved", .success)
+            } else {
+                guardianErrorMessage = "Failed to save changes. Please try again."
+                showToast?("Failed to save contact", .error)
             }
         } catch {
             guardianErrorMessage = "Failed to save changes. Please try again."
+            showToast?("Failed to save contact", .error)
         }
         guardianIsSaving = false
     }

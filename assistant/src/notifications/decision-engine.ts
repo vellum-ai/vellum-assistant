@@ -852,15 +852,56 @@ async function classifyWithLLM(
  *
  * - `all_channels`: force selected channels to all connected channels.
  * - `multi_channel`: ensure at least 2 channels when 2+ are connected.
- * - `single_channel`: no override (default behavior).
+ * - `single_channel`: cap to a single channel. When explicitly set, reduces
+ *   selected channels to one — preferring the source channel if present.
  */
 export function enforceRoutingIntent(
   decision: NotificationDecision,
   routingIntent: RoutingIntent | undefined,
   connectedChannels: NotificationChannel[],
+  sourceChannel?: string,
 ): NotificationDecision {
-  if (!routingIntent || routingIntent === "single_channel") {
+  if (!routingIntent) {
     return decision;
+  }
+
+  if (routingIntent === "single_channel") {
+    if (!decision.shouldNotify) {
+      return decision;
+    }
+
+    // Force delivery to the source channel only. If the source channel
+    // is among the connected channels, use it regardless of what the LLM
+    // picked (even if the LLM picked exactly one wrong channel).
+    // Otherwise fall back to capping at the first selected channel.
+    const sourceIsConnected =
+      sourceChannel &&
+      connectedChannels.includes(sourceChannel as NotificationChannel);
+    const preferred = sourceIsConnected
+      ? (sourceChannel as NotificationChannel)
+      : decision.selectedChannels[0];
+
+    // No change needed if the decision already matches.
+    if (
+      decision.selectedChannels.length === 1 &&
+      decision.selectedChannels[0] === preferred
+    ) {
+      return decision;
+    }
+
+    const enforced = { ...decision };
+    enforced.selectedChannels = [preferred];
+    enforced.reasoningSummary = `${decision.reasoningSummary} [routing_intent=single_channel enforced: capped to ${preferred}]`;
+    log.info(
+      {
+        routingIntent,
+        sourceChannel,
+        originalChannels: decision.selectedChannels,
+        enforcedChannel: preferred,
+      },
+      "Routing intent enforcement: single_channel → capped to one channel",
+    );
+    return enforced;
   }
 
   if (!decision.shouldNotify) {

@@ -787,10 +787,8 @@ public final class SettingsStore: ObservableObject {
     func setImageGenModel(_ model: String) {
         selectedImageGenModel = model
         UserDefaults.standard.set(model, forKey: "selectedImageGenModel")
-        do {
-            try daemonClient?.sendImageGenModelSet(model: model)
-        } catch {
-            log.error("Failed to send image gen model set: \(error)")
+        Task {
+            _ = await settingsClient.setImageGenModel(modelId: model)
         }
     }
 
@@ -907,30 +905,26 @@ public final class SettingsStore: ObservableObject {
         guard !trimmed.isEmpty else { return }
         telegramSaveInProgress = true
         telegramError = nil
-        do {
-            guard let daemonClient else {
+        Task {
+            guard let response = await settingsClient.setTelegramConfig(action: "set", botToken: trimmed, commands: nil) else {
                 telegramSaveInProgress = false
+                telegramError = "Failed to save Telegram config"
                 return
             }
-            try daemonClient.sendTelegramConfig(action: "set", botToken: trimmed)
-        } catch {
-            telegramSaveInProgress = false
-            telegramError = "Failed to save: \(error.localizedDescription)"
+            applyTelegramConfigResponse(response)
         }
     }
 
     func clearTelegramCredentials() {
         telegramSaveInProgress = true
         telegramError = nil
-        do {
-            guard let daemonClient else {
+        Task {
+            guard let response = await settingsClient.setTelegramConfig(action: "clear", botToken: nil, commands: nil) else {
                 telegramSaveInProgress = false
+                log.error("Failed to send Telegram config clear")
                 return
             }
-            try daemonClient.sendTelegramConfig(action: "clear")
-        } catch {
-            telegramSaveInProgress = false
-            log.error("Failed to send Telegram config clear: \(error)")
+            applyTelegramConfigResponse(response)
         }
     }
 

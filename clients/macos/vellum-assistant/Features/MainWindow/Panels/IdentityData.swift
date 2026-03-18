@@ -161,6 +161,30 @@ struct IdentityInfo {
         return IdentityInfo(name: name, role: role, personality: personality, emoji: emoji, home: home)
     }
 
+    /// Parses an optional `## Identity Intro` section from SOUL.md.
+    /// Returns a single short tagline or nil.
+    static func loadIdentityIntro() -> String? {
+        let path = NSHomeDirectory() + "/.vellum/workspace/SOUL.md"
+        guard let content = try? String(contentsOfFile: path, encoding: .utf8) else { return nil }
+
+        var inSection = false
+
+        for line in content.components(separatedBy: .newlines) {
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            if trimmed.hasPrefix("#") && trimmed.drop(while: { $0 == "#" }).first == " " {
+                inSection = trimmed.lowercased().contains("identity intro")
+                continue
+            }
+            if inSection {
+                // The intro is the first non-empty line in the section
+                if !trimmed.isEmpty {
+                    return trimmed
+                }
+            }
+        }
+        return nil
+    }
+
     /// Parses an optional `## Greetings` section from SOUL.md.
     /// The assistant is expected to maintain this section as part of its personality.
     static func loadGreetings() -> [String] {

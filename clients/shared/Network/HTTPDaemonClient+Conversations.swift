@@ -37,8 +37,8 @@ extension HTTPTransport {
             } else if message is ModelGetRequestMessage || message is ModelSetRequestMessage {
                 // Handled by SettingsClient via GatewayHTTPClient.
                 return true
-            } else if let msg = message as? ImageGenModelSetRequestMessage {
-                Task { await self.setImageGenModel(modelId: msg.model) }
+            } else if message is ImageGenModelSetRequestMessage {
+                // Handled by SettingsClient via GatewayHTTPClient.
                 return true
             } else if let msg = message as? ConversationSearchRequest {
                 Task {

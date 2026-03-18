@@ -256,6 +256,7 @@ export async function emitNotificationSignal<TEventName extends string>(
       decision,
       signal.routingIntent,
       connectedChannels,
+      signal.sourceChannel,
     );
 
     // Re-persist the decision if routing intent enforcement changed it,

@@ -522,7 +522,7 @@ async function handleToolPermissionSimulate(body: {
     }
 
     return Response.json({
-      ok: true,
+      success: true,
       decision: result.decision,
       riskLevel,
       reason: result.reason,

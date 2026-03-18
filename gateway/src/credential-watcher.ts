@@ -77,16 +77,12 @@ export class CredentialWatcher {
 
   private startWatcher(dir: string, targetFilename: string): void {
     try {
-      const watcher = watch(
-        dir,
-        { persistent: false },
-        (_event, filename) => {
-          if (filename && filename !== targetFilename) {
-            return;
-          }
-          this.scheduleCheck();
-        },
-      );
+      const watcher = watch(dir, { persistent: false }, (_event, filename) => {
+        if (filename && filename !== targetFilename) {
+          return;
+        }
+        this.scheduleCheck();
+      });
       this.watchers.push(watcher);
 
       log.info(
@@ -94,10 +90,7 @@ export class CredentialWatcher {
         "Watching for credential changes",
       );
     } catch (err) {
-      log.warn(
-        { err, path: dir },
-        "Failed to start credential file watcher",
-      );
+      log.warn({ err, path: dir }, "Failed to start credential file watcher");
     }
   }
 

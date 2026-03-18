@@ -67,13 +67,14 @@ export class TraceEmitter {
       attributes,
     };
 
+    // Send to client first so synchronous DB writes don't block SSE delivery.
+    this.sendToClient(event);
+
     try {
       persistTraceEvent(event as TraceEvent);
     } catch (err) {
       log.warn({ err, eventId }, "Failed to persist trace event");
     }
-
-    this.sendToClient(event);
   }
 }
 

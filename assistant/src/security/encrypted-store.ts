@@ -104,8 +104,7 @@ export function _setStoreKeyPath(path: string | null): void {
 
 function getStoreKeyPath(): string {
   return (
-    storeKeyPathOverride ??
-    join(dirname(getStorePath()), STORE_KEY_FILENAME)
+    storeKeyPathOverride ?? join(dirname(getStorePath()), STORE_KEY_FILENAME)
   );
 }
 

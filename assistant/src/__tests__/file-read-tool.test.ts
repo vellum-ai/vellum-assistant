@@ -177,3 +177,43 @@ describe("file_read image support", () => {
     expect(result.content).toContain("outside the working directory");
   });
 });
+
+// ── Out-of-bounds hint for host_file_read ─────────────────────────────
+
+describe("file_read out-of-bounds hint", () => {
+  test("suggests host_file_read for out-of-bounds text file path", async () => {
+    const dir = makeTempDir();
+
+    const result = await fileReadTool.execute(
+      { path: "/etc/passwd" },
+      makeContext(dir),
+    );
+
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain("host_file_read");
+  });
+
+  test("suggests host_file_read for out-of-bounds image file path", async () => {
+    const dir = makeTempDir();
+
+    const result = await fileReadTool.execute(
+      { path: "/Users/someone/Desktop/screenshot.png" },
+      makeContext(dir),
+    );
+
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain("host_file_read");
+  });
+
+  test("does not suggest host_file_read for missing file within sandbox", async () => {
+    const dir = makeTempDir();
+
+    const result = await fileReadTool.execute(
+      { path: "nonexistent.txt" },
+      makeContext(dir),
+    );
+
+    expect(result.isError).toBe(true);
+    expect(result.content).not.toContain("host_file_read");
+  });
+});

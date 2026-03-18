@@ -118,10 +118,7 @@ function writeEncryptedStore(botToken: string, webhookSecret: string): void {
  * Write Telegram credentials into a v2 encrypted store using a random
  * store.key file (no PBKDF2 derivation).
  */
-function writeEncryptedStoreV2(
-  botToken: string,
-  webhookSecret: string,
-): void {
+function writeEncryptedStoreV2(botToken: string, webhookSecret: string): void {
   const protectedDir = join(testDir, ".vellum", "protected");
   mkdirSync(protectedDir, { recursive: true });
 

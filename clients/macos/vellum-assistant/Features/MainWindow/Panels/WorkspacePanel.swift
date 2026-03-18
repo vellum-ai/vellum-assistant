@@ -268,6 +268,11 @@ private struct WorkspaceTreeSidebar: View {
                 } label: {
                     VIconView(state.showHiddenFiles ? .eye : .eyeOff, size: 12)
                         .foregroundColor(state.showHiddenFiles ? VColor.contentDefault : VColor.contentSecondary)
+                        .padding(4)
+                        .background(
+                            RoundedRectangle(cornerRadius: VRadius.sm)
+                                .fill(state.showHiddenFiles ? VColor.surfaceActive : Color.clear)
+                        )
                 }
                 .buttonStyle(.plain)
                 .help(state.showHiddenFiles ? "Hide hidden files" : "Show hidden files")
@@ -498,7 +503,8 @@ private struct WorkspaceTreeRow: View {
                             isExpanded: isExpanded,
                             depth: depth,
                             fileIcon: .fileText,
-                            minRowWidth: minRowWidth
+                            minRowWidth: minRowWidth,
+                            isDimmed: isHiddenPath(entry.path)
                         )
                     }
                 }

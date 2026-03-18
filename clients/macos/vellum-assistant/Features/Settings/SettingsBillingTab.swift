@@ -17,7 +17,9 @@ struct SettingsBillingTab: View {
     var body: some View {
         VStack(alignment: .leading, spacing: VSpacing.lg) {
             balanceCard
-            if summary != nil {
+            if isLoading {
+                addFundsSkeleton
+            } else if summary != nil {
                 addFundsCard
             }
         }
@@ -39,22 +41,42 @@ struct SettingsBillingTab: View {
     private var balanceCard: some View {
         SettingsCard(title: "Balance") {
             if isLoading {
-                HStack(spacing: VSpacing.sm) {
-                    ProgressView()
-                        .controlSize(.small)
-                    Text("Loading billing info...")
-                        .font(VFont.body)
-                        .foregroundColor(VColor.contentSecondary)
+                VStack(alignment: .leading, spacing: VSpacing.lg) {
+                    // Effective balance skeleton
+                    VStack(alignment: .leading, spacing: VSpacing.xs) {
+                        VSkeletonBone(width: 110, height: 12)
+                        VSkeletonBone(width: 80, height: 24)
+                    }
+
+                    SettingsDivider()
+
+                    // Two-column breakdown skeleton
+                    HStack(spacing: VSpacing.xl) {
+                        VStack(alignment: .leading, spacing: VSpacing.xs) {
+                            VSkeletonBone(width: 100, height: 12)
+                            VSkeletonBone(width: 60, height: 14)
+                        }
+                        VStack(alignment: .leading, spacing: VSpacing.xs) {
+                            VSkeletonBone(width: 110, height: 12)
+                            VSkeletonBone(width: 60, height: 14)
+                        }
+                    }
                 }
+                .accessibilityHidden(true)
             } else if let summary {
                 balanceContent(summary)
             } else if let error {
-                HStack(spacing: VSpacing.sm) {
-                    VIconView(.circleAlert, size: 14)
-                        .foregroundColor(VColor.systemNegativeStrong)
-                    Text(error)
-                        .font(VFont.body)
-                        .foregroundColor(VColor.systemNegativeStrong)
+                VStack(alignment: .leading, spacing: VSpacing.md) {
+                    HStack(spacing: VSpacing.sm) {
+                        VIconView(.circleAlert, size: 14)
+                            .foregroundColor(VColor.systemNegativeStrong)
+                        Text(error)
+                            .font(VFont.body)
+                            .foregroundColor(VColor.systemNegativeStrong)
+                    }
+                    VButton(label: "Try Again", style: .outlined) {
+                        Task { await loadSummary() }
+                    }
                 }
             }
         }
@@ -111,6 +133,21 @@ struct SettingsBillingTab: View {
                         .foregroundColor(summary.is_degraded ? VColor.contentSecondary : VColor.contentDefault)
                 }
             }
+        }
+    }
+
+    // MARK: - Add Funds Skeleton
+
+    private var addFundsSkeleton: some View {
+        SettingsCard(title: "Add Funds") {
+            VStack(alignment: .leading, spacing: VSpacing.md) {
+                VStack(alignment: .leading, spacing: VSpacing.xs) {
+                    VSkeletonBone(width: 90, height: 12)
+                    VSkeletonBone(height: 28, radius: VRadius.md)
+                }
+                VSkeletonBone(width: 80, height: 28, radius: VRadius.md)
+            }
+            .accessibilityHidden(true)
         }
     }
 
@@ -174,7 +211,10 @@ struct SettingsBillingTab: View {
     // MARK: - Actions
 
     private func loadSummary() async {
-        isLoading = true
+        // Only show skeleton on initial load — don't flash on background refreshes
+        if summary == nil {
+            isLoading = true
+        }
         error = nil
         do {
             var result = try await BillingService.shared.getBillingSummary()
@@ -183,7 +223,10 @@ struct SettingsBillingTab: View {
             }
             summary = result
         } catch {
-            self.error = "Unable to load billing information. Please try again."
+            // Only show error if we have no cached data to display
+            if summary == nil {
+                self.error = "Unable to load billing information. Please try again."
+            }
         }
         isLoading = false
     }

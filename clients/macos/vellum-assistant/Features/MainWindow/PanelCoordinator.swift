@@ -657,16 +657,17 @@ struct ActiveChatViewWrapper: View {
             onStopWatch: { viewModel.stopWatchSession() },
             onReportMessage: { daemonMessageId in
                 guard let conversationId = viewModel.conversationId else { return }
-                do {
-                    try daemonClient.sendDiagnosticsExportRequest(
+                Task {
+                    let response = await DiagnosticsClient().exportDiagnostics(
                         conversationId: conversationId,
                         anchorMessageId: daemonMessageId
                     )
-                } catch {
-                    windowState.showToast(
-                        message: "Failed to request report export.",
-                        style: .error
-                    )
+                    if response?.success != true {
+                        windowState.showToast(
+                            message: "Failed to request report export.",
+                            style: .error
+                        )
+                    }
                 }
             },
             mediaEmbedSettings: MediaEmbedResolverSettings(
@@ -930,7 +931,7 @@ struct DynamicWorkspaceWrapper: View {
                         onPageChanged: { [weak viewModel] page in
                             viewModel?.currentPage = page
                         },
-                        onSnapshotCaptured: data.appId != nil ? { [weak daemonClient] base64 in
+                        onSnapshotCaptured: data.appId != nil ? { base64 in
                             guard let appId = data.appId else { return }
                             Task { await AppsClient().updateAppPreview(appId: appId, preview: base64) }
                             NotificationCenter.default.post(

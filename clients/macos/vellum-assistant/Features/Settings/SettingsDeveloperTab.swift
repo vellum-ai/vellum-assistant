@@ -125,7 +125,7 @@ struct SettingsDeveloperTab: View {
             // Assistant info setup
             lockfileAssistants = LockfileAssistant.loadAll()
             selectedAssistantId = UserDefaults.standard.string(forKey: "connectedAssistantId") ?? ""
-            refreshAwakeStates()
+            Task { await refreshAwakeStates() }
             refreshDisplayNames()
             identity = IdentityInfo.load()
             if identity == nil,
@@ -608,13 +608,12 @@ struct SettingsDeveloperTab: View {
         displayNames[assistant.assistantId] ?? assistant.assistantId
     }
 
-    private func refreshAwakeStates() {
+    private func refreshAwakeStates() async {
         for assistant in lockfileAssistants {
             if assistant.isRemote {
                 awakeStates[assistant.assistantId] = true
             } else {
-                let env: [String: String]? = assistant.instanceDir.map { ["BASE_DATA_DIR": $0] }
-                awakeStates[assistant.assistantId] = DaemonClient.isDaemonProcessAlive(environment: env)
+                awakeStates[assistant.assistantId] = await HealthCheckClient.isReachable(for: assistant)
             }
         }
     }
@@ -641,8 +640,7 @@ struct SettingsDeveloperTab: View {
                     }
                 }
             } catch {
-                let env: [String: String]? = assistant.instanceDir.map { ["BASE_DATA_DIR": $0] }
-                awakeStates[assistant.assistantId] = DaemonClient.isDaemonProcessAlive(environment: env)
+                awakeStates[assistant.assistantId] = await HealthCheckClient.isReachable(for: assistant)
             }
             transitioningStates.remove(assistant.assistantId)
         }
@@ -914,14 +912,14 @@ struct SettingsDeveloperTab: View {
                             .sorted(by: { $0.key < $1.key })
                             .map { ($0.key, $0.value) }
                         daemonEnvVars = []
-                        daemonClient?.onEnvVarsResponse = { response in
-                            Task { @MainActor in
+                        Task {
+                            let response = await DiagnosticsClient().fetchEnvVars()
+                            if let response {
                                 self.daemonEnvVars = response.vars
                                     .sorted(by: { $0.key < $1.key })
                                     .map { ($0.key, $0.value) }
                             }
                         }
-                        try? daemonClient?.sendEnvVarsRequest()
                         showingEnvVars = true
                 }
             }
