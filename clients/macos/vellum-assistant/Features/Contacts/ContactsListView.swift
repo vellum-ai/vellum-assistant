@@ -38,22 +38,31 @@ struct ContactsListView: View {
     // MARK: - Contacts Card
 
     private var contactsCard: some View {
-        VStack(alignment: .leading, spacing: VSpacing.lg) {
+        VStack(alignment: .leading, spacing: 0) {
+            // Pinned header
             HStack {
                 Text("Contacts")
-                    .font(VFont.sectionTitle)
-                    .foregroundColor(VColor.contentEmphasized)
+                    .font(VFont.headline)
+                    .foregroundColor(VColor.contentDefault)
                 Spacer()
                 VButton(label: "Add", iconOnly: VIcon.plus.rawValue, style: .ghost, size: .compact) {
                     viewModel.isCreatingContact = true
                 }
                 .accessibilityLabel("Add contact")
             }
+            .padding(.horizontal, VSpacing.md)
+            .padding(.vertical, VSpacing.sm)
 
+            Divider().background(VColor.borderBase)
+
+            // Search
             searchBar
+                .padding(.horizontal, VSpacing.md)
+                .padding(.vertical, VSpacing.sm)
 
-            ScrollView {
-                VStack(alignment: .leading, spacing: VSpacing.sm) {
+            // Scrollable contact rows
+            ScrollView(.vertical) {
+                VStack(alignment: .leading, spacing: 0) {
                     // Assistant row (virtual — not a real contact)
                     if matchesSearch(cachedAssistantDisplayName) {
                         contactListRow(
@@ -92,12 +101,9 @@ struct ContactsListView: View {
                         .padding(.vertical, VSpacing.xl)
                     }
                 }
+                .padding(.vertical, VSpacing.xs)
             }
-
         }
-        .padding(.leading, VSpacing.xl)
-        .padding(.trailing, VSpacing.lg)
-        .padding(.bottom, VSpacing.lg)
         .frame(maxHeight: .infinity, alignment: .top)
     }
 
