@@ -32,7 +32,7 @@ struct ContactsContainerView: View {
     }
 
     var body: some View {
-        HStack(alignment: .top, spacing: VSpacing.sm) {
+        HStack(alignment: .top, spacing: VSpacing.xl) {
             // Left pane: contacts list (full height, internal scrolling)
             ContactsListView(
                 viewModel: viewModel,
