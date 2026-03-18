@@ -12,8 +12,20 @@ extension DaemonClient {
     /// Connect to the daemon via HTTP transport. If already connected, disconnects first.
     /// SSE is managed separately via `startSSE()` / `stopSSE()`.
     public func connect() async throws {
+        try await connectImpl(cancelAutoWake: true)
+    }
+
+    /// Internal connect implementation.
+    ///
+    /// - Parameter cancelAutoWake: When `false`, the initial `disconnectInternal()`
+    ///   call preserves the `autoWakeTask` handle so that an *external*
+    ///   `disconnect()` / `reconfigure()` arriving while `connect()` is in-flight
+    ///   can still cancel the auto-wake task. The auto-wake reconnect path passes
+    ///   `false` here to avoid cancelling itself (the running task) while keeping
+    ///   the handle reachable by external callers.
+    private func connectImpl(cancelAutoWake: Bool) async throws {
         // Disconnect any existing connection without triggering reconnect.
-        disconnectInternal(triggerReconnect: false)
+        disconnectInternal(triggerReconnect: false, cancelAutoWake: cancelAutoWake)
 
         isConnecting = true
 
@@ -70,20 +82,23 @@ extension DaemonClient {
             log.info("connect: transport connected successfully to \(baseURL, privacy: .public), SSE should be running")
         } catch {
             #if os(macOS)
-            // Auto-wake: if the daemon process is not alive and a wake handler is
+            // Auto-wake: if the gateway is unreachable and a wake handler is
             // configured, try waking the daemon and retrying the connection once.
-            if let wakeHandler, config.transportMetadata.routeMode == .runtimeFlat, !DaemonClient.isDaemonProcessAlive(environment: config.instanceDir.map { ["BASE_DATA_DIR": $0] }) {
-                log.info("connect: daemon process not alive — attempting auto-wake before retry")
-                do {
-                    try await wakeHandler()
-                    log.info("connect: auto-wake succeeded, retrying connection to \(baseURL, privacy: .public)")
-                    try await transport.connect()
-                    isAuthenticated = true
-                    isConnecting = false
-                    log.info("connect: retry after auto-wake succeeded for \(baseURL, privacy: .public)")
-                    return
-                } catch {
-                    log.error("connect: auto-wake or retry failed for \(baseURL, privacy: .public): \(error)")
+            if let wakeHandler, config.transportMetadata.routeMode == .runtimeFlat {
+                let reachable = await HealthCheckClient.isReachable(instanceDir: config.instanceDir)
+                if !reachable {
+                    log.info("connect: gateway unreachable — attempting auto-wake before retry")
+                    do {
+                        try await wakeHandler()
+                        log.info("connect: auto-wake succeeded, retrying connection to \(baseURL, privacy: .public)")
+                        try await transport.connect()
+                        isAuthenticated = true
+                        isConnecting = false
+                        log.info("connect: retry after auto-wake succeeded for \(baseURL, privacy: .public)")
+                        return
+                    } catch {
+                        log.error("connect: auto-wake or retry failed for \(baseURL, privacy: .public): \(error)")
+                    }
                 }
             }
             #endif
@@ -129,13 +144,13 @@ extension DaemonClient {
     /// Minimum interval between auto-wake attempts to prevent crash loops.
     private static let autoWakeCooldown: TimeInterval = 60.0
 
-    /// Check whether the daemon process has died and, if so, attempt to wake it
-    /// and reconnect. Called from the `onConnectionStateChanged` callback when
-    /// the health check reports disconnection.
+    /// Check whether the gateway has become unreachable and, if so, attempt
+    /// to wake the daemon and reconnect. Called from the
+    /// `onConnectionStateChanged` callback when the health check reports
+    /// disconnection.
     private func autoWakeIfDaemonDied() {
         guard let wakeHandler,
-              config.transportMetadata.routeMode == .runtimeFlat,
-              !DaemonClient.isDaemonProcessAlive(environment: config.instanceDir.map { ["BASE_DATA_DIR": $0] })
+              config.transportMetadata.routeMode == .runtimeFlat
         else { return }
 
         // Crash loop protection: if we already tried recently and the daemon
@@ -150,7 +165,14 @@ extension DaemonClient {
 
         autoWakeTask = Task { @MainActor [weak self] in
             guard let self else { return }
-            log.info("auto-wake: daemon process died during session — attempting wake")
+
+            let reachable = await HealthCheckClient.isReachable(instanceDir: self.config.instanceDir)
+            guard !reachable else {
+                self.lastAutoWakeAttempt = nil
+                return
+            }
+
+            log.info("auto-wake: gateway unreachable — attempting wake")
             do {
                 try await wakeHandler()
                 guard !Task.isCancelled else {
@@ -158,7 +180,7 @@ extension DaemonClient {
                     return
                 }
                 log.info("auto-wake: wake succeeded, reconnecting")
-                try await self.connect()
+                try await self.connectImpl(cancelAutoWake: false)
                 guard !Task.isCancelled else {
                     log.info("auto-wake: cancelled after connect — abandoning")
                     return
@@ -167,16 +189,21 @@ extension DaemonClient {
             } catch {
                 log.error("auto-wake: failed: \(error)")
             }
+            // Clear the handle now that the task has finished so stale
+            // references don't accumulate.
+            self.autoWakeTask = nil
         }
     }
     #endif
 
-    func disconnectInternal(triggerReconnect: Bool) {
+    func disconnectInternal(triggerReconnect: Bool, cancelAutoWake: Bool = true) {
         isAuthenticated = false
 
         #if os(macOS)
-        autoWakeTask?.cancel()
-        autoWakeTask = nil
+        if cancelAutoWake {
+            autoWakeTask?.cancel()
+            autoWakeTask = nil
+        }
         #endif
 
         httpTransport?.disconnect()

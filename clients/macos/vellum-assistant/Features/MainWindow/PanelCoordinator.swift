@@ -931,7 +931,7 @@ struct DynamicWorkspaceWrapper: View {
                         onPageChanged: { [weak viewModel] page in
                             viewModel?.currentPage = page
                         },
-                        onSnapshotCaptured: data.appId != nil ? { [weak daemonClient] base64 in
+                        onSnapshotCaptured: data.appId != nil ? { base64 in
                             guard let appId = data.appId else { return }
                             Task { await AppsClient().updateAppPreview(appId: appId, preview: base64) }
                             NotificationCenter.default.post(
