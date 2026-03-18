@@ -311,6 +311,8 @@ struct ContactsContainerView: View {
                 }
             }
         }
+        .scrollContentBackground(.hidden)
+        .contentMargins(.top, 0, for: .scrollContent)
         .task {
             cachedAssistantName = AssistantDisplayName.firstUserFacing(from: [IdentityInfo.load()?.name]) ?? AssistantDisplayName.placeholder
         }
