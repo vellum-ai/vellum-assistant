@@ -701,32 +701,36 @@ async function hatchLocal(
 
   await startLocalDaemon(watch, resources);
 
-  let runtimeUrl: string;
-  try {
-    runtimeUrl = await startGateway(watch, resources);
-  } catch (error) {
-    // Gateway failed — stop the daemon we just started so we don't leave
-    // orphaned processes with no lock file entry.
-    console.error(
-      `\n❌ Gateway startup failed — stopping assistant to avoid orphaned processes.`,
-    );
-    await stopLocalProcesses(resources);
-    throw error;
-  }
+  // When daemonOnly is set, skip gateway and ngrok — the caller only wants
+  // the daemon restarted (e.g. macOS app bootstrap retry).
+  let runtimeUrl = `http://127.0.0.1:${resources.gatewayPort}`;
+  if (!daemonOnly) {
+    try {
+      runtimeUrl = await startGateway(watch, resources);
+    } catch (error) {
+      // Gateway failed — stop the daemon we just started so we don't leave
+      // orphaned processes with no lock file entry.
+      console.error(
+        `\n❌ Gateway startup failed — stopping assistant to avoid orphaned processes.`,
+      );
+      await stopLocalProcesses(resources);
+      throw error;
+    }
 
-  // Auto-start ngrok if webhook integrations (e.g. Telegram) are configured.
-  // Set BASE_DATA_DIR so ngrok reads the correct instance config.
-  const prevBaseDataDir = process.env.BASE_DATA_DIR;
-  process.env.BASE_DATA_DIR = resources.instanceDir;
-  const ngrokChild = await maybeStartNgrokTunnel(resources.gatewayPort);
-  if (ngrokChild?.pid) {
-    const ngrokPidFile = join(resources.instanceDir, ".vellum", "ngrok.pid");
-    writeFileSync(ngrokPidFile, String(ngrokChild.pid));
-  }
-  if (prevBaseDataDir !== undefined) {
-    process.env.BASE_DATA_DIR = prevBaseDataDir;
-  } else {
-    delete process.env.BASE_DATA_DIR;
+    // Auto-start ngrok if webhook integrations (e.g. Telegram, Twilio) are configured.
+    // Set BASE_DATA_DIR so ngrok reads the correct instance config.
+    const prevBaseDataDir = process.env.BASE_DATA_DIR;
+    process.env.BASE_DATA_DIR = resources.instanceDir;
+    const ngrokChild = await maybeStartNgrokTunnel(resources.gatewayPort);
+    if (ngrokChild?.pid) {
+      const ngrokPidFile = join(resources.instanceDir, ".vellum", "ngrok.pid");
+      writeFileSync(ngrokPidFile, String(ngrokChild.pid));
+    }
+    if (prevBaseDataDir !== undefined) {
+      process.env.BASE_DATA_DIR = prevBaseDataDir;
+    } else {
+      delete process.env.BASE_DATA_DIR;
+    }
   }
 
   const localEntry: AssistantEntry = {
