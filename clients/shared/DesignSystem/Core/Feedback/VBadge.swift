@@ -20,25 +20,42 @@ public struct VBadge: View {
         case subtle
     }
 
+    public enum Shape {
+        case pill
+        case rounded
+    }
+
     public let style: Style
     public var color: Color = VColor.primaryBase
     public var tone: Tone?
     public var emphasis: Emphasis = .solid
+    public var shape: Shape = .pill
     public var icon: VIcon?
     public var iconColor: Color?
 
-    public init(style: Style, color: Color = VColor.primaryBase) {
+    public init(style: Style, color: Color = VColor.primaryBase, shape: Shape = .pill) {
         self.style = style
         self.color = color
+        self.shape = shape
     }
 
-    public init(label: String, icon: VIcon? = nil, iconColor: Color? = nil, tone: Tone = .accent, emphasis: Emphasis = .subtle) {
+    public init(label: String, icon: VIcon? = nil, iconColor: Color? = nil, tone: Tone = .accent, emphasis: Emphasis = .subtle, shape: Shape = .pill) {
         self.style = .label(label)
         self.color = VColor.primaryBase
         self.tone = tone
         self.emphasis = emphasis
+        self.shape = shape
         self.icon = icon
         self.iconColor = iconColor
+    }
+
+    /// Custom-colored label badge. Uses the provided color at 20% opacity
+    /// as the background with `contentEmphasized` foreground text.
+    public init(label: String, color: Color, shape: Shape = .pill) {
+        self.style = .label(label)
+        self.color = color
+        self.emphasis = .subtle
+        self.shape = shape
     }
 
     public var body: some View {
@@ -69,19 +86,48 @@ public struct VBadge: View {
                     .foregroundColor(labelForegroundColor)
             }
             .padding(.horizontal, VSpacing.sm)
-            .padding(.vertical, VSpacing.xxs)
+            .padding(.vertical, labelVerticalPadding)
             .background(labelBackgroundColor)
-            .overlay(
-                Capsule()
-                    .stroke(labelBorderColor, lineWidth: labelBorderWidth)
-            )
-            .clipShape(Capsule())
+            .overlay(labelBorderOverlay)
+            .clipShape(labelClipShape)
             .accessibilityLabel(text)
         }
     }
 
+    // MARK: - Shape Helpers
+
+    @ViewBuilder
+    private var labelBorderOverlay: some View {
+        switch shape {
+        case .pill:
+            Capsule()
+                .stroke(labelBorderColor, lineWidth: labelBorderWidth)
+        case .rounded:
+            RoundedRectangle(cornerRadius: VRadius.sm)
+                .stroke(labelBorderColor, lineWidth: labelBorderWidth)
+        }
+    }
+
+    @ViewBuilder
+    private var labelClipShape: some View {
+        switch shape {
+        case .pill:
+            Capsule()
+        case .rounded:
+            RoundedRectangle(cornerRadius: VRadius.sm)
+        }
+    }
+
+    private var labelVerticalPadding: CGFloat {
+        shape == .rounded ? VSpacing.xs : VSpacing.xxs
+    }
+
+    // MARK: - Color Resolution
+
     private var labelForegroundColor: Color {
-        guard let tone else { return VColor.auxWhite }
+        guard let tone else {
+            return emphasis == .subtle ? VColor.contentEmphasized : VColor.auxWhite
+        }
 
         switch (tone, emphasis) {
         case (.accent, .solid), (.positive, .solid), (.danger, .solid):
@@ -104,7 +150,9 @@ public struct VBadge: View {
     }
 
     private var labelBackgroundColor: Color {
-        guard let tone else { return color }
+        guard let tone else {
+            return emphasis == .subtle ? color.opacity(0.2) : color
+        }
 
         switch (tone, emphasis) {
         case (.accent, .solid):
