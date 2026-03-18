@@ -1,4 +1,5 @@
 import AppKit
+import AuthenticationServices
 import Carbon.HIToolbox
 import Combine
 import Foundation
@@ -258,6 +259,9 @@ public final class SettingsStore: ObservableObject {
 
     /// Current Google OAuth mode. Values: "managed" or "your-own".
     @Published var googleOAuthMode: String = "your-own"
+    @Published var googleOAuthConnections: [OAuthConnectionEntry] = []
+    @Published var googleOAuthIsConnecting: Bool = false
+    @Published var googleOAuthError: String? = nil
 
     static let availableWebSearchProviders = ["inference-provider-native", "perplexity", "brave"]
 
@@ -2161,6 +2165,93 @@ public final class SettingsStore: ObservableObject {
             try WorkspaceConfigIO.merge(["services": services], into: configPath)
         } catch {
             log.error("Failed to merge workspace config for google-oauth mode: \(error)")
+        }
+    }
+
+    // MARK: - Google OAuth Connections
+
+    func fetchGoogleOAuthConnections() async {
+        guard googleOAuthMode == "managed" else { return }
+        guard let assistantId = UserDefaults.standard.string(forKey: "connectedAssistantId"), !assistantId.isEmpty else { return }
+
+        do {
+            let connections = try await PlatformOAuthService.shared.listConnections(assistantId: assistantId)
+            googleOAuthConnections = connections.filter { $0.provider == "google" }
+            googleOAuthError = nil
+        } catch {
+            log.error("Failed to fetch Google OAuth connections: \(error)")
+            googleOAuthError = error.localizedDescription
+            googleOAuthConnections = []
+        }
+    }
+
+    func startGoogleOAuthConnect() {
+        Task {
+            googleOAuthIsConnecting = true
+            googleOAuthError = nil
+            defer { googleOAuthIsConnecting = false }
+
+            guard let assistantId = UserDefaults.standard.string(forKey: "connectedAssistantId"), !assistantId.isEmpty else {
+                googleOAuthError = "No connected assistant"
+                return
+            }
+
+            do {
+                let response = try await PlatformOAuthService.shared.startGoogleOAuth(
+                    assistantId: assistantId,
+                    redirectAfterConnect: "vellum-assistant://oauth/google/callback"
+                )
+
+                guard let connectURL = URL(string: response.connect_url) else {
+                    googleOAuthError = "Invalid connect URL"
+                    return
+                }
+
+                let callbackURL: URL = try await withCheckedThrowingContinuation { continuation in
+                    let session = ASWebAuthenticationSession(url: connectURL, callbackURLScheme: "vellum-assistant") { callbackURL, error in
+                        if let error {
+                            continuation.resume(throwing: error)
+                        } else if let callbackURL {
+                            continuation.resume(returning: callbackURL)
+                        } else {
+                            continuation.resume(throwing: URLError(.badServerResponse))
+                        }
+                    }
+                    session.prefersEphemeralWebBrowserSession = false
+                    session.presentationContextProvider = WebAuthPresentationContext.shared
+                    session.start()
+                }
+
+                let components = URLComponents(url: callbackURL, resolvingAgainstBaseURL: false)
+                let oauthStatus = components?.queryItems?.first(where: { $0.name == "oauth_status" })?.value
+
+                if oauthStatus == "connected" {
+                    await fetchGoogleOAuthConnections()
+                } else if oauthStatus == "error" {
+                    let errorCode = components?.queryItems?.first(where: { $0.name == "oauth_code" })?.value
+                    googleOAuthError = errorCode ?? "OAuth connection failed"
+                }
+            } catch {
+                log.error("Google OAuth connect failed: \(error)")
+                googleOAuthError = error.localizedDescription
+            }
+        }
+    }
+
+    func disconnectGoogleOAuthConnection(_ connectionId: String) {
+        Task {
+            guard let assistantId = UserDefaults.standard.string(forKey: "connectedAssistantId"), !assistantId.isEmpty else {
+                googleOAuthError = "No connected assistant"
+                return
+            }
+
+            do {
+                try await PlatformOAuthService.shared.disconnectConnection(assistantId: assistantId, connectionId: connectionId)
+                await fetchGoogleOAuthConnections()
+            } catch {
+                log.error("Failed to disconnect Google OAuth connection: \(error)")
+                googleOAuthError = error.localizedDescription
+            }
         }
     }
 
