@@ -186,7 +186,7 @@ struct ContactsContainerView: View {
             }
             .background(VColor.surfaceBase)
             .clipShape(RoundedRectangle(cornerRadius: VRadius.lg))
-            .frame(maxHeight: .infinity)
+            .frame(maxWidth: 700, maxHeight: .infinity)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .onReceive(viewModel.$contacts) { newContacts in
