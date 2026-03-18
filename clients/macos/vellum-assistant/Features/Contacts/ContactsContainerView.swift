@@ -56,7 +56,8 @@ struct ContactsContainerView: View {
                 .frame(maxHeight: .infinity)
                 .shadow(color: VColor.auxBlack.opacity(0.08), radius: 2, x: 1, y: 0)
 
-            // Right pane: detail, loading, or placeholder
+            // Right pane: detail, loading, or placeholder (max 700pt, left-aligned)
+            VStack(alignment: .leading, spacing: 0) {
             if viewModel.isLoading && viewModel.contacts.isEmpty {
                 // Skeleton loading state for detail pane
                 ScrollView {
@@ -152,6 +153,9 @@ struct ContactsContainerView: View {
                     .background(VColor.surfaceOverlay)
                 }
             }
+            }
+            .frame(maxWidth: 700, maxHeight: .infinity, alignment: .leading)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
         }
         .onReceive(viewModel.$contacts) { newContacts in
             // Default to assistant on first load (don't override existing selection)

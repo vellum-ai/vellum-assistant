@@ -36,16 +36,9 @@ struct ContactsListView: View {
 
     private var contactsCard: some View {
         VStack(alignment: .leading, spacing: VSpacing.lg) {
-            HStack {
-                Text("Contacts")
-                    .font(VFont.sectionTitle)
-                    .foregroundColor(VColor.contentEmphasized)
-                Spacer()
-                VButton(label: "Add", iconOnly: VIcon.plus.rawValue, style: .ghost, size: .compact) {
-                    viewModel.isCreatingContact = true
-                }
-                .accessibilityLabel("Add contact")
-            }
+            Text("Contacts")
+                .font(VFont.sectionTitle)
+                .foregroundColor(VColor.contentEmphasized)
 
             // Sticky system contacts (always visible, not affected by search)
             VStack(alignment: .leading, spacing: VSpacing.sm) {
@@ -75,7 +68,13 @@ struct ContactsListView: View {
             if viewModel.regularContacts.isEmpty {
                 regularContactsEmptyState
             } else {
-                searchBar
+                HStack(spacing: VSpacing.sm) {
+                    searchBar
+                    VButton(label: "Add", iconOnly: VIcon.plus.rawValue, style: .ghost, size: .compact) {
+                        viewModel.isCreatingContact = true
+                    }
+                    .accessibilityLabel("Add contact")
+                }
 
                 ScrollView {
                     VStack(alignment: .leading, spacing: VSpacing.sm) {
