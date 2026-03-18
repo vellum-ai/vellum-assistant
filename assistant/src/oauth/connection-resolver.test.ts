@@ -115,35 +115,32 @@ describe("resolveOAuthConnection", () => {
   });
 
   test("returns BYOOAuthConnection when provider has no managedServiceConfigKey", async () => {
-    // managedServiceConfigKey is null — should take the BYO path
     const result = await resolveOAuthConnection("integration:google");
     expect(result).toBeInstanceOf(BYOOAuthConnection);
     expect(result.id).toBe("conn-1");
     expect(result.providerKey).toBe("integration:google");
   });
 
-  test("returns PlatformOAuthConnection when managed mode is active and proxy prerequisites are met", async () => {
+  test("returns PlatformOAuthConnection when managed mode is active", async () => {
     mockProvider!.managedServiceConfigKey = "google-oauth";
 
     const result = await resolveOAuthConnection("integration:google");
     expect(result).toBeInstanceOf(PlatformOAuthConnection);
-    expect(result.id).toBe("conn-1");
+    expect(result.id).toBe("integration:google");
     expect(result.providerKey).toBe("integration:google");
-    expect(result.accountInfo).toBe("user@example.com");
-    expect(result.grantedScopes).toEqual(["scope-a", "scope-b"]);
+    expect(result.accountInfo).toBeNull();
+    expect(result.grantedScopes).toEqual([]);
   });
 
-  test("throws when managed mode but proxy prerequisites not met", async () => {
+  test("passes accountInfo through to PlatformOAuthConnection", async () => {
     mockProvider!.managedServiceConfigKey = "google-oauth";
-    mockManagedProxyCtx = {
-      enabled: false,
-      platformBaseUrl: "",
-      assistantApiKey: "",
-    };
 
-    await expect(resolveOAuthConnection("integration:google")).rejects.toThrow(
-      /configured in managed mode but platform prerequisites/,
+    const result = await resolveOAuthConnection(
+      "integration:google",
+      "user@example.com",
     );
+    expect(result).toBeInstanceOf(PlatformOAuthConnection);
+    expect(result.accountInfo).toBe("user@example.com");
   });
 
   test("returns BYOOAuthConnection when service config mode is your-own", async () => {
@@ -157,12 +154,12 @@ describe("resolveOAuthConnection", () => {
     expect(result.id).toBe("conn-1");
   });
 
-  test("throws when managed mode but no assistantId", async () => {
+  test("managed path does not require a local connection row", async () => {
     mockProvider!.managedServiceConfigKey = "google-oauth";
-    mockAssistantId = "";
+    mockConnection = undefined;
+    mockAccessToken = undefined;
 
-    await expect(resolveOAuthConnection("integration:google")).rejects.toThrow(
-      /missing: assistant ID/,
-    );
+    const result = await resolveOAuthConnection("integration:google");
+    expect(result).toBeInstanceOf(PlatformOAuthConnection);
   });
 });
