@@ -29,7 +29,30 @@ export function injectActivityField(
     }
 
     const properties = schema.properties as Record<string, unknown>;
+    const activityInTopLevelProps = "activity" in properties;
+
+    if (activityInTopLevelProps) {
+      // Activity is directly in top-level properties — ensure it's required
+      const existingRequired = Array.isArray(schema.required)
+        ? (schema.required as string[])
+        : [];
+      if (existingRequired.includes("activity")) {
+        return def; // Already present and required, nothing to do
+      }
+      return {
+        ...def,
+        input_schema: {
+          ...schema,
+          required: [...existingRequired, "activity"],
+        },
+      };
+    }
+
     if (schemaDefinesProperty(schema, "activity")) {
+      // Activity is only defined in composite sub-schemas (oneOf/anyOf/allOf),
+      // NOT in top-level properties. Don't add to top-level required — it would
+      // break branches that don't accept activity or conflict with
+      // additionalProperties: false.
       return def;
     }
 
