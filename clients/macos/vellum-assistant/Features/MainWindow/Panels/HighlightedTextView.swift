@@ -28,6 +28,11 @@ struct HighlightedTextView: View {
         let version: UInt64
     }
 
+    /// Files with fewer lines than this threshold use a single `Text` view
+    /// (full-document selection). Files at or above this threshold use lazy
+    /// per-line rendering for scroll performance.
+    private static let lazyRenderingThreshold = 1000
+
     private static let editorBackground = VColor.surfaceOverlay
     private static let gutterBackground = VColor.surfaceBase
     private static let gutterTextColor = VColor.contentTertiary
@@ -192,28 +197,70 @@ struct HighlightedTextView: View {
         }
     }
 
+    // MARK: - Highlighted Text (single-Text path)
+
+    /// Full-document highlighted text with search match colouring.
+    /// Used for files under `lazyRenderingThreshold` where a single `Text`
+    /// view gives full-document selection support.
+    private var highlightedText: AttributedString {
+        var result: AttributedString
+        if let cached = cachedHighlight {
+            result = cached
+        } else {
+            // Lightweight fallback while async highlighting runs
+            result = AttributedString(text)
+            result.foregroundColor = VColor.contentDefault
+            result.font = VFont.mono
+        }
+
+        guard !searchQuery.isEmpty else { return result }
+
+        let matchRanges = findMatchRanges()
+        for (index, range) in matchRanges.enumerated() {
+            guard let lowerBound = AttributedString.Index(range.lowerBound, within: result),
+                  let upperBound = AttributedString.Index(range.upperBound, within: result) else {
+                continue
+            }
+
+            let attrRange = lowerBound..<upperBound
+            if index == currentMatchIndex {
+                result[attrRange].backgroundColor = VColor.primaryBase.opacity(0.3)
+            } else {
+                result[attrRange].backgroundColor = VColor.systemMidWeak
+            }
+        }
+
+        return result
+    }
+
     /// Read-only view with line numbers and horizontal scrolling.
     ///
-    /// Uses lazy, per-line rendering: the text is split into individual lines
-    /// and each is rendered as a separate `Text` view inside a `LazyVStack`.
-    /// Only visible lines are materialised, so scrolling through files with
-    /// thousands of lines stays smooth.
+    /// For small files (< `lazyRenderingThreshold` lines), renders the entire
+    /// file as a single `Text` view so full-document text selection works.
+    /// For large files, uses lazy per-line rendering so scrolling stays smooth.
     private var readOnlyView: some View {
         let lineCount = cachedLineCount
         let gutterWidth = gutterWidth(for: lineCount)
+        let useLazy = lineCount >= Self.lazyRenderingThreshold
 
-        // Pre-split highlighted text into per-line attributed strings.
-        // When the highlight cache is available we slice the attributed string;
-        // otherwise each line is rendered as plain monospaced text (cheap).
+        // Pre-split highlighted text into per-line attributed strings
+        // (only needed for the lazy path).
         let highlightedLines: [AttributedString]?
-        if let cached = cachedHighlight {
-            highlightedLines = Self.splitLines(cached)
+        let plainLines: [Substring]
+        let matchRanges: [Range<String.Index>]
+        if useLazy {
+            if let cached = cachedHighlight {
+                highlightedLines = Self.splitLines(cached)
+            } else {
+                highlightedLines = nil
+            }
+            plainLines = text.split(separator: "\n", omittingEmptySubsequences: false)
+            matchRanges = searchQuery.isEmpty ? [] : findMatchRanges()
         } else {
             highlightedLines = nil
+            plainLines = []
+            matchRanges = []
         }
-
-        let plainLines = text.split(separator: "\n", omittingEmptySubsequences: false)
-        let matchRanges = searchQuery.isEmpty ? [] : findMatchRanges()
 
         return VStack(spacing: 0) {
             if isSearchVisible {
@@ -231,15 +278,32 @@ struct HighlightedTextView: View {
                         // Line number gutter — scrolls vertically, pinned horizontally
                         lineNumberGutter(lineCount: lineCount, width: gutterWidth)
 
-                        // Text content — lazy per-line rendering with horizontal scroll
+                        // Text content
                         ScrollView(.horizontal, showsIndicators: true) {
-                            lazyLineStack(
-                                plainLines: plainLines,
-                                highlightedLines: highlightedLines,
-                                matchRanges: matchRanges
-                            )
-                            .padding(.vertical, VSpacing.sm)
-                            .padding(.horizontal, VSpacing.md)
+                            if useLazy {
+                                // Large file: lazy per-line rendering (per-line selection)
+                                lazyLineStack(
+                                    plainLines: plainLines,
+                                    highlightedLines: highlightedLines,
+                                    matchRanges: matchRanges
+                                )
+                                .padding(.vertical, VSpacing.sm)
+                                .padding(.horizontal, VSpacing.md)
+                            } else {
+                                // Small file: single Text view (full-document selection)
+                                Group {
+                                    if isEditable {
+                                        Text(highlightedText)
+                                            .textSelection(.disabled)
+                                    } else {
+                                        Text(highlightedText)
+                                            .textSelection(.enabled)
+                                    }
+                                }
+                                .fixedSize(horizontal: true, vertical: false)
+                                .padding(.vertical, VSpacing.sm)
+                                .padding(.horizontal, VSpacing.md)
+                            }
                         }
                         .frame(minWidth: geometry.size.width - gutterWidth)
                     }
