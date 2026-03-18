@@ -41,10 +41,6 @@ public struct OAuthConnectionEntry: Codable, Sendable {
     }
 }
 
-public struct OAuthDisconnectResponse: Codable, Sendable {
-    public let success: Bool
-}
-
 // MARK: - Service
 
 @MainActor
@@ -169,6 +165,7 @@ public final class PlatformOAuthService {
 
         var urlRequest = try await authenticatedRequest(url: url, method: "POST")
         urlRequest.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        urlRequest.httpBody = "{}".data(using: .utf8)
 
         let data: Data
         let response: URLResponse
