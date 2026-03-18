@@ -16,6 +16,7 @@ struct HighlightedTextView: View {
     @State private var searchQuery = ""
     @State private var currentMatchIndex = 0
     @State private var isActivelyEditing = false
+    @State private var cachedHighlight: AttributedString?
 
     private static let editorBackground = VColor.surfaceOverlay
     private static let gutterBackground = VColor.surfaceBase
@@ -112,8 +113,19 @@ struct HighlightedTextView: View {
     // MARK: - Read-Only Mode
 
     /// Syntax-highlighted text for the read-only view, with search match highlighting.
+    ///
+    /// Uses `cachedHighlight` (computed asynchronously via `.task`) when
+    /// available, falling back to plain monospaced text so the view appears
+    /// instantly while highlighting runs in the background.
     private var highlightedText: AttributedString {
-        var result = SyntaxTheme.highlight(text, language: language)
+        var result: AttributedString
+        if let cached = cachedHighlight {
+            result = cached
+        } else {
+            result = AttributedString(text)
+            result.foregroundColor = VColor.contentDefault
+            result.font = VFont.mono
+        }
 
         guard !searchQuery.isEmpty else { return result }
 
@@ -190,11 +202,22 @@ struct HighlightedTextView: View {
             return .handled
         }
         .onChange(of: text) { _, _ in
+            cachedHighlight = nil
             let count = searchMatchCount
             if count == 0 {
                 currentMatchIndex = 0
             } else if currentMatchIndex >= count {
                 currentMatchIndex = max(0, count - 1)
+            }
+        }
+        .task(id: language) {
+            let t = text
+            let l = language
+            let result = await Task.detached(priority: .userInitiated) {
+                SyntaxTheme.highlight(t, language: l)
+            }.value
+            if !Task.isCancelled {
+                cachedHighlight = result
             }
         }
     }

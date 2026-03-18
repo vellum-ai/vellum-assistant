@@ -63,7 +63,9 @@ final class WorkspaceBrowserState {
             guard !Task.isCancelled, selectedFilePath == targetPath else { return }
             selectedFileDetail = detail
             let raw = detail?.content ?? ""
-            let content = Self.prettyPrintedJSON(raw, mimeType: detail?.mimeType)
+            let isJSON = ext == "json"
+                || detail?.mimeType.lowercased().hasPrefix("application/json") == true
+            let content = isJSON ? Self.prettyPrintJSON(raw) : raw
             editableContent = content
             originalContent = content
             isDirty = false
@@ -73,16 +75,12 @@ final class WorkspaceBrowserState {
         fileLoadTask = task
     }
 
-    /// Returns a pretty-printed version of `text` when it looks like JSON,
-    /// falling back to the original string on any parse error.
-    private static func prettyPrintedJSON(_ text: String, mimeType: String?) -> String {
-        guard let mime = mimeType?.lowercased(),
-              mime == "application/json" || mime.hasSuffix("+json") else {
-            return text
-        }
+    /// Returns a pretty-printed version of `text`, falling back to the
+    /// original string on any JSON parse error.
+    private static func prettyPrintJSON(_ text: String) -> String {
         guard let data = text.data(using: .utf8),
               let json = try? JSONSerialization.jsonObject(with: data, options: .fragmentsAllowed),
-              let pretty = try? JSONSerialization.data(withJSONObject: json, options: [.prettyPrinted]),
+              let pretty = try? JSONSerialization.data(withJSONObject: json, options: [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]),
               let result = String(data: pretty, encoding: .utf8) else {
             return text
         }
