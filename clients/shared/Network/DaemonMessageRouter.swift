@@ -13,6 +13,7 @@ extension DaemonClient {
             httpPort = status.httpPort.flatMap { Int(exactly: $0) }
             if let version = status.version {
                 daemonVersion = version
+                checkVersionCompatibility(daemonVersion: version)
             }
             if let newFingerprint = status.keyFingerprint {
                 let oldFingerprint = keyFingerprint
