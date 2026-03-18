@@ -175,6 +175,47 @@ function resolveRequesterTarget(params: {
 }
 
 /**
+ * Deliver the verification code directly to the requester's DM on Slack,
+ * removing the need for the guardian to manually share it.
+ */
+export async function deliverVerificationCodeToRequester(params: {
+  replyCallbackUrl: string;
+  requesterChatId: string;
+  verificationCode: string;
+  assistantId: string;
+  bearerToken?: string;
+  channel?: string;
+  requesterExternalUserId?: string;
+}): Promise<DeliveryResult> {
+  const text =
+    `Great news — your access request was approved! ` +
+    `Your verification code is: ${params.verificationCode}. ` +
+    `Reply with it here to complete verification. The code expires in 10 minutes.`;
+
+  const target = resolveRequesterTarget(params);
+
+  try {
+    await deliverChannelReply(
+      target.callbackUrl,
+      {
+        chatId: target.chatId,
+        text,
+        assistantId: params.assistantId,
+      },
+      params.bearerToken,
+    );
+    return { ok: true };
+  } catch (err) {
+    log.error(
+      { err, requesterChatId: params.requesterChatId },
+      "Failed to deliver verification code to requester",
+    );
+    const reason = err instanceof Error ? err.message : String(err);
+    return { ok: false, reason };
+  }
+}
+
+/**
  * Notify the requester that the guardian has approved their access request
  * and they should enter the verification code they receive from the guardian.
  */
