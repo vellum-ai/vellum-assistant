@@ -2198,13 +2198,17 @@ public final class SettingsStore: ObservableObject {
             userId: userId,
             credentialStorage: credentialStorage
         ) {
+            log.info("Resolved platform assistant ID (cached): \(resolved, privacy: .public) for runtime \(connectedId, privacy: .public)")
             return resolved
         }
 
         // For self-hosted assistants, the keychain mapping may not exist yet
         // (bootstrap is async and may not have completed). Trigger bootstrap
         // lazily and retry the resolve.
-        guard !assistant.isManaged else { return nil }
+        guard !assistant.isManaged else {
+            log.warning("Failed to resolve platform assistant ID for managed assistant \(connectedId, privacy: .public) (orgId=\(orgId ?? "nil", privacy: .public), userId=\(userId ?? "nil", privacy: .public))")
+            return nil
+        }
 
         log.info("Platform assistant ID not cached — triggering lazy bootstrap for \(connectedId, privacy: .public)")
         let bootstrapService = LocalAssistantBootstrapService(credentialStorage: credentialStorage)
@@ -2228,13 +2232,19 @@ public final class SettingsStore: ObservableObject {
         }
         let postBootstrapOrgId = UserDefaults.standard.string(forKey: "connectedOrganizationId")
 
-        return PlatformAssistantIdResolver.resolve(
+        let postBootstrapResolved = PlatformAssistantIdResolver.resolve(
             lockfileAssistantId: assistant.assistantId,
             isManaged: assistant.isManaged,
             organizationId: postBootstrapOrgId,
             userId: postBootstrapUserId,
             credentialStorage: credentialStorage
         )
+        if let resolved = postBootstrapResolved {
+            log.info("Resolved platform assistant ID (after lazy bootstrap): \(resolved, privacy: .public) for runtime \(connectedId, privacy: .public)")
+        } else {
+            log.error("Failed to resolve platform assistant ID after lazy bootstrap for runtime \(connectedId, privacy: .public) (orgId=\(postBootstrapOrgId ?? "nil", privacy: .public), userId=\(postBootstrapUserId ?? "nil", privacy: .public))")
+        }
+        return postBootstrapResolved
     }
 
     func fetchGoogleOAuthConnections(userId: String? = nil) async {
