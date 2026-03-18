@@ -66,12 +66,6 @@ struct ContactsContainerView: View {
                                 .foregroundColor(VColor.contentDefault)
                         }
                     }
-                    if case .contact(let contactId) = selection,
-                       let contact = viewModel.deduplicatedContacts.first(where: { $0.id == contactId }) {
-                        Text("\(contact.interactionCount) interaction\(contact.interactionCount == 1 ? "" : "s")")
-                            .font(VFont.caption)
-                            .foregroundColor(VColor.contentTertiary)
-                    }
                 }
                 Spacer()
                 if case .contact(let contactId) = selection,
