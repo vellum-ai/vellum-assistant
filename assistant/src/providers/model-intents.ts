@@ -1,6 +1,6 @@
 import type { ModelIntent } from "./types.js";
 
-const PROVIDER_DEFAULT_MODELS = {
+export const PROVIDER_DEFAULT_MODELS = {
   anthropic: "claude-opus-4-6",
   openai: "gpt-5.2",
   gemini: "gemini-3-flash",
