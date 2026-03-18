@@ -409,6 +409,13 @@ export function uploadAttachment(
     .get();
 
   if (existing) {
+    if (sourcePath) {
+      rawRun(
+        `UPDATE attachments SET source_path = ? WHERE id = ?`,
+        sourcePath,
+        existing.id,
+      );
+    }
     return existing;
   }
 
