@@ -1498,132 +1498,19 @@ jobs:
           git tag "v$VERSION" 2>/dev/null || true
           git push origin "v$VERSION" 2>/dev/null || echo "Tag v$VERSION already exists on remote"
 
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: '1.3.9'
+
       - name: Generate release notes from commits
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
         run: |
-          VERSION="${{ needs.extract-version.outputs.version }}"
-          SHORT_SHA=$(git rev-parse --short HEAD)
-          FULL_SHA=$(git rev-parse HEAD)
-          TIMESTAMP=$(date -u +"%Y-%m-%d %H:%M:%S UTC")
-
-          # Find the previous release tag (most recent tag that isn't the current version)
-          PREV_TAG=$(git tag -l 'v[0-9]*.[0-9]*.[0-9]*' --sort=-v:refname | grep -v "^v${VERSION}$" | head -1)
-
-          NOTES_FILE="/tmp/release-notes.md"
-
-          if [ -z "$PREV_TAG" ]; then
-            echo "No previous release tag found, using basic notes"
-            {
-              echo "**Build:** \`$VERSION\`"
-              echo "**Commit:** [\`$SHORT_SHA\`](https://github.com/${{ github.repository }}/commit/$FULL_SHA)"
-              echo "**Built at:** $TIMESTAMP"
-            } > "$NOTES_FILE"
-            exit 0
-          fi
-
-          echo "Previous release: ${PREV_TAG}"
-          echo "Collecting commits from ${PREV_TAG}..HEAD..."
-
-          # Get commit subjects, excluding merge commits and version bump commits
-          mapfile -t COMMIT_MSGS < <(git log "${PREV_TAG}..HEAD" --pretty=format:"%s" --no-merges | \
-            grep -vE "^Release v[0-9]" | \
-            grep -vE "^Merge " || true)
-
-          FEATURES=()
-          FIXES=()
-          INFRA=()
-
-          for msg in "${COMMIT_MSGS[@]}"; do
-            [ -z "$msg" ] && continue
-
-            # Preserve PR number reference as a markdown link
-            pr_num=$(echo "$msg" | grep -oP '\(#\K[0-9]+(?=\))' || true)
-            if [ -n "$pr_num" ]; then
-              clean=$(echo "$msg" | sed "s/ (#${pr_num})$//")
-              display="${clean} ([#${pr_num}](https://github.com/${{ github.repository }}/pull/${pr_num}))"
-            else
-              display="$msg"
-            fi
-
-            lower=$(echo "$msg" | tr '[:upper:]' '[:lower:]')
-
-            if echo "$lower" | grep -qE '^feat(\(|:| )|^add |^implement |^support |^introduce |^enable '; then
-              FEATURES+=("$display")
-            elif echo "$lower" | grep -qE '^fix(\(|:| )|^bug |^hotfix|^resolve |^patch '; then
-              FIXES+=("$display")
-            elif echo "$lower" | grep -qE '^(chore|ci|build|infra|refactor|deps|perf|style|docs|test)(\(|:| )'; then
-              INFRA+=("$display")
-            else
-              # Guess from content keywords
-              if echo "$lower" | grep -qiE 'fix|bug|crash|error|broken'; then
-                FIXES+=("$display")
-              elif echo "$lower" | grep -qiE 'add|new|feature|support|implement|enable|introduce'; then
-                FEATURES+=("$display")
-              else
-                INFRA+=("$display")
-              fi
-            fi
-          done
-
-          # Build highlights: top 3-5 items, prioritizing features then fixes then infra
-          HIGHLIGHTS=()
-          MAX_HIGHLIGHTS=5
-
-          for item in "${FEATURES[@]}"; do
-            [ ${#HIGHLIGHTS[@]} -ge $MAX_HIGHLIGHTS ] && break
-            HIGHLIGHTS+=("$item")
-          done
-          for item in "${FIXES[@]}"; do
-            [ ${#HIGHLIGHTS[@]} -ge $MAX_HIGHLIGHTS ] && break
-            HIGHLIGHTS+=("$item")
-          done
-          for item in "${INFRA[@]}"; do
-            [ ${#HIGHLIGHTS[@]} -ge $MAX_HIGHLIGHTS ] && break
-            HIGHLIGHTS+=("$item")
-          done
-
-          # Write structured release notes
-          {
-            if [ ${#HIGHLIGHTS[@]} -gt 0 ]; then
-              echo "## Highlights"
-              for h in "${HIGHLIGHTS[@]}"; do
-                echo "- $h"
-              done
-              echo ""
-            fi
-
-            if [ ${#FEATURES[@]} -gt 0 ]; then
-              echo "## Features"
-              for f in "${FEATURES[@]}"; do
-                echo "- $f"
-              done
-              echo ""
-            fi
-
-            if [ ${#FIXES[@]} -gt 0 ]; then
-              echo "## Fixes"
-              for f in "${FIXES[@]}"; do
-                echo "- $f"
-              done
-              echo ""
-            fi
-
-            if [ ${#INFRA[@]} -gt 0 ]; then
-              echo "## Infrastructure"
-              for i in "${INFRA[@]}"; do
-                echo "- $i"
-              done
-              echo ""
-            fi
-
-            echo "---"
-            echo ""
-            echo "**Build:** \`$VERSION\`"
-            echo "**Commit:** [\`$SHORT_SHA\`](https://github.com/${{ github.repository }}/commit/$FULL_SHA)"
-            echo "**Built at:** $TIMESTAMP"
-          } > "$NOTES_FILE"
-
-          echo "Generated release notes:"
-          cat "$NOTES_FILE"
+          bun install --no-save @anthropic-ai/sdk
+          bun scripts/generate-release-notes.ts \
+            --version "${{ needs.extract-version.outputs.version }}" \
+            --repo "${{ github.repository }}" \
+            --output /tmp/release-notes.md
 
       - name: Download macOS build artifacts
         uses: actions/download-artifact@v4
