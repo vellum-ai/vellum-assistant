@@ -123,7 +123,7 @@ struct ContactsListView: View {
         Button {
             viewModel.isCreatingContact = true
         } label: {
-            HStack(spacing: VSpacing.xs) {
+            HStack(spacing: VSpacing.sm) {
                 Image(systemName: "person.badge.plus")
                     .font(.system(size: 14))
                 Text("Add Contact")
