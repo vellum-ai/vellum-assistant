@@ -140,10 +140,10 @@ export function dockerResourceNames(instanceName: string) {
   return {
     assistantContainer: `${instanceName}-assistant`,
     cesContainer: `${instanceName}-credential-executor`,
-    dataVolume: `vellum-data-${instanceName}`,
+    dataVolume: `${instanceName}-data`,
     gatewayContainer: `${instanceName}-gateway`,
-    network: `vellum-net-${instanceName}`,
-    socketVolume: `vellum-ces-bootstrap-${instanceName}`,
+    network: `${instanceName}-net`,
+    socketVolume: `${instanceName}-socket`,
   };
 }
 
@@ -187,7 +187,7 @@ export async function retireDocker(name: string): Promise<void> {
   // Also clean up a legacy single-container instance if it exists
   await removeContainer(name);
 
-  // Remove shared network and volumes
+  // Remove network and volumes
   try {
     await exec("docker", ["network", "rm", res.network]);
   } catch {
@@ -378,7 +378,6 @@ export function serviceDockerRunArgs(opts: {
       "-d",
       "--name",
       res.cesContainer,
-      `--network=${res.network}`,
       "-v",
       `${res.socketVolume}:/run/ces-bootstrap`,
       "-v",
@@ -654,7 +653,7 @@ export async function hatchDocker(
 
     const res = dockerResourceNames(instanceName);
 
-    log("📁 Creating shared network and volumes...");
+    log("📁 Creating network and volumes...");
     await exec("docker", ["network", "create", res.network]);
     await exec("docker", ["volume", "create", res.dataVolume]);
     await exec("docker", ["volume", "create", res.socketVolume]);
