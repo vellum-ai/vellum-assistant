@@ -80,7 +80,7 @@ public enum VFont {
 
     // MARK: - Specialized
 
-    public static let cardTitle   = Font.custom("Inter-Medium", size: 17)
+    public static let cardTitle   = Font.custom("Inter-SemiBold", size: 16)
     public static let buttonLarge = Font.custom("Inter-Medium", size: 16)
     public static let cardEmoji  = Font.system(size: 32)
     public static let onboardingEmoji = Font.system(size: adaptiveSize(80))
