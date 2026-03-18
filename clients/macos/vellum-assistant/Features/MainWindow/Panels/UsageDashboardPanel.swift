@@ -13,7 +13,7 @@ struct UsageDashboardPanel: View {
     }
 
     var body: some View {
-        VSidePanel(title: "Usage", contentPadding: EdgeInsets(top: VSpacing.lg, leading: 0, bottom: VSpacing.lg, trailing: 0), onClose: onClose, pinnedContent: {
+        VSidePanel(title: "Usage", contentPadding: EdgeInsets(top: 0, leading: 0, bottom: VSpacing.lg, trailing: 0), onClose: onClose, pinnedContent: {
             if !allFailed {
                 timeRangeStrip(store: store)
             }
@@ -88,7 +88,7 @@ struct UsageDashboardPanel: View {
             .frame(width: 160)
             Spacer()
         }
-        .padding(.vertical, VSpacing.sm)
+        .padding(.vertical, VSpacing.lg)
     }
 
 
