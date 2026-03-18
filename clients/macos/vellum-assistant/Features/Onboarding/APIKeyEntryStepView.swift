@@ -21,7 +21,7 @@ struct APIKeyEntryStepView: View {
             .padding(.bottom, VSpacing.md)
 
         Text("Since you skipped creating an account,\nwe\u{2019}ll need your Anthropic API key.")
-            .font(.system(size: 16))
+            .font(VFont.buttonLarge)
             .multilineTextAlignment(.center)
             .foregroundColor(VColor.contentSecondary)
             .opacity(showTitle ? 1 : 0)
