@@ -156,17 +156,15 @@ extension AppDelegate {
                 // Auto-approve low/medium risk tool confirmations during CU sessions
                 if self.currentSession?.autoApproveTools == true,
                    msg.riskLevel == "low" || msg.riskLevel == "medium" {
-                    do {
-                        try self.daemonClient.sendConfirmationResponse(
-                            requestId: msg.requestId,
-                            decision: "allow"
-                        )
+                    let success = await InteractionClient().sendConfirmationResponse(
+                        requestId: msg.requestId,
+                        decision: "allow"
+                    )
+                    if success {
                         self.mainWindow?.conversationManager.updateConfirmationStateAcrossConversations(
                             requestId: msg.requestId,
                             decision: "allow"
                         )
-                    } catch {
-                        log.error("Failed to auto-approve confirmation: \(error.localizedDescription)")
                     }
                     return
                 }
@@ -191,18 +189,15 @@ extension AppDelegate {
                 guard decision != ToolConfirmationNotificationService.inlineHandledSentinel else {
                     return
                 }
-                do {
-                    try self.daemonClient.sendConfirmationResponse(
-                        requestId: msg.requestId,
-                        decision: decision
-                    )
-                    // Only sync the inline message state if the send succeeded.
+                let success = await InteractionClient().sendConfirmationResponse(
+                    requestId: msg.requestId,
+                    decision: decision
+                )
+                if success {
                     self.mainWindow?.conversationManager.updateConfirmationStateAcrossConversations(
                         requestId: msg.requestId,
                         decision: decision
                     )
-                } catch {
-                    log.error("Failed to send confirmation response: \(error.localizedDescription)")
                 }
             }
         }
