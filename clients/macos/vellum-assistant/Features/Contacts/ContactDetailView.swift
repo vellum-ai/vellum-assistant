@@ -30,10 +30,11 @@ struct ContactDetailView: View {
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: VSpacing.lg) {
+            VStack(alignment: .leading, spacing: 0) {
                 headerSection
                     .padding(VSpacing.lg)
-                    .vCard(radius: VRadius.lg, background: VColor.surfaceOverlay)
+
+                SettingsDivider()
 
                 GuardianChannelsDetailView(
                     contact: displayContact,
@@ -43,12 +44,14 @@ struct ContactDetailView: View {
                     showCardBorders: false
                 )
                 .padding(VSpacing.lg)
-                .vCard(radius: VRadius.lg, background: VColor.surfaceOverlay)
 
                 if let errorMessage {
                     VInlineMessage(errorMessage)
+                        .padding(.horizontal, VSpacing.lg)
+                        .padding(.bottom, VSpacing.lg)
                 }
             }
+            .vCard(radius: VRadius.lg, background: VColor.surfaceOverlay)
         }
         .confirmationDialog(
             "Delete \(displayContact.displayName)?",
