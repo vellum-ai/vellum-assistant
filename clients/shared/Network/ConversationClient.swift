@@ -138,12 +138,18 @@ public struct ConversationListClient: ConversationListClientProtocol {
                 return m
             }
 
-            let historyPayload: [String: Any] = [
+            var historyPayload: [String: Any] = [
                 "type": "history_response",
                 "conversationId": conversationId,
                 "messages": transformed,
                 "hasMore": json["hasMore"] as? Bool ?? false,
             ]
+            if let oldestTimestamp = json["oldestTimestamp"] {
+                historyPayload["oldestTimestamp"] = oldestTimestamp
+            }
+            if let oldestMessageId = json["oldestMessageId"] {
+                historyPayload["oldestMessageId"] = oldestMessageId
+            }
 
             let historyData = try JSONSerialization.data(withJSONObject: historyPayload)
             return try JSONDecoder().decode(HistoryResponse.self, from: historyData)
