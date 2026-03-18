@@ -46,6 +46,7 @@ struct SettingsPanel: View {
     var daemonClient: DaemonClient?
     @ObservedObject var conversationManager: ConversationManager
     var authManager: AuthManager
+    @ObservedObject var assistantFeatureFlagStore: AssistantFeatureFlagStore
     var showToast: ((String, ToastInfo.Style) -> Void)?
     var featureFlagClient: FeatureFlagClientProtocol = FeatureFlagClient()
 
@@ -57,6 +58,7 @@ struct SettingsPanel: View {
         daemonClient: DaemonClient? = nil,
         conversationManager: ConversationManager,
         authManager: AuthManager,
+        assistantFeatureFlagStore: AssistantFeatureFlagStore,
         showToast: ((String, ToastInfo.Style) -> Void)? = nil,
         featureFlagClient: FeatureFlagClientProtocol = FeatureFlagClient()
     ) {
@@ -65,6 +67,7 @@ struct SettingsPanel: View {
         self.daemonClient = daemonClient
         self._conversationManager = ObservedObject(wrappedValue: conversationManager)
         self.authManager = authManager
+        self._assistantFeatureFlagStore = ObservedObject(wrappedValue: assistantFeatureFlagStore)
         self.showToast = showToast
         self.featureFlagClient = featureFlagClient
 
@@ -405,6 +408,7 @@ struct SettingsPanel: View {
             InferenceServiceCard(
                 store: store,
                 authManager: authManager,
+                assistantFeatureFlagStore: assistantFeatureFlagStore,
                 apiKeyText: $apiKeyText,
                 showToast: showToast
             )

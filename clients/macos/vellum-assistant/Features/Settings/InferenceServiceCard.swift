@@ -7,10 +7,15 @@ import VellumAssistantShared
 /// - **Managed + logged in**: Model picker, Save button
 /// - **Managed + not logged in**: Empty state prompting login
 /// - **Your Own**: API key field, model picker, Save + Reset buttons
+///
+/// When the `custom-inference-provider` feature flag is enabled,
+/// shows an additional provider picker in Your Own mode, adapts the
+/// API key label, and switches model catalogs per-provider.
 @MainActor
 struct InferenceServiceCard: View {
     @ObservedObject var store: SettingsStore
     var authManager: AuthManager
+    @ObservedObject var assistantFeatureFlagStore: AssistantFeatureFlagStore
     @Binding var apiKeyText: String
     var showToast: ((String, ToastInfo.Style) -> Void)?
 
@@ -20,9 +25,34 @@ struct InferenceServiceCard: View {
     @State private var initialModel: String = ""
     /// Whether to show the web search impact confirmation alert.
     @State private var showWebSearchAlert = false
+    /// Local draft of the provider selection — only persisted on Save.
+    @State private var draftProvider: String = "anthropic"
+    /// Snapshot of the provider at card appear — used to detect provider changes.
+    @State private var initialProvider: String = ""
+
+    // MARK: - Feature Flag
+
+    private static let customInferenceProviderFlagKey = "feature_flags.custom-inference-provider.enabled"
+
+    private var isCustomProviderEnabled: Bool {
+        assistantFeatureFlagStore.isEnabled(Self.customInferenceProviderFlagKey)
+    }
+
+    // MARK: - Provider Helpers
+
+    /// When the flag is off, always Anthropic; when on, use the draft provider.
+    private var effectiveProvider: String {
+        isCustomProviderEnabled ? draftProvider : "anthropic"
+    }
+
+    private var providerDisplayName: String {
+        SettingsStore.inferenceProviderDisplayNames[effectiveProvider] ?? effectiveProvider
+    }
+
+    // MARK: - Computed State
 
     private var isConnected: Bool {
-        store.hasKey
+        isCustomProviderEnabled ? store.hasKeyForProvider(effectiveProvider) : store.hasKey
     }
 
     private var isLoggedIn: Bool {
@@ -56,7 +86,8 @@ struct InferenceServiceCard: View {
         let modeChanged = draftMode != store.inferenceMode
         let hasNewKey = !apiKeyText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         let modelChanged = store.selectedModel != initialModel
-        return modeChanged || hasNewKey || modelChanged
+        let providerChanged = isCustomProviderEnabled && draftProvider != initialProvider
+        return modeChanged || hasNewKey || modelChanged || providerChanged
     }
 
     var body: some View {
@@ -68,7 +99,11 @@ struct InferenceServiceCard: View {
             isSaving: store.apiKeySaving,
             onSave: { save() },
             onReset: {
-                store.clearAPIKey()
+                if isCustomProviderEnabled {
+                    store.clearAPIKeyForProvider(effectiveProvider)
+                } else {
+                    store.clearAPIKey()
+                }
                 apiKeyText = ""
             },
             showReset: isConnected,
@@ -81,23 +116,12 @@ struct InferenceServiceCard: View {
             },
             yourOwnContent: {
                 VStack(alignment: .leading, spacing: VSpacing.md) {
-                    // API Key field
-                    VStack(alignment: .leading, spacing: VSpacing.sm) {
-                        Text("API Key")
-                            .font(VFont.inputLabel)
-                            .foregroundColor(VColor.contentSecondary)
-                        SecureField("Enter your API key", text: $apiKeyText)
-                            .vInputStyle()
-                            .font(VFont.body)
-                            .foregroundColor(VColor.contentDefault)
-                            .disabled(store.apiKeySaving)
-
-                        if let error = store.apiKeySaveError {
-                            Text(error)
-                                .font(VFont.caption)
-                                .foregroundColor(VColor.systemNegativeStrong)
-                        }
+                    if isCustomProviderEnabled {
+                        providerPicker
                     }
+
+                    // API Key field
+                    apiKeyField
 
                     // Model picker
                     modelPicker
@@ -107,10 +131,25 @@ struct InferenceServiceCard: View {
         .onAppear {
             draftMode = store.inferenceMode
             initialModel = store.selectedModel
+            draftProvider = store.selectedInferenceProvider
+            initialProvider = store.selectedInferenceProvider
         }
         .onChange(of: store.inferenceMode) { _, newValue in
             // Sync draft when external changes arrive (e.g. daemon reload)
             draftMode = newValue
+        }
+        .onChange(of: store.selectedInferenceProvider) { _, newValue in
+            draftProvider = newValue
+            initialProvider = newValue
+        }
+        .onChange(of: draftProvider) { _, newProvider in
+            if isCustomProviderEnabled {
+                let defaultModel = SettingsStore.inferenceProviderDefaultModel[newProvider]
+                    ?? SettingsStore.inferenceProviderModels[newProvider]?.first?.id
+                    ?? ""
+                store.selectedModel = defaultModel
+            }
+            apiKeyText = ""
         }
         .alert("Heads up", isPresented: $showWebSearchAlert) {
             Button("Go Back", role: .cancel) {}
@@ -146,6 +185,45 @@ struct InferenceServiceCard: View {
         }
     }
 
+    // MARK: - Provider Picker
+
+    private var providerPicker: some View {
+        VStack(alignment: .leading, spacing: VSpacing.sm) {
+            Text("Provider")
+                .font(VFont.inputLabel)
+                .foregroundColor(VColor.contentSecondary)
+            VDropdown(
+                placeholder: "Select a provider\u{2026}",
+                selection: $draftProvider,
+                options: SettingsStore.inferenceProviders.map { provider in
+                    (label: SettingsStore.inferenceProviderDisplayNames[provider] ?? provider, value: provider)
+                }
+            )
+            .frame(width: 400)
+        }
+    }
+
+    // MARK: - API Key Field
+
+    private var apiKeyField: some View {
+        VStack(alignment: .leading, spacing: VSpacing.sm) {
+            Text(isCustomProviderEnabled ? "\(providerDisplayName) API Key" : "API Key")
+                .font(VFont.inputLabel)
+                .foregroundColor(VColor.contentSecondary)
+            SecureField("Enter your API key", text: $apiKeyText)
+                .vInputStyle()
+                .font(VFont.body)
+                .foregroundColor(VColor.contentDefault)
+                .disabled(store.apiKeySaving)
+
+            if let error = store.apiKeySaveError {
+                Text(error)
+                    .font(VFont.caption)
+                    .foregroundColor(VColor.systemNegativeStrong)
+            }
+        }
+    }
+
     // MARK: - Model Picker
 
     private var modelPicker: some View {
@@ -153,18 +231,42 @@ struct InferenceServiceCard: View {
             Text("Active Model")
                 .font(VFont.inputLabel)
                 .foregroundColor(VColor.contentSecondary)
-            VDropdown(
-                placeholder: "Select a model\u{2026}",
-                selection: Binding(
-                    get: { store.selectedModel },
-                    set: { store.selectedModel = $0 }
-                ),
-                options: SettingsStore.availableModels.map { model in
-                    (label: SettingsStore.modelDisplayNames[model] ?? model, value: model)
-                }
-            )
-            .frame(width: 400)
+            if isCustomProviderEnabled {
+                providerModelPicker
+            } else {
+                defaultModelPicker
+            }
         }
+    }
+
+    /// Hardcoded Anthropic-only model dropdown (flag off, backward compat).
+    private var defaultModelPicker: some View {
+        VDropdown(
+            placeholder: "Select a model\u{2026}",
+            selection: Binding(
+                get: { store.selectedModel },
+                set: { store.selectedModel = $0 }
+            ),
+            options: SettingsStore.availableModels.map { model in
+                (label: SettingsStore.modelDisplayNames[model] ?? model, value: model)
+            }
+        )
+        .frame(width: 400)
+    }
+
+    /// Per-provider catalog model dropdown (flag on).
+    private var providerModelPicker: some View {
+        VDropdown(
+            placeholder: "Select a model\u{2026}",
+            selection: Binding(
+                get: { store.selectedModel },
+                set: { store.selectedModel = $0 }
+            ),
+            options: (SettingsStore.inferenceProviderModels[draftProvider] ?? []).map { model in
+                (label: model.displayName, value: model.id)
+            }
+        )
+        .frame(width: 400)
     }
 
     // MARK: - Save
@@ -185,19 +287,35 @@ struct InferenceServiceCard: View {
             store.setInferenceMode(draftMode)
         }
 
+        // Persist provider if changed and flag is on
+        if isCustomProviderEnabled && draftProvider != initialProvider {
+            store.setInferenceProvider(draftProvider)
+            initialProvider = draftProvider
+        }
+
         // Persist API key if entered and in your-own mode.
-        // saveAPIKey is async (validates with the provider before storing).
+        // saveAPIKey / saveInferenceAPIKey is async (validates with the provider before storing).
         // The key text is kept until validation succeeds so the user can retry.
         let trimmedKey = apiKeyText.trimmingCharacters(in: .whitespacesAndNewlines)
         if draftMode == "your-own" && !trimmedKey.isEmpty {
             let keyTextBinding = $apiKeyText
-            store.saveAPIKey(trimmedKey, onSuccess: {
-                keyTextBinding.wrappedValue = ""
-            })
+            if isCustomProviderEnabled {
+                store.saveInferenceAPIKey(trimmedKey, provider: effectiveProvider, onSuccess: {
+                    keyTextBinding.wrappedValue = ""
+                })
+            } else {
+                store.saveAPIKey(trimmedKey, onSuccess: {
+                    keyTextBinding.wrappedValue = ""
+                })
+            }
         }
 
         // Persist model selection
-        store.setModel(store.selectedModel)
+        if isCustomProviderEnabled {
+            store.setModel(store.selectedModel, provider: draftProvider)
+        } else {
+            store.setModel(store.selectedModel)
+        }
         initialModel = store.selectedModel
     }
 }
