@@ -140,30 +140,31 @@ private struct GallerySidebarRow: View {
     @State private var isHovered = false
 
     var body: some View {
-        HStack(spacing: VSpacing.xs) {
-            VIconView(icon, size: 13)
-                .foregroundColor(isActive ? VColor.primaryActive : VColor.primaryBase)
-                .frame(width: 20, height: 20)
-            Text(label)
-                .font(VFont.body)
-                .foregroundColor(isActive ? VColor.contentEmphasized : VColor.contentSecondary)
-                .lineLimit(1)
-                .truncationMode(.tail)
-            Spacer()
+        Button(action: action) {
+            HStack(spacing: VSpacing.xs) {
+                VIconView(icon, size: 13)
+                    .foregroundColor(isActive ? VColor.primaryActive : VColor.primaryBase)
+                    .frame(width: 20, height: 20)
+                Text(label)
+                    .font(VFont.body)
+                    .foregroundColor(isActive ? VColor.contentEmphasized : VColor.contentSecondary)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                Spacer()
+            }
+            .padding(.leading, VSpacing.xs)
+            .padding(.trailing, VSpacing.sm)
+            .padding(.vertical, VSpacing.xs)
+            .frame(minHeight: 32)
+            .background(
+                isActive ? VColor.surfaceActive :
+                isHovered ? VColor.surfaceBase :
+                Color.clear
+            )
+            .animation(VAnimation.fast, value: isHovered)
+            .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
         }
-        .padding(.leading, VSpacing.xs)
-        .padding(.trailing, VSpacing.sm)
-        .padding(.vertical, VSpacing.xs)
-        .frame(minHeight: 32)
-        .background(
-            isActive ? VColor.surfaceActive :
-            isHovered ? VColor.surfaceBase :
-            Color.clear
-        )
-        .animation(VAnimation.fast, value: isHovered)
-        .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
-        .contentShape(Rectangle())
-        .onTapGesture { action() }
+        .buttonStyle(.plain)
         .onHover { isHovered = $0 }
         .pointerCursor()
     }
