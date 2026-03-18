@@ -579,6 +579,22 @@ VStreamingWaveform(
                         }
                     )
 
+                    // Live voice: stop dictation and switch to voice mode
+                    if onVoiceModeToggle != nil {
+                        VButton(
+                            label: "Switch to live voice",
+                            iconOnly: VIcon.mic.rawValue,
+                            style: .ghost,
+                            iconSize: composerActionButtonSize,
+                            action: {
+                                preDictationText = ""
+                                (onDictateToggle ?? onMicrophoneToggle)()
+                                onVoiceModeToggle?()
+                            }
+                        )
+                        .help("Switch to live voice conversation")
+                    }
+
                     // Accept: stop dictation and keep transcribed text
                     VButton(
                         label: "Accept dictation",
