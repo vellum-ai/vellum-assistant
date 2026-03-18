@@ -135,13 +135,15 @@ Use the most recent `credential_store` result as the source of truth:
 
 Guardian verification depends on Socket Mode being live, so only proceed once the connection is confirmed.
 
-## Step 5: Guardian Verification (Optional)
+## Step 5: Test Your Connection
 
-Link the user's Slack account as the trusted guardian. Load the **guardian-verify-setup** skill:
+Now let's test the connection by verifying the user can receive messages from the bot. This also sets them up as the trusted guardian for this Slack workspace.
+
+Load the **guardian-verify-setup** skill:
 
 - Call `skill_load` with `skill: "guardian-verify-setup"`.
 
-If the user declines, skip and continue.
+If the user explicitly wants to skip this step, proceed to Step 6, but let them know they can always verify later by saying "verify me on slack".
 
 ## Step 6: Report Success
 
