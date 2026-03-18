@@ -25,6 +25,7 @@ import {
 } from "../memory/conversation-crud.js";
 import { extractPreferences } from "../notifications/preference-extractor.js";
 import { createPreference } from "../notifications/preferences-store.js";
+import { PROVIDER_MODEL_CATALOG } from "../providers/model-catalog.js";
 import { getConfiguredProviders } from "../providers/provider-availability.js";
 import type { Message } from "../providers/types.js";
 import { routeGuardianReply } from "../runtime/guardian-reply-router.js";
@@ -37,6 +38,7 @@ import {
   resolveSlash,
   type SlashContext,
 } from "./conversation-slash.js";
+import type { ModelSetContext } from "./handlers/config-model.js";
 import type {
   ServerMessage,
   UsageStats,
@@ -50,11 +52,13 @@ const log = getLogger("conversation-process");
 /** Build a model_info event with fresh config data. */
 export async function buildModelInfoEvent(): Promise<ServerMessage> {
   const config = getConfig();
+  const provider = config.services.inference.provider;
   return {
     type: "model_info",
     model: config.services.inference.model,
-    provider: config.services.inference.provider,
+    provider,
     configuredProviders: await getConfiguredProviders(),
+    availableModels: PROVIDER_MODEL_CATALOG[provider],
   };
 }
 
@@ -93,6 +97,8 @@ export interface ProcessConversationContext {
   addPreactivatedSkillId(id: string): void;
   /** Assistant identity — used for scoping notification preferences. */
   readonly assistantId?: string;
+  /** Model set context for delegating model/provider changes through shared setModel(). */
+  modelSetContext?: ModelSetContext;
   trustContext?: TrustContext;
   ensureActorScopedHistory(): Promise<void>;
   persistUserMessage(
@@ -204,6 +210,7 @@ function buildSlashContext(
     model: config.services.inference.model,
     provider: config.services.inference.provider,
     estimatedCost: conversation.usageStats.estimatedCost,
+    modelSetContext: conversation.modelSetContext,
   };
 }
 
