@@ -372,15 +372,18 @@ ComputerUse/          Core perception + action pipeline
   AccessibilityTree   AX element enumeration & formatting
   AXTreeDiff          Diff between AX tree snapshots across steps
   ActionExecutor      CGEvent mouse/keyboard injection
+  ActionTypes         Action type definitions
   ActionVerifier      Safety checks (sensitive data, loops, limits)
+  HostCuExecutor      Computer-use action execution
+  HostCuSessionProxy  Session proxy for host computer-use orchestration
   ScreenCapture       ScreenCaptureKit screenshot capture
-  Session             Main orchestration loop
 Services/             Singleton service containers
 Ambient/              Background screen-watching agent
   AmbientAgent        Periodic capture → OCR → analyze via HTTP
-  AmbientAnalyzer     Type definitions (AmbientDecision, AmbientAnalysisResult)
+  AmbientAXCapture    Accessibility tree capture for ambient analysis
   KnowledgeStore      Persists observations as JSON
   ScreenOCR           Vision framework OCR
+  WatchSession        Watch connectivity session for ambient data
 Features/
   Ambient/            Background screen monitoring UI
   Avatar/             Avatar customization
