@@ -2386,15 +2386,13 @@ public final class ChatViewModel: ObservableObject {
 
     /// Respond to a tool confirmation request displayed inline in the chat.
     public func respondToConfirmation(requestId: String, decision: String) {
-        guard daemonClient.isConnected else {
-            errorText = "Failed to send confirmation response."
-            return
-        }
+        markConfirmationInFlight(requestId: requestId, decision: decision)
         Task {
             let success = await performConfirmationResponse(
                 requestId: requestId, decision: decision, selectedPattern: nil, selectedScope: nil
             )
             if !success {
+                self.revertConfirmationInFlight(requestId: requestId)
                 self.errorText = "Failed to send confirmation response."
             }
         }
@@ -2402,15 +2400,10 @@ public final class ChatViewModel: ObservableObject {
 
     /// Respond to a tool confirmation with "always_allow", sending the selected pattern and scope
     /// so the backend atomically persists the trust rule alongside the confirmation response.
-    /// If the daemon is disconnected, shows an error without attempting a fallback (since
-    /// respondToConfirmation would also fail). On send errors, attempts a one-time allow
-    /// fallback and only claims success if the fallback actually went through.
+    /// On send errors, attempts a one-time allow fallback and only claims success if the
+    /// fallback actually went through.
     public func respondToAlwaysAllow(requestId: String, selectedPattern: String, selectedScope: String, decision: String = "always_allow") {
-        guard daemonClient.isConnected else {
-            log.warning("Cannot persist always-allow: daemon not connected")
-            errorText = "Cannot send confirmation — assistant is not connected."
-            return
-        }
+        markConfirmationInFlight(requestId: requestId, decision: decision)
         Task {
             let success = await interactionClient.sendConfirmationResponse(
                 requestId: requestId, decision: decision, selectedPattern: selectedPattern, selectedScope: selectedScope
@@ -2420,19 +2413,40 @@ public final class ChatViewModel: ObservableObject {
                 let fallbackSuccess = await self.performConfirmationResponse(
                     requestId: requestId, decision: "allow", selectedPattern: nil, selectedScope: nil
                 )
+                if !fallbackSuccess {
+                    self.revertConfirmationInFlight(requestId: requestId)
+                }
                 if fallbackSuccess {
                     self.errorText = "Preference could not be saved. This action was allowed once."
                 }
                 return
             }
             if let index = self.messages.firstIndex(where: { $0.confirmation?.requestId == requestId }) {
-                self.messages[index].confirmation?.state = .approved
                 self.messages[index].confirmation?.approvedDecision = decision
             }
             self.clearPendingConfirmation(requestId: requestId)
             self.onInlineConfirmationResponse?(requestId, "allow")
             self.inlineResponseHandledRequestIds.insert(requestId)
         }
+    }
+
+    /// Optimistically update confirmation UI to prevent duplicate submissions while
+    /// the gateway request is in flight.
+    private func markConfirmationInFlight(requestId: String, decision: String) {
+        guard let index = messages.firstIndex(where: { $0.confirmation?.requestId == requestId }) else { return }
+        let isApproval = decision == "allow" || decision == "allow_10m" || decision == "allow_conversation"
+            || decision == "always_allow" || decision == "always_allow_high_risk"
+        messages[index].confirmation?.state = isApproval ? .approved : .denied
+        if isApproval {
+            messages[index].confirmation?.approvedDecision = decision
+        }
+    }
+
+    /// Revert an optimistic confirmation update when the gateway request fails.
+    private func revertConfirmationInFlight(requestId: String) {
+        guard let index = messages.firstIndex(where: { $0.confirmation?.requestId == requestId }) else { return }
+        messages[index].confirmation?.state = .pending
+        messages[index].confirmation?.approvedDecision = nil
     }
 
     /// Shared async helper that sends a confirmation response and updates UI state on success.
