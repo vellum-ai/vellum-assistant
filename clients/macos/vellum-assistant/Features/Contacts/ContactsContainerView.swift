@@ -52,7 +52,7 @@ struct ContactsContainerView: View {
             VColor.borderDisabled
                 .frame(width: 1)
                 .frame(maxHeight: .infinity)
-                .padding(.vertical, VSpacing.xl)
+                .padding(.vertical, VSpacing.lg)
 
             // Right pane: detail, loading, or placeholder
             if viewModel.isLoading && viewModel.contacts.isEmpty {
@@ -241,7 +241,7 @@ struct ContactsContainerView: View {
                 .padding(VSpacing.lg)
 
                 SettingsDivider()
-                    .padding(.horizontal, VSpacing.xl)
+                    .padding(.horizontal, VSpacing.lg)
 
                 GuardianChannelsDetailView(
                     contact: contact,
