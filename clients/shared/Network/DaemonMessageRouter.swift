@@ -25,8 +25,8 @@ extension DaemonClient {
                     NotificationCenter.default.post(name: .daemonInstanceChanged, object: nil)
                 } else if oldFingerprint == nil, ActorTokenManager.hasToken {
                     // First daemon_status with a fingerprint, but we already have a stored token.
-                    // The reactive 401 retry (executeLocalRequest) handles re-bootstrap if the
-                    // token is stale. No proactive action needed here.
+                    // The reactive 401 retry handles re-bootstrap if the token
+                    // is stale. No proactive action needed here.
                 }
             }
         }

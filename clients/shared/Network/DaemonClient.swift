@@ -747,11 +747,6 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
 
     // MARK: - Conversations
 
-    /// Request the list of past conversations from the daemon.
-    public func sendConversationList(offset: Int? = nil, limit: Int? = nil) throws {
-        try send(ConversationListRequestMessage(offset: offset, limit: limit))
-    }
-
     /// Request message history for a specific conversation.
     /// - Parameters:
     ///   - conversationId: The conversation to fetch history for.
@@ -841,76 +836,6 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
             request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         }
         return request
-    }
-
-    /// Execute a local HTTP request with automatic 401 recovery.
-    ///
-    /// On 401, attempts to re-bootstrap the actor token via `guardian/init`
-    /// and retries the request once. Logs all failure paths for diagnostics.
-    private func executeLocalRequest<T: Decodable>(
-        target: LocalHTTPTarget = .daemon,
-        path: String,
-        method: String = "GET",
-        body: Data? = nil,
-        timeout: TimeInterval = 10,
-        tokenOverride: String? = nil
-    ) async -> T? {
-        guard var request = buildLocalRequest(target: target, path: path, method: method, timeout: timeout, tokenOverride: tokenOverride) else {
-            log.warning("Local HTTP: no port available for \(path, privacy: .public)")
-            return nil
-        }
-        if let body {
-            request.httpBody = body
-            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        }
-
-        do {
-            let (data, response) = try await URLSession.shared.data(for: request)
-            guard let http = response as? HTTPURLResponse else {
-                log.warning("Local HTTP: no HTTPURLResponse for \(path, privacy: .public)")
-                return nil
-            }
-
-            if http.statusCode == 401 {
-                // If caller provided an explicit token override, 401 recovery via
-                // actor-token re-bootstrap won't help — it's a different credential.
-                if tokenOverride != nil {
-                    log.warning("Local HTTP 401 for \(path, privacy: .public) — tokenOverride set, skipping retry")
-                    return nil
-                }
-                guard let platform = recoveryPlatform, let deviceId = recoveryDeviceId else {
-                    log.warning("Local HTTP 401 for \(path, privacy: .public) — no recovery credentials configured")
-                    return nil
-                }
-                log.info("Local HTTP 401 for \(path, privacy: .public) — attempting re-bootstrap")
-                let success = await bootstrapActorToken(platform: platform, deviceId: deviceId)
-                guard success else {
-                    log.warning("Local HTTP re-bootstrap failed for \(path, privacy: .public)")
-                    return nil
-                }
-                // Retry with fresh token
-                guard var retryRequest = buildLocalRequest(target: target, path: path, method: method, timeout: timeout) else { return nil }
-                if let body {
-                    retryRequest.httpBody = body
-                    retryRequest.setValue("application/json", forHTTPHeaderField: "Content-Type")
-                }
-                let (retryData, retryResponse) = try await URLSession.shared.data(for: retryRequest)
-                guard let retryHttp = retryResponse as? HTTPURLResponse, (200...299).contains(retryHttp.statusCode) else {
-                    log.warning("Local HTTP retry failed for \(path, privacy: .public) status=\((retryResponse as? HTTPURLResponse)?.statusCode ?? -1)")
-                    return nil
-                }
-                return try JSONDecoder().decode(T.self, from: retryData)
-            }
-
-            guard (200...299).contains(http.statusCode) else {
-                log.warning("Local HTTP \(http.statusCode) for \(path, privacy: .public)")
-                return nil
-            }
-            return try JSONDecoder().decode(T.self, from: data)
-        } catch {
-            log.warning("Local HTTP error for \(path, privacy: .public): \(error.localizedDescription, privacy: .public)")
-            return nil
-        }
     }
 
     // MARK: - Interface Files

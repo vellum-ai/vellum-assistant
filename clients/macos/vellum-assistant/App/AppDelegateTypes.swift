@@ -25,13 +25,26 @@ enum AssistantStatus {
     }
 
     var statusIcon: NSImage? {
+        switch self {
+        case .idle:         return Self.idleIcon
+        case .thinking:     return Self.thinkingIcon
+        case .error:        return Self.errorIcon
+        case .disconnected: return Self.disconnectedIcon
+        }
+    }
+
+    private static let idleIcon         = makeStatusDot(color: .systemGray)
+    private static let thinkingIcon     = makeStatusDot(color: .systemGreen)
+    private static let errorIcon        = makeStatusDot(color: .systemRed)
+    private static let disconnectedIcon = makeStatusDot(color: .systemOrange)
+
+    private static func makeStatusDot(color: NSColor) -> NSImage {
         let size: CGFloat = 8
-        let image = NSImage(size: NSSize(width: size, height: size))
-        image.lockFocus()
-        statusColor.setFill()
-        NSBezierPath(ovalIn: NSRect(x: 0, y: 0, width: size, height: size)).fill()
-        image.unlockFocus()
-        return image
+        return NSImage(size: NSSize(width: size, height: size), flipped: false) { rect in
+            color.setFill()
+            NSBezierPath(ovalIn: rect).fill()
+            return true
+        }
     }
 
     /// Whether the dot should pulse (animate opacity)

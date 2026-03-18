@@ -31,13 +31,13 @@ final class VoiceInputManager {
     var onRecordingStateChanged: ((Bool) -> Void)?
 
     /// Controls how completed transcriptions are routed. Defaults to `.dictation` so
-    /// voice input goes through the daemon cleanup path for cursor insertion.
+    /// voice input goes through the dictation cleanup path for cursor insertion.
     var currentMode: VoiceInputMode = .dictation
 
-    /// Daemon client used to send dictation requests in `.dictation` mode.
-    var daemonClient: (any DaemonClientProtocol)?
+    /// Focused client used to process dictation requests in `.dictation` mode.
+    private let dictationClient: any DictationClientProtocol
 
-    /// Called when the daemon returns a dictation response (cleaned-up text + action plan).
+    /// Called when dictation processing returns a response (cleaned-up text + action plan).
     var onDictationResponse: ((DictationResponse) -> Void)?
 
     /// Called when the daemon classifies dictation as an action (e.g. "Slack Alex about the standup").
@@ -72,7 +72,7 @@ final class VoiceInputManager {
     /// Overlay for first-use permission prompts (microphone/speech recognition).
     private let permissionOverlay = PermissionPromptOverlay()
 
-    /// True after a dictation request has been sent to the daemon and we're awaiting a response.
+    /// True after a dictation request has been sent and we're awaiting a response.
     /// Used by `stopRecording()` to decide whether the overlay should stay visible.
     private(set) var awaitingDaemonResponse = false
 
@@ -103,6 +103,10 @@ final class VoiceInputManager {
 
     /// Exposes the audio engine for amplitude tracking in voice mode.
     var exposedAudioEngine: AVAudioEngine { audioEngine }
+
+    init(dictationClient: any DictationClientProtocol = DictationClient()) {
+        self.dictationClient = dictationClient
+    }
 
     func start() {
         setupActivationMonitors()
@@ -768,23 +772,21 @@ final class VoiceInputManager {
             } else {
                 overlayWindow.show(state: .processing)
             }
-            do {
-                guard let client = daemonClient else {
-                    throw NSError(domain: "VoiceInput", code: 1, userInfo: [NSLocalizedDescriptionKey: "Daemon client unavailable"])
+            awaitingDaemonResponse = true
+            log.info("Sending dictation request via DictationClient for app=\(context.appName, privacy: .public)")
+
+            let dictationClient = self.dictationClient
+            Task { [weak self] in
+                let response = await dictationClient.process(request)
+                await MainActor.run {
+                    guard let self else { return }
+                    self.onDictationResponse?(response)
                 }
-                try client.send(request)
-                awaitingDaemonResponse = true
-                log.info("Sent dictation_request to daemon for app=\(context.appName, privacy: .public)")
-            } catch {
-                log.error("Failed to send dictation_request: \(error.localizedDescription)")
-                overlayWindow.dismiss()
-                VoiceFeedback.playDeactivationChime()
-                onTranscription?(text)
             }
         }
     }
 
-    /// Handle the daemon's dictation response — insert cleaned text or route action mode to a task.
+    /// Handle the dictation response — insert cleaned text or route action mode to a task.
     func handleDictationResponse(text: String, mode: String) {
         awaitingDaemonResponse = false
         if mode == "dictation" || mode == "command" {

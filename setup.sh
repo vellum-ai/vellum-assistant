@@ -40,6 +40,12 @@ for dir in cli gateway assistant credential-executor; do
 done
 
 # ---------------------------------------------------------------------------
+# Install dependencies for scripts/
+# ---------------------------------------------------------------------------
+info "Installing dependencies in scripts/"
+(cd "${REPO_ROOT}/scripts" && bun install)
+
+# ---------------------------------------------------------------------------
 # Install dependencies for packages in packages/
 # ---------------------------------------------------------------------------
 for dir in "${REPO_ROOT}"/packages/*/; do

@@ -6,7 +6,6 @@ struct SettingsAppearanceTab: View {
     private static let knownTimezones: [String] = TimeZone.knownTimeZoneIdentifiers.sorted()
 
     @ObservedObject var store: SettingsStore
-    @AppStorage("themePreference") private var themePreference: String = "system"
     @State private var newAllowlistDomain = ""
     @State private var isVideoDomainsExpanded: Bool = false
     @State private var isRecordingGlobalHotkey = false
@@ -26,22 +25,7 @@ struct SettingsAppearanceTab: View {
         VStack(alignment: .leading, spacing: VSpacing.lg) {
             // THEME section
             SettingsCard(title: "Theme") {
-                VSegmentedControl(
-                    items: [
-                        (label: "System", tag: "system"),
-                        (label: "Light", tag: "light"),
-                        (label: "Dark", tag: "dark"),
-                    ],
-                    selection: Binding(
-                        get: { themePreference },
-                        set: { newValue in
-                            themePreference = newValue
-                            AppDelegate.shared?.applyThemePreference()
-                        }
-                    ),
-                    style: .pill
-                )
-                .fixedSize()
+                VThemeToggle(style: .labelPill, showLabel: false)
             }
 
             // TIMEZONE section

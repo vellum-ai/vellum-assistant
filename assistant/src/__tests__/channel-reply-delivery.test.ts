@@ -365,6 +365,61 @@ describe("channel-reply-delivery", () => {
     expect(deliveryCalls[0].payload.user).toBeUndefined();
   });
 
+  it("suppresses delivery when the only text segment is <no_response/>", async () => {
+    await deliverRenderedReplyViaCallback({
+      callbackUrl: "http://gateway/deliver/slack",
+      chatId: "chat-silent",
+      textSegments: ["<no_response/>"],
+      fallbackText: "Fallback text",
+      interSegmentDelayMs: 0,
+    });
+
+    expect(deliveryCalls).toHaveLength(0);
+  });
+
+  it("suppresses attachment delivery when <no_response/> is present", async () => {
+    await deliverRenderedReplyViaCallback({
+      callbackUrl: "http://gateway/deliver/slack",
+      chatId: "chat-silent-att",
+      textSegments: ["<no_response/>"],
+      attachments: [
+        {
+          id: "att-no-resp",
+          filename: "secret.txt",
+          mimeType: "text/plain",
+          sizeBytes: 10,
+          kind: "uploaded",
+        },
+      ],
+      interSegmentDelayMs: 0,
+    });
+
+    expect(deliveryCalls).toHaveLength(0);
+  });
+
+  it("suppresses delivery for <no_response/> with surrounding whitespace", async () => {
+    await deliverRenderedReplyViaCallback({
+      callbackUrl: "http://gateway/deliver/slack",
+      chatId: "chat-silent-ws",
+      textSegments: ["  <no_response/>  "],
+      interSegmentDelayMs: 0,
+    });
+
+    expect(deliveryCalls).toHaveLength(0);
+  });
+
+  it("delivers other segments when <no_response/> is mixed with real text", async () => {
+    await deliverRenderedReplyViaCallback({
+      callbackUrl: "http://gateway/deliver/slack",
+      chatId: "chat-mixed",
+      textSegments: ["<no_response/>", "Real response."],
+      interSegmentDelayMs: 0,
+    });
+
+    expect(deliveryCalls).toHaveLength(1);
+    expect(deliveryCalls[0].payload.text).toBe("Real response.");
+  });
+
   it("passes startFromSegment through deliverReplyViaCallback options", async () => {
     conversationMessages.push(
       { id: "msg-u", role: "user", content: "hi" },

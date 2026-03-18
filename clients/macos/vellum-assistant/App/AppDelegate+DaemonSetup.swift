@@ -10,22 +10,7 @@ extension AppDelegate {
 
     func applyThemePreference() {
         let pref = UserDefaults.standard.string(forKey: "themePreference") ?? "system"
-        let appearance: NSAppearance?
-        switch pref {
-        case "light":
-            appearance = NSAppearance(named: .aqua)
-        case "dark":
-            appearance = NSAppearance(named: .darkAqua)
-        default:
-            appearance = nil // follow system
-        }
-
-        NSApp.appearance = appearance
-        for window in NSApp.windows {
-            window.appearance = appearance
-            window.invalidateShadow()
-            window.contentView?.needsDisplay = true
-        }
+        VThemeToggle.applyTheme(pref)
     }
 
     // MARK: - Lockfile & Transport
@@ -237,11 +222,6 @@ extension AppDelegate {
         daemonClient.onNotificationConversationCreated = { [weak self] msg in
             guard let self, !self.isBootstrapping else { return }
             self.handleNotificationConversationCreated(msg)
-        }
-
-        // Forward dictation responses from the daemon to VoiceInputManager
-        daemonClient.onDictationResponse = { [weak self] msg in
-            self?.voiceInput?.onDictationResponse?(msg)
         }
 
         daemonClient.onDocumentEditorShow = { [weak self] msg in

@@ -39,8 +39,8 @@ extension HTTPTransport {
                 )
                 self.onMessage?(info)
                 return true
-            } else if let msg = message as? ConversationListRequestMessage {
-                Task { await self.fetchConversationList(offset: Int(msg.offset ?? 0), limit: Int(msg.limit ?? 50)) }
+            } else if message is ConversationListRequestMessage {
+                // Handled by ConversationListClient via GatewayHTTPClient.
                 return true
             } else if let msg = message as? HistoryRequestMessage {
                 Task { await self.fetchHistory(conversationId: msg.conversationId) }

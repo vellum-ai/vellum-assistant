@@ -371,17 +371,12 @@ struct MemoryItemDetailSheet: View {
         MemoryKind(rawValue: displayItem.kind)
     }
 
-    @ViewBuilder
     private var kindBadge: some View {
-        let color = memoryKind?.color ?? VColor.contentTertiary
-        let label = memoryKind?.label ?? displayItem.kind.capitalized
-        Text(label)
-            .font(VFont.caption)
-            .foregroundColor(VColor.contentEmphasized)
-            .padding(.horizontal, VSpacing.sm)
-            .padding(.vertical, VSpacing.xs)
-            .background(color.opacity(0.2))
-            .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
+        VBadge(
+            label: memoryKind?.label ?? displayItem.kind.capitalized,
+            color: memoryKind?.color ?? VColor.contentTertiary,
+            shape: .rounded
+        )
     }
 
     private func metadataRow(label: String, value: String) -> some View {

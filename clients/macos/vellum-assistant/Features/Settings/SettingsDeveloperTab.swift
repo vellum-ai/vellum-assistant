@@ -323,6 +323,14 @@ struct SettingsDeveloperTab: View {
         Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String
     }
 
+    /// The assistant version reported by the healthz endpoint, if available.
+    private var effectiveVersion: String? {
+        if let version = healthz?.version, !version.isEmpty {
+            return version
+        }
+        return nil
+    }
+
     private var assistantVersionBehind: Bool {
         guard let assistantVersion = healthz?.version, !assistantVersion.isEmpty,
               let appVersion = desktopAppVersion, !appVersion.isEmpty else {
@@ -333,58 +341,63 @@ struct SettingsDeveloperTab: View {
 
     @ViewBuilder
     private var healthzInfoRows: some View {
-        if let healthz {
-            if let version = healthz.version, !version.isEmpty {
-                HStack(alignment: .top) {
-                    Text("Version")
-                        .font(VFont.caption)
-                        .foregroundColor(VColor.contentTertiary)
-                        .frame(width: 100, alignment: .leading)
+        // Always show a version row
+        HStack(alignment: .top) {
+            Text("Version")
+                .font(VFont.caption)
+                .foregroundColor(VColor.contentTertiary)
+                .frame(width: 100, alignment: .leading)
 
-                    Text(version)
-                        .font(VFont.mono)
-                        .foregroundColor(assistantVersionBehind ? VColor.systemNegativeStrong : VColor.contentDefault)
-                        .textSelection(.enabled)
+            if let version = effectiveVersion {
+                Text(version)
+                    .font(VFont.mono)
+                    .foregroundColor(assistantVersionBehind ? VColor.systemNegativeStrong : VColor.contentDefault)
+                    .textSelection(.enabled)
 
-                    if assistantVersionBehind {
-                        if isUpgradingInline {
-                            ProgressView()
-                                .controlSize(.small)
-                        } else {
-                            VButton(label: "Upgrade", style: .primary) {
-                                showingInlineUpgradeConfirmation = true
-                            }
-                            .disabled(isUpgradingInline)
+                if assistantVersionBehind {
+                    if isUpgradingInline {
+                        ProgressView()
+                            .controlSize(.small)
+                    } else {
+                        VButton(label: "Upgrade", style: .primary) {
+                            showingInlineUpgradeConfirmation = true
                         }
-                    }
-
-                    Spacer()
-                }
-
-                if assistantVersionBehind, let appVersion = desktopAppVersion {
-                    HStack(spacing: VSpacing.xs) {
-                        Text("Desktop is on")
-                            .font(VFont.caption)
-                            .foregroundColor(VColor.contentTertiary)
-                        Text(appVersion)
-                            .font(VFont.mono)
-                            .foregroundColor(VColor.primaryBase)
+                        .disabled(isUpgradingInline)
                     }
                 }
-
-                if let error = inlineUpgradeError {
-                    Text(error)
-                        .font(VFont.caption)
-                        .foregroundColor(VColor.systemNegativeStrong)
-                }
-
-                if let success = inlineUpgradeSuccess {
-                    Text(success)
-                        .font(VFont.caption)
-                        .foregroundColor(VColor.systemPositiveStrong)
-                }
+            } else {
+                Text("Not available")
+                    .font(VFont.body)
+                    .foregroundColor(VColor.contentTertiary)
             }
 
+            Spacer()
+        }
+
+        if assistantVersionBehind, let appVersion = desktopAppVersion {
+            HStack(spacing: VSpacing.xs) {
+                Text("Desktop is on")
+                    .font(VFont.caption)
+                    .foregroundColor(VColor.contentTertiary)
+                Text(appVersion)
+                    .font(VFont.mono)
+                    .foregroundColor(VColor.primaryBase)
+            }
+        }
+
+        if let error = inlineUpgradeError {
+            Text(error)
+                .font(VFont.caption)
+                .foregroundColor(VColor.systemNegativeStrong)
+        }
+
+        if let success = inlineUpgradeSuccess {
+            Text(success)
+                .font(VFont.caption)
+                .foregroundColor(VColor.systemPositiveStrong)
+        }
+
+        if let healthz {
             if let disk = healthz.disk {
                 VStack(alignment: .leading, spacing: VSpacing.xs) {
                     HStack(alignment: .center) {

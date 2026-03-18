@@ -53,19 +53,12 @@ struct MemoryItemRow: View {
 
     // MARK: - Kind Tag
 
-    @ViewBuilder
     private var kindTag: some View {
         let memoryKind = MemoryKind(rawValue: item.kind)
-        let color = memoryKind?.color ?? VColor.contentTertiary
-        let label = memoryKind?.label ?? item.kind.capitalized
-
-        Text(label)
-            .font(VFont.caption)
-            .foregroundColor(VColor.contentEmphasized)
-            .padding(.horizontal, VSpacing.sm)
-            .padding(.vertical, VSpacing.xs)
-            .background(color.opacity(0.2))
-            .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
-            .accessibilityLabel(label)
+        return VBadge(
+            label: memoryKind?.label ?? item.kind.capitalized,
+            color: memoryKind?.color ?? VColor.contentTertiary,
+            shape: .rounded
+        )
     }
 }

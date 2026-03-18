@@ -58,6 +58,7 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
     }
     /// Tracks the number of rows already fetched from the daemon so pagination
     /// offsets stay correct even when the client filters out some conversations.
+    private let conversationListClient: any ConversationListClientProtocol = ConversationListClient()
     var serverOffset: Int = 0
     @Published var activeConversationId: UUID? {
         didSet {
@@ -679,11 +680,13 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
     func loadMoreConversations() {
         guard !isLoadingMoreConversations else { return }
         isLoadingMoreConversations = true
-        do {
-            try daemonClient.sendConversationList(offset: serverOffset, limit: 50)
-        } catch {
-            log.error("Failed to request more conversations: \(error.localizedDescription)")
-            isLoadingMoreConversations = false
+        Task { [weak self] in
+            guard let self else { return }
+            if let response = await conversationListClient.fetchConversationList(offset: serverOffset, limit: 50) {
+                self.appendConversations(from: response)
+            } else {
+                self.isLoadingMoreConversations = false
+            }
         }
     }
 
