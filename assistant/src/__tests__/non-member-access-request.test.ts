@@ -623,7 +623,7 @@ describe("access-request-helper unit tests", () => {
     expect(telegram!.status).toBe("sent");
   });
 
-  test("notifyGuardianOfAccessRequest records failed vellum fallback when pipeline has no vellum delivery", async () => {
+  test("notifyGuardianOfAccessRequest skips vellum fallback for same-channel-only routing (telegram)", async () => {
     mockEmitResult = {
       signalId: "sig-no-vellum",
       deduplicated: false,
@@ -657,8 +657,8 @@ describe("access-request-helper unit tests", () => {
       (d) => d.destinationChannel === "telegram",
     );
 
-    expect(vellum).toBeDefined();
-    expect(vellum!.status).toBe("failed");
+    // Same-channel routing skips vellum delivery entirely — no fallback record
+    expect(vellum).toBeUndefined();
     expect(telegram).toBeDefined();
     expect(telegram!.destinationChatId).toBe("guardian-chat-456");
     expect(telegram!.status).toBe("sent");
