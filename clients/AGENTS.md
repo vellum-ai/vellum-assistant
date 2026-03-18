@@ -1,8 +1,8 @@
 # Clients — Agent Guidance
 
 ## Scope and Precedence
-- Applies to all client code in `clients/` (macOS, iOS, iPadOS, watchOS, tvOS, browser extensions, shared).
-- Platform-specific docs (for example `clients/macos/CLAUDE.md`, `clients/ios/README.md`) override or extend this file.
+- Applies to all client code in `clients/` (macOS, iOS, browser extensions, shared).
+- Platform-specific docs (for example `clients/macos/AGENTS.md`, `clients/ios/README.md`) override or extend this file.
 - `AGENTS.md` at repo root still applies; if guidance conflicts, follow the most specific document.
 
 ---
@@ -14,6 +14,13 @@
 - Note in the PR summary or commit message: `Apple refs checked (YYYY-MM-DD): ...`.
 - If guidance is ambiguous, include a short rationale in the PR summary.
 
+### Documentation Update Protocol
+When updating any client documentation (README, AGENTS.md, ARCHITECTURE.md), contributors and agents must:
+1. **Research before writing.** Cross-reference claims against current Apple documentation, recent WWDC sessions, and Swift Evolution proposals. Do not propagate outdated patterns.
+2. **Verify against the codebase.** Check that documented directories, types, APIs, and patterns actually exist on disk. Run `find` or search the project before asserting a directory structure.
+3. **Use evergreen language.** Avoid hardcoded counts, percentages, or version-specific claims that will drift. Prefer qualitative descriptions ("significant", "most") over brittle numbers.
+4. **Cite sources for non-obvious guidance.** When a rule is based on a known Apple bug, WWDC session, or Swift Evolution proposal, include a brief citation so future readers can verify it is still current.
+
 ---
 
 ## SwiftUI and Apple Platform Practices
@@ -24,6 +31,24 @@
 - Accessibility is required: labels for icon-only controls, Dynamic Type support, VoiceOver-friendly order.
 - Localize user-facing strings; format dates/units with locale-aware formatters.
 - Privacy: request the minimum permissions; never log sensitive user content.
+
+### State Management: @Observable vs ObservableObject
+
+For new view models and state objects targeting macOS 14+ / iOS 17+, prefer the `@Observable` macro (Observation framework) over `ObservableObject`.
+
+| Observation framework (preferred for new code) | Legacy ObservableObject |
+|------------------------------------------------|------------------------|
+| `@Observable class MyViewModel` | `class MyViewModel: ObservableObject` |
+| `@State var vm = MyViewModel()` | `@StateObject var vm = MyViewModel()` |
+| `@Bindable var vm` (injected reference) | `@ObservedObject var vm` |
+| `@Environment(\.myService)` | `@EnvironmentObject var service` |
+| Property-level tracking (only changed properties trigger re-render) | Object-level tracking (any `@Published` change re-renders all observers) |
+
+**Why:** `@Observable` provides property-level granularity — views only re-render when the specific properties they read change, not when any property on the object changes. This eliminates the need for `objectWillChange` forwarding patterns and reduces unnecessary view updates.
+
+**Migration:** Existing `ObservableObject` types should be migrated opportunistically. Use Combine (`@Published`, `sink`, `onReceive`) only for reactive stream processing (SSE event streams, debounce pipelines, `UserDefaults.publisher`) — not for simple state management.
+
+**Previews:** `#Preview` may be used during local development for rapid UI iteration (Apple's recommended workflow per WWDC 2023+). Use `@Previewable` for state bindings in previews. Remove `#Preview` blocks before merging — use the Component Gallery as the canonical visual catalog for design system components.
 
 ---
 
@@ -59,14 +84,14 @@
 - **Avoid retain cycles.** Use `[weak self]` in closures stored by long-lived objects. Be especially careful with closures passed to Combine `sink`, `onReceive`, and completion handlers on network calls.
 - **Release heavy resources promptly.** Clear large data (base64 payloads, image data, surface HTML) from memory once it is no longer displayed. Do not accumulate unbounded data across a session.
 - **Hard-delete trimmed objects; don't just clear their content.** Stripping a `ChatMessage`'s text/data in-place leaves the object allocated. Use `removeSubrange` (or equivalent) so the objects are fully deallocated and ARC can reclaim the memory. Keep a `hasMoreHistory` flag set to `true` after eviction so pagination can reload the trimmed pages.
-- **Register a memory pressure handler.** Long-lived managers that hold large in-memory collections should observe `DispatchSource.makeMemoryPressureSource` (or `ProcessInfo.processInfo.performExpiringActivity`) and proactively evict non-visible data before the OS kills the process.
+- **Register a memory pressure handler.** Long-lived managers that hold large in-memory collections should observe `DispatchSource.makeMemoryPressureSource` (or `ProcessInfo.processInfo.performExpiringActivity`) and proactively evict non-visible data before the OS kills the process. This API works on both macOS and iOS.
 
 ### Platform-Specific
 
 - **Asynchronous loading.** Load data (network responses, file contents, images) asynchronously off the main thread. Show loading states while data is in flight. Never block the main thread waiting for data.
 - **Skeleton placeholders over spinners for content areas.** When a region will display structured content (chat messages, lists, cards), use a skeleton placeholder that mirrors the real layout — matching alignment, dimensions, spacing, and bubble shapes — instead of a generic spinner (`VLoadingIndicator`). This reduces perceived load time and prevents layout shift when real content appears. Use `VSkeletonBone` with `.vShimmer()` for individual bones. Reserve `VLoadingIndicator` / `VBusyIndicator` for small, inline loading states (buttons, toolbar actions) where the final content shape is unknown. See `ChatLoadingSkeleton` for the reference pattern.
 - **Profile before optimizing, but follow known patterns.** Use Instruments (Time Profiler, Allocations, SwiftUI view body counters) to validate. However, the patterns above are established project standards — follow them proactively rather than waiting for a performance regression.
-- **Background timers: gate on display state and use long polling intervals.** Set background polling intervals to at least 300 s (5 min). Before running expensive evaluation, call `CGDisplayIsAsleep(CGMainDisplayID())` and skip if the display is off. Do **not** use `NSApplication.didBecomeActiveNotification` as an activity gate for LSUIElement / accessory-mode apps — this notification never fires when the app has no dock icon, permanently disabling the feature after first use.
+- **(macOS only) Background timers: gate on display state and use long polling intervals.** Set background polling intervals to at least 300 s (5 min). Before running expensive evaluation, call `CGDisplayIsAsleep(CGMainDisplayID())` and skip if the display is off. Do **not** use `NSApplication.didBecomeActiveNotification` as an activity gate for LSUIElement / accessory-mode apps — this notification never fires when the app has no dock icon, permanently disabling the feature after first use.
 - **AVAudio teardown order.** Always tear down AVAudio resources in the order `removeTap` → `stop` → `reset`. Calling `stop` before `removeTap` leaves the tap dangling and causes a retain cycle that prevents `AVAudioEngine` from being deallocated.
 
 ---
@@ -80,7 +105,7 @@
 - **Use an in-flight guard to prevent stacking concurrent pagination loads.** A `@State var isPaginationInFlight: Bool` (or equivalent) must gate the pagination sentinel's `onAppear`. Without it, rapid scroll-to-top can enqueue multiple concurrent loads before `isLoadingMoreMessages` is set by the async response, duplicating content and corrupting the history cursor.
 - **Allow a layout settle delay before restoring scroll position.** After inserting new messages (pagination prepend), wait at least **32 ms** before calling `proxy.scrollTo(anchor)` so SwiftUI can finish its layout pass. If any inserted content performs an animated height change (e.g., `InlineVideoEmbedCard` at 0.25 s), increase the delay to at least the animation duration (100 ms minimum) — restoring scroll mid-animation lands at the wrong position.
 - **Forward scroll/wheel events from gesture-capturing subviews.** `WKWebView` (and other `NSResponder`/`UIResponder` subclasses that capture scroll events) swallow all scroll-wheel input, preventing the enclosing `ScrollView` from scrolling. Subclass the view and override `scrollWheel(_:)` (macOS) / `gestureRecognizerShouldBegin(_:)` (iOS) to forward the event to `nextResponder` / the parent scroll view instead of consuming it.
-- **Do not use `.scrollPosition(id:anchor:)` without actively managing the binding.** Declaring a `@State var scrollPositionId: AnyHashable?` and attaching `.scrollPosition(id: $scrollPositionId)` without ever setting or updating the value causes crashes during LazyVStack re-layouts (pagination, streaming). SwiftUI's internal tracking fights with the nil binding. Either fully manage the binding (set it on scroll events, clear it on content changes) or don't use the API at all — the existing `ScrollViewReader` + `proxy.scrollTo()` pattern handles all current scroll needs.
+- **Use `.scrollPosition(id:anchor:)` with caution — prefer `ScrollViewReader` for this project.** `.scrollPosition` requires fully managed bindings: you must set the binding on scroll events and clear it on content changes. Declaring a binding without actively managing it causes crashes during LazyVStack re-layouts (pagination, streaming) as SwiftUI's internal tracking fights with the nil binding. Additionally, `.scrollPosition` does not work with `List` (only `ScrollView`) and has known issues with `LazyVStack` during auto-scroll. The existing `ScrollViewReader` + `proxy.scrollTo()` pattern is the current project standard — prefer it unless `.scrollPosition` provides a clear advantage for your use case.
 - **Add `os.Logger` diagnostics to complex scroll paths.** Pagination, suppression flag transitions, and scroll position restoration are hard to debug from a crash report alone. Log key events (`[pagination] sentinel appeared`, `[scroll] suppression on/off`, `[scroll] restoring to anchor`) via `os.Logger` with subsystem `com.vellum.vellum-assistant` so they are visible in Console.app without Xcode attached.
 
 ---
@@ -248,7 +273,7 @@ All UI icons use **vendored Lucide PDF assets** rendered through the `VIcon` enu
 - If a needed component does not exist, add it to the appropriate `DesignSystem/` subdirectory (`Core/` for primitives, `Components/` for composed elements, `Modifiers/` for view modifiers).
 - Follow existing naming conventions: prefix with `V`, use descriptive names (for example `VProgressBar`, `VAvatar`).
 - New components must be reusable and platform-agnostic; do not embed platform-specific code.
-- Do not add `#Preview` / `PreviewProvider` blocks. Add or update the corresponding section in `Gallery/` so the component is represented in the catalog.
+- Do not commit `#Preview` / `PreviewProvider` blocks for shared design system components. Use `#Preview` during local development for rapid iteration, but remove before merging. Add or update the corresponding section in `Gallery/` so the component is represented in the catalog.
 - If you create a component inline in a feature and it could be reused elsewhere, extract it into the design system before merging.
 
 ### Avoiding Duplication

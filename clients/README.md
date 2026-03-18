@@ -29,7 +29,7 @@ clients/
 │   ├── vellum-assistant/      # VellumAssistantLib - macOS app logic
 │   ├── vellum-assistant-app/  # Executable entry point
 │   ├── build.sh               # Build script (wraps SPM → .app → codesign)
-│   └── CLAUDE.md              # Development guide for Claude Code
+│   └── AGENTS.md              # Agent development guidance (macOS-specific)
 ├── ios/                       # iOS-specific code
 │   ├── App/                   # App lifecycle (VellumAssistantApp, AppDelegate, VellumIntents, etc.)
 │   ├── Views/                 # iOS-specific SwiftUI views (ChatTabView, ConversationListView, etc.)
@@ -204,7 +204,7 @@ Depends only on `VellumAssistantShared` (no macOS frameworks).
 
 ## Documentation
 
-- **macOS development**: See `clients/macos/CLAUDE.md`
+- **macOS development**: See `clients/macos/AGENTS.md`
 - **iOS development**: See `clients/ios/README.md`
 
 ---
