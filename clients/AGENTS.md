@@ -298,12 +298,38 @@ All UI icons use **vendored Lucide PDF assets** rendered through the `VIcon` enu
 - If a needed component does not exist, add it to the appropriate `DesignSystem/` subdirectory (`Core/` for primitives, `Components/` for composed elements, `Modifiers/` for view modifiers).
 - Follow existing naming conventions: prefix with `V`, use descriptive names (for example `VProgressBar`, `VAvatar`).
 - New components must be reusable and platform-agnostic; do not embed platform-specific code.
-- Do not add `#Preview` / `PreviewProvider` blocks. Add or update the corresponding section in `Gallery/` so the component is represented in the catalog.
+- Do not add `#Preview` / `PreviewProvider` blocks. Add or update the corresponding section in `Gallery/` so the component is represented in the catalog. See the [Preview Policy](#preview-policy--component-gallery) section below for rationale.
 - If you create a component inline in a feature and it could be reused elsewhere, extract it into the design system before merging.
 
 ### Avoiding Duplication
 - Do not create one-off UI elements that duplicate existing design system components. Search the `DesignSystem/` directory before building.
 - When a feature needs a slight variation of an existing component, extend the component with a new parameter or style rather than forking it.
+
+---
+
+## Preview Policy & Component Gallery
+
+**Rule:** Do not commit `#Preview` or `PreviewProvider` blocks. Use the Component Gallery (`clients/shared/DesignSystem/Gallery/`) as the single visual review surface for design system components.
+
+### Why we don't use Xcode Previews
+
+Apple's `#Preview` macro (introduced WWDC 2023, expanded in Xcode 26) is the recommended workflow for rapid SwiftUI iteration — it renders views in the Xcode canvas without building or running the full app. It is a good tool, and we are intentionally opting out of it for the following reasons:
+
+1. **We don't develop in Xcode.** Our development workflow does not use the Xcode canvas for UI iteration. Previews are only useful inside Xcode's live canvas — they have zero value outside of it.
+2. **Maintenance burden.** Preview blocks require wrapper structs for views with complex init signatures (bindings, closures, injected dependencies). These wrappers break silently when the view's API changes, creating dead code that nobody notices until someone tries to use the preview.
+3. **Fragile with our architecture.** Many views depend on `DaemonClient`, `AuthManager`, or other services that require a running backend. Previews that instantiate these with `DaemonClient(config: .default)` may not render without a live daemon connection.
+4. **The Component Gallery is better for our use case.** The Gallery is a live, in-app catalog that runs with real state, real theming, and real interaction — not a static Xcode canvas render. It covers all design system primitives with multiple variants and live value readouts.
+
+### What the Component Gallery covers
+
+The Gallery (`Gallery/Sections/`) catalogs **design system components only**: inputs, buttons, toggles, sliders, layout primitives, icons, tokens, etc. It does NOT cover feature-level views (onboarding flows, chat views, settings screens). Feature views are verified by building and running the app.
+
+### When to reconsider this policy
+
+If the team adopts Xcode as the primary development environment and begins using the canvas for UI iteration, previews should be re-introduced. They are trivial to add per-view and provide significant value for rapid iteration (~1 second feedback vs full build-run-navigate cycles). At that point:
+- Add `#Preview` blocks to feature views where quick iteration is valuable.
+- Keep using the Component Gallery for design system components (it remains the better tool for cataloging).
+- Wrap previews in `#if DEBUG` to exclude them from release builds.
 
 ---
 
