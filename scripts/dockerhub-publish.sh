@@ -11,8 +11,8 @@
 #   - QEMU registered for multi-arch builds (the script sets this up)
 #   - Authenticated to Docker Hub: `docker login`
 #
-# Configuration is read from scripts/.env (see scripts/.env.example).
-# Environment variables can also be set directly in the shell.
+# All configuration has sensible defaults baked in. Override any value by
+# setting the corresponding environment variable before invoking the script.
 #
 # Usage:
 #   ./scripts/dockerhub-publish.sh --version <semver>
@@ -29,30 +29,7 @@
 
 set -euo pipefail
 
-# ---------------------------------------------------------------------------
-# Load .env — fills only unset variables so inline overrides take precedence
-# ---------------------------------------------------------------------------
-
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-ENV_FILE="${SCRIPT_DIR}/.env"
-
-if [ -f "$ENV_FILE" ]; then
-  set -a
-  # shellcheck source=/dev/null
-  source <(
-    # Read .env but only emit lines whose variable is not already set
-    while IFS='=' read -r key value; do
-      # Skip comments and blank lines
-      [[ "$key" =~ ^[[:space:]]*# ]] && continue
-      [[ -z "$key" ]] && continue
-      key="${key%%[[:space:]]}"
-      if [ -z "${!key+x}" ]; then
-        printf '%s=%s\n' "$key" "$value"
-      fi
-    done < "$ENV_FILE"
-  )
-  set +a
-fi
 
 # ---------------------------------------------------------------------------
 # Parse flags
@@ -104,16 +81,14 @@ if [[ -z "$VERSION" ]]; then
 fi
 
 # ---------------------------------------------------------------------------
-# Configuration (override via scripts/.env or environment)
+# Configuration (override any value via environment variables)
 # ---------------------------------------------------------------------------
 
 DOCKERHUB_ORG="${DOCKERHUB_ORG:-vellumai}"
-PLATFORMS="${DOCKERHUB_PLATFORMS:-linux/amd64,linux/arm64}"
-REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
-
-# Docker Hub credentials (optional — used for automatic login)
 DOCKERHUB_USER="${DOCKERHUB_USER:-}"
 DOCKERHUB_ACCESS_TOKEN="${DOCKERHUB_ACCESS_TOKEN:-}"
+PLATFORMS="${DOCKERHUB_PLATFORMS:-linux/amd64,linux/arm64}"
+REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 
 # Image name mapping: service → Docker Hub image name
 declare -A IMAGE_NAMES=(
@@ -173,7 +148,7 @@ if [[ -n "$DOCKERHUB_USER" && -n "$DOCKERHUB_ACCESS_TOKEN" ]]; then
   echo "$DOCKERHUB_ACCESS_TOKEN" | docker login --username "$DOCKERHUB_USER" --password-stdin
 elif ! docker info 2>/dev/null | grep -q "Username"; then
   echo "WARNING: You may not be logged into Docker Hub."
-  echo "  Set DOCKERHUB_USER and DOCKERHUB_ACCESS_TOKEN in scripts/.env, or run: docker login"
+  echo "  Set DOCKERHUB_USER and DOCKERHUB_ACCESS_TOKEN, or run: docker login"
   echo "  Continuing anyway — the push step will fail if not authenticated."
 fi
 
