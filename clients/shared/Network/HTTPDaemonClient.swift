@@ -1078,13 +1078,7 @@ public final class HTTPTransport {
                    serverConvId != conversationId {
                     self.serverToLocalConversationMap[serverConvId] = conversationId
                     self.locallyOwnedConversationIds.insert(serverConvId)
-
-                    if let resolve = self.onConversationIdResolved {
-                        resolve(conversationId, serverConvId)
-                        // The resolver updated ChatViewModel.conversationId to the
-                        // real ID, so SSE events no longer need remapping.
-                        self.serverToLocalConversationMap.removeValue(forKey: serverConvId)
-                    }
+                    self.onConversationIdResolved?(conversationId, serverConvId)
 
                     log.info("Mapped conversation \(conversationId, privacy: .public) → server ID \(serverConvId, privacy: .public)")
                 }

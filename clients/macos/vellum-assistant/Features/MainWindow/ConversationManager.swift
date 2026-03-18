@@ -1654,6 +1654,17 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
             vm.conversationId = serverId
         }
 
+        // Migrate keyed state from the synthetic ID to the real server ID.
+        if let override = pendingAttentionOverrides.removeValue(forKey: syntheticId) {
+            pendingAttentionOverrides[serverId] = override
+        }
+        if archivedConversationIds.contains(syntheticId) {
+            var archived = archivedConversationIds
+            archived.remove(syntheticId)
+            archived.insert(serverId)
+            archivedConversationIds = archived
+        }
+
         sendReorderConversations()
 
         let uuidKey = conversations[localId].id
