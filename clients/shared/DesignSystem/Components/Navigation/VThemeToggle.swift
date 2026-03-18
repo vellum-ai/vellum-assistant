@@ -45,6 +45,20 @@ public struct VThemeToggle: View {
         }
     }
 
+    // Pill layout math: outer padding(2) on each side + HStack spacing(2) between
+    // 3 segments → total = 4 + 3 * segmentWidth + 2 * 2
+    //
+    // iconPill  — square segments: 32 × 32  → 4 + 96 + 4 = 104
+    // labelPill — equal rectangles: 80 wide → 4 + 240 + 4 = 248
+
+    /// Width of the entire pill control for each style.
+    private var pillWidth: CGFloat {
+        switch style {
+        case .iconPill:  return 104
+        case .labelPill: return 248
+        }
+    }
+
     @ViewBuilder
     private var segmentedControl: some View {
         switch style {
@@ -58,7 +72,7 @@ public struct VThemeToggle: View {
                 selection: themeBinding,
                 style: .pill
             )
-            .fixedSize()
+            .frame(width: pillWidth)
         case .labelPill:
             VSegmentedControl(
                 items: [
@@ -69,7 +83,7 @@ public struct VThemeToggle: View {
                 selection: themeBinding,
                 style: .pill
             )
-            .fixedSize()
+            .frame(width: pillWidth)
         }
     }
 
