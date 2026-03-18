@@ -61,8 +61,8 @@ extension HTTPTransport {
                         || message is GuardianActionDecisionMessage {
                 // Handled by GuardianClient via GatewayHTTPClient.
                 return true
-            } else if let msg = message as? UiSurfaceActionMessage {
-                Task { await self.sendSurfaceAction(msg) }
+            } else if message is UiSurfaceActionMessage {
+                // Handled by SurfaceActionClient via GatewayHTTPClient.
                 return true
             } else if message is AddTrustRuleMessage
                         || message is TrustRulesListMessage

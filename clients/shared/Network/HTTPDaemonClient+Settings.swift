@@ -39,8 +39,8 @@ extension HTTPTransport {
             }
 
             // --- Surface Undo ---
-            if let msg = message as? UiSurfaceUndoMessage {
-                Task { await self.sendEncodablePost(.surfaceUndo(surfaceId: msg.surfaceId), body: msg, label: "ui_surface_undo") }
+            if message is UiSurfaceUndoMessage {
+                // Handled by SurfaceActionClient via GatewayHTTPClient.
                 return true
             }
 
