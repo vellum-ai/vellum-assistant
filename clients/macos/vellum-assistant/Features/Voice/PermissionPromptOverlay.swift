@@ -134,11 +134,11 @@ private struct FirstUsePromptView: View {
                 VIconView(.mic, size: 20)
                     .foregroundColor(VColor.primaryBase)
 
-                Text("Talk to \(assistantName)")
+                Text("Enable Speech Recognition")
                     .font(VFont.modalTitle)
                     .foregroundColor(VColor.contentDefault)
 
-                Text("Say it instead of typing it. macOS will ask if \(assistantName) can use your microphone.\n\nClick Allow and you're all set.")
+                Text("So your words come out the way you meant them.")
                     .font(VFont.body)
                     .foregroundColor(VColor.contentSecondary)
                     .multilineTextAlignment(.center)
