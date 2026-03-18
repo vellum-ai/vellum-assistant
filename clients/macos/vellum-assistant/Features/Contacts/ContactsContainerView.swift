@@ -38,7 +38,7 @@ struct ContactsContainerView: View {
                 viewModel: viewModel,
                 selection: $selection
             )
-            .frame(width: 320)
+            .frame(width: 240)
             .frame(maxHeight: .infinity, alignment: .top)
 
 
@@ -145,8 +145,7 @@ struct ContactsContainerView: View {
             .clipShape(RoundedRectangle(cornerRadius: VRadius.lg))
             .frame(maxHeight: .infinity)
         }
-        .frame(maxWidth: 900, maxHeight: .infinity, alignment: .leading)
-        .frame(maxWidth: .infinity, alignment: .leading)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .onReceive(viewModel.$contacts) { newContacts in
             // Default to assistant on first load (don't override existing selection)
             if selection == nil && !newContacts.isEmpty {
