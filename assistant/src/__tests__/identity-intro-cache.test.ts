@@ -79,18 +79,18 @@ describe("identity intro cache", () => {
   });
 
   test("round-trip: set then get returns cached text", () => {
-    workspaceFiles["IDENTITY.md"] = "- **Name:** Velissa";
+    workspaceFiles["IDENTITY.md"] = "- **Name:** Atlas";
     workspaceFiles["SOUL.md"] = "Be playful.";
     workspaceFiles["USER.md"] = "The user likes coffee.";
 
-    setCachedIntro("Velissa, your girl.");
+    setCachedIntro("Hey, I'm Atlas.");
     const cached = getCachedIntro();
     expect(cached).not.toBeNull();
-    expect(cached!.text).toBe("Velissa, your girl.");
+    expect(cached!.text).toBe("Hey, I'm Atlas.");
   });
 
   test("returns null when cache is expired (TTL exceeded)", () => {
-    workspaceFiles["IDENTITY.md"] = "- **Name:** Velissa";
+    workspaceFiles["IDENTITY.md"] = "- **Name:** Atlas";
 
     setCachedIntro("Hello!");
 
@@ -102,7 +102,7 @@ describe("identity intro cache", () => {
   });
 
   test("returns cached text when within TTL (3 hours ago)", () => {
-    workspaceFiles["IDENTITY.md"] = "- **Name:** Velissa";
+    workspaceFiles["IDENTITY.md"] = "- **Name:** Atlas";
 
     setCachedIntro("Hello!");
 
@@ -116,8 +116,8 @@ describe("identity intro cache", () => {
   });
 
   test("busts cache when IDENTITY.md changes", () => {
-    workspaceFiles["IDENTITY.md"] = "- **Name:** Velissa";
-    setCachedIntro("I'm Velissa!");
+    workspaceFiles["IDENTITY.md"] = "- **Name:** Atlas";
+    setCachedIntro("I'm Atlas!");
 
     // Change IDENTITY.md
     workspaceFiles["IDENTITY.md"] = "- **Name:** Nova";
@@ -146,15 +146,15 @@ describe("identity intro cache", () => {
   });
 
   test("cache survives when files are unchanged", () => {
-    workspaceFiles["IDENTITY.md"] = "- **Name:** Velissa";
+    workspaceFiles["IDENTITY.md"] = "- **Name:** Atlas";
     workspaceFiles["SOUL.md"] = "Be chill.";
     workspaceFiles["USER.md"] = "Likes sunsets.";
 
-    setCachedIntro("Velissa here.");
+    setCachedIntro("Atlas here.");
 
     // Read twice — both should return the cached value
-    expect(getCachedIntro()?.text).toBe("Velissa here.");
-    expect(getCachedIntro()?.text).toBe("Velissa here.");
+    expect(getCachedIntro()?.text).toBe("Atlas here.");
+    expect(getCachedIntro()?.text).toBe("Atlas here.");
   });
 
   test("computeIdentityContentHash is deterministic", () => {
