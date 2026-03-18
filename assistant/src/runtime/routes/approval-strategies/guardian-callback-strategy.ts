@@ -27,6 +27,7 @@ import type {
 } from "../../http-types.js";
 import {
   deliverVerificationCodeToGuardian,
+  deliverVerificationCodeToRequester,
   type DeliveryResult,
   handleAccessRequestDecision,
   notifyRequesterOfApproval,
@@ -685,6 +686,31 @@ async function handleAccessRequestApproval(
         "Skipping requester notification — verification code was not delivered to guardian",
       );
       codeDelivered = false;
+    }
+  }
+
+  // On Slack, auto-deliver the verification code directly to the requester's
+  // DM so the guardian doesn't have to manually share it. The identity binding
+  // still protects against abuse — only the bound user can consume the code.
+  if (
+    codeDelivered &&
+    approval.channel === "slack" &&
+    decisionResult.verificationCode
+  ) {
+    const requesterCodeResult = await deliverVerificationCodeToRequester({
+      replyCallbackUrl,
+      requesterChatId: approval.requesterChatId,
+      verificationCode: decisionResult.verificationCode,
+      assistantId,
+      bearerToken,
+      channel: approval.channel,
+      requesterExternalUserId: approval.requesterExternalUserId,
+    });
+    if (!requesterCodeResult.ok) {
+      log.error(
+        { reason: requesterCodeResult.reason, approvalId: approval.id },
+        "Failed to auto-deliver verification code to requester on Slack",
+      );
     }
   }
 
