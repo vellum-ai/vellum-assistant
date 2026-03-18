@@ -17,6 +17,15 @@ struct HighlightedTextView: View {
     @State private var currentMatchIndex = 0
     @State private var isActivelyEditing = false
     @State private var cachedHighlight: AttributedString?
+    @State private var highlightVersion: UInt64 = 0
+    @State private var contentReady = false
+
+    /// Lightweight key for `.task(id:)` so the highlight task re-runs when
+    /// either the detected language or the text content changes.
+    private struct HighlightKey: Equatable {
+        let language: SyntaxLanguage
+        let version: UInt64
+    }
 
     private static let editorBackground = VColor.surfaceOverlay
     private static let gutterBackground = VColor.surfaceBase
@@ -30,19 +39,26 @@ struct HighlightedTextView: View {
 
     var body: some View {
         Group {
-            if isEditable {
-                if isActivelyEditing {
-                    editableView
+            if contentReady {
+                if isEditable {
+                    if isActivelyEditing {
+                        editableView
+                    } else {
+                        readOnlyView
+                            .onTapGesture {
+                                isActivelyEditing = true
+                            }
+                    }
                 } else {
                     readOnlyView
-                        .onTapGesture {
-                            isActivelyEditing = true
-                        }
                 }
             } else {
-                readOnlyView
+                Color.clear
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .background(Self.editorBackground)
             }
         }
+        .task { contentReady = true }
         .onChange(of: language) { _, _ in
             isActivelyEditing = false
         }
@@ -203,6 +219,7 @@ struct HighlightedTextView: View {
         }
         .onChange(of: text) { _, _ in
             cachedHighlight = nil
+            highlightVersion &+= 1
             let count = searchMatchCount
             if count == 0 {
                 currentMatchIndex = 0
@@ -210,13 +227,14 @@ struct HighlightedTextView: View {
                 currentMatchIndex = max(0, count - 1)
             }
         }
-        .task(id: language) {
+        .task(id: HighlightKey(language: language, version: highlightVersion)) {
+            let capturedVersion = highlightVersion
             let t = text
             let l = language
             let result = await Task.detached(priority: .userInitiated) {
                 SyntaxTheme.highlight(t, language: l)
             }.value
-            if !Task.isCancelled {
+            if !Task.isCancelled, highlightVersion == capturedVersion {
                 cachedHighlight = result
             }
         }
