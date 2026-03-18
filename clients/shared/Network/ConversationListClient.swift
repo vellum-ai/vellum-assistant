@@ -23,7 +23,7 @@ public struct ConversationListClient: ConversationListClientProtocol {
             if offset == 0 { params.removeValue(forKey: "offset") }
 
             let response = try await GatewayHTTPClient.get(
-                path: "conversations", params: params, timeout: 15
+                path: "assistants/{assistantId}/conversations", params: params, timeout: 15
             )
             guard response.isSuccess else {
                 log.error("fetchConversationList failed (HTTP \(response.statusCode))")
