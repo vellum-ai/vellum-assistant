@@ -118,8 +118,44 @@ export interface AttentionHints {
 
 export type RoutingIntent = "single_channel" | "multi_channel" | "all_channels";
 
+// ── Typed context payloads ──────────────────────────────────────────────
+
+/**
+ * How the guardian was resolved for an access request.
+ *
+ * - `"source-channel-contact"` — Guardian was found via the originating channel's
+ *   contact store and their principalId matches the assistant's anchor.
+ * - `"vellum-anchor"` — No same-channel guardian matched; fell back to the
+ *   assistant's vellum guardian principal.
+ * - `"none"` — No guardian binding could be resolved at all.
+ *
+ * Downstream consumers (notification copy, routing) use this to decide whether
+ * to append a "Was this you?" CTA or route notifications beyond the source channel.
+ * This is channel-agnostic by design — any channel's access request that
+ * resolves to a non-source-channel guardian gets the same treatment.
+ */
+export type GuardianResolutionSource =
+  | "source-channel-contact"
+  | "vellum-anchor"
+  | "none";
+
+export interface AccessRequestContextPayload {
+  requestId: string;
+  requestCode: string;
+  sourceChannel: string;
+  conversationExternalId: string;
+  actorExternalId: string;
+  actorDisplayName: string | null;
+  actorUsername: string | null;
+  senderIdentifier: string;
+  guardianBindingChannel: string | null;
+  guardianResolutionSource: GuardianResolutionSource;
+  previousMemberStatus: string | null;
+}
+
 export interface NotificationEventContextPayloadMap {
   "guardian.question": GuardianQuestionPayload;
+  "ingress.access_request": AccessRequestContextPayload;
 }
 
 export type NotificationContextPayload<TEventName extends string = string> =

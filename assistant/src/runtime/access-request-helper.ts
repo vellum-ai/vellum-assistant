@@ -21,7 +21,10 @@ import {
   updateCanonicalGuardianDelivery,
 } from "../memory/canonical-guardian-store.js";
 import { emitNotificationSignal } from "../notifications/emit-signal.js";
-import type { NotificationSourceChannel } from "../notifications/signal.js";
+import type {
+  GuardianResolutionSource,
+  NotificationSourceChannel,
+} from "../notifications/signal.js";
 import type { NotificationDeliveryResult } from "../notifications/types.js";
 import { getLogger } from "../util/logger.js";
 import { ensureVellumGuardianBinding } from "./guardian-vellum-migration.js";
@@ -100,10 +103,7 @@ export function notifyGuardianOfAccessRequest(
   let guardianExternalUserId: string | null = null;
   let guardianPrincipalId: string | null = null;
   let guardianBindingChannel: string | null = null;
-  let guardianResolutionSource:
-    | "source-channel-contact"
-    | "vellum-anchor"
-    | "none" = "none";
+  let guardianResolutionSource: GuardianResolutionSource = "none";
 
   const assistantGuardianPrincipalId =
     ensureVellumGuardianBinding(canonicalAssistantId);
@@ -207,11 +207,19 @@ export function notifyGuardianOfAccessRequest(
   // because the desktop path lacks the channel delivery context needed
   // to deliver the verification code. Phone is excluded because it is
   // not a deliverable notification channel.
+  // When the guardian was resolved via a verified same-channel contact,
+  // route only to that channel — delivering on desktop as well is noisy
+  // and the desktop path lacks the channel delivery context for approval.
+  // When the guardian was NOT verified on the source channel (e.g. resolved
+  // via vellum anchor), route to all channels so the guardian can see
+  // the request on desktop/other channels where they ARE verified.
   const TEXT_CHANNELS_WITH_DELIVERY: ReadonlySet<string> = new Set([
     "slack",
     "telegram",
   ]);
-  const sameChannelOnly = TEXT_CHANNELS_WITH_DELIVERY.has(sourceChannel);
+  const sameChannelOnly =
+    TEXT_CHANNELS_WITH_DELIVERY.has(sourceChannel) &&
+    guardianResolutionSource === "source-channel-contact";
 
   void emitNotificationSignal({
     sourceEventName: "ingress.access_request",
@@ -234,6 +242,7 @@ export function notifyGuardianOfAccessRequest(
       actorUsername: actorUsername ?? null,
       senderIdentifier,
       guardianBindingChannel,
+      guardianResolutionSource,
       previousMemberStatus: previousMemberStatus ?? null,
     },
     dedupeKey: `access-request:${canonicalRequest.id}`,
