@@ -44,7 +44,7 @@ struct ContactsContainerView: View {
 
             // Right pane: detail, loading, or placeholder
             VStack(alignment: .leading, spacing: 0) {
-            // Pinned header
+            // Pinned header (matches contacts list header height)
             HStack {
                 Text("Contact Info")
                     .font(VFont.headline)
@@ -53,6 +53,7 @@ struct ContactsContainerView: View {
             }
             .padding(.horizontal, VSpacing.md)
             .padding(.vertical, VSpacing.sm)
+            .frame(minHeight: 32)
 
             Divider().background(VColor.borderBase)
 

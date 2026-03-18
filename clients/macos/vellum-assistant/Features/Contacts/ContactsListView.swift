@@ -52,6 +52,7 @@ struct ContactsListView: View {
             }
             .padding(.horizontal, VSpacing.md)
             .padding(.vertical, VSpacing.sm)
+            .frame(minHeight: 32)
 
             Divider().background(VColor.borderBase)
 
