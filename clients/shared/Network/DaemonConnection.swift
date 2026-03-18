@@ -12,8 +12,20 @@ extension DaemonClient {
     /// Connect to the daemon via HTTP transport. If already connected, disconnects first.
     /// SSE is managed separately via `startSSE()` / `stopSSE()`.
     public func connect() async throws {
+        try await connectImpl(cancelAutoWake: true)
+    }
+
+    /// Internal connect implementation.
+    ///
+    /// - Parameter cancelAutoWake: When `false`, the initial `disconnectInternal()`
+    ///   call preserves the `autoWakeTask` handle so that an *external*
+    ///   `disconnect()` / `reconfigure()` arriving while `connect()` is in-flight
+    ///   can still cancel the auto-wake task. The auto-wake reconnect path passes
+    ///   `false` here to avoid cancelling itself (the running task) while keeping
+    ///   the handle reachable by external callers.
+    private func connectImpl(cancelAutoWake: Bool) async throws {
         // Disconnect any existing connection without triggering reconnect.
-        disconnectInternal(triggerReconnect: false)
+        disconnectInternal(triggerReconnect: false, cancelAutoWake: cancelAutoWake)
 
         isConnecting = true
 
@@ -168,11 +180,7 @@ extension DaemonClient {
                     return
                 }
                 log.info("auto-wake: wake succeeded, reconnecting")
-                // Nil out autoWakeTask before connect() so that
-                // disconnectInternal() (called inside connect()) doesn't
-                // cancel this running task via cooperative cancellation.
-                self.autoWakeTask = nil
-                try await self.connect()
+                try await self.connectImpl(cancelAutoWake: false)
                 guard !Task.isCancelled else {
                     log.info("auto-wake: cancelled after connect — abandoning")
                     return
@@ -181,16 +189,21 @@ extension DaemonClient {
             } catch {
                 log.error("auto-wake: failed: \(error)")
             }
+            // Clear the handle now that the task has finished so stale
+            // references don't accumulate.
+            self.autoWakeTask = nil
         }
     }
     #endif
 
-    func disconnectInternal(triggerReconnect: Bool) {
+    func disconnectInternal(triggerReconnect: Bool, cancelAutoWake: Bool = true) {
         isAuthenticated = false
 
         #if os(macOS)
-        autoWakeTask?.cancel()
-        autoWakeTask = nil
+        if cancelAutoWake {
+            autoWakeTask?.cancel()
+            autoWakeTask = nil
+        }
         #endif
 
         httpTransport?.disconnect()
