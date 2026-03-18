@@ -20,15 +20,18 @@ export const VALID_WEB_SEARCH_PROVIDERS = [
   "inference-provider-native",
 ] as const;
 
-export const InferenceServiceSchema = z.object({
+export const BaseServiceSchema = z.object({
   mode: ServiceModeSchema.default("your-own"),
+});
+export type BaseService = z.infer<typeof BaseServiceSchema>;
+
+export const InferenceServiceSchema = BaseServiceSchema.extend({
   provider: z.enum(VALID_INFERENCE_PROVIDERS).default("anthropic"),
   model: z.string().default("claude-opus-4-6"),
 });
 export type InferenceService = z.infer<typeof InferenceServiceSchema>;
 
-export const ImageGenerationServiceSchema = z.object({
-  mode: ServiceModeSchema.default("your-own"),
+export const ImageGenerationServiceSchema = BaseServiceSchema.extend({
   provider: z.enum(VALID_IMAGE_GEN_PROVIDERS).default("gemini"),
   model: z.string().default("gemini-3.1-flash-image-preview"),
 });
@@ -36,17 +39,14 @@ export type ImageGenerationService = z.infer<
   typeof ImageGenerationServiceSchema
 >;
 
-export const WebSearchServiceSchema = z.object({
-  mode: ServiceModeSchema.default("your-own"),
+export const WebSearchServiceSchema = BaseServiceSchema.extend({
   provider: z
     .enum(VALID_WEB_SEARCH_PROVIDERS)
     .default("inference-provider-native"),
 });
 export type WebSearchService = z.infer<typeof WebSearchServiceSchema>;
 
-export const GoogleOAuthServiceSchema = z.object({
-  mode: ServiceModeSchema.default("managed"),
-});
+export const GoogleOAuthServiceSchema = BaseServiceSchema.extend({});
 export type GoogleOAuthService = z.infer<typeof GoogleOAuthServiceSchema>;
 
 export const ServicesSchema = z.object({
