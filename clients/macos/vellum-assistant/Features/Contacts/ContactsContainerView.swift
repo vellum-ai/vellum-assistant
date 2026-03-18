@@ -50,10 +50,11 @@ struct ContactsContainerView: View {
                     .font(VFont.headline)
                     .foregroundColor(VColor.contentDefault)
                 Spacer()
+                // Invisible spacer matching the + button height in contacts list
+                Color.clear.frame(width: 0, height: 24)
             }
             .padding(.horizontal, VSpacing.md)
             .padding(.vertical, VSpacing.sm)
-            .frame(minHeight: 32)
 
             Divider().background(VColor.borderBase)
 
