@@ -356,6 +356,7 @@ public final class ChatViewModel: ObservableObject {
     let daemonClient: any DaemonClientProtocol
     private let surfaceClient: any SurfaceClientProtocol = SurfaceClient()
     private let conversationStarterClient: any ConversationStarterClientProtocol = ConversationStarterClient()
+    let interactionClient: any InteractionClientProtocol = InteractionClient()
     /// Tracks the action submitted for each guardian decision requestId so the
     /// response handler can display the correct resolved state (the server does
     /// not echo back the action in its acknowledgement).
@@ -2385,25 +2386,81 @@ public final class ChatViewModel: ObservableObject {
 
     /// Respond to a tool confirmation request displayed inline in the chat.
     public func respondToConfirmation(requestId: String, decision: String) {
-        // DaemonClient.send silently returns when connection is nil (it does
-        // not throw), so we must check connectivity explicitly before calling
-        // sendConfirmationResponse. Without this guard the UI would show the
-        // decision as finalized even though the daemon never received it.
-        guard daemonClient.isConnected else {
-            errorText = "Failed to send confirmation response."
-            return
+        markConfirmationInFlight(requestId: requestId, decision: decision)
+        Task {
+            let success = await performConfirmationResponse(
+                requestId: requestId, decision: decision, selectedPattern: nil, selectedScope: nil
+            )
+            if !success {
+                self.revertConfirmationInFlight(requestId: requestId)
+                self.errorText = "Failed to send confirmation response."
+            }
         }
-        // Send the response to the daemon first, then update UI state only on success.
-        // This prevents the UI from showing a finalized decision when the
-        // message was never delivered (e.g. daemon disconnected).
-        do {
-            try daemonClient.send(ConfirmationResponseMessage(requestId: requestId, decision: decision, selectedPattern: nil, selectedScope: nil))
-        } catch {
-            log.error("Failed to send confirmation response: \(error.localizedDescription)")
-            errorText = "Failed to send confirmation response."
-            return
+    }
+
+    /// Respond to a tool confirmation with "always_allow", sending the selected pattern and scope
+    /// so the backend atomically persists the trust rule alongside the confirmation response.
+    /// On send errors, attempts a one-time allow fallback and only claims success if the
+    /// fallback actually went through.
+    public func respondToAlwaysAllow(requestId: String, selectedPattern: String, selectedScope: String, decision: String = "always_allow") {
+        markConfirmationInFlight(requestId: requestId, decision: decision)
+        Task {
+            let success = await interactionClient.sendConfirmationResponse(
+                requestId: requestId, decision: decision, selectedPattern: selectedPattern, selectedScope: selectedScope
+            )
+            guard success else {
+                log.warning("Always-allow send failed, trying one-time allow fallback")
+                let fallbackSuccess = await self.performConfirmationResponse(
+                    requestId: requestId, decision: "allow", selectedPattern: nil, selectedScope: nil
+                )
+                if !fallbackSuccess {
+                    self.revertConfirmationInFlight(requestId: requestId)
+                }
+                if fallbackSuccess {
+                    self.errorText = "Preference could not be saved. This action was allowed once."
+                }
+                return
+            }
+            if let index = self.messages.firstIndex(where: { $0.confirmation?.requestId == requestId }) {
+                self.messages[index].confirmation?.approvedDecision = decision
+            }
+            self.clearPendingConfirmation(requestId: requestId)
+            self.onInlineConfirmationResponse?(requestId, "allow")
+            self.inlineResponseHandledRequestIds.insert(requestId)
         }
-        // Send succeeded — update the message state
+    }
+
+    /// Optimistically update confirmation UI to prevent duplicate submissions while
+    /// the gateway request is in flight.
+    private func markConfirmationInFlight(requestId: String, decision: String) {
+        guard let index = messages.firstIndex(where: { $0.confirmation?.requestId == requestId }) else { return }
+        let isApproval = decision == "allow" || decision == "allow_10m" || decision == "allow_conversation"
+            || decision == "always_allow" || decision == "always_allow_high_risk"
+        messages[index].confirmation?.state = isApproval ? .approved : .denied
+        if isApproval {
+            messages[index].confirmation?.approvedDecision = decision
+        }
+    }
+
+    /// Revert an optimistic confirmation update when the gateway request fails.
+    private func revertConfirmationInFlight(requestId: String) {
+        guard let index = messages.firstIndex(where: { $0.confirmation?.requestId == requestId }) else { return }
+        messages[index].confirmation?.state = .pending
+        messages[index].confirmation?.approvedDecision = nil
+    }
+
+    /// Shared async helper that sends a confirmation response and updates UI state on success.
+    /// Returns `true` if the send succeeded, `false` otherwise.
+    private func performConfirmationResponse(
+        requestId: String,
+        decision: String,
+        selectedPattern: String?,
+        selectedScope: String?
+    ) async -> Bool {
+        let success = await interactionClient.sendConfirmationResponse(
+            requestId: requestId, decision: decision, selectedPattern: selectedPattern, selectedScope: selectedScope
+        )
+        guard success else { return false }
         if let index = messages.firstIndex(where: { $0.confirmation?.requestId == requestId }) {
             let isApproval = decision == "allow" || decision == "allow_10m" || decision == "allow_conversation"
             messages[index].confirmation?.state = isApproval ? .approved : .denied
@@ -2412,44 +2469,9 @@ public final class ChatViewModel: ObservableObject {
             }
         }
         clearPendingConfirmation(requestId: requestId)
-        // Dismiss the corresponding floating panel / native notification if one exists
         onInlineConfirmationResponse?(requestId, decision)
         inlineResponseHandledRequestIds.insert(requestId)
-    }
-
-    /// Respond to a tool confirmation with "always_allow", sending the selected pattern and scope
-    /// so the backend atomically persists the trust rule alongside the confirmation response.
-    /// If the daemon is disconnected, shows an error without attempting a fallback (since
-    /// respondToConfirmation would also fail). On send errors, attempts a one-time allow
-    /// fallback and only claims success if the fallback actually went through.
-    public func respondToAlwaysAllow(requestId: String, selectedPattern: String, selectedScope: String, decision: String = "always_allow") {
-        guard daemonClient.isConnected else {
-            log.warning("Cannot persist always-allow: daemon not connected")
-            errorText = "Cannot send confirmation — assistant is not connected."
-            return
-        }
-        do {
-            try daemonClient.send(ConfirmationResponseMessage(requestId: requestId, decision: decision, selectedPattern: selectedPattern, selectedScope: selectedScope))
-        } catch {
-            log.warning("Always-allow send failed: \(error.localizedDescription)")
-            // Try one-time allow as fallback (daemon may still be connected)
-            respondToConfirmation(requestId: requestId, decision: "allow")
-            // respondToConfirmation sets errorText on failure; override with more context if it succeeded
-            if let index = messages.firstIndex(where: { $0.confirmation?.requestId == requestId }),
-               messages[index].confirmation?.state == .approved {
-                errorText = "Preference could not be saved. This action was allowed once."
-            }
-            return
-        }
-        // Send succeeded — update the message state
-        if let index = messages.firstIndex(where: { $0.confirmation?.requestId == requestId }) {
-            messages[index].confirmation?.state = .approved
-            messages[index].confirmation?.approvedDecision = decision
-        }
-        clearPendingConfirmation(requestId: requestId)
-        // Dismiss the corresponding floating panel / native notification if one exists
-        onInlineConfirmationResponse?(requestId, "allow")
-        inlineResponseHandledRequestIds.insert(requestId)
+        return true
     }
 
     /// Update the inline confirmation message state without sending a response to the daemon.
