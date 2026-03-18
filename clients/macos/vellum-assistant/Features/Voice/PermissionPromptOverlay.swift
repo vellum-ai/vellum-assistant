@@ -67,6 +67,7 @@ final class PermissionPromptOverlay {
                         PermissionManager.openSpeechRecognitionSettings()
                     case .both:
                         AVCaptureDevice.requestAccess(for: .audio) { _ in }
+                        SFSpeechRecognizer.requestAuthorization { _ in }
                         PermissionManager.openMicrophoneSettings()
                     }
                     onDismiss()
