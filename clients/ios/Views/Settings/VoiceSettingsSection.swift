@@ -159,10 +159,4 @@ private struct ElevenLabsKeySection: View {
         }
     }
 }
-
-#Preview {
-    NavigationStack {
-        VoiceSettingsSection()
-    }
-}
 #endif

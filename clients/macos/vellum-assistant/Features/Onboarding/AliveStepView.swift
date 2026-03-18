@@ -111,20 +111,3 @@ struct AliveStepView: View {
         )
     }
 }
-
-#Preview {
-    ZStack {
-        MeadowBackground()
-        AliveStepView(
-            state: {
-                let s = OnboardingState()
-                s.currentStep = 6
-                s.assistantName = "Alex"
-                return s
-            }(),
-            onComplete: {},
-            onOpenSettings: {}
-        )
-    }
-    .frame(width: 1366, height: 849)
-}

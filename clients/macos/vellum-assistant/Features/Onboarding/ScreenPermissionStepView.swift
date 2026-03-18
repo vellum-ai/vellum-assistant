@@ -62,16 +62,3 @@ struct ScreenPermissionStepView: View {
         }
     }
 }
-
-#Preview {
-    ZStack {
-        VColor.surfaceOverlay
-        ScreenPermissionStepView(state: {
-            let s = OnboardingState()
-            s.currentStep = 6
-            return s
-        }())
-        .frame(maxWidth: 520)
-    }
-    .frame(width: 640, height: 500)
-}

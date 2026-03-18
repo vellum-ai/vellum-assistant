@@ -46,8 +46,4 @@ struct ThingsView: View {
         }
     }
 }
-
-#Preview {
-    ThingsView(directoryStore: DirectoryStore(daemonClient: DaemonClient(config: .default)))
-}
 #endif

@@ -123,7 +123,3 @@ struct IntelligencePanel: View {
         }
     }
 }
-
-#Preview {
-    IntelligencePanel(onClose: {}, daemonClient: DaemonClient())
-}

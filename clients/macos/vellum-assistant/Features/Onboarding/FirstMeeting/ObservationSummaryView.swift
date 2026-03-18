@@ -151,26 +151,3 @@ private struct InsightRow: View {
         }
     }
 }
-
-#Preview {
-    ZStack {
-        MeadowBackground()
-        ObservationSummaryView(
-            state: {
-                let s = OnboardingState()
-                s.currentStep = 4
-                s.assistantName = "Assistant"
-                s.firstTaskCandidate = "organizing my project files"
-                s.observationInsights = [
-                    "You switch between VS Code and Terminal frequently.",
-                    "You organize files into clearly named directories.",
-                    "You prefer keyboard shortcuts over mouse clicks.",
-                ]
-                return s
-            }(),
-            onAccept: {},
-            onDecline: {}
-        )
-    }
-    .frame(width: 1366, height: 849)
-}

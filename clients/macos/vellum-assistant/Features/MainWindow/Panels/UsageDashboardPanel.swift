@@ -415,11 +415,3 @@ struct UsageDashboardPanel: View {
         UsageFormatting.formatCount(count)
     }
 }
-
-#Preview {
-    ZStack {
-        VColor.surfaceOverlay.ignoresSafeArea()
-        UsageDashboardPanel(store: UsageDashboardStore(), onClose: {})
-    }
-    .frame(width: 400, height: 600)
-}

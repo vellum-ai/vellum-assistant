@@ -270,18 +270,3 @@ struct FnKeyStepView: View {
         }
     }
 }
-
-#Preview {
-    ZStack {
-        VColor.surfaceOverlay.ignoresSafeArea()
-        VStack(spacing: 0) {
-            FnKeyStepView(state: {
-                let s = OnboardingState()
-                s.assistantName = "Assistant"
-                s.currentStep = 4
-                return s
-            }())
-        }
-    }
-    .frame(width: 460, height: 620)
-}

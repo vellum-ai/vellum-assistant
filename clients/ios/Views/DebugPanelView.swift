@@ -475,8 +475,4 @@ struct TraceTimelineIOSView: View {
         return String(describing: value.value)
     }
 }
-
-#Preview {
-    DebugPanelView(traceStore: TraceStore(), conversationId: nil, onClose: {})
-}
 #endif

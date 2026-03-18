@@ -170,10 +170,5 @@ struct PrivateConversationsSection: View {
 }
 
 #if DEBUG
-#Preview {
-    NavigationStack {
-        PrivateConversationsSection(store: IOSConversationStore(daemonClient: MockDaemonClient()))
-    }
-}
 #endif
 #endif

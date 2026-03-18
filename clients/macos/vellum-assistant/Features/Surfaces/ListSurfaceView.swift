@@ -67,18 +67,3 @@ struct ListSurfaceView: View {
         onSelect(Array(selectedIds))
     }
 }
-
-#Preview {
-    ListSurfaceView(
-        data: ListSurfaceData(
-            items: [
-                ListItemData(id: "1", title: "Safari", subtitle: "Web browser", icon: "safari", selected: false),
-                ListItemData(id: "2", title: "Mail", subtitle: "Email client", icon: "envelope", selected: true),
-                ListItemData(id: "3", title: "Notes", subtitle: "Note taking", icon: "note.text", selected: false),
-            ],
-            selectionMode: .single
-        ),
-        onSelect: { _ in }
-    )
-    .padding()
-}

@@ -165,12 +165,3 @@ struct OnboardingStageImage: View {
         }
     }
 }
-
-#Preview {
-    ZStack {
-        MeadowBackground()
-        OnboardingStageImage(currentStep: 0)
-            .frame(width: 640, height: 350)
-    }
-    .frame(width: 640, height: 400)
-}

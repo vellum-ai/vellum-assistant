@@ -247,21 +247,3 @@ private struct NarrationBubble: View {
         }
     }
 }
-
-#Preview {
-    ZStack {
-        MeadowBackground()
-        ObservationSessionView(
-            state: {
-                let s = OnboardingState()
-                s.currentStep = 4
-                s.assistantName = "Assistant"
-                s.observationDurationMinutes = 1
-                return s
-            }(),
-            onComplete: {},
-            onStopEarly: {}
-        )
-    }
-    .frame(width: 1366, height: 849)
-}

@@ -48,11 +48,3 @@ struct TypewriterText: View {
         }
     }
 }
-
-#Preview {
-    ZStack {
-        VColor.surfaceOverlay
-        TypewriterText(fullText: "Hello, world.")
-    }
-    .frame(width: 400, height: 200)
-}

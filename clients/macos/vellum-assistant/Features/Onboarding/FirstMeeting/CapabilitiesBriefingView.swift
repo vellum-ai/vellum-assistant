@@ -85,19 +85,3 @@ struct CapabilitiesBriefingView: View {
         }
     }
 }
-
-#Preview {
-    ZStack {
-        MeadowBackground()
-        CapabilitiesBriefingView(
-            state: {
-                let s = OnboardingState()
-                s.currentStep = 3
-                s.assistantName = "Assistant"
-                return s
-            }(),
-            onComplete: {}
-        )
-    }
-    .frame(width: 1366, height: 849)
-}

@@ -171,20 +171,3 @@ struct FirstMeetingIntroductionView: View {
         onComplete()
     }
 }
-
-#Preview {
-    ZStack {
-        MeadowBackground()
-        FirstMeetingIntroductionView(
-            state: {
-                let s = OnboardingState()
-                s.currentStep = 2
-                s.onboardingVariant = .firstMeeting
-                return s
-            }(),
-            daemonClient: DaemonClient(),
-            onComplete: {}
-        )
-    }
-    .frame(width: 1366, height: 849)
-}

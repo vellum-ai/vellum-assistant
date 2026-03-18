@@ -382,14 +382,3 @@ struct OnboardingFlowView: View {
         state.hatchFailed = true
     }
 }
-
-#Preview {
-    OnboardingFlowView(
-        state: OnboardingState(),
-        daemonClient: DaemonClient(),
-        authManager: AuthManager(),
-        managedBootstrapEnabled: true,
-        onComplete: {},
-        onOpenSettings: {}
-    )
-}

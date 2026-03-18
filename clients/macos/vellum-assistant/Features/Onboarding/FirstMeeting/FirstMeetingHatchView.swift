@@ -131,7 +131,3 @@ private struct FirstMeetingHatchPreview: View {
         .frame(width: 640, height: 400)
     }
 }
-
-#Preview {
-    FirstMeetingHatchPreview()
-}

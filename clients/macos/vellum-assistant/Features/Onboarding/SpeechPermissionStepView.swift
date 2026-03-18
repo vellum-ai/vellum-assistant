@@ -62,16 +62,3 @@ struct SpeechPermissionStepView: View {
         }
     }
 }
-
-#Preview {
-    ZStack {
-        VColor.surfaceOverlay
-        SpeechPermissionStepView(state: {
-            let s = OnboardingState()
-            s.currentStep = 4
-            return s
-        }())
-        .frame(maxWidth: 520)
-    }
-    .frame(width: 640, height: 500)
-}

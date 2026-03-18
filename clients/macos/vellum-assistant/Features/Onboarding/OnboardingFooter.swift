@@ -26,15 +26,3 @@ struct OnboardingFooter: View {
             .foregroundStyle(VColor.contentTertiary.opacity(0.5))
     }
 }
-
-#Preview {
-    ZStack {
-        VColor.surfaceOverlay
-        VStack(spacing: 24) {
-            OnboardingFooter(currentStep: 0)
-            OnboardingFooter(currentStep: 1)
-            OnboardingFooter(currentStep: 2)
-        }
-    }
-    .frame(width: 240, height: 260)
-}

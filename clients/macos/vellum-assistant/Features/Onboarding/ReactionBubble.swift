@@ -32,11 +32,3 @@ struct ReactionBubble: View {
             }
     }
 }
-
-#Preview {
-    ZStack {
-        VColor.surfaceOverlay
-        ReactionBubble(text: "Nice to meet you!")
-    }
-    .frame(width: 400, height: 200)
-}

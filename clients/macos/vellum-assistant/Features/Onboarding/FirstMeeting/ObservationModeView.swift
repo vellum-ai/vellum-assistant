@@ -129,21 +129,3 @@ struct ObservationModeView: View {
         .buttonStyle(.plain)
     }
 }
-
-#Preview {
-    ZStack {
-        MeadowBackground()
-        ObservationModeView(
-            state: {
-                let s = OnboardingState()
-                s.currentStep = 4
-                s.assistantName = "Assistant"
-                s.firstTaskCandidate = "organizing my project files"
-                return s
-            }(),
-            onStartObserving: {},
-            onSkip: {}
-        )
-    }
-    .frame(width: 1366, height: 849)
-}
