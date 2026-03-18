@@ -9,9 +9,17 @@
  * path at module load time and breaks inside bun --compile's /$bunfs/).
  */
 
-import { existsSync, rmSync } from "node:fs";
-import { mkdir, readdir, readFile, writeFile } from "node:fs/promises";
-import { dirname, join } from "node:path";
+import { existsSync, readFileSync } from "node:fs";
+import {
+  mkdir,
+  mkdtemp,
+  readdir,
+  readFile,
+  rename,
+  rm,
+  writeFile,
+} from "node:fs/promises";
+import { basename, dirname, join } from "node:path";
 
 import { getLogger } from "../util/logger.js";
 import { ensureCompilerTools } from "./compiler-tools.js";
@@ -34,6 +42,56 @@ export interface CompileResult {
   errors: CompileDiagnostic[];
   warnings: CompileDiagnostic[];
   durationMs: number;
+  builtAt: number;
+}
+
+const COMPILE_STATUS_FILENAME = ".vellum-compile-status.json";
+
+function getCompileStatusPath(appDir: string): string {
+  return join(appDir, "dist", COMPILE_STATUS_FILENAME);
+}
+
+async function writeCompileStatus(
+  appDir: string,
+  result: CompileResult,
+): Promise<void> {
+  await mkdir(join(appDir, "dist"), { recursive: true });
+  await writeFile(
+    getCompileStatusPath(appDir),
+    JSON.stringify(result, null, 2),
+    "utf-8",
+  );
+}
+
+export function readCompileStatus(appDir: string): CompileResult | null {
+  const statusPath = getCompileStatusPath(appDir);
+  if (!existsSync(statusPath)) return null;
+
+  try {
+    return JSON.parse(readFileSync(statusPath, "utf-8")) as CompileResult;
+  } catch (err) {
+    log.warn({ appDir, err }, "Failed to read compile status artifact");
+    return null;
+  }
+}
+
+export function formatCompileStatusMessage(
+  result: Pick<CompileResult, "ok" | "errors">,
+): string | undefined {
+  if (result.ok) return undefined;
+
+  if (result.errors.length === 0) {
+    return "Build failed";
+  }
+
+  const firstError = result.errors[0];
+  const location = firstError.location
+    ? ` (${basename(firstError.location.file)}:${firstError.location.line}:${firstError.location.column})`
+    : "";
+  const remainingCount = result.errors.length - 1;
+  const suffix = remainingCount > 0 ? ` (+${remainingCount} more)` : "";
+
+  return `Build failed: ${firstError.text}${location}${suffix}`;
 }
 
 /**
@@ -114,110 +172,139 @@ export async function compileApp(appDir: string): Promise<CompileResult> {
   const srcDir = join(appDir, "src");
   const distDir = join(appDir, "dist");
   const entryPoint = join(srcDir, "main.tsx");
+  const tempDistDir = await mkdtemp(join(appDir, ".dist-tmp-"));
 
-  // Clear stale dist/ output so removed assets (e.g. CSS) don't persist
-  if (existsSync(distDir)) {
-    rmSync(distDir, { recursive: true, force: true });
-  }
-  await mkdir(distDir, { recursive: true });
+  const finish = async (
+    payload: Omit<CompileResult, "builtAt">,
+  ): Promise<CompileResult> => {
+    const result: CompileResult = {
+      ...payload,
+      builtAt: Date.now(),
+    };
+    await writeCompileStatus(appDir, result);
+    return result;
+  };
 
-  // JIT download esbuild binary + preact on first use
-  let tools;
-  try {
-    tools = await ensureCompilerTools();
-  } catch (err) {
+  const finishUnexpectedError = async (
+    err: unknown,
+  ): Promise<CompileResult> => {
     const durationMs = Math.round(performance.now() - start);
     const text = err instanceof Error ? err.message : String(err);
-    log.error({ err, durationMs }, "Failed to ensure compiler tools");
-    return {
+    log.error({ err, durationMs }, "Build threw unexpectedly");
+    return finish({
       ok: false,
-      errors: [{ text: `Compiler setup failed: ${text}` }],
+      errors: [{ text }],
       warnings: [],
       durationMs,
-    };
-  }
+    });
+  };
 
-  // Scan source files for bare imports and JIT-install allowed packages
-  await resolveAppImports(srcDir);
+  try {
+    // JIT download esbuild binary + preact on first use
+    let tools;
+    try {
+      tools = await ensureCompilerTools();
+    } catch (err) {
+      const durationMs = Math.round(performance.now() - start);
+      const text = err instanceof Error ? err.message : String(err);
+      log.error({ err, durationMs }, "Failed to ensure compiler tools");
+      return finish({
+        ok: false,
+        errors: [{ text: `Compiler setup failed: ${text}` }],
+        warnings: [],
+        durationMs,
+      });
+    }
 
-  // Build NODE_PATH: preact parent dir + shared package cache
-  const preactParent = dirname(tools.preactDir);
-  const cacheNodeModules = join(getCacheDir(), "node_modules");
-  const nodePath = [preactParent, cacheNodeModules]
-    .filter((p) => existsSync(p))
-    .join(":");
+    // Scan source files for bare imports and JIT-install allowed packages
+    await resolveAppImports(srcDir);
 
-  // Shell out to esbuild CLI
-  const args = [
-    entryPoint,
-    "--bundle",
-    "--minify",
-    `--outdir=${distDir}`,
-    "--format=esm",
-    "--target=es2022",
-    "--jsx=automatic",
-    "--jsx-import-source=preact",
-    "--alias:react=preact/compat",
-    "--alias:react-dom=preact/compat",
-    "--loader:.tsx=tsx",
-    "--loader:.ts=ts",
-    "--loader:.jsx=jsx",
-    "--loader:.js=js",
-    "--loader:.css=css",
-    "--log-level=warning",
-  ];
+    // Build NODE_PATH: preact parent dir + shared package cache
+    const preactParent = dirname(tools.preactDir);
+    const cacheNodeModules = join(getCacheDir(), "node_modules");
+    const nodePath = [preactParent, cacheNodeModules]
+      .filter((p) => existsSync(p))
+      .join(":");
 
-  const proc = Bun.spawn({
-    cmd: [tools.esbuildBin, ...args],
-    cwd: appDir,
-    stdout: "pipe",
-    stderr: "pipe",
-    env: { ...process.env, NODE_PATH: nodePath },
-  });
+    // Shell out to esbuild CLI
+    const args = [
+      entryPoint,
+      "--bundle",
+      "--minify",
+      `--outdir=${tempDistDir}`,
+      "--format=esm",
+      "--target=es2022",
+      "--jsx=automatic",
+      "--jsx-import-source=preact",
+      "--alias:react=preact/compat",
+      "--alias:react-dom=preact/compat",
+      "--loader:.tsx=tsx",
+      "--loader:.ts=ts",
+      "--loader:.jsx=jsx",
+      "--loader:.js=js",
+      "--loader:.css=css",
+      "--log-level=warning",
+    ];
 
-  await proc.exited;
-  const stderr = await new Response(proc.stderr).text();
+    const proc = Bun.spawn({
+      cmd: [tools.esbuildBin, ...args],
+      cwd: appDir,
+      stdout: "pipe",
+      stderr: "pipe",
+      env: { ...process.env, NODE_PATH: nodePath },
+    });
 
-  if (proc.exitCode !== 0) {
+    await proc.exited;
+    const stderr = await new Response(proc.stderr).text();
+
+    if (proc.exitCode !== 0) {
+      const durationMs = Math.round(performance.now() - start);
+      const { errors, warnings } = parseEsbuildStderr(stderr);
+      // If parsing found nothing, use raw stderr as the error
+      if (errors.length === 0 && stderr.trim()) {
+        errors.push({ text: stderr.trim() });
+      }
+      log.info({ durationMs, errorCount: errors.length }, "Build failed");
+      return finish({ ok: false, errors, warnings, durationMs });
+    }
+
+    // Copy index.html and inject script/style tags
+    const htmlSrc = join(srcDir, "index.html");
+    if (existsSync(htmlSrc)) {
+      let html = await readFile(htmlSrc, "utf-8");
+
+      // Check if CSS output was produced
+      const distFiles = await readdir(tempDistDir);
+      const hasCss = distFiles.some((f) => f.endsWith(".css"));
+
+      // Inject stylesheet link into <head> if CSS exists and not already present
+      if (hasCss && !html.includes('href="main.css"')) {
+        html = html.replace(
+          "</head>",
+          '  <link rel="stylesheet" href="main.css">\n  </head>',
+        );
+      }
+
+      // Inject script tag before </body> if not already present
+      if (!html.includes('src="main.js"')) {
+        html = html.replace(
+          "</body>",
+          '  <script type="module" src="main.js"></script>\n  </body>',
+        );
+      }
+
+      await writeFile(join(tempDistDir, "index.html"), html);
+    }
+
+    await rm(distDir, { recursive: true, force: true });
+    await rename(tempDistDir, distDir);
+
     const durationMs = Math.round(performance.now() - start);
-    const { errors, warnings } = parseEsbuildStderr(stderr);
-    // If parsing found nothing, use raw stderr as the error
-    if (errors.length === 0 && stderr.trim()) {
-      errors.push({ text: stderr.trim() });
-    }
-    log.info({ durationMs, errorCount: errors.length }, "Build failed");
-    return { ok: false, errors, warnings, durationMs };
+    log.info({ durationMs }, "Build succeeded");
+    return finish({ ok: true, errors: [], warnings: [], durationMs });
+  } catch (err) {
+    return finishUnexpectedError(err);
+  } finally {
+    await rm(tempDistDir, { recursive: true, force: true });
   }
-
-  // Copy index.html and inject script/style tags
-  const htmlSrc = join(srcDir, "index.html");
-  if (existsSync(htmlSrc)) {
-    let html = await readFile(htmlSrc, "utf-8");
-
-    // Check if CSS output was produced
-    const distFiles = await readdir(distDir);
-    const hasCss = distFiles.some((f) => f.endsWith(".css"));
-
-    // Inject stylesheet link into <head> if CSS exists and not already present
-    if (hasCss && !html.includes('href="main.css"')) {
-      html = html.replace(
-        "</head>",
-        '  <link rel="stylesheet" href="main.css">\n  </head>',
-      );
-    }
-
-    // Inject script tag before </body> if not already present
-    if (!html.includes('src="main.js"')) {
-      html = html.replace(
-        "</body>",
-        '  <script type="module" src="main.js"></script>\n  </body>',
-      );
-    }
-
-    await writeFile(join(distDir, "index.html"), html);
-  }
-
-  const durationMs = Math.round(performance.now() - start);
-  log.info({ durationMs }, "Build succeeded");
-  return { ok: true, errors: [], warnings: [], durationMs };
 }

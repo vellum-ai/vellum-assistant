@@ -1,6 +1,18 @@
+import { join } from "node:path";
+
 import { v4 as uuid } from "uuid";
 
-import { getApp, getAppPreview, updateApp } from "../memory/app-store.js";
+import {
+  formatCompileStatusMessage,
+  readCompileStatus,
+} from "../bundler/app-compiler.js";
+import {
+  getApp,
+  getAppPreview,
+  getAppsDir,
+  isMultifileApp,
+  updateApp,
+} from "../memory/app-store.js";
 import type { ToolExecutionResult } from "../tools/types.js";
 import { getLogger } from "../util/logger.js";
 import { isPlainObject } from "../util/object.js";
@@ -816,7 +828,7 @@ export function handleSurfaceAction(
 export function refreshSurfacesForApp(
   ctx: SurfaceConversationContext,
   appId: string,
-  opts?: { fileChange?: boolean; status?: string },
+  opts?: { fileChange?: boolean; status?: string | null },
 ): boolean {
   const app = getApp(appId);
   if (!app) return false;
@@ -837,7 +849,7 @@ export function refreshSurfacesForApp(
       ...(opts?.fileChange
         ? { reloadGeneration: (data.reloadGeneration ?? 0) + 1 }
         : {}),
-      ...(opts?.status !== undefined ? { status: opts.status } : {}),
+      ...(opts && "status" in opts ? { status: opts.status ?? undefined } : {}),
     };
     stored.data = updatedData;
 
@@ -1219,9 +1231,17 @@ export async function surfaceProxyResolver(
     const defaultPreview = { title: app.name, subtitle: app.description };
 
     const storedPreview = getAppPreview(app.id);
+    const compileStatus = isMultifileApp(app)
+      ? readCompileStatus(join(getAppsDir(), app.id))
+      : null;
     const surfaceData: DynamicPageSurfaceData = {
       html: app.htmlDefinition,
       appId: app.id,
+      ...(compileStatus && !compileStatus.ok
+        ? {
+            status: formatCompileStatusMessage(compileStatus) ?? "Build failed",
+          }
+        : {}),
       preview: {
         ...defaultPreview,
         ...preview,
