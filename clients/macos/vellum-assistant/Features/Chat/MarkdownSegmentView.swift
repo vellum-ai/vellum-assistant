@@ -17,12 +17,10 @@ struct MarkdownSegmentView: View {
     var codeBackgroundColor: Color = VColor.surfaceActive
     var hrColor: Color = VColor.borderBase
 
-    @Environment(\.conversationZoomScale) private var zoomScale
-
     var body: some View {
         let groups = groupedSegments
-        let scaledBodySize: CGFloat = 14 * zoomScale
-        let scaledCodeLabelSize: CGFloat = 11 * zoomScale
+        let scaledBodySize: CGFloat = 14
+        let scaledCodeLabelSize: CGFloat = 11
         VStack(alignment: .leading, spacing: VSpacing.lg) {
             ForEach(Array(groups.enumerated()), id: \.offset) { _, group in
                 switch group {
@@ -42,10 +40,10 @@ struct MarkdownSegmentView: View {
 
                 case .heading(let level, let headingText):
                     let headingFont: Font = switch level {
-                    case 1: .system(size: 20 * zoomScale, weight: .bold)
-                    case 2: .system(size: 16 * zoomScale, weight: .semibold)
-                    case 3: .system(size: 14 * zoomScale, weight: .semibold)
-                    default: .system(size: 14 * zoomScale, weight: .semibold)
+                    case 1: .system(size: 20, weight: .bold)
+                    case 2: .system(size: 16, weight: .semibold)
+                    case 3: .system(size: 14, weight: .semibold)
+                    default: .system(size: 14, weight: .semibold)
                     }
                     Text(headingText)
                         .font(headingFont)
@@ -67,7 +65,7 @@ struct MarkdownSegmentView: View {
                         }
                         ScrollView(.horizontal, showsIndicators: false) {
                             Text(code)
-                                .font(.custom("DMMono-Regular", size: 13 * zoomScale))
+                                .font(.custom("DMMono-Regular", size: 13))
                                 .foregroundColor(textColor)
                                 .textSelection(.enabled)
                                 .fixedSize(horizontal: true, vertical: true)
@@ -217,8 +215,7 @@ struct MarkdownSegmentView: View {
         defer { os_signpost(.end, log: PerfSignposts.log, name: "attributedStringBuild") }
         // Build a stable cache key from the segment contents and style
         // inputs that affect the output (e.g. secondaryTextColor for list
-        // prefix coloring, zoomScale for font sizing) so different visual
-        // contexts don't share entries.
+        // prefix coloring) so different visual contexts don't share entries.
         var hasher = Hasher()
         for segment in segments {
             hasher.combine(String(describing: segment))
@@ -227,7 +224,6 @@ struct MarkdownSegmentView: View {
         hasher.combine(textColor.description)
         hasher.combine(codeTextColor.description)
         hasher.combine(codeBackgroundColor.description)
-        hasher.combine(zoomScale)
         let cacheKey = hasher.finalize()
 
         if let cached = Self.attributedStringCache[cacheKey] {
@@ -236,7 +232,7 @@ struct MarkdownSegmentView: View {
             return cached.value
         }
 
-        let result = Self.buildAttributedStringUncached(from: segments, secondaryTextColor: secondaryTextColor, codeTextColor: codeTextColor, codeBackgroundColor: codeBackgroundColor, zoomScale: zoomScale)
+        let result = Self.buildAttributedStringUncached(from: segments, secondaryTextColor: secondaryTextColor, codeTextColor: codeTextColor, codeBackgroundColor: codeBackgroundColor)
 
         // Skip caching for very long segment groups to avoid a single huge
         // entry evicting many smaller, more frequently accessed entries.
@@ -267,8 +263,7 @@ struct MarkdownSegmentView: View {
         from segments: [MarkdownSegment],
         secondaryTextColor: Color,
         codeTextColor: Color = VColor.systemNegativeStrong,
-        codeBackgroundColor: Color = VColor.surfaceActive,
-        zoomScale: CGFloat = 1.0
+        codeBackgroundColor: Color = VColor.surfaceActive
     ) -> AttributedString {
         let mdOptions = AttributedString.MarkdownParsingOptions(
             interpretedSyntax: .inlineOnlyPreservingWhitespace
@@ -304,7 +299,7 @@ struct MarkdownSegmentView: View {
                     // Apply hanging indent so wrapped lines align with item text
                     let prefixText = indentString + prefix
                     // Measure actual prefix width using the font
-                    let font = NSFont.systemFont(ofSize: 14 * zoomScale)
+                    let font = NSFont.systemFont(ofSize: 14)
                     let prefixNS = NSString(string: prefixText)
                     let prefixWidth = prefixNS.size(withAttributes: [.font: font]).width
                     let paragraphStyle = NSMutableParagraphStyle()

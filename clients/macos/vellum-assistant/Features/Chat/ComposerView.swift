@@ -64,7 +64,6 @@ struct ComposerView: View {
     var composerCompactHeight: CGFloat = 38
     var conversationId: UUID?
 
-    @Environment(\.conversationZoomScale) private var zoomScale
     @Environment(\.cmdEnterToSend) private var cmdEnterToSend
     @FocusState private var composerFocus: Bool
     @State private var isComposerFocused = false
@@ -229,7 +228,7 @@ struct ComposerView: View {
     }
 
     private var composerTextField: some View {
-        let scaledBody = Font.custom("Inter", size: 13 * zoomScale)
+        let scaledBody = Font.custom("Inter", size: 13)
         let hasSlashHighlight = slashCommandRange != nil
 
         return ScrollView(.vertical, showsIndicators: false) {

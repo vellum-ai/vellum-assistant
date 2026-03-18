@@ -62,7 +62,6 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
     var surfaceManager: SurfaceManager { services.surfaceManager }
     var secretPromptManager: SecretPromptManager { services.secretPromptManager }
     var zoomManager: ZoomManager { services.zoomManager }
-    var conversationZoomManager: ConversationZoomManager { services.conversationZoomManager }
 
     let toolConfirmationNotificationService = ToolConfirmationNotificationService()
     lazy var recordingManager: RecordingManager = RecordingManager(daemonClient: daemonClient)
