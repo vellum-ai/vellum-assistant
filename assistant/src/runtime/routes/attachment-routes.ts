@@ -29,9 +29,10 @@ export async function handleUploadAttachment(req: Request): Promise<Response> {
     filename?: string;
     mimeType?: string;
     data?: string;
+    filePath?: string;
   };
 
-  const { filename, mimeType, data } = body;
+  const { filename, mimeType, data, filePath } = body;
 
   if (!filename || typeof filename !== "string") {
     return httpError("BAD_REQUEST", "filename is required", 400);
@@ -52,7 +53,12 @@ export async function handleUploadAttachment(req: Request): Promise<Response> {
 
   let attachment: attachmentsStore.StoredAttachment;
   try {
-    attachment = attachmentsStore.uploadAttachment(filename, mimeType, data);
+    attachment = attachmentsStore.uploadAttachment(
+      filename,
+      mimeType,
+      data,
+      filePath ?? undefined,
+    );
   } catch (err) {
     if (err instanceof AttachmentUploadError) {
       const status = err.message.startsWith("Attachment too large") ? 413 : 400;

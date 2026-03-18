@@ -49,6 +49,7 @@ export interface VoiceBridgeDeps {
     filename: string;
     mimeType: string;
     data: string;
+    filePath?: string;
   }>;
   deriveDefaultStrictSideEffects: (conversationId: string) => boolean;
 }
