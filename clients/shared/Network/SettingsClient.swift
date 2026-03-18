@@ -21,6 +21,30 @@ public protocol SettingsClientProtocol {
     func sendChannelVerificationSession(action: String, channel: String?, conversationId: String?, rebind: Bool?, destination: String?, originConversationId: String?, purpose: String?, contactChannelId: String?) async -> ChannelVerificationSessionResponseMessage?
 }
 
+extension SettingsClientProtocol {
+    func sendChannelVerificationSession(
+        action: String,
+        channel: String? = nil,
+        conversationId: String? = nil,
+        rebind: Bool? = nil,
+        destination: String? = nil,
+        originConversationId: String? = nil,
+        purpose: String? = nil,
+        contactChannelId: String? = nil
+    ) async -> ChannelVerificationSessionResponseMessage? {
+        await sendChannelVerificationSession(
+            action: action,
+            channel: channel,
+            conversationId: conversationId,
+            rebind: rebind,
+            destination: destination,
+            originConversationId: originConversationId,
+            purpose: purpose,
+            contactChannelId: contactChannelId
+        )
+    }
+}
+
 /// Gateway-backed implementation of ``SettingsClientProtocol``.
 @MainActor
 public struct SettingsClient: SettingsClientProtocol {
