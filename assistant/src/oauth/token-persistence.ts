@@ -59,8 +59,12 @@ export interface StoreOAuth2TokensParams {
   clientId: string;
   clientSecret?: string;
   userinfoUrl?: string;
-  /** Fallback account info from an identity verifier (e.g. @username, email). */
-  identityAccountInfo?: string;
+  /**
+   * Best-effort account identifier parsed from the provider's identity
+   * endpoint (e.g. email, @username, display name). The format varies by
+   * provider and may be undefined if the API call fails.
+   */
+  parsedAccountIdentifier?: string;
   /** Pre-resolved oauth_app ID — skips the upsertApp() call if provided. */
   oauthAppId?: string;
 }
@@ -94,6 +98,10 @@ export async function storeOAuth2Tokens(
     ? Date.now() + tokens.expiresIn * 1000
     : null;
 
+  // Account identifier parsing is best-effort. The format varies by provider
+  // (email for Google, username for GitHub, display name for Spotify, etc.)
+  // and may be undefined if the userinfo/identity API call fails or the
+  // required scope wasn't granted.
   let accountInfo: string | undefined;
   if (userinfoUrl && grantedScopes.some((s) => s.includes("userinfo"))) {
     try {
@@ -109,7 +117,7 @@ export async function storeOAuth2Tokens(
     }
   }
 
-  const resolvedAccountInfo = accountInfo ?? params.identityAccountInfo;
+  const resolvedAccountInfo = accountInfo ?? params.parsedAccountIdentifier;
 
   // -------------------------------------------------------------------
   // SQLite oauth_app + oauth_connection + new-format secure keys

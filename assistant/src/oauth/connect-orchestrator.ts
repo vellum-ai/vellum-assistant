@@ -252,12 +252,13 @@ export async function orchestrateOAuthConnect(
       prepared.completion
         .then(async (result) => {
           try {
-            let accountInfo: string | undefined;
+            let parsedAccountIdentifier: string | undefined;
 
-            // Run identity verifier if available (code-side behavior)
+            // Parse account identifier from the provider's identity endpoint.
+            // Best-effort — format varies by provider and may fail.
             if (behavior.identityVerifier) {
               try {
-                accountInfo = await behavior.identityVerifier(
+                parsedAccountIdentifier = await behavior.identityVerifier(
                   result.tokens.accessToken,
                 );
               } catch {
@@ -270,19 +271,19 @@ export async function orchestrateOAuthConnect(
               tokens: result.tokens,
               grantedScopes: result.grantedScopes,
               rawTokenResponse: result.rawTokenResponse,
-              identityAccountInfo: accountInfo,
+              parsedAccountIdentifier,
             });
             log.info(
               {
                 service: resolvedService,
-                accountInfo: stored.accountInfo ?? accountInfo,
+                accountInfo: stored.accountInfo ?? parsedAccountIdentifier,
               },
               "Deferred OAuth2 flow completed — tokens stored",
             );
             options.onDeferredComplete?.({
               success: true,
               service: resolvedService,
-              accountInfo: stored.accountInfo ?? accountInfo,
+              accountInfo: stored.accountInfo ?? parsedAccountIdentifier,
             });
           } catch (err) {
             log.error(
@@ -353,11 +354,14 @@ export async function orchestrateOAuthConnect(
           : undefined,
     );
 
-    // Run identity verifier if available (code-side behavior)
-    let verifiedIdentity: string | undefined;
+    // Parse account identifier from the provider's identity endpoint.
+    // Best-effort — format varies by provider and may fail.
+    let parsedAccountIdentifier: string | undefined;
     if (behavior.identityVerifier) {
       try {
-        verifiedIdentity = await behavior.identityVerifier(tokens.accessToken);
+        parsedAccountIdentifier = await behavior.identityVerifier(
+          tokens.accessToken,
+        );
       } catch {
         // Non-fatal
       }
@@ -368,14 +372,14 @@ export async function orchestrateOAuthConnect(
       tokens,
       grantedScopes,
       rawTokenResponse,
-      identityAccountInfo: verifiedIdentity,
+      parsedAccountIdentifier,
     });
 
     return {
       success: true,
       deferred: false,
       grantedScopes,
-      accountInfo: accountInfo ?? verifiedIdentity,
+      accountInfo: accountInfo ?? parsedAccountIdentifier,
     };
   } catch (err: unknown) {
     const message =
