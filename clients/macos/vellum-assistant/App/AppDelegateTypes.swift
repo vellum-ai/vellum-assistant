@@ -7,11 +7,16 @@ enum AssistantStatus {
     case disconnected
 
     var menuTitle: String {
+        menuTitle(assistantName: nil)
+    }
+
+    func menuTitle(assistantName: String?) -> String {
+        let name = assistantName ?? "Assistant"
         switch self {
-        case .idle: return "Assistant is idle"
-        case .thinking: return "Assistant is thinking..."
+        case .idle: return "\(name) is idle"
+        case .thinking: return "\(name) is thinking..."
         case .error(let msg): return "Error: \(msg)"
-        case .disconnected: return "Disconnected from assistant"
+        case .disconnected: return "Disconnected from \(name)"
         }
     }
 

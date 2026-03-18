@@ -34,6 +34,17 @@ extension AppDelegate {
         }
 
         rebindConnectionStatusObserver()
+
+        // Update menu bar icon when the assistant's avatar changes.
+        if avatarChangeObserver == nil {
+            avatarChangeObserver = NotificationCenter.default.addObserver(
+                forName: AvatarAppearanceManager.avatarDidChangeNotification,
+                object: nil,
+                queue: .main
+            ) { [weak self] _ in
+                self?.updateMenuBarIcon()
+            }
+        }
     }
 
     /// (Re-)subscribe to `daemonClient.$isConnected` so the menu bar icon
@@ -120,16 +131,20 @@ extension AppDelegate {
         let dotPadding: CGFloat = 0.5
 
         let appIcon: NSImage = {
-            let bundle = ResourceBundle.bundle
-            if let url = bundle.url(
-                forResource: "icon-64",
-                withExtension: "png",
-                subdirectory: "Assets.xcassets/MenuBarIcon.imageset"
-            ), let img = NSImage(contentsOf: url) {
-                return img
+            // Use the assistant's avatar (same image used for dock icon / chat),
+            // rendered as a circle at menu-bar size.
+            let avatarManager = AvatarAppearanceManager.shared
+            let avatar = avatarManager.customAvatarImage
+                ?? avatarManager.fullAvatarImage
+
+            let size = iconSize
+            let square = AvatarAppearanceManager.resizedImage(avatar, to: size)
+            return NSImage(size: NSSize(width: size, height: size), flipped: false) { rect in
+                NSBezierPath(ovalIn: rect).addClip()
+                square.draw(in: rect, from: NSRect(origin: .zero, size: square.size),
+                            operation: .copy, fraction: 1.0)
+                return true
             }
-            return VIcon.sparkles.nsImage(size: 18)
-                ?? NSImage()
         }()
 
         let status = currentAssistantStatus
@@ -213,7 +228,8 @@ extension AppDelegate {
         menu.autoenablesItems = false
 
         let status = currentAssistantStatus
-        let statusItem = NSMenuItem(title: status.menuTitle, action: nil, keyEquivalent: "")
+        let name = AssistantDisplayName.resolve(IdentityInfo.load()?.name)
+        let statusItem = NSMenuItem(title: status.menuTitle(assistantName: name), action: nil, keyEquivalent: "")
         statusItem.isEnabled = false
         statusItem.image = status.statusIcon
         menu.addItem(statusItem)
