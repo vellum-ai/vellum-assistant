@@ -12,6 +12,8 @@ struct InputsGallerySection: View {
     @State private var toggleA: Bool = true
     @State private var toggleB: Bool = false
     @State private var dropdownValue = ""
+    @State private var inlineActionText = ""
+    @State private var inlineActionSecureText = ""
 
     var body: some View {
         VStack(alignment: .leading, spacing: VSpacing.xxl) {
@@ -215,6 +217,63 @@ struct InputsGallerySection: View {
                                 (label: "Option C", value: "c")
                             ],
                             emptyValue: ""
+                        )
+                    }
+                }
+            }
+
+            Divider().background(VColor.borderBase).padding(.vertical, VSpacing.md)
+
+            // MARK: - VInlineActionField
+            GallerySectionHeader(
+                title: "VInlineActionField",
+                description: "Input field with an inline action button for save/send patterns."
+            )
+
+            VCard {
+                VStack(alignment: .leading, spacing: VSpacing.xl) {
+                    Text("Live value: \"\(inlineActionText)\"")
+                        .font(VFont.mono)
+                        .foregroundColor(VColor.contentTertiary)
+
+                    Divider().background(VColor.borderBase)
+
+                    VStack(alignment: .leading, spacing: VSpacing.md) {
+                        Text("Default (empty — action disabled)").font(VFont.caption).foregroundColor(VColor.contentTertiary)
+                        VInlineActionField(
+                            text: $inlineActionText,
+                            placeholder: "Enter API key...",
+                            action: {}
+                        )
+                    }
+
+                    VStack(alignment: .leading, spacing: VSpacing.md) {
+                        Text("allowEmpty: true (action enabled even when empty)").font(VFont.caption).foregroundColor(VColor.contentTertiary)
+                        VInlineActionField(
+                            text: .constant(""),
+                            placeholder: "Optional URL...",
+                            allowEmpty: true,
+                            action: {}
+                        )
+                    }
+
+                    VStack(alignment: .leading, spacing: VSpacing.md) {
+                        Text("Secure field").font(VFont.caption).foregroundColor(VColor.contentTertiary)
+                        VInlineActionField(
+                            text: $inlineActionSecureText,
+                            placeholder: "Enter password...",
+                            isSecure: true,
+                            action: {}
+                        )
+                    }
+
+                    VStack(alignment: .leading, spacing: VSpacing.md) {
+                        Text("Custom action label").font(VFont.caption).foregroundColor(VColor.contentTertiary)
+                        VInlineActionField(
+                            text: .constant("https://example.com/webhook"),
+                            placeholder: "Webhook URL...",
+                            actionLabel: "Send",
+                            action: {}
                         )
                     }
                 }
