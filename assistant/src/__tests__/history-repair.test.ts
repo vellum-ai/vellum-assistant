@@ -588,6 +588,77 @@ describe("repairHistory", () => {
     });
   });
 
+  test("synthetic web_search_tool_result is placed immediately after its server_tool_use, not at end", () => {
+    // Regression: synthetic results appended to the end of the content array
+    // get separated from their server_tool_use by ensureToolPairing's split
+    // at tool_use boundaries, causing the API to reject with "web_search
+    // tool use without a corresponding web_search_tool_result block".
+    const messages: Message[] = [
+      { role: "user", content: [{ type: "text", text: "Search and act" }] },
+      {
+        role: "assistant",
+        content: [
+          { type: "text", text: "Let me search" },
+          {
+            type: "server_tool_use",
+            id: "stu_1",
+            name: "web_search",
+            input: { query: "openai" },
+          },
+          {
+            type: "server_tool_use",
+            id: "stu_2",
+            name: "web_search",
+            input: { query: "anthropic" },
+          },
+          { type: "text", text: "Based on my research" },
+          {
+            type: "tool_use",
+            id: "tu_1",
+            name: "skill_load",
+            input: { skill: "app-builder" },
+          },
+        ],
+      },
+      {
+        role: "user",
+        content: [
+          {
+            type: "tool_result",
+            tool_use_id: "tu_1",
+            content: "Skill loaded",
+          },
+        ],
+      },
+    ];
+
+    const { messages: repaired, stats } = repairHistory(messages);
+
+    expect(stats.missingToolResultsInserted).toBe(2);
+
+    const assistantMsg = repaired[1];
+    // Synthetic results must appear immediately after their server_tool_use,
+    // NOT after the tool_use block at the end
+    const blockTypes = assistantMsg.content.map((b) => b.type);
+    expect(blockTypes).toEqual([
+      "text",
+      "server_tool_use",
+      "web_search_tool_result", // right after stu_1
+      "server_tool_use",
+      "web_search_tool_result", // right after stu_2
+      "text",
+      "tool_use",
+    ]);
+
+    // Verify the pairings are correct
+    expect(
+      (assistantMsg.content[2] as { tool_use_id: string }).tool_use_id,
+    ).toBe("stu_1");
+    expect(
+      (assistantMsg.content[4] as { tool_use_id: string }).tool_use_id,
+    ).toBe("stu_2");
+  });
+
   test("downgrades type-mismatched tool_result for server_tool_use", () => {
     // A tool_result in the user message for a server_tool_use ID is orphaned —
     // server-side results belong in the assistant message
