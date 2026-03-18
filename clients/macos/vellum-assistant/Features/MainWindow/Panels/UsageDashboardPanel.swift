@@ -77,9 +77,9 @@ struct UsageDashboardPanel: View {
                         refreshTask = Task { await store.selectRange(newRange) }
                     }
                 ),
-                options: UsageTimeRange.allCases.map { ($0.rawValue, $0) }
+                options: UsageTimeRange.allCases.map { ($0.rawValue, $0) },
+                maxWidth: 160
             )
-            .frame(width: 160)
             Spacer()
         }
         .frame(maxWidth: 900)
@@ -296,9 +296,9 @@ struct UsageDashboardPanel: View {
                     breakdownTask = Task { await store.selectGroupBy(newDimension) }
                 }
             ),
-            options: UsageGroupByDimension.allCases.map { ($0.rawValue.capitalized, $0) }
+            options: UsageGroupByDimension.allCases.map { ($0.rawValue.capitalized, $0) },
+            maxWidth: 140
         )
-        .frame(width: 140)
     }
 
     private let breakdownTableWidth: CGFloat = 500

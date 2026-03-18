@@ -199,7 +199,6 @@ struct InferenceServiceCard: View {
                     (label: SettingsStore.inferenceProviderDisplayNames[provider] ?? provider, value: provider)
                 }
             )
-            .frame(width: 400)
         }
     }
 
@@ -251,7 +250,6 @@ struct InferenceServiceCard: View {
                 (label: SettingsStore.modelDisplayNames[model] ?? model, value: model)
             }
         )
-        .frame(width: 400)
     }
 
     /// Per-provider catalog model dropdown (flag on).
@@ -266,7 +264,6 @@ struct InferenceServiceCard: View {
                 (label: model.displayName, value: model.id)
             }
         )
-        .frame(width: 400)
     }
 
     // MARK: - Save

@@ -599,9 +599,9 @@ struct SettingsDeveloperTab: View {
                     VDropdown(
                         placeholder: "",
                         selection: $selectedAssistantId,
-                        options: awakeAssistants.map { (label: displayLabel(for: $0), value: $0.assistantId) }
+                        options: awakeAssistants.map { (label: displayLabel(for: $0), value: $0.assistantId) },
+                        maxWidth: 200
                     )
-                    .frame(maxWidth: 200)
                 }
             }
             .onChange(of: selectedAssistantId) { oldValue, newValue in
