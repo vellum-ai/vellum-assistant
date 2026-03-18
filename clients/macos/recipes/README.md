@@ -3,8 +3,8 @@
 ## Status: Not Yet Wired
 
 The recipe execution engine (`RecipeExecutor`) has been removed as part of the migration
-to proxy-based computer use. The recipe markdown files and DSL spec remain for future
-use — a new executor will be built on top of the `host_cu_request` / `host_cu_result`
+to proxy-based computer use. The recipe markdown files remain for future reference
+— a new executor will be built on top of the `host_cu_request` / `host_cu_result`
 proxy flow when the integration picker is built.
 
 ### Available Recipe Files
