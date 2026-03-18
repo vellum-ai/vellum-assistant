@@ -1644,11 +1644,11 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
     /// server-assigned ID so that subsequent switch/rename/cancel requests use
     /// an ID the daemon actually recognises.
     private func resolveConversationId(from syntheticId: String, to serverId: String) {
-        guard let localId = conversations.firstIndex(where: { $0.conversationId == syntheticId }) else {
+        guard let index = conversations.firstIndex(where: { $0.conversationId == syntheticId }) else {
             log.warning("resolveConversationId: no conversation found with synthetic ID \(syntheticId, privacy: .public)")
             return
         }
-        conversations[localId].conversationId = serverId
+        conversations[index].conversationId = serverId
 
         if let vm = chatViewModels.values.first(where: { $0.conversationId == syntheticId }) {
             vm.conversationId = serverId
@@ -1670,7 +1670,7 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
 
         sendReorderConversations()
 
-        let uuidKey = conversations[localId].id
+        let uuidKey = conversations[index].id
         if let pendingTitle = pendingRenames.removeValue(forKey: uuidKey) {
             try? daemonClient.send(ConversationRenameRequest(
                 type: "conversation_rename",
