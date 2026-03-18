@@ -19,6 +19,7 @@ struct HighlightedTextView: View {
     @State private var cachedHighlight: AttributedString?
     @State private var highlightVersion: UInt64 = 0
     @State private var contentReady = false
+    @State private var cachedLineCount: Int = 1
 
     /// Lightweight key for `.task(id:)` so the highlight task re-runs when
     /// either the detected language or the text content changes.
@@ -65,6 +66,7 @@ struct HighlightedTextView: View {
                 // editableView is shown, so the cache may hold stale content.
                 cachedHighlight = nil
                 highlightVersion &+= 1
+                cachedLineCount = Self.countLines(in: text)
             }
         }
         .onChange(of: language) { _, _ in
@@ -78,8 +80,7 @@ struct HighlightedTextView: View {
     /// (NSViewRepresentable) instead of SwiftUI's TextEditor to control
     /// textContainerInset precisely, ensuring the gutter stays aligned.
     private var editableView: some View {
-        let lines = text.components(separatedBy: "\n")
-        let lineCount = lines.count
+        let lineCount = cachedLineCount
         let gutterWidth = gutterWidth(for: lineCount)
 
         return VStack(spacing: 0) {
@@ -125,6 +126,7 @@ struct HighlightedTextView: View {
             return .handled
         }
         .onChange(of: text) { _, _ in
+            cachedLineCount = Self.countLines(in: text)
             let count = searchMatchCount
             if count == 0 {
                 currentMatchIndex = 0
@@ -136,46 +138,83 @@ struct HighlightedTextView: View {
 
     // MARK: - Read-Only Mode
 
-    /// Syntax-highlighted text for the read-only view, with search match highlighting.
-    ///
-    /// Uses `cachedHighlight` (computed asynchronously via `.task`) when
-    /// available, falling back to plain monospaced text so the view appears
-    /// instantly while highlighting runs in the background.
-    private var highlightedText: AttributedString {
-        var result: AttributedString
-        if let cached = cachedHighlight {
-            result = cached
-        } else {
-            result = AttributedString(text)
-            result.foregroundColor = VColor.contentDefault
-            result.font = VFont.mono
+    /// Splits an `AttributedString` by newline characters, returning one
+    /// sub-string per line. The newline characters themselves are stripped.
+    private static func splitLines(_ attrStr: AttributedString) -> [AttributedString] {
+        var lines: [AttributedString] = []
+        var currentStart = attrStr.startIndex
+        let str = String(attrStr.characters)
+
+        for (offset, char) in str.enumerated() where char == "\n" {
+            let idx = attrStr.index(attrStr.startIndex, offsetByCharacters: offset)
+            lines.append(AttributedString(attrStr[currentStart..<idx]))
+            let nextOffset = offset + 1
+            if nextOffset < str.count {
+                currentStart = attrStr.index(attrStr.startIndex, offsetByCharacters: nextOffset)
+            } else {
+                currentStart = attrStr.endIndex
+            }
         }
+        // Last line (or entire string if no newlines)
+        if currentStart < attrStr.endIndex {
+            lines.append(AttributedString(attrStr[currentStart..<attrStr.endIndex]))
+        } else if lines.isEmpty || str.last == "\n" {
+            lines.append(AttributedString())
+        }
+        return lines
+    }
 
-        guard !searchQuery.isEmpty else { return result }
-
-        let matchRanges = findMatchRanges()
+    /// Applies search match highlighting to an `AttributedString` representing
+    /// a single line. `lineStartOffset` is the character offset of this line
+    /// within the full text.
+    private func applySearchHighlighting(
+        to line: inout AttributedString,
+        lineText: Substring,
+        lineStartOffset: Int,
+        matchRanges: [Range<String.Index>]
+    ) {
+        let lineRange = lineText.startIndex..<lineText.endIndex
         for (index, range) in matchRanges.enumerated() {
-            guard let lowerBound = AttributedString.Index(range.lowerBound, within: result),
-                  let upperBound = AttributedString.Index(range.upperBound, within: result) else {
+            guard range.overlaps(lineRange) else { continue }
+            let clampedLower = max(range.lowerBound, lineText.startIndex)
+            let clampedUpper = min(range.upperBound, lineText.endIndex)
+            let localLower = lineText.distance(from: lineText.startIndex, to: clampedLower)
+            let localUpper = lineText.distance(from: lineText.startIndex, to: clampedUpper)
+            guard let attrLower = line.index(line.startIndex, offsetByCharacters: localLower, limitedBy: line.endIndex),
+                  let attrUpper = line.index(line.startIndex, offsetByCharacters: localUpper, limitedBy: line.endIndex) else {
                 continue
             }
-
-            let attrRange = lowerBound..<upperBound
+            let attrRange = attrLower..<attrUpper
             if index == currentMatchIndex {
-                result[attrRange].backgroundColor = VColor.primaryBase.opacity(0.3)
+                line[attrRange].backgroundColor = VColor.primaryBase.opacity(0.3)
             } else {
-                result[attrRange].backgroundColor = VColor.systemMidWeak
+                line[attrRange].backgroundColor = VColor.systemMidWeak
             }
         }
-
-        return result
     }
 
     /// Read-only view with line numbers and horizontal scrolling.
+    ///
+    /// Uses lazy, per-line rendering: the text is split into individual lines
+    /// and each is rendered as a separate `Text` view inside a `LazyVStack`.
+    /// Only visible lines are materialised, so scrolling through files with
+    /// thousands of lines stays smooth.
     private var readOnlyView: some View {
-        let lines = text.components(separatedBy: "\n")
-        let lineCount = lines.count
+        let lineCount = cachedLineCount
         let gutterWidth = gutterWidth(for: lineCount)
+
+        // Pre-split highlighted text into per-line attributed strings.
+        // When the highlight cache is available we slice the attributed string;
+        // otherwise each line is rendered as plain monospaced text (cheap).
+        let highlightedLines: [AttributedString]?
+        if let cached = cachedHighlight {
+            highlightedLines = Self.splitLines(cached)
+        } else {
+            highlightedLines = nil
+        }
+
+        let plainLines = text.split(separator: "\n", omittingEmptySubsequences: false)
+        let matchRanges = searchQuery.isEmpty ? [] : findMatchRanges()
 
         return VStack(spacing: 0) {
             if isSearchVisible {
@@ -193,18 +232,18 @@ struct HighlightedTextView: View {
                         // Line number gutter — scrolls vertically, pinned horizontally
                         lineNumberGutter(lineCount: lineCount, width: gutterWidth)
 
-                        // Text content — scrolls both directions
+                        // Text content — lazy per-line rendering with horizontal scroll
                         ScrollView(.horizontal, showsIndicators: true) {
-                            Group {
-                                if isEditable {
-                                    Text(highlightedText)
-                                        .textSelection(.disabled)
-                                } else {
-                                    Text(highlightedText)
-                                        .textSelection(.enabled)
+                            LazyVStack(alignment: .leading, spacing: 0) {
+                                ForEach(0..<max(1, plainLines.count), id: \.self) { idx in
+                                    lineView(
+                                        index: idx,
+                                        plainLines: plainLines,
+                                        highlightedLines: highlightedLines,
+                                        matchRanges: matchRanges
+                                    )
                                 }
                             }
-                            .fixedSize(horizontal: true, vertical: false)
                             .padding(.vertical, VSpacing.sm)
                             .padding(.horizontal, VSpacing.md)
                         }
@@ -228,6 +267,7 @@ struct HighlightedTextView: View {
         .onChange(of: text) { _, _ in
             cachedHighlight = nil
             highlightVersion &+= 1
+            cachedLineCount = Self.countLines(in: text)
             let count = searchMatchCount
             if count == 0 {
                 currentMatchIndex = 0
@@ -239,12 +279,57 @@ struct HighlightedTextView: View {
             let capturedVersion = highlightVersion
             let t = text
             let l = language
-            let result = await Task.detached(priority: .userInitiated) {
+            let result = await Task(priority: .userInitiated) {
                 SyntaxTheme.highlight(t, language: l)
             }.value
             if !Task.isCancelled, highlightVersion == capturedVersion {
                 cachedHighlight = result
             }
+        }
+        .onAppear {
+            cachedLineCount = Self.countLines(in: text)
+        }
+    }
+
+    /// Renders a single line of text, using the highlighted version when
+    /// available and falling back to plain monospaced text.
+    @ViewBuilder
+    private func lineView(
+        index: Int,
+        plainLines: [Substring],
+        highlightedLines: [AttributedString]?,
+        matchRanges: [Range<String.Index>]
+    ) -> some View {
+        let lineText: Text
+        if let hLines = highlightedLines, index < hLines.count {
+            var attrLine = hLines[index]
+            if !matchRanges.isEmpty, index < plainLines.count {
+                applySearchHighlighting(
+                    to: &attrLine,
+                    lineText: plainLines[index],
+                    lineStartOffset: plainLines[0..<index].reduce(0) { $0 + $1.count + 1 },
+                    matchRanges: matchRanges
+                )
+            }
+            lineText = Text(attrLine)
+        } else {
+            // Lightweight fallback — no AttributedString creation on the main thread
+            let str = index < plainLines.count ? String(plainLines[index]) : ""
+            lineText = Text(str)
+                .font(VFont.mono)
+                .foregroundColor(VColor.contentDefault)
+        }
+
+        if isEditable {
+            lineText
+                .textSelection(.disabled)
+                .frame(height: Self.lineHeight, alignment: .leading)
+                .fixedSize(horizontal: true, vertical: false)
+        } else {
+            lineText
+                .textSelection(.enabled)
+                .frame(height: Self.lineHeight, alignment: .leading)
+                .fixedSize(horizontal: true, vertical: false)
         }
     }
 
@@ -302,6 +387,14 @@ struct HighlightedTextView: View {
     private func gutterWidth(for lineCount: Int) -> CGFloat {
         let digitCount = max(3, "\(lineCount)".count)
         return CGFloat(digitCount * 8 + 16)
+    }
+
+    /// Counts newlines in `text` without allocating N substrings.
+    /// Equivalent to `text.components(separatedBy: "\n").count` but O(1) memory.
+    private static func countLines(in text: String) -> Int {
+        var count = 1
+        for byte in text.utf8 where byte == 0x0A { count += 1 }
+        return count
     }
 }
 
