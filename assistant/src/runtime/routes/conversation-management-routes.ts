@@ -1,6 +1,7 @@
 /**
  * Route handlers for conversation management operations.
  *
+ * POST   /v1/conversations                 — create a new conversation
  * POST   /v1/conversations/switch         — switch to an existing conversation
  * PATCH  /v1/conversations/:id/name       — rename a conversation
  * DELETE /v1/conversations                 — clear all conversations
@@ -18,6 +19,7 @@ import {
   wipeConversation,
 } from "../../memory/conversation-crud.js";
 import {
+  getOrCreateConversation,
   resolveConversationId,
   setConversationKeyIfAbsent,
 } from "../../memory/conversation-key-store.js";
@@ -59,6 +61,32 @@ export function conversationManagementRouteDefinitions(
   deps: ConversationManagementDeps,
 ): RouteDefinition[] {
   return [
+    {
+      endpoint: "conversations",
+      method: "POST",
+      policyKey: "conversations",
+      handler: async ({ req }) => {
+        const body = (await req.json()) as {
+          conversationKey?: string;
+          conversationType?: string;
+        };
+        const conversationKey = body.conversationKey ?? crypto.randomUUID();
+        const conversationType =
+          body.conversationType === "private" ? "private" : "standard";
+        const { conversationId, created } = getOrCreateConversation(
+          conversationKey,
+          { conversationType },
+        );
+        log.info(
+          { conversationId, conversationKey, created },
+          "Created conversation via POST",
+        );
+        return Response.json(
+          { id: conversationId, conversationKey, conversationType },
+          { status: created ? 201 : 200 },
+        );
+      },
+    },
     {
       endpoint: "conversations/switch",
       method: "POST",
