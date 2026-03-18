@@ -314,9 +314,14 @@ extension AppDelegate {
             self.handleRecordingResume(msg)
         }
 
-        // Handle client_settings_update from daemon: write to UserDefaults and post notification
+        // Handle client_settings_update from daemon: route ttsVoiceId to the voice service
+        // override property; write all other keys to UserDefaults as before.
         daemonClient.onClientSettingsUpdate = { msg in
-            UserDefaults.standard.set(msg.value, forKey: msg.key)
+            if msg.key == "ttsVoiceId" {
+                OpenAIVoiceService.overrideVoiceId = msg.value as? String
+            } else {
+                UserDefaults.standard.set(msg.value, forKey: msg.key)
+            }
             if msg.key == "activationKey" {
                 NotificationCenter.default.post(name: .activationKeyChanged, object: nil)
             }

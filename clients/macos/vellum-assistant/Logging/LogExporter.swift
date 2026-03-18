@@ -896,7 +896,6 @@ enum LogExporter {
             "conversationTextZoomLevel",
             "collectUsageData",
             "sendDiagnostics",
-            "ttsVoiceId",
             "selectedImageGenModel",
             "activityNotificationsEnabled",
         ]
