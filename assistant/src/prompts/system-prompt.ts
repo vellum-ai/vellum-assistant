@@ -121,9 +121,6 @@ export function buildSystemPrompt(options?: BuildSystemPromptOptions): string {
   // System Permissions section removed — guidance lives in request_system_permission tool description.
   // Parallel Task Orchestration section removed — orchestration skill description + hints cover this.
   staticParts.push(buildAccessPreferenceSection(hasNoClient));
-  if (hasNoClient) {
-    staticParts.push(buildResponseDiscretionSection());
-  }
   // Memory Persistence, Memory Recall, Workspace Reflection, Learning from Mistakes
   // sections removed — guidance lives in memory_manage/memory_recall tool descriptions
   // and the Proactive Workspace Editing subsection in Configuration.
@@ -242,21 +239,6 @@ function buildAccessPreferenceSection(hasNoClient: boolean): string {
           "On macOS, prefer osascript/CLI via `host_bash` over computer use tools, which take over the user's cursor. Use foreground computer use only when no scripting alternative exists or the user explicitly asks.",
         ]
       : []),
-  ].join("\n");
-}
-
-function buildResponseDiscretionSection(): string {
-  return [
-    "## Response Discretion",
-    "",
-    "Not every message requires a response. In channel conversations (Slack, Telegram, etc.), you may receive messages in threads where you were previously tagged but the new message is not directed at you — for example, other people continuing a conversation among themselves, reactions, or follow-ups that don't need your input.",
-    "",
-    "When you determine a message does not warrant a response, output exactly `<no_response/>` as your entire reply. This suppresses delivery so nothing is posted to the channel. Use this when:",
-    "- The message is clearly between other people and not addressed to you",
-    "- Someone is acknowledging or reacting to a previous message without asking you anything",
-    "- The conversation has moved on to a topic where your input isn't needed",
-    "",
-    "When in doubt, respond — silence is only appropriate when you're confident the message isn't for you.",
   ].join("\n");
 }
 

@@ -634,6 +634,9 @@ export function buildTurnContextBlock(
       lines.push(`assistant_message_channel: ${assistant}`);
       lines.push(`conversation_origin_channel: ${origin}`);
     }
+    lines.push(
+      `response_discretion: Not every message in a channel thread requires your response. If a message is clearly not directed at you (e.g. people talking among themselves, acknowledgements, reactions), output exactly <no_response/> as your entire reply to stay silent.`,
+    );
   }
 
   lines.push("</turn_context>");

@@ -1065,9 +1065,10 @@ describe("buildTurnContextBlock (channel-only)", () => {
       },
       undefined,
     );
-    expect(block).toBe(
-      "<turn_context>\n" + "channel: telegram\n" + "</turn_context>",
-    );
+    expect(block).toContain("<turn_context>");
+    expect(block).toContain("channel: telegram");
+    expect(block).toContain("response_discretion:");
+    expect(block).toContain("</turn_context>");
   });
 
   test('uses "unknown" when conversationOriginChannel is null', () => {
