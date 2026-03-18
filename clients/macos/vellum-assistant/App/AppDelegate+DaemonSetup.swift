@@ -378,11 +378,10 @@ extension AppDelegate {
                 if lockfileExists && gatewayHealthy {
                     log.info("Lockfile and gateway already present — skipping CLI hatch to avoid duplicate gateway")
                 } else {
-                    // On first launch post-onboarding, use daemonOnly: false so the CLI
-                    // creates a lockfile entry. On subsequent launches, daemonOnly: true
-                    // prevents duplicates.
+                    // Start the gateway when the lockfile needs creating (first launch)
+                    // OR when the gateway is unhealthy (crashed/died since last hatch).
                     let needsLockfileEntry = isFirstLaunch && !lockfileExists
-                    let daemonOnly = !needsLockfileEntry
+                    let daemonOnly = !needsLockfileEntry && gatewayHealthy
                     // Pass the selected assistant ID so the gateway starts
                     // with the correct default assistant (not a random name).
                     let assistantName = assistant?.assistantId
