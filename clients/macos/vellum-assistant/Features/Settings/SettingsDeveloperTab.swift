@@ -778,6 +778,16 @@ struct SettingsDeveloperTab: View {
                 path: "assistants/{assistantId}/secrets", json: body, timeout: 10
             )
             if response.isSuccess || response.statusCode == 404 {
+                // Clear the locally-cached credential so the key is not
+                // re-injected on the next daemon restart or bootstrap.
+                #if DEBUG
+                let credStorage = FileCredentialStorage()
+                #else
+                let credStorage = KeychainCredentialStorage()
+                #endif
+                let credentialAccount = LocalAssistantBootstrapService.credentialAccount(for: selectedAssistantId)
+                _ = credStorage.delete(account: credentialAccount)
+
                 showRevokeStatus("Assistant API key revoked", isError: false)
             } else {
                 showRevokeStatus("Failed to revoke (HTTP \(response.statusCode))", isError: true)
