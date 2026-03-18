@@ -268,13 +268,9 @@ describe("handleConfirmationResponse canonical status sync", () => {
       undefined,
       { source: "button" },
     ]);
-    expect(resolveCanonicalGuardianRequestMock).toHaveBeenCalledWith(
-      "req-confirm-allow",
-      "pending",
-      {
-        status: "approved",
-      },
-    );
+    // Canonical status sync is now handled inside Conversation.handleConfirmationResponse,
+    // which this test mocks out — so the handler itself no longer calls resolveCanonicalGuardianRequest.
+    expect(resolveCanonicalGuardianRequestMock).not.toHaveBeenCalled();
     expect(resolveMock).toHaveBeenCalledWith("req-confirm-allow");
   });
 });

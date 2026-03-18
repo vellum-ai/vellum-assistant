@@ -279,7 +279,7 @@ describe("handleSendMessage canonical guardian reply interception", () => {
     expect(routeGuardianReplyMock).toHaveBeenCalledTimes(1);
     const routerCall = (routeGuardianReplyMock as any).mock
       .calls[0][0] as Record<string, unknown>;
-    expect(routerCall.pendingRequestIds).toBeUndefined();
+    expect(routerCall.pendingRequestIds).toEqual([]);
     expect(persistUserMessage).toHaveBeenCalledTimes(1);
     expect(runAgentLoop).toHaveBeenCalledTimes(1);
   });
