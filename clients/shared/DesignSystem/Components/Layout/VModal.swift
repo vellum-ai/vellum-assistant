@@ -87,6 +87,8 @@ public struct VModal<Content: View, Footer: View>: View {
                     .buttonStyle(.plain)
                     .pointerCursor()
                     .accessibilityLabel("Close")
+                    .padding(.top, -VSpacing.sm)
+                    .padding(.trailing, -VSpacing.sm)
                 }
             }
             .padding(.horizontal, VSpacing.xl)
