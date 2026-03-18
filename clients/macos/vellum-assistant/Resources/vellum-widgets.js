@@ -840,5 +840,9 @@
     }, 400);
   };
 
+  // Backward-compatible no-op shim for removed slideshow widget.
+  // Existing saved apps may still call this; returning a stub prevents TypeError.
+  widgets.slideshow = function () { return { goTo: function(){}, next: function(){}, prev: function(){} }; };
+
   window.vellum.widgets = widgets;
 })();

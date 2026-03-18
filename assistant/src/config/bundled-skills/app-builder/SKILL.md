@@ -386,7 +386,7 @@ vellum.widgets.countdown("timer-el", "2025-12-31T00:00:00Z", {
 
 #### When to use widgets vs custom HTML
 
-- **Use widgets** for standard patterns - tables, metrics, timelines, notifications, presentations
+- **Use widgets** for standard patterns - tables, metrics, timelines, notifications
 - **Use custom HTML** for novel or creative UIs - games, art tools, unique dashboards
 - **Mix freely** - widgets compose well together and with custom elements
 - **ALWAYS use `vellum.widgets.*` chart functions** instead of hand-coding SVG/CSS charts. They handle overflow clipping, bounds, scaling, and dark mode. Hand-coded charts break layouts.
@@ -514,7 +514,7 @@ Every app must meet these baselines:
 
 ## Presentation Slide Design
 
-Slides are a different domain from apps. Skip app-specific patterns (contextual headers, search/filter, toast notifications, form validation, data bridge). Slides are static content.
+Slides are a different domain from apps. Skip app-specific patterns (contextual headers, search/filter, toast notifications, form validation, data bridge). Slides are static content — build navigation and layouts with custom HTML/CSS.
 
 **Key principles:**
 
