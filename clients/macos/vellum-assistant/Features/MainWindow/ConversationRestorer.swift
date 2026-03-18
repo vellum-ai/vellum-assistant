@@ -302,10 +302,11 @@ final class ConversationRestorer {
     // MARK: - Private
 
     private func fetchConversationList() {
-        do {
-            try daemonClient.sendConversationList()
-        } catch {
-            log.error("Failed to send conversation_list: \(error.localizedDescription)")
+        Task { [weak self] in
+            guard let self else { return }
+            if let response = await ConversationListClient().fetchConversationList() {
+                self.handleConversationListResponse(response)
+            }
         }
     }
 }

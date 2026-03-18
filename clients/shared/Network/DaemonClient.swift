@@ -747,11 +747,6 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
 
     // MARK: - Conversations
 
-    /// Request the list of past conversations from the daemon.
-    public func sendConversationList(offset: Int? = nil, limit: Int? = nil) throws {
-        try send(ConversationListRequestMessage(offset: offset, limit: limit))
-    }
-
     /// Request message history for a specific conversation.
     /// - Parameters:
     ///   - conversationId: The conversation to fetch history for.

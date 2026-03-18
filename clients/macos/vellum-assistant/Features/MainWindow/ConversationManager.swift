@@ -681,11 +681,12 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
     func loadMoreConversations() {
         guard !isLoadingMoreConversations else { return }
         isLoadingMoreConversations = true
-        do {
-            try daemonClient.sendConversationList(offset: serverOffset, limit: 50)
-        } catch {
-            log.error("Failed to request more conversations: \(error.localizedDescription)")
-            isLoadingMoreConversations = false
+        Task {
+            if let response = await ConversationListClient().fetchConversationList(offset: serverOffset, limit: 50) {
+                self.appendConversations(from: response)
+            } else {
+                self.isLoadingMoreConversations = false
+            }
         }
     }
 

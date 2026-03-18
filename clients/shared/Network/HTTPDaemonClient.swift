@@ -1385,54 +1385,6 @@ public final class HTTPTransport {
         return body
     }
 
-    func fetchConversationList(offset: Int = 0, limit: Int = 50, isRetry: Bool = false, authRetryCount: Int = 0) async {
-        guard let url = buildURL(for: .conversations(limit: limit, offset: offset)) else { return }
-
-        var request = URLRequest(url: url)
-        applyAuth(&request)
-
-        do {
-            let (data, response) = try await URLSession.shared.data(for: request)
-
-            guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
-                let statusCode = (response as? HTTPURLResponse)?.statusCode ?? -1
-                if statusCode == 401 && !isRetry {
-                    let refreshResult = await handleAuthenticationFailureAsync(responseData: data)
-                    if case .success = refreshResult {
-                        await fetchConversationList(offset: offset, limit: limit, isRetry: true)
-                        return
-                    }
-                }
-                // 403 during assistant switch: the actor token hasn't been
-                // bootstrapped yet. Retry a few times with a delay to let
-                // ensureActorCredentials() finish.
-                if statusCode == 403 && authRetryCount < 6 {
-                    log.info("Conversation list fetch got 403 — waiting for actor token (attempt \(authRetryCount + 1)/6)")
-                    try? await Task.sleep(nanoseconds: 2_000_000_000)
-                    await fetchConversationList(offset: offset, limit: limit, isRetry: isRetry, authRetryCount: authRetryCount + 1)
-                    return
-                }
-                log.error("Fetch conversation list failed (HTTP \(statusCode))")
-                onMessage?(.conversationListResponse(ConversationListResponseMessage(type: "conversation_list_response", conversations: [], hasMore: nil)))
-                return
-            }
-
-            do {
-                let decoded = try decoder.decode(ConversationsListResponse.self, from: data)
-                let conversations = decoded.conversations.map {
-                    ConversationListResponseItem(id: $0.id, title: $0.title, createdAt: $0.createdAt ?? $0.updatedAt, updatedAt: $0.updatedAt, conversationType: $0.conversationType, source: $0.source, scheduleJobId: $0.scheduleJobId, channelBinding: $0.channelBinding, conversationOriginChannel: $0.conversationOriginChannel, conversationOriginInterface: $0.conversationOriginInterface, assistantAttention: $0.assistantAttention, displayOrder: $0.displayOrder, isPinned: $0.isPinned)
-                }
-                onMessage?(.conversationListResponse(ConversationListResponseMessage(type: "conversation_list_response", conversations: conversations, hasMore: decoded.hasMore)))
-            } catch {
-                log.error("Failed to decode conversation list response: \(error)")
-                onMessage?(.conversationListResponse(ConversationListResponseMessage(type: "conversation_list_response", conversations: [], hasMore: nil)))
-            }
-        } catch {
-            log.error("Fetch conversation list error: \(error.localizedDescription)")
-            onMessage?(.conversationListResponse(ConversationListResponseMessage(type: "conversation_list_response", conversations: [], hasMore: nil)))
-        }
-    }
-
     func fetchHistory(conversationId: String, isRetry: Bool = false) async {
         guard let url = buildURL(for: .getMessages(conversationId: conversationId)) else { return }
 

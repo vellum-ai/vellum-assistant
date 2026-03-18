@@ -371,12 +371,13 @@ class IOSConversationStore: ObservableObject {
     /// for any response that arrives between the generation bump and this send.  If the send
     /// throws, the expected generation is not advanced and the guard stays closed.
     private func sendPageOneConversationList(daemon: DaemonClient) {
-        do {
-            try daemon.sendConversationList(offset: 0, limit: Self.conversationPageSize)
-            expectedConversationListGeneration = conversationListGeneration
-        } catch {
-            // Send failed — leave expectedConversationListGeneration unchanged so the
-            // guard stays closed and stale responses are rejected.
+        let currentGeneration = conversationListGeneration
+        Task { [weak self] in
+            guard let self else { return }
+            if let response = await ConversationListClient().fetchConversationList(offset: 0, limit: Self.conversationPageSize) {
+                self.expectedConversationListGeneration = currentGeneration
+                self.handleConversationListResponse(response)
+            }
         }
     }
 
@@ -629,21 +630,19 @@ class IOSConversationStore: ObservableObject {
     /// Load the next page of conversations from the daemon (Connected mode only).
     func loadMoreConversations() {
         guard isConnectedMode,
-              let daemon = daemonClient as? DaemonClient,
               !isLoadingMoreConversations,
               hasMoreConversations else { return }
         isLoadingMoreConversations = true
         let nextOffset = conversationListOffset + Self.conversationPageSize
         conversationListOffset = nextOffset
-        // Do not touch conversationListGeneration or expectedConversationListGeneration here.
-        // The generation counter tracks reconnect boundaries only; within a single
-        // connection all responses are accepted (the daemon doesn't echo request IDs).
-        do {
-            try daemon.sendConversationList(offset: nextOffset, limit: Self.conversationPageSize)
-        } catch {
-            // Request failed before being sent — roll back pagination state.
-            isLoadingMoreConversations = false
-            conversationListOffset -= Self.conversationPageSize
+        Task { [weak self] in
+            guard let self else { return }
+            if let response = await ConversationListClient().fetchConversationList(offset: nextOffset, limit: Self.conversationPageSize) {
+                self.handleConversationListResponse(response)
+            } else {
+                self.isLoadingMoreConversations = false
+                self.conversationListOffset -= Self.conversationPageSize
+            }
         }
     }
 
