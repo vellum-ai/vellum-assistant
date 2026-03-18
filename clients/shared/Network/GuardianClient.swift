@@ -78,10 +78,6 @@ public struct GuardianClient: GuardianClientProtocol {
     /// (assistantId, platform, deviceId). Stores credentials in Keychain via
     /// `ActorTokenManager`.
     ///
-    /// Uses ``GatewayHTTPClient`` when authenticated. On pre-auth bootstrap
-    /// (no token yet), falls back to an unauthenticated POST using the
-    /// gateway URL resolved from ``GatewayHTTPClient/buildURL``.
-    ///
     /// - Returns: `true` on success, `false` on failure.
     public func bootstrapActorToken(platform: String, deviceId: String) async -> Bool {
         let body: [String: Any] = [
@@ -90,44 +86,15 @@ public struct GuardianClient: GuardianClientProtocol {
         ]
 
         do {
-            let data: Data
-            // Try authenticated request first; fall back to unauthenticated
-            // POST when no token exists yet (pre-auth bootstrap).
-            do {
-                let response = try await GatewayHTTPClient.post(
-                    path: "guardian/init", json: body, timeout: 15
-                )
-                guard response.isSuccess else {
-                    log.error("Access token bootstrap failed (HTTP \(response.statusCode))")
-                    return false
-                }
-                data = response.data
-            } catch GatewayHTTPClient.ClientError.notAuthenticated {
-                // Pre-auth bootstrap: resolve gateway URL from the lockfile
-                // and POST without an Authorization header.
-                guard let baseURL = Self.resolveGatewayBaseURL() else {
-                    log.error("Cannot bootstrap access token — no gateway URL available")
-                    return false
-                }
-                guard let url = URL(string: "\(baseURL)/v1/guardian/init/") else {
-                    log.error("Invalid bootstrap URL")
-                    return false
-                }
-                var request = URLRequest(url: url)
-                request.httpMethod = "POST"
-                request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-                request.timeoutInterval = 15
-                request.httpBody = try JSONSerialization.data(withJSONObject: body)
-                let (responseData, response) = try await URLSession.shared.data(for: request)
-                guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
-                    let statusCode = (response as? HTTPURLResponse)?.statusCode ?? -1
-                    log.error("Access token bootstrap failed (HTTP \(statusCode))")
-                    return false
-                }
-                data = responseData
+            let response = try await GatewayHTTPClient.post(
+                path: "guardian/init", json: body, timeout: 15
+            )
+            guard response.isSuccess else {
+                log.error("Access token bootstrap failed (HTTP \(response.statusCode))")
+                return false
             }
 
-            let decoded = try JSONDecoder().decode(GuardianBootstrapResponse.self, from: data)
+            let decoded = try JSONDecoder().decode(GuardianBootstrapResponse.self, from: response.data)
             if let refreshToken = decoded.refreshToken,
                let accessTokenExpiresAt = decoded.accessTokenExpiresAt,
                let refreshTokenExpiresAt = decoded.refreshTokenExpiresAt,
@@ -152,39 +119,6 @@ public struct GuardianClient: GuardianClientProtocol {
             log.error("Access token bootstrap error: \(error.localizedDescription)")
             return false
         }
-    }
-
-    // MARK: - Private
-
-    /// Resolves the gateway base URL for pre-auth bootstrap when
-    /// ``GatewayHTTPClient`` cannot resolve a full connection (no token yet).
-    private static func resolveGatewayBaseURL() -> String? {
-        #if os(macOS)
-        guard let id = UserDefaults.standard.string(forKey: "connectedAssistantId"), !id.isEmpty,
-              let assistant = LockfileAssistant.loadByName(id) else {
-            return nil
-        }
-        if assistant.isManaged {
-            return assistant.runtimeUrl ?? AuthService.shared.baseURL
-        } else if assistant.isRemote {
-            return assistant.runtimeUrl
-        } else {
-            let port = assistant.gatewayPort ?? LockfilePaths.resolveGatewayPort(connectedAssistantId: assistant.assistantId)
-            return "http://127.0.0.1:\(port)"
-        }
-        #elseif os(iOS)
-        if let platformBaseURL = UserDefaults.standard.string(forKey: "managed_platform_base_url"),
-           !platformBaseURL.isEmpty {
-            return platformBaseURL
-        }
-        if let gatewayBaseURL = UserDefaults.standard.string(forKey: "gateway_base_url"),
-           !gatewayBaseURL.isEmpty {
-            return gatewayBaseURL
-        }
-        return nil
-        #else
-        return nil
-        #endif
     }
 
     // MARK: - Response Shapes
