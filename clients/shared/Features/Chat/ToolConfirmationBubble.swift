@@ -226,7 +226,7 @@ public struct ToolConfirmationBubble: View {
                 }
             }
 
-            if hasSecondaryAllowOptions {
+            if hasAllow10m || hasAllowConversation {
                 VInlineMessage("Your selection becomes the default action.", tone: .info)
             }
 
