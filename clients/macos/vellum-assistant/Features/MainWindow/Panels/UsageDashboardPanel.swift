@@ -24,6 +24,8 @@ struct UsageDashboardPanel: View {
                     dailySection(store: store)
                     breakdownSection(store: store)
                 }
+                .frame(maxWidth: 900)
+                .frame(maxWidth: .infinity)
             }
         }
         .overlay {
@@ -88,6 +90,8 @@ struct UsageDashboardPanel: View {
             .frame(width: 160)
             Spacer()
         }
+        .frame(maxWidth: 900)
+        .frame(maxWidth: .infinity)
         .padding(.vertical, VSpacing.lg)
     }
 
