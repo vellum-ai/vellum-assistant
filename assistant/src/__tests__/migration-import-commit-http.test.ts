@@ -671,7 +671,12 @@ describe("commitImport", () => {
   test("creates parent directories if they do not exist", () => {
     // Use a workspace that does not exist yet
     const nonexistentWorkspace = join(testDir, "new-workspace");
-    const expectedDbPath = join(nonexistentWorkspace, "data", "db", "assistant.db");
+    const expectedDbPath = join(
+      nonexistentWorkspace,
+      "data",
+      "db",
+      "assistant.db",
+    );
 
     const dbData = new Uint8Array([0x01, 0x02, 0x03]);
     const vbundle = createValidVBundle([
@@ -836,7 +841,11 @@ describe("commitImport — workspace clearing", () => {
       { path: "hooks/new-hook/hook.sh", data: hookData },
     ]);
 
-    const resolver = new DefaultPathResolver(undefined, testDir, externalHooksDir);
+    const resolver = new DefaultPathResolver(
+      undefined,
+      testDir,
+      externalHooksDir,
+    );
     const result = commitImport({
       archiveData: vbundle,
       pathResolver: resolver,
@@ -847,7 +856,9 @@ describe("commitImport — workspace clearing", () => {
     if (!result.ok) return;
 
     // Hook written to the external hooks dir, not workspace/hooks/
-    expect(existsSync(join(externalHooksDir, "new-hook", "hook.sh"))).toBe(true);
+    expect(existsSync(join(externalHooksDir, "new-hook", "hook.sh"))).toBe(
+      true,
+    );
     expect(
       readFileSync(join(externalHooksDir, "new-hook", "hook.sh"), "utf8"),
     ).toBe("#!/bin/sh\necho new");
@@ -864,7 +875,10 @@ describe("commitImport — workspace clearing", () => {
     );
 
     const vbundle = createValidVBundle([
-      { path: "skills/new-skill/SKILL.md", data: new TextEncoder().encode("new") },
+      {
+        path: "skills/new-skill/SKILL.md",
+        data: new TextEncoder().encode("new"),
+      },
     ]);
 
     const resolver = new DefaultPathResolver(undefined, testDir);

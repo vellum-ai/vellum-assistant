@@ -743,9 +743,7 @@ describe("DefaultPathResolver", () => {
       undefined,
       "/home/user/.vellum/workspace",
     );
-    expect(
-      resolver.resolve("skills/../../../.ssh/authorized_keys"),
-    ).toBeNull();
+    expect(resolver.resolve("skills/../../../.ssh/authorized_keys")).toBeNull();
   });
 
   test("returns null for skills paths when workspaceDir is not provided", () => {

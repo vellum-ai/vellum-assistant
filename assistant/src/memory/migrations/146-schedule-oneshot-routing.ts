@@ -15,9 +15,9 @@ export function migrateScheduleOneShotRouting(database: DrizzleDb): void {
   const raw = getSqliteFrom(database);
 
   // Check if migration is already done by inspecting whether the status column exists
-  const tableInfo = raw
-    .query("PRAGMA table_info(cron_jobs)")
-    .all() as Array<{ name: string }>;
+  const tableInfo = raw.query("PRAGMA table_info(cron_jobs)").all() as Array<{
+    name: string;
+  }>;
   const hasStatusColumn = tableInfo.some((col) => col.name === "status");
   if (hasStatusColumn) {
     // Ensure all indexes exist even if the column migration already ran

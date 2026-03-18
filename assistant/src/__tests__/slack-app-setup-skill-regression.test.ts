@@ -9,7 +9,9 @@ const skillContent = readFileSync(SKILL_PATH, "utf-8");
 
 describe("slack-app-setup skill regression", () => {
   test("keeps Slack token collection on the secure credential prompt path", () => {
-    expect(skillContent).toContain('`credential_store` with `action: "prompt"`');
+    expect(skillContent).toContain(
+      '`credential_store` with `action: "prompt"`',
+    );
     expect(skillContent).toContain(
       "same Slack settings handler used by Settings",
     );

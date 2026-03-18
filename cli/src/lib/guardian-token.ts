@@ -1,6 +1,12 @@
 import { createHash, randomUUID } from "node:crypto";
 import { execSync } from "node:child_process";
-import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "fs";
+import {
+  chmodSync,
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  writeFileSync,
+} from "fs";
 import { homedir, platform } from "os";
 import { dirname, join } from "path";
 

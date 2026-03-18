@@ -66,9 +66,7 @@ export class LocalEmbeddingBackend implements EmbeddingBackend {
     const texts = inputs.map((i) => {
       const n = normalizeEmbeddingInput(i);
       if (n.type !== "text") {
-        throw new Error(
-          "Local embedding backend only supports text inputs",
-        );
+        throw new Error("Local embedding backend only supports text inputs");
       }
       return n.text;
     });

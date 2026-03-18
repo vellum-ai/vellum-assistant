@@ -15,10 +15,7 @@ import type { ScheduleSyntax } from "./recurrence-types.js";
 const logger = getLogger("schedule-store");
 
 export type ScheduleMode = "notify" | "execute";
-export type RoutingIntent =
-  | "single_channel"
-  | "multi_channel"
-  | "all_channels";
+export type RoutingIntent = "single_channel" | "multi_channel" | "all_channels";
 export type ScheduleStatus = "active" | "firing" | "fired" | "cancelled";
 
 export interface ScheduleJob {
@@ -193,9 +190,7 @@ export function listSchedules(options?: {
     conditions.push(isNull(scheduleJobs.cronExpression));
   }
   if (options?.recurringOnly) {
-    conditions.push(
-      sql`${scheduleJobs.cronExpression} IS NOT NULL`,
-    );
+    conditions.push(sql`${scheduleJobs.cronExpression} IS NOT NULL`);
   }
   const where = conditions.length > 0 ? and(...conditions) : undefined;
   const rows = db
@@ -415,10 +410,7 @@ export function claimDueSchedules(now: number): ScheduleJob[] {
         updatedAt: now,
       })
       .where(
-        and(
-          eq(scheduleJobs.id, row.id),
-          eq(scheduleJobs.status, "active"),
-        ),
+        and(eq(scheduleJobs.id, row.id), eq(scheduleJobs.status, "active")),
       )
       .run();
 
@@ -450,9 +442,7 @@ export function completeOneShot(id: string): void {
       enabled: false,
       updatedAt: now,
     })
-    .where(
-      and(eq(scheduleJobs.id, id), eq(scheduleJobs.status, "firing")),
-    )
+    .where(and(eq(scheduleJobs.id, id), eq(scheduleJobs.status, "firing")))
     .run();
 }
 
@@ -468,9 +458,7 @@ export function failOneShot(id: string): void {
       status: "active",
       updatedAt: now,
     })
-    .where(
-      and(eq(scheduleJobs.id, id), eq(scheduleJobs.status, "firing")),
-    )
+    .where(and(eq(scheduleJobs.id, id), eq(scheduleJobs.status, "firing")))
     .run();
 }
 
@@ -487,9 +475,7 @@ export function cancelSchedule(id: string): boolean {
       enabled: false,
       updatedAt: now,
     })
-    .where(
-      and(eq(scheduleJobs.id, id), eq(scheduleJobs.status, "active")),
-    )
+    .where(and(eq(scheduleJobs.id, id), eq(scheduleJobs.status, "active")))
     .run();
   return rawChanges() > 0;
 }
@@ -770,7 +756,9 @@ function parseJobRow(row: typeof scheduleJobs.$inferSelect): ScheduleJob {
   };
 }
 
-function safeParseJson(json: string | null | undefined): Record<string, unknown> {
+function safeParseJson(
+  json: string | null | undefined,
+): Record<string, unknown> {
   if (!json) return {};
   try {
     return JSON.parse(json) as Record<string, unknown>;

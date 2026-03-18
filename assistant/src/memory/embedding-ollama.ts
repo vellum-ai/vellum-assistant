@@ -34,9 +34,7 @@ export class OllamaEmbeddingBackend implements EmbeddingBackend {
     const texts = inputs.map((i) => {
       const n = normalizeEmbeddingInput(i);
       if (n.type !== "text") {
-        throw new Error(
-          "Ollama embedding backend only supports text inputs",
-        );
+        throw new Error("Ollama embedding backend only supports text inputs");
       }
       return n.text;
     });
