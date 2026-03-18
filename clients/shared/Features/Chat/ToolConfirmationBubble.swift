@@ -19,7 +19,7 @@ public struct ToolConfirmationBubble: View {
     @State private var showTechnicalDetails = false
     @State private var keyboardModel: ToolConfirmationKeyboardModel?
     @AppStorage("hasSeenCommandExplanation") private var hasSeenCommandExplanation = false
-    @AppStorage("preferredAllowAction") private var preferredAllowAction: String = "allow_once"
+    @AppStorage("preferredAllowAction") private var preferredAllowAction: String = "allow_10m"
     #if os(macOS)
     @State private var keyMonitor: Any?
     #endif
