@@ -356,9 +356,9 @@ public final class ChatViewModel: ObservableObject {
     let daemonClient: any DaemonClientProtocol
     private let surfaceClient: any SurfaceClientProtocol = SurfaceClient()
     private let conversationStarterClient: any ConversationStarterClientProtocol = ConversationStarterClient()
-    private let conversationListClient: any ConversationListClientProtocol = ConversationListClient()
-    private let interactionClient: any InteractionClientProtocol = InteractionClient()
-    private let surfaceActionClient: any SurfaceActionClientProtocol = SurfaceActionClient()
+    let conversationListClient: any ConversationListClientProtocol = ConversationListClient()
+    let interactionClient: any InteractionClientProtocol = InteractionClient()
+    let surfaceActionClient: any SurfaceActionClientProtocol = SurfaceActionClient()
     /// Tracks the action submitted for each guardian decision requestId so the
     /// response handler can display the correct resolved state (the server does
     /// not echo back the action in its acknowledgement).
