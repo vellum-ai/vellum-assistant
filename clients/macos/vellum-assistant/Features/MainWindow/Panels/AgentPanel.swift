@@ -36,6 +36,17 @@ struct AgentPanelContent: View {
 
     private var hasActiveSearch: Bool { !normalizedSkillQuery.isEmpty }
 
+    /// Dynamic subtitle for the category-filtered empty state.
+    private var categoryEmptySubtitle: String {
+        let sorted = selectedCategories.sorted { $0.displayName < $1.displayName }
+        if sorted.count <= 2 {
+            let names = sorted.map(\.displayName).joined(separator: " or ")
+            return "No installed skills match \(names)"
+        } else {
+            return "No installed skills in \(sorted.count) selected categories"
+        }
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             skillsContent
@@ -52,6 +63,13 @@ struct AgentPanelContent: View {
         }
         .onChange(of: globalSkillSearchQuery) {
             // Clear stale selections when search filters them out
+            if let selectedId = selectedInstalledSkillId,
+               !categoryFilteredSkills.contains(where: { $0.id == selectedId }) {
+                selectedInstalledSkillId = nil
+            }
+        }
+        .onChange(of: selectedCategories) {
+            // Clear stale selections when category filters them out
             if let selectedId = selectedInstalledSkillId,
                !categoryFilteredSkills.contains(where: { $0.id == selectedId }) {
                 selectedInstalledSkillId = nil
@@ -98,11 +116,6 @@ struct AgentPanelContent: View {
         }
     }
 
-    /// Count of installed skills per category (based on search-filtered list).
-    private func skillCount(for category: SkillCategory) -> Int {
-        filteredUserSkills.filter { inferCategory($0) == category }.count
-    }
-
     // MARK: - Category Filter Dropdown
 
     @ViewBuilder
@@ -112,11 +125,11 @@ struct AgentPanelContent: View {
                 withAnimation(VAnimation.fast) { selectedCategories.removeAll() }
             } label: {
                 HStack {
-                    Image(systemName: "square.grid.2x2")
+                    VIconView(.layoutGrid, size: 12)
                     Text("All")
                     if selectedCategories.isEmpty {
                         Spacer()
-                        Image(systemName: "checkmark")
+                        VIconView(.check, size: 12)
                     }
                 }
             }
@@ -136,7 +149,7 @@ struct AgentPanelContent: View {
                         Text(category.displayName)
                         if selectedCategories.contains(category) {
                             Spacer()
-                            Image(systemName: "checkmark")
+                            VIconView(.check, size: 12)
                         }
                     }
                 }
@@ -219,7 +232,7 @@ struct AgentPanelContent: View {
                 if categoryFilteredSkills.isEmpty {
                     VEmptyState(
                         title: "No skills in selected categories",
-                        subtitle: "No installed skills in selected categories",
+                        subtitle: categoryEmptySubtitle,
                         icon: "tray"
                     )
                     .frame(minHeight: 100)
@@ -427,6 +440,7 @@ struct AgentPanelContent: View {
                             icon: VIcon.fileText.rawValue
                         )
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        .background(VColor.surfaceOverlay)
                     }
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
