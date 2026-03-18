@@ -24,6 +24,7 @@ private let log = Logger(
 /// - `port-diagnostics.json` — processes listening on assistant-relevant TCP ports
 /// - `config-snapshot.json` — sanitized workspace config (API key values redacted, structure preserved)
 /// - `crash-reports/` — recent macOS crash/hang reports (.ips, .crash, .spin) for assistant-related processes (bun, qdrant, vellum-assistant)
+/// - `os-log.txt` — recent entries from the macOS unified log for the app's subsystem (includes CLI audit trail)
 /// - `daemon-logs-fallback/` — when daemon is unreachable: vellum.log, recent hatch-*.log, and XDG hatch.log read directly from disk (10 MB cap)
 @MainActor
 enum LogExporter {
@@ -313,7 +314,14 @@ enum LogExporter {
             }
         }
 
-        // 11. Sanitized workspace config — client-side fallback if daemon export didn't include it.
+        // 11. macOS unified log — recent os.Logger entries for this app's subsystem.
+        //      Captures CLI audit trail ([audit] lines from VellumCli) and other
+        //      structured log output not written to files on disk.
+        collectUnifiedLog(
+            to: tempDir.appendingPathComponent("os-log.txt")
+        )
+
+        // 12. Sanitized workspace config — client-side fallback if daemon export didn't include it.
         //     The daemon archive extracts into daemon-exports/, so check both locations.
         let configSnapshotPath = tempDir.appendingPathComponent("config-snapshot.json")
         let daemonConfigPath = tempDir.appendingPathComponent("daemon-exports/config-snapshot.json")
@@ -678,6 +686,53 @@ enum LogExporter {
         }
 
         log.info("Collected \(collectedCount) crash report(s) (\(totalBytes) bytes)")
+    }
+
+    // MARK: - Unified Log Export
+
+    /// Exports recent entries from Apple's unified logging system (`os.Logger`)
+    /// for this app's subsystem. Includes CLI audit trail, lifecycle events,
+    /// and any other structured log output not written to files on disk.
+    ///
+    /// Uses `OSLogStore` to read entries from the last 24 hours. Falls back
+    /// silently if the API is unavailable or the subsystem has no entries.
+    private nonisolated static func collectUnifiedLog(to destination: URL) {
+        do {
+            let store = try OSLogStore(scope: .currentProcessIdentifier)
+            let oneDayAgo = store.position(date: Date().addingTimeInterval(-86400))
+            let subsystem = Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant"
+
+            let entries = try store.getEntries(
+                at: oneDayAgo,
+                matching: NSPredicate(format: "subsystem == %@", subsystem)
+            )
+
+            var lines: [String] = []
+            let formatter = ISO8601DateFormatter()
+            formatter.formatOptions = [.withFullDate, .withTime, .withFractionalSeconds, .withColonSeparatorInTime]
+
+            for entry in entries {
+                guard let logEntry = entry as? OSLogEntryLog else { continue }
+                let ts = formatter.string(from: logEntry.date)
+                let level: String
+                switch logEntry.level {
+                case .debug: level = "DEBUG"
+                case .info: level = "INFO"
+                case .notice: level = "NOTICE"
+                case .error: level = "ERROR"
+                case .fault: level = "FAULT"
+                default: level = "OTHER"
+                }
+                lines.append("[\(ts)] [\(level)] [\(logEntry.category)] \(logEntry.composedMessage)")
+            }
+
+            guard !lines.isEmpty else { return }
+            let content = lines.joined(separator: "\n")
+            try content.write(to: destination, atomically: true, encoding: .utf8)
+            log.info("Exported \(lines.count) unified log entries to os-log.txt")
+        } catch {
+            log.warning("Failed to export unified log: \(error.localizedDescription)")
+        }
     }
 
     // MARK: - Platform Log Helpers

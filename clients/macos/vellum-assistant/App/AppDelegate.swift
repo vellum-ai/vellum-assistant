@@ -49,7 +49,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
     var navLocalMonitor: Any?
     var zoomLocalMonitor: Any?
     public let services = AppServices()
-    let assistantCli = AssistantCli()
+    let assistantCli = VellumCli()
     public let updateManager = UpdateManager()
     let debugStateWriter = DebugStateWriter()
     private let telemetryClient: any TelemetryClientProtocol = TelemetryClient()

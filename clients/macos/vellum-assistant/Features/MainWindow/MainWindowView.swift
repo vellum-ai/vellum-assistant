@@ -959,7 +959,7 @@ struct MainWindowView: View {
                     daemonOnly: true,
                     restart: true
                 )
-            } catch let error as AssistantCli.CLIError {
+            } catch let error as VellumCli.CLIError {
                 if case .daemonStartupFailed(let startupError) = error {
                     appDelegate.daemonStartupError = startupError
                     daemonStartupError = startupError

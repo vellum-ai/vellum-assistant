@@ -374,7 +374,7 @@ extension AppDelegate {
                     let assistantName = assistant?.assistantId
                     do {
                         try await assistantCli.hatch(name: assistantName, daemonOnly: daemonOnly)
-                    } catch let error as AssistantCli.CLIError {
+                    } catch let error as VellumCli.CLIError {
                         switch error {
                         case .daemonStartupFailed(let startupError):
                             log.error("Daemon startup failed [\(startupError.category, privacy: .public)]: \(startupError.message, privacy: .private)")

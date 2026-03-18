@@ -8,7 +8,7 @@ private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.
 struct HatchingStepView: View {
     @Bindable var state: OnboardingState
 
-    @State private var cliLauncher = AssistantCli()
+    @State private var cliLauncher = VellumCli()
     @State private var showContent = false
     @State private var characterAwake = false
     @State private var pulseScale: CGFloat = 0.9
@@ -240,7 +240,7 @@ struct HatchingStepView: View {
     private func startRemoteHatch() {
         let apiKey = APIKeyManager.getKey(for: "anthropic") ?? ""
 
-        let config = AssistantCli.RemoteHatchConfig(
+        let config = VellumCli.RemoteHatchConfig(
             remote: state.cloudProvider,
             gcpProjectId: state.gcpProjectId,
             gcpZone: state.gcpZone,

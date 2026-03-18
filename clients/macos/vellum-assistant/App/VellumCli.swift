@@ -2,7 +2,7 @@ import Foundation
 import os
 import VellumAssistantShared
 
-private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "AssistantCli")
+private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "VellumCli")
 
 /// Thread-safe accumulator for collecting stderr output from a child process.
 private final class StderrAccumulator: @unchecked Sendable {
@@ -57,7 +57,7 @@ struct DaemonStartupError {
 /// daemon. It also includes a health monitor that periodically checks whether
 /// the daemon process is still alive and restarts it via the CLI.
 @MainActor
-final class AssistantCli {
+final class VellumCli {
 
     enum CLIError: LocalizedError {
         case binaryNotFound
@@ -197,6 +197,8 @@ final class AssistantCli {
         }
 
         log.info("Running retire via CLI at \(binaryURL.path, privacy: .public) for '\(name, privacy: .public)'")
+        log.info("[audit] CLI invoke: retire args=\(name, privacy: .public)")
+        let retireStartTime = ContinuousClock.now
 
         let (stderr, status) = try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<(String, Int32), Error>) in
             let proc = Process()
@@ -227,7 +229,7 @@ final class AssistantCli {
                 }
             }
 
-            let env = AssistantCli.makeBaseEnvironment()
+            let env = VellumCli.makeBaseEnvironment()
             proc.environment = env
 
             let once = OnceFlag()
@@ -270,12 +272,17 @@ final class AssistantCli {
             }
         }
 
+        let retireElapsed = ContinuousClock.now - retireStartTime
+        let retireMs = retireElapsed.components.seconds * 1000 + Int64(retireElapsed.components.attoseconds / 1_000_000_000_000_000)
+
         if status != 0 {
             log.error("CLI retire failed with exit code \(status, privacy: .public): \(stderr, privacy: .private)")
+            log.warning("[audit] CLI done: retire exit=\(status) duration=\(retireMs)ms")
             throw CLIError.executionFailed(stderr)
         }
 
         log.info("CLI retire completed successfully")
+        log.info("[audit] CLI done: retire exit=0 duration=\(retireMs)ms")
     }
 
     /// Non-destructive stop: kills the daemon process via the CLI without
@@ -290,6 +297,8 @@ final class AssistantCli {
         }
 
         log.info("Running stop via CLI at \(binaryURL.path, privacy: .public)")
+        log.info("[audit] CLI invoke: sleep args=\(name ?? "", privacy: .public)")
+        let stopStartTime = ContinuousClock.now
 
         // stop must be synchronous (called from applicationWillTerminate)
         let proc = Process()
@@ -312,14 +321,24 @@ final class AssistantCli {
         do {
             try proc.run()
             proc.waitUntilExit()
+            let stopElapsed = ContinuousClock.now - stopStartTime
+            let stopMs = stopElapsed.components.seconds * 1000 + Int64(stopElapsed.components.attoseconds / 1_000_000_000_000_000)
             log.info("CLI stop completed with exit code \(proc.terminationStatus)")
+            if proc.terminationStatus == 0 {
+                log.info("[audit] CLI done: sleep exit=0 duration=\(stopMs)ms")
+            } else {
+                log.warning("[audit] CLI done: sleep exit=\(proc.terminationStatus) duration=\(stopMs)ms")
+            }
             if proc.terminationStatus != 0 {
                 log.warning("CLI stop exited non-zero (\(proc.terminationStatus)) — falling back to PID-based kill")
                 killViaPIDFile()
                 killGatewayViaPIDFile()
             }
         } catch {
+            let stopElapsed = ContinuousClock.now - stopStartTime
+            let stopMs = stopElapsed.components.seconds * 1000 + Int64(stopElapsed.components.attoseconds / 1_000_000_000_000_000)
             log.error("CLI stop failed: \(error.localizedDescription)")
+            log.error("[audit] CLI error: sleep threw after \(stopMs)ms \u{2014} \(error.localizedDescription, privacy: .public)")
             // Fallback: kill via PID file directly
             killViaPIDFile()
             killGatewayViaPIDFile()
@@ -385,6 +404,9 @@ final class AssistantCli {
         }
 
         log.info("Running remote hatch via CLI at \(binaryURL.path, privacy: .public) --remote \(config.remote, privacy: .public)")
+        let cliRemoteForLog = config.remote == "customHardware" ? "custom" : config.remote
+        log.info("[audit] CLI invoke: hatch args=--remote \(cliRemoteForLog, privacy: .public)")
+        let remoteHatchStartTime = ContinuousClock.now
 
         let proc = Process()
         proc.executableURL = binaryURL
@@ -507,16 +529,21 @@ final class AssistantCli {
             }
         }
 
+        let remoteHatchElapsed = ContinuousClock.now - remoteHatchStartTime
+        let remoteHatchMs = remoteHatchElapsed.components.seconds * 1000 + Int64(remoteHatchElapsed.components.attoseconds / 1_000_000_000_000_000)
+
         if status != 0 {
             let stderr = stderrAccumulator.content
             let detail = stderr.isEmpty
                 ? "Hatch process exited with code \(status)"
                 : stderr
             log.error("CLI remote hatch failed with exit code \(status): \(detail, privacy: .private)")
+            log.warning("[audit] CLI done: hatch(remote) exit=\(status) duration=\(remoteHatchMs)ms")
             throw CLIError.executionFailed(detail)
         }
 
         log.info("CLI remote hatch completed successfully")
+        log.info("[audit] CLI done: hatch(remote) exit=0 duration=\(remoteHatchMs)ms")
     }
 
     // MARK: - Pair (custom hardware)
@@ -536,6 +563,8 @@ final class AssistantCli {
         defer { try? FileManager.default.removeItem(at: tmpQRPath) }
 
         log.info("Running pair via CLI at \(binaryURL.path, privacy: .public)")
+        log.info("[audit] CLI invoke: pair")
+        let pairStartTime = ContinuousClock.now
 
         let proc = Process()
         proc.executableURL = binaryURL
@@ -589,16 +618,21 @@ final class AssistantCli {
             }
         }
 
+        let pairElapsed = ContinuousClock.now - pairStartTime
+        let pairMs = pairElapsed.components.seconds * 1000 + Int64(pairElapsed.components.attoseconds / 1_000_000_000_000_000)
+
         if status != 0 {
             let stderr = stderrAccumulator.content
             let detail = stderr.isEmpty
                 ? "Pair process exited with code \(status)"
                 : stderr
             log.error("CLI pair failed with exit code \(status): \(detail, privacy: .private)")
+            log.warning("[audit] CLI done: pair exit=\(status) duration=\(pairMs)ms")
             throw CLIError.executionFailed(detail)
         }
 
         log.info("CLI pair completed successfully")
+        log.info("[audit] CLI done: pair exit=0 duration=\(pairMs)ms")
     }
 
     // MARK: - Private Helpers
@@ -697,62 +731,85 @@ final class AssistantCli {
         }
     }
 
-    /// Run a CLI command and return (stdout, stderr, exit code).
-    /// Uses Task.detached to avoid blocking the MainActor.
+    /// Run a CLI command, log the invocation and result, and return
+    /// (stdout, stderr, exit code). Uses Task.detached to avoid blocking
+    /// the MainActor.
     private func runCLI(
         binaryURL: URL,
         arguments: [String]
     ) async throws -> (stdout: String, stderr: String, status: Int32) {
         let url = binaryURL
         let args = arguments
+        let commandName = args.first ?? "<unknown>"
+        let startTime = ContinuousClock.now
 
-        return try await Task.detached {
-            let proc = Process()
-            proc.executableURL = url
-            proc.arguments = args
+        log.info("[audit] CLI invoke: \(commandName, privacy: .public) args=\(args.dropFirst().joined(separator: " "), privacy: .public)")
 
-            let stdoutPipe = Pipe()
-            let stderrPipe = Pipe()
-            proc.standardOutput = stdoutPipe
-            proc.standardError = stderrPipe
+        let result: (stdout: String, stderr: String, status: Int32)
+        do {
+            result = try await Task.detached {
+                let proc = Process()
+                proc.executableURL = url
+                proc.arguments = args
 
-            var env = AssistantCli.makeBaseEnvironment()
-            // Always forward RUNTIME_HTTP_PORT from getenv as a fallback
-            // (setenv may have been called after ProcessInfo was captured).
-            let fullEnv = ProcessInfo.processInfo.environment
-            if env["RUNTIME_HTTP_PORT"] == nil,
-               let port = fullEnv["RUNTIME_HTTP_PORT"] ?? getenv("RUNTIME_HTTP_PORT").flatMap({ String(cString: $0) }) {
-                env["RUNTIME_HTTP_PORT"] = port
-            }
-            // Fall back to credential storage for the Anthropic API key
-            // when it's not in the process environment (e.g. app launched
-            // from Finder, not a terminal with ANTHROPIC_API_KEY set).
-            if env["ANTHROPIC_API_KEY"] == nil,
-               let storedKey = APIKeyManager.getKey(for: "anthropic"),
-               !storedKey.isEmpty {
-                env["ANTHROPIC_API_KEY"] = storedKey
-            }
-            proc.environment = env
+                let stdoutPipe = Pipe()
+                let stderrPipe = Pipe()
+                proc.standardOutput = stdoutPipe
+                proc.standardError = stderrPipe
 
-            try proc.run()
+                var env = VellumCli.makeBaseEnvironment()
+                // Always forward RUNTIME_HTTP_PORT from getenv as a fallback
+                // (setenv may have been called after ProcessInfo was captured).
+                let fullEnv = ProcessInfo.processInfo.environment
+                if env["RUNTIME_HTTP_PORT"] == nil,
+                   let port = fullEnv["RUNTIME_HTTP_PORT"] ?? getenv("RUNTIME_HTTP_PORT").flatMap({ String(cString: $0) }) {
+                    env["RUNTIME_HTTP_PORT"] = port
+                }
+                // Fall back to credential storage for the Anthropic API key
+                // when it's not in the process environment (e.g. app launched
+                // from Finder, not a terminal with ANTHROPIC_API_KEY set).
+                if env["ANTHROPIC_API_KEY"] == nil,
+                   let storedKey = APIKeyManager.getKey(for: "anthropic"),
+                   !storedKey.isEmpty {
+                    env["ANTHROPIC_API_KEY"] = storedKey
+                }
+                proc.environment = env
 
-            // Wait for the CLI process to exit first. We must NOT call
-            // readDataToEndOfFile() before this because the daemon (spawned
-            // by the CLI as a detached child) inherits the pipe FDs. That
-            // keeps the write-end open, so readDataToEndOfFile() would block
-            // until the daemon exits — causing a 15-30s hang.
-            proc.waitUntilExit()
+                try proc.run()
 
-            // After the CLI exits, read whatever output is buffered in the
-            // pipes. Use availableData (non-blocking) to avoid blocking on
-            // inherited FDs still held by the daemon process.
-            let stdoutData = stdoutPipe.fileHandleForReading.availableData
-            let stderrData = stderrPipe.fileHandleForReading.availableData
+                // Wait for the CLI process to exit first. We must NOT call
+                // readDataToEndOfFile() before this because the daemon (spawned
+                // by the CLI as a detached child) inherits the pipe FDs. That
+                // keeps the write-end open, so readDataToEndOfFile() would block
+                // until the daemon exits — causing a 15-30s hang.
+                proc.waitUntilExit()
 
-            let stdoutStr = String(data: stdoutData, encoding: .utf8) ?? ""
-            let stderrStr = String(data: stderrData, encoding: .utf8) ?? ""
+                // After the CLI exits, read whatever output is buffered in the
+                // pipes. Use availableData (non-blocking) to avoid blocking on
+                // inherited FDs still held by the daemon process.
+                let stdoutData = stdoutPipe.fileHandleForReading.availableData
+                let stderrData = stderrPipe.fileHandleForReading.availableData
 
-            return (stdoutStr, stderrStr, proc.terminationStatus)
-        }.value
+                let stdoutStr = String(data: stdoutData, encoding: .utf8) ?? ""
+                let stderrStr = String(data: stderrData, encoding: .utf8) ?? ""
+
+                return (stdoutStr, stderrStr, proc.terminationStatus)
+            }.value
+        } catch {
+            let elapsed = ContinuousClock.now - startTime
+            let ms = elapsed.components.seconds * 1000 + Int64(elapsed.components.attoseconds / 1_000_000_000_000_000)
+            log.error("[audit] CLI error: \(commandName, privacy: .public) threw after \(ms)ms — \(error.localizedDescription, privacy: .public)")
+            throw error
+        }
+
+        let elapsed = ContinuousClock.now - startTime
+        let ms = elapsed.components.seconds * 1000 + Int64(elapsed.components.attoseconds / 1_000_000_000_000_000)
+        if result.status == 0 {
+            log.info("[audit] CLI done: \(commandName, privacy: .public) exit=0 duration=\(ms)ms")
+        } else {
+            log.warning("[audit] CLI done: \(commandName, privacy: .public) exit=\(result.status) duration=\(ms)ms")
+        }
+
+        return result
     }
 }
