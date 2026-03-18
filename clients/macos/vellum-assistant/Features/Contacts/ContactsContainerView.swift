@@ -32,7 +32,7 @@ struct ContactsContainerView: View {
     }
 
     var body: some View {
-        HStack(alignment: .top, spacing: 0) {
+        HStack(alignment: .top, spacing: VSpacing.sm) {
             // Left pane: contacts list (full height, internal scrolling)
             ContactsListView(
                 viewModel: viewModel,
@@ -140,6 +140,7 @@ struct ContactsContainerView: View {
                 }
             }
         }
+        .padding(VSpacing.sm)
         .frame(maxWidth: 900, maxHeight: .infinity, alignment: .leading)
         .frame(maxWidth: .infinity, alignment: .leading)
         .onReceive(viewModel.$contacts) { newContacts in
