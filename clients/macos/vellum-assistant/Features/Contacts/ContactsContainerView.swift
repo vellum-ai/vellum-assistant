@@ -44,14 +44,15 @@ struct ContactsContainerView: View {
 
             // Right pane: detail, loading, or placeholder
             VStack(alignment: .leading, spacing: 0) {
-            // Pinned header (matches contacts list header height)
+            // Pinned header (matches contacts list header height exactly)
             HStack {
                 Text("Contact Info")
                     .font(VFont.headline)
                     .foregroundColor(VColor.contentDefault)
                 Spacer()
-                // Invisible spacer matching the + button height in contacts list
-                Color.clear.frame(width: 0, height: 24)
+                // Hidden button to match the height of the + button in contacts list
+                VButton(label: "", iconOnly: VIcon.plus.rawValue, style: .ghost, size: .compact) {}
+                    .hidden()
             }
             .padding(.horizontal, VSpacing.md)
             .padding(.vertical, VSpacing.sm)
