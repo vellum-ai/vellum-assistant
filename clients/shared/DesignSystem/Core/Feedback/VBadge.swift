@@ -88,35 +88,12 @@ public struct VBadge: View {
             .padding(.horizontal, VSpacing.sm)
             .padding(.vertical, labelVerticalPadding)
             .background(labelBackgroundColor)
-            .overlay(labelBorderOverlay)
-            .clipShape(labelClipShape)
+            .modifier(LabelShapeModifier(shape: shape, borderColor: labelBorderColor, borderWidth: labelBorderWidth))
             .accessibilityLabel(text)
         }
     }
 
     // MARK: - Shape Helpers
-
-    @ViewBuilder
-    private var labelBorderOverlay: some View {
-        switch shape {
-        case .pill:
-            Capsule()
-                .stroke(labelBorderColor, lineWidth: labelBorderWidth)
-        case .rounded:
-            RoundedRectangle(cornerRadius: VRadius.sm)
-                .stroke(labelBorderColor, lineWidth: labelBorderWidth)
-        }
-    }
-
-    @ViewBuilder
-    private var labelClipShape: some View {
-        switch shape {
-        case .pill:
-            Capsule()
-        case .rounded:
-            RoundedRectangle(cornerRadius: VRadius.sm)
-        }
-    }
 
     private var labelVerticalPadding: CGFloat {
         shape == .rounded ? VSpacing.xs : VSpacing.xxs
@@ -199,5 +176,27 @@ public struct VBadge: View {
 
     private var labelBorderWidth: CGFloat {
         tone == nil ? 0 : 1
+    }
+}
+
+// MARK: - Shape Modifier
+
+/// Applies the correct clip shape and border overlay based on VBadge.Shape.
+private struct LabelShapeModifier: ViewModifier {
+    let shape: VBadge.Shape
+    let borderColor: Color
+    let borderWidth: CGFloat
+
+    func body(content: Content) -> some View {
+        switch shape {
+        case .pill:
+            content
+                .overlay(Capsule().stroke(borderColor, lineWidth: borderWidth))
+                .clipShape(Capsule())
+        case .rounded:
+            content
+                .overlay(RoundedRectangle(cornerRadius: VRadius.sm).stroke(borderColor, lineWidth: borderWidth))
+                .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
+        }
     }
 }
