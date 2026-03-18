@@ -34,7 +34,7 @@ function writeJson(path: string, data: Record<string, unknown>): void {
 // ---------------------------------------------------------------------------
 
 // 1. Fetch all tags from remote so we have the latest
-git("fetch --tags");
+git("fetch origin --tags");
 
 // 2. Find the latest release tag
 const allTags = git("tag -l 'v[0-9]*.[0-9]*.[0-9]*' --sort=-v:refname");
