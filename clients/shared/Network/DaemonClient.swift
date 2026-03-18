@@ -56,7 +56,6 @@ public protocol DaemonClientProtocol {
     var isConnected: Bool { get }
     func subscribe() -> AsyncStream<ServerMessage>
     func send<T: Encodable>(_ message: T) throws
-    func sendConversationUnread(_ signal: ConversationUnreadSignal) async throws
     func connect() async throws
     func disconnect()
     func startSSE()
@@ -65,10 +64,6 @@ public protocol DaemonClientProtocol {
 }
 
 extension DaemonClientProtocol {
-    public func sendConversationUnread(_ signal: ConversationUnreadSignal) async throws {
-        try send(signal)
-    }
-
     /// Default no-op implementation for clients that don't support btw side-chain.
     public func sendBtwMessage(content: String, conversationKey: String) -> AsyncThrowingStream<String, Error> {
         AsyncThrowingStream { $0.finish() }
@@ -652,34 +647,6 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
         }
     }
 
-    public func sendConversationUnread(_ signal: ConversationUnreadSignal) async throws {
-        if let override = sendOverride {
-            try override(signal)
-            return
-        }
-
-        guard let httpTransport else {
-            throw SendError.notConnected
-        }
-        guard httpTransport.isConnected else {
-            throw SendError.notConnected
-        }
-        try await httpTransport.sendConversationUnread(signal)
-    }
-
-    // MARK: - Surface Actions
-
-    /// Convenience method for sending a surface action response to the daemon.
-    /// Keeps the message construction co-located with the client.
-    public func sendSurfaceAction(conversationId: String?, surfaceId: String, actionId: String, data: [String: AnyCodable]?) throws {
-        let message = UiSurfaceActionMessage(
-            conversationId: conversationId,
-            surfaceId: surfaceId,
-            actionId: actionId,
-            data: data
-        )
-        try send(message)
-    }
 
     // MARK: - BTW Side-Chain
 
@@ -763,107 +730,6 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
             }
             continuation.onTermination = { @Sendable _ in task.cancel() }
         }
-    }
-
-    // MARK: - Surface Undo
-
-    /// Send a surface undo request to revert the last refinement on a workspace surface.
-    public func sendSurfaceUndo(conversationId: String, surfaceId: String) throws {
-        let message = UiSurfaceUndoMessage(conversationId: conversationId, surfaceId: surfaceId)
-        try send(message)
-    }
-
-    // MARK: - Confirmation Response
-
-    /// Send a confirmation response for a tool permission request.
-    public func sendConfirmationResponse(
-        requestId: String,
-        decision: String,
-        selectedPattern: String? = nil,
-        selectedScope: String? = nil
-    ) throws {
-        try send(ConfirmationResponseMessage(
-            requestId: requestId,
-            decision: decision,
-            selectedPattern: selectedPattern,
-            selectedScope: selectedScope
-        ))
-    }
-
-    // MARK: - Secret Response
-
-    /// Send a secret response for a credential prompt request.
-    public func sendSecretResponse(requestId: String, value: String?, delivery: String? = nil) throws {
-        try send(SecretResponseMessage(requestId: requestId, value: value, delivery: delivery))
-    }
-
-
-
-    // MARK: - Queue Management
-
-    /// Delete a specific queued message by its requestId.
-    public func sendDeleteQueuedMessage(conversationId: String, requestId: String) throws {
-        try send(DeleteQueuedMessageMessage(conversationId: conversationId, requestId: requestId))
-    }
-
-    // MARK: - Regenerate
-
-    /// Regenerate the last assistant response for a conversation.
-    public func sendRegenerate(conversationId: String) throws {
-        try send(RegenerateMessage(conversationId: conversationId))
-    }
-
-    // MARK: - Conversations
-
-    /// Request the list of past conversations from the daemon.
-    public func sendConversationList(offset: Int? = nil, limit: Int? = nil) throws {
-        try send(ConversationListRequestMessage(offset: offset, limit: limit))
-    }
-
-    /// Request message history for a specific conversation.
-    /// - Parameters:
-    ///   - conversationId: The conversation to fetch history for.
-    ///   - limit: Max messages to return per page.
-    ///   - beforeTimestamp: Pagination cursor — only return messages before this timestamp (ms since epoch).
-    ///   - mode: `"light"` omits heavy payloads (attachments, tool images, surface data); `"full"` includes everything.
-    ///   - maxTextChars: When set, truncates assistant text content to this many characters.
-    ///   - maxToolResultChars: When set, truncates tool result content to this many characters.
-    public func sendHistoryRequest(conversationId: String, limit: Int? = nil, beforeTimestamp: Double? = nil, mode: String? = nil, maxTextChars: Int? = nil, maxToolResultChars: Int? = nil) throws {
-        try send(HistoryRequestMessage(conversationId: conversationId, limit: limit, beforeTimestamp: beforeTimestamp, mode: mode, maxTextChars: maxTextChars, maxToolResultChars: maxToolResultChars))
-    }
-
-    /// Request full (untruncated) content for a specific message.
-    /// Used to rehydrate messages that were loaded with truncated text/tool results.
-    public func sendMessageContentRequest(conversationId: String, messageId: String) throws {
-        try send(MessageContentRequest(type: "message_content_request", conversationId: conversationId, messageId: messageId))
-    }
-
-    /// Get, set, or delete the Vercel API token configuration.
-    public func sendVercelApiConfig(action: String, apiToken: String? = nil) throws {
-        try send(VercelApiConfigRequestMessage(action: action, apiToken: apiToken))
-    }
-
-    /// Channel verification session management: "create_session", "status", "cancel_session", "revoke", "resend_session".
-    public func sendChannelVerificationSession(
-        action: String,
-        channel: String? = nil,
-        conversationId: String? = nil,
-        rebind: Bool? = nil,
-        destination: String? = nil,
-        originConversationId: String? = nil,
-        purpose: String? = nil,
-        contactChannelId: String? = nil
-    ) throws {
-        try send(ChannelVerificationSessionRequestMessage(
-            action: action,
-            channel: channel,
-            conversationId: conversationId,
-            rebind: rebind,
-            destination: destination,
-            originConversationId: originConversationId,
-            purpose: purpose,
-            contactChannelId: contactChannelId
-        ))
     }
 
     // MARK: - Local Daemon HTTP Helpers

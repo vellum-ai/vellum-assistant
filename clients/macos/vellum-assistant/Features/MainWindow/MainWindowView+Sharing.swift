@@ -103,10 +103,17 @@ extension MainWindowView {
                         publishPage(html: pending.html, title: pending.title, appId: pending.appId)
                     }
                 }
-                do {
-                    try daemonClient.sendVercelApiConfig(action: "get")
-                } catch {
-                    // Polling failure is non-fatal; will retry on next tick
+                Task {
+                    if let response = await SettingsClient().fetchVercelConfig() {
+                        if response.success && response.hasToken, let pending = self.sharing.pendingPublish {
+                            timer.invalidate()
+                            self.sharing.credentialPollTimer = nil
+                            self.sharing.pendingPublish = nil
+                            self.daemonClient.onVercelApiConfigResponse = previousHandler
+                            self.sharing.previousVercelHandler = nil
+                            self.publishPage(html: pending.html, title: pending.title, appId: pending.appId)
+                        }
+                    }
                 }
             }
         }

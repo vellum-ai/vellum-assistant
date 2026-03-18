@@ -82,19 +82,16 @@ extension AppDelegate {
             }
         }
 
-        // Wire SurfaceManager action callback to DaemonClient
-        surfaceManager.onAction = { [weak self] conversationId, surfaceId, actionId, data in
-            guard let self else { return }
+        // Wire SurfaceManager action callback to SurfaceActionClient
+        surfaceManager.onAction = { conversationId, surfaceId, actionId, data in
             let codableData: [String: AnyCodable]? = data?.mapValues { AnyCodable($0) }
-            do {
-                try self.daemonClient.sendSurfaceAction(
+            Task {
+                await SurfaceActionClient().sendSurfaceAction(
                     conversationId: conversationId,
                     surfaceId: surfaceId,
                     actionId: actionId,
                     data: codableData
                 )
-            } catch {
-                log.error("Failed to send surface action \(actionId) for surface \(surfaceId): \(error)")
             }
         }
 
@@ -156,18 +153,14 @@ extension AppDelegate {
                 // Auto-approve low/medium risk tool confirmations during CU sessions
                 if self.currentSession?.autoApproveTools == true,
                    msg.riskLevel == "low" || msg.riskLevel == "medium" {
-                    do {
-                        try self.daemonClient.sendConfirmationResponse(
-                            requestId: msg.requestId,
-                            decision: "allow"
-                        )
-                        self.mainWindow?.conversationManager.updateConfirmationStateAcrossConversations(
-                            requestId: msg.requestId,
-                            decision: "allow"
-                        )
-                    } catch {
-                        log.error("Failed to auto-approve confirmation: \(error.localizedDescription)")
-                    }
+                    await InteractionClient().sendConfirmationResponse(
+                        requestId: msg.requestId,
+                        decision: "allow"
+                    )
+                    self.mainWindow?.conversationManager.updateConfirmationStateAcrossConversations(
+                        requestId: msg.requestId,
+                        decision: "allow"
+                    )
                     return
                 }
 
@@ -191,19 +184,14 @@ extension AppDelegate {
                 guard decision != ToolConfirmationNotificationService.inlineHandledSentinel else {
                     return
                 }
-                do {
-                    try self.daemonClient.sendConfirmationResponse(
-                        requestId: msg.requestId,
-                        decision: decision
-                    )
-                    // Only sync the inline message state if the send succeeded.
-                    self.mainWindow?.conversationManager.updateConfirmationStateAcrossConversations(
-                        requestId: msg.requestId,
-                        decision: decision
-                    )
-                } catch {
-                    log.error("Failed to send confirmation response: \(error.localizedDescription)")
-                }
+                await InteractionClient().sendConfirmationResponse(
+                    requestId: msg.requestId,
+                    decision: decision
+                )
+                self.mainWindow?.conversationManager.updateConfirmationStateAcrossConversations(
+                    requestId: msg.requestId,
+                    decision: decision
+                )
             }
         }
     }
@@ -212,15 +200,11 @@ extension AppDelegate {
         daemonClient.onSecretRequest = { [weak self] msg in
             self?.secretPromptManager.showPrompt(msg)
         }
-        secretPromptManager.onResponse = { [weak self] requestId, value, delivery in
-            guard let self else { return false }
-            do {
-                try self.daemonClient.sendSecretResponse(requestId: requestId, value: value, delivery: delivery)
-                return true
-            } catch {
-                log.error("Failed to send secret response: \(error.localizedDescription)")
-                return false
+        secretPromptManager.onResponse = { requestId, value, delivery in
+            Task {
+                await InteractionClient().sendSecretResponse(requestId: requestId, value: value, delivery: delivery)
             }
+            return true
         }
     }
 }

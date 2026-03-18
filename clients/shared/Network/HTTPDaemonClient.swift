@@ -263,14 +263,8 @@ public final class HTTPTransport {
         case healthz
         case eventsAll  // SSE subscription for all events
         case sendMessage
-        case getMessages(conversationId: String?)
-        case conversations(limit: Int, offset: Int)
-        case confirm
-        case secret
         case conversationsSeen
-        case conversationsUnread
         case identity
-        case surfaceAction
         case trustRulesManage
         case trustRuleManageById(id: String)
         case pendingInteractions(conversationKey: String?)
@@ -286,11 +280,8 @@ public final class HTTPTransport {
         case conversationsClear
         case conversationCancel(id: String)
         case conversationUndo(id: String)
-        case conversationRegenerate(id: String)
         case model
         case conversationSearch(query: String, limit: Int?, maxMessagesPerConversation: Int?)
-        case messageContent(id: String, conversationId: String?)
-        case deleteQueuedMessage(id: String, conversationId: String)
         case conversationsReorder
         // Computer Use
         case cuWatch
@@ -311,11 +302,7 @@ public final class HTTPTransport {
 
         // Integrations
         case integrationsOAuthStart
-        case integrationsVercelConfig
         case integrationsIngressConfig
-
-        // Surface Undo
-        case surfaceUndo(surfaceId: String)
 
         // Suggestion
         case suggestion
@@ -340,9 +327,6 @@ public final class HTTPTransport {
         case btw
 
         // Misc
-        case channelVerificationSessions
-        case channelVerificationSessionsResend
-        case channelVerificationSessionsRevoke
         case registerDeviceToken
 
     }
@@ -380,26 +364,10 @@ public final class HTTPTransport {
             return ("/v1/events", nil)
         case .sendMessage:
             return ("/v1/messages", nil)
-        case .getMessages(let conversationId):
-            if let id = conversationId {
-                let encoded = id.addingPercentEncoding(withAllowedCharacters: Self.queryValueAllowed) ?? id
-                return ("/v1/messages", "conversationId=\(encoded)")
-            }
-            return ("/v1/messages", nil)
-        case .conversations(let limit, let offset):
-            return ("/v1/conversations", "limit=\(limit)&offset=\(offset)")
-        case .confirm:
-            return ("/v1/confirm", nil)
-        case .secret:
-            return ("/v1/secret", nil)
         case .conversationsSeen:
             return ("/v1/conversations/seen", nil)
-        case .conversationsUnread:
-            return ("/v1/conversations/unread", nil)
         case .identity:
             return ("/v1/identity", nil)
-        case .surfaceAction:
-            return ("/v1/surface-actions", nil)
         case .trustRulesManage:
             return ("/v1/trust-rules/manage", nil)
         case .trustRuleManageById(let id):
@@ -437,9 +405,6 @@ public final class HTTPTransport {
         case .conversationUndo(let id):
             let encoded = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
             return ("/v1/conversations/\(encoded)/undo", nil)
-        case .conversationRegenerate(let id):
-            let encoded = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
-            return ("/v1/conversations/\(encoded)/regenerate", nil)
         case .model:
             return ("/v1/model", nil)
         case .conversationSearch(let query, let limit, let maxMessages):
@@ -448,17 +413,6 @@ public final class HTTPTransport {
             if let limit { qs += "&limit=\(limit)" }
             if let maxMessages { qs += "&maxMessagesPerConversation=\(maxMessages)" }
             return ("/v1/conversations/search", qs)
-        case .messageContent(let id, let conversationId):
-            let idEncoded = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
-            if let conversationId {
-                let sEncoded = conversationId.addingPercentEncoding(withAllowedCharacters: Self.queryValueAllowed) ?? conversationId
-                return ("/v1/messages/\(idEncoded)/content", "conversationId=\(sEncoded)")
-            }
-            return ("/v1/messages/\(idEncoded)/content", nil)
-        case .deleteQueuedMessage(let id, let conversationId):
-            let idEncoded = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
-            let sEncoded = conversationId.addingPercentEncoding(withAllowedCharacters: Self.queryValueAllowed) ?? conversationId
-            return ("/v1/messages/queued/\(idEncoded)", "conversationId=\(sEncoded)")
         case .conversationsReorder:
             return ("/v1/conversations/reorder", nil)
         // Computer Use
@@ -483,14 +437,8 @@ public final class HTTPTransport {
         // Integrations
         case .integrationsOAuthStart:
             return ("/v1/integrations/oauth/start", nil)
-        case .integrationsVercelConfig:
-            return ("/v1/integrations/vercel/config", nil)
         case .integrationsIngressConfig:
             return ("/v1/integrations/ingress/config", nil)
-        // Surface Undo
-        case .surfaceUndo(let surfaceId):
-            let encoded = surfaceId.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? surfaceId
-            return ("/v1/surfaces/\(encoded)/undo", nil)
         // Suggestion
         case .suggestion:
             return ("/v1/suggestion", nil)
@@ -515,12 +463,6 @@ public final class HTTPTransport {
         case .btw:
             return ("/v1/btw", nil)
         // Misc
-        case .channelVerificationSessions:
-            return ("/v1/channel-verification-sessions", nil)
-        case .channelVerificationSessionsResend:
-            return ("/v1/channel-verification-sessions/resend", nil)
-        case .channelVerificationSessionsRevoke:
-            return ("/v1/channel-verification-sessions/revoke", nil)
         case .registerDeviceToken:
             return ("/v1/device-token", nil)
         }
@@ -539,26 +481,10 @@ public final class HTTPTransport {
             return ("\(prefix)/events/", nil)
         case .sendMessage:
             return ("\(prefix)/messages/", nil)
-        case .getMessages(let conversationId):
-            if let id = conversationId {
-                let encoded = id.addingPercentEncoding(withAllowedCharacters: Self.queryValueAllowed) ?? id
-                return ("\(prefix)/messages/", "conversationId=\(encoded)")
-            }
-            return ("\(prefix)/messages/", nil)
-        case .conversations(let limit, let offset):
-            return ("\(prefix)/conversations/", "limit=\(limit)&offset=\(offset)")
-        case .confirm:
-            return ("\(prefix)/confirm/", nil)
-        case .secret:
-            return ("\(prefix)/secret/", nil)
         case .conversationsSeen:
             return ("\(prefix)/conversations/seen/", nil)
-        case .conversationsUnread:
-            return ("\(prefix)/conversations/unread/", nil)
         case .identity:
             return ("\(prefix)/identity/", nil)
-        case .surfaceAction:
-            return ("\(prefix)/surface-actions/", nil)
         case .trustRulesManage:
             return ("\(prefix)/trust-rules/manage/", nil)
         case .trustRuleManageById(let id):
@@ -596,9 +522,6 @@ public final class HTTPTransport {
         case .conversationUndo(let id):
             let encoded = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
             return ("\(prefix)/conversations/\(encoded)/undo/", nil)
-        case .conversationRegenerate(let id):
-            let encoded = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
-            return ("\(prefix)/conversations/\(encoded)/regenerate/", nil)
         case .model:
             return ("\(prefix)/model/", nil)
         case .conversationSearch(let query, let limit, let maxMessages):
@@ -607,17 +530,6 @@ public final class HTTPTransport {
             if let limit { qs += "&limit=\(limit)" }
             if let maxMessages { qs += "&maxMessagesPerConversation=\(maxMessages)" }
             return ("\(prefix)/conversations/search/", qs)
-        case .messageContent(let id, let conversationId):
-            let idEncoded = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
-            if let conversationId {
-                let sEncoded = conversationId.addingPercentEncoding(withAllowedCharacters: Self.queryValueAllowed) ?? conversationId
-                return ("\(prefix)/messages/\(idEncoded)/content/", "conversationId=\(sEncoded)")
-            }
-            return ("\(prefix)/messages/\(idEncoded)/content/", nil)
-        case .deleteQueuedMessage(let id, let conversationId):
-            let idEncoded = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
-            let sEncoded = conversationId.addingPercentEncoding(withAllowedCharacters: Self.queryValueAllowed) ?? conversationId
-            return ("\(prefix)/messages/queued/\(idEncoded)/", "conversationId=\(sEncoded)")
         case .conversationsReorder:
             return ("\(prefix)/conversations/reorder/", nil)
         // Computer Use
@@ -642,14 +554,8 @@ public final class HTTPTransport {
         // Integrations
         case .integrationsOAuthStart:
             return ("\(prefix)/integrations/oauth/start/", nil)
-        case .integrationsVercelConfig:
-            return ("\(prefix)/integrations/vercel/config/", nil)
         case .integrationsIngressConfig:
             return ("\(prefix)/integrations/ingress/config/", nil)
-        // Surface Undo
-        case .surfaceUndo(let surfaceId):
-            let encoded = surfaceId.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? surfaceId
-            return ("\(prefix)/surfaces/\(encoded)/undo/", nil)
         // Suggestion
         case .suggestion:
             return ("\(prefix)/suggestion/", nil)
@@ -674,12 +580,6 @@ public final class HTTPTransport {
         case .btw:
             return ("\(prefix)/btw/", nil)
         // Misc
-        case .channelVerificationSessions:
-            return ("\(prefix)/channel-verification-sessions/", nil)
-        case .channelVerificationSessionsResend:
-            return ("\(prefix)/channel-verification-sessions/resend/", nil)
-        case .channelVerificationSessionsRevoke:
-            return ("\(prefix)/channel-verification-sessions/revoke/", nil)
         case .registerDeviceToken:
             return ("\(prefix)/device-token/", nil)
         }
@@ -1299,89 +1199,6 @@ public final class HTTPTransport {
         }
     }
 
-    func sendDecision(requestId: String, decision: String, selectedPattern: String? = nil, selectedScope: String? = nil, isRetry: Bool = false) async {
-        guard let url = buildURL(for: .confirm) else { return }
-
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        applyAuth(&request)
-
-        var body: [String: Any] = [
-            "requestId": requestId,
-            "decision": decision,
-        ]
-        if let selectedPattern {
-            body["selectedPattern"] = selectedPattern
-        }
-        if let selectedScope {
-            body["selectedScope"] = selectedScope
-        }
-
-        do {
-            request.httpBody = try JSONSerialization.data(withJSONObject: body)
-            let (data, response) = try await URLSession.shared.data(for: request)
-
-            if let http = response as? HTTPURLResponse {
-                if http.statusCode == 401 && !isRetry {
-                    let refreshResult = await handleAuthenticationFailureAsync(responseData: data)
-                    switch refreshResult {
-                    case .success:
-                        await sendDecision(requestId: requestId, decision: decision, selectedPattern: selectedPattern, selectedScope: selectedScope, isRetry: true)
-                    case .terminalFailure:
-                        break
-                    case .transientFailure:
-                        log.error("Decision response failed: authentication error after 401 refresh")
-                    }
-                } else if http.statusCode != 200 {
-                    log.error("Decision response failed (\(http.statusCode))")
-                }
-            }
-        } catch {
-            log.error("Decision response error: \(error.localizedDescription)")
-        }
-    }
-
-    func sendSecret(requestId: String, value: String?, delivery: String? = nil, isRetry: Bool = false) async {
-        guard let url = buildURL(for: .secret) else { return }
-
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        applyAuth(&request)
-
-        var body: [String: Any] = [
-            "requestId": requestId,
-            "value": value ?? "",
-        ]
-        if let delivery {
-            body["delivery"] = delivery
-        }
-
-        do {
-            request.httpBody = try JSONSerialization.data(withJSONObject: body)
-            let (data, response) = try await URLSession.shared.data(for: request)
-
-            if let http = response as? HTTPURLResponse {
-                if http.statusCode == 401 && !isRetry {
-                    let refreshResult = await handleAuthenticationFailureAsync(responseData: data)
-                    switch refreshResult {
-                    case .success:
-                        await sendSecret(requestId: requestId, value: value, delivery: delivery, isRetry: true)
-                    case .terminalFailure:
-                        break
-                    case .transientFailure:
-                        log.error("Secret response failed: authentication error after 401 refresh")
-                    }
-                } else if http.statusCode != 200 {
-                    log.error("Secret response failed (\(http.statusCode))")
-                }
-            }
-        } catch {
-            log.error("Secret response error: \(error.localizedDescription)")
-        }
-    }
-
     /// JSONSerialization cannot encode AnyCodable wrappers directly, so unwrap
     /// them before inserting arbitrary payloads into request bodies.
     func jsonCompatibleDictionary(_ values: [String: AnyCodable]) -> [String: Any] {
@@ -1436,69 +1253,6 @@ public final class HTTPTransport {
         }
     }
 
-    func sendConversationUnread(_ signal: ConversationUnreadSignal, isRetry: Bool = false) async throws {
-        guard let url = buildURL(for: .conversationsUnread) else {
-            throw HTTPTransportError.invalidURL
-        }
-
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        applyAuth(&request)
-
-        var body: [String: Any] = [
-            "conversationId": signal.conversationId,
-            "sourceChannel": signal.sourceChannel,
-            "signalType": signal.signalType,
-            "confidence": signal.confidence,
-            "source": signal.source
-        ]
-        if let evidenceText = signal.evidenceText {
-            body["evidenceText"] = evidenceText
-        }
-        if let observedAt = signal.observedAt {
-            body["observedAt"] = observedAt
-        }
-        if let metadata = signal.metadata {
-            body["metadata"] = jsonCompatibleDictionary(metadata)
-        }
-
-        do {
-            request.httpBody = try JSONSerialization.data(withJSONObject: body)
-            let (data, response) = try await URLSession.shared.data(for: request)
-
-            guard let http = response as? HTTPURLResponse else {
-                throw HTTPTransportError.healthCheckFailed
-            }
-
-            if http.statusCode == 401 && !isRetry {
-                let refreshResult = await handleAuthenticationFailureAsync(responseData: data)
-                switch refreshResult {
-                case .success:
-                    try await sendConversationUnread(signal, isRetry: true)
-                    return
-                case .transientFailure:
-                    throw HTTPTransportError.authenticationFailed(
-                        message: decodeHTTPErrorMessage(from: data) ?? "Authentication refresh failed"
-                    )
-                case .terminalFailure:
-                    throw HTTPTransportError.authenticationFailed(
-                        message: decodeHTTPErrorMessage(from: data) ?? "Authentication failed"
-                    )
-                }
-            }
-
-            guard http.statusCode == 200 else {
-                throw HTTPTransportError.requestFailed(
-                    statusCode: http.statusCode,
-                    message: decodeHTTPErrorMessage(from: data)
-                )
-            }
-        } catch {
-            throw error
-        }
-    }
-
     private func decodeHTTPErrorMessage(from data: Data) -> String? {
         if let envelope = try? decoder.decode(HTTPErrorEnvelope.self, from: data) {
             return envelope.error.message
@@ -1507,188 +1261,6 @@ public final class HTTPTransport {
             .trimmingCharacters(in: .whitespacesAndNewlines),
             !body.isEmpty else { return nil }
         return body
-    }
-
-    // MARK: - Surface Actions
-
-    func sendSurfaceAction(_ action: UiSurfaceActionMessage, isRetry: Bool = false) async {
-        guard let url = buildURL(for: .surfaceAction) else { return }
-
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        applyAuth(&request)
-
-        var body: [String: Any] = [
-            "surfaceId": action.surfaceId,
-            "actionId": action.actionId,
-        ]
-        // Omit conversationId — the server resolves the conversation via
-        // findSessionBySurfaceId(surfaceId), which is reliable regardless
-        // of conversationKey vs conversationId differences.
-        if let data = action.data {
-            body["data"] = jsonCompatibleDictionary(data)
-        }
-
-        do {
-            request.httpBody = try JSONSerialization.data(withJSONObject: body)
-            let (_, response) = try await URLSession.shared.data(for: request)
-
-            if let http = response as? HTTPURLResponse {
-                if http.statusCode == 401 && !isRetry {
-                    let refreshResult = await handleAuthenticationFailureAsync()
-                    if case .success = refreshResult {
-                        await sendSurfaceAction(action, isRetry: true)
-                    }
-                } else if http.statusCode != 200 {
-                    log.error("HTTPTransport: surface action failed (\(http.statusCode))")
-                }
-            }
-        } catch {
-            log.error("HTTPTransport: surface action error: \(error.localizedDescription)")
-        }
-    }
-
-    func fetchConversationList(offset: Int = 0, limit: Int = 50, isRetry: Bool = false, authRetryCount: Int = 0) async {
-        guard let url = buildURL(for: .conversations(limit: limit, offset: offset)) else { return }
-
-        var request = URLRequest(url: url)
-        applyAuth(&request)
-
-        do {
-            let (data, response) = try await URLSession.shared.data(for: request)
-
-            guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
-                let statusCode = (response as? HTTPURLResponse)?.statusCode ?? -1
-                if statusCode == 401 && !isRetry {
-                    let refreshResult = await handleAuthenticationFailureAsync(responseData: data)
-                    if case .success = refreshResult {
-                        await fetchConversationList(offset: offset, limit: limit, isRetry: true)
-                        return
-                    }
-                }
-                // 403 during assistant switch: the actor token hasn't been
-                // bootstrapped yet. Retry a few times with a delay to let
-                // ensureActorCredentials() finish.
-                if statusCode == 403 && authRetryCount < 6 {
-                    log.info("Conversation list fetch got 403 — waiting for actor token (attempt \(authRetryCount + 1)/6)")
-                    try? await Task.sleep(nanoseconds: 2_000_000_000)
-                    await fetchConversationList(offset: offset, limit: limit, isRetry: isRetry, authRetryCount: authRetryCount + 1)
-                    return
-                }
-                log.error("Fetch conversation list failed (HTTP \(statusCode))")
-                onMessage?(.conversationListResponse(ConversationListResponseMessage(type: "conversation_list_response", conversations: [], hasMore: nil)))
-                return
-            }
-
-            do {
-                let decoded = try decoder.decode(ConversationsListResponse.self, from: data)
-                let conversations = decoded.conversations.map {
-                    ConversationListResponseItem(id: $0.id, title: $0.title, createdAt: $0.createdAt ?? $0.updatedAt, updatedAt: $0.updatedAt, conversationType: $0.conversationType, source: $0.source, scheduleJobId: $0.scheduleJobId, channelBinding: $0.channelBinding, conversationOriginChannel: $0.conversationOriginChannel, conversationOriginInterface: $0.conversationOriginInterface, assistantAttention: $0.assistantAttention, displayOrder: $0.displayOrder, isPinned: $0.isPinned)
-                }
-                onMessage?(.conversationListResponse(ConversationListResponseMessage(type: "conversation_list_response", conversations: conversations, hasMore: decoded.hasMore)))
-            } catch {
-                log.error("Failed to decode conversation list response: \(error)")
-                onMessage?(.conversationListResponse(ConversationListResponseMessage(type: "conversation_list_response", conversations: [], hasMore: nil)))
-            }
-        } catch {
-            log.error("Fetch conversation list error: \(error.localizedDescription)")
-            onMessage?(.conversationListResponse(ConversationListResponseMessage(type: "conversation_list_response", conversations: [], hasMore: nil)))
-        }
-    }
-
-    func fetchHistory(conversationId: String, isRetry: Bool = false) async {
-        guard let url = buildURL(for: .getMessages(conversationId: conversationId)) else { return }
-
-        var request = URLRequest(url: url)
-        applyAuth(&request)
-
-        do {
-            let (data, response) = try await URLSession.shared.data(for: request)
-
-            guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
-                let statusCode = (response as? HTTPURLResponse)?.statusCode ?? -1
-                if statusCode == 401 && !isRetry {
-                    let refreshResult = await handleAuthenticationFailureAsync(responseData: data)
-                    if case .success = refreshResult {
-                        await fetchHistory(conversationId: conversationId, isRetry: true)
-                        return
-                    }
-                }
-                log.error("Fetch history failed (HTTP \(statusCode))")
-                return
-            }
-
-            // The runtime's /v1/messages endpoint returns messages with `content`
-            // (string) and `timestamp` (ISO 8601 string), but HistoryResponseMessage
-            // expects `text` and `timestamp` as a Double (ms since epoch). Transform
-            // the response to match the expected message format.
-            //
-            // The HTTP API also omits the `data` field from attachments when content
-            // was not requested (returning only metadata like `sizeBytes`), but
-            // UserMessageAttachment.data is non-optional. We backfill missing fields
-            // to avoid decode failures.
-            do {
-                if let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
-                   let messages = json["messages"] as? [[String: Any]] {
-
-                    let isoFormatter = ISO8601DateFormatter()
-                    isoFormatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-                    let fallbackFormatter = ISO8601DateFormatter()
-
-                    let transformed: [[String: Any]] = messages.compactMap { msg in
-                        var m = msg
-                        // Rename `content` → `text`, defaulting to empty string if absent/null.
-                        let content = m.removeValue(forKey: "content")
-                        if let content, !(content is NSNull) {
-                            m["text"] = content
-                        } else {
-                            m["text"] = ""
-                        }
-                        // Convert ISO 8601 timestamp string → Double (ms since epoch)
-                        if let tsString = m["timestamp"] as? String {
-                            if let date = isoFormatter.date(from: tsString) {
-                                m["timestamp"] = date.timeIntervalSince1970 * 1000.0
-                            } else if let date = fallbackFormatter.date(from: tsString) {
-                                m["timestamp"] = date.timeIntervalSince1970 * 1000.0
-                            } else {
-                                log.warning("Unparseable timestamp in history message, using epoch: \(tsString, privacy: .public)")
-                                m["timestamp"] = 0.0
-                            }
-                        } else if m["timestamp"] == nil || m["timestamp"] is NSNull {
-                            m["timestamp"] = 0.0
-                        }
-                        // Normalize attachments: the HTTP API omits `data` for large
-                        // attachments (returns sizeBytes instead), but
-                        // UserMessageAttachment.data is non-optional String.
-                        if var attachments = m["attachments"] as? [[String: Any]] {
-                            for i in attachments.indices {
-                                if attachments[i]["data"] == nil || attachments[i]["data"] is NSNull {
-                                    attachments[i]["data"] = ""
-                                }
-                            }
-                            m["attachments"] = attachments
-                        }
-                        return m
-                    }
-
-                    let historyPayload: [String: Any] = [
-                        "type": "history_response",
-                        "conversationId": conversationId,
-                        "messages": transformed,
-                        "hasMore": false
-                    ]
-
-                    let historyData = try JSONSerialization.data(withJSONObject: historyPayload)
-                    let historyResponse = try decoder.decode(ServerMessage.self, from: historyData)
-                    onMessage?(historyResponse)
-                }
-            } catch {
-                log.error("Failed to deserialize history response for conversation \(conversationId, privacy: .public): \(String(describing: error), privacy: .public)")
-            }
-        } catch {
-            log.error("Fetch history error: \(error.localizedDescription)")
-        }
     }
 
     // MARK: - Conversation Management HTTP Handlers
@@ -1854,49 +1426,6 @@ public final class HTTPTransport {
         }
     }
 
-    func regenerateLastResponse(conversationId: String, isRetry: Bool = false) async {
-        guard let url = buildURL(for: .conversationRegenerate(id: conversationId)) else { return }
-
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        applyAuth(&request)
-
-        do {
-            let (data, response) = try await URLSession.shared.data(for: request)
-
-            guard let http = response as? HTTPURLResponse else { return }
-
-            if http.statusCode == 202 || http.statusCode == 200 {
-                log.info("Regenerate succeeded for \(conversationId)")
-                // Response messages will arrive via SSE
-            } else if http.statusCode == 401 && !isRetry {
-                let refreshResult = await handleAuthenticationFailureAsync(responseData: data)
-                if case .success = refreshResult {
-                    await regenerateLastResponse(conversationId: conversationId, isRetry: true)
-                }
-            } else {
-                log.error("Regenerate failed (HTTP \(http.statusCode))")
-                let body = String(data: data, encoding: .utf8) ?? "(non-UTF8 body)"
-                onMessage?(.conversationError(ConversationErrorMessage(
-                    conversationId: conversationId,
-                    code: .regenerateFailed,
-                    userMessage: "Unable to regenerate response. Try sending your message again.",
-                    retryable: true,
-                    debugDetails: "HTTP \(http.statusCode): \(body)"
-                )))
-            }
-        } catch {
-            log.error("Regenerate error: \(error.localizedDescription)")
-            onMessage?(.conversationError(ConversationErrorMessage(
-                conversationId: conversationId,
-                code: .regenerateFailed,
-                userMessage: "Unable to regenerate response. Try sending your message again.",
-                retryable: true,
-                debugDetails: error.localizedDescription
-            )))
-        }
-    }
-
     func searchConversations(query: String, limit: Int?, maxMessagesPerConversation: Int?, isRetry: Bool = false) async {
         guard let url = buildURL(for: .conversationSearch(query: query, limit: limit, maxMessagesPerConversation: maxMessagesPerConversation)) else { return }
 
@@ -1922,64 +1451,6 @@ public final class HTTPTransport {
             }
         } catch {
             log.error("Conversation search error: \(error.localizedDescription)")
-        }
-    }
-
-    func fetchMessageContent(conversationId: String, messageId: String, isRetry: Bool = false) async {
-        guard let url = buildURL(for: .messageContent(id: messageId, conversationId: conversationId)) else { return }
-
-        var request = URLRequest(url: url)
-        applyAuth(&request)
-
-        do {
-            let (data, response) = try await URLSession.shared.data(for: request)
-
-            guard let http = response as? HTTPURLResponse else { return }
-
-            if http.statusCode == 200 {
-                let patched = injectType("message_content_response", into: data)
-                let decoded = try decoder.decode(MessageContentResponse.self, from: patched)
-                onMessage?(.messageContentResponse(decoded))
-            } else if http.statusCode == 401 && !isRetry {
-                let refreshResult = await handleAuthenticationFailureAsync(responseData: data)
-                if case .success = refreshResult {
-                    await fetchMessageContent(conversationId: conversationId, messageId: messageId, isRetry: true)
-                }
-            } else {
-                log.error("Message content fetch failed (HTTP \(http.statusCode))")
-            }
-        } catch {
-            log.error("Message content fetch error: \(error.localizedDescription)")
-        }
-    }
-
-    func deleteQueuedMessage(conversationId: String, requestId: String, isRetry: Bool = false) async {
-        guard let url = buildURL(for: .deleteQueuedMessage(id: requestId, conversationId: conversationId)) else { return }
-
-        var request = URLRequest(url: url)
-        request.httpMethod = "DELETE"
-        applyAuth(&request)
-
-        do {
-            let (data, response) = try await URLSession.shared.data(for: request)
-
-            guard let http = response as? HTTPURLResponse else { return }
-
-            if http.statusCode == 200 {
-                onMessage?(.messageQueuedDeleted(MessageQueuedDeletedMessage(
-                    conversationId: conversationId,
-                    requestId: requestId
-                )))
-            } else if http.statusCode == 401 && !isRetry {
-                let refreshResult = await handleAuthenticationFailureAsync(responseData: data)
-                if case .success = refreshResult {
-                    await deleteQueuedMessage(conversationId: conversationId, requestId: requestId, isRetry: true)
-                }
-            } else {
-                log.error("Delete queued message failed (HTTP \(http.statusCode))")
-            }
-        } catch {
-            log.error("Delete queued message error: \(error.localizedDescription)")
         }
     }
 
