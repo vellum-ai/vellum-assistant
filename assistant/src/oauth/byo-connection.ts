@@ -25,14 +25,12 @@ export interface BYOOAuthConnectionOptions {
   providerKey: string;
   baseUrl: string;
   accountInfo: string | null;
-  grantedScopes: string[];
 }
 
 export class BYOOAuthConnection implements OAuthConnection {
   readonly id: string;
   readonly providerKey: string;
   readonly accountInfo: string | null;
-  readonly grantedScopes: string[];
 
   private readonly baseUrl: string;
 
@@ -41,7 +39,6 @@ export class BYOOAuthConnection implements OAuthConnection {
     this.providerKey = opts.providerKey;
     this.baseUrl = opts.baseUrl;
     this.accountInfo = opts.accountInfo;
-    this.grantedScopes = opts.grantedScopes;
   }
 
   async request(req: OAuthConnectionRequest): Promise<OAuthConnectionResponse> {

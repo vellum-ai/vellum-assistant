@@ -28,17 +28,14 @@ mock.module("../util/logger.js", () => ({
 
 mock.module("./oauth-store.js", () => ({
   getProvider: () => mockProvider,
-  getConnectionByProvider: (_pk: string, clientId?: string) => {
-    if (clientId && mockConnection?.clientId !== clientId) return undefined;
-    return mockConnection;
-  },
-  getConnectionByProviderAndAccount: (
+  getActiveConnection: (
     _pk: string,
-    account?: string,
-    clientId?: string,
+    opts?: { clientId?: string; account?: string },
   ) => {
-    if (clientId && mockConnection?.clientId !== clientId) return undefined;
-    if (account && mockConnection?.accountInfo !== account) return undefined;
+    if (opts?.clientId && mockConnection?.clientId !== opts.clientId)
+      return undefined;
+    if (opts?.account && mockConnection?.accountInfo !== opts.account)
+      return undefined;
     return mockConnection;
   },
 }));
@@ -135,7 +132,6 @@ describe("resolveOAuthConnection", () => {
     expect(result.id).toBe("integration:google");
     expect(result.providerKey).toBe("integration:google");
     expect(result.accountInfo).toBeNull();
-    expect(result.grantedScopes).toEqual([]);
   });
 
   test("passes account through to PlatformOAuthConnection", async () => {
@@ -190,6 +186,6 @@ describe("resolveOAuthConnection", () => {
       resolveOAuthConnection("integration:google", {
         clientId: "wrong-client",
       }),
-    ).rejects.toThrow(/No credential found/);
+    ).rejects.toThrow(/No active OAuth connection found/);
   });
 });

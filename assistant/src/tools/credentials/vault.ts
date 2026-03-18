@@ -7,8 +7,8 @@ import { orchestrateOAuthConnect } from "../../oauth/connect-orchestrator.js";
 import { syncManualTokenConnection } from "../../oauth/manual-token-connection.js";
 import {
   disconnectOAuthProvider,
+  getActiveConnection,
   getAppByProviderAndClientId,
-  getConnectionByProviderAndAccount,
   getMostRecentAppByProvider,
   getProvider,
 } from "../../oauth/oauth-store.js";
@@ -66,9 +66,7 @@ async function storeSlackChannelCredential(
     : setSlackChannelConfig(undefined, value);
 }
 
-function formatSlackChannelStatus(
-  result: SlackChannelConfigResult,
-): string {
+function formatSlackChannelStatus(result: SlackChannelConfigResult): string {
   if (result.connected) {
     const teamLabel = result.teamName ?? "Slack";
     const botLabel = result.botUsername ? ` (@${result.botUsername})` : "";
@@ -366,8 +364,7 @@ class CredentialStoreTool implements Tool {
           if (!slackChannelResult.success) {
             return {
               content: `Error: ${
-                slackChannelResult.error ??
-                "failed to configure Slack channel"
+                slackChannelResult.error ?? "failed to configure Slack channel"
               }`,
               isError: true,
             };
@@ -523,10 +520,9 @@ class CredentialStoreTool implements Tool {
           const accountHint = input.account as string | undefined;
           let oauthResult: "disconnected" | "not-found" | "error";
           if (accountHint) {
-            const targetConn = getConnectionByProviderAndAccount(
-              service,
-              accountHint,
-            );
+            const targetConn = getActiveConnection(service, {
+              account: accountHint,
+            });
             oauthResult = targetConn
               ? await disconnectOAuthProvider(service, undefined, targetConn.id)
               : "not-found";
@@ -778,8 +774,7 @@ class CredentialStoreTool implements Tool {
           if (!slackChannelResult.success) {
             return {
               content: `Error: ${
-                slackChannelResult.error ??
-                "failed to configure Slack channel"
+                slackChannelResult.error ?? "failed to configure Slack channel"
               }`,
               isError: true,
             };

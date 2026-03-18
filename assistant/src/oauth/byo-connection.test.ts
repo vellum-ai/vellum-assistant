@@ -236,7 +236,6 @@ function createConnection(service = "integration:google"): BYOOAuthConnection {
     providerKey: service,
     baseUrl: "https://gmail.googleapis.com/gmail/v1/users/me",
     accountInfo: null,
-    grantedScopes: ["read", "write"],
   });
 }
 
@@ -499,12 +498,11 @@ describe("resolveOAuthConnection", () => {
 
     expect(conn).toBeInstanceOf(BYOOAuthConnection);
     expect(conn.providerKey).toBe("integration:google");
-    expect(conn.grantedScopes).toEqual(["read", "write"]);
   });
 
   test("throws when no credential metadata exists", async () => {
     await expect(resolveOAuthConnection("integration:unknown")).rejects.toThrow(
-      /No credential found for "integration:unknown"/,
+      /No active OAuth connection found for "integration:unknown"/,
     );
   });
 

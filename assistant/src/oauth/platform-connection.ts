@@ -24,7 +24,6 @@ export interface PlatformOAuthConnectionOptions {
   providerKey: string;
   externalId: string;
   accountInfo: string | null;
-  grantedScopes: string[];
   assistantId: string;
   platformBaseUrl: string;
   apiKey: string;
@@ -35,7 +34,6 @@ export class PlatformOAuthConnection implements OAuthConnection {
   readonly providerKey: string;
   readonly externalId: string;
   readonly accountInfo: string | null;
-  readonly grantedScopes: string[];
 
   private readonly assistantId: string;
   private readonly platformBaseUrl: string;
@@ -57,7 +55,6 @@ export class PlatformOAuthConnection implements OAuthConnection {
     this.providerKey = options.providerKey;
     this.externalId = options.externalId;
     this.accountInfo = options.accountInfo;
-    this.grantedScopes = options.grantedScopes;
     this.assistantId = options.assistantId;
     this.platformBaseUrl = options.platformBaseUrl.replace(/\/+$/, "");
     this.apiKey = options.apiKey;

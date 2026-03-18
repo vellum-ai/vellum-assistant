@@ -28,9 +28,8 @@ import {
 import { runPostConnectHook } from "../tools/credentials/post-connect-hooks.js";
 import {
   createConnection,
+  getActiveConnection,
   getApp,
-  getConnectionByProvider,
-  getConnectionByProviderAndAccount,
   listActiveConnectionsByProvider,
   updateConnection,
   upsertApp,
@@ -152,12 +151,11 @@ export async function storeOAuth2Tokens(
   //    lookup so that re-auth without userinfo still updates the right row.
   //    However, treat provider-only matches as ambiguous when multiple active
   //    connections exist to avoid overwriting the wrong account's tokens.
-  let existingConn: ReturnType<typeof getConnectionByProvider>;
+  let existingConn: ReturnType<typeof getActiveConnection>;
   if (resolvedAccountInfo) {
-    existingConn = getConnectionByProviderAndAccount(
-      service,
-      resolvedAccountInfo,
-    );
+    existingConn = getActiveConnection(service, {
+      account: resolvedAccountInfo,
+    });
   } else {
     const activeConns = listActiveConnectionsByProvider(service);
     // Only reuse the provider-only match when it's unambiguous (single connection).

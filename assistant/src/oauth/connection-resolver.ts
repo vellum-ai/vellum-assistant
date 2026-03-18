@@ -5,11 +5,7 @@ import { resolveManagedProxyContext } from "../providers/managed-proxy/context.j
 import { getSecureKeyAsync } from "../security/secure-keys.js";
 import { BYOOAuthConnection } from "./byo-connection.js";
 import type { OAuthConnection } from "./connection.js";
-import {
-  getConnectionByProvider,
-  getConnectionByProviderAndAccount,
-  getProvider,
-} from "./oauth-store.js";
+import { getActiveConnection, getProvider } from "./oauth-store.js";
 import { PlatformOAuthConnection } from "./platform-connection.js";
 
 export interface ResolveOAuthConnectionOptions {
@@ -57,7 +53,6 @@ export async function resolveOAuthConnection(
         providerKey,
         externalId: providerKey,
         accountInfo: account ?? null,
-        grantedScopes: [],
         assistantId,
         platformBaseUrl: ctx.platformBaseUrl,
         apiKey: ctx.assistantApiKey,
@@ -66,12 +61,17 @@ export async function resolveOAuthConnection(
   }
 
   // BYO path — requires a local connection row, access token, and base URL.
-  const conn = account
-    ? getConnectionByProviderAndAccount(providerKey, account, clientId)
-    : getConnectionByProvider(providerKey, clientId);
+  const conn = getActiveConnection(providerKey, { clientId, account });
   if (!conn) {
+    const filters = [
+      account && `account "${account}"`,
+      clientId && `client ID "${clientId}"`,
+    ].filter(Boolean);
+    const qualifier = filters.length
+      ? ` matching ${filters.join(" and ")}`
+      : "";
     throw new Error(
-      `No credential found for "${providerKey}". Authorization required.`,
+      `No active OAuth connection found for "${providerKey}"${qualifier}. Connect the service first with oauth2_connect.`,
     );
   }
 
@@ -80,24 +80,21 @@ export async function resolveOAuthConnection(
   );
   if (!accessToken) {
     throw new Error(
-      `No access token found for "${providerKey}". Authorization required.`,
+      `OAuth connection for "${providerKey}" exists but has no access token. Re-authorize with oauth2_connect.`,
     );
   }
 
   const baseUrl = provider?.baseUrl;
   if (!baseUrl) {
-    throw new Error(`No base URL configured for "${providerKey}".`);
+    throw new Error(
+      `OAuth provider "${providerKey}" has no base URL configured. Check provider setup.`,
+    );
   }
-
-  const grantedScopes: string[] = conn.grantedScopes
-    ? JSON.parse(conn.grantedScopes)
-    : [];
 
   return new BYOOAuthConnection({
     id: conn.id,
     providerKey: conn.providerKey,
     baseUrl,
     accountInfo: conn.accountInfo,
-    grantedScopes,
   });
 }
