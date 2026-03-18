@@ -1,7 +1,6 @@
 import { getConfig } from "../../../../config/loader.js";
 import * as slack from "../../../../messaging/providers/slack/client.js";
 import type { SlackConversation } from "../../../../messaging/providers/slack/types.js";
-import type { OAuthConnection } from "../../../../oauth/connection.js";
 import type {
   ToolContext,
   ToolExecutionResult,
@@ -28,7 +27,7 @@ interface ChannelDigest {
 const userNameCache = new Map<string, string>();
 
 async function resolveUserName(
-  connection: OAuthConnection,
+  connection: string,
   userId: string,
 ): Promise<string> {
   if (!userId) return "unknown";
@@ -50,7 +49,7 @@ async function resolveUserName(
 }
 
 async function scanChannel(
-  connection: OAuthConnection,
+  connection: string,
   conv: SlackConversation,
   oldestTs: string,
   includeThreads: boolean,
