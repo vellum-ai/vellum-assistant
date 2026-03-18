@@ -1,6 +1,7 @@
 /**
  * Route handlers for conversation management operations.
  *
+ * POST   /v1/conversations                 — create a new conversation
  * POST   /v1/conversations/switch         — switch to an existing conversation
  * PATCH  /v1/conversations/:id/name       — rename a conversation
  * DELETE /v1/conversations                 — clear all conversations
@@ -12,13 +13,17 @@
  * POST   /v1/conversations/reorder        — reorder / pin conversations
  */
 
+import { v4 as uuid } from "uuid";
+
 import {
   batchSetDisplayOrders,
+  createConversation,
   deleteConversation,
   wipeConversation,
 } from "../../memory/conversation-crud.js";
 import {
   resolveConversationId,
+  setConversationKey,
   setConversationKeyIfAbsent,
 } from "../../memory/conversation-key-store.js";
 import { enqueueMemoryJob } from "../../memory/jobs-store.js";
@@ -59,6 +64,38 @@ export function conversationManagementRouteDefinitions(
   deps: ConversationManagementDeps,
 ): RouteDefinition[] {
   return [
+    {
+      endpoint: "conversations",
+      method: "POST",
+      policyKey: "conversations",
+      handler: async ({ req }) => {
+        const body = (await req.json().catch(() => ({}))) as {
+          title?: string;
+          conversationType?: string;
+        };
+        const title = typeof body.title === "string" ? body.title : undefined;
+        const conversationType =
+          body.conversationType === "private" ? "private" : "standard";
+        const conversation = createConversation({
+          title,
+          conversationType,
+        });
+        const conversationKey = uuid();
+        setConversationKey(conversationKey, conversation.id);
+        log.info(
+          { conversationId: conversation.id, conversationKey },
+          "Created conversation via HTTP",
+        );
+        return Response.json({
+          id: conversation.id,
+          conversationKey,
+          title: conversation.title ?? "New Conversation",
+          createdAt: conversation.createdAt,
+          updatedAt: conversation.updatedAt,
+          conversationType,
+        });
+      },
+    },
     {
       endpoint: "conversations/switch",
       method: "POST",
