@@ -65,6 +65,7 @@ public struct VModal<Content: View, Footer: View>: View {
             ScrollView {
                 content()
                     .padding(.horizontal, VSpacing.xl)
+                    .padding(.vertical, VSpacing.xs)
                     .frame(maxWidth: .infinity, alignment: .top)
             }
 
