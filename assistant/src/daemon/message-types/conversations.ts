@@ -80,6 +80,7 @@ export interface ModelGetRequest {
 export interface ModelSetRequest {
   type: "model_set";
   model: string;
+  provider?: string;
 }
 
 export interface ImageGenModelSetRequest {
@@ -240,6 +241,7 @@ export interface ModelInfo {
   model: string;
   provider: string;
   configuredProviders?: string[];
+  availableModels?: Array<{ id: string; displayName: string }>;
 }
 
 export interface HistoryResponseToolCall {
