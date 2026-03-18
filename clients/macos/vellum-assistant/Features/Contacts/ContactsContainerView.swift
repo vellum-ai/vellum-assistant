@@ -155,10 +155,6 @@ struct ContactsContainerView: View {
         .frame(maxHeight: .infinity)
         .background(VColor.surfaceOverlay)
         .clipShape(RoundedRectangle(cornerRadius: VRadius.lg))
-        .overlay(
-            RoundedRectangle(cornerRadius: VRadius.lg)
-                .strokeBorder(VColor.borderBase, lineWidth: 2)
-        )
         .frame(maxWidth: 900)
         .frame(maxWidth: .infinity)
         .padding(VSpacing.lg)
