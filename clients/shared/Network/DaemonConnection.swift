@@ -168,6 +168,10 @@ extension DaemonClient {
                     return
                 }
                 log.info("auto-wake: wake succeeded, reconnecting")
+                // Nil out autoWakeTask before connect() so that
+                // disconnectInternal() (called inside connect()) doesn't
+                // cancel this running task via cooperative cancellation.
+                self.autoWakeTask = nil
                 try await self.connect()
                 guard !Task.isCancelled else {
                     log.info("auto-wake: cancelled after connect — abandoning")
