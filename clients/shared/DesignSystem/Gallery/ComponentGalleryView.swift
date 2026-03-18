@@ -37,53 +37,135 @@ struct ComponentGalleryView: View {
     @State private var selectedCategory: ComponentGalleryCategory? = .buttons
 
     var body: some View {
-        NavigationSplitView {
-            VStack(spacing: 0) {
-                List(selection: $selectedCategory) {
-                    ForEach(ComponentGalleryCategory.allCases) { category in
-                        Label { Text(category.rawValue) } icon: { VIconView(category.vIcon, size: 14) }
-                            .tag(category)
-                    }
-                }
-                .listStyle(.sidebar)
+        VStack(spacing: 0) {
+            // Header bar (similar to main app top bar)
+            galleryHeaderBar
 
-                Divider()
-
-                VThemeToggle()
-                    .padding(.horizontal, VSpacing.md)
-                    .padding(.vertical, VSpacing.sm)
+            // Sidebar + detail content
+            HStack(spacing: 0) {
+                gallerySidebar
+                detailContent
             }
-            .navigationSplitViewColumnWidth(min: 180, ideal: 200, max: 240)
-        } detail: {
-            ScrollView {
-                VStack(alignment: .leading, spacing: VSpacing.xxl) {
-                    if let category = selectedCategory {
-                        switch category {
-                        case .appIcons: AppIconGallerySection()
-                        case .buttons: ButtonsGallerySection()
-                        case .chat: ChatGallerySection()
-                        case .display: DisplayGallerySection()
-                        case .feedback: FeedbackGallerySection()
-                        case .icons: IconsGallerySection()
-                        case .inputs: InputsGallerySection()
-                        case .layout: LayoutGallerySection()
-                        case .navigation: NavigationGallerySection()
-                        case .modifiers: ModifiersGallerySection()
-                        case .tokens: TokensGallerySection()
-                        }
-                    } else {
-                        VEmptyState(
-                            title: "Select a category",
-                            subtitle: "Choose a component category from the sidebar",
-                            icon: VIcon.panelLeft.rawValue
-                        )
-                    }
-                }
-                .padding(VSpacing.xxl)
-            }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .background(VColor.surfaceOverlay)
         }
+        .background(VColor.surfaceBase)
+    }
+
+    // MARK: - Header Bar
+
+    private var galleryHeaderBar: some View {
+        HStack(spacing: VSpacing.sm) {
+            Text("Component Gallery")
+                .font(VFont.headline)
+                .foregroundColor(VColor.contentDefault)
+
+            Spacer()
+
+            VThemeToggle()
+        }
+        .padding(.horizontal, VSpacing.lg)
+        .frame(height: 48)
+        .background(VColor.surfaceOverlay)
+    }
+
+    // MARK: - Sidebar
+
+    private var gallerySidebar: some View {
+        VStack(spacing: 0) {
+            ScrollView {
+                VStack(spacing: VSpacing.xs) {
+                    ForEach(ComponentGalleryCategory.allCases) { category in
+                        GallerySidebarRow(
+                            icon: category.vIcon,
+                            label: category.rawValue,
+                            isActive: selectedCategory == category
+                        ) {
+                            selectedCategory = category
+                        }
+                    }
+                }
+                .padding(.vertical, VSpacing.md)
+                .padding(.horizontal, VSpacing.md)
+            }
+        }
+        .frame(width: 200)
+        .background(VColor.surfaceOverlay)
+        .clipShape(RoundedRectangle(cornerRadius: VRadius.xl))
+        .padding(VSpacing.md)
+    }
+
+    // MARK: - Detail Content
+
+    private var detailContent: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: VSpacing.xxl) {
+                if let category = selectedCategory {
+                    switch category {
+                    case .appIcons: AppIconGallerySection()
+                    case .buttons: ButtonsGallerySection()
+                    case .chat: ChatGallerySection()
+                    case .display: DisplayGallerySection()
+                    case .feedback: FeedbackGallerySection()
+                    case .icons: IconsGallerySection()
+                    case .inputs: InputsGallerySection()
+                    case .layout: LayoutGallerySection()
+                    case .navigation: NavigationGallerySection()
+                    case .modifiers: ModifiersGallerySection()
+                    case .tokens: TokensGallerySection()
+                    }
+                } else {
+                    VEmptyState(
+                        title: "Select a category",
+                        subtitle: "Choose a component category from the sidebar",
+                        icon: VIcon.panelLeft.rawValue
+                    )
+                }
+            }
+            .padding(VSpacing.xxl)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(VColor.surfaceOverlay)
+        .clipShape(RoundedRectangle(cornerRadius: VRadius.xl))
+        .padding(.vertical, VSpacing.md)
+        .padding(.trailing, VSpacing.md)
+    }
+}
+
+// MARK: - Sidebar Row
+
+private struct GallerySidebarRow: View {
+    let icon: VIcon
+    let label: String
+    var isActive: Bool = false
+    let action: () -> Void
+    @State private var isHovered = false
+
+    var body: some View {
+        HStack(spacing: VSpacing.xs) {
+            VIconView(icon, size: 13)
+                .foregroundColor(isActive ? VColor.primaryActive : VColor.primaryBase)
+                .frame(width: 20, height: 20)
+            Text(label)
+                .font(VFont.body)
+                .foregroundColor(isActive ? VColor.contentEmphasized : VColor.contentSecondary)
+                .lineLimit(1)
+                .truncationMode(.tail)
+            Spacer()
+        }
+        .padding(.leading, VSpacing.xs)
+        .padding(.trailing, VSpacing.sm)
+        .padding(.vertical, VSpacing.xs)
+        .frame(minHeight: 32)
+        .background(
+            isActive ? VColor.surfaceActive :
+            isHovered ? VColor.surfaceBase :
+            Color.clear
+        )
+        .animation(VAnimation.fast, value: isHovered)
+        .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
+        .contentShape(Rectangle())
+        .onTapGesture { action() }
+        .onHover { isHovered = $0 }
+        .pointerCursor()
     }
 }
 
