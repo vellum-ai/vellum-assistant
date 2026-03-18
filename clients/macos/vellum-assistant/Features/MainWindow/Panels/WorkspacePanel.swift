@@ -66,6 +66,9 @@ final class WorkspaceBrowserState {
             let isJSON = ext == "json"
                 || detail?.mimeType.lowercased().hasPrefix("application/json") == true
             let content = isJSON ? Self.prettyPrintJSON(raw) : raw
+            if isJSON, viewMode != .tree {
+                viewMode = .tree
+            }
             editableContent = content
             originalContent = content
             isDirty = false
