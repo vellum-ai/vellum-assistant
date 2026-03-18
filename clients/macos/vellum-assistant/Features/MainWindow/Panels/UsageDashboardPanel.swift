@@ -88,8 +88,7 @@ struct UsageDashboardPanel: View {
             .frame(width: 160)
             Spacer()
         }
-        .padding(.top, VSpacing.md)
-        .padding(.bottom, VSpacing.sm)
+        .padding(.vertical, VSpacing.lg)
     }
 
 
