@@ -235,5 +235,3 @@ struct ContactDetailView: View {
         }
     }
 }
-
-// MARK: - Preview

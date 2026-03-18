@@ -126,5 +126,3 @@ public struct VConversationIcon: View {
     }
 }
 
-// MARK: - Preview
-

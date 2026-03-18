@@ -244,6 +244,4 @@ struct VoiceOrbView: View {
         }
     }
 }
-
-// MARK: - Preview
 #endif

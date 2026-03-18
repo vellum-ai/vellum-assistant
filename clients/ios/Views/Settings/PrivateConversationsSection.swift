@@ -168,7 +168,4 @@ struct PrivateConversationsSection: View {
         DateFormatting.relativeTimestamp(date)
     }
 }
-
-#if DEBUG
-#endif
 #endif

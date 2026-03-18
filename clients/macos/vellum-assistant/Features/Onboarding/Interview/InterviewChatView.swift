@@ -202,37 +202,3 @@ private struct TypingIndicator: View {
         }
     }
 }
-
-// MARK: - Preview
-
-#if DEBUG
-
-private struct InterviewChatViewPreviewWrapper: View {
-    @State private var text = ""
-
-    private let sampleMessages: [InterviewMessage] = [
-        InterviewMessage(role: .assistant, text: "Hi there! I just hatched and I am so excited to meet you."),
-        InterviewMessage(role: .user, text: "Welcome! What can you do?"),
-        InterviewMessage(
-            role: .assistant,
-            text: "I can help you with all sorts of things -- voice conversations, taking actions on your computer, and context-aware assistance!"
-        ),
-        InterviewMessage(role: .user, text: "That sounds great, tell me more."),
-    ]
-
-    var body: some View {
-        ZStack {
-            MeadowBackground()
-            OnboardingPanel {
-                InterviewChatView(
-                    messages: sampleMessages,
-                    inputText: text,
-                    isThinking: true,
-                    isStreaming: false
-                )
-                .frame(height: 400)
-            }
-        }
-    }
-}
-#endif

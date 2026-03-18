@@ -123,5 +123,3 @@ struct AppIconPickerSheet: View {
     }
 }
 
-// MARK: - Preview
-

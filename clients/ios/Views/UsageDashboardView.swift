@@ -172,7 +172,4 @@ struct UsageDashboardView: View {
     }
 
 }
-
-#if DEBUG
-#endif
 #endif

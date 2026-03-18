@@ -841,66 +841,6 @@ struct ScrollWheelPassthrough: NSViewRepresentable {
     }
 }
 
-// MARK: - Preview
-
-#if DEBUG
-
-private struct ChatViewPreviewWrapper: View {
-    @State private var text = ""
-    @State private var anchorMessageId: UUID?
-    @State private var highlightedMessageId: UUID?
-
-    private let sampleMessages: [ChatMessage] = [
-        ChatMessage(role: .assistant, text: "Hello! How can I help you today?"),
-        ChatMessage(role: .user, text: "Can you tell me about SwiftUI?"),
-        ChatMessage(
-            role: .assistant,
-            text: "SwiftUI is a declarative framework for building user interfaces across Apple platforms. It uses a reactive data-binding model and composable view hierarchy."
-        ),
-        ChatMessage(role: .user, text: "That sounds great, thanks!"),
-    ]
-
-    var body: some View {
-        ZStack {
-            VColor.surfaceOverlay.ignoresSafeArea()
-            ChatView(
-                messages: sampleMessages,
-                inputText: $text,
-                hasAPIKey: true,
-                isThinking: true,
-                isCompacting: false,
-                isSending: false,
-                suggestion: "That sounds great, thanks!",
-                pendingAttachments: [],
-                isRecording: false,
-                onSend: {},
-                onStop: {},
-                onAcceptSuggestion: {},
-                onAttach: {},
-                onRemoveAttachment: { _ in },
-                onDropFiles: { _ in },
-                onDropImageData: { _, _ in },
-                onPaste: {},
-                onMicrophoneToggle: {},
-                assistantActivityPhase: "idle",
-                assistantActivityAnchor: "global",
-                assistantActivityReason: nil,
-                assistantStatusText: nil,
-                onConfirmationAllow: { _ in },
-                onConfirmationDeny: { _ in },
-                onAlwaysAllow: { _, _, _, _ in },
-                onSurfaceAction: { _, _, _ in },
-                watchSession: nil,
-                onStopWatch: {},
-                subagentDetailStore: SubagentDetailStore(),
-                anchorMessageId: $anchorMessageId,
-                highlightedMessageId: $highlightedMessageId
-            )
-        }
-    }
-}
-#endif
-
 /// Propagates the chat container's measured width up to ChatView so it can
 /// forward it to MessageListView for resize-aware scroll stabilization.
 private struct ChatContainerWidthKey: PreferenceKey {

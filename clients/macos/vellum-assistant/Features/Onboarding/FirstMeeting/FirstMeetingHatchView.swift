@@ -104,30 +104,3 @@ private final class HatchDelegateAdapter: EggHatchSceneDelegate {
         handler(event)
     }
 }
-
-private struct FirstMeetingHatchPreview: View {
-    let scene: EggHatchScene = {
-        let s = EggHatchScene()
-        s.size = CGSize(width: 280, height: 480)
-        s.scaleMode = .resizeFill
-        s.backgroundColor = .clear
-        return s
-    }()
-
-    var body: some View {
-        ZStack {
-            MeadowBackground()
-            FirstMeetingHatchView(
-                state: {
-                    let s = OnboardingState()
-                    s.onboardingVariant = .firstMeeting
-                    s.firstMeetingCrackProgress = 0.15
-                    s.currentStep = 1
-                    return s
-                }(),
-                scene: scene
-            )
-        }
-        .frame(width: 640, height: 400)
-    }
-}

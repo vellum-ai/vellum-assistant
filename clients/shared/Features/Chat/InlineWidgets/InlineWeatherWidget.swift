@@ -459,8 +459,3 @@ public struct InlineWeatherWidget: View {
         }
     }
 }
-
-// MARK: - Preview
-
-#if DEBUG
-#endif
