@@ -56,7 +56,7 @@ struct OnboardingFlowView: View {
                 VStack(spacing: 0) {
                     // Fixed top inset — positions the icon consistently
                     // across all steps regardless of bottom content weight.
-                    Color.clear.frame(height: geometry.size.height * 0.08)
+                    Color.clear.frame(height: VSpacing.xxxl)
 
                     if let nsImage = Self.appIcon {
                         Image(nsImage: nsImage)
