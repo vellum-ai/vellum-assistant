@@ -26,6 +26,7 @@ public final class DirectoryStore: ObservableObject {
     private weak var daemonClient: DaemonClient?
     private var appFilesChangedTask: Task<Void, Never>?
     private var debounceTask: Task<Void, Never>?
+    private var reconnectObserver: NSObjectProtocol?
 
     // MARK: - Init
 
@@ -34,11 +35,23 @@ public final class DirectoryStore: ObservableObject {
         self.documentClient = documentClient
         self.daemonClient = daemonClient
         subscribeToAppFilesChanged()
+        reconnectObserver = NotificationCenter.default.addObserver(
+            forName: .daemonDidReconnect,
+            object: nil,
+            queue: nil
+        ) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                self?.subscribeToAppFilesChanged()
+            }
+        }
     }
 
     deinit {
         appFilesChangedTask?.cancel()
         debounceTask?.cancel()
+        if let reconnectObserver {
+            NotificationCenter.default.removeObserver(reconnectObserver)
+        }
     }
 
     // MARK: - Local Apps
@@ -160,6 +173,7 @@ public final class DirectoryStore: ObservableObject {
 
     /// Subscribe to appFilesChanged broadcasts with debounce, then refresh local apps.
     private func subscribeToAppFilesChanged() {
+        appFilesChangedTask?.cancel()
         appFilesChangedTask = Task { [weak self] in
             guard let daemonClient = self?.daemonClient else { return }
             let stream = daemonClient.subscribe()
