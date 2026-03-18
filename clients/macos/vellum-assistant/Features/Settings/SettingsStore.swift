@@ -262,6 +262,8 @@ public final class SettingsStore: ObservableObject {
     @Published var googleOAuthConnections: [OAuthConnectionEntry] = []
     @Published var googleOAuthIsConnecting: Bool = false
     @Published var googleOAuthError: String? = nil
+    /// Strong reference to prevent the auth session from being deallocated mid-flow.
+    private var googleOAuthWebAuthSession: ASWebAuthenticationSession?
 
     static let availableWebSearchProviders = ["inference-provider-native", "perplexity", "brave"]
 
@@ -2226,7 +2228,8 @@ public final class SettingsStore: ObservableObject {
                 }
 
                 let callbackURL: URL = try await withCheckedThrowingContinuation { continuation in
-                    let session = ASWebAuthenticationSession(url: connectURL, callbackURLScheme: "vellum-assistant") { callbackURL, error in
+                    let session = ASWebAuthenticationSession(url: connectURL, callbackURLScheme: "vellum-assistant") { [weak self] callbackURL, error in
+                        self?.googleOAuthWebAuthSession = nil
                         if let error {
                             continuation.resume(throwing: error)
                         } else if let callbackURL {
@@ -2237,6 +2240,7 @@ public final class SettingsStore: ObservableObject {
                     }
                     session.prefersEphemeralWebBrowserSession = false
                     session.presentationContextProvider = WebAuthPresentationContext.shared
+                    self.googleOAuthWebAuthSession = session
                     session.start()
                 }
 
