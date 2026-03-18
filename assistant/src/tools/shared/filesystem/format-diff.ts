@@ -4,9 +4,13 @@
  */
 export function formatEditDiff(oldString: string, newString: string): string {
   const removed =
-    oldString.length > 0 ? oldString.split("\n").map((l) => `- ${l}`) : [];
+    oldString.length > 0
+      ? oldString.split("\n").map((l) => `- ${l}`)
+      : [];
   const added =
-    newString.length > 0 ? newString.split("\n").map((l) => `+ ${l}`) : [];
+    newString.length > 0
+      ? newString.split("\n").map((l) => `+ ${l}`)
+      : [];
 
   return [...removed, ...added].join("\n");
 }
@@ -26,3 +30,4 @@ export function formatWriteSummary(
   const oldLineCount = oldContent.split("\n").length;
   return `(${oldLineCount} → ${newLineCount} lines)`;
 }
+

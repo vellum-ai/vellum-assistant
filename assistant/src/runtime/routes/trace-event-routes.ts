@@ -42,10 +42,7 @@ export function traceEventRouteDefinitions(): RouteDefinition[] {
         const afterSequence = afterSequenceParam
           ? parseInt(afterSequenceParam, 10)
           : undefined;
-        if (
-          afterSequenceParam &&
-          (isNaN(afterSequence!) || afterSequence! < 0)
-        ) {
+        if (afterSequenceParam && (isNaN(afterSequence!) || afterSequence! < 0)) {
           return httpError(
             "BAD_REQUEST",
             "afterSequence must be a non-negative integer",

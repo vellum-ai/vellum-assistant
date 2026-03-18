@@ -143,10 +143,7 @@ export function installShutdownHandlers(deps: ShutdownDeps): void {
   process.on("SIGHUP", shutdown);
 
   process.on("unhandledRejection", (reason) => {
-    log.error(
-      { err: reason },
-      "Unhandled promise rejection — initiating shutdown",
-    );
+    log.error({ err: reason }, "Unhandled promise rejection — initiating shutdown");
     Sentry.captureException(reason);
     exitCode = 1;
     void shutdown();
