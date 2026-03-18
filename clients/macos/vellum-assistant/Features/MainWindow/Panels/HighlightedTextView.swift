@@ -233,19 +233,25 @@ struct HighlightedTextView: View {
 
                         // Text content — lazy per-line rendering with horizontal scroll
                         ScrollView(.horizontal, showsIndicators: true) {
-                            LazyVStack(alignment: .leading, spacing: 0) {
-                                ForEach(0..<max(1, plainLines.count), id: \.self) { idx in
-                                    lineView(
-                                        index: idx,
-                                        plainLines: plainLines,
-                                        highlightedLines: highlightedLines,
-                                        matchRanges: matchRanges
-                                    )
-                                }
+                            if isEditable {
+                                lazyLineStack(
+                                    plainLines: plainLines,
+                                    highlightedLines: highlightedLines,
+                                    matchRanges: matchRanges
+                                )
+                                .textSelection(.disabled)
+                                .padding(.vertical, VSpacing.sm)
+                                .padding(.horizontal, VSpacing.md)
+                            } else {
+                                lazyLineStack(
+                                    plainLines: plainLines,
+                                    highlightedLines: highlightedLines,
+                                    matchRanges: matchRanges
+                                )
+                                .textSelection(.enabled)
+                                .padding(.vertical, VSpacing.sm)
+                                .padding(.horizontal, VSpacing.md)
                             }
-                            .textSelection(isEditable ? .disabled : .enabled)
-                            .padding(.vertical, VSpacing.sm)
-                            .padding(.horizontal, VSpacing.md)
                         }
                         .frame(minWidth: geometry.size.width - gutterWidth)
                     }
@@ -315,6 +321,27 @@ struct HighlightedTextView: View {
             return Text(str)
                 .font(VFont.mono)
                 .foregroundColor(VColor.contentDefault)
+        }
+    }
+
+    /// The shared `LazyVStack` of per-line `Text` views used by `readOnlyView`.
+    /// Extracted so that `readOnlyView` can branch on `isEditable` to apply
+    /// `.textSelection(.disabled)` or `.textSelection(.enabled)` without a
+    /// ternary (the two selectability types are not interchangeable).
+    private func lazyLineStack(
+        plainLines: [Substring],
+        highlightedLines: [AttributedString]?,
+        matchRanges: [Range<String.Index>]
+    ) -> some View {
+        LazyVStack(alignment: .leading, spacing: 0) {
+            ForEach(0..<max(1, plainLines.count), id: \.self) { idx in
+                lineView(
+                    index: idx,
+                    plainLines: plainLines,
+                    highlightedLines: highlightedLines,
+                    matchRanges: matchRanges
+                )
+            }
         }
     }
 
