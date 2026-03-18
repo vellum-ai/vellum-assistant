@@ -204,7 +204,7 @@ struct GuardianChannelsDetailView: View {
                     if isVerified {
                         VButton(label: "Verified", leftIcon: VIcon.circleCheck.rawValue, style: .primary) {}
                         if let channel = activeChannel, daemonClient != nil {
-                            VButton(label: "Revoke", style: .dangerGhost, size: .compact) {
+                            VButton(label: "Revoke", style: .dangerGhost) {
                                 channelToRevoke = (id: channel.id, type: type)
                             }
                         }
