@@ -78,6 +78,7 @@ import {
   migrateGuardianVerificationSessions,
   migrateInviteCodeHashColumn,
   migrateInviteContactId,
+  migrateLlmRequestLogMessageId,
   migrateMemoryItemSupersession,
   migrateMessagesFtsBackfill,
   migrateNormalizePhoneIdentities,
@@ -459,6 +460,9 @@ export function initializeDb(): void {
 
   // 81. Add managed_service_config_key column to oauth_providers
   migrateOAuthProvidersManagedServiceConfigKey(database);
+
+  // 82. Add message_id column to llm_request_logs for per-message LLM context lookup
+  migrateLlmRequestLogMessageId(database);
 
   validateMigrationState(database);
 
