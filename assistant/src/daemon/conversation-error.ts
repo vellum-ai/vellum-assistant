@@ -390,7 +390,8 @@ function classifyByMessage(
   if (isStreamingError(message)) {
     return {
       code: "PROVIDER_API",
-      userMessage: "The AI provider's response was interrupted. Please try again.",
+      userMessage:
+        "The AI provider's response was interrupted. Please try again.",
       retryable: true,
       errorCategory: "stream_corruption",
     };
