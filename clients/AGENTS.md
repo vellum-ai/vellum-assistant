@@ -320,6 +320,13 @@ Apple's `#Preview` macro (introduced WWDC 2023, expanded in Xcode 26) is the rec
 3. **Fragile with our architecture.** Many views depend on `DaemonClient`, `AuthManager`, or other services that require a running backend. Previews that instantiate these with `DaemonClient(config: .default)` may not render without a live daemon connection.
 4. **The Component Gallery is better for our use case.** The Gallery is a live, in-app catalog that runs with real state, real theming, and real interaction — not a static Xcode canvas render. It covers all design system primitives with multiple variants and live value readouts.
 
+### Build and performance impact of removing previews
+
+Removing previews has minimal performance benefit — the value is **maintainability, not speed**:
+- **Debug builds:** ~1-2 seconds saved on a full debug build (preview code is compiled in DEBUG only). Not meaningful.
+- **Release builds / app size:** Zero impact — previews are already excluded from release builds via `#if DEBUG` or the `#Preview` macro.
+- **Code health:** The real benefit. Removes dead wrapper structs that silently break when view APIs change, reduces noise for developers and agents reading the codebase, and eliminates ambiguity about whether previews are part of the team's workflow.
+
 ### What the Component Gallery covers
 
 The Gallery (`Gallery/Sections/`) catalogs **design system components only**: inputs, buttons, toggles, sliders, layout primitives, icons, tokens, etc. It does NOT cover feature-level views (onboarding flows, chat views, settings screens). Feature views are verified by building and running the app.
