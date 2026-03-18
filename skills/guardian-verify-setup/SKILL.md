@@ -52,7 +52,7 @@ Based on the chosen channel, ask for the required destination:
      while true; do
        RESPONSE=$(curl -s -H "Authorization: Bearer $BOT_TOKEN" \
          "https://slack.com/api/users.list?limit=200${CURSOR:+&cursor=$CURSOR}")
-       PAGE_MATCHES=$(echo "$RESPONSE" | jq '[.members[] | select(.deleted == false) | select(.profile.display_name == "'"<name>"'" or .name == "'"<handle>"'" or .profile.display_name_normalized == "'"<name>"'" or .real_name == "'"<name>"'") | {id: .id, name: .name, display_name: .profile.display_name, real_name: .real_name}]')
+       PAGE_MATCHES=$(echo "$RESPONSE" | jq --arg name "<name>" --arg handle "<handle>" '[.members[] | select(.deleted == false) | select(.profile.display_name == $name or .name == $handle or .profile.display_name_normalized == $name or .real_name == $name) | {id: .id, name: .name, display_name: .profile.display_name, real_name: .real_name}]')
        MATCHES=$(echo "$MATCHES $PAGE_MATCHES" | jq -s 'add')
        CURSOR=$(echo "$RESPONSE" | jq -r '.response_metadata.next_cursor // empty')
        [ -z "$CURSOR" ] && break
