@@ -15,6 +15,9 @@ func availableViewModes(for fileName: String, mimeType: String) -> [FileViewMode
     if ext == "md" || ext == "markdown" || mime == "text/markdown" {
         return [.preview, .source]
     }
+    if ext == "json" || mime == "application/json" {
+        return [.tree, .source]
+    }
     return [.source]
 }
 

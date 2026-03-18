@@ -48,6 +48,8 @@ final class WorkspaceBrowserState {
         let ext = (targetPath as NSString).pathExtension.lowercased()
         if ext == "md" || ext == "markdown" {
             viewMode = .preview
+        } else if ext == "json" {
+            viewMode = .tree
         } else {
             viewMode = .source
         }
@@ -60,13 +62,31 @@ final class WorkspaceBrowserState {
             let detail = await workspaceClient.fetchWorkspaceFile(path: targetPath, showHidden: showHiddenFiles)
             guard !Task.isCancelled, selectedFilePath == targetPath else { return }
             selectedFileDetail = detail
-            editableContent = detail?.content ?? ""
-            originalContent = detail?.content ?? ""
+            let raw = detail?.content ?? ""
+            let content = Self.prettyPrintedJSON(raw, mimeType: detail?.mimeType)
+            editableContent = content
+            originalContent = content
             isDirty = false
             isSaving = false
             isLoadingFile = false
         }
         fileLoadTask = task
+    }
+
+    /// Returns a pretty-printed version of `text` when it looks like JSON,
+    /// falling back to the original string on any parse error.
+    private static func prettyPrintedJSON(_ text: String, mimeType: String?) -> String {
+        guard let mime = mimeType?.lowercased(),
+              mime == "application/json" || mime.hasSuffix("+json") else {
+            return text
+        }
+        guard let data = text.data(using: .utf8),
+              let json = try? JSONSerialization.jsonObject(with: data, options: .fragmentsAllowed),
+              let pretty = try? JSONSerialization.data(withJSONObject: json, options: [.prettyPrinted]),
+              let result = String(data: pretty, encoding: .utf8) else {
+            return text
+        }
+        return result
     }
 }
 
