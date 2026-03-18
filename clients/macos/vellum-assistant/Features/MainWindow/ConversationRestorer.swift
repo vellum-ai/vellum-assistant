@@ -47,6 +47,7 @@ final class ConversationRestorer {
     var pendingHistoryByConversationId: [String: UUID] = [:]
 
     private let daemonClient: DaemonClient
+    private let conversationListClient: any ConversationListClientProtocol = ConversationListClient()
     private var connectionCancellable: AnyCancellable?
     private var disconnectCancellable: AnyCancellable?
 
@@ -304,7 +305,7 @@ final class ConversationRestorer {
     private func fetchConversationList() {
         Task { [weak self] in
             guard let self else { return }
-            if let response = await ConversationListClient().fetchConversationList() {
+            if let response = await conversationListClient.fetchConversationList() {
                 self.handleConversationListResponse(response)
             } else {
                 self.delegate?.restoreLastActiveConversation()

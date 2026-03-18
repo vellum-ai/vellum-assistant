@@ -264,7 +264,6 @@ public final class HTTPTransport {
         case eventsAll  // SSE subscription for all events
         case sendMessage
         case getMessages(conversationId: String?)
-        case conversations(limit: Int, offset: Int)
         case conversationsSeen
         case conversationsUnread
         case identity
@@ -379,8 +378,6 @@ public final class HTTPTransport {
                 return ("/v1/messages", "conversationId=\(encoded)")
             }
             return ("/v1/messages", nil)
-        case .conversations(let limit, let offset):
-            return ("/v1/conversations", "limit=\(limit)&offset=\(offset)")
         case .conversationsSeen:
             return ("/v1/conversations/seen", nil)
         case .conversationsUnread:
@@ -521,8 +518,6 @@ public final class HTTPTransport {
                 return ("\(prefix)/messages/", "conversationId=\(encoded)")
             }
             return ("\(prefix)/messages/", nil)
-        case .conversations(let limit, let offset):
-            return ("\(prefix)/conversations/", "limit=\(limit)&offset=\(offset)")
         case .conversationsSeen:
             return ("\(prefix)/conversations/seen/", nil)
         case .conversationsUnread:

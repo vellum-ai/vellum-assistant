@@ -143,6 +143,7 @@ class IOSConversationStore: ObservableObject {
     /// Local seen/unread mutations must survive a stale conversation-list replay until
     /// the daemon acknowledges them or returns a newer assistant reply.
     private var pendingAttentionOverrides: [String: PendingAttentionOverride] = [:]
+    private let conversationListClient: any ConversationListClientProtocol = ConversationListClient()
 
     private enum PendingAttentionOverride {
         case seen(latestAssistantMessageAt: Date?)
@@ -374,7 +375,7 @@ class IOSConversationStore: ObservableObject {
         let currentGeneration = conversationListGeneration
         Task { [weak self] in
             guard let self else { return }
-            if let response = await ConversationListClient().fetchConversationList(offset: 0, limit: Self.conversationPageSize) {
+            if let response = await conversationListClient.fetchConversationList(offset: 0, limit: Self.conversationPageSize) {
                 guard currentGeneration == self.conversationListGeneration else { return }
                 self.expectedConversationListGeneration = currentGeneration
                 self.handleConversationListResponse(response)
@@ -642,7 +643,7 @@ class IOSConversationStore: ObservableObject {
         let capturedOffset = conversationListOffset
         Task { [weak self] in
             guard let self else { return }
-            if let response = await ConversationListClient().fetchConversationList(offset: nextOffset, limit: Self.conversationPageSize) {
+            if let response = await conversationListClient.fetchConversationList(offset: nextOffset, limit: Self.conversationPageSize) {
                 self.handleConversationListResponse(response)
             } else {
                 guard self.conversationListOffset == capturedOffset else { return }
