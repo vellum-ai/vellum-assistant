@@ -319,6 +319,45 @@ export async function withValidToken<T>(
   }
 }
 
+/**
+ * Get a valid access token for an OAuth connection, proactively refreshing
+ * if expired or near-expiry. Unlike `withValidToken`, this returns the token
+ * directly without a callback wrapper.
+ *
+ * Used by the proxy rewrite callback to inject fresh OAuth tokens into
+ * outbound requests.
+ *
+ * Returns `undefined` if no token exists or refresh fails.
+ */
+export async function getValidOAuthToken(
+  connectionId: string,
+): Promise<string | undefined> {
+  const conn = getConnection(connectionId);
+  if (!conn || conn.status !== "active") return undefined;
+
+  let token = await getSecureKeyAsync(oauthConnectionAccessTokenPath(conn.id));
+  if (!token) return undefined;
+
+  // Proactively refresh if expired or about to expire.
+  if (isTokenExpired(conn.expiresAt)) {
+    try {
+      token = await refreshDeduplicator.deduplicate(conn.id, () =>
+        doRefresh(conn.providerKey, conn.id),
+      );
+    } catch (err) {
+      log.warn(
+        { err, connectionId, provider: conn.providerKey },
+        "OAuth token refresh failed during proxy injection",
+      );
+      // Return the stale token — the upstream service may still accept it,
+      // and the proxy should not silently swallow the request.
+      return token;
+    }
+  }
+
+  return token;
+}
+
 function is401Error(err: unknown): boolean {
   if (err && typeof err === "object") {
     if ("status" in err && (err as { status: number }).status === 401)

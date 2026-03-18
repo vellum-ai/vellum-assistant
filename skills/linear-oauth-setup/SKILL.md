@@ -8,6 +8,10 @@ metadata:
     display-name: "Linear OAuth Setup"
     feature-flag: "integration-linear"
     includes: ["collaborative-oauth-flow"]
+    activation-hints:
+      - "Create, update, or manage Linear issues"
+      - "Interact with Linear workspace, projects, or teams"
+      - "User mentions Linear (load for both setup and API usage guidance)"
 ---
 
 You are helping your user set up Linear OAuth credentials so the Linear integration can connect to their workspace.
@@ -159,6 +163,58 @@ bash:
 ```
 
 **On success:** "Linear is connected! You can now ask me to create issues, check your assignments, search across projects, and manage your Linear workflow."
+
+---
+
+## Using the Linear API (After Setup)
+
+If `integration:linear` already appears in Connected Services, skip the setup flow above and use the API directly.
+
+**Getting a valid token:** Use the `assistant oauth connections token` CLI command. Do NOT use `assistant credentials reveal` — OAuth tokens are managed separately from manual credentials.
+
+```bash
+assistant oauth connections token integration:linear
+```
+
+**Making API calls:** Linear uses a GraphQL API at `https://api.linear.app/graphql`. Use shell substitution to inject the token:
+
+```bash
+curl -s -X POST https://api.linear.app/graphql \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $(assistant oauth connections token integration:linear)" \
+  -d '{"query":"{ viewer { id name email } }"}'
+```
+
+**Common operations:**
+
+Create an issue:
+```bash
+curl -s -X POST https://api.linear.app/graphql \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $(assistant oauth connections token integration:linear)" \
+  -d '{"query":"mutation($input: IssueCreateInput!) { issueCreate(input: $input) { success issue { id identifier title url } } }", "variables":{"input":{"teamId":"<TEAM_ID>","title":"<TITLE>","description":"<DESC>","assigneeId":"<USER_ID>"}}}'
+```
+
+Look up teams and users (needed for creating issues):
+```bash
+curl -s -X POST https://api.linear.app/graphql \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $(assistant oauth connections token integration:linear)" \
+  -d '{"query":"{ teams { nodes { id name key } } users { nodes { id name email } } }"}'
+```
+
+Search issues:
+```bash
+curl -s -X POST https://api.linear.app/graphql \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $(assistant oauth connections token integration:linear)" \
+  -d '{"query":"{ issueSearch(query: \"<SEARCH_TERM>\") { nodes { id identifier title state { name } assignee { name } url } } }"}'
+```
+
+**Important:**
+- Use `network_mode: proxied` for network access (required for outbound HTTP from the sandbox).
+- Do NOT pass `credential_ids` — OAuth tokens are not in the credential store. Instead, inject the token via shell substitution using `$(assistant oauth connections token integration:linear)` in the Authorization header.
+- Do NOT use `assistant credentials reveal` — that command is for manually stored API keys, not OAuth tokens. Always use `assistant oauth connections token`.
 
 ---
 

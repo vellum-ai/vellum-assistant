@@ -32,6 +32,7 @@ import {
   stripQueryString,
 } from "../../../outbound-proxy/index.js";
 import { getSecureKeyAsync } from "../../../security/secure-keys.js";
+import { getValidOAuthToken } from "../../../security/token-manager.js";
 import { getLogger } from "../../../util/logger.js";
 import {
   compareMatchSpecificity,
@@ -41,6 +42,7 @@ import {
 import { listCredentialMetadata } from "../../credentials/metadata-store.js";
 import type { CredentialInjectionTemplate } from "../../credentials/policy-types.js";
 import {
+  listActiveOAuthConnectionsWithTemplates,
   resolveById,
   resolveByServiceField,
   type ResolvedCredential,
@@ -125,6 +127,19 @@ function resolveInjectionTemplates(
 ): CredentialInjectionTemplate[] {
   if (!resolved) return [];
   return resolved.injectionTemplates;
+}
+
+/**
+ * Fetch the secret value for a resolved credential. For OAuth-backed
+ * credentials, proactively refreshes the token if near expiry.
+ */
+async function getCredentialValue(
+  resolved: ResolvedCredential,
+): Promise<string | undefined> {
+  if (resolved.isOAuthConnection && resolved.oauthConnectionId) {
+    return getValidOAuthToken(resolved.oauthConnectionId);
+  }
+  return getSecureKeyAsync(resolved.storageKey);
 }
 
 // ---------------------------------------------------------------------------
@@ -238,7 +253,7 @@ function buildSessionStartHooks(): SessionStartHooks {
             if (tpl.injectionType === "header" && tpl.headerName) {
               const resolved = resolveById(credId);
               if (!resolved) return req.headers;
-              const value = await getSecureKeyAsync(resolved.storageKey);
+              const value = await getCredentialValue(resolved);
               if (!value) return req.headers;
 
               const headerValue = await buildInjectedValue(tpl, value);
@@ -267,9 +282,17 @@ function buildSessionStartHooks(): SessionStartHooks {
         const now = Date.now();
         if (!allKnownCache || now - allKnownCacheTime > CACHE_TTL_MS) {
           allKnownCache = [];
+          // Manual credentials
           for (const meta of listCredentialMetadata()) {
             if (meta.injectionTemplates?.length) {
               allKnownCache.push(...meta.injectionTemplates);
+            }
+          }
+          // OAuth connections with provider-defined injection templates
+          for (const conn of listActiveOAuthConnectionsWithTemplates()) {
+            const resolved = resolveById(conn.id);
+            if (resolved?.injectionTemplates?.length) {
+              allKnownCache.push(...resolved.injectionTemplates);
             }
           }
           allKnownCacheTime = now;
@@ -317,7 +340,7 @@ function buildSessionStartHooks(): SessionStartHooks {
             const { credentialId, template } = decision;
             const resolved = resolveById(credentialId);
             if (!resolved) return {};
-            const value = await getSecureKeyAsync(resolved.storageKey);
+            const value = await getCredentialValue(resolved);
             if (!value) return {};
 
             if (template.injectionType === "header" && template.headerName) {

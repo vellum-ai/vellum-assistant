@@ -9,7 +9,10 @@ import { isUntrustedTrustClass } from "../../runtime/actor-trust-resolver.js";
 import { redactSecrets } from "../../security/secret-scanner.js";
 import { getLogger } from "../../util/logger.js";
 import { getDataDir, getRootDir } from "../../util/platform.js";
-import { resolveCredentialRef } from "../credentials/resolve.js";
+import {
+  listActiveOAuthConnectionsWithTemplates,
+  resolveCredentialRef,
+} from "../credentials/resolve.js";
 import {
   getOrStartSession,
   getSessionEnv,
@@ -242,6 +245,19 @@ class ShellTool implements Tool {
       );
     } else {
       credentialIds.push(...rawCredentialRefs);
+    }
+
+    // Auto-discover active OAuth connections with injection templates.
+    // These are included automatically so the proxy can inject OAuth tokens
+    // without the model needing to explicitly pass credential_ids.
+    if (networkMode === "proxied" && !shellLockdownActive) {
+      const seenIds = new Set(credentialIds);
+      for (const conn of listActiveOAuthConnectionsWithTemplates()) {
+        if (!seenIds.has(conn.id)) {
+          seenIds.add(conn.id);
+          credentialIds.push(conn.id);
+        }
+      }
     }
 
     const { shellDefaultTimeoutSec, shellMaxTimeoutSec } = config.timeouts;
