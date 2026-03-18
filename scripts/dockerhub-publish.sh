@@ -90,26 +90,30 @@ DOCKERHUB_ACCESS_TOKEN="${DOCKERHUB_ACCESS_TOKEN:-}"
 PLATFORMS="${DOCKERHUB_PLATFORMS:-linux/amd64,linux/arm64}"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 
-# Image name mapping: service → Docker Hub image name
-declare -A IMAGE_NAMES=(
-  [assistant]="${ASSISTANT_IMAGE_NAME:-vellum-assistant}"
-  [gateway]="${GATEWAY_IMAGE_NAME:-vellum-gateway}"
-  [credential-executor]="${CREDENTIAL_EXECUTOR_IMAGE_NAME:-vellum-credential-executor}"
-)
+# Service configuration lookup helpers (compatible with bash 3.2 / macOS)
+image_name_for() {
+  case "$1" in
+    assistant)            echo "${ASSISTANT_IMAGE_NAME:-vellum-assistant}" ;;
+    gateway)              echo "${GATEWAY_IMAGE_NAME:-vellum-gateway}" ;;
+    credential-executor)  echo "${CREDENTIAL_EXECUTOR_IMAGE_NAME:-vellum-credential-executor}" ;;
+  esac
+}
 
-# Build context mapping: service → build context (relative to repo root)
-declare -A BUILD_CONTEXTS=(
-  [assistant]="."
-  [gateway]="gateway"
-  [credential-executor]="."
-)
+build_context_for() {
+  case "$1" in
+    assistant)            echo "." ;;
+    gateway)              echo "gateway" ;;
+    credential-executor)  echo "." ;;
+  esac
+}
 
-# Dockerfile mapping: service → Dockerfile path (relative to repo root)
-declare -A DOCKERFILES=(
-  [assistant]="assistant/Dockerfile"
-  [gateway]="gateway/Dockerfile"
-  [credential-executor]="credential-executor/Dockerfile"
-)
+dockerfile_for() {
+  case "$1" in
+    assistant)            echo "assistant/Dockerfile" ;;
+    gateway)              echo "gateway/Dockerfile" ;;
+    credential-executor)  echo "credential-executor/Dockerfile" ;;
+  esac
+}
 
 ALL_SERVICES=("assistant" "gateway" "credential-executor")
 
@@ -117,7 +121,7 @@ ALL_SERVICES=("assistant" "gateway" "credential-executor")
 if [[ -n "$SERVICES" ]]; then
   IFS=',' read -ra SELECTED_SERVICES <<< "$SERVICES"
   for svc in "${SELECTED_SERVICES[@]}"; do
-    if [[ -z "${IMAGE_NAMES[$svc]+x}" ]]; then
+    if [[ -z "$(image_name_for "$svc")" ]]; then
       echo "ERROR: Unknown service '$svc'. Valid services: ${ALL_SERVICES[*]}"
       exit 1
     fi
@@ -198,9 +202,9 @@ echo ""
 FAILED_SERVICES=()
 
 for svc in "${SELECTED_SERVICES[@]}"; do
-  IMAGE="${DOCKERHUB_ORG}/${IMAGE_NAMES[$svc]}"
-  CONTEXT="${REPO_ROOT}/${BUILD_CONTEXTS[$svc]}"
-  DOCKERFILE="${REPO_ROOT}/${DOCKERFILES[$svc]}"
+  IMAGE="${DOCKERHUB_ORG}/$(image_name_for "$svc")"
+  CONTEXT="${REPO_ROOT}/$(build_context_for "$svc")"
+  DOCKERFILE="${REPO_ROOT}/$(dockerfile_for "$svc")"
 
   # Build tag arguments
   TAG_ARGS=(-t "${IMAGE}:v${VERSION}")
@@ -210,8 +214,8 @@ for svc in "${SELECTED_SERVICES[@]}"; do
 
   echo "==> Building and pushing: ${svc}"
   echo "    Image:      ${IMAGE}"
-  echo "    Dockerfile: ${DOCKERFILES[$svc]}"
-  echo "    Context:    ${BUILD_CONTEXTS[$svc]}"
+  echo "    Dockerfile: $(dockerfile_for "$svc")"
+  echo "    Context:    $(build_context_for "$svc")"
   echo "    Tags:       v${VERSION}$(if [[ "$SKIP_LATEST" != "true" ]]; then echo ", latest"; fi)"
   echo ""
 
@@ -252,7 +256,7 @@ echo "  Version: v${VERSION}"
 echo ""
 
 for svc in "${SELECTED_SERVICES[@]}"; do
-  IMAGE="${DOCKERHUB_ORG}/${IMAGE_NAMES[$svc]}"
+  IMAGE="${DOCKERHUB_ORG}/$(image_name_for "$svc")"
   if printf '%s\n' "${FAILED_SERVICES[@]}" 2>/dev/null | grep -qx "$svc"; then
     echo "  [FAIL] ${IMAGE}:v${VERSION}"
   elif [[ "$DRY_RUN" == "true" ]]; then
