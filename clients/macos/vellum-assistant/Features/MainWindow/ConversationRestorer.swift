@@ -306,6 +306,8 @@ final class ConversationRestorer {
             guard let self else { return }
             if let response = await ConversationListClient().fetchConversationList() {
                 self.handleConversationListResponse(response)
+            } else {
+                self.delegate?.restoreLastActiveConversation()
             }
         }
     }
