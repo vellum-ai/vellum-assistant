@@ -863,19 +863,4 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     }
 
 
-    // MARK: - Contacts Management
-
-    /// A channel to attach when creating a new contact.
-    public struct NewContactChannel: Codable {
-        public let type: String
-        public let address: String
-        public let isPrimary: Bool
-
-        public init(type: String, address: String, isPrimary: Bool = false) {
-            self.type = type
-            self.address = address
-            self.isPrimary = isPrimary
-        }
-    }
-
 }
