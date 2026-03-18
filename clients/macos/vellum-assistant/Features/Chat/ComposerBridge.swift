@@ -125,7 +125,7 @@ struct ComposerFocusBridge: NSViewRepresentable {
                 // Cmd+Enter send when the preference is enabled.
                 // Plain Enter flows through to SwiftUI's .onSubmit which
                 // calls performSendAction() — the canonical send path that
-                // handles slash-menu, ghost-text, and pending-confirmation.
+                // handles slash-menu selection and pending-confirmation.
                 let isReturn = event.keyCode == 36 || event.keyCode == 76
                 if isReturn {
                     let action = ComposerReturnKeyRouting.resolve(
