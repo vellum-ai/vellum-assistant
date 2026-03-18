@@ -12,6 +12,8 @@
  * No messages are persisted. `conversation.processing` is never set or checked.
  */
 
+import { existsSync, readFileSync } from "node:fs";
+
 import { buildToolDefinitions } from "../../daemon/conversation-tool-setup.js";
 import { getConversationByKey } from "../../memory/conversation-key-store.js";
 import { buildSystemPrompt } from "../../prompts/system-prompt.js";
@@ -21,6 +23,7 @@ import {
 } from "../../providers/provider-send-message.js";
 import { checkIngressForSecrets } from "../../security/secret-ingress.js";
 import { getLogger } from "../../util/logger.js";
+import { getWorkspacePromptPath } from "../../util/platform.js";
 import type { AuthContext } from "../auth/types.js";
 import { httpError } from "../http-errors.js";
 import type { RouteDefinition } from "../http-router.js";
@@ -31,6 +34,33 @@ const log = getLogger("btw-routes");
 
 /** Conversation key used by the client for identity intro generation. */
 const IDENTITY_INTRO_KEY = "identity-intro";
+
+/**
+ * Parse the `## Identity Intro` section from SOUL.md.
+ * Returns the first non-empty line under that heading, or null.
+ */
+function readSoulIdentityIntro(): string | null {
+  try {
+    const soulPath = getWorkspacePromptPath("SOUL.md");
+    if (!existsSync(soulPath)) return null;
+    const content = readFileSync(soulPath, "utf-8");
+
+    let inSection = false;
+    for (const line of content.split("\n")) {
+      const trimmed = line.trim();
+      if (/^#+\s/.test(trimmed)) {
+        inSection = trimmed.toLowerCase().includes("identity intro");
+        continue;
+      }
+      if (inSection && trimmed.length > 0) {
+        return trimmed;
+      }
+    }
+  } catch {
+    // Fall through — no SOUL.md intro available
+  }
+  return null;
+}
 
 // ---------------------------------------------------------------------------
 // Handler
@@ -81,20 +111,25 @@ async function handleBtw(
     );
   }
 
-  // ----- Identity intro cache fast-path -----
-  // When the client requests the identity intro, check the cache first.
-  // If the cached text is still fresh and the identity files haven't changed,
-  // return it immediately as an SSE stream without making an LLM call.
+  // ----- Identity intro fast-path -----
+  // When the client requests the identity intro, check SOUL.md first (persisted
+  // during onboarding), then the LLM-generated cache. Only fall through to a
+  // live LLM call when neither source has a value.
   if (conversationKey === IDENTITY_INTRO_KEY) {
-    const cached = getCachedIntro();
-    if (cached) {
-      log.debug("Returning cached identity intro");
+    const soulIntro = readSoulIdentityIntro();
+    const fastText = soulIntro ?? getCachedIntro()?.text;
+    if (fastText) {
+      log.debug(
+        soulIntro
+          ? "Returning SOUL.md identity intro"
+          : "Returning cached identity intro",
+      );
       const encoder = new TextEncoder();
       const stream = new ReadableStream({
         start(controller) {
           controller.enqueue(
             encoder.encode(
-              `event: btw_text_delta\ndata: ${JSON.stringify({ text: cached.text })}\n\n`,
+              `event: btw_text_delta\ndata: ${JSON.stringify({ text: fastText })}\n\n`,
             ),
           );
           controller.enqueue(

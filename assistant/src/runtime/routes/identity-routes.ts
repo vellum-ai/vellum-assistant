@@ -238,7 +238,40 @@ export function handleGetIdentity(): Response {
 // Identity intro cache
 // ---------------------------------------------------------------------------
 
+/**
+ * Parse the `## Identity Intro` section from SOUL.md.
+ * Returns the first non-empty line under that heading, or null.
+ */
+function readSoulIdentityIntro(): string | null {
+  try {
+    const soulPath = getWorkspacePromptPath("SOUL.md");
+    if (!existsSync(soulPath)) return null;
+    const content = readFileSync(soulPath, "utf-8");
+
+    let inSection = false;
+    for (const line of content.split("\n")) {
+      const trimmed = line.trim();
+      if (/^#+\s/.test(trimmed)) {
+        inSection = trimmed.toLowerCase().includes("identity intro");
+        continue;
+      }
+      if (inSection && trimmed.length > 0) {
+        return trimmed;
+      }
+    }
+  } catch {
+    // Fall through to cache/fallback
+  }
+  return null;
+}
+
 export function handleGetIdentityIntro(): Response {
+  // Prefer SOUL.md persisted intro over LLM-generated cache
+  const soulIntro = readSoulIdentityIntro();
+  if (soulIntro) {
+    return Response.json({ text: soulIntro });
+  }
+
   const cached = getCachedIntro();
   if (!cached) {
     return httpError("NOT_FOUND", "No cached identity intro available", 404);

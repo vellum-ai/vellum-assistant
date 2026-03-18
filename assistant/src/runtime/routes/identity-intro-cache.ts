@@ -1,7 +1,7 @@
 /**
  * Caching layer for the LLM-generated identity intro text.
  *
- * The intro (a short tagline like "Velissa, your girl.") is generated via the
+ * The intro (a short identity tagline) is generated via the
  * /v1/btw endpoint and displayed on the Identity panel. To avoid redundant LLM
  * calls, we cache the result for 4 hours with content-hash-based invalidation:
  * when USER.md, IDENTITY.md, or SOUL.md change, the cache is busted.
