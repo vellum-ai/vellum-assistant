@@ -14,7 +14,6 @@ extension ComposerView {
                     attachmentChip(attachment)
                 }
             }
-            .padding(.top, VSpacing.sm)
             .padding(.bottom, VSpacing.xs)
         }
     }
