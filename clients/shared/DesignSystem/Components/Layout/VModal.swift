@@ -36,7 +36,10 @@ public struct VModal<Content: View, Footer: View>: View {
         #if os(macOS)
         let screenHeight = NSScreen.main?.visibleFrame.height ?? 800
         #else
-        let screenHeight = UIScreen.main.bounds.height
+        let screenHeight = UIApplication.shared.connectedScenes
+            .compactMap { $0 as? UIWindowScene }
+            .first?
+            .screen.bounds.height ?? 800
         #endif
         return screenHeight * maxHeightRatio
     }
