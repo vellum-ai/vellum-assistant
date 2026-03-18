@@ -10,6 +10,7 @@ import VellumAssistantShared
 struct GoogleOAuthServiceCard: View {
     @ObservedObject var store: SettingsStore
     var authManager: AuthManager
+    var showToast: ((String, ToastInfo.Style) -> Void)?
 
     /// Local draft of the mode selection — only persisted on Save.
     @State private var draftMode: String = "your-own"
@@ -56,11 +57,6 @@ struct GoogleOAuthServiceCard: View {
                 Task { await store.fetchGoogleOAuthConnections(userId: currentUserId) }
             }
         }
-        .onChange(of: isLoggedIn) { _, loggedIn in
-            if loggedIn && draftMode == "managed" {
-                Task { await store.fetchGoogleOAuthConnections(userId: currentUserId) }
-            }
-        }
     }
 
     // MARK: - Managed Content
@@ -98,7 +94,18 @@ struct GoogleOAuthServiceCard: View {
                 style: .primary,
                 isDisabled: authManager.isSubmitting
             ) {
-                Task { await authManager.startWorkOSLogin() }
+                Task {
+                    if let showToast {
+                        await authManager.loginWithToast(showToast: showToast, onSuccess: {
+                            Task { await store.fetchGoogleOAuthConnections(userId: currentUserId) }
+                        })
+                    } else {
+                        await authManager.startWorkOSLogin()
+                        if authManager.isAuthenticated {
+                            await store.fetchGoogleOAuthConnections(userId: currentUserId)
+                        }
+                    }
+                }
             }
         }
     }
