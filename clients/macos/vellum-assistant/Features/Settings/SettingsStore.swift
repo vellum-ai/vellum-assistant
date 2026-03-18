@@ -2219,7 +2219,11 @@ public final class SettingsStore: ObservableObject {
         }
 
         // Re-resolve userId after bootstrap (it may have become available).
-        let postBootstrapUserId = userId ?? (try? await AuthService.shared.getSession())?.data?.user?.id
+        var postBootstrapUserId = userId
+        if postBootstrapUserId == nil {
+            let session = try? await AuthService.shared.getSession()
+            postBootstrapUserId = session?.data?.user?.id
+        }
         let postBootstrapOrgId = UserDefaults.standard.string(forKey: "connectedOrganizationId")
 
         return PlatformAssistantIdResolver.resolve(
