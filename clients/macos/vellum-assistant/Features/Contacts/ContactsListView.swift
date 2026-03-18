@@ -51,13 +51,10 @@ struct ContactsListView: View {
                     }
                     .accessibilityLabel("Add contact")
                 }
-                // Invisible subtitle to match right header height
-                Text(" ")
-                    .font(VFont.caption)
-                    .foregroundColor(.clear)
             }
             .padding(.horizontal, VSpacing.md)
             .padding(.vertical, VSpacing.sm)
+            .frame(height: 50)
 
             Divider().background(VColor.borderBase)
 
