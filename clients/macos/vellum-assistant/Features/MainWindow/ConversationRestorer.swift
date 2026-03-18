@@ -299,19 +299,6 @@ final class ConversationRestorer {
         delegate.conversations[index].title = response.title
     }
 
-    func handleMessageContentResponse(_ response: MessageContentResponse) {
-        guard let delegate else { return }
-        // Route the full content back to the ChatViewModel that owns this message.
-        // We check all conversations with existing VMs for a matching daemonMessageId.
-        for conversation in delegate.conversations {
-            guard let viewModel = delegate.existingChatViewModel(for: conversation.id) else { continue }
-            if viewModel.messages.contains(where: { $0.daemonMessageId == response.messageId }) {
-                viewModel.handleMessageContentResponse(response)
-                return
-            }
-        }
-    }
-
     // MARK: - Private
 
     private func fetchConversationList() {

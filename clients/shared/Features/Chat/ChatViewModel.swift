@@ -734,7 +734,9 @@ public final class ChatViewModel: ObservableObject {
               messages[idx].wasTruncated || messages[idx].isContentStripped,
               let conversationId = conversationId,
               let daemonMessageId = messages[idx].daemonMessageId else { return }
-        Task {
+        guard daemonClient.isConnected else { return }
+        Task { [weak self] in
+            guard let self else { return }
             if let response = await ConversationClient().fetchMessageContent(conversationId: conversationId, messageId: daemonMessageId) {
                 self.handleMessageContentResponse(response)
             }

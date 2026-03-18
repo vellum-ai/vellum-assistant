@@ -668,15 +668,6 @@ class IOSConversationStore: ObservableObject {
         }
     }
 
-    private func handleMessageContentResponse(_ response: MessageContentResponse) {
-        for (_, vm) in viewModels {
-            if vm.messages.contains(where: { $0.daemonMessageId == response.messageId }) {
-                vm.handleMessageContentResponse(response)
-                return
-            }
-        }
-    }
-
     /// Load history for a daemon-backed conversation when first selected.
     func loadHistoryIfNeeded(for conversationLocalId: UUID) {
         guard let conversation = conversations.first(where: { $0.id == conversationLocalId }),
