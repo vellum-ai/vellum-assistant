@@ -263,6 +263,157 @@ struct FeedbackGallerySection: View {
                     onDismiss: {}
                 )
             }
+
+            Divider().background(VColor.borderBase).padding(.vertical, VSpacing.md)
+
+            // MARK: - VSkeletonBone
+            GallerySectionHeader(
+                title: "VSkeletonBone",
+                description: "Rounded rectangle placeholder with shimmer animation for loading states."
+            )
+
+            VCard {
+                VStack(alignment: .leading, spacing: VSpacing.xl) {
+                    VStack(alignment: .leading, spacing: VSpacing.md) {
+                        Text("Default (full-width, 14pt)").font(VFont.caption).foregroundColor(VColor.contentTertiary)
+                        VSkeletonBone()
+                    }
+
+                    VStack(alignment: .leading, spacing: VSpacing.md) {
+                        Text("Custom widths").font(VFont.caption).foregroundColor(VColor.contentTertiary)
+                        VSkeletonBone(width: 100)
+                        VSkeletonBone(width: 200)
+                        VSkeletonBone(width: 160)
+                    }
+
+                    VStack(alignment: .leading, spacing: VSpacing.md) {
+                        Text("Custom heights").font(VFont.caption).foregroundColor(VColor.contentTertiary)
+                        HStack(spacing: VSpacing.lg) {
+                            VSkeletonBone(width: 80, height: 8)
+                            VSkeletonBone(width: 80, height: 14)
+                            VSkeletonBone(width: 80, height: 24)
+                        }
+                    }
+
+                    Divider().background(VColor.borderBase)
+
+                    VStack(alignment: .leading, spacing: VSpacing.md) {
+                        Text("Composable skeleton layout").font(VFont.caption).foregroundColor(VColor.contentTertiary)
+                        HStack(alignment: .top, spacing: VSpacing.md) {
+                            VSkeletonBone(width: 40, height: 40, radius: VRadius.md)
+                            VStack(alignment: .leading, spacing: VSpacing.sm) {
+                                VSkeletonBone(width: 120, height: 14)
+                                VSkeletonBone(height: 10)
+                                VSkeletonBone(width: 180, height: 10)
+                            }
+                        }
+                    }
+                }
+            }
+
+            Divider().background(VColor.borderBase).padding(.vertical, VSpacing.md)
+
+            // MARK: - VBusyIndicator
+            GallerySectionHeader(
+                title: "VBusyIndicator",
+                description: "Pulsing circle indicator for active processing state."
+            )
+
+            VCard {
+                VStack(alignment: .leading, spacing: VSpacing.xl) {
+                    VStack(alignment: .leading, spacing: VSpacing.md) {
+                        Text("Sizes").font(VFont.caption).foregroundColor(VColor.contentTertiary)
+                        HStack(spacing: VSpacing.xxl) {
+                            VStack(spacing: VSpacing.xs) {
+                                Text("6pt").font(VFont.caption).foregroundColor(VColor.contentTertiary)
+                                VBusyIndicator(size: 6)
+                            }
+                            VStack(spacing: VSpacing.xs) {
+                                Text("10pt (default)").font(VFont.caption).foregroundColor(VColor.contentTertiary)
+                                VBusyIndicator()
+                            }
+                            VStack(spacing: VSpacing.xs) {
+                                Text("16pt").font(VFont.caption).foregroundColor(VColor.contentTertiary)
+                                VBusyIndicator(size: 16)
+                            }
+                        }
+                    }
+
+                    VStack(alignment: .leading, spacing: VSpacing.md) {
+                        Text("Colors").font(VFont.caption).foregroundColor(VColor.contentTertiary)
+                        HStack(spacing: VSpacing.xxl) {
+                            VStack(spacing: VSpacing.xs) {
+                                Text("Primary").font(VFont.caption).foregroundColor(VColor.contentTertiary)
+                                VBusyIndicator()
+                            }
+                            VStack(spacing: VSpacing.xs) {
+                                Text("Success").font(VFont.caption).foregroundColor(VColor.contentTertiary)
+                                VBusyIndicator(color: VColor.systemPositiveStrong)
+                            }
+                            VStack(spacing: VSpacing.xs) {
+                                Text("Error").font(VFont.caption).foregroundColor(VColor.contentTertiary)
+                                VBusyIndicator(color: VColor.systemNegativeStrong)
+                            }
+                        }
+                    }
+
+                    Divider().background(VColor.borderBase)
+
+                    VStack(alignment: .leading, spacing: VSpacing.md) {
+                        Text("With label").font(VFont.caption).foregroundColor(VColor.contentTertiary)
+                        HStack(spacing: VSpacing.sm) {
+                            VBusyIndicator(size: 8)
+                            Text("Processing...")
+                                .font(VFont.caption)
+                                .foregroundColor(VColor.contentSecondary)
+                        }
+                    }
+                }
+            }
+
+            Divider().background(VColor.borderBase).padding(.vertical, VSpacing.md)
+
+            // MARK: - VSkillTypePill
+            GallerySectionHeader(
+                title: "VSkillTypePill",
+                description: "Badge indicating skill type/source with icon and color."
+            )
+
+            VCard {
+                VStack(alignment: .leading, spacing: VSpacing.xl) {
+                    VStack(alignment: .leading, spacing: VSpacing.md) {
+                        Text("Built-in types").font(VFont.caption).foregroundColor(VColor.contentTertiary)
+                        HStack(spacing: VSpacing.lg) {
+                            VSkillTypePill(type: .core)
+                            VSkillTypePill(type: .installed)
+                            VSkillTypePill(type: .created)
+                            VSkillTypePill(type: .extra)
+                        }
+                    }
+
+                    VStack(alignment: .leading, spacing: VSpacing.md) {
+                        Text("Custom type").font(VFont.caption).foregroundColor(VColor.contentTertiary)
+                        VSkillTypePill(type: .custom(
+                            label: "Community",
+                            icon: VIcon.globe.rawValue,
+                            foreground: VColor.funTeal,
+                            background: VColor.surfaceOverlay
+                        ))
+                    }
+
+                    Divider().background(VColor.borderBase)
+
+                    VStack(alignment: .leading, spacing: VSpacing.md) {
+                        Text("From source string").font(VFont.caption).foregroundColor(VColor.contentTertiary)
+                        HStack(spacing: VSpacing.lg) {
+                            VSkillTypePill(source: "bundled")
+                            VSkillTypePill(source: "managed")
+                            VSkillTypePill(source: "workspace")
+                            VSkillTypePill(source: "extra")
+                        }
+                    }
+                }
+            }
         }
     }
 }
