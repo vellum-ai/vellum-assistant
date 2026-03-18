@@ -4,24 +4,28 @@ import SwiftUI
 ///
 /// Uses a `Menu` containing an inline `Picker` for proper selection semantics
 /// (automatic checkmarks, accessibility). The visual label is fully custom.
-/// Defaults to 400pt wide; callers can override with `.frame(width:)` as needed.
+/// Defaults to 400pt wide; callers can pass a custom `width` to override.
 public struct VDropdown<T: Hashable>: View {
     public let placeholder: String
     @Binding public var selection: T
     public let options: [(label: String, value: T)]
     /// When selection equals emptyValue, placeholder text is shown instead.
     public var emptyValue: T? = nil
+    /// The fixed width of the dropdown. Defaults to 400.
+    public var width: CGFloat = 400
 
     public init(
         placeholder: String,
         selection: Binding<T>,
         options: [(label: String, value: T)],
-        emptyValue: T? = nil
+        emptyValue: T? = nil,
+        width: CGFloat = 400
     ) {
         self.placeholder = placeholder
         self._selection = selection
         self.options = options
         self.emptyValue = emptyValue
+        self.width = width
     }
 
     private var selectedLabel: String? {
@@ -68,7 +72,7 @@ public struct VDropdown<T: Hashable>: View {
         .buttonStyle(.plain)
         .menuIndicator(.hidden)
         .accessibilityLabel(selectedLabel ?? placeholder)
-        .frame(width: 400)
+        .frame(width: width)
     }
 }
 
