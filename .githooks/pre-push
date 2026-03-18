@@ -133,7 +133,10 @@ if [ -n "$SWIFT_CHANGED_FILES" ] && [ "$SKIP_SWIFT_BUILD" != "1" ]; then
         echo ""
         echo "🔍 Building clients/ (Swift)..."
         _debug_log "swift build start"
-        if ! (cd "${REPO_ROOT}/clients" && swift build --product vellum-assistant 2>&1); then
+        _repo_real="$(cd "$REPO_ROOT" && pwd -P)"
+        _cache_slug="$(printf '%s' "$_repo_real" | md5 -q 2>/dev/null || printf '%s' "$_repo_real" | md5sum | cut -d' ' -f1)"
+        _module_cache="/tmp/spm-module-cache/${_cache_slug}"
+        if ! (cd "${REPO_ROOT}/clients" && swift build --product vellum-assistant -Xswiftc -module-cache-path -Xswiftc "$_module_cache" 2>&1); then
             echo ""
             echo -e "${RED}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
             echo -e "${RED}Swift build errors in clients/ — push blocked${NC}"

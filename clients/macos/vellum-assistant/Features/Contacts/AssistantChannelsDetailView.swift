@@ -9,6 +9,7 @@ import VellumAssistantShared
 struct AssistantChannelsDetailView: View {
     @ObservedObject var store: SettingsStore
     var daemonClient: DaemonClient?
+    var conversationManager: ConversationManager?
     var assistantName: String = "your assistant"
     var isEmailEnabled: Bool = false
     var showCardBorders: Bool = true
@@ -209,8 +210,10 @@ struct AssistantChannelsDetailView: View {
                     isConnected: isConnected,
                     isExpanded: $telegramRowExpanded,
                     setupAction: !isConnected && !telegramSetupExpanded && !(status == "incomplete" && store.telegramHasBotToken) ? {
-                        telegramRowExpanded = true
-                        telegramSetupExpanded = true
+                        conversationManager?.openConversation(
+                            message: "I want to reach you on Telegram. Let's set it up.",
+                            forceNew: true
+                        )
                     } : nil,
                     isDisconnectDisabled: store.telegramSaveInProgress
                 )
@@ -247,8 +250,10 @@ struct AssistantChannelsDetailView: View {
                     isConnected: isConnected,
                     isExpanded: $slackRowExpanded,
                     setupAction: !isConnected && !slackChannelSetupExpanded && !(status == "incomplete" && (store.slackChannelHasBotToken || store.slackChannelHasAppToken)) ? {
-                        slackRowExpanded = true
-                        slackChannelSetupExpanded = true
+                        conversationManager?.openConversation(
+                            message: "I want to reach you on Slack. Let's set it up.",
+                            forceNew: true
+                        )
                     } : nil,
                     isDisconnectDisabled: store.slackChannelSaveInProgress
                 )
@@ -288,8 +293,10 @@ struct AssistantChannelsDetailView: View {
                     isConnected: isConnected,
                     isExpanded: $voiceRowExpanded,
                     setupAction: !isConnected && !voiceSetupExpanded ? {
-                        voiceRowExpanded = true
-                        voiceSetupExpanded = true
+                        conversationManager?.openConversation(
+                            message: "I want to be able to call you. Let's set you up with a phone number.",
+                            forceNew: true
+                        )
                     } : nil,
                     isDisconnectDisabled: store.twilioSaveInProgress
                 )
@@ -570,7 +577,10 @@ struct AssistantChannelsDetailView: View {
                 telegramCredentialEntry
             } else {
                 VButton(label: "Set Up", style: .outlined) {
-                    telegramSetupExpanded = true
+                    conversationManager?.openConversation(
+                        message: "I want to reach you on Telegram. Let's set it up.",
+                        forceNew: true
+                    )
                 }
             }
 
@@ -671,7 +681,10 @@ struct AssistantChannelsDetailView: View {
                 slackChannelCredentialEntry
             } else {
                 VButton(label: "Set Up", style: .outlined) {
-                    slackChannelSetupExpanded = true
+                    conversationManager?.openConversation(
+                        message: "I want to reach you on Slack. Let's set it up.",
+                        forceNew: true
+                    )
                 }
             }
 
@@ -775,7 +788,10 @@ struct AssistantChannelsDetailView: View {
                 voiceCredentialEntry
             } else {
                 VButton(label: "Set Up", style: .outlined) {
-                    voiceSetupExpanded = true
+                    conversationManager?.openConversation(
+                        message: "I want to be able to call you. Let's set you up with a phone number.",
+                        forceNew: true
+                    )
                 }
             }
 

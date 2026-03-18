@@ -48,13 +48,15 @@ final class ConversationRestorer {
 
     private let daemonClient: DaemonClient
     private let conversationListClient: any ConversationListClientProtocol = ConversationListClient()
+    private let conversationHistoryClient: any ConversationHistoryClientProtocol
     private var connectionCancellable: AnyCancellable?
     private var disconnectCancellable: AnyCancellable?
 
     weak var delegate: ConversationRestorerDelegate?
 
-    init(daemonClient: DaemonClient) {
+    init(daemonClient: DaemonClient, conversationHistoryClient: any ConversationHistoryClientProtocol = ConversationHistoryClient()) {
         self.daemonClient = daemonClient
+        self.conversationHistoryClient = conversationHistoryClient
     }
 
     func startObserving(skipInitialFetch: Bool = false) {
@@ -105,11 +107,14 @@ final class ConversationRestorer {
             self?.requestPaginatedHistory(conversationId: conversationId, beforeTimestamp: beforeTimestamp)
         }
 
-        do {
-            try daemonClient.sendHistoryRequest(conversationId: conversationId, limit: 50, mode: "light", maxToolResultChars: 1000)
-        } catch {
-            log.error("Failed to send history_request: \(error.localizedDescription)")
-            pendingHistoryByConversationId.removeValue(forKey: conversationId)
+        Task { [weak self] in
+            guard let self else { return }
+            let response = await self.conversationHistoryClient.fetchHistory(conversationId: conversationId, limit: 50, beforeTimestamp: nil, mode: "light", maxTextChars: nil, maxToolResultChars: 1000)
+            if let response {
+                self.handleHistoryResponse(response)
+            } else {
+                self.pendingHistoryByConversationId.removeValue(forKey: conversationId)
+            }
         }
     }
 
@@ -120,11 +125,14 @@ final class ConversationRestorer {
         // Find the conversation that owns this conversationId.
         guard let conversation = delegate.conversations.first(where: { $0.conversationId == conversationId }) else { return }
         pendingHistoryByConversationId[conversationId] = conversation.id
-        do {
-            try daemonClient.sendHistoryRequest(conversationId: conversationId, limit: 50, mode: "light", maxToolResultChars: 1000)
-        } catch {
-            log.error("Failed to send reconnect history_request: \(error.localizedDescription)")
-            pendingHistoryByConversationId.removeValue(forKey: conversationId)
+        Task { [weak self] in
+            guard let self else { return }
+            let response = await self.conversationHistoryClient.fetchHistory(conversationId: conversationId, limit: 50, beforeTimestamp: nil, mode: "light", maxTextChars: nil, maxToolResultChars: 1000)
+            if let response {
+                self.handleHistoryResponse(response)
+            } else {
+                self.pendingHistoryByConversationId.removeValue(forKey: conversationId)
+            }
         }
     }
 
@@ -139,14 +147,16 @@ final class ConversationRestorer {
             return
         }
         pendingHistoryByConversationId[conversationId] = conversation.id
-        do {
-            try daemonClient.sendHistoryRequest(conversationId: conversationId, limit: 50, beforeTimestamp: beforeTimestamp, mode: "light", maxToolResultChars: 1000)
-        } catch {
-            log.error("Failed to send paginated history_request: \(error.localizedDescription)")
-            pendingHistoryByConversationId.removeValue(forKey: conversationId)
-            // Clear the loading indicator on the view model since the request failed.
-            if let vm = delegate.existingChatViewModel(for: conversation.id) {
-                vm.isLoadingMoreMessages = false
+        Task { [weak self] in
+            guard let self else { return }
+            let response = await self.conversationHistoryClient.fetchHistory(conversationId: conversationId, limit: 50, beforeTimestamp: beforeTimestamp, mode: "light", maxTextChars: nil, maxToolResultChars: 1000)
+            if let response {
+                self.handleHistoryResponse(response)
+            } else {
+                self.pendingHistoryByConversationId.removeValue(forKey: conversationId)
+                if let vm = self.delegate?.existingChatViewModel(for: conversation.id) {
+                    vm.isLoadingMoreMessages = false
+                }
             }
         }
     }
