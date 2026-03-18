@@ -155,7 +155,7 @@ extension AppDelegate {
                 return
             }
             DispatchQueue.main.async {
-                self?.assistantCli.stop()
+                self?.vellumCli.stop()
                 NSApp.terminate(nil)
             }
         }
@@ -185,7 +185,7 @@ extension AppDelegate {
                 if !cleared {
                     log.warning("Credential cleanup incomplete — stopping daemon to prevent stale platform identity state")
                     daemonClient.disconnect()
-                    assistantCli.stop(name: connectedAssistantId)
+                    vellumCli.stop(name: connectedAssistantId)
                 }
             }
 
@@ -537,7 +537,7 @@ extension AppDelegate {
 
         if let name = assistantName {
             do {
-                try await assistantCli.retire(name: name)
+                try await vellumCli.retire(name: name)
             } catch {
                 log.error("CLI retire failed: \(error.localizedDescription)")
                 let alert = NSAlert()
@@ -553,17 +553,17 @@ extension AppDelegate {
                 // Retire failed but user chose Force Remove — stop the daemon
                 // before cleaning up local state.
                 daemonClient.disconnect()
-                assistantCli.stop(name: name)
+                vellumCli.stop(name: name)
                 self.removeLockfileEntry(assistantId: name)
             }
 
             // Disconnect the client from the (now-dead) daemon.
             // The retire CLI already stopped the daemon process; an
-            // additional assistantCli.stop() here would block the main
+            // additional vellumCli.stop() here would block the main
             // thread and always fail because the process is already gone.
             daemonClient.disconnect()
         } else {
-            assistantCli.stop(name: assistantName)
+            vellumCli.stop(name: assistantName)
         }
 
         // Check if other assistants remain in the lockfile.
@@ -585,7 +585,7 @@ extension AppDelegate {
 
                 // Sleeping — try to wake it
                 do {
-                    try await assistantCli.wake(name: candidate.assistantId)
+                    try await vellumCli.wake(name: candidate.assistantId)
                     performSwitchAssistant(to: candidate)
                     return true
                 } catch {
@@ -693,7 +693,7 @@ extension AppDelegate {
             for assistant in localAssistants {
                 do {
                     log.info("Retiring local assistant '\(assistant.assistantId, privacy: .public)' as part of uninstall")
-                    try await assistantCli.retire(name: assistant.assistantId)
+                    try await vellumCli.retire(name: assistant.assistantId)
                 } catch {
                     log.error("Failed to retire '\(assistant.assistantId, privacy: .public)' during uninstall: \(error.localizedDescription)")
                 }
@@ -701,7 +701,7 @@ extension AppDelegate {
 
             // Stop any remaining daemon processes.
             daemonClient.disconnect()
-            assistantCli.stop()
+            vellumCli.stop()
 
             // Move the app bundle to the Trash.
             let bundleURL = Bundle.main.bundleURL

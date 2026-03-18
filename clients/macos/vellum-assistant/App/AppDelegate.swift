@@ -49,7 +49,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
     var navLocalMonitor: Any?
     var zoomLocalMonitor: Any?
     public let services = AppServices()
-    let assistantCli = VellumCli()
+    let vellumCli = VellumCli()
     public let updateManager = UpdateManager()
     let debugStateWriter = DebugStateWriter()
     private let telemetryClient: any TelemetryClientProtocol = TelemetryClient()
@@ -468,7 +468,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
         #if !DEBUG
         keychainBroker?.stop()
         #endif
-        assistantCli.stop()
+        vellumCli.stop()
     }
 
     // MARK: - Public Actions (for SwiftUI .commands menu items)

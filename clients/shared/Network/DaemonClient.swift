@@ -466,7 +466,7 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     // MARK: - Auto-Wake
 
     /// Optional closure invoked when a connection attempt fails because the daemon process
-    /// is not alive. The macOS app sets this to call `assistantCli.wake(name:)` so the
+    /// is not alive. The macOS app sets this to call `vellumCli.wake(name:)` so the
     /// daemon is automatically restarted before retrying the connection.
     /// Set by the app layer — `DaemonClient` never imports platform-specific types.
     public var wakeHandler: (@MainActor @Sendable () async throws -> Void)?

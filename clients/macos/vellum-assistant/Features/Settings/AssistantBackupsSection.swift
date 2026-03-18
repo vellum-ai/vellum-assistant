@@ -399,9 +399,9 @@ extension AssistantBackupsSection {
                     // Auto-restart the assistant so restored state takes effect
                     let assistantName = assistant.assistantId
                     Task {
-                        AppDelegate.shared?.assistantCli.stop(name: assistantName)
+                        AppDelegate.shared?.vellumCli.stop(name: assistantName)
                         try? await Task.sleep(nanoseconds: 500_000_000)
-                        try? await AppDelegate.shared?.assistantCli.wake(name: assistantName)
+                        try? await AppDelegate.shared?.vellumCli.wake(name: assistantName)
                     }
                 } else {
                     errorMessage = "Import completed with warnings. Check assistant logs for details."

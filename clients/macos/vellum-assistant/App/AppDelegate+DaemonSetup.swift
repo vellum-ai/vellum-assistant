@@ -147,7 +147,7 @@ extension AppDelegate {
             guard let self else { return }
             let name = UserDefaults.standard.string(forKey: "connectedAssistantId") ?? "default"
             log.info("Auto-wake: waking assistant '\(name, privacy: .public)' via CLI")
-            try await self.assistantCli.wake(name: name)
+            try await self.vellumCli.wake(name: name)
         }
 
         // Rebind the menu bar icon observer after transport reconfiguration
@@ -373,7 +373,7 @@ extension AppDelegate {
                     // with the correct default assistant (not a random name).
                     let assistantName = assistant?.assistantId
                     do {
-                        try await assistantCli.hatch(name: assistantName, daemonOnly: daemonOnly)
+                        try await vellumCli.hatch(name: assistantName, daemonOnly: daemonOnly)
                     } catch let error as VellumCli.CLIError {
                         switch error {
                         case .daemonStartupFailed(let startupError):
@@ -386,7 +386,7 @@ extension AppDelegate {
                         if needsLockfileEntry {
                             log.info("Full hatch failed on first launch — retrying daemon-only as fallback")
                             do {
-                                try await assistantCli.hatch(name: assistantName, daemonOnly: true)
+                                try await vellumCli.hatch(name: assistantName, daemonOnly: true)
                                 self.daemonStartupError = nil
                             } catch {
                                 log.error("Fallback daemon-only hatch also failed: \(error)")
@@ -397,7 +397,7 @@ extension AppDelegate {
                         if needsLockfileEntry {
                             log.info("Full hatch failed on first launch — retrying daemon-only as fallback")
                             do {
-                                try await assistantCli.hatch(name: assistantName, daemonOnly: true)
+                                try await vellumCli.hatch(name: assistantName, daemonOnly: true)
                                 self.daemonStartupError = nil
                             } catch {
                                 log.error("Fallback daemon-only hatch also failed: \(error)")
@@ -504,7 +504,7 @@ extension AppDelegate {
             #if !DEBUG
             self?.keychainBroker?.stop()
             #endif
-            self?.assistantCli.stop()
+            self?.vellumCli.stop()
         }
         updateManager.startAutomaticChecks()
     }

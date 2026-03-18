@@ -1,6 +1,7 @@
 import AppKit
 import Foundation
 import os
+import OSLog
 @preconcurrency import Sentry
 import VellumAssistantShared
 
@@ -24,7 +25,7 @@ private let log = Logger(
 /// - `port-diagnostics.json` — processes listening on assistant-relevant TCP ports
 /// - `config-snapshot.json` — sanitized workspace config (API key values redacted, structure preserved)
 /// - `crash-reports/` — recent macOS crash/hang reports (.ips, .crash, .spin) for assistant-related processes (bun, qdrant, vellum-assistant)
-/// - `os-log.txt` — recent CLI audit entries from the macOS unified log (VellumCli category only)
+/// - `os-log.txt` — recent entries from the macOS unified log for the app's subsystem
 /// - `daemon-logs-fallback/` — when daemon is unreachable: vellum.log, recent hatch-*.log, and XDG hatch.log read directly from disk (10 MB cap)
 @MainActor
 enum LogExporter {
@@ -314,7 +315,7 @@ enum LogExporter {
             }
         }
 
-        // 11. macOS unified log — CLI audit entries from os.Logger (VellumCli category only).
+        // 11. macOS unified log — recent os.Logger entries for this app's subsystem.
         collectUnifiedLog(
             to: tempDir.appendingPathComponent("os-log.txt")
         )
@@ -688,12 +689,12 @@ enum LogExporter {
 
     // MARK: - Unified Log Export
 
-    /// Exports recent CLI audit entries from Apple's unified logging system
-    /// (`os.Logger`) for the `VellumCli` category only. Scoped narrowly to
-    /// avoid exporting user-content logs from other categories.
+    /// Exports recent entries from Apple's unified logging system (`os.Logger`)
+    /// for this app's subsystem. Includes CLI audit trail, lifecycle events,
+    /// and any other structured log output not written to files on disk.
     ///
     /// Uses `OSLogStore` to read entries from the last 24 hours. Falls back
-    /// silently if the API is unavailable or the category has no entries.
+    /// silently if the API is unavailable or the subsystem has no entries.
     private nonisolated static func collectUnifiedLog(to destination: URL) {
         do {
             let store = try OSLogStore(scope: .currentProcessIdentifier)
@@ -702,7 +703,7 @@ enum LogExporter {
 
             let entries = try store.getEntries(
                 at: oneDayAgo,
-                matching: NSPredicate(format: "subsystem == %@ AND category == %@", subsystem, "VellumCli")
+                matching: NSPredicate(format: "subsystem == %@", subsystem)
             )
 
             var lines: [String] = []
