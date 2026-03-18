@@ -329,56 +329,74 @@ export async function runDaemon(): Promise<void> {
     await server.start();
     log.info("Daemon startup: DaemonServer started");
 
-    // Initialize Qdrant vector store — non-fatal so the daemon stays up without it
-    // Prefer QDRANT_HTTP_PORT (locally-spawned Qdrant on a specific port) over
-    // QDRANT_URL (external Qdrant instance) so the CLI can set the port without
-    // triggering QdrantManager's external mode which skips local process spawn.
-    const qdrantHttpPort = getQdrantHttpPortEnv();
-    const qdrantUrl = qdrantHttpPort
-      ? `http://127.0.0.1:${qdrantHttpPort}`
-      : getQdrantUrlEnv() || config.memory.qdrant.url;
-    log.info({ qdrantUrl }, "Daemon startup: initializing Qdrant");
-    const qdrantManager = new QdrantManager({ url: qdrantUrl });
-    try {
-      await qdrantManager.start();
-      const embeddingSelection = await selectEmbeddingBackend(config);
-      const embeddingModel = embeddingSelection.backend
-        ? `${embeddingSelection.backend.provider}:${embeddingSelection.backend.model}:sparse-v${SPARSE_EMBEDDING_VERSION}`
-        : undefined;
-      const qdrantClient = initQdrantClient({
-        url: qdrantUrl,
-        collection: config.memory.qdrant.collection,
-        vectorSize: config.memory.qdrant.vectorSize,
-        onDisk: config.memory.qdrant.onDisk,
-        quantization: config.memory.qdrant.quantization,
-        embeddingModel,
-      });
+    // Mutable refs for Qdrant and memory worker so background init can assign
+    // them and the shutdown handler always sees the latest value.
+    const bgRefs: {
+      qdrantManager: QdrantManager | null;
+      memoryWorker: { stop(): void } | null;
+    } = { qdrantManager: null, memoryWorker: null };
 
-      // Eagerly ensure the collection exists so we detect migrations
-      // (unnamed→named vectors, dimension/model changes) at startup.
-      // If a destructive migration occurred, enqueue a rebuild_index job
-      // to re-embed all memory items from the SQLite cache.
-      const { migrated } = await qdrantClient.ensureCollection();
-      if (migrated) {
-        enqueueMemoryJob("rebuild_index", {});
-        log.info("Qdrant collection was migrated — enqueued rebuild_index job");
+    // Initialize Qdrant vector store and memory worker in the background so the
+    // RuntimeHttpServer can start accepting requests without waiting for Qdrant.
+    async function initializeQdrantAndMemory(): Promise<void> {
+      // Prefer QDRANT_HTTP_PORT (locally-spawned Qdrant on a specific port) over
+      // QDRANT_URL (external Qdrant instance) so the CLI can set the port without
+      // triggering QdrantManager's external mode which skips local process spawn.
+      const qdrantHttpPort = getQdrantHttpPortEnv();
+      const qdrantUrl = qdrantHttpPort
+        ? `http://127.0.0.1:${qdrantHttpPort}`
+        : getQdrantUrlEnv() || config.memory.qdrant.url;
+      log.info({ qdrantUrl }, "Daemon startup: initializing Qdrant");
+      const manager = new QdrantManager({ url: qdrantUrl });
+      bgRefs.qdrantManager = manager;
+      try {
+        await manager.start();
+        const embeddingSelection = await selectEmbeddingBackend(config);
+        const embeddingModel = embeddingSelection.backend
+          ? `${embeddingSelection.backend.provider}:${embeddingSelection.backend.model}:sparse-v${SPARSE_EMBEDDING_VERSION}`
+          : undefined;
+        const qdrantClient = initQdrantClient({
+          url: qdrantUrl,
+          collection: config.memory.qdrant.collection,
+          vectorSize: config.memory.qdrant.vectorSize,
+          onDisk: config.memory.qdrant.onDisk,
+          quantization: config.memory.qdrant.quantization,
+          embeddingModel,
+        });
+
+        // Eagerly ensure the collection exists so we detect migrations
+        // (unnamed→named vectors, dimension/model changes) at startup.
+        // If a destructive migration occurred, enqueue a rebuild_index job
+        // to re-embed all memory items from the SQLite cache.
+        const { migrated } = await qdrantClient.ensureCollection();
+        if (migrated) {
+          enqueueMemoryJob("rebuild_index", {});
+          log.info(
+            "Qdrant collection was migrated — enqueued rebuild_index job",
+          );
+        }
+
+        log.info("Qdrant vector store initialized");
+      } catch (err) {
+        log.warn(
+          { err },
+          "Qdrant failed to start — memory features will be unavailable",
+        );
       }
 
-      log.info("Qdrant vector store initialized");
-    } catch (err) {
-      log.warn(
-        { err },
-        "Qdrant failed to start — memory features will be unavailable",
+      log.info("Daemon startup: starting memory worker");
+      bgRefs.memoryWorker = startMemoryJobsWorker();
+
+      // Seed capability memories for first-party catalog skills so the memory
+      // pipeline can surface relevant skills via semantic search.
+      void seedCatalogSkillMemories().catch((err) =>
+        log.warn({ err }, "Catalog skill memory seeding failed — continuing"),
       );
     }
 
-    log.info("Daemon startup: starting memory worker");
-    const memoryWorker = startMemoryJobsWorker();
-
-    // Seed capability memories for first-party catalog skills so the memory
-    // pipeline can surface relevant skills via semantic search.
-    void seedCatalogSkillMemories().catch((err) =>
-      log.warn({ err }, "Catalog skill memory seeding failed — continuing"),
+    // Fire-and-forget: Qdrant init runs concurrently with the rest of startup
+    void initializeQdrantAndMemory().catch((err) =>
+      log.warn({ err }, "Background Qdrant init failed"),
     );
 
     registerWatcherProviders();
@@ -881,8 +899,8 @@ export async function runDaemon(): Promise<void> {
       hookManager,
       runtimeHttp,
       scheduler,
-      memoryWorker,
-      qdrantManager,
+      getMemoryWorker: () => bgRefs.memoryWorker,
+      getQdrantManager: () => bgRefs.qdrantManager,
       mcpManager,
       telemetryReporter,
       cleanupPidFile,
