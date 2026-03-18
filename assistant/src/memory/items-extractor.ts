@@ -183,6 +183,7 @@ Rules:
 - Only extract genuinely memorable information. Skip pleasantries, filler, and transient discussion.
 - Do NOT extract information about what tools the assistant used or what files it read — only extract substantive facts about the user, their projects, and their preferences.
 - Do NOT extract claims about actions the assistant performed, outcomes it achieved, or progress it reported (e.g., "I booked an appointment", "I sent the email"). Only extract facts stated by the user or from external sources — the assistant's self-reports are not reliable memory material.
+- Do NOT extract raw code snippets, JSON fragments, YAML, configuration values, log output, or data structures. Only extract the human-readable meaning or intent behind such content, not the literal syntax.
 - Prefer fewer high-quality items over many low-quality ones.
 - If the message contains no memorable information, return an empty array.`;
 
