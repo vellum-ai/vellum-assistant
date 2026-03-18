@@ -23,7 +23,7 @@
       "key": "feature_flags.contacts.enabled",
       "label": "Contacts",
       "description": "Show the Contacts tab in Settings for viewing and managing contacts",
-      "defaultEnabled": false
+      "defaultEnabled": true
     },
     {
       "id": "email-channel",
