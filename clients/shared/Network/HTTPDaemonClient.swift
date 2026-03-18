@@ -189,7 +189,9 @@ public final class HTTPTransport {
     /// Maps the daemon's server-side conversationId → client-local conversationId.
     /// Used to remap conversationId in incoming SSE events so ChatViewModel's
     /// belongsToConversation() filter passes. Supports multiple concurrent conversations.
+    /// Capped at `serverToLocalConversationMapCap` entries to prevent unbounded growth.
     var serverToLocalConversationMap: [String: String] = [:]
+    private let serverToLocalConversationMapCap = 500
 
     /// Conversation IDs that originated from this client instance.
     /// Host tool requests are only executed for these conversation IDs.
@@ -1077,8 +1079,17 @@ public final class HTTPTransport {
                    let serverConvId = json["conversationId"] as? String,
                    serverConvId != conversationId {
                     self.serverToLocalConversationMap[serverConvId] = conversationId
+                    self.locallyOwnedConversationIds.remove(conversationId)
                     self.locallyOwnedConversationIds.insert(serverConvId)
                     self.onConversationIdResolved?(conversationId, serverConvId)
+
+                    // Evict arbitrary entries when over cap to prevent unbounded growth.
+                    // Lost mappings are benign — unmapped events are filtered by belongsToConversation.
+                    while self.serverToLocalConversationMap.count > self.serverToLocalConversationMapCap {
+                        if let key = self.serverToLocalConversationMap.keys.first {
+                            self.serverToLocalConversationMap.removeValue(forKey: key)
+                        }
+                    }
 
                     log.info("Mapped conversation \(conversationId, privacy: .public) → server ID \(serverConvId, privacy: .public)")
                 }
