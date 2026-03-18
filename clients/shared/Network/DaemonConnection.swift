@@ -82,6 +82,15 @@ extension DaemonClient {
             log.info("connect: transport connected successfully to \(baseURL, privacy: .public), SSE should be running")
         } catch {
             #if os(macOS)
+            // Short-circuit if the task was cancelled (e.g. external disconnect/reconfigure)
+            // to avoid entering the auto-wake path during an intentional teardown.
+            guard !Task.isCancelled else {
+                isConnecting = false
+                httpTransport = nil
+                log.info("connect: task cancelled — skipping auto-wake")
+                throw error
+            }
+
             // Auto-wake: if the gateway is unreachable and a wake handler is
             // configured, try waking the daemon and retrying the connection once.
             if let wakeHandler, config.transportMetadata.routeMode == .runtimeFlat {
