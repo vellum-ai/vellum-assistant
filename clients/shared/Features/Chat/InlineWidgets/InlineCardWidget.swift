@@ -85,6 +85,3 @@ public struct InlineCardWidget: View {
             ?? AttributedString(data.body)
     }
 }
-
-#if DEBUG
-#endif

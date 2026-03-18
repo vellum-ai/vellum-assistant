@@ -18,8 +18,3 @@ struct MeadowBackground: View {
         }
     }
 }
-
-#Preview {
-    MeadowBackground()
-        .frame(width: 750, height: 520)
-}

@@ -597,5 +597,3 @@ struct AppsGridView: View {
     }
 }
 
-// MARK: - Preview
-

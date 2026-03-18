@@ -162,31 +162,3 @@ private struct PillSegment: View {
         }
     }
 }
-
-#if DEBUG
-
-private struct VSegmentedControlPreviewWrapper: View {
-    @State private var selection = 1
-    @State private var pillSelection = "dark"
-
-    var body: some View {
-        ZStack {
-            VColor.surfaceOverlay.ignoresSafeArea()
-            VStack(spacing: VSpacing.xl) {
-                VSegmentedControl(items: ["Profile", "Settings", "Channels", "Overview"], selection: $selection)
-
-                VSegmentedControl(
-                    items: [
-                        (label: "System", tag: "system"),
-                        (label: "Light", tag: "light"),
-                        (label: "Dark", tag: "dark"),
-                    ],
-                    selection: $pillSelection,
-                    style: .pill
-                )
-                .frame(width: 240)
-            }
-        }
-    }
-}
-#endif

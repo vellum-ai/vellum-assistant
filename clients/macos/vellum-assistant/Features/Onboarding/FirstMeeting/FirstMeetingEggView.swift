@@ -37,15 +37,3 @@ struct FirstMeetingEggView: View {
         }
     }
 }
-
-#Preview {
-    ZStack {
-        MeadowBackground()
-        FirstMeetingEggView(state: {
-            let s = OnboardingState()
-            s.onboardingVariant = .firstMeeting
-            return s
-        }())
-    }
-    .frame(width: 640, height: 400)
-}

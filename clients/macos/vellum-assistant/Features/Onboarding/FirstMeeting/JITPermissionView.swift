@@ -216,28 +216,3 @@ struct JITPermissionView: View {
         }
     }
 }
-
-// MARK: - Preview
-
-#if DEBUG
-
-private struct JITPermissionViewPreviewWrapper: View {
-    let permission: JITPermissionManager.JITPermissionType
-    @State private var manager: JITPermissionManager
-
-    init(permission: JITPermissionManager.JITPermissionType) {
-        self.permission = permission
-        let m = JITPermissionManager()
-        m.isActive = true
-        m.activePermissionRequest = permission
-        _manager = State(initialValue: m)
-    }
-
-    var body: some View {
-        ZStack {
-            VColor.surfaceOverlay.ignoresSafeArea()
-            JITPermissionView(manager: manager)
-        }
-    }
-}
-#endif

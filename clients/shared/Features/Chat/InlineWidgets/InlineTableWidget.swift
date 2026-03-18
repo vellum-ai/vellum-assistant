@@ -173,6 +173,3 @@ public struct InlineTableWidget: View {
         onAction("selection_changed", ["selectedIds": AnyCodable(Array(selectedIds))])
     }
 }
-
-#if DEBUG
-#endif

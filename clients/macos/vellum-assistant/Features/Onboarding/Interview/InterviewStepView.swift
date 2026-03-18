@@ -155,20 +155,3 @@ struct InterviewStepView: View {
         onComplete()
     }
 }
-
-#Preview {
-    ZStack {
-        MeadowBackground()
-        InterviewStepView(
-            state: {
-                let s = OnboardingState()
-                s.currentStep = 7
-                s.assistantName = "Assistant"
-                return s
-            }(),
-            daemonClient: DaemonClient(),
-            onComplete: {}
-        )
-    }
-    .frame(width: 1366, height: 849)
-}

@@ -109,8 +109,3 @@ struct CapabilitiesModalView: View {
         }
     }
 }
-
-#Preview {
-    CapabilitiesModalView()
-        .frame(width: 420, height: 560)
-}

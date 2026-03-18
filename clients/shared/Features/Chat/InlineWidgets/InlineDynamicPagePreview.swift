@@ -96,6 +96,3 @@ public struct InlineDynamicPagePreview: View {
         .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
     }
 }
-
-#if DEBUG
-#endif

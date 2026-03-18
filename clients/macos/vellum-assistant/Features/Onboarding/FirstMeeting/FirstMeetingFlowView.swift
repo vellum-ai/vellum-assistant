@@ -211,12 +211,3 @@ struct FirstMeetingFlowView: View {
         .padding(.bottom, VSpacing.lg)
     }
 }
-
-#Preview {
-    FirstMeetingFlowView(
-        state: OnboardingState(),
-        daemonClient: DaemonClient(),
-        onComplete: {},
-        onOpenSettings: {}
-    )
-}

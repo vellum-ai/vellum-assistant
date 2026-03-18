@@ -298,8 +298,3 @@ public struct ToolCallProgressBar: View {
         }
     }
 }
-
-// MARK: - Preview
-
-#if DEBUG
-#endif

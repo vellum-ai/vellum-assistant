@@ -67,6 +67,3 @@ struct ChatLoadingSkeleton: View {
         }
     }
 }
-
-#if DEBUG
-#endif

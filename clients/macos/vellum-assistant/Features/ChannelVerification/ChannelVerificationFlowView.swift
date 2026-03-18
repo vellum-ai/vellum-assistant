@@ -501,8 +501,3 @@ struct ChannelVerificationFlowView: View {
         .frame(width: labelColumnWidth, alignment: .leading)
     }
 }
-
-// MARK: - Preview
-
-#if DEBUG
-#endif

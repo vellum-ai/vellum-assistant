@@ -264,8 +264,3 @@ public struct ToolCallChip: View {
         }
     }
 }
-
-// MARK: - Preview
-
-#if DEBUG
-#endif

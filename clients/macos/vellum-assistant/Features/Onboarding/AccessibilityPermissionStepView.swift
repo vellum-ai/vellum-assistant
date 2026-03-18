@@ -62,16 +62,3 @@ struct AccessibilityPermissionStepView: View {
         }
     }
 }
-
-#Preview {
-    ZStack {
-        VColor.surfaceOverlay
-        AccessibilityPermissionStepView(state: {
-            let s = OnboardingState()
-            s.currentStep = 5
-            return s
-        }())
-        .frame(maxWidth: 520)
-    }
-    .frame(width: 640, height: 500)
-}

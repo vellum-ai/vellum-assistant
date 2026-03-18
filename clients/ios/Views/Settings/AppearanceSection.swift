@@ -26,10 +26,4 @@ struct AppearanceSection: View {
         .navigationBarTitleDisplayMode(.inline)
     }
 }
-
-#Preview {
-    NavigationStack {
-        AppearanceSection()
-    }
-}
 #endif

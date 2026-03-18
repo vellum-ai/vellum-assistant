@@ -191,11 +191,4 @@ private struct APIKeyDetailSheet: View {
         }
     }
 }
-
-#Preview {
-    NavigationStack {
-        ModelsServicesSection()
-            .environmentObject(ClientProvider(client: DaemonClient(config: .fromUserDefaults())))
-    }
-}
 #endif

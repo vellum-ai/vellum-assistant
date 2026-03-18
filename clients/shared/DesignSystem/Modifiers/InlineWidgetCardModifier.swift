@@ -81,6 +81,3 @@ public extension View {
         modifier(InlineWidgetCardModifier(interactive: interactive))
     }
 }
-
-#if DEBUG
-#endif

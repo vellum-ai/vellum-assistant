@@ -315,16 +315,3 @@ struct HatchingStepView: View {
         }
     }
 }
-
-#Preview {
-    ZStack {
-        VColor.surfaceOverlay.ignoresSafeArea()
-        HatchingStepView(state: {
-            let s = OnboardingState()
-            s.isHatching = true
-            s.cloudProvider = "gcp"
-            return s
-        }())
-    }
-    .frame(width: 460, height: 620)
-}

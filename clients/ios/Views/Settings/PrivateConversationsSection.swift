@@ -168,12 +168,4 @@ struct PrivateConversationsSection: View {
         DateFormatting.relativeTimestamp(date)
     }
 }
-
-#if DEBUG
-#Preview {
-    NavigationStack {
-        PrivateConversationsSection(store: IOSConversationStore(daemonClient: MockDaemonClient()))
-    }
-}
-#endif
 #endif

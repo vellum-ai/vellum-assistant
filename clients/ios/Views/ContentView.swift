@@ -220,10 +220,4 @@ struct ContentView: View {
         }
     }
 }
-
-#Preview {
-    let client = DaemonClient(config: .default)
-    ContentView(authManager: AuthManager(), ambientAgent: AmbientAgentManager(), daemonClient: client)
-        .environmentObject(ClientProvider(client: client))
-}
 #endif

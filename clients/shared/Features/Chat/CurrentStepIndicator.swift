@@ -127,8 +127,3 @@ public struct CurrentStepIndicator: View {
         }
     }
 }
-
-// MARK: - Preview
-
-#if DEBUG
-#endif
