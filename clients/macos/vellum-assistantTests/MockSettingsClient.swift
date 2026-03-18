@@ -38,7 +38,7 @@ final class MockSettingsClient: SettingsClientProtocol {
         return modelInfoResponse
     }
 
-    func setModel(model: String) async -> ModelInfoMessage? {
+    func setModel(model: String, provider: String? = nil) async -> ModelInfoMessage? {
         setModelCalls.append(model)
         return setModelResponse
     }

@@ -11,7 +11,7 @@ private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.
 public protocol SettingsClientProtocol {
     func fetchVercelConfig() async -> VercelApiConfigResponseMessage?
     func fetchModelInfo() async -> ModelInfoMessage?
-    func setModel(model: String) async -> ModelInfoMessage?
+    func setModel(model: String, provider: String?) async -> ModelInfoMessage?
     func setImageGenModel(modelId: String) async -> ModelInfoMessage?
     func fetchTelegramConfig() async -> TelegramConfigResponseMessage?
     func setTelegramConfig(action: String, botToken: String?, commands: [TelegramConfigRequestCommand]?) async -> TelegramConfigResponseMessage?
@@ -58,10 +58,12 @@ public struct SettingsClient: SettingsClientProtocol {
         }
     }
 
-    public func setModel(model: String) async -> ModelInfoMessage? {
+    public func setModel(model: String, provider: String? = nil) async -> ModelInfoMessage? {
         do {
+            var body: [String: Any] = ["modelId": model]
+            if let provider { body["provider"] = provider }
             let response = try await GatewayHTTPClient.put(
-                path: "model", json: ["modelId": model], timeout: 10
+                path: "model", json: body, timeout: 10
             )
             guard response.isSuccess else {
                 log.error("setModel failed (HTTP \(response.statusCode))")
