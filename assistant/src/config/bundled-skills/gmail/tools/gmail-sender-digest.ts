@@ -58,10 +58,9 @@ export async function run(
   const inputPageToken = input.page_token as string | undefined;
 
   try {
-    const connection = await resolveOAuthConnection(
-      "integration:google",
+    const connection = await resolveOAuthConnection("integration:google", {
       account,
-    );
+    });
     // Pipeline: fire metadata fetches for each page of IDs as they arrive,
     // overlapping fetch latency with pagination latency
     const allMessageIds: string[] = [];

@@ -6,7 +6,6 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 let mockProvider: Record<string, unknown> | undefined;
 let mockConnection: Record<string, unknown> | undefined;
-let mockApp: Record<string, unknown> | undefined;
 let mockAccessToken: string | undefined;
 let mockConfig: Record<string, unknown> = {};
 let mockManagedProxyCtx = {
@@ -29,9 +28,19 @@ mock.module("../util/logger.js", () => ({
 
 mock.module("./oauth-store.js", () => ({
   getProvider: () => mockProvider,
-  getConnectionByProvider: () => mockConnection,
-  getConnectionByProviderAndAccount: () => mockConnection,
-  getApp: () => mockApp,
+  getConnectionByProvider: (_pk: string, clientId?: string) => {
+    if (clientId && mockConnection?.clientId !== clientId) return undefined;
+    return mockConnection;
+  },
+  getConnectionByProviderAndAccount: (
+    _pk: string,
+    account?: string,
+    clientId?: string,
+  ) => {
+    if (clientId && mockConnection?.clientId !== clientId) return undefined;
+    if (account && mockConnection?.accountInfo !== account) return undefined;
+    return mockConnection;
+  },
 }));
 
 mock.module("../security/secure-keys.js", () => ({
@@ -75,10 +84,7 @@ function setupDefaults(): void {
     accountInfo: "user@example.com",
     grantedScopes: JSON.stringify(["scope-a", "scope-b"]),
     status: "active",
-  };
-  mockApp = {
-    id: "app-1",
-    providerKey: "integration:google",
+    clientId: "client-1",
   };
   mockAccessToken = "tok-valid";
   mockConfig = {
@@ -132,13 +138,12 @@ describe("resolveOAuthConnection", () => {
     expect(result.grantedScopes).toEqual([]);
   });
 
-  test("passes accountInfo through to PlatformOAuthConnection", async () => {
+  test("passes account through to PlatformOAuthConnection", async () => {
     mockProvider!.managedServiceConfigKey = "google-oauth";
 
-    const result = await resolveOAuthConnection(
-      "integration:google",
-      "user@example.com",
-    );
+    const result = await resolveOAuthConnection("integration:google", {
+      account: "user@example.com",
+    });
     expect(result).toBeInstanceOf(PlatformOAuthConnection);
     expect(result.accountInfo).toBe("user@example.com");
   });
@@ -161,5 +166,30 @@ describe("resolveOAuthConnection", () => {
 
     const result = await resolveOAuthConnection("integration:google");
     expect(result).toBeInstanceOf(PlatformOAuthConnection);
+  });
+
+  test("managed path ignores clientId option", async () => {
+    mockProvider!.managedServiceConfigKey = "google-oauth";
+
+    const result = await resolveOAuthConnection("integration:google", {
+      clientId: "some-client-id",
+    });
+    expect(result).toBeInstanceOf(PlatformOAuthConnection);
+  });
+
+  test("BYO path narrows by clientId when provided", async () => {
+    const result = await resolveOAuthConnection("integration:google", {
+      clientId: "client-1",
+    });
+    expect(result).toBeInstanceOf(BYOOAuthConnection);
+    expect(result.id).toBe("conn-1");
+  });
+
+  test("BYO path returns no credential when clientId does not match", async () => {
+    await expect(
+      resolveOAuthConnection("integration:google", {
+        clientId: "wrong-client",
+      }),
+    ).rejects.toThrow(/No credential found/);
   });
 });

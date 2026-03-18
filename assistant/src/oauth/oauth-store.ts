@@ -456,15 +456,37 @@ export function getConnectionByProvider(
 
 /**
  * Get the active connection for a provider matching a specific account.
+ * When `clientId` is provided, only connections linked to the matching app are considered.
  * Falls back to getConnectionByProvider when accountInfo is undefined.
  */
 export function getConnectionByProviderAndAccount(
   providerKey: string,
   accountInfo?: string,
+  clientId?: string,
 ): OAuthConnectionRow | undefined {
-  if (!accountInfo) return getConnectionByProvider(providerKey);
+  if (!accountInfo) return getConnectionByProvider(providerKey, clientId);
 
   const db = getDb();
+
+  if (clientId) {
+    const app = getAppByProviderAndClientId(providerKey, clientId);
+    if (!app) return undefined;
+    return db
+      .select()
+      .from(oauthConnections)
+      .where(
+        and(
+          eq(oauthConnections.providerKey, providerKey),
+          eq(oauthConnections.accountInfo, accountInfo),
+          eq(oauthConnections.oauthAppId, app.id),
+          eq(oauthConnections.status, "active"),
+        ),
+      )
+      .orderBy(desc(oauthConnections.createdAt), sql`rowid DESC`)
+      .limit(1)
+      .get();
+  }
+
   return db
     .select()
     .from(oauthConnections)

@@ -22,10 +22,9 @@ export async function run(
   }
 
   try {
-    const connection = await resolveOAuthConnection(
-      "integration:google",
+    const connection = await resolveOAuthConnection("integration:google", {
       account,
-    );
+    });
     switch (action) {
       case "get": {
         const settings = await getVacation(connection);

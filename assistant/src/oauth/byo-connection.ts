@@ -26,7 +26,6 @@ export interface BYOOAuthConnectionOptions {
   baseUrl: string;
   accountInfo: string | null;
   grantedScopes: string[];
-  credentialService: string;
 }
 
 export class BYOOAuthConnection implements OAuthConnection {
@@ -36,7 +35,6 @@ export class BYOOAuthConnection implements OAuthConnection {
   readonly grantedScopes: string[];
 
   private readonly baseUrl: string;
-  private readonly credentialService: string;
 
   constructor(opts: BYOOAuthConnectionOptions) {
     this.id = opts.id;
@@ -44,12 +42,11 @@ export class BYOOAuthConnection implements OAuthConnection {
     this.baseUrl = opts.baseUrl;
     this.accountInfo = opts.accountInfo;
     this.grantedScopes = opts.grantedScopes;
-    this.credentialService = opts.credentialService;
   }
 
   async request(req: OAuthConnectionRequest): Promise<OAuthConnectionResponse> {
     return withValidToken(
-      this.credentialService,
+      this.providerKey,
       async (token) => {
         const effectiveBaseUrl = req.baseUrl ?? this.baseUrl;
         let fullUrl = `${effectiveBaseUrl}${req.path}`;
@@ -106,7 +103,7 @@ export class BYOOAuthConnection implements OAuthConnection {
   }
 
   async withToken<T>(fn: (token: string) => Promise<T>): Promise<T> {
-    return withValidToken(this.credentialService, fn, {
+    return withValidToken(this.providerKey, fn, {
       connectionId: this.id,
     });
   }

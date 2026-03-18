@@ -15,10 +15,9 @@ export async function run(
   if (!draftId) return err("draft_id is required.");
 
   try {
-    const connection = await resolveOAuthConnection(
-      "integration:google",
+    const connection = await resolveOAuthConnection("integration:google", {
       account,
-    );
+    });
     const msg = await sendDraft(connection, draftId);
     return ok(`Draft sent (Message ID: ${msg.id}).`);
   } catch (e) {

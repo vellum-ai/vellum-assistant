@@ -6,27 +6,45 @@ import { getSecureKeyAsync } from "../security/secure-keys.js";
 import { BYOOAuthConnection } from "./byo-connection.js";
 import type { OAuthConnection } from "./connection.js";
 import {
-  getApp,
   getConnectionByProvider,
   getConnectionByProviderAndAccount,
   getProvider,
 } from "./oauth-store.js";
 import { PlatformOAuthConnection } from "./platform-connection.js";
 
+export interface ResolveOAuthConnectionOptions {
+  /** OAuth app client ID — narrows to a specific app when multiple BYO apps
+   *  exist for the same provider. */
+  clientId?: string;
+  /** Account identifier (e.g. email, username) — disambiguates when multiple
+   *  accounts are connected for the same provider. Best-effort: not guaranteed
+   *  to be present on all connections. */
+  account?: string;
+}
+
 /**
- * Resolve an OAuthConnection for a given credential service.
+ * Resolve an OAuthConnection for a given provider.
  *
  * Managed providers (where the service config `mode` is `"managed"`) are
  * routed through the platform proxy with no local state required.
  *
  * BYO providers resolve from the local SQLite oauth-store and require an
  * active connection row and a stored access token.
+ *
+ * @param providerKey - Provider identifier (e.g. "integration:google").
+ *   Maps to the `provider_key` primary key in the `oauth_providers` table.
+ * @param options.clientId - Optional OAuth app client ID. When multiple BYO
+ *   apps exist for the same provider, narrows the connection lookup to the
+ *   app matching this client ID. Ignored for managed providers.
+ * @param options.account - Optional account identifier to disambiguate
+ *   multi-account connections.
  */
 export async function resolveOAuthConnection(
-  credentialService: string,
-  accountInfo?: string,
+  providerKey: string,
+  options?: ResolveOAuthConnectionOptions,
 ): Promise<OAuthConnection> {
-  const provider = getProvider(credentialService);
+  const { clientId, account } = options ?? {};
+  const provider = getProvider(providerKey);
   const managedKey = provider?.managedServiceConfigKey;
 
   if (managedKey && managedKey in ServicesSchema.shape) {
@@ -35,10 +53,10 @@ export async function resolveOAuthConnection(
       const ctx = await resolveManagedProxyContext();
       const assistantId = getPlatformAssistantId();
       return new PlatformOAuthConnection({
-        id: credentialService,
-        providerKey: credentialService,
-        externalId: credentialService,
-        accountInfo: accountInfo ?? null,
+        id: providerKey,
+        providerKey,
+        externalId: providerKey,
+        accountInfo: account ?? null,
         grantedScopes: [],
         assistantId,
         platformBaseUrl: ctx.platformBaseUrl,
@@ -48,12 +66,12 @@ export async function resolveOAuthConnection(
   }
 
   // BYO path — requires a local connection row, access token, and base URL.
-  const conn = accountInfo
-    ? getConnectionByProviderAndAccount(credentialService, accountInfo)
-    : getConnectionByProvider(credentialService);
+  const conn = account
+    ? getConnectionByProviderAndAccount(providerKey, account, clientId)
+    : getConnectionByProvider(providerKey, clientId);
   if (!conn) {
     throw new Error(
-      `No credential found for "${credentialService}". Authorization required.`,
+      `No credential found for "${providerKey}". Authorization required.`,
     );
   }
 
@@ -62,17 +80,13 @@ export async function resolveOAuthConnection(
   );
   if (!accessToken) {
     throw new Error(
-      `No access token found for "${credentialService}". Authorization required.`,
+      `No access token found for "${providerKey}". Authorization required.`,
     );
   }
 
-  // When credentialService is a custom override (e.g. "integration:github-work")
-  // with no provider row, fall back to the app's canonical providerKey for baseUrl.
-  const byoProvider =
-    provider ?? getProvider(getApp(conn.oauthAppId)?.providerKey ?? "");
-  const baseUrl = byoProvider?.baseUrl;
+  const baseUrl = provider?.baseUrl;
   if (!baseUrl) {
-    throw new Error(`No base URL configured for "${credentialService}".`);
+    throw new Error(`No base URL configured for "${providerKey}".`);
   }
 
   const grantedScopes: string[] = conn.grantedScopes
@@ -85,6 +99,5 @@ export async function resolveOAuthConnection(
     baseUrl,
     accountInfo: conn.accountInfo,
     grantedScopes,
-    credentialService,
   });
 }
