@@ -623,7 +623,18 @@ describe("access-request-helper unit tests", () => {
     expect(telegram!.status).toBe("sent");
   });
 
-  test("notifyGuardianOfAccessRequest creates vellum fallback when guardian not verified on source channel (telegram)", async () => {
+  test("notifyGuardianOfAccessRequest skips vellum fallback for same-channel-only routing (telegram)", async () => {
+    // Set up a telegram guardian binding with the anchor principal so
+    // guardianResolutionSource resolves to "source-channel-contact" and
+    // sameChannelOnly is true.
+    createGuardianBinding({
+      channel: "telegram",
+      guardianExternalUserId: "guardian-user-456",
+      guardianDeliveryChatId: "guardian-chat-456",
+      guardianPrincipalId: anchorPrincipalId,
+      verifiedVia: "test",
+    });
+
     mockEmitResult = {
       signalId: "sig-no-vellum",
       deduplicated: false,
@@ -657,9 +668,8 @@ describe("access-request-helper unit tests", () => {
       (d) => d.destinationChannel === "telegram",
     );
 
-    // Guardian not verified on telegram → routes to vellum as fallback
-    expect(vellum).toBeDefined();
-    expect(vellum!.status).toBe("failed");
+    // Guardian IS verified on telegram → sameChannelOnly, no vellum fallback
+    expect(vellum).toBeUndefined();
     expect(telegram).toBeDefined();
     expect(telegram!.destinationChatId).toBe("guardian-chat-456");
     expect(telegram!.status).toBe("sent");

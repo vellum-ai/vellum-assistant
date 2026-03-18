@@ -39,7 +39,42 @@ Based on the chosen channel, ask for the required destination:
 - **Telegram**: Ask for their Telegram chat ID (numeric) or @handle. Explain:
   - If they know their numeric chat ID, provide it directly. The bot will send the code to that chat.
   - If they only know their @handle, the flow uses a bootstrap deep-link that they must click first.
-- **Slack**: Ask for their Slack user ID. Explain that this is their Slack member ID (e.g. U01ABCDEF), not their display name or email. They can find it in their Slack profile under "More" > "Copy member ID". The bot will send a verification code via Slack DM.
+- **Slack**: Offer to look up the user's Slack member ID automatically to reduce friction:
+
+  1. **Auto-lookup (preferred)**: Ask the user for their Slack display name or @handle, then look up their member ID using the Slack API:
+
+     ```bash
+     # Get the bot token from the credential store
+     BOT_TOKEN=$(assistant credentials reveal --service slack_channel --field bot_token 2>/dev/null)
+     # Search for matching users (paginate through all workspace members)
+     CURSOR=""
+     MATCHES="[]"
+     while true; do
+       RESPONSE=$(curl -s -H "Authorization: Bearer $BOT_TOKEN" \
+         "https://slack.com/api/users.list?limit=200${CURSOR:+&cursor=$CURSOR}")
+       PAGE_MATCHES=$(echo "$RESPONSE" | jq --arg name "<name>" --arg handle "<handle>" '[.members[] | select(.deleted == false) | select(.profile.display_name == $name or .name == $handle or .profile.display_name_normalized == $name or .real_name == $name) | {id: .id, name: .name, display_name: .profile.display_name, real_name: .real_name}]')
+       MATCHES=$(echo "$MATCHES $PAGE_MATCHES" | jq -s 'add')
+       CURSOR=$(echo "$RESPONSE" | jq -r '.response_metadata.next_cursor // empty')
+       [ -z "$CURSOR" ] && break
+     done
+     echo "$MATCHES" | jq '.[]'
+     ```
+
+     Replace `<name>` and `<handle>` with the value the user provided (try matching against all fields).
+
+     - **Single match**: Present it for confirmation: "I found @username (U01ABCDEF) — is that you?" If confirmed, use the `id` value as the destination for Step 3.
+     - **Multiple matches**: Present the list (up to 5) and ask the user to pick: "I found a few matches — which one is you?" Use the confirmed `id` as the destination.
+     - **No matches**: Tell the user no matches were found. Suggest they double-check the spelling, or fall back to manual entry (see below).
+
+  2. **Fallback to manual entry** if any of the following occur:
+     - The `BOT_TOKEN` retrieval fails (credential store returns an error or empty)
+     - The `users.list` API call fails or returns an error
+     - Too many matches are returned (more than 5)
+     - The user prefers to enter their ID directly
+
+     For manual entry: ask for their Slack user ID. Explain that this is their Slack member ID (e.g. U01ABCDEF), not their display name or email. They can find it in their Slack profile under "More" > "Copy member ID".
+
+  The bot will send a verification code via Slack DM once the member ID is resolved.
 
 ## Step 3: Start Outbound Verification
 
