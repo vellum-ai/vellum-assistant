@@ -1794,13 +1794,15 @@ extension ChatViewModel {
                    messages.last?.toolCalls.isEmpty == true {
                     messages.removeAll(where: { $0.id == existingId })
                 }
-                let errorMsg = ChatMessage(role: .assistant, text: msg.userMessage, isError: true, conversationError: typedError)
-                messages.append(errorMsg)
-                // Mark the error as displayed inline so the toast overlay
-                // suppresses its duplicate display, while keeping the typed
-                // error state available for downstream consumers (credits-
-                // exhausted recovery, sidebar state, iOS banner).
-                errorManager.isConversationErrorDisplayedInline = true
+                if shouldCreateInlineErrorMessage?(typedError) ?? true {
+                    let errorMsg = ChatMessage(role: .assistant, text: msg.userMessage, isError: true, conversationError: typedError)
+                    messages.append(errorMsg)
+                    // Mark the error as displayed inline so the toast overlay
+                    // suppresses its duplicate display, while keeping the typed
+                    // error state available for downstream consumers (credits-
+                    // exhausted recovery, sidebar state, iOS banner).
+                    errorManager.isConversationErrorDisplayedInline = true
+                }
             }
             for i in messages.indices {
                 if messages[i].role == .user && messages[i].status == .processing {

@@ -1212,6 +1212,11 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
             guard let self, let viewModel else { return false }
             return self.isLatestToolUseRecipient(viewModel)
         }
+        viewModel.shouldCreateInlineErrorMessage = { error in
+            // Credits-exhausted errors use the dedicated CreditsExhaustedBanner
+            // instead of the generic InlineChatErrorAlert
+            !error.isCreditsExhausted
+        }
         viewModel.onInlineConfirmationResponse = { [weak self] requestId, decision in
             // The decision was already sent to the daemon by ChatViewModel.
             // Forward to the app layer so it can dismiss the native notification

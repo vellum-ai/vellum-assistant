@@ -348,6 +348,12 @@ public final class ChatViewModel: ObservableObject {
         set { errorManager.connectionDiagnosticHint = newValue }
     }
 
+    /// Platform-provided policy controlling whether a conversation error should
+    /// produce an inline ChatMessage in the message list. When this returns false,
+    /// the error is still set on errorManager (for toasts, banners, sidebar state)
+    /// but no ChatMessage is appended. Defaults to true for all errors.
+    public var shouldCreateInlineErrorMessage: ((ConversationError) -> Bool)?
+
     /// Maximum image size before compression (4 MB - leaves headroom for base64 encoding).
     /// Anthropic has a 5MB limit per image; base64 encoding adds ~33% overhead.
     static let maxImageSize = ChatAttachmentManager.maxImageSize
