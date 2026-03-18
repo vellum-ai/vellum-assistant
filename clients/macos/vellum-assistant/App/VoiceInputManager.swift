@@ -553,11 +553,13 @@ final class VoiceInputManager {
         let speechStatus = SFSpeechRecognizer.authorizationStatus()
 
         if micStatus == .notDetermined || speechStatus == .notDetermined {
-            // Skip custom overlay — go straight to the native system permission dialogs.
+            // Show a primer explaining why we need mic access, then request.
             currentDictationContext = nil
-            Task { @MainActor [weak self] in
-                await self?.requestPermissionsAndRecord()
-            }
+            permissionOverlay.show(kind: .firstUse, onDismiss: {}, onContinue: { [weak self] in
+                Task { @MainActor in
+                    await self?.requestPermissionsAndRecord()
+                }
+            })
             return
         }
         let micDenied = micStatus == .denied || micStatus == .restricted
@@ -571,7 +573,7 @@ final class VoiceInputManager {
             } else {
                 deniedPermission = .speechRecognition
             }
-            permissionOverlay.show(kind: deniedPermission, onDismiss: {})
+            permissionOverlay.show(kind: .denied(deniedPermission), onDismiss: {}, onContinue: {})
             currentDictationContext = nil
             return
         }
@@ -699,7 +701,7 @@ final class VoiceInputManager {
         let micGranted = await AVCaptureDevice.requestAccess(for: .audio)
         guard micGranted else {
             log.warning("Microphone access denied by user")
-            permissionOverlay.show(kind: .microphone, onDismiss: {})
+            permissionOverlay.show(kind: .denied(.microphone), onDismiss: {}, onContinue: {})
             return
         }
 
@@ -710,7 +712,7 @@ final class VoiceInputManager {
         }
         guard speechGranted else {
             log.warning("Speech recognition access denied by user")
-            permissionOverlay.show(kind: .speechRecognition, onDismiss: {})
+            permissionOverlay.show(kind: .denied(.speechRecognition), onDismiss: {}, onContinue: {})
             return
         }
 
