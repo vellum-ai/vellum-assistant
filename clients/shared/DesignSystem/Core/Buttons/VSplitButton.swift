@@ -3,6 +3,7 @@ import SwiftUI
 public struct VSplitButton<MenuContent: View>: View {
     public let label: String
     public var icon: String?
+    public var iconOnly: String?
     public var style: VButton.Style
     public var size: VButton.Size
     public var isDisabled: Bool
@@ -16,6 +17,7 @@ public struct VSplitButton<MenuContent: View>: View {
     public init(
         label: String,
         icon: String? = nil,
+        iconOnly: String? = nil,
         style: VButton.Style = .primary,
         size: VButton.Size = .regular,
         isDisabled: Bool = false,
@@ -25,6 +27,7 @@ public struct VSplitButton<MenuContent: View>: View {
     ) {
         self.label = label
         self.icon = icon
+        self.iconOnly = iconOnly
         self.style = style
         self.size = size
         self.isDisabled = isDisabled
@@ -35,8 +38,8 @@ public struct VSplitButton<MenuContent: View>: View {
 
     /// Matches VButton's ButtonLayoutModifier: regular=32, compact/pill=24.
     private var zoneHeight: CGFloat { size == .regular ? 32 : 24 }
-    /// Dropdown zone is square (width == height).
-    private var dropdownWidth: CGFloat { zoneHeight }
+    /// Dropdown zone width — narrower than the primary zone for a slimmer chevron area.
+    private var dropdownWidth: CGFloat { iconOnly != nil ? 20 : zoneHeight }
 
     public var body: some View {
         let cornerRadius = VRadius.md
@@ -45,16 +48,22 @@ public struct VSplitButton<MenuContent: View>: View {
         HStack(spacing: 0) {
             // Primary action zone
             Button(action: action) {
-                HStack(spacing: VSpacing.sm) {
-                    if let icon {
-                        VIconView(.resolve(icon), size: 13)
+                Group {
+                    if let iconOnly {
+                        VIconView(.resolve(iconOnly), size: 13)
+                    } else {
+                        HStack(spacing: VSpacing.sm) {
+                            if let icon {
+                                VIconView(.resolve(icon), size: 13)
+                            }
+                            Text(label)
+                                .font(size == .regular ? VFont.bodyMedium : VFont.captionMedium)
+                        }
                     }
-                    Text(label)
-                        .font(size == .regular ? VFont.bodyMedium : VFont.captionMedium)
                 }
                 .foregroundColor(foregroundColor)
-                .padding(.horizontal, size == .regular ? VSpacing.md : VSpacing.sm)
-                .frame(height: zoneHeight)
+                .padding(.horizontal, iconOnly != nil ? 0 : (size == .regular ? VSpacing.md : VSpacing.sm))
+                .frame(width: iconOnly != nil ? zoneHeight : nil, height: zoneHeight)
                 .background(zoneBackgroundColor(isHovered: isPrimaryHovered))
             }
             .buttonStyle(.plain)

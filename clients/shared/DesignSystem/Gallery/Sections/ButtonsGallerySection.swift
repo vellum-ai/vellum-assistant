@@ -267,8 +267,39 @@ struct ButtonsGallerySection: View {
                             }
                         }
                     }
+
+                    Divider().background(VColor.borderBase)
+
+                    Text("Icon Only")
+                        .font(VFont.headline)
+                        .foregroundColor(VColor.contentSecondary)
+
+                    HStack(spacing: VSpacing.lg) {
+                        VStack(alignment: .leading, spacing: VSpacing.md) {
+                            Text("Primary").font(VFont.caption).foregroundColor(VColor.contentTertiary)
+                            VSplitButton(label: "Microphone", iconOnly: VIcon.mic.rawValue, style: .primary, action: {}) {
+                                Button("Dictation") {}
+                                Button("Live voice") {}
+                            }
+                        }
+                        VStack(alignment: .leading, spacing: VSpacing.md) {
+                            Text("Ghost").font(VFont.caption).foregroundColor(VColor.contentTertiary)
+                            VSplitButton(label: "Microphone", iconOnly: VIcon.mic.rawValue, style: .ghost, action: {}) {
+                                Button("Dictation") {}
+                                Button("Live voice") {}
+                            }
+                        }
+                        VStack(alignment: .leading, spacing: VSpacing.md) {
+                            Text("Compact").font(VFont.caption).foregroundColor(VColor.contentTertiary)
+                            VSplitButton(label: "Microphone", iconOnly: VIcon.mic.rawValue, style: .primary, size: .compact, action: {}) {
+                                Button("Dictation") {}
+                                Button("Live voice") {}
+                            }
+                        }
+                    }
                 }
             }
+
         }
     }
 

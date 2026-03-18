@@ -80,6 +80,7 @@ struct ComposerView: View {
     @State private var preDictationText: String = ""
     /// Live amplitude from VoiceInputManager, bypassing ChatViewModel's 100ms coalescing.
     @State private var liveAmplitude: Float = 0
+    @AppStorage("preferredMicMode") private var preferredMicMode: String = "dictation"
     @State private var isComposerDropTargeted = false
 
     /// The portion of the suggestion that extends beyond the current input.
@@ -482,26 +483,42 @@ struct ComposerView: View {
                     iconSize: composerActionButtonSize,
                     action: onStop
                 )
-            } else if canSend {
+            } else if !hasPendingConfirmation {
+                VSplitButton(
+                    label: preferredMicMode == "dictation" ? "Start dictation" : "Start live voice",
+                    iconOnly: VIcon.mic.rawValue,
+                    style: .ghost,
+                    isDisabled: !hasAPIKey,
+                    action: { handleMicTap() }
+                ) {
+                    Toggle("Dictation", isOn: Binding(
+                        get: { preferredMicMode == "dictation" },
+                        set: { if $0 {
+                            preferredMicMode = "dictation"
+                            (onDictateToggle ?? onMicrophoneToggle)()
+                        }}
+                    ))
+                    Toggle("Live voice", isOn: Binding(
+                        get: { preferredMicMode == "live_voice" },
+                        set: { if $0 {
+                            preferredMicMode = "live_voice"
+                            onVoiceModeToggle?()
+                        }}
+                    ))
+                }
+
+                Spacer().frame(width: VSpacing.sm)
+
                 VButton(
                     label: "Send message",
                     iconOnly: VIcon.arrowUp.rawValue,
                     style: .primary,
+                    isDisabled: !canSend,
                     iconSize: composerActionButtonSize
                 ) {
                     composerFocus = true
                     onSend()
                 }
-            } else if inputText.isEmpty && !hasPendingConfirmation {
-                VButton(
-                    label: micButtonLabel,
-                    iconOnly: VIcon.mic.rawValue,
-                    style: .ghost,
-                    iconSize: composerActionButtonSize,
-                    action: { handleMicTap() }
-                )
-                .disabled(!hasAPIKey)
-                .help("Tap: dictation. Tap again: live voice. Tap in live: off")
             } else {
                 VButton(
                     label: isRecording ? "Stop recording" : "Start voice input",
@@ -515,30 +532,14 @@ struct ComposerView: View {
         }
     }
 
-    // MARK: - Mic Button 3-State Toggle
+    // MARK: - Mic Button
 
-    /// Accessibility label for the mic button based on current mode.
-    private var micButtonLabel: String {
-        switch currentMode {
-        case .textEntry: return "Start dictation"
-        case .dictationInline: return "Switch to live voice"
-        case .voiceConversation: return "End voice mode"
-        }
-    }
-
-    /// Cycles the mic button through: off → dictation → live voice → off.
+    /// Fires the primary mic action based on the user's preferred mode.
     private func handleMicTap() {
-        switch currentMode {
-        case .textEntry:
-            // Start dictation
-            (onDictateToggle ?? onMicrophoneToggle)()
-        case .dictationInline:
-            // Stop dictation, then activate live voice
-            (onDictateToggle ?? onMicrophoneToggle)()
+        if preferredMicMode == "live_voice" {
             onVoiceModeToggle?()
-        case .voiceConversation:
-            // Turn off voice mode
-            onVoiceModeToggle?()
+        } else {
+            (onDictateToggle ?? onMicrophoneToggle)()
         }
     }
 
@@ -578,22 +579,6 @@ VStreamingWaveform(
                             (onDictateToggle ?? onMicrophoneToggle)()
                         }
                     )
-
-                    // Live voice: stop dictation and switch to voice mode
-                    if onVoiceModeToggle != nil {
-                        VButton(
-                            label: "Switch to live voice",
-                            iconOnly: VIcon.mic.rawValue,
-                            style: .ghost,
-                            iconSize: composerActionButtonSize,
-                            action: {
-                                preDictationText = ""
-                                (onDictateToggle ?? onMicrophoneToggle)()
-                                onVoiceModeToggle?()
-                            }
-                        )
-                        .help("Switch to live voice conversation")
-                    }
 
                     // Accept: stop dictation and keep transcribed text
                     VButton(
