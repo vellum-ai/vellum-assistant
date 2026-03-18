@@ -187,7 +187,6 @@ struct IntelligencePanel: View {
                 isEmailEnabled: isEmailEnabled,
                 showToast: showToast
             )
-            .padding(.top, VSpacing.sm)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
 
         case .memories:
