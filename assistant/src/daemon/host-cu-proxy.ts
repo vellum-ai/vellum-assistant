@@ -10,6 +10,7 @@
 import { v4 as uuid } from "uuid";
 
 import { escapeAxTreeContent } from "../agent/loop.js";
+import { loadConfig } from "../config/loader.js";
 import type { ContentBlock } from "../providers/types.js";
 import type { ToolExecutionResult } from "../tools/types.js";
 import { AssistantError, ErrorCode } from "../util/errors.js";
@@ -23,7 +24,6 @@ const log = getLogger("host-cu-proxy");
 // ---------------------------------------------------------------------------
 
 const REQUEST_TIMEOUT_SEC = 60;
-const MAX_STEPS = 50;
 const MAX_HISTORY_ENTRIES = 10;
 const LOOP_DETECTION_WINDOW = 3;
 const CONSECUTIVE_UNCHANGED_WARNING_THRESHOLD = 2;
@@ -79,7 +79,7 @@ export class HostCuProxy {
   constructor(
     sendToClient: (msg: ServerMessage) => void,
     onInternalResolve?: (requestId: string) => void,
-    maxSteps = MAX_STEPS,
+    maxSteps = loadConfig().maxStepsPerSession,
   ) {
     this.sendToClient = sendToClient;
     this.onInternalResolve = onInternalResolve;

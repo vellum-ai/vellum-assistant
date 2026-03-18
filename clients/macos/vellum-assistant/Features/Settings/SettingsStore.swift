@@ -69,7 +69,6 @@ public final class SettingsStore: ObservableObject {
 
     // MARK: - Settings Values
 
-    @Published var maxSteps: Double
     @Published var globalHotkeyShortcut: String
     @Published var quickInputHotkeyShortcut: String
     @Published var quickInputHotkeyKeyCode: Int
@@ -352,9 +351,6 @@ public final class SettingsStore: ObservableObject {
         // selectedImageGenModel is initialized with a hardcoded default and
         // populated from the daemon's workspace config via loadServiceModes().
 
-        let storedMaxSteps = UserDefaults.standard.double(forKey: "maxStepsPerSession")
-        self.maxSteps = storedMaxSteps == 0 ? 50 : storedMaxSteps
-
         self.cmdEnterToSend = UserDefaults.standard.object(forKey: "cmdEnterToSend") as? Bool ?? false
 
         if UserDefaults.standard.object(forKey: "globalHotkeyShortcut") == nil {
@@ -427,13 +423,6 @@ public final class SettingsStore: ObservableObject {
             .sink { [weak self] _ in
                 self?.loadProviderRoutingSources()
             }
-            .store(in: &cancellables)
-
-        // maxStepsPerSession is read at conversation startup, so it must be persisted synchronously
-        // to avoid a race where a new conversation reads a stale value before the debounced write fires.
-        $maxSteps
-            .dropFirst()
-            .sink { value in UserDefaults.standard.set(value, forKey: "maxStepsPerSession") }
             .store(in: &cancellables)
 
         // Debounce UserDefaults writes so rapid toggle changes don't thrash disk I/O.
