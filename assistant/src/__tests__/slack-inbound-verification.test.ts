@@ -163,11 +163,11 @@ describe("Slack inbound trusted contact verification", () => {
     // Verification code is NOT sent to the requester — only the guardian
     // receives it via the access request notification flow
 
-    // Channel reply tells user the owner has been notified
+    // Channel reply tells user they're not recognized yet
     expect(deliverReplyCalls.length).toBe(1);
     expect(
       (deliverReplyCalls[0].payload as Record<string, unknown>).text,
-    ).toContain("notified the owner");
+    ).toContain("I don't recognize you yet");
   });
 
   test("verification session is identity-bound to the Slack user", async () => {
