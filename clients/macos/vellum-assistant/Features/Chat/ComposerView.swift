@@ -534,7 +534,7 @@ struct ComposerView: View {
             (onDictateToggle ?? onMicrophoneToggle)()
         case .dictationInline:
             // Stop dictation, then activate live voice
-            onMicrophoneToggle()
+            (onDictateToggle ?? onMicrophoneToggle)()
             onVoiceModeToggle?()
         case .voiceConversation:
             // Turn off voice mode
