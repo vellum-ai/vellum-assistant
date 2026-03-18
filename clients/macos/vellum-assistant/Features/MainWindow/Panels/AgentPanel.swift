@@ -268,134 +268,144 @@ struct AgentPanelContent: View {
     @ViewBuilder
     private func installedSkillDetailView(_ skill: SkillInfo) -> some View {
         VStack(alignment: .leading, spacing: VSpacing.sm) {
-
-            // Title row with back button
-            HStack(spacing: VSpacing.sm) {
-                VButton(
-                    label: "Back",
-                    iconOnly: VIcon.chevronLeft.rawValue,
-                    style: .ghost,
-                    tooltip: "Back to Skills"
-                ) {
-                    withAnimation(VAnimation.standard) {
-                        selectedInstalledSkillId = nil
-                    }
-                }
-
-                skillIcon(skill.emoji)
-
-                Text(skill.name)
-                    .font(VFont.cardTitle)
-                    .foregroundColor(VColor.contentDefault)
-
-                if skill.updateAvailable {
-                    Text("UPDATE")
-                        .font(VFont.small)
-                        .foregroundColor(VColor.systemNegativeHover)
-                }
-
-                // Source badge
-                Text(sourceLabel(skill.source))
-                    .font(VFont.small)
-                    .foregroundColor(sourceBadgeColor(skill.source))
-                    .padding(.horizontal, VSpacing.sm)
-                    .padding(.vertical, 2)
-                    .background(
-                        Capsule()
-                            .fill(sourceBadgeColor(skill.source).opacity(0.15))
-                    )
-
-                // Provenance badge
-                if let label = provenanceLabel(skill) {
-                    Text(label)
-                        .font(VFont.small)
-                        .foregroundColor(provenanceBadgeColor(skill))
-                        .padding(.horizontal, VSpacing.sm)
-                        .padding(.vertical, 2)
-                        .background(
-                            Capsule()
-                                .fill(provenanceBadgeColor(skill).opacity(0.15))
-                        )
-                }
-
-                Spacer()
-
-                if skill.source == "managed" {
-                    VButton(label: "Remove", icon: VIcon.trash.rawValue, style: .danger) {
-                        skillToDelete = skill
-                    }
+            // Back button above the main container
+            VButton(
+                label: "Back",
+                iconOnly: VIcon.chevronLeft.rawValue,
+                style: .ghost,
+                tooltip: "Back to Skills"
+            ) {
+                withAnimation(VAnimation.standard) {
+                    selectedInstalledSkillId = nil
                 }
             }
 
-            // Description
-            if !skill.description.isEmpty {
-                Text(skill.description)
-                    .font(VFont.body)
-                    .foregroundColor(VColor.contentDefault)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
+            // Main detail container
+            VStack(alignment: .leading, spacing: 0) {
+                // Header section
+                VStack(alignment: .leading, spacing: VSpacing.sm) {
+                    // Title row: icon + name + badges + remove button
+                    HStack(spacing: VSpacing.sm) {
+                        skillIcon(skill.emoji)
 
-            // Meta info
-            HStack(spacing: VSpacing.lg) {
-                if let installedVersion = skill.installedVersion, !installedVersion.isEmpty {
-                    skillMetaItem(icon: .tag, value: "v\(installedVersion)")
-                }
+                        Text(skill.name)
+                            .font(VFont.cardTitle)
+                            .foregroundColor(VColor.contentDefault)
 
-                if skill.updateAvailable {
-                    if let latestVersion = skill.latestVersion, !latestVersion.isEmpty {
-                        skillMetaItem(icon: .circleArrowUp, value: "v\(latestVersion) available", color: VColor.systemNegativeHover)
-                    } else {
-                        skillMetaItem(icon: .circleArrowUp, value: "Update available", color: VColor.systemNegativeHover)
-                    }
-                }
-
-                // Source link for third-party skills
-                if let provenance = skill.provenance,
-                   provenance.kind == "third-party",
-                   let urlString = provenance.sourceUrl,
-                   let url = URL(string: urlString) {
-                    Link(destination: url) {
-                        HStack(spacing: VSpacing.xs) {
-                            VIconView(.externalLink, size: 9)
-                            Text("View on \(provenance.provider ?? "source")")
+                        if skill.updateAvailable {
+                            Text("UPDATE")
                                 .font(VFont.small)
+                                .foregroundColor(VColor.systemNegativeHover)
                         }
-                        .foregroundColor(VColor.contentTertiary)
+
+                        // Source badge
+                        Text(sourceLabel(skill.source))
+                            .font(VFont.small)
+                            .foregroundColor(sourceBadgeColor(skill.source))
+                            .padding(.horizontal, VSpacing.sm)
+                            .padding(.vertical, 2)
+                            .background(
+                                Capsule()
+                                    .fill(sourceBadgeColor(skill.source).opacity(0.15))
+                            )
+
+                        // Provenance badge
+                        if let label = provenanceLabel(skill) {
+                            Text(label)
+                                .font(VFont.small)
+                                .foregroundColor(provenanceBadgeColor(skill))
+                                .padding(.horizontal, VSpacing.sm)
+                                .padding(.vertical, 2)
+                                .background(
+                                    Capsule()
+                                        .fill(provenanceBadgeColor(skill).opacity(0.15))
+                                )
+                        }
+
+                        Spacer()
+
+                        if skill.source == "managed" {
+                            VButton(label: "Remove", icon: VIcon.trash.rawValue, style: .danger) {
+                                skillToDelete = skill
+                            }
+                        }
                     }
-                    .buttonStyle(.plain)
+
+                    // Description
+                    if !skill.description.isEmpty {
+                        Text(skill.description)
+                            .font(VFont.body)
+                            .foregroundColor(VColor.contentDefault)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+
+                    // Meta info
+                    HStack(spacing: VSpacing.lg) {
+                        if let installedVersion = skill.installedVersion, !installedVersion.isEmpty {
+                            skillMetaItem(icon: .tag, value: "v\(installedVersion)")
+                        }
+
+                        if skill.updateAvailable {
+                            if let latestVersion = skill.latestVersion, !latestVersion.isEmpty {
+                                skillMetaItem(icon: .circleArrowUp, value: "v\(latestVersion) available", color: VColor.systemNegativeHover)
+                            } else {
+                                skillMetaItem(icon: .circleArrowUp, value: "Update available", color: VColor.systemNegativeHover)
+                            }
+                        }
+
+                        // Source link for third-party skills
+                        if let provenance = skill.provenance,
+                           provenance.kind == "third-party",
+                           let urlString = provenance.sourceUrl,
+                           let url = URL(string: urlString) {
+                            Link(destination: url) {
+                                HStack(spacing: VSpacing.xs) {
+                                    VIconView(.externalLink, size: 9)
+                                    Text("View on \(provenance.provider ?? "source")")
+                                        .font(VFont.small)
+                                }
+                                .foregroundColor(VColor.contentTertiary)
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
                 }
-            }
+                .padding(.top, VSpacing.lg)
+                .padding(.horizontal, VSpacing.lg)
+                .padding(.bottom, VSpacing.md)
 
-            // Two-pane content: file list + file content viewer
-            HStack(alignment: .top, spacing: VSpacing.md) {
-                // Left: file list (always fixed width)
-                skillFilesSection
-                    .frame(width: 280, alignment: .topLeading)
-                    .frame(maxHeight: .infinity)
+                Divider().background(VColor.borderBase)
 
-                // Right: file content viewer (always visible)
-                if let selectedPath = expandedFilePath,
-                   let filesResponse = skillsManager.selectedSkillFiles,
-                   let file = filesResponse.files.first(where: { $0.path == selectedPath }),
-                   !file.isBinary,
-                   let content = file.content {
-                    skillFileContentPane(file: file, content: content)
-                } else {
-                    // Empty state when no file is selected or all files are binary
-                    VEmptyState(
-                        title: hasViewableFiles ? "Select a file to view" : "No viewable files",
-                        icon: VIcon.fileText.rawValue
-                    )
-                    .background(VColor.surfaceOverlay)
-                    .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
-                    .overlay(
-                        RoundedRectangle(cornerRadius: VRadius.md)
-                            .stroke(VColor.borderBase, lineWidth: 1)
-                    )
+                // Two-pane file browser section (edge-to-edge within container)
+                HStack(alignment: .top, spacing: 0) {
+                    // Left: file list
+                    skillFilesSection
+                        .frame(width: 280, alignment: .topLeading)
+                        .frame(maxHeight: .infinity)
+
+                    Divider().background(VColor.borderBase)
+
+                    // Right: file content viewer
+                    if let selectedPath = expandedFilePath,
+                       let filesResponse = skillsManager.selectedSkillFiles,
+                       let file = filesResponse.files.first(where: { $0.path == selectedPath }),
+                       !file.isBinary,
+                       let content = file.content {
+                        skillFileContentPane(file: file, content: content)
+                    } else {
+                        // Empty state when no file is selected or all files are binary
+                        VEmptyState(
+                            title: hasViewableFiles ? "Select a file to view" : "No viewable files",
+                            icon: VIcon.fileText.rawValue
+                        )
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    }
                 }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-
+            .frame(maxWidth: .infinity)
+            .background(VColor.surfaceBase)
+            .clipShape(RoundedRectangle(cornerRadius: VRadius.lg))
         }
         .onAppear {
             skillsManager.fetchSkillFiles(skillId: skill.id)
@@ -498,11 +508,6 @@ struct AgentPanelContent: View {
         )
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .background(VColor.surfaceOverlay)
-        .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
-        .overlay(
-            RoundedRectangle(cornerRadius: VRadius.md)
-                .stroke(VColor.borderBase, lineWidth: 1)
-        )
     }
 
     @ViewBuilder
@@ -562,8 +567,6 @@ struct AgentPanelContent: View {
                 }
                 .frame(maxHeight: .infinity, alignment: .topLeading)
             }
-            .background(VColor.surfaceBase)
-            .clipShape(RoundedRectangle(cornerRadius: VRadius.lg))
         }
     }
 
