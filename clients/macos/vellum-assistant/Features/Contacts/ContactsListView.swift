@@ -95,7 +95,8 @@ struct ContactsListView: View {
             }
 
         }
-        .padding(VSpacing.lg)
+        .padding(.trailing, VSpacing.lg)
+        .padding(.bottom, VSpacing.lg)
         .frame(maxHeight: .infinity, alignment: .top)
     }
 
