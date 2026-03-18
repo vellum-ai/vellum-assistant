@@ -2174,25 +2174,66 @@ public final class SettingsStore: ObservableObject {
 
     /// Resolves the platform assistant UUID for OAuth endpoints.
     /// For managed assistants, the lockfile ID is the platform UUID.
-    /// For self-hosted local assistants, looks up the persisted mapping via PlatformAssistantIdResolver.
-    private func resolvePlatformAssistantId(userId: String?) -> String? {
+    /// For self-hosted local assistants, looks up the persisted mapping via PlatformAssistantIdResolver,
+    /// triggering bootstrap lazily if the mapping is not yet cached.
+    private func resolvePlatformAssistantId(userId: String?) async -> String? {
         guard let connectedId = UserDefaults.standard.string(forKey: "connectedAssistantId"), !connectedId.isEmpty,
               let assistant = LockfileAssistant.loadByName(connectedId) else {
             return nil
         }
+
+        #if DEBUG
+        let credentialStorage = FileCredentialStorage()
+        #else
+        let credentialStorage = KeychainCredentialStorage()
+        #endif
+
         let orgId = UserDefaults.standard.string(forKey: "connectedOrganizationId")
-        return PlatformAssistantIdResolver.resolve(
+
+        // Try the fast synchronous path first.
+        if let resolved = PlatformAssistantIdResolver.resolve(
             lockfileAssistantId: assistant.assistantId,
             isManaged: assistant.isManaged,
             organizationId: orgId,
             userId: userId,
-            credentialStorage: KeychainCredentialStorage()
+            credentialStorage: credentialStorage
+        ) {
+            return resolved
+        }
+
+        // For self-hosted assistants, the keychain mapping may not exist yet
+        // (bootstrap is async and may not have completed). Trigger bootstrap
+        // lazily and retry the resolve.
+        guard !assistant.isManaged else { return nil }
+
+        log.info("Platform assistant ID not cached — triggering lazy bootstrap for \(connectedId, privacy: .public)")
+        let bootstrapService = LocalAssistantBootstrapService(credentialStorage: credentialStorage)
+        do {
+            _ = try await bootstrapService.bootstrap(
+                runtimeAssistantId: assistant.assistantId,
+                clientPlatform: "macos"
+            )
+        } catch {
+            log.error("Lazy bootstrap failed: \(error.localizedDescription)")
+            return nil
+        }
+
+        // Re-resolve userId after bootstrap (it may have become available).
+        let postBootstrapUserId = userId ?? (try? await AuthService.shared.getSession())?.data?.user?.id
+        let postBootstrapOrgId = UserDefaults.standard.string(forKey: "connectedOrganizationId")
+
+        return PlatformAssistantIdResolver.resolve(
+            lockfileAssistantId: assistant.assistantId,
+            isManaged: assistant.isManaged,
+            organizationId: postBootstrapOrgId,
+            userId: postBootstrapUserId,
+            credentialStorage: credentialStorage
         )
     }
 
     func fetchGoogleOAuthConnections(userId: String? = nil) async {
         guard googleOAuthMode == "managed" else { return }
-        guard let assistantId = resolvePlatformAssistantId(userId: userId) else { return }
+        guard let assistantId = await resolvePlatformAssistantId(userId: userId) else { return }
 
         do {
             let connections = try await PlatformOAuthService.shared.listConnections(assistantId: assistantId)
@@ -2211,7 +2252,7 @@ public final class SettingsStore: ObservableObject {
             googleOAuthError = nil
             defer { googleOAuthIsConnecting = false }
 
-            guard let assistantId = resolvePlatformAssistantId(userId: userId) else {
+            guard let assistantId = await resolvePlatformAssistantId(userId: userId) else {
                 googleOAuthError = "No connected assistant"
                 return
             }
@@ -2262,7 +2303,7 @@ public final class SettingsStore: ObservableObject {
 
     func disconnectGoogleOAuthConnection(_ connectionId: String, userId: String? = nil) {
         Task {
-            guard let assistantId = resolvePlatformAssistantId(userId: userId) else {
+            guard let assistantId = await resolvePlatformAssistantId(userId: userId) else {
                 googleOAuthError = "No connected assistant"
                 return
             }
