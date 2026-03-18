@@ -1012,11 +1012,14 @@ public final class HTTPTransport {
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         applyAuth(&request)
 
-        let body: [String: Any] = [
+        var body: [String: Any] = [
             "filename": attachment.filename,
             "mimeType": attachment.mimeType,
             "data": attachment.data
         ]
+        if let filePath = attachment.filePath {
+            body["filePath"] = filePath
+        }
 
         do {
             request.httpBody = try JSONSerialization.data(withJSONObject: body)
