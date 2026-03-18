@@ -64,6 +64,12 @@ extension DaemonClient {
             #endif
         }
 
+        // Forward conversation ID resolution so ConversationManager can update
+        // from the synthetic ID to the real server-assigned ID.
+        transport.onConversationIdResolved = { [weak self] localId, serverId in
+            self?.onConversationIdResolved?(localId, serverId)
+        }
+
         // Persist refreshed bearer tokens so the client survives app restarts.
         transport.onTokenRefreshed = { newToken in
             #if os(iOS)

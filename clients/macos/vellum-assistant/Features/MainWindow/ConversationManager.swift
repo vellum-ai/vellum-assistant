@@ -256,6 +256,9 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
         enterDraftMode()
         conversationRestorer.delegate = self
         conversationRestorer.startObserving(skipInitialFetch: isFirstLaunch)
+        daemonClient.onConversationIdResolved = { [weak self] localId, serverId in
+            self?.resolveConversationId(from: localId, to: serverId)
+        }
     }
 
     func createConversation() {
@@ -1635,6 +1638,34 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
                 title: pendingTitle
             ))
         }
+    }
+
+    /// Replace the synthetic (client-generated) conversation ID with the real
+    /// server-assigned ID so that subsequent switch/rename/cancel requests use
+    /// an ID the daemon actually recognises.
+    private func resolveConversationId(from syntheticId: String, to serverId: String) {
+        guard let localId = conversations.firstIndex(where: { $0.conversationId == syntheticId }) else {
+            log.warning("resolveConversationId: no conversation found with synthetic ID \(syntheticId, privacy: .public)")
+            return
+        }
+        conversations[localId].conversationId = serverId
+
+        if let vm = chatViewModels.values.first(where: { $0.conversationId == syntheticId }) {
+            vm.conversationId = serverId
+        }
+
+        sendReorderConversations()
+
+        let uuidKey = conversations[localId].id
+        if let pendingTitle = pendingRenames.removeValue(forKey: uuidKey) {
+            try? daemonClient.send(ConversationRenameRequest(
+                type: "conversation_rename",
+                conversationId: serverId,
+                title: pendingTitle
+            ))
+        }
+
+        log.info("Resolved synthetic conversation ID \(syntheticId, privacy: .public) → \(serverId, privacy: .public)")
     }
 
     func mergeAssistantAttention(

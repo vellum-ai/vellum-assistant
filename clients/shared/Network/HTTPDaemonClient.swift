@@ -181,6 +181,11 @@ public final class HTTPTransport {
     /// Clients should persist the new token (e.g. to Keychain).
     var onTokenRefreshed: ((String) -> Void)?
 
+    /// Called when `sendMessage()` discovers the server-assigned conversation ID
+    /// differs from the client's local (synthetic) conversation ID.
+    /// Parameters: (localConversationId, serverConversationId).
+    var onConversationIdResolved: ((_ localId: String, _ serverId: String) -> Void)?
+
     /// Maps the daemon's server-side conversationId → client-local conversationId.
     /// Used to remap conversationId in incoming SSE events so ChatViewModel's
     /// belongsToConversation() filter passes. Supports multiple concurrent conversations.
@@ -1073,15 +1078,23 @@ public final class HTTPTransport {
                 if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
                    let serverConvId = json["conversationId"] as? String,
                    serverConvId != conversationId {
+                    // Temporarily store the mapping so any in-flight SSE events
+                    // that arrive before the resolution callback completes
+                    // can still be routed to the correct ChatViewModel.
                     self.serverToLocalConversationMap[serverConvId] = conversationId
-                    // Evict arbitrary entries when over cap to prevent unbounded growth.
-                    // Lost mappings are benign — unmapped events are filtered by belongsToConversation.
-                    while self.serverToLocalConversationMap.count > self.serverToLocalConversationMapCap {
-                        if let key = self.serverToLocalConversationMap.keys.first {
-                            self.serverToLocalConversationMap.removeValue(forKey: key)
-                        }
-                    }
-                    log.info("Mapped server conversation \(serverConvId, privacy: .public) → local conversation \(conversationId, privacy: .public)")
+                    self.locallyOwnedConversationIds.insert(serverConvId)
+
+                    // Notify observers (ChatViewModel/ConversationManager) so they
+                    // can update from the synthetic ID to the real server-assigned ID.
+                    // After this, all outgoing API calls (switch, rename, cancel, etc.)
+                    // will use the real ID that the daemon recognizes.
+                    self.onConversationIdResolved?(conversationId, serverConvId)
+
+                    // Remove the mapping — observers have updated to the real ID,
+                    // so SSE events can pass through with the real ID directly.
+                    self.serverToLocalConversationMap.removeValue(forKey: serverConvId)
+
+                    log.info("Resolved conversation \(conversationId, privacy: .public) → server ID \(serverConvId, privacy: .public)")
                 }
             } else if http.statusCode == 401 && !isRetry {
                 let refreshResult = await handleAuthenticationFailureAsync(responseData: data)
