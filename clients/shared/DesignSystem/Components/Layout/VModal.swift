@@ -6,8 +6,12 @@ import UIKit
 #endif
 
 /// Standardized modal container providing consistent chrome: title, optional
-/// subtitle, scrollable content area, and an optional footer. Follows the
-/// Figma modal specification — no dividers, no close button, no header bar.
+/// subtitle, scrollable content area, and an optional footer.
+///
+/// Supports optional navigation actions:
+/// - `closeAction`: Shows an X button in the header's trailing position.
+/// - `backAction`: Shows a "Back" button in the header's leading position,
+///   replacing the title.
 ///
 /// The modal caps its height at a percentage of the screen height (default
 /// 80%) so content scrolls rather than pushing the modal off-screen.
@@ -15,6 +19,8 @@ public struct VModal<Content: View, Footer: View>: View {
     public let title: String
     public let subtitle: String?
     public let maxHeightRatio: CGFloat
+    public let closeAction: (() -> Void)?
+    public let backAction: (() -> Void)?
     @ViewBuilder public let content: () -> Content
     @ViewBuilder public let footer: () -> Footer
 
@@ -22,12 +28,16 @@ public struct VModal<Content: View, Footer: View>: View {
         title: String,
         subtitle: String? = nil,
         maxHeightRatio: CGFloat = 0.8,
+        closeAction: (() -> Void)? = nil,
+        backAction: (() -> Void)? = nil,
         @ViewBuilder content: @escaping () -> Content,
         @ViewBuilder footer: @escaping () -> Footer
     ) {
         self.title = title
         self.subtitle = subtitle
         self.maxHeightRatio = maxHeightRatio
+        self.closeAction = closeAction
+        self.backAction = backAction
         self.content = content
         self.footer = footer
     }
@@ -46,15 +56,36 @@ public struct VModal<Content: View, Footer: View>: View {
 
     public var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            // Title area
-            VStack(alignment: .leading, spacing: VSpacing.xs) {
-                Text(title)
-                    .font(VFont.modalTitle)
-                    .foregroundColor(VColor.contentDefault)
-                if let subtitle {
-                    Text(subtitle)
-                        .font(VFont.body)
+            // Header area
+            HStack(alignment: .top) {
+                if let backAction {
+                    Button(action: backAction) {
+                        HStack(spacing: VSpacing.xs) {
+                            VIconView(.chevronLeft, size: 10)
+                            Text("Back")
+                                .font(VFont.bodyMedium)
+                        }
                         .foregroundColor(VColor.contentSecondary)
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .pointerCursor()
+                    .accessibilityLabel("Back")
+                } else {
+                    titleArea
+                }
+
+                Spacer(minLength: 0)
+
+                if let closeAction {
+                    Button(action: closeAction) {
+                        VIconView(.x, size: 12)
+                            .foregroundColor(VColor.contentTertiary)
+                            .frame(width: 32, height: 32)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Close")
                 }
             }
             .padding(.horizontal, VSpacing.xl)
@@ -84,6 +115,22 @@ public struct VModal<Content: View, Footer: View>: View {
                 .stroke(VColor.borderBase, lineWidth: 1)
         )
     }
+
+    @ViewBuilder
+    private var titleArea: some View {
+        VStack(alignment: .leading, spacing: VSpacing.xs) {
+            if !title.isEmpty {
+                Text(title)
+                    .font(VFont.modalTitle)
+                    .foregroundColor(VColor.contentDefault)
+            }
+            if let subtitle {
+                Text(subtitle)
+                    .font(VFont.body)
+                    .foregroundColor(VColor.contentSecondary)
+            }
+        }
+    }
 }
 
 // Convenience: no footer.
@@ -92,8 +139,10 @@ public extension VModal where Footer == EmptyView {
         title: String,
         subtitle: String? = nil,
         maxHeightRatio: CGFloat = 0.8,
+        closeAction: (() -> Void)? = nil,
+        backAction: (() -> Void)? = nil,
         @ViewBuilder content: @escaping () -> Content
     ) {
-        self.init(title: title, subtitle: subtitle, maxHeightRatio: maxHeightRatio, content: content, footer: { EmptyView() })
+        self.init(title: title, subtitle: subtitle, maxHeightRatio: maxHeightRatio, closeAction: closeAction, backAction: backAction, content: content, footer: { EmptyView() })
     }
 }

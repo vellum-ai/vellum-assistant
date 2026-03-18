@@ -18,56 +18,25 @@ struct AvatarManagementSheet: View {
     @State private var initialColor: AvatarColor?
 
     var body: some View {
-        VStack(spacing: 0) {
-            // Header with close/back button
-            HStack {
-                if showingCharacterBuilder {
-                    Button {
-                        withAnimation(VAnimation.fast) {
-                            draftImage = nil
-                            draftBody = nil
-                            draftEyes = nil
-                            draftColor = nil
-                            showingCharacterBuilder = false
-                        }
-                    } label: {
-                        HStack(spacing: VSpacing.xs) {
-                            VIconView(.chevronLeft, size: 10)
-                            Text("Back")
-                                .font(VFont.bodyMedium)
-                        }
-                        .foregroundColor(VColor.contentSecondary)
-                        .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
-                    .pointerCursor()
-                    .accessibilityLabel("Back to options")
-                } else {
-                    Text("Update Avatar")
-                        .font(VFont.cardTitle)
-                        .foregroundColor(VColor.contentDefault)
+        VModal(
+            title: showingCharacterBuilder ? "" : "Update Avatar",
+            closeAction: onClose,
+            backAction: showingCharacterBuilder ? {
+                withAnimation(VAnimation.fast) {
+                    draftImage = nil
+                    draftBody = nil
+                    draftEyes = nil
+                    draftColor = nil
+                    showingCharacterBuilder = false
                 }
-                Spacer()
-                Button(action: onClose) {
-                    VIconView(.x, size: 12)
-                        .foregroundColor(VColor.contentTertiary)
-                        .frame(width: 32, height: 32)
-                        .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel("Close")
-            }
-            .padding(.horizontal, VSpacing.xl)
-            .padding(.top, VSpacing.xl)
-            .padding(.bottom, VSpacing.lg)
-
+            } : nil
+        ) {
             if showingCharacterBuilder {
                 characterBuilder
             } else {
                 actionList
             }
         }
-        .background(VColor.surfaceBase)
     }
 
     // MARK: - Action List
@@ -108,7 +77,6 @@ struct AvatarManagementSheet: View {
                 }
 
                 Divider().background(VColor.borderBase)
-                    .padding(.horizontal, VSpacing.xl)
 
                 actionRow(
                     icon: "photo",
@@ -120,7 +88,6 @@ struct AvatarManagementSheet: View {
 
                 if appearance.customAvatarImage != nil {
                     Divider().background(VColor.borderBase)
-                        .padding(.horizontal, VSpacing.xl)
 
                     actionRow(
                         icon: VIcon.trash.rawValue,
@@ -161,7 +128,6 @@ struct AvatarManagementSheet: View {
 
             // Cycle controls for body, eyes, and color
             cycleControls
-                .padding(.horizontal, VSpacing.lg)
                 .padding(.bottom, VSpacing.lg)
 
             // Confirm and Discard buttons
@@ -176,7 +142,6 @@ struct AvatarManagementSheet: View {
                     onClose()
                 }
             }
-            .padding(.horizontal, VSpacing.lg)
             .padding(.vertical, VSpacing.lg)
         }
     }
@@ -358,7 +323,6 @@ struct AvatarManagementSheet: View {
                 VIconView(.chevronRight, size: 11)
                     .foregroundColor(VColor.contentTertiary)
             }
-            .padding(.horizontal, VSpacing.xl)
             .padding(.vertical, VSpacing.md)
             .contentShape(Rectangle())
         }
