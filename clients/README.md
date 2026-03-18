@@ -144,7 +144,7 @@ See [clients/ios/README.md](ios/README.md) for full build, packaging, and config
 - ✅ Responsive typography/spacing (compact scaling for iPhone, full size on iPad)
 - ✅ Integration tests (ChatViewModel, threads, attachments, formatting, usage dashboard)
 - ✅ Intelligence tab — installed skills management, community skill browser, contacts with channel policy editing
-- ✅ Things tab — local apps grid with pin/share/bundle, shared apps with fork, searchable documents list
+- ✅ Library — local apps grid with pin/share/bundle, shared apps with fork, searchable documents list
 - ✅ Settings parity — Models & Services, Privacy permissions, Channels & Guardian sections
 
 Depends only on `VellumAssistantShared` (no macOS frameworks).
