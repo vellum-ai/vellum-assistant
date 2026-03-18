@@ -1,24 +1,44 @@
 import SwiftUI
+#if os(macOS)
+import AppKit
+#else
+import UIKit
+#endif
 
 /// Standardized modal container providing consistent chrome: title, optional
 /// subtitle, scrollable content area, and an optional footer. Follows the
 /// Figma modal specification — no dividers, no close button, no header bar.
+///
+/// The modal caps its height at a percentage of the screen height (default
+/// 80%) so content scrolls rather than pushing the modal off-screen.
 public struct VModal<Content: View, Footer: View>: View {
     public let title: String
     public let subtitle: String?
+    public let maxHeightRatio: CGFloat
     @ViewBuilder public let content: () -> Content
     @ViewBuilder public let footer: () -> Footer
 
     public init(
         title: String,
         subtitle: String? = nil,
+        maxHeightRatio: CGFloat = 0.8,
         @ViewBuilder content: @escaping () -> Content,
         @ViewBuilder footer: @escaping () -> Footer
     ) {
         self.title = title
         self.subtitle = subtitle
+        self.maxHeightRatio = maxHeightRatio
         self.content = content
         self.footer = footer
+    }
+
+    private var screenMaxHeight: CGFloat {
+        #if os(macOS)
+        let screenHeight = NSScreen.main?.visibleFrame.height ?? 800
+        #else
+        let screenHeight = UIScreen.main.bounds.height
+        #endif
+        return screenHeight * maxHeightRatio
     }
 
     public var body: some View {
@@ -52,6 +72,7 @@ public struct VModal<Content: View, Footer: View>: View {
                     .padding(.vertical, VSpacing.lg)
             }
         }
+        .frame(maxHeight: screenMaxHeight)
         .background(VColor.surfaceOverlay)
         .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
         .overlay(
@@ -66,8 +87,9 @@ public extension VModal where Footer == EmptyView {
     init(
         title: String,
         subtitle: String? = nil,
+        maxHeightRatio: CGFloat = 0.8,
         @ViewBuilder content: @escaping () -> Content
     ) {
-        self.init(title: title, subtitle: subtitle, content: content, footer: { EmptyView() })
+        self.init(title: title, subtitle: subtitle, maxHeightRatio: maxHeightRatio, content: content, footer: { EmptyView() })
     }
 }
