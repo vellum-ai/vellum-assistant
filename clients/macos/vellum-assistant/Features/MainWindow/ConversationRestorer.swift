@@ -109,7 +109,7 @@ final class ConversationRestorer {
 
         Task { [weak self] in
             guard let self else { return }
-            let response = await self.conversationHistoryClient.fetchHistory(conversationId: conversationId, limit: 50, mode: "light", maxToolResultChars: 1000)
+            let response = await self.conversationHistoryClient.fetchHistory(conversationId: conversationId, limit: 50, beforeTimestamp: nil, mode: "light", maxTextChars: nil, maxToolResultChars: 1000)
             if let response {
                 self.handleHistoryResponse(response)
             } else {
@@ -127,7 +127,7 @@ final class ConversationRestorer {
         pendingHistoryByConversationId[conversationId] = conversation.id
         Task { [weak self] in
             guard let self else { return }
-            let response = await self.conversationHistoryClient.fetchHistory(conversationId: conversationId, limit: 50, mode: "light", maxToolResultChars: 1000)
+            let response = await self.conversationHistoryClient.fetchHistory(conversationId: conversationId, limit: 50, beforeTimestamp: nil, mode: "light", maxTextChars: nil, maxToolResultChars: 1000)
             if let response {
                 self.handleHistoryResponse(response)
             } else {
@@ -149,7 +149,7 @@ final class ConversationRestorer {
         pendingHistoryByConversationId[conversationId] = conversation.id
         Task { [weak self] in
             guard let self else { return }
-            let response = await self.conversationHistoryClient.fetchHistory(conversationId: conversationId, limit: 50, beforeTimestamp: beforeTimestamp, mode: "light", maxToolResultChars: 1000)
+            let response = await self.conversationHistoryClient.fetchHistory(conversationId: conversationId, limit: 50, beforeTimestamp: beforeTimestamp, mode: "light", maxTextChars: nil, maxToolResultChars: 1000)
             if let response {
                 self.handleHistoryResponse(response)
             } else {
