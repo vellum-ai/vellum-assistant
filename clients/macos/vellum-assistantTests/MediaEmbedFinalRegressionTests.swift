@@ -288,7 +288,7 @@ final class MediaEmbedFinalRegressionTests: XCTestCase {
 
     func testVideoEmbedURLBuilderYouTube() {
         let url = VideoEmbedURLBuilder.buildEmbedURL(provider: "youtube", videoID: "abc123")
-        XCTAssertEqual(url?.absoluteString, "https://www.youtube.com/embed/abc123?autoplay=1&rel=0")
+        XCTAssertEqual(url?.absoluteString, "https://www.youtube.com/embed/abc123?autoplay=1&rel=0&playsinline=1")
     }
 
     func testVideoEmbedURLBuilderVimeo() {

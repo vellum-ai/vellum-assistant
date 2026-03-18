@@ -1,6 +1,7 @@
 import XCTest
 import WebKit
 @testable import VellumAssistantLib
+@testable import VellumAssistantShared
 
 @MainActor
 final class InlineVideoWebViewNavigationTests: XCTestCase {
@@ -35,6 +36,29 @@ final class InlineVideoWebViewNavigationTests: XCTestCase {
         )
 
         XCTAssertNil(result, "Popup windows should be blocked by returning nil")
+    }
+
+    // MARK: - Initial request
+
+    func testYouTubeInitialRequestIncludesReferer() {
+        let request = InlineVideoWebView.makeRequest(
+            url: URL(string: "https://www.youtube.com/embed/abc123")!,
+            provider: "youtube"
+        )
+
+        XCTAssertEqual(
+            request.value(forHTTPHeaderField: "Referer"),
+            VideoEmbedRequestBuilder.defaultReferer
+        )
+    }
+
+    func testVimeoInitialRequestOmitsReferer() {
+        let request = InlineVideoWebView.makeRequest(
+            url: URL(string: "https://player.vimeo.com/video/123")!,
+            provider: "vimeo"
+        )
+
+        XCTAssertNil(request.value(forHTTPHeaderField: "Referer"))
     }
 
     // MARK: - Host allowlist (static helper)

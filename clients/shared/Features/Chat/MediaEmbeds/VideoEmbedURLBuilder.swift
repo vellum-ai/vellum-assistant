@@ -10,7 +10,16 @@ public enum VideoEmbedURLBuilder {
     public static func buildEmbedURL(provider: String, videoID: String) -> URL? {
         switch provider.lowercased() {
         case "youtube":
-            return URL(string: "https://www.youtube.com/embed/\(videoID)?autoplay=1&rel=0")
+            var components = URLComponents()
+            components.scheme = "https"
+            components.host = "www.youtube.com"
+            components.path = "/embed/\(videoID)"
+            components.queryItems = [
+                URLQueryItem(name: "autoplay", value: "1"),
+                URLQueryItem(name: "rel", value: "0"),
+                URLQueryItem(name: "playsinline", value: "1"),
+            ]
+            return components.url
         case "vimeo":
             return URL(string: "https://player.vimeo.com/video/\(videoID)?autoplay=1")
         case "loom":

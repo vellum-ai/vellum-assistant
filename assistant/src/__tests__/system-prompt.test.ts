@@ -237,6 +237,14 @@ describe("buildSystemPrompt", () => {
     expect(result).toContain("browser automation as last resort");
   });
 
+  test("includes inline media attachment guidance", () => {
+    const result = buildSystemPrompt();
+    expect(result).toContain(
+      "Image and video attachments can render inline in chat.",
+    );
+    expect(result).toContain("attach it instead of only printing its path");
+  });
+
   test("does not include removed sections", () => {
     const result = buildSystemPrompt();
     expect(result).not.toContain("## External Communications Identity");
