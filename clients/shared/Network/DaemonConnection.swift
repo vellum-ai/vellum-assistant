@@ -64,8 +64,7 @@ extension DaemonClient {
             #endif
         }
 
-        // Forward conversation ID resolution so ConversationManager can update
-        // from the synthetic ID to the real server-assigned ID.
+        // Forward conversation ID resolution to observers.
         transport.onConversationIdResolved = { [weak self] localId, serverId in
             self?.onConversationIdResolved?(localId, serverId)
         }

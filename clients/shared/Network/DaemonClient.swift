@@ -340,8 +340,8 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     /// Called when a notification delivery creates a new vellum conversation.
     public var onNotificationConversationCreated: ((NotificationConversationCreated) -> Void)?
 
-    /// Called when the HTTP transport discovers the server-assigned conversation ID
-    /// for a locally-created conversation. Parameters: (syntheticId, serverAssignedId).
+    /// Called when the server-assigned conversation ID differs from the
+    /// client-local ID. Parameters: (localId, serverId).
     public var onConversationIdResolved: ((_ localId: String, _ serverId: String) -> Void)?
 
     /// Called when the daemon sends a `skills_state_changed` push event.
