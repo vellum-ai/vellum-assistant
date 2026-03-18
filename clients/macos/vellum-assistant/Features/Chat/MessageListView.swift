@@ -64,6 +64,9 @@ extension EnvironmentValues {
     var pendingAvatarY: CGFloat?
     /// Timestamp of the last applied avatar display Y update.
     var avatarLastAppliedAt: Date?
+    /// When true, the AnchorMinYKey preference handler re-pins to bottom
+    /// on every frame — used during content expansion while bottom-pinned.
+    var isPinningDuringExpansion: Bool = false
 }
 
 struct MessageListView: View {
@@ -527,6 +530,7 @@ struct MessageListView: View {
         scrollTracking.pendingAvatarY = nil
         scrollTracking.avatarLastAppliedAt = nil
         scrollTracking.lastTailAnchorY = .infinity
+        scrollTracking.isPinningDuringExpansion = false
 
         scrollRestoreTask = Task { @MainActor in
             guard !Task.isCancelled else { return }
@@ -810,12 +814,14 @@ struct MessageListView: View {
             .environment(\.suppressAutoScroll, { [self] in
                 expandSuppressionTask?.cancel()
                 if isNearBottom {
-                    // When pinned to bottom, maintain that state after the content
-                    // expansion by scrolling to bottom once layout settles.
+                    // When pinned to bottom, continuously re-pin on every frame
+                    // of the expansion animation via the AnchorMinYKey handler.
+                    scrollTracking.isPinningDuringExpansion = true
                     expandSuppressionTask = Task { @MainActor in
-                        try? await Task.sleep(nanoseconds: 50_000_000) // ~3 frames for layout
+                        // Clear after the animation settles (VAnimation.fast ≈ 0.15s + buffer).
+                        try? await Task.sleep(nanoseconds: 250_000_000)
                         guard !Task.isCancelled else { return }
-                        proxy.scrollTo("scroll-bottom-anchor", anchor: .bottom)
+                        scrollTracking.isPinningDuringExpansion = false
                     }
                 } else {
                     // When scrolled away from bottom, suppress auto-scroll so the
@@ -871,6 +877,11 @@ struct MessageListView: View {
                 os_signpost(.begin, log: PerfSignposts.log, name: "anchorPreferenceChange")
                 anchorTracker.update(minY: minY, viewportHeight: scrollViewportHeight)
                 if !hasFreshAnchorMeasurement { hasFreshAnchorMeasurement = true }
+                // During content expansion while bottom-pinned, re-anchor to bottom
+                // on every frame so the viewport follows the growing content.
+                if scrollTracking.isPinningDuringExpansion {
+                    proxy.scrollTo("scroll-bottom-anchor", anchor: .bottom)
+                }
                 os_signpost(.end, log: PerfSignposts.log, name: "anchorPreferenceChange")
             }
             .transaction { $0.disablesAnimations = true }
