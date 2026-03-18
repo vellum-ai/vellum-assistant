@@ -39,7 +39,7 @@ struct AssistantProgressView: View {
     var activeConfirmationRequestId: String? = nil  // For keyboard focus
 
     @Environment(\.suppressAutoScroll) private var suppressAutoScroll
-    @State private var isExpanded: Bool = false
+    @State private var isExpanded: Bool = MacOSClientFeatureFlagManager.shared.isEnabled("expand_completed_steps")
     @State private var startDate: Date = Date()
     @State private var processingStartDate: Date?
     @State private var isOverflowPopoverShown: Bool = false
