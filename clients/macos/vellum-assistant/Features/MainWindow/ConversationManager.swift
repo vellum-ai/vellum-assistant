@@ -1664,6 +1664,9 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
             archived.insert(serverId)
             archivedConversationIds = archived
         }
+        if let idx = pendingSeenConversationIds.firstIndex(of: syntheticId) {
+            pendingSeenConversationIds[idx] = serverId
+        }
 
         sendReorderConversations()
 
