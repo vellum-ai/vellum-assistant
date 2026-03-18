@@ -377,6 +377,26 @@ describe("channel-reply-delivery", () => {
     expect(deliveryCalls).toHaveLength(0);
   });
 
+  it("suppresses attachment delivery when <no_response/> is present", async () => {
+    await deliverRenderedReplyViaCallback({
+      callbackUrl: "http://gateway/deliver/slack",
+      chatId: "chat-silent-att",
+      textSegments: ["<no_response/>"],
+      attachments: [
+        {
+          id: "att-no-resp",
+          filename: "secret.txt",
+          mimeType: "text/plain",
+          sizeBytes: 10,
+          kind: "uploaded",
+        },
+      ],
+      interSegmentDelayMs: 0,
+    });
+
+    expect(deliveryCalls).toHaveLength(0);
+  });
+
   it("suppresses delivery for <no_response/> with surrounding whitespace", async () => {
     await deliverRenderedReplyViaCallback({
       callbackUrl: "http://gateway/deliver/slack",

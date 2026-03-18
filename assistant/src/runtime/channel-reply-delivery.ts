@@ -47,6 +47,11 @@ function sleep(ms: number): Promise<void> {
 
 const NO_RESPONSE_RE = /^\s*<no_response\s*\/?>\s*$/;
 
+/** Returns true when any segment is a `<no_response/>` sentinel. */
+function hasNoResponseMarker(textSegments: string[]): boolean {
+  return textSegments.some((s) => NO_RESPONSE_RE.test(s));
+}
+
 function toDeliverableTextSegments(
   textSegments: string[],
   fallbackText?: string,
@@ -57,8 +62,7 @@ function toDeliverableTextSegments(
   if (nonEmptySegments.length > 0) return nonEmptySegments;
   // If the only text was <no_response/>, treat as intentional silence —
   // do not fall back to fallbackText.
-  const hadNoResponseMarker = textSegments.some((s) => NO_RESPONSE_RE.test(s));
-  if (hadNoResponseMarker) return [];
+  if (hasNoResponseMarker(textSegments)) return [];
   if (typeof fallbackText === "string" && fallbackText.trim().length > 0) {
     return [fallbackText];
   }
@@ -91,6 +95,12 @@ export async function deliverRenderedReplyViaCallback(
   );
   const replyAttachments =
     attachments && attachments.length > 0 ? attachments : undefined;
+
+  // If the model output <no_response/> and no other deliverable text remains,
+  // suppress all delivery — including attachments — so nothing is posted.
+  if (deliverableSegments.length === 0 && hasNoResponseMarker(textSegments)) {
+    return;
+  }
 
   if (deliverableSegments.length === 0) {
     if (replyAttachments) {

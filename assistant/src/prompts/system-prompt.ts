@@ -121,7 +121,9 @@ export function buildSystemPrompt(options?: BuildSystemPromptOptions): string {
   // System Permissions section removed — guidance lives in request_system_permission tool description.
   // Parallel Task Orchestration section removed — orchestration skill description + hints cover this.
   staticParts.push(buildAccessPreferenceSection(hasNoClient));
-  staticParts.push(buildResponseDiscretionSection());
+  if (hasNoClient) {
+    staticParts.push(buildResponseDiscretionSection());
+  }
   // Memory Persistence, Memory Recall, Workspace Reflection, Learning from Mistakes
   // sections removed — guidance lives in memory_manage/memory_recall tool descriptions
   // and the Proactive Workspace Editing subsection in Configuration.
