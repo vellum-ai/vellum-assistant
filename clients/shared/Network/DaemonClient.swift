@@ -556,40 +556,6 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
         // httpTransport is cleaned up via disconnectInternal() before dealloc;
     }
 
-    // MARK: - Gateway Reachability
-
-    /// Check whether the gateway is reachable for a given assistant by
-    /// performing a lightweight GET to the `/healthz` endpoint.
-    #if os(macOS)
-    public static func isGatewayReachable(for assistant: LockfileAssistant, timeout: TimeInterval = 3) async -> Bool {
-        let port = assistant.gatewayPort ?? LockfilePaths.resolveGatewayPort(connectedAssistantId: assistant.assistantId)
-        return await pingGatewayHealthz(port: port, timeout: timeout)
-    }
-
-    /// Check whether the gateway is reachable for the assistant matching
-    /// the given instance directory (or the default assistant when `nil`).
-    public static func isGatewayReachable(instanceDir: String?, timeout: TimeInterval = 3) async -> Bool {
-        if let instanceDir,
-           let assistant = LockfileAssistant.loadAll().first(where: { $0.instanceDir == instanceDir }) {
-            return await isGatewayReachable(for: assistant, timeout: timeout)
-        }
-        let port = LockfilePaths.resolveGatewayPort()
-        return await pingGatewayHealthz(port: port, timeout: timeout)
-    }
-
-    private static func pingGatewayHealthz(port: Int, timeout: TimeInterval) async -> Bool {
-        guard let url = URL(string: "http://127.0.0.1:\(port)/healthz") else { return false }
-        var request = URLRequest(url: url)
-        request.timeoutInterval = timeout
-        do {
-            let (_, response) = try await URLSession.shared.data(for: request)
-            return (response as? HTTPURLResponse)?.statusCode == 200
-        } catch {
-            return false
-        }
-    }
-    #endif
-
     // MARK: - Send
 
     public enum SendError: Error, LocalizedError {

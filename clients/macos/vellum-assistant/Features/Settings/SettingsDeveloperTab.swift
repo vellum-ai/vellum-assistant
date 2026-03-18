@@ -613,7 +613,7 @@ struct SettingsDeveloperTab: View {
             if assistant.isRemote {
                 awakeStates[assistant.assistantId] = true
             } else {
-                awakeStates[assistant.assistantId] = await DaemonClient.isGatewayReachable(for: assistant)
+                awakeStates[assistant.assistantId] = await HealthCheckClient.isReachable(for: assistant)
             }
         }
     }
@@ -640,7 +640,7 @@ struct SettingsDeveloperTab: View {
                     }
                 }
             } catch {
-                awakeStates[assistant.assistantId] = await DaemonClient.isGatewayReachable(for: assistant)
+                awakeStates[assistant.assistantId] = await HealthCheckClient.isReachable(for: assistant)
             }
             transitioningStates.remove(assistant.assistantId)
         }

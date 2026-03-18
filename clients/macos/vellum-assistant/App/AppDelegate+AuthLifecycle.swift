@@ -609,7 +609,7 @@ extension AppDelegate {
 
             // Try local assistants — check if awake, otherwise wake them
             for candidate in remaining {
-                if await DaemonClient.isGatewayReachable(for: candidate) {
+                if await HealthCheckClient.isReachable(for: candidate) {
                     performSwitchAssistant(to: candidate)
                     return true
                 }

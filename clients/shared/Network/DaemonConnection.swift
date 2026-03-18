@@ -73,8 +73,8 @@ extension DaemonClient {
             // Auto-wake: if the gateway is unreachable and a wake handler is
             // configured, try waking the daemon and retrying the connection once.
             if let wakeHandler, config.transportMetadata.routeMode == .runtimeFlat {
-                let gatewayReachable = await DaemonClient.isGatewayReachable(instanceDir: config.instanceDir)
-                if !gatewayReachable {
+                let reachable = await HealthCheckClient.isReachable(instanceDir: config.instanceDir)
+                if !reachable {
                     log.info("connect: gateway unreachable — attempting auto-wake before retry")
                     do {
                         try await wakeHandler()
@@ -154,7 +154,7 @@ extension DaemonClient {
         Task { @MainActor [weak self] in
             guard let self else { return }
 
-            let reachable = await DaemonClient.isGatewayReachable(instanceDir: self.config.instanceDir)
+            let reachable = await HealthCheckClient.isReachable(instanceDir: self.config.instanceDir)
             guard !reachable else {
                 self.lastAutoWakeAttempt = nil
                 return
