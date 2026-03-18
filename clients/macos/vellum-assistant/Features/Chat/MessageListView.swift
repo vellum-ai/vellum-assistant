@@ -548,18 +548,19 @@ struct MessageListView: View {
             log.debug("Scroll restore: stage 1 (50ms)")
 
             // Stage 2: ~9 frames — catches slower layout/materialization.
-            // scrollLanded is computed after the full wait so it reflects
-            // the latest geometry, not a stale snapshot from before the delay.
+            // Always retry the scrollTo here regardless of anchorTracker state,
+            // because anchorTracker.isVisible may have been manually set to true
+            // during conversation switch (to suppress the "Scroll to latest"
+            // button flash) and does not reflect actual scroll position.
             try? await Task.sleep(nanoseconds: 150_000_000)
             guard !Task.isCancelled else { return }
-            let scrollLanded = hasFreshAnchorMeasurement && anchorTracker.isVisible
-            log.debug("Scroll restore: stage 2 check — scrollLanded=\(scrollLanded) hasReceivedScrollEvent=\(hasReceivedScrollEvent)")
-            if anchorMessageId == nil && !hasReceivedScrollEvent && !scrollLanded {
+            if anchorMessageId == nil && !hasReceivedScrollEvent {
                 proxy.scrollTo("scroll-bottom-anchor", anchor: .bottom)
                 log.debug("Scroll restore: stage 2 (200ms) — retrying scrollTo")
             } else {
-                log.debug("Scroll restore: stage 2 skipped")
+                log.debug("Scroll restore: stage 2 skipped (anchor=\(String(describing: anchorMessageId)) scrollEvent=\(hasReceivedScrollEvent))")
             }
+
             if !Task.isCancelled { scrollRestoreTask = nil }
         }
     }
@@ -1142,7 +1143,12 @@ struct MessageListView: View {
                 highlightDismissTask?.cancel()
                 highlightDismissTask = nil
                 anchorTracker.isVisible = true
-                anchorTracker.lastMinY = 0
+                // Reset lastMinY to .infinity so the AnchorMinYKey preference
+                // handler's 2pt dead-zone doesn't filter out the first real
+                // measurement after a conversation switch. A value of 0 could
+                // collide with the actual anchor position and prevent
+                // hasFreshAnchorMeasurement from becoming true.
+                anchorTracker.lastMinY = .infinity
                 hasReceivedScrollEvent = false
                 lastHandledContainerWidth = containerWidth
                 hoverExitDebounceTask?.cancel()
