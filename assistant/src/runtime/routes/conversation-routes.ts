@@ -139,8 +139,12 @@ async function tryConsumeCanonicalGuardianReply(params: {
     sourceChannel,
     conversation,
   );
-  const pendingRequestIds =
-    pendingRequestHintIds.length > 0 ? pendingRequestHintIds : undefined;
+  // Always pass the hints array (even when empty) so
+  // findPendingCanonicalRequests respects the in-memory staleness filter
+  // applied by collectCanonicalGuardianRequestHintIds. Converting empty
+  // hints to `undefined` caused the router to fall through to raw DB
+  // queries that rediscovered stale canonical requests.
+  const pendingRequestIds = pendingRequestHintIds;
 
   const routerResult = await routeGuardianReply({
     messageText: trimmedContent,
