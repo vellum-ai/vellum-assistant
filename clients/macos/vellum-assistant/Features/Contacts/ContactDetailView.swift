@@ -36,9 +36,6 @@ struct ContactDetailView: View {
                     .padding(.horizontal, VSpacing.lg)
                     .padding(.bottom, VSpacing.lg)
 
-                SettingsDivider()
-                    .padding(.horizontal, VSpacing.lg)
-
                 GuardianChannelsDetailView(
                     contact: displayContact,
                     daemonClient: daemonClient,

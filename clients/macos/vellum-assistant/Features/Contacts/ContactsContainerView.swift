@@ -44,11 +44,24 @@ struct ContactsContainerView: View {
 
             // Right pane: detail, loading, or placeholder
             VStack(alignment: .leading, spacing: 0) {
-            // Pinned header (matches contacts list header height exactly)
-            HStack {
-                Text("Contact Info")
-                    .font(VFont.headline)
-                    .foregroundColor(VColor.contentDefault)
+            // Pinned header — shows selected contact name + role
+            HStack(spacing: VSpacing.sm) {
+                if case .assistant = selection {
+                    Text(cachedAssistantName)
+                        .font(VFont.headline)
+                        .foregroundColor(VColor.contentDefault)
+                    ContactTypeBadge(role: "assistant")
+                } else if case .contact(let contactId) = selection,
+                          let contact = viewModel.deduplicatedContacts.first(where: { $0.id == contactId }) {
+                    Text(contact.displayName)
+                        .font(VFont.headline)
+                        .foregroundColor(VColor.contentDefault)
+                    ContactTypeBadge(role: contact.role)
+                } else {
+                    Text("Contact Info")
+                        .font(VFont.headline)
+                        .foregroundColor(VColor.contentDefault)
+                }
                 Spacer()
                 // Hidden button to match the height of the + button in contacts list
                 VButton(label: "", iconOnly: VIcon.plus.rawValue, style: .ghost, size: .compact) {}
@@ -241,9 +254,6 @@ struct ContactsContainerView: View {
                 .padding(.top, VSpacing.lg)
                 .padding(.horizontal, VSpacing.lg)
                 .padding(.bottom, VSpacing.lg)
-
-                SettingsDivider()
-                    .padding(.horizontal, VSpacing.lg)
 
                 GuardianChannelsDetailView(
                     contact: contact,
