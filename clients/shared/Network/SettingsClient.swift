@@ -234,7 +234,7 @@ public struct SettingsClient: SettingsClientProtocol {
             switch action {
             case "cancel_session":
                 response = try await GatewayHTTPClient.delete(
-                    path: "channel-verification-sessions", timeout: 10
+                    path: "channel-verification-sessions", json: body, timeout: 10
                 )
             case "resend_session":
                 response = try await GatewayHTTPClient.post(
