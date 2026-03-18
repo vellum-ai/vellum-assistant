@@ -45,14 +45,20 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+const NO_RESPONSE_RE = /^\s*<no_response\s*\/?>\s*$/;
+
 function toDeliverableTextSegments(
   textSegments: string[],
   fallbackText?: string,
 ): string[] {
   const nonEmptySegments = textSegments.filter(
-    (segment) => segment.trim().length > 0,
+    (segment) => segment.trim().length > 0 && !NO_RESPONSE_RE.test(segment),
   );
   if (nonEmptySegments.length > 0) return nonEmptySegments;
+  // If the only text was <no_response/>, treat as intentional silence —
+  // do not fall back to fallbackText.
+  const hadNoResponseMarker = textSegments.some((s) => NO_RESPONSE_RE.test(s));
+  if (hadNoResponseMarker) return [];
   if (typeof fallbackText === "string" && fallbackText.trim().length > 0) {
     return [fallbackText];
   }
