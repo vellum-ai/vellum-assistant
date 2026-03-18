@@ -2752,6 +2752,39 @@ public struct NotificationIntentResult: Codable, Sendable {
     }
 }
 
+/// Broadcast to connected clients when a service group update is about to begin.
+public struct ServiceGroupUpdateStarting: Codable, Sendable {
+    public let type: String
+    /// The version being upgraded to.
+    public let targetVersion: String
+    /// Estimated seconds of downtime.
+    public let expectedDowntimeSeconds: Double
+
+    public init(type: String, targetVersion: String, expectedDowntimeSeconds: Double) {
+        self.type = type
+        self.targetVersion = targetVersion
+        self.expectedDowntimeSeconds = expectedDowntimeSeconds
+    }
+}
+
+/// Broadcast to connected clients when a service group update has completed.
+public struct ServiceGroupUpdateComplete: Codable, Sendable {
+    public let type: String
+    /// The version that was installed (may differ from target if rolled back).
+    public let installedVersion: String
+    /// Whether the update succeeded or rolled back.
+    public let success: Bool
+    /// If rolled back, the version reverted to.
+    public let rolledBackToVersion: String?
+
+    public init(type: String, installedVersion: String, success: Bool, rolledBackToVersion: String? = nil) {
+        self.type = type
+        self.installedVersion = installedVersion
+        self.success = success
+        self.rolledBackToVersion = rolledBackToVersion
+    }
+}
+
 /// Server push — broadcast when a notification creates a new vellum conversation.
 public struct NotificationConversationCreated: Codable, Sendable {
     public let type: String
