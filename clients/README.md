@@ -21,7 +21,10 @@ clients/
 │   ├── Features/Contacts/     # ContactsStore — cross-platform contacts data operations
 │   ├── Features/Directory/    # DirectoryStore — cross-platform apps and documents operations
 │   ├── Features/ChannelTrust/ # ChannelTrustStore — guardian state and channel trust management
+│   ├── Features/Memory/       # MemoryItemsStore — cross-platform memory item operations
+│   ├── Features/Settings/     # Shared settings logic
 │   ├── Features/Surfaces/     # Shared surface rendering (confirmation, form)
+│   ├── Features/Usage/        # UsageDashboardStore — usage data operations
 │   ├── DesignSystem/          # Design tokens and components (VColor, VFont, VSpacing, etc.)
 │   ├── Utilities/             # Shared utilities (APIKeyManager, PermissionManager)
 │   └── App/                   # Shared app utilities (SigningIdentityManager)
@@ -29,7 +32,7 @@ clients/
 │   ├── vellum-assistant/      # VellumAssistantLib - macOS app logic
 │   ├── vellum-assistant-app/  # Executable entry point
 │   ├── build.sh               # Build script (wraps SPM → .app → codesign)
-│   └── CLAUDE.md              # Development guide for Claude Code
+│   └── AGENTS.md              # Agent development guidance (macOS-specific)
 ├── ios/                       # iOS-specific code
 │   ├── App/                   # App lifecycle (VellumAssistantApp, AppDelegate, VellumIntents, etc.)
 │   ├── Views/                 # iOS-specific SwiftUI views (ChatTabView, ConversationListView, etc.)
@@ -150,7 +153,7 @@ Depends only on `VellumAssistantShared` (no macOS frameworks).
 
 ## Code Reuse Strategy
 
-**~45-50% code reuse** between macOS and iOS achieved through:
+**Significant code reuse** between macOS and iOS achieved through:
 
 1. **Shared network layer** - Both platforms communicate with the assistant (different transport)
 2. **Shared design system** - Tokens and components with conditional compilation
@@ -204,7 +207,7 @@ Depends only on `VellumAssistantShared` (no macOS frameworks).
 
 ## Documentation
 
-- **macOS development**: See `clients/macos/CLAUDE.md`
+- **macOS development**: See `clients/macos/AGENTS.md`
 - **iOS development**: See `clients/ios/README.md`
 
 ---
@@ -232,5 +235,7 @@ Test files in `clients/ios/Tests/`:
 
 Tests use mock implementations of protocols for dependency injection:
 - `DaemonClientProtocol` → `MockDaemonClient`
+
+macOS tests additionally mock:
 - `AccessibilityTreeProviding` → `MockAccessibilityTree`
 - `ScreenCaptureProviding` → `MockScreenCapture`
