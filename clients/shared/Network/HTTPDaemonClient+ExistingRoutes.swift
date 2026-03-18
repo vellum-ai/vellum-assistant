@@ -20,10 +20,10 @@ extension HTTPTransport {
                 Task { await self.sendMessage(content: msg.content, conversationId: msg.conversationId, attachments: msg.attachments, automated: msg.automated) }
                 return true
             } else if let msg = message as? ConfirmationResponseMessage {
-                Task { await self.sendDecision(requestId: msg.requestId, decision: msg.decision, selectedPattern: msg.selectedPattern, selectedScope: msg.selectedScope) }
+                Task { await InteractionClient().sendConfirmationResponse(requestId: msg.requestId, decision: msg.decision, selectedPattern: msg.selectedPattern, selectedScope: msg.selectedScope) }
                 return true
             } else if let msg = message as? SecretResponseMessage {
-                Task { await self.sendSecret(requestId: msg.requestId, value: msg.value, delivery: msg.delivery) }
+                Task { await InteractionClient().sendSecretResponse(requestId: msg.requestId, value: msg.value, delivery: msg.delivery) }
                 return true
             } else if let msg = message as? ConversationCreateMessage {
                 // For HTTP transport, conversation creation is implicit — the conversationKey
@@ -51,7 +51,15 @@ extension HTTPTransport {
             } else if let msg = message as? ConversationUnreadSignal {
                 Task {
                     do {
-                        try await self.sendConversationUnread(msg)
+                        try await ConversationListClient().sendConversationUnread(
+                            conversationId: msg.conversationId,
+                            sourceChannel: msg.sourceChannel,
+                            signalType: msg.signalType,
+                            confidence: msg.confidence,
+                            source: msg.source,
+                            evidenceText: msg.evidenceText,
+                            observedAt: msg.observedAt
+                        )
                     } catch {
                         log.error("Conversation unread signal error: \(error.localizedDescription)")
                     }
