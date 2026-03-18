@@ -66,12 +66,17 @@ struct SettingsBillingTab: View {
             } else if let summary {
                 balanceContent(summary)
             } else if let error {
-                HStack(spacing: VSpacing.sm) {
-                    VIconView(.circleAlert, size: 14)
-                        .foregroundColor(VColor.systemNegativeStrong)
-                    Text(error)
-                        .font(VFont.body)
-                        .foregroundColor(VColor.systemNegativeStrong)
+                VStack(alignment: .leading, spacing: VSpacing.md) {
+                    HStack(spacing: VSpacing.sm) {
+                        VIconView(.circleAlert, size: 14)
+                            .foregroundColor(VColor.systemNegativeStrong)
+                        Text(error)
+                            .font(VFont.body)
+                            .foregroundColor(VColor.systemNegativeStrong)
+                    }
+                    VButton(label: "Try Again", style: .outlined) {
+                        Task { await loadSummary() }
+                    }
                 }
             }
         }
