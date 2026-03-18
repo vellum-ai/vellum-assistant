@@ -104,11 +104,12 @@ extension MainWindowView {
                             let vm = conversationManager.openConversation(message: "Use the \(skill.name) skill") { vm in
                                 vm.pendingSkillInvocation = SkillInvocationData(
                                     name: skill.name,
-                                    toolName: skill.toolName,
-                                    inputFields: skill.inputFields
+                                    emoji: skill.emoji,
+                                    description: skill.description
                                 )
                             }
-                            windowState.activateConversation(vm.id)
+                            vm?.pendingSkillInvocation = nil
+                            windowState.selection = nil
                         },
                         daemonClient: daemonClient,
                         initialTab: windowState.pendingMemoryId != nil ? "Memories" : nil,
@@ -495,11 +496,12 @@ extension MainWindowView {
                             let vm = conversationManager.openConversation(message: "Use the \(skill.name) skill") { vm in
                                 vm.pendingSkillInvocation = SkillInvocationData(
                                     name: skill.name,
-                                    toolName: skill.toolName,
-                                    inputFields: skill.inputFields
+                                    emoji: skill.emoji,
+                                    description: skill.description
                                 )
                             }
-                            windowState.activateConversation(vm.id)
+                            vm?.pendingSkillInvocation = nil
+                            windowState.selection = nil
                         },
                         daemonClient: daemonClient,
                         initialTab: windowState.pendingMemoryId != nil ? "Memories" : nil,
