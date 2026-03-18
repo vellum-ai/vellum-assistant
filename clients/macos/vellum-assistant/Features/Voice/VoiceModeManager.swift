@@ -599,10 +599,14 @@ final class VoiceModeManager: ObservableObject {
 
     private func startConversationTimeout() {
         cancelConversationTimeout()
-        // Read the override each time so daemon broadcasts take effect immediately
+        // Read the override each time so daemon broadcasts take effect immediately.
+        // Fall back to UserDefaults so the user's last-configured value survives
+        // app restarts (before the daemon sends a client_settings_update).
         let interval: TimeInterval
         if let override = Self.conversationTimeoutOverride, override > 0 {
             interval = TimeInterval(override)
+        } else if let stored = UserDefaults.standard.object(forKey: "voiceConversationTimeoutSeconds") as? Int, stored > 0 {
+            interval = TimeInterval(stored)
         } else {
             interval = conversationTimeoutInterval
         }

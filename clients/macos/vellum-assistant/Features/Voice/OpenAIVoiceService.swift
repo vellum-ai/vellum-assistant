@@ -85,9 +85,11 @@ final class OpenAIVoiceService: ObservableObject, VoiceServiceProtocol {
     /// Override voice ID set by daemon broadcasts (client_settings_update).
     static var overrideVoiceId: String?
 
-    /// ElevenLabs voice ID — reads from daemon-provided override, falls back to Amelia.
+    /// ElevenLabs voice ID — reads from daemon-provided override, then UserDefaults
+    /// (so the user's last-configured value survives app restarts), falls back to Amelia.
     private static var elevenLabsVoiceId: String {
         overrideVoiceId.flatMap { $0.isEmpty ? nil : $0 }
+            ?? UserDefaults.standard.string(forKey: "ttsVoiceId").flatMap { $0.isEmpty ? nil : $0 }
             ?? Self.defaultVoiceId
     }
 
