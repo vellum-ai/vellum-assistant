@@ -385,7 +385,6 @@ Ambient/              Background screen-watching agent
   ScreenOCR           Vision framework OCR
   WatchSession        Watch connectivity session for ambient data
 Features/
-  Ambient/            Background screen monitoring UI
   Avatar/             Avatar customization
   Chat/               Chat interface (ChatView, ChatViewModel, ChatMessage)
   CommandPalette/     Command palette (search, actions)
