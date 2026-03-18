@@ -67,6 +67,8 @@ export const messageMetadataSchema = z
     provenanceGuardianExternalUserId: z.string().optional(),
     provenanceRequesterIdentifier: z.string().optional(),
     automated: z.boolean().optional(),
+    /** Image source paths from desktop attachments, keyed by filename. */
+    imageSourcePaths: z.record(z.string(), z.string()).optional(),
   })
   .passthrough();
 
