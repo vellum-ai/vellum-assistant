@@ -52,6 +52,12 @@ struct SettingsDeveloperTab: View {
     @State private var inlineUpgradeError: String?
     @State private var inlineUpgradeSuccess: String?
 
+    // -- Revoke API key state --
+    @State private var showingRevokeApiKeyConfirmation: Bool = false
+    @State private var isRevokingApiKey: Bool = false
+    @State private var revokeApiKeyStatus: String?
+    @State private var revokeApiKeyDismissTask: Task<Void, Never>?
+
     // -- Sentry testing state --
     @State private var lastSentryStatus: String?
     @State private var sentryDismissTask: Task<Void, Never>?
@@ -106,6 +112,11 @@ struct SettingsDeveloperTab: View {
             hatchNewAssistantSection
             // Retire Assistant
             retireAssistantSection
+
+            // Revoke Assistant API Key (dev mode only)
+            if devModeManager.isDevMode {
+                revokeAssistantApiKeySection
+            }
 
             // Permission Simulator
             if let model = testerModel {
@@ -189,6 +200,14 @@ struct SettingsDeveloperTab: View {
         } message: {
             Text("Are you sure you want to restart the assistant? It will be briefly unavailable.")
         }
+        .alert("Revoke Assistant API Key", isPresented: $showingRevokeApiKeyConfirmation) {
+            Button("Cancel", role: .cancel) {}
+            Button("Revoke", role: .destructive) {
+                Task { await revokeAssistantApiKey() }
+            }
+        } message: {
+            Text("This will disable managed inference. Services set to \"managed\" mode will stop working until you log in again or switch them to use your own API keys.")
+        }
         .sheet(isPresented: $isRestarting) {
             VStack(spacing: VSpacing.lg) {
                 ProgressView()
@@ -227,6 +246,7 @@ struct SettingsDeveloperTab: View {
         .onDisappear {
             daemonClient?.onEnvVarsResponse = nil
             sentryDismissTask?.cancel()
+            revokeApiKeyDismissTask?.cancel()
         }
     }
 
@@ -724,6 +744,57 @@ struct SettingsDeveloperTab: View {
         ) {
             VButton(label: "Retire", style: .danger) {
                 showingRetireConfirmation = true
+            }
+        }
+    }
+
+    // MARK: - Revoke Assistant API Key
+
+    private var revokeAssistantApiKeySection: some View {
+        SettingsCard(
+            title: "Revoke Assistant API Key",
+            subtitle: "Removes the managed inference API key. Services set to \"managed\" mode will stop working until you log in again or switch them to use your own API keys."
+        ) {
+            VButton(label: "Revoke", style: .danger, isDisabled: isRevokingApiKey) {
+                showingRevokeApiKeyConfirmation = true
+            }
+
+            if let status = revokeApiKeyStatus {
+                Text(status)
+                    .font(VFont.caption)
+                    .foregroundColor(status.starts(with: "Failed") ? VColor.systemNegativeStrong : VColor.systemPositiveStrong)
+                    .transition(.opacity)
+            }
+        }
+    }
+
+    private func revokeAssistantApiKey() async {
+        isRevokingApiKey = true
+        defer { isRevokingApiKey = false }
+
+        let body: [String: String] = ["type": "credential", "name": "vellum:assistant_api_key"]
+        do {
+            let response = try await GatewayHTTPClient.delete(
+                path: "assistants/{assistantId}/secrets", json: body, timeout: 10
+            )
+            if response.isSuccess || response.statusCode == 404 {
+                showRevokeStatus("Assistant API key revoked", isError: false)
+            } else {
+                showRevokeStatus("Failed to revoke (HTTP \(response.statusCode))", isError: true)
+            }
+        } catch {
+            showRevokeStatus("Failed to revoke: \(error.localizedDescription)", isError: true)
+        }
+    }
+
+    private func showRevokeStatus(_ message: String, isError: Bool) {
+        revokeApiKeyDismissTask?.cancel()
+        withAnimation { revokeApiKeyStatus = message }
+        revokeApiKeyDismissTask = Task {
+            try? await Task.sleep(nanoseconds: 4_000_000_000)
+            guard !Task.isCancelled else { return }
+            withAnimation {
+                if revokeApiKeyStatus == message { revokeApiKeyStatus = nil }
             }
         }
     }

@@ -162,22 +162,6 @@ extension AppDelegate {
     }
 
     @objc public func performLogout() {
-        // Warn when managed services are active — they'll stop working after logout.
-        if services.settingsStore.hasManagedServices {
-            let alert = NSAlert()
-            alert.messageText = "Heads up"
-            alert.informativeText = "Some of your services rely on being logged in."
-                + " They won't work until you log back in or switch them to use your own API keys."
-            alert.addButton(withTitle: "Log Out")
-            alert.addButton(withTitle: "Cancel")
-            // Style the primary button as destructive (caution icon).
-            alert.alertStyle = .warning
-            let response = alert.runModal()
-            if response != .alertFirstButtonReturn {
-                return
-            }
-        }
-
         Task {
             // Capture assistant ID before logout clears it from UserDefaults
             let connectedAssistantId = UserDefaults.standard.string(forKey: "connectedAssistantId")
