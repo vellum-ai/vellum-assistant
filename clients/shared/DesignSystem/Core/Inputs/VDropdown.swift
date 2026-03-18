@@ -4,33 +4,27 @@ import SwiftUI
 ///
 /// Uses a `Menu` containing an inline `Picker` for proper selection semantics
 /// (automatic checkmarks, accessibility). The visual label is fully custom.
-/// Defaults to 400pt fixed width; callers can pass a custom `width` to override,
-/// or use `maxWidth` instead for a flexible upper bound that allows shrinking.
+/// Defaults to 400pt max width; callers can pass a custom `maxWidth` to override.
 public struct VDropdown<T: Hashable>: View {
     public let placeholder: String
     @Binding public var selection: T
     public let options: [(label: String, value: T)]
     /// When selection equals emptyValue, placeholder text is shown instead.
     public var emptyValue: T? = nil
-    /// Fixed width of the dropdown. Defaults to 400. Ignored when `maxWidth` is set.
-    public var width: CGFloat = 400
-    /// Optional flexible upper bound. When set, the dropdown can shrink below this
-    /// value in narrow containers instead of using a fixed width.
-    public var maxWidth: CGFloat? = nil
+    /// The maximum width of the dropdown. Defaults to 400.
+    public var maxWidth: CGFloat = 400
 
     public init(
         placeholder: String,
         selection: Binding<T>,
         options: [(label: String, value: T)],
         emptyValue: T? = nil,
-        width: CGFloat = 400,
-        maxWidth: CGFloat? = nil
+        maxWidth: CGFloat = 400
     ) {
         self.placeholder = placeholder
         self._selection = selection
         self.options = options
         self.emptyValue = emptyValue
-        self.width = width
         self.maxWidth = maxWidth
     }
 
@@ -78,25 +72,10 @@ public struct VDropdown<T: Hashable>: View {
         .buttonStyle(.plain)
         .menuIndicator(.hidden)
         .accessibilityLabel(selectedLabel ?? placeholder)
-        .modifier(DropdownSizeModifier(fixedWidth: width, flexibleMaxWidth: maxWidth))
+        .frame(maxWidth: maxWidth)
     }
 }
 
-/// Applies either a fixed width or a flexible maxWidth constraint.
-/// Needed because SwiftUI's `.frame(width:)` and `.frame(maxWidth:)` are
-/// separate overloads that cannot be combined in a single call.
-private struct DropdownSizeModifier: ViewModifier {
-    let fixedWidth: CGFloat
-    let flexibleMaxWidth: CGFloat?
-
-    func body(content: Content) -> some View {
-        if let max = flexibleMaxWidth {
-            content.frame(maxWidth: max)
-        } else {
-            content.frame(width: fixedWidth)
-        }
-    }
-}
 
 #if DEBUG
 

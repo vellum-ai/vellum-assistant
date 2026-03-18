@@ -298,7 +298,7 @@ extension AppDelegate {
         // override properties; write all other keys to UserDefaults as before.
         daemonClient.onClientSettingsUpdate = { msg in
             if msg.key == "ttsVoiceId" {
-                OpenAIVoiceService.overrideVoiceId = msg.value as? String
+                OpenAIVoiceService.overrideVoiceId = msg.value
             } else if msg.key == "voiceConversationTimeoutSeconds" {
                 VoiceModeManager.conversationTimeoutOverride = Int(msg.value)
             } else {

@@ -9,7 +9,6 @@ import { getConfig } from "../../config/loader.js";
 import {
   createCanonicalGuardianRequest,
   generateCanonicalRequestCode,
-  resolveCanonicalGuardianRequest,
 } from "../../memory/canonical-guardian-store.js";
 import {
   batchSetDisplayOrders,
@@ -49,27 +48,6 @@ import {
   log,
   pendingStandaloneSecrets,
 } from "./shared.js";
-
-export function syncCanonicalStatusFromConfirmationDecision(
-  requestId: string,
-  decision: ConfirmationResponse["decision"],
-): void {
-  const targetStatus =
-    decision === "deny" || decision === "always_deny"
-      ? ("denied" as const)
-      : ("approved" as const);
-
-  try {
-    resolveCanonicalGuardianRequest(requestId, "pending", {
-      status: targetStatus,
-    });
-  } catch (err) {
-    log.debug(
-      { err, requestId, targetStatus },
-      "Failed to resolve canonical request from local confirmation response",
-    );
-  }
-}
 
 export function makeEventSender(params: {
   ctx: HandlerContext;
@@ -165,7 +143,6 @@ export function handleConfirmationResponse(
         undefined,
         { source: "button" },
       );
-      syncCanonicalStatusFromConfirmationDecision(msg.requestId, msg.decision);
       pendingInteractions.resolve(msg.requestId);
       return;
     }

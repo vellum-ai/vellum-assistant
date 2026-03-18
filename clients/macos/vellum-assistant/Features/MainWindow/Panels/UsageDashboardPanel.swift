@@ -78,7 +78,7 @@ struct UsageDashboardPanel: View {
                     }
                 ),
                 options: UsageTimeRange.allCases.map { ($0.rawValue, $0) },
-                width: 160
+                maxWidth: 160
             )
             Spacer()
         }
@@ -297,7 +297,7 @@ struct UsageDashboardPanel: View {
                 }
             ),
             options: UsageGroupByDimension.allCases.map { ($0.rawValue.capitalized, $0) },
-            width: 140
+            maxWidth: 140
         )
     }
 

@@ -62,12 +62,13 @@ mock.module("../config/loader.js", () => ({
 // ── Overflow recovery mocks ──────────────────────────────────────────
 
 // Token estimator — controllable per-test via mockEstimateTokens.
-// Can be a number (constant) or a function for dynamic behavior.
-let mockEstimateTokens: number | (() => number) = 1000;
+// Can be a number (constant), a no-arg function, or a function that
+// receives the messages array for dynamic behavior based on content.
+let mockEstimateTokens: number | ((msgs?: Message[]) => number) = 1000;
 mock.module("../context/token-estimator.js", () => ({
-  estimatePromptTokens: () =>
+  estimatePromptTokens: (msgs: Message[]) =>
     typeof mockEstimateTokens === "function"
-      ? mockEstimateTokens()
+      ? mockEstimateTokens(msgs)
       : mockEstimateTokens,
 }));
 
@@ -208,8 +209,9 @@ mock.module("../daemon/conversation-memory.js", () => ({
   }),
 }));
 
+let mockApplyRuntimeInjections: (msgs: Message[]) => Message[] = (msgs) => msgs;
 mock.module("../daemon/conversation-runtime-assembly.js", () => ({
-  applyRuntimeInjections: (msgs: Message[]) => msgs,
+  applyRuntimeInjections: (msgs: Message[]) => mockApplyRuntimeInjections(msgs),
   stripInjectedContext: (msgs: Message[]) => msgs,
 }));
 
@@ -520,6 +522,7 @@ beforeEach(() => {
   mockReducerStepFn = null;
   mockOverflowAction = "fail_gracefully";
   mockApprovalResult = { approved: false };
+  mockApplyRuntimeInjections = (msgs) => msgs;
   recordUsageMock.mockClear();
 });
 
@@ -1928,5 +1931,145 @@ describe("session-agent-loop overflow recovery (JARVIS-110)", () => {
 
     // Agent loop: 1 initial + 3 mid-loop re-entries + 2 convergence re-runs = 6 calls
     expect(agentLoopCallCount).toBe(6);
+  });
+
+  // ── Test 8 ────────────────────────────────────────────────────────
+  // BUG: The preflight overflow reducer's budget check uses
+  // step.estimatedTokens (computed on bare ctx.messages) without
+  // accounting for tokens added by applyRuntimeInjections(). This
+  // causes the reducer to stop early when the bare estimate is under
+  // budget, even though post-injection tokens exceed it — leading to
+  // a wasted provider round-trip that gets rejected.
+  //
+  // After fix: the budget check re-estimates on runMessages (with
+  // injections) so the reducer continues to the next tier.
+  test("preflight reducer continues when post-injection tokens exceed budget", async () => {
+    const events: ServerMessage[] = [];
+
+    // Injections add an extra message, bumping the token count.
+    const injectionMessage: Message = {
+      role: "user" as const,
+      content: [
+        {
+          type: "text" as const,
+          text: "injected context " + "x".repeat(500),
+        },
+      ],
+    };
+    mockApplyRuntimeInjections = (msgs) => [...msgs, injectionMessage];
+
+    // Budget = 200_000 * 0.95 = 190_000
+    // The estimator returns different values based on whether the
+    // injection message is present:
+    //   - bare history (no injection msg) → 195_000 (triggers preflight)
+    //   - after tier 1 bare → 185_000 (under budget, would stop early without fix)
+    //   - after tier 1 with injection → 195_000 (still over budget)
+    //   - after tier 2 bare → 170_000
+    //   - after tier 2 with injection → 175_000 (under budget, reducer stops)
+    let reducerCallCount = 0;
+    mockEstimateTokens = (msgs?: Message[]) => {
+      const hasInjection = msgs?.some(
+        (m) =>
+          m.role === "user" &&
+          Array.isArray(m.content) &&
+          m.content.some(
+            (b: { type: string; text?: string }) =>
+              b.type === "text" &&
+              typeof b.text === "string" &&
+              b.text.startsWith("injected context"),
+          ),
+      );
+      if (reducerCallCount === 0) {
+        // Before any reduction: preflight check on runMessages (with injection)
+        return 195_000;
+      }
+      if (reducerCallCount === 1) {
+        // After tier 1
+        return hasInjection ? 195_000 : 185_000;
+      }
+      // After tier 2
+      return hasInjection ? 175_000 : 170_000;
+    };
+
+    mockReducerStepFn = (msgs: Message[]) => {
+      reducerCallCount++;
+      const tier =
+        reducerCallCount === 1 ? "forced_compaction" : "tool_result_truncation";
+      return {
+        messages: msgs,
+        tier,
+        state: {
+          appliedTiers:
+            reducerCallCount === 1
+              ? ["forced_compaction"]
+              : ["forced_compaction", "tool_result_truncation"],
+          injectionMode: "full" as const,
+          exhausted: reducerCallCount >= 2,
+        },
+        // Bare-history estimate (what the reducer sees on ctx.messages)
+        estimatedTokens: reducerCallCount === 1 ? 185_000 : 170_000,
+        compactionResult: {
+          compacted: true,
+          messages: msgs,
+          compactedPersistedMessages: 5,
+          summaryText: "Summary",
+          previousEstimatedInputTokens: 195_000,
+          estimatedInputTokens: reducerCallCount === 1 ? 185_000 : 170_000,
+          maxInputTokens: 200_000,
+          thresholdTokens: 160_000,
+          compactedMessages: 10,
+          summaryCalls: 1,
+          summaryInputTokens: 500,
+          summaryOutputTokens: 200,
+          summaryModel: "mock-model",
+        },
+      };
+    };
+
+    const agentLoopRun: AgentLoopRun = async (messages, onEvent) => {
+      onEvent({
+        type: "message_complete",
+        message: {
+          role: "assistant",
+          content: [{ type: "text", text: "done" }],
+        },
+      });
+      onEvent({
+        type: "usage",
+        inputTokens: 170_000,
+        outputTokens: 200,
+        model: "test-model",
+        providerDurationMs: 500,
+      });
+      return [
+        ...messages,
+        {
+          role: "assistant" as const,
+          content: [{ type: "text", text: "done" }] as ContentBlock[],
+        },
+      ];
+    };
+
+    const ctx = makeCtx({
+      agentLoopRun,
+      contextWindowManager: {
+        shouldCompact: () => ({ needed: false, estimatedTokens: 0 }),
+        maybeCompact: async () => ({ compacted: false }),
+      } as unknown as AgentLoopConversationContext["contextWindowManager"],
+    });
+
+    await runAgentLoopImpl(ctx, "hello", "msg-1", (msg) => events.push(msg));
+
+    // The reducer must be called twice — the first tier's bare estimate
+    // (185k) is under budget (190k), but post-injection tokens (195k)
+    // still exceed it. Without the fix, the reducer would stop after
+    // tier 1 and the provider call would likely fail.
+    expect(reducerCallCount).toBe(2);
+
+    // Should succeed without errors
+    const conversationError = events.find(
+      (e) => e.type === "conversation_error",
+    );
+    expect(conversationError).toBeUndefined();
   });
 });
