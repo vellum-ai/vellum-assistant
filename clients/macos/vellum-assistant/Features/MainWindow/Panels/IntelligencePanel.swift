@@ -29,9 +29,9 @@ struct IntelligencePanel: View {
 
     private enum IntelligenceTab: String, CaseIterable {
         case identity = "Identity"
-        case contacts = "Contacts"
         case installedSkills = "Skills"
         case workspace = "Workspace"
+        case contacts = "Contacts"
         case memories = "Memories"
     }
 
