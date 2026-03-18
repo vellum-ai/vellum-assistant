@@ -5,6 +5,7 @@ import { isEmailEnabled } from "../email/feature-gate.js";
 import { registerHooksCommand } from "../hooks/cli.js";
 import { APP_VERSION } from "../version.js";
 import { registerAuditCommand } from "./commands/audit.js";
+import { registerAuthCommand } from "./commands/auth.js";
 import { registerAutonomyCommand } from "./commands/autonomy.js";
 import { registerAvatarCommand } from "./commands/avatar.js";
 import { registerBashCommand } from "./commands/bash.js";
@@ -39,6 +40,16 @@ export function buildCliProgram(): Command {
     .description("Local AI assistant")
     .version(APP_VERSION);
 
+  program.addHelpText(
+    "after",
+    `
+Examples:
+  $ assistant auth info          Show platform identity and auth status
+  $ assistant config list        List all configuration values
+  $ assistant keys list          List stored API keys
+  $ assistant doctor             Run diagnostic checks`,
+  );
+
   registerDefaultAction(program);
   registerBashCommand(program);
   registerConversationsCommand(program);
@@ -49,6 +60,7 @@ export function buildCliProgram(): Command {
   registerTrustCommand(program);
   registerMemoryCommand(program);
   registerAuditCommand(program);
+  registerAuthCommand(program);
   registerAvatarCommand(program);
   registerDoctorCommand(program);
   registerHooksCommand(program);
