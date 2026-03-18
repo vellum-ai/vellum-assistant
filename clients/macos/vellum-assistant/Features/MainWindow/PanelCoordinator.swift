@@ -80,44 +80,42 @@ extension MainWindowView {
                 }
             )
         case .intelligence:
-            IntelligencePanel(
-                onClose: { windowState.selection = nil },
-                onInvokeSkill: { skill in
-                    let vm = conversationManager.openConversation(message: "Use the \(skill.name) skill") { vm in
-                        vm.pendingSkillInvocation = SkillInvocationData(
-                            name: skill.name,
-                            emoji: skill.emoji,
-                            description: skill.description
-                        )
-                    }
-                    vm?.pendingSkillInvocation = nil
-                    windowState.selection = nil
-                },
-                daemonClient: daemonClient,
-                initialTab: windowState.pendingMemoryId != nil ? "Memories" : nil,
-                pendingMemoryId: $windowState.pendingMemoryId
-            )
-        case .contacts:
-            VStack(spacing: 0) {
-                HStack {
-                    Text("Contacts")
-                        .font(VFont.panelTitle)
-                        .foregroundColor(VColor.contentDefault)
-                    Spacer()
-                    VButton(label: "Close", iconOnly: "xmark", style: .ghost) {
-                        windowState.selection = nil
-                    }
-                }
-                .padding(.horizontal, VSpacing.lg)
-                .padding(.vertical, VSpacing.lg)
-                Divider().background(VColor.borderBase)
-                ContactsContainerView(
-                    daemonClient: daemonClient,
-                    store: settingsStore,
-                    isEmailEnabled: assistantFeatureFlagStore.isEnabled("feature_flags.email-channel.enabled"),
-                    showToast: { msg, style in windowState.showToast(message: msg, style: style) }
-                )
+            // Redirect to contacts panel with intelligence tab
+            Color.clear.onAppear {
+                windowState.contactsPanelTab = .intelligence
+                windowState.showPanel(.contacts)
             }
+        case .contacts:
+            ContactsIntelligencePanel(
+                selectedTab: $windowState.contactsPanelTab,
+                onClose: { windowState.selection = nil },
+                contactsContent: {
+                    ContactsContainerView(
+                        daemonClient: daemonClient,
+                        store: settingsStore,
+                        isEmailEnabled: assistantFeatureFlagStore.isEnabled("feature_flags.email-channel.enabled"),
+                        showToast: { msg, style in windowState.showToast(message: msg, style: style) }
+                    )
+                },
+                intelligenceContent: {
+                    IntelligencePanel(
+                        onClose: { windowState.selection = nil },
+                        onInvokeSkill: { skill in
+                            let vm = conversationManager.openConversation(message: "Use the \(skill.name) skill") { vm in
+                                vm.pendingSkillInvocation = SkillInvocationData(
+                                    name: skill.name,
+                                    toolName: skill.toolName,
+                                    inputFields: skill.inputFields
+                                )
+                            }
+                            windowState.activateConversation(vm.id)
+                        },
+                        daemonClient: daemonClient,
+                        initialTab: windowState.pendingMemoryId != nil ? "Memories" : nil,
+                        pendingMemoryId: $windowState.pendingMemoryId
+                    )
+                }
+            )
         case .usageDashboard:
             UsageDashboardPanel(
                 store: usageDashboardStore,
@@ -474,46 +472,41 @@ extension MainWindowView {
             .overlay(alignment: .topTrailing) { panelDismissButton }
             .background(VColor.surfaceBase)
         case .intelligence:
-            IntelligencePanel(
-                onClose: { windowState.dismissOverlay() },
-                onInvokeSkill: { skill in
-                    let vm = conversationManager.openConversation(message: "Use the \(skill.name) skill") { vm in
-                        vm.pendingSkillInvocation = SkillInvocationData(
-                            name: skill.name,
-                            emoji: skill.emoji,
-                            description: skill.description
-                        )
-                    }
-                    vm?.pendingSkillInvocation = nil
-                    windowState.dismissOverlay()
-                },
-                daemonClient: daemonClient,
-                initialTab: windowState.pendingMemoryId != nil ? "Memories" : nil,
-                pendingMemoryId: $windowState.pendingMemoryId
-            )
-            .overlay(alignment: .topTrailing) { panelDismissButton }
-            .background(VColor.surfaceOverlay)
-        case .contacts:
-            VStack(spacing: 0) {
-                HStack {
-                    Text("Contacts")
-                        .font(VFont.panelTitle)
-                        .foregroundColor(VColor.contentDefault)
-                    Spacer()
-                    VButton(label: "Close", iconOnly: "xmark", style: .ghost) {
-                        windowState.dismissOverlay()
-                    }
-                }
-                .padding(.horizontal, VSpacing.lg)
-                .padding(.vertical, VSpacing.lg)
-                Divider().background(VColor.borderBase)
-                ContactsContainerView(
-                    daemonClient: daemonClient,
-                    store: settingsStore,
-                    isEmailEnabled: assistantFeatureFlagStore.isEnabled("feature_flags.email-channel.enabled"),
-                    showToast: { msg, style in windowState.showToast(message: msg, style: style) }
-                )
+            Color.clear.onAppear {
+                windowState.contactsPanelTab = .intelligence
+                windowState.showPanel(.contacts)
             }
+        case .contacts:
+            ContactsIntelligencePanel(
+                selectedTab: $windowState.contactsPanelTab,
+                onClose: { windowState.dismissOverlay() },
+                contactsContent: {
+                    ContactsContainerView(
+                        daemonClient: daemonClient,
+                        store: settingsStore,
+                        isEmailEnabled: assistantFeatureFlagStore.isEnabled("feature_flags.email-channel.enabled"),
+                        showToast: { msg, style in windowState.showToast(message: msg, style: style) }
+                    )
+                },
+                intelligenceContent: {
+                    IntelligencePanel(
+                        onClose: { windowState.dismissOverlay() },
+                        onInvokeSkill: { skill in
+                            let vm = conversationManager.openConversation(message: "Use the \(skill.name) skill") { vm in
+                                vm.pendingSkillInvocation = SkillInvocationData(
+                                    name: skill.name,
+                                    toolName: skill.toolName,
+                                    inputFields: skill.inputFields
+                                )
+                            }
+                            windowState.activateConversation(vm.id)
+                        },
+                        daemonClient: daemonClient,
+                        initialTab: windowState.pendingMemoryId != nil ? "Memories" : nil,
+                        pendingMemoryId: $windowState.pendingMemoryId
+                    )
+                }
+            )
         case .usageDashboard:
             UsageDashboardPanel(
                 store: usageDashboardStore,

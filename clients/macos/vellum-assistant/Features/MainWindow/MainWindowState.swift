@@ -61,6 +61,7 @@ public final class MainWindowState: ObservableObject {
     /// Transient memory ID to deep-link into when the Intelligence panel opens.
     /// Consumed once by IntelligencePanel/MemoriesPanel, then set back to nil.
     @Published var pendingMemoryId: String?
+    @Published var contactsPanelTab: ContactsPanelTab = .contacts
     @Published var activeDynamicSurface: UiSurfaceShowMessage?
     @Published var activeDynamicParsedSurface: Surface?
     @Published var activeDynamicUserAppsDirectory: URL?
