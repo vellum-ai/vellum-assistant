@@ -40,6 +40,7 @@ enum APIKeyManager {
     static let allSyncableProviders = [
         "anthropic",
         "brave",
+        "elevenlabs",
         "fireworks",
         "gemini",
         "openai",
