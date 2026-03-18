@@ -263,7 +263,6 @@ public final class HTTPTransport {
         case healthz
         case eventsAll  // SSE subscription for all events
         case sendMessage
-        case getMessages(conversationId: String?)
         case conversationsSeen
         case conversationsUnread
         case identity
@@ -371,12 +370,6 @@ public final class HTTPTransport {
         case .eventsAll:
             return ("/v1/events", nil)
         case .sendMessage:
-            return ("/v1/messages", nil)
-        case .getMessages(let conversationId):
-            if let id = conversationId {
-                let encoded = id.addingPercentEncoding(withAllowedCharacters: Self.queryValueAllowed) ?? id
-                return ("/v1/messages", "conversationId=\(encoded)")
-            }
             return ("/v1/messages", nil)
         case .conversationsSeen:
             return ("/v1/conversations/seen", nil)
@@ -511,12 +504,6 @@ public final class HTTPTransport {
         case .eventsAll:
             return ("\(prefix)/events/", nil)
         case .sendMessage:
-            return ("\(prefix)/messages/", nil)
-        case .getMessages(let conversationId):
-            if let id = conversationId {
-                let encoded = id.addingPercentEncoding(withAllowedCharacters: Self.queryValueAllowed) ?? id
-                return ("\(prefix)/messages/", "conversationId=\(encoded)")
-            }
             return ("\(prefix)/messages/", nil)
         case .conversationsSeen:
             return ("\(prefix)/conversations/seen/", nil)
