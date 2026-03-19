@@ -532,6 +532,8 @@ private struct StepDetailRow: View {
     @State private var isHovered = false
     /// Cached formatted input — computed once on first expand.
     @State private var cachedInputFull: String?
+    /// Tracks which output sections (live output / final output) are expanded.
+    @State private var expandedOutputIds: Set<String> = []
     @Environment(\.displayScale) private var displayScale
     @Environment(\.suppressAutoScroll) private var suppressAutoScroll
 
@@ -721,7 +723,8 @@ private struct StepDetailRow: View {
                             .font(VFont.monoSmall)
                             .foregroundColor(VColor.contentSecondary)
                             .textSelection(.enabled)
-                            .fixedSize(horizontal: false, vertical: true)
+                            .lineLimit(8)
+                            .truncationMode(.tail)
                     }
                 }
             }
@@ -753,6 +756,7 @@ private struct StepDetailRow: View {
                         .textCase(.uppercase)
 
                     outputBlock(
+                        id: "live-\(toolCall.id.uuidString)",
                         text: toolCall.partialOutput,
                         attributedText: nil,
                         copyText: toolCall.partialOutput,
@@ -774,8 +778,13 @@ private struct StepDetailRow: View {
                         .textCase(.uppercase)
 
                     outputBlock(
+                        id: "result-\(toolCall.id.uuidString)",
                         text: nil,
-                        attributedText: coloredOutput(result, isError: toolCall.isError),
+                        attributedText: coloredOutput(
+                            result,
+                            isError: toolCall.isError,
+                            expanded: expandedOutputIds.contains("result-\(toolCall.id.uuidString)")
+                        ),
                         copyText: result,
                         copyLabel: "Copy output"
                     )
@@ -788,22 +797,47 @@ private struct StepDetailRow: View {
 
     // MARK: - Output Block
 
-    /// Reusable output block with a height-bounded ScrollView for long outputs.
+    /// Reusable output block with line-limited display and "Show more" toggle.
+    /// Default state shows up to 8 lines. Expanded state shows full text;
+    /// outputs exceeding 20K characters use a ScrollView capped at 400pt to
+    /// prevent SwiftUI from laying out unbounded text intrinsic heights.
     @ViewBuilder
     private func outputBlock(
+        id: String,
         text: String?,
         attributedText: AttributedString?,
         copyText: String,
         copyLabel: String
     ) -> some View {
-        let lineCount = copyText.components(separatedBy: "\n").count
+        let isOutputExpanded = expandedOutputIds.contains(id)
+        // Avoid splitting the entire string just to count lines — scan for
+        // the 9th newline to decide whether truncation is needed.
+        let needsTruncation: Bool = {
+            if copyText.utf8.count > 400 { return true }
+            var newlineCount = 0
+            for ch in copyText {
+                if ch == "\n" { newlineCount += 1 }
+                if newlineCount > 8 { return true }
+            }
+            return false
+        }()
 
         ZStack(alignment: .topTrailing) {
             VStack(alignment: .leading, spacing: VSpacing.xs) {
-                if lineCount > 500 {
-                    // Long outputs get a height-bounded ScrollView
+                if isOutputExpanded && copyText.utf8.count > 20_000 {
                     ScrollView {
-                        outputTextView(text: text, attributedText: attributedText)
+                        if let attrText = attributedText {
+                            Text(attrText)
+                                .font(VFont.monoSmall)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .textSelection(.enabled)
+                        } else if let plainText = text {
+                            Text(plainText)
+                                .font(VFont.monoSmall)
+                                .foregroundColor(VColor.contentSecondary)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .textSelection(.enabled)
+                        }
                     }
                     .frame(maxHeight: 400)
                 } else if let attrText = attributedText {
@@ -811,14 +845,33 @@ private struct StepDetailRow: View {
                         .font(VFont.monoSmall)
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .textSelection(.enabled)
-                        .fixedSize(horizontal: false, vertical: true)
+                        .lineLimit(isOutputExpanded ? nil : 8)
+                        .truncationMode(.tail)
                 } else if let plainText = text {
                     Text(plainText)
                         .font(VFont.monoSmall)
                         .foregroundColor(VColor.contentSecondary)
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .textSelection(.enabled)
-                        .fixedSize(horizontal: false, vertical: true)
+                        .lineLimit(isOutputExpanded ? nil : 8)
+                        .truncationMode(.tail)
+                }
+
+                if needsTruncation {
+                    Button {
+                        withAnimation(VAnimation.fast) {
+                            if isOutputExpanded {
+                                expandedOutputIds.remove(id)
+                            } else {
+                                expandedOutputIds.insert(id)
+                            }
+                        }
+                    } label: {
+                        Text(isOutputExpanded ? "Show less" : "Show more")
+                            .font(VFont.caption)
+                            .foregroundColor(VColor.primaryBase)
+                    }
+                    .buttonStyle(.plain)
                 }
             }
             .padding(VSpacing.sm)
@@ -839,30 +892,20 @@ private struct StepDetailRow: View {
         }
     }
 
-    /// Text view used inside the ScrollView for long outputs.
-    @ViewBuilder
-    private func outputTextView(
-        text: String?,
-        attributedText: AttributedString?
-    ) -> some View {
-        if let attrText = attributedText {
-            Text(attrText)
-                .font(VFont.monoSmall)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .textSelection(.enabled)
-        } else if let plainText = text {
-            Text(plainText)
-                .font(VFont.monoSmall)
-                .foregroundColor(VColor.contentSecondary)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .textSelection(.enabled)
-        }
-    }
-
     // MARK: - Helpers
 
-    private func coloredOutput(_ result: String, isError: Bool) -> AttributedString {
-        let lines = result.components(separatedBy: "\n")
+    /// Builds a diff-colored `AttributedString` from the tool result.
+    /// When `expanded` is false, only the first 8 lines are processed to
+    /// avoid iterating tens of thousands of lines on the main thread.
+    private func coloredOutput(_ result: String, isError: Bool, expanded: Bool = true) -> AttributedString {
+        let lines: [Substring]
+        if expanded {
+            lines = result.split(separator: "\n", omittingEmptySubsequences: false).map { $0 }
+        } else {
+            let capIndex = result.index(result.startIndex, offsetBy: 4096, limitedBy: result.endIndex) ?? result.endIndex
+            let prefix = result[result.startIndex..<capIndex]
+            lines = Array(prefix.split(separator: "\n", omittingEmptySubsequences: false).prefix(8))
+        }
         let isDiff = result.contains("@@") && result.contains("---") && result.contains("+++")
         var attributed = AttributedString()
         for (index, line) in lines.enumerated() {

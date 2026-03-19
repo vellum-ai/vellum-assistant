@@ -199,6 +199,10 @@ struct MessageListView: View {
     /// In-flight staged scroll-to-bottom task used after conversation switches and
     /// app restarts to reliably anchor the viewport once layout settles.
     @State private var scrollRestoreTask: Task<Void, Never>?
+    /// In-flight deferred scrollTo during expansion pinning. Stored so that
+    /// onScrollUp can cancel it immediately, preventing a stale scroll from
+    /// yanking the viewport back to bottom after the user scrolled away.
+    @State private var pinScrollTask: Task<Void, Never>?
     /// Whether the AnchorMinYKey preference has fired since the last scroll
     /// restore began. Ensures anchorTracker.isVisible reflects real geometry
     /// rather than the manual reset applied on conversation switch.
@@ -860,6 +864,8 @@ struct MessageListView: View {
                         scrollDebounceTask = nil
                         scrollRestoreTask?.cancel()
                         scrollRestoreTask = nil
+                        pinScrollTask?.cancel()
+                        pinScrollTask = nil
                         isNearBottom = false
                         hasReceivedScrollEvent = true
                     },
@@ -886,11 +892,19 @@ struct MessageListView: View {
                 anchorTracker.update(minY: minY, viewportHeight: scrollViewportHeight)
                 if !hasFreshAnchorMeasurement { hasFreshAnchorMeasurement = true }
                 // During content expansion while bottom-pinned, re-anchor to bottom
-                // on every frame so the viewport follows the growing content.
-                // Gate on isNearBottom so that if the user scrolls away during
-                // the pinning window, we stop fighting their scroll.
+                // so the viewport follows the growing content. Deferred via Task
+                // to break a synchronous layout feedback loop: scrollTo triggers
+                // a layout pass that re-fires AnchorMinYKey, which would call
+                // scrollTo again indefinitely. Using a stored Task (rather than
+                // DispatchQueue.main.async) so onScrollUp can cancel it immediately.
                 if scrollTracking.isPinningDuringExpansion && isNearBottom {
-                    proxy.scrollTo("scroll-bottom-anchor", anchor: .bottom)
+                    pinScrollTask?.cancel()
+                    pinScrollTask = Task { @MainActor [scrollTracking] in
+                        guard !Task.isCancelled,
+                              scrollTracking.isPinningDuringExpansion,
+                              isNearBottom else { return }
+                        proxy.scrollTo("scroll-bottom-anchor", anchor: .bottom)
+                    }
                 }
                 os_signpost(.end, log: PerfSignposts.log, name: "anchorPreferenceChange")
             }
@@ -996,6 +1010,8 @@ struct MessageListView: View {
                 expandSuppressionTask = nil
                 scrollRestoreTask?.cancel()
                 scrollRestoreTask = nil
+                pinScrollTask?.cancel()
+                pinScrollTask = nil
                 avatarSmoothingTask?.cancel()
                 avatarSmoothingTask = nil
                 highlightDismissTask?.cancel()

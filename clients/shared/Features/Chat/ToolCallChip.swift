@@ -123,7 +123,8 @@ public struct ToolCallChip: View {
                                     .font(VFont.monoSmall)
                                     .foregroundColor(VColor.contentSecondary)
                                     .textSelection(.enabled)
-                                    .fixedSize(horizontal: false, vertical: true)
+                                    .lineLimit(8)
+                                    .truncationMode(.tail)
                             }
                         }
                     }
@@ -206,14 +207,13 @@ public struct ToolCallChip: View {
                                         .foregroundColor(VColor.contentSecondary)
                                 }
                             } else {
-                                ScrollView {
-                                    Text(result)
-                                        .font(VFont.monoSmall)
-                                        .foregroundColor(VColor.contentSecondary)
-                                        .frame(maxWidth: .infinity, alignment: .leading)
-                                        .textSelection(.enabled)
-                                }
-                                .frame(maxHeight: 200)
+                                Text(result)
+                                    .font(VFont.monoSmall)
+                                    .foregroundColor(VColor.contentSecondary)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                    .textSelection(.enabled)
+                                    .lineLimit(8)
+                                    .truncationMode(.tail)
                             }
                         }
                         .padding(.horizontal, VSpacing.sm)
