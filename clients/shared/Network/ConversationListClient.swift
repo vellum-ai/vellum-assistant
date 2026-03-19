@@ -43,7 +43,8 @@ public struct ConversationListClient: ConversationListClientProtocol {
                     conversationOriginInterface: $0.conversationOriginInterface,
                     assistantAttention: $0.assistantAttention,
                     displayOrder: $0.displayOrder,
-                    isPinned: $0.isPinned
+                    isPinned: $0.isPinned,
+                    forkParent: $0.forkParent
                 )
             }
             return ConversationListResponse(
@@ -78,6 +79,7 @@ private struct HTTPConversationsListResponse: Decodable {
         let assistantAttention: AssistantAttention?
         let displayOrder: Double?
         let isPinned: Bool?
+        let forkParent: ConversationForkParent?
     }
     let conversations: [Conversation]
     let hasMore: Bool?
