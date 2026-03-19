@@ -1170,6 +1170,13 @@ struct MessageListView: View {
             .onAppear {
                 isAppActive = NSApp.isActive
                 configureBottomPinCoordinator(proxy: proxy)
+                // Seed the confirmation marker on initial mount — onChange(of:
+                // conversationId) doesn't fire for the initial value, so a
+                // conversation already paused in awaiting_confirmation at launch
+                // or reconnect needs the marker set here.
+                if !isSending {
+                    phaseWhenSendingStopped = assistantActivityPhase
+                }
                 if let id = anchorMessageId, messages.contains(where: { $0.id == id }) {
                     // Anchor is already set and the target message is loaded —
                     // scroll to it immediately instead of falling through to bottom.
