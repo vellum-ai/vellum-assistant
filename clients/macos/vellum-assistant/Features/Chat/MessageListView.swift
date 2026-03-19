@@ -557,7 +557,13 @@ struct MessageListView: View {
             // button flash) and does not reflect actual scroll position.
             try? await Task.sleep(nanoseconds: 150_000_000)
             guard !Task.isCancelled else { return }
-            if anchorMessageId == nil && !hasReceivedScrollEvent {
+            if anchorMessageId == nil
+                && !hasReceivedScrollEvent
+                && MessageListBottomAnchorPolicy.needsRepin(
+                    anchorMinY: anchorTracker.lastMinY,
+                    viewportHeight: scrollViewportHeight
+                )
+            {
                 proxy.scrollTo("scroll-bottom-anchor", anchor: .bottom)
                 log.debug("Scroll restore: stage 2 (200ms) — retrying scrollTo")
             } else {
@@ -902,8 +908,14 @@ struct MessageListView: View {
                     if elapsed > 0.25 {
                         scrollTracking.isPinningDuringExpansion = false
                         updateAvatarFollower(anchorY: scrollTracking.lastTailAnchorY)
-                    } else {
+                    } else if MessageListBottomAnchorPolicy.needsRepin(
+                        anchorMinY: minY,
+                        viewportHeight: scrollViewportHeight
+                    ) {
                         proxy.scrollTo("scroll-bottom-anchor", anchor: .bottom)
+                    } else {
+                        // Keep the pinning window alive, but don't issue a redundant
+                        // scrollTo once the bottom anchor is already back in view.
                     }
                 } else if scrollTracking.isPinningDuringExpansion {
                     // User scrolled away during the pinning window — still clear
@@ -1065,11 +1077,16 @@ struct MessageListView: View {
                             // If the task was cancelled during the sleep (user scrolled up), do not fire trailing-edge scroll.
                             guard !Task.isCancelled else { return }
                             if isNearBottom && !isSuppressingBottomScroll {
-                                if isLastMessageStreaming {
-                                    proxy.scrollTo("scroll-bottom-anchor", anchor: .bottom)
-                                } else {
-                                    withAnimation(VAnimation.fast) {
+                                if MessageListBottomAnchorPolicy.needsRepin(
+                                    anchorMinY: anchorTracker.lastMinY,
+                                    viewportHeight: scrollViewportHeight
+                                ) {
+                                    if isLastMessageStreaming {
                                         proxy.scrollTo("scroll-bottom-anchor", anchor: .bottom)
+                                    } else {
+                                        withAnimation(VAnimation.fast) {
+                                            proxy.scrollTo("scroll-bottom-anchor", anchor: .bottom)
+                                        }
                                     }
                                 }
                             }
@@ -1152,7 +1169,12 @@ struct MessageListView: View {
                         // Pin to bottom without animation to avoid visual bounce.
                         // Skip when an anchor is pending (deep-link / notification)
                         // to avoid yanking the viewport away from the target message.
-                        proxy.scrollTo("scroll-bottom-anchor", anchor: .bottom)
+                        if MessageListBottomAnchorPolicy.needsRepin(
+                            anchorMinY: anchorTracker.lastMinY,
+                            viewportHeight: scrollViewportHeight
+                        ) {
+                            proxy.scrollTo("scroll-bottom-anchor", anchor: .bottom)
+                        }
                     }
                     // If not near bottom or anchor is set, preserve viewport.
                 }
@@ -1654,6 +1676,22 @@ private struct AnchorMinYKey: PreferenceKey {
         // Use min so sibling views in the LazyVStack (which report the default
         // value of .infinity) don't overwrite the anchor's actual Y position.
         value = min(value, nextValue())
+    }
+}
+
+/// Centralizes the "do we still need to scroll?" check for bottom-pinning
+/// paths so expansion/streaming guards stop once the tail anchor re-enters
+/// the viewport.
+enum MessageListBottomAnchorPolicy {
+    static let repinTolerance: CGFloat = 2
+
+    static func needsRepin(
+        anchorMinY: CGFloat,
+        viewportHeight: CGFloat,
+        tolerance: CGFloat = repinTolerance
+    ) -> Bool {
+        guard anchorMinY.isFinite, viewportHeight.isFinite else { return true }
+        return anchorMinY > viewportHeight + tolerance
     }
 }
 
