@@ -4,13 +4,13 @@ import {
   type ImageGenCredentials,
   mapGeminiError,
 } from "../../../../media/gemini-image-service.js";
+import { getFilePathBySourcePath } from "../../../../memory/attachments-store.js";
 import {
   buildManagedBaseUrl,
   resolveManagedProxyContext,
 } from "../../../../providers/managed-proxy/context.js";
 import type { ImageContent } from "../../../../providers/types.js";
 import { getProviderKeyAsync } from "../../../../security/secure-keys.js";
-import { getFilePathBySourcePath } from "../../../../memory/attachments-store.js";
 import { sandboxPolicy } from "../../../../tools/shared/filesystem/path-policy.js";
 import type {
   ToolContext,
