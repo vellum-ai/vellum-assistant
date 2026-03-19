@@ -51,6 +51,7 @@ export function initSentry(): void {
     initialScope: {
       tags: {
         commit: COMMIT_SHA,
+        assistant_version: APP_VERSION,
         os_platform: platform(),
         os_release: release(),
         os_arch: arch(),
