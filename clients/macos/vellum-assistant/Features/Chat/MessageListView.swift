@@ -1453,8 +1453,12 @@ struct MessageListView: View {
                 }
             }
             .onChange(of: containerWidth) {
-                // Ignore sub-pixel jitter and initial zero value
-                guard containerWidth > 0, abs(containerWidth - lastHandledContainerWidth) > 20 else { return }
+                // Ignore sub-pixel jitter and initial zero value.
+                // Use a tight 2pt threshold so scroll suppression activates on
+                // any meaningful width change during divider drag — the previous
+                // 20pt dead-zone let intermediate reflows through without suppression,
+                // causing scroll position desync and disappearing messages.
+                guard containerWidth > 0, abs(containerWidth - lastHandledContainerWidth) > 2 else { return }
                 lastHandledContainerWidth = containerWidth
 
                 // Cancel competing scroll tasks to prevent jitter during resize
