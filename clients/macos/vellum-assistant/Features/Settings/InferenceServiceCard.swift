@@ -87,7 +87,7 @@ struct InferenceServiceCard: View {
             return false
         }
         let modeChanged = draftMode != store.inferenceMode
-        let hasNewKey = !apiKeyText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        let hasNewKey = draftMode == "your-own" && !apiKeyText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         let modelChanged = draftModel != initialModel
         let providerChanged = isCustomProviderEnabled && draftProvider != initialProvider
         return modeChanged || hasNewKey || modelChanged || providerChanged
