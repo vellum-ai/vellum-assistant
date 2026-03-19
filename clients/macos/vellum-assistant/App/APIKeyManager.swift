@@ -68,10 +68,14 @@ enum APIKeyManager {
             if let udValue = UserDefaults.standard.string(forKey: udKey),
                !udValue.isEmpty,
                storage.get(account: udKey) == nil {
-                _ = storage.set(account: udKey, value: udValue)
+                // Only remove from UserDefaults if the credential store
+                // write succeeds. A transient Keychain/file failure should
+                // not destroy the user's only copy of the key.
+                guard storage.set(account: udKey, value: udValue) else { continue }
             }
-            // Always remove from UserDefaults regardless — keys should not
-            // remain in the plaintext plist after migration.
+            // Safe to remove: either the key was successfully migrated,
+            // the credential store already had a value, or UserDefaults
+            // had no value to preserve.
             UserDefaults.standard.removeObject(forKey: udKey)
         }
     }
