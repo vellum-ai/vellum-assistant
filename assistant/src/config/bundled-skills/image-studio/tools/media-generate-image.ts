@@ -124,22 +124,37 @@ export async function run(
       }
     }
 
+    const readErrors: string[] = [];
     sourceImages = visibleAttachments
       .map((att) => {
         let buffer: Buffer | null | undefined;
         try {
           buffer = getAttachmentContent(att.id);
-        } catch {
-          // File-backed attachment may point to a missing or unreadable file
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : "unknown error";
+          readErrors.push(`Failed to read attachment ${att.id}: ${msg}`);
           return undefined;
         }
-        if (!buffer) return undefined;
+        if (!buffer) {
+          readErrors.push(`Attachment ${att.id} has no content`);
+          return undefined;
+        }
         return {
           mimeType: att.mimeType,
           dataBase64: buffer.toString("base64"),
         };
       })
       .filter((img): img is NonNullable<typeof img> => img !== undefined);
+
+    // If all visible attachments failed to read and file paths won't supplement, report the error
+    if (sourceImages.length === 0 && readErrors.length > 0) {
+      if (!sourcePaths || sourcePaths.length === 0) {
+        return {
+          content: `Could not read any of the specified attachments:\n${readErrors.join("\n")}`,
+          isError: true,
+        };
+      }
+    }
   }
 
   // Resolve source images from file paths (sandboxed to workingDir, edit mode only)
