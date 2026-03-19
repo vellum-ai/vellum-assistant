@@ -27,6 +27,18 @@ struct MessageInspectorOverviewContent: Equatable {
             return
         }
 
+        if MessageInspectorSummaryFormatters.isProviderOnlySummary(summary) {
+            identityRows = []
+            usageRows = []
+            responsePreview = nil
+            toolCallNames = nil
+            fallbackMessage = MessageInspectorSummaryFormatters.summaryFallbackMessage(
+                recordedAt: MessageInspectorSummaryFormatters.formattedCreatedAt(entry.createdAt),
+                provider: MessageInspectorSummaryFormatters.displayProvider(summary.provider)
+            )
+            return
+        }
+
         identityRows = [
             .init(label: "Provider", value: MessageInspectorSummaryFormatters.displayProvider(summary.provider)),
             .init(label: "Model", value: MessageInspectorSummaryFormatters.displayText(summary.model)),
@@ -106,8 +118,12 @@ enum MessageInspectorSummaryFormatters {
         return value
     }
 
-    static func summaryFallbackMessage(recordedAt: String) -> String {
-        "Normalized summary unavailable. Recorded at \(recordedAt). Raw request and response payloads are still available in the Raw tab."
+    static func summaryFallbackMessage(recordedAt: String, provider: String? = nil) -> String {
+        if let provider, provider != missingValue {
+            return "Normalized summary unavailable for \(provider). Recorded at \(recordedAt). Raw request and response payloads are still available in the Raw tab."
+        }
+
+        return "Normalized summary unavailable. Recorded at \(recordedAt). Raw request and response payloads are still available in the Raw tab."
     }
 
     static func truncatedResponsePreview(_ text: String?, limit: Int = 160) -> String? {
@@ -143,6 +159,25 @@ enum MessageInspectorSummaryFormatters {
     static func formattedCreatedAt(_ epochMs: Int) -> String {
         Date(timeIntervalSince1970: TimeInterval(epochMs) / 1000.0)
             .formatted(date: .abbreviated, time: .shortened)
+    }
+
+    static func isProviderOnlySummary(_ summary: LLMCallSummary) -> Bool {
+        let hasProvider = displayProvider(summary.provider) != missingValue
+        guard hasProvider else { return false }
+
+        return summary.model == nil
+            && summary.status == nil
+            && summary.inputTokens == nil
+            && summary.outputTokens == nil
+            && summary.cacheCreationInputTokens == nil
+            && summary.cacheReadInputTokens == nil
+            && summary.stopReason == nil
+            && summary.requestMessageCount == nil
+            && summary.requestToolCount == nil
+            && summary.responseMessageCount == nil
+            && summary.responseToolCallCount == nil
+            && summary.responsePreview == nil
+            && (summary.toolCallNames?.isEmpty != false)
     }
 
     private static func titleCasedProviderLabel(_ provider: String) -> String {
