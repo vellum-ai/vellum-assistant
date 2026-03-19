@@ -210,7 +210,7 @@ final class MessageInspectorOverviewTabTests: XCTestCase {
         )
         XCTAssertFalse(
             MessageInspectorSummaryFormatters.isProviderOnlySummary(
-                .init(provider: "openrouter", model: "gpt-4.1")
+                .init(model: "gpt-4.1", provider: "openrouter")
             )
         )
     }
