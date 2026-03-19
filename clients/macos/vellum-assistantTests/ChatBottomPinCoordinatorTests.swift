@@ -53,6 +53,7 @@ final class ChatBottomPinCoordinatorTests: XCTestCase {
 
     func testScrollUpCancelsActiveSession() {
         let convId = UUID()
+        pinShouldSucceed = false
         coordinator.requestPin(reason: .streaming, conversationId: convId)
         XCTAssertNotNil(coordinator.activeSession)
 
