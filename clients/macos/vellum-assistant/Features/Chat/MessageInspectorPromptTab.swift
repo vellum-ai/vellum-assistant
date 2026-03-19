@@ -65,9 +65,17 @@ struct MessageInspectorPromptTab: View {
                         .foregroundColor(VColor.contentDefault)
                         .lineLimit(2)
 
-                    Text(section.kindLabel)
-                        .font(VFont.caption)
-                        .foregroundColor(VColor.contentTertiary)
+                    HStack(spacing: VSpacing.xs) {
+                        Text(section.kindLabel)
+                            .font(VFont.caption)
+                            .foregroundColor(VColor.contentTertiary)
+
+                        if let formatLabel = section.formatLabel {
+                            Text(formatLabel)
+                                .font(VFont.caption)
+                                .foregroundColor(VColor.contentSecondary)
+                        }
+                    }
                 }
 
                 Spacer(minLength: VSpacing.md)
@@ -147,17 +155,19 @@ struct MessageInspectorPromptSectionModel: Identifiable, Equatable {
     let copyText: String
     let syntaxLanguage: SyntaxLanguage
     let presentationStyle: PresentationStyle
+    let formatLabel: String?
 
     init(index: Int, section: LLMContextSection) {
         id = "\(index)"
         title = Self.displayTitle(for: section, index: index)
         kindLabel = Self.displayKindLabel(for: section.kind)
 
-        let renderedContent = Self.renderedContent(for: section.content)
+        let renderedContent = Self.renderedContent(for: section)
         displayText = renderedContent.text
         copyText = renderedContent.text
         syntaxLanguage = renderedContent.syntaxLanguage
         presentationStyle = renderedContent.isStructured ? .structured : .text
+        formatLabel = renderedContent.formatLabel
     }
 
     private static func displayTitle(for section: LLMContextSection, index: Int) -> String {
@@ -176,20 +186,48 @@ struct MessageInspectorPromptSectionModel: Identifiable, Equatable {
             .joined(separator: " ")
     }
 
-    private static func renderedContent(for content: AnyCodable?) -> (text: String, syntaxLanguage: SyntaxLanguage, isStructured: Bool) {
-        guard let value = content?.value else {
-            return ("No content available.", .plain, false)
+    private static func renderedContent(for section: LLMContextSection) -> (text: String, syntaxLanguage: SyntaxLanguage, isStructured: Bool, formatLabel: String?) {
+        let preferredLanguage = syntaxLanguage(for: section.language)
+
+        guard let value = section.content?.value else {
+            return ("No content available.", preferredLanguage ?? .plain, false, nil)
         }
 
         if let string = value as? String {
-            return (string, .plain, false)
+            if preferredLanguage == .json, let parsedJSON = parseJSONString(string) {
+                return (
+                    prettyPrintedJSONString(for: parsedJSON) ?? string,
+                    .json,
+                    true,
+                    "JSON"
+                )
+            }
+
+            return (
+                string,
+                preferredLanguage ?? .plain,
+                false,
+                preferredLanguage.flatMap { formatLabel(for: $0) }
+            )
         }
 
         if let json = prettyPrintedJSONString(for: value) {
-            return (json, .json, true)
+            let syntaxLanguage = preferredLanguage ?? .json
+            return (
+                json,
+                syntaxLanguage,
+                true,
+                formatLabel(for: syntaxLanguage)
+            )
         }
 
-        return (String(describing: value), .plain, true)
+        let syntaxLanguage = preferredLanguage ?? .plain
+        return (
+            String(describing: value),
+            syntaxLanguage,
+            true,
+            preferredLanguage.flatMap { formatLabel(for: $0) }
+        )
     }
 
     private static func prettyPrintedJSONString(for value: Any) -> String? {
@@ -205,5 +243,45 @@ struct MessageInspectorPromptSectionModel: Identifiable, Equatable {
         }
 
         return String(data: data, encoding: .utf8)
+    }
+
+    private static func parseJSONString(_ string: String) -> Any? {
+        guard let data = string.data(using: .utf8) else {
+            return nil
+        }
+
+        return try? JSONSerialization.jsonObject(with: data)
+    }
+
+    private static func syntaxLanguage(for language: String?) -> SyntaxLanguage? {
+        guard let language else { return nil }
+
+        switch language.lowercased() {
+        case "json", "application/json":
+            return .json
+        case "markdown", "md", "text/markdown":
+            return .markdown
+        case "javascript", "application/javascript", "text/javascript":
+            return .javascript
+        case "typescript", "application/typescript", "text/typescript":
+            return .typescript
+        default:
+            return .plain
+        }
+    }
+
+    private static func formatLabel(for syntaxLanguage: SyntaxLanguage) -> String? {
+        switch syntaxLanguage {
+        case .json:
+            return "JSON"
+        case .markdown:
+            return "Markdown"
+        case .javascript:
+            return "JavaScript"
+        case .typescript:
+            return "TypeScript"
+        case .plain:
+            return nil
+        }
     }
 }
