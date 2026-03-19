@@ -144,7 +144,6 @@ const LOW_RISK_PROGRAMS = new Set([
   "du",
   "df",
   "assistant",
-  "vellum",
 ]);
 
 // High-risk shell programs / patterns
@@ -196,32 +195,6 @@ const LOW_RISK_GIT_SUBCOMMANDS = new Set([
   "ls-tree",
   "cat-file",
   "reflog",
-]);
-
-// Mutating assistant/vellum CLI subcommands that should be escalated to Medium
-// risk. Most assistant/vellum subcommands are read-only and stay Low risk.
-// This mirrors the git subcommand pattern — only known mutating operations
-// get escalated.
-const MEDIUM_RISK_CLI_SUBCOMMANDS = new Set([
-  "credentials",
-  "config",
-  "bash",
-  "trust",
-  "autonomy",
-  "contacts",
-  "mcp",
-  "keys",
-  "wake",
-  "sleep",
-  "hatch",
-  "retire",
-  "clean",
-  "setup",
-  "upgrade",
-  "recover",
-  "login",
-  "use",
-  "pair",
 ]);
 
 // Commands that wrap another program — the real program appears as the first
@@ -711,17 +684,6 @@ async function classifyRiskUncached(
         }
         // Non-read-only git commands are medium
         maxRisk = RiskLevel.Medium;
-        continue;
-      }
-
-      if (prog === "vellum" || prog === "assistant") {
-        const subcommand = firstPositionalArg(seg.args);
-        if (subcommand && MEDIUM_RISK_CLI_SUBCOMMANDS.has(subcommand)) {
-          // Known mutating subcommands are medium
-          maxRisk = RiskLevel.Medium;
-          continue;
-        }
-        // Read-only / unknown subcommands stay at current risk
         continue;
       }
 
