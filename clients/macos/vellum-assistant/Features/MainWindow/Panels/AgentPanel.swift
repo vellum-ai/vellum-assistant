@@ -516,7 +516,7 @@ struct AgentPanelContent: View {
                     .frame(maxHeight: .infinity)
                     .background(
                         RoundedRectangle(cornerRadius: VRadius.lg)
-                            .fill(VColor.surfaceActive)
+                            .fill(VColor.surfaceBase)
                     )
                     .clipShape(RoundedRectangle(cornerRadius: VRadius.lg))
 
