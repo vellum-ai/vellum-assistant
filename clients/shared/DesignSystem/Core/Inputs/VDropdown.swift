@@ -59,6 +59,7 @@ public struct VDropdown<T: Hashable>: View {
                 Text(label)
                     .font(VFont.inputLabel)
                     .foregroundColor(isEnabled ? VColor.contentSecondary : VColor.contentDisabled)
+                    .accessibilityHidden(true)
             }
 
             Menu {
@@ -112,12 +113,14 @@ public struct VDropdown<T: Hashable>: View {
             .menuStyle(.button)
             .buttonStyle(.plain)
             .menuIndicator(.hidden)
-            .accessibilityLabel(selectedLabel ?? placeholder)
+            .accessibilityLabel(label ?? selectedLabel ?? placeholder)
+            .accessibilityHint(errorMessage ?? "")
 
             if let errorMessage {
                 Text(errorMessage)
                     .font(VFont.caption)
                     .foregroundColor(VColor.systemNegativeStrong)
+                    .accessibilityHidden(true)
             }
         }
         .frame(maxWidth: maxWidth)

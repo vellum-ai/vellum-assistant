@@ -108,6 +108,7 @@ public struct VTextField: View {
                 Text(label)
                     .font(VFont.inputLabel)
                     .foregroundColor(isEnabled ? VColor.contentSecondary : VColor.contentDisabled)
+                    .accessibilityHidden(true)
             }
 
             HStack(spacing: VSpacing.md) {
@@ -134,26 +135,33 @@ public struct VTextField: View {
                 Text(errorMessage)
                     .font(VFont.caption)
                     .foregroundColor(VColor.systemNegativeStrong)
+                    .accessibilityHidden(true)
             }
         }
     }
 
     @ViewBuilder
     private var inputField: some View {
-        if isSecure {
-            SecureField(placeholder, text: $text)
-                .textFieldStyle(.plain)
-                .font(VFont.body)
-                .foregroundColor(VColor.contentDefault)
-                .focused($isFocused)
-                .onSubmit { onSubmit?() }
-        } else {
-            TextField(placeholder, text: $text)
-                .textFieldStyle(.plain)
-                .font(VFont.body)
-                .foregroundColor(VColor.contentDefault)
-                .focused($isFocused)
-                .onSubmit { onSubmit?() }
+        let field = Group {
+            if isSecure {
+                SecureField(placeholder, text: $text)
+                    .textFieldStyle(.plain)
+                    .font(VFont.body)
+                    .foregroundColor(VColor.contentDefault)
+                    .focused($isFocused)
+                    .onSubmit { onSubmit?() }
+            } else {
+                TextField(placeholder, text: $text)
+                    .textFieldStyle(.plain)
+                    .font(VFont.body)
+                    .foregroundColor(VColor.contentDefault)
+                    .focused($isFocused)
+                    .onSubmit { onSubmit?() }
+            }
         }
+
+        field
+            .accessibilityLabel(label ?? placeholder)
+            .accessibilityHint(errorMessage ?? "")
     }
 }
