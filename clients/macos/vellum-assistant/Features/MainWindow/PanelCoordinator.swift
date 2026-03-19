@@ -692,6 +692,11 @@ struct ActiveChatViewWrapper: View {
                     }
                 }
             },
+            onForkFromMessage: { [conversationManager] daemonMessageId in
+                Task { @MainActor in
+                    await conversationManager.forkConversation(throughDaemonMessageId: daemonMessageId)
+                }
+            },
             showInspectButton: showInspectButton,
             onInspectMessage: { daemonMessageId in
                 presentInspector(for: daemonMessageId)

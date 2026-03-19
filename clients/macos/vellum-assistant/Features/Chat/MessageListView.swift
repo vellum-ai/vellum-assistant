@@ -330,28 +330,16 @@ struct MessageListView: View {
         )
     }
 
-    var hasForkActionHandler: Bool {
-        onForkFromMessage != nil || AppDelegate.shared?.mainWindow?.conversationManager != nil
-    }
-
     func canFork(from message: ChatMessage) -> Bool {
-        hasForkActionHandler && message.daemonMessageId != nil && !message.isStreaming
+        onForkFromMessage != nil && message.daemonMessageId != nil && !message.isStreaming
     }
 
     func forkFromMessage(_ daemonMessageId: String) {
-        if let onForkFromMessage {
-            onForkFromMessage(daemonMessageId)
-            return
-        }
-
-        Task { @MainActor in
-            await AppDelegate.shared?.mainWindow?.conversationManager
-                .forkConversation(throughDaemonMessageId: daemonMessageId)
-        }
+        onForkFromMessage?(daemonMessageId)
     }
 
     var forkFromMessageAction: ((String) -> Void)? {
-        guard hasForkActionHandler else { return nil }
+        guard onForkFromMessage != nil else { return nil }
         return { daemonMessageId in
             forkFromMessage(daemonMessageId)
         }
