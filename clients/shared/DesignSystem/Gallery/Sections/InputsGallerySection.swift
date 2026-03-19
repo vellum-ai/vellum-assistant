@@ -145,6 +145,27 @@ struct InputsGallerySection: View {
                             text: $textFieldValue,
                             leadingIcon: VIcon.search.rawValue
                         )
+
+                        Divider().background(VColor.borderBase)
+
+                        // --- Width Variants ---
+                        Text("Width variants").font(VFont.captionMedium).foregroundColor(VColor.contentTertiary)
+
+                        VStack(alignment: .leading, spacing: VSpacing.md) {
+                            Text("Full width (default maxWidth: .infinity)")
+                                .font(VFont.caption).foregroundColor(VColor.contentTertiary)
+                            VTextField(placeholder: "Fills available width...", text: $textFieldValue)
+                        }
+
+                        VStack(alignment: .leading, spacing: VSpacing.md) {
+                            Text("Constrained width (maxWidth: 400)")
+                                .font(VFont.caption).foregroundColor(VColor.contentTertiary)
+                            VTextField(
+                                placeholder: "Settings card width...",
+                                text: $textFieldValue,
+                                maxWidth: 400
+                            )
+                        }
                     }
                 }
             }

@@ -3,7 +3,11 @@ import SwiftUI
 /// A ViewModifier that applies the shared input chrome across text inputs.
 /// Use on raw TextField / SecureField instances: `.vInputStyle()`
 public struct VInputStyleModifier: ViewModifier {
-    public init() {}
+    public var maxWidth: CGFloat = .infinity
+
+    public init(maxWidth: CGFloat = .infinity) {
+        self.maxWidth = maxWidth
+    }
 
     public func body(content: Content) -> some View {
         content
@@ -12,12 +16,13 @@ public struct VInputStyleModifier: ViewModifier {
             .padding(.vertical, VSpacing.xs)
             .frame(height: 32)
             .vInputChrome()
+            .frame(maxWidth: maxWidth)
     }
 }
 
 extension View {
-    public func vInputStyle() -> some View {
-        modifier(VInputStyleModifier())
+    public func vInputStyle(maxWidth: CGFloat = .infinity) -> some View {
+        modifier(VInputStyleModifier(maxWidth: maxWidth))
     }
 
     public func vInputChrome(isFocused: Bool = false, isError: Bool = false, isDisabled: Bool = false, cornerRadius: CGFloat = VRadius.md) -> some View {
@@ -78,6 +83,7 @@ public struct VTextField: View {
     public var isSecure: Bool = false
     public var errorMessage: String? = nil
     public var onSubmit: (() -> Void)? = nil
+    public var maxWidth: CGFloat = .infinity
 
     @FocusState private var isFocused: Bool
     @Environment(\.isEnabled) private var isEnabled
@@ -90,7 +96,8 @@ public struct VTextField: View {
         trailingIcon: String? = nil,
         isSecure: Bool = false,
         errorMessage: String? = nil,
-        onSubmit: (() -> Void)? = nil
+        onSubmit: (() -> Void)? = nil,
+        maxWidth: CGFloat = .infinity
     ) {
         self.label = label
         self.placeholder = placeholder
@@ -100,6 +107,7 @@ public struct VTextField: View {
         self.isSecure = isSecure
         self.errorMessage = errorMessage
         self.onSubmit = onSubmit
+        self.maxWidth = maxWidth
     }
 
     public var body: some View {
@@ -138,6 +146,7 @@ public struct VTextField: View {
                     .accessibilityHidden(true)
             }
         }
+        .frame(maxWidth: maxWidth)
     }
 
     @ViewBuilder

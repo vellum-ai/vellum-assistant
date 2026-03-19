@@ -458,7 +458,7 @@ extension AppDelegate {
         }
     }
 
-    func showLogReportWindow(scope: LogExportScope = .global, reason: LogReportReason? = nil) {
+    func showLogReportWindow(scope: LogExportScope = .global, reason: LogReportReason? = .bugReport) {
         // If the window is already showing, just bring it forward.
         if let existing = logReportWindow, existing.isVisible {
             existing.makeKeyAndOrderFront(nil)
