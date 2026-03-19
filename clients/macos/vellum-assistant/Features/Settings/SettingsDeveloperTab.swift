@@ -1039,7 +1039,6 @@ struct SettingsDeveloperTab: View {
                 Text(flag.description)
                     .font(VFont.caption)
                     .foregroundColor(VColor.contentTertiary)
-                    .padding(.leading, 46)
             }
             HStack(spacing: VSpacing.xxs) {
                 Text("Default:")
