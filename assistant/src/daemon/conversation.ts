@@ -203,6 +203,7 @@ export class Conversation {
     string,
     Record<string, unknown>
   >();
+  /** @internal */ broadcastToAllClients?: (msg: ServerMessage) => void;
   /** @internal */ withSurface = createSurfaceMutex();
   /** @internal */ currentTurnSurfaces: Array<{
     surfaceId: string;
@@ -249,6 +250,7 @@ export class Conversation {
     this.provider = provider;
     this.workingDir = workingDir;
     this.sendToClient = sendToClient;
+    this.broadcastToAllClients = broadcastToAllClients;
     this.memoryPolicy = memoryPolicy
       ? { ...memoryPolicy }
       : { ...DEFAULT_MEMORY_POLICY };

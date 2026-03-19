@@ -172,6 +172,7 @@ export interface SurfaceConversationContext {
     emit(type: string, message: string, meta?: Record<string, unknown>): void;
   };
   sendToClient(msg: ServerMessage): void;
+  broadcastToAllClients?(msg: ServerMessage): void;
   pendingSurfaceActions: Map<string, { surfaceType: SurfaceType }>;
   lastSurfaceAction: Map<
     string,
@@ -640,7 +641,12 @@ export function handleSurfaceAction(
 
     const requestId = uuid();
     ctx.surfaceActionRequestIds.add(requestId);
-    const onEvent = (msg: ServerMessage) => ctx.sendToClient(msg);
+    // Use broadcastToAllClients (publishes to the SSE event hub) instead of
+    // sendToClient, which is reset to a no-op between HTTP requests. Without
+    // this, surface action responses are persisted to DB but never reach the
+    // client's SSE stream.
+    const emit = ctx.broadcastToAllClients ?? ctx.sendToClient.bind(ctx);
+    const onEvent = (msg: ServerMessage) => emit(msg);
 
     ctx.traceEmitter.emit("request_received", "Surface action received", {
       requestId,
@@ -668,7 +674,7 @@ export function handleSurfaceAction(
     // Echo the prompt to the client so it appears in the chat UI.
     // Deferred until after rejection check to avoid ghost messages.
     if (prompt) {
-      ctx.sendToClient({
+      emit({
         type: "user_message_echo",
         text: prompt,
         conversationId: ctx.conversationId,
@@ -833,7 +839,10 @@ export function handleSurfaceAction(
 
   const requestId = uuid();
   ctx.surfaceActionRequestIds.add(requestId);
-  const onEvent = (msg: ServerMessage) => ctx.sendToClient(msg);
+  // Use broadcastToAllClients so events reach the SSE hub (see history-restored
+  // path above for rationale).
+  const emit = ctx.broadcastToAllClients ?? ctx.sendToClient.bind(ctx);
+  const onEvent = (msg: ServerMessage) => emit(msg);
 
   ctx.traceEmitter.emit("request_received", "Surface action received", {
     requestId,
@@ -866,7 +875,7 @@ export function handleSurfaceAction(
   // Echo the user's prompt to the client so it appears in the chat UI.
   // Deferred until after rejection check to avoid ghost messages.
   if (shouldRelayPrompt && prompt) {
-    ctx.sendToClient({
+    emit({
       type: "user_message_echo",
       text: prompt,
       conversationId: ctx.conversationId,
