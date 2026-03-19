@@ -515,7 +515,7 @@ final class ChatDiagnosticsStore {
     private let _lastKnownLock = NSLock()
 
     /// Background-readable copy of `lastKnownDiagnostics`, guarded by `_lastKnownLock`.
-    private var _lastKnownBackgroundCopy: LastKnownDiagnosticsSnapshot?
+    private nonisolated(unsafe) var _lastKnownBackgroundCopy: LastKnownDiagnosticsSnapshot?
 
     /// Returns the last-known diagnostics snapshot from any thread.
     /// This is safe to call from the stall detector's background queue.
