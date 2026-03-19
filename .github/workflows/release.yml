@@ -327,16 +327,26 @@ jobs:
           LOCATION="${REGISTRY_HOST%-docker.pkg.dev}"
           REPO="${{ secrets.CREDENTIAL_EXECUTOR_IMAGE_NAME }}"
           # Use describe (read-only) to check existence before attempting create (admin).
+          # Also handle ALREADY_EXISTS on create to stay idempotent under matrix concurrency
+          # (multiple platform jobs may race through describe→create simultaneously).
           if gcloud artifacts repositories describe "$REPO" \
             --location="$LOCATION" \
             --project="${{ secrets.GCP_PROJECT_ID }}" \
             > /dev/null 2>&1; then
             echo "Repository '$REPO' already exists."
           else
-            gcloud artifacts repositories create "$REPO" \
+            if ! output=$(gcloud artifacts repositories create "$REPO" \
               --repository-format=docker \
               --location="$LOCATION" \
-              --project="${{ secrets.GCP_PROJECT_ID }}"
+              --project="${{ secrets.GCP_PROJECT_ID }}" \
+              2>&1); then
+              if echo "$output" | grep -q "ALREADY_EXISTS"; then
+                echo "Repository '$REPO' was created concurrently, continuing."
+              else
+                echo "$output" >&2
+                exit 1
+              fi
+            fi
           fi
 
       - name: Build and push by digest
