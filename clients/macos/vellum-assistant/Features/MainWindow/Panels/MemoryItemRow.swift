@@ -19,30 +19,31 @@ struct MemoryItemRow: View {
 
                 // Text content
                 VStack(alignment: .leading, spacing: VSpacing.sm) {
-                    // Header + timestamp group
-                    VStack(alignment: .leading, spacing: 0) {
-                        HStack(spacing: VSpacing.sm) {
+                    // Header row: title+timestamp on the left, badges+delete on the right
+                    HStack(alignment: .top, spacing: VSpacing.sm) {
+                        // Title + timestamp, tightly grouped
+                        VStack(alignment: .leading, spacing: 1) {
                             Text(item.subject)
                                 .font(VFont.bodyBold)
                                 .foregroundColor(VColor.contentDefault)
                                 .lineLimit(1)
                                 .truncationMode(.tail)
 
-                            Spacer()
-
-                            kindTag
-
-                            if let scopeLabel = item.scopeLabel {
-                                VBadge(label: scopeLabel, icon: .lock, tone: .neutral, emphasis: .subtle, shape: .pill)
-                            }
-
-                            VButton(label: "Delete", iconOnly: VIcon.trash.rawValue, style: .dangerGhost, action: onDelete)
-                                .accessibilityLabel("Delete memory")
+                            Text(item.relativeLastSeen)
+                                .font(VFont.caption)
+                                .foregroundColor(VColor.contentTertiary)
                         }
 
-                        Text(item.relativeLastSeen)
-                            .font(VFont.caption)
-                            .foregroundColor(VColor.contentTertiary)
+                        Spacer()
+
+                        kindTag
+
+                        if let scopeLabel = item.scopeLabel {
+                            VBadge(label: scopeLabel, icon: .lock, tone: .neutral, emphasis: .subtle, shape: .pill)
+                        }
+
+                        VButton(label: "Delete", iconOnly: VIcon.trash.rawValue, style: .dangerGhost, action: onDelete)
+                            .accessibilityLabel("Delete memory")
                     }
 
                     // Description — fixed 2-line height for uniform cards
