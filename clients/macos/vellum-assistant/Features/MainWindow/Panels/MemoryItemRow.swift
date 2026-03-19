@@ -7,20 +7,43 @@ struct MemoryItemRow: View {
     let onDelete: () -> Void
     @State private var isHovered = false
 
+    private var memoryKind: MemoryKind? {
+        MemoryKind(rawValue: item.kind)
+    }
+
     var body: some View {
         Button(action: onSelect) {
             HStack(alignment: .center, spacing: VSpacing.lg) {
-                VStack(alignment: .leading, spacing: VSpacing.xs) {
-                    HStack(spacing: VSpacing.sm) {
-                        Text(item.subject)
-                            .font(VFont.bodyBold)
-                            .foregroundColor(VColor.contentDefault)
+                // Kind icon
+                kindIcon
+
+                VStack(alignment: .leading, spacing: VSpacing.sm) {
+                    // Header row: badges + delete aligned to top
+                    HStack(alignment: .center, spacing: VSpacing.sm) {
+                        // Title + timestamp tightly grouped on the left
+                        VStack(alignment: .leading, spacing: 0) {
+                            Text(item.subject)
+                                .font(VFont.bodyBold)
+                                .foregroundColor(VColor.contentDefault)
+                                .lineLimit(1)
+                                .truncationMode(.tail)
+
+                            Text(item.relativeLastSeen)
+                                .font(VFont.caption)
+                                .foregroundColor(VColor.contentTertiary)
+                                .padding(.top, -1)
+                        }
+
+                        Spacer()
 
                         kindTag
 
                         if let scopeLabel = item.scopeLabel {
-                            VBadge(label: scopeLabel, icon: .lock, tone: .neutral, emphasis: .subtle, shape: .rounded)
+                            VBadge(label: scopeLabel, icon: .lock, tone: .neutral, emphasis: .subtle, shape: .pill)
                         }
+
+                        VButton(label: "Delete", iconOnly: VIcon.trash.rawValue, style: .dangerGhost, action: onDelete)
+                            .accessibilityLabel("Delete memory")
                     }
 
                     Text(item.statement)
@@ -29,15 +52,6 @@ struct MemoryItemRow: View {
                         .lineLimit(1)
                         .multilineTextAlignment(.leading)
                 }
-
-                Spacer()
-
-                Text(item.relativeLastSeen)
-                    .font(VFont.caption)
-                    .foregroundColor(VColor.contentTertiary)
-
-                VButton(label: "Delete", iconOnly: VIcon.trash.rawValue, style: .dangerOutline, action: onDelete)
-                    .accessibilityLabel("Delete memory")
             }
             .padding(VSpacing.lg)
             .background(isHovered ? VColor.surfaceActive : Color.clear)
@@ -46,8 +60,10 @@ struct MemoryItemRow: View {
                     .stroke(VColor.borderDisabled, lineWidth: 2)
             )
             .clipShape(RoundedRectangle(cornerRadius: VRadius.xl))
+            .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .pointerCursor()
         .onHover { isHovered = $0 }
         .contextMenu {
             Button("Delete", role: .destructive, action: onDelete)
@@ -55,14 +71,28 @@ struct MemoryItemRow: View {
         .accessibilityElement(children: .combine)
     }
 
+    // MARK: - Kind Icon
+
+    @ViewBuilder
+    private var kindIcon: some View {
+        if let kind = memoryKind, let icon = VIcon(rawValue: kind.icon) {
+            VIconView(icon, size: 20)
+                .foregroundColor(kind.color)
+                .frame(width: 40, height: 40)
+        } else {
+            VIconView(.brain, size: 20)
+                .foregroundColor(VColor.contentTertiary)
+                .frame(width: 40, height: 40)
+        }
+    }
+
     // MARK: - Kind Tag
 
     private var kindTag: some View {
-        let memoryKind = MemoryKind(rawValue: item.kind)
-        return VBadge(
+        VBadge(
             label: memoryKind?.label ?? item.kind.capitalized,
             color: memoryKind?.color ?? VColor.contentTertiary,
-            shape: .rounded
+            shape: .pill
         )
     }
 }
