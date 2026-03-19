@@ -64,6 +64,7 @@ function parseArgs(argv: string[]): {
 async function getAccessToken(
   runtimeUrl: string,
   assistantId: string,
+  displayName: string,
 ): Promise<string> {
   const tokenData = loadGuardianToken(assistantId);
 
@@ -74,8 +75,20 @@ async function getAccessToken(
     return tokenData.accessToken;
   }
 
-  const freshToken = await leaseGuardianToken(runtimeUrl, assistantId);
-  return freshToken.accessToken;
+  try {
+    const freshToken = await leaseGuardianToken(runtimeUrl, assistantId);
+    return freshToken.accessToken;
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    if (msg.includes("ECONNREFUSED") || msg.includes("fetch failed")) {
+      console.error(
+        `Error: Could not connect to assistant '${displayName}'. Is it running?`,
+      );
+      console.error(`Try: vellum wake ${displayName}`);
+      process.exit(1);
+    }
+    throw err;
+  }
 }
 
 interface PreflightFileEntry {
@@ -146,7 +159,7 @@ export async function restore(): Promise<void> {
   console.log(`Reading ${fromPath} (${sizeMB} MB)...`);
 
   // Obtain auth token
-  const accessToken = await getAccessToken(entry.runtimeUrl, name);
+  const accessToken = await getAccessToken(entry.runtimeUrl, entry.assistantId, name);
 
   if (dryRun) {
     // Preflight check
