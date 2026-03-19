@@ -12,11 +12,15 @@ struct MessageInspectorResponseTab: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: VSpacing.lg) {
-                if model.hasNormalizedSections {
+                if model.hasNormalizedSections || model.hasResponseMetadata {
                     responseMetadataCard
 
-                    ForEach(model.sections) { section in
-                        responseSectionCard(for: section)
+                    if model.hasNormalizedSections {
+                        ForEach(model.sections) { section in
+                            responseSectionCard(for: section)
+                        }
+                    } else {
+                        fallbackCard
                     }
                 } else {
                     fallbackCard
@@ -53,6 +57,8 @@ struct MessageInspectorResponseTab: View {
     private func responseSectionCard(for section: MessageInspectorResponseSectionModel) -> some View {
         switch section.presentationKind {
         case .assistantText:
+            textSectionCard(for: section)
+        case .reasoning:
             textSectionCard(for: section)
         case .toolCall:
             toolCallSectionCard(for: section)
@@ -155,14 +161,14 @@ struct MessageInspectorResponseTab: View {
                     VIconView(.fileCode, size: 14)
                         .foregroundColor(VColor.contentTertiary)
 
-                    Text("No normalized response sections")
+                    Text("Section rendering unavailable")
                         .font(VFont.bodyMedium)
                         .foregroundColor(VColor.contentDefault)
                 }
 
                 Text(
                     model.fallbackMessage
-                    ?? "This provider response has not been normalized yet. Open the Raw tab to inspect the full provider payload."
+                    ?? "This response has no rendered sections. Raw payloads remain available in the Raw tab, and any normalized response metadata will still be shown when present."
                 )
                 .font(VFont.body)
                 .foregroundColor(VColor.contentSecondary)
@@ -218,21 +224,20 @@ struct MessageInspectorResponseTabModel: Equatable {
             MessageInspectorResponseSectionModel(index: index, section: section)
         }
 
-        if sections.isEmpty {
-            responseModeLabel = nil
-            responseStopReason = nil
-        } else {
-            responseModeLabel = Self.deriveResponseModeLabel(summary: entry.summary, sections: sections)
-            responseStopReason = Self.deriveStopReasonLabel(summary: entry.summary)
-        }
+        responseStopReason = Self.deriveStopReasonLabel(summary: entry.summary)
+        responseModeLabel = Self.deriveResponseModeLabel(summary: entry.summary, sections: sections)
 
         fallbackMessage = sections.isEmpty
-            ? "This provider response has not been normalized yet. Open the Raw tab to inspect the full provider payload."
+            ? "This response has no rendered sections. Raw payloads remain available in the Raw tab, and any normalized response metadata will still be shown when present."
             : nil
     }
 
     var hasNormalizedSections: Bool {
         !sections.isEmpty
+    }
+
+    var hasResponseMetadata: Bool {
+        responseStopReason != nil || responseModeLabel != nil
     }
 
     private static func deriveResponseModeLabel(
@@ -241,6 +246,14 @@ struct MessageInspectorResponseTabModel: Equatable {
     ) -> String? {
         if let responseToolCallCount = summary?.responseToolCallCount, responseToolCallCount > 0 {
             return "Tool-calling response"
+        }
+
+        if isToolCallingStopReason(summary?.stopReason) {
+            return "Tool-calling response"
+        }
+
+        guard !sections.isEmpty else {
+            return nil
         }
 
         if sections.contains(where: { $0.isToolCallSection }) {
@@ -261,6 +274,20 @@ struct MessageInspectorResponseTabModel: Equatable {
         return nil
     }
 
+    private static func isToolCallingStopReason(_ stopReason: String?) -> Bool {
+        guard let stopReason = stopReason?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !stopReason.isEmpty else {
+            return false
+        }
+
+        switch stopReason.lowercased() {
+        case "tool_calls", "tool_use", "function_call", "function_calls":
+            return true
+        default:
+            return false
+        }
+    }
+
     private static func deriveStopReasonLabel(summary: LLMCallSummary?) -> String? {
         guard let stopReason = summary?.stopReason?.trimmingCharacters(in: .whitespacesAndNewlines),
               !stopReason.isEmpty else {
@@ -274,6 +301,7 @@ struct MessageInspectorResponseTabModel: Equatable {
 struct MessageInspectorResponseSectionModel: Identifiable, Equatable {
     enum PresentationKind: Equatable {
         case assistantText
+        case reasoning
         case toolCall
         case other
     }
@@ -318,7 +346,14 @@ struct MessageInspectorResponseSectionModel: Identifiable, Equatable {
             let preview = Self.previewText(for: section.data) ?? section.text
             bodyText = preview
             copyText = preview ?? title
-        case .assistant, .message, .text, .output, .completion, .reasoning, .markdown, .code, .json:
+        case .reasoning:
+            presentationKind = .reasoning
+            isToolCallSection = false
+            isResultSection = false
+            kindLabel = "Reasoning"
+            bodyText = section.text ?? Self.previewText(for: section.data)
+            copyText = bodyText ?? title
+        case .assistant, .message, .text, .output, .completion, .markdown, .code, .json:
             presentationKind = .assistantText
             isToolCallSection = false
             isResultSection = false

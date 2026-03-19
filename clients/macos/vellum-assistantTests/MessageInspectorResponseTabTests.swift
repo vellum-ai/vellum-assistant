@@ -75,6 +75,7 @@ final class MessageInspectorResponseTabTests: XCTestCase {
 
         XCTAssertEqual(model.sections[0].presentationKind, .assistantText)
         XCTAssertEqual(model.sections[0].title, "Assistant response")
+        XCTAssertEqual(model.sections[0].kindLabel, "Assistant text")
         XCTAssertEqual(model.sections[0].bodyText, "Hello there!")
         XCTAssertEqual(model.sections[0].copyText, "Hello there!")
 
@@ -211,6 +212,33 @@ final class MessageInspectorResponseTabTests: XCTestCase {
         XCTAssertEqual(model.sections.count, 2)
     }
 
+    func testResponseTabModelTreatsReasoningSectionsAsDistinctFromAssistantText() {
+        let model = MessageInspectorResponseTabModel(
+            entry: makeEntry(
+                responsePayload: AnyCodable([
+                    "reasoning": "Thinking it through"
+                ]),
+                responseSections: [
+                    LLMContextSection(
+                        kind: .reasoning,
+                        label: "Reasoning",
+                        role: "assistant",
+                        text: "Thinking it through"
+                    )
+                ]
+            )
+        )
+
+        XCTAssertTrue(model.hasNormalizedSections)
+        XCTAssertFalse(model.hasResponseMetadata)
+        XCTAssertNil(model.responseModeLabel)
+        XCTAssertNil(model.responseStopReason)
+        XCTAssertEqual(model.sections.count, 1)
+        XCTAssertEqual(model.sections[0].presentationKind, .reasoning)
+        XCTAssertEqual(model.sections[0].kindLabel, "Reasoning")
+        XCTAssertEqual(model.sections[0].bodyText, "Thinking it through")
+    }
+
     func testResponseTabModelUsesExplicitSummaryToolCallCountForToolCalling() {
         let model = MessageInspectorResponseTabModel(
             entry: makeEntry(
@@ -245,7 +273,7 @@ final class MessageInspectorResponseTabTests: XCTestCase {
         XCTAssertEqual(model.sections[0].presentationKind, .other)
     }
 
-    func testResponseTabModelFallsBackWithoutNormalizedSections() {
+    func testResponseTabModelPreservesSummaryMetadataWithoutNormalizedSections() {
         let model = MessageInspectorResponseTabModel(
             entry: makeEntry(
                 responsePayload: AnyCodable([
@@ -257,10 +285,39 @@ final class MessageInspectorResponseTabTests: XCTestCase {
         )
 
         XCTAssertFalse(model.hasNormalizedSections)
+        XCTAssertTrue(model.hasResponseMetadata)
         XCTAssertTrue(model.sections.isEmpty)
         XCTAssertNil(model.responseModeLabel)
-        XCTAssertNil(model.responseStopReason)
-        XCTAssertEqual(model.fallbackMessage, "This provider response has not been normalized yet. Open the Raw tab to inspect the full provider payload.")
+        XCTAssertEqual(model.responseStopReason, "end_turn")
+        XCTAssertEqual(
+            model.fallbackMessage,
+            "This response has no rendered sections. Raw payloads remain available in the Raw tab, and any normalized response metadata will still be shown when present."
+        )
+    }
+
+    func testResponseTabModelShowsToolCallingMetadataWithoutNormalizedSections() {
+        let model = MessageInspectorResponseTabModel(
+            entry: makeEntry(
+                responsePayload: AnyCodable([
+                    "stop_reason": "tool_calls"
+                ]),
+                summary: LLMCallSummary(
+                    stopReason: "tool_calls",
+                    responseToolCallCount: 1
+                ),
+                responseSections: nil
+            )
+        )
+
+        XCTAssertFalse(model.hasNormalizedSections)
+        XCTAssertTrue(model.hasResponseMetadata)
+        XCTAssertTrue(model.sections.isEmpty)
+        XCTAssertEqual(model.responseStopReason, "tool_calls")
+        XCTAssertEqual(model.responseModeLabel, "Tool-calling response")
+        XCTAssertEqual(
+            model.fallbackMessage,
+            "This response has no rendered sections. Raw payloads remain available in the Raw tab, and any normalized response metadata will still be shown when present."
+        )
     }
 
     private func makeEntry(
