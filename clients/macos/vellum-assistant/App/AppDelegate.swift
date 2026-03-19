@@ -318,10 +318,11 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
         if sendDiagnostics {
             let appVersion = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "unknown"
             let buildNumber = Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "0"
+            let commitSHA = Bundle.main.infoDictionary?["VellumCommitSHA"] as? String
             SentrySDK.start { options in
                 options.dsn = MetricKitManager.macosDSN
                 options.releaseName = "vellum-macos@\(appVersion)"
-                options.dist = buildNumber
+                options.dist = commitSHA ?? buildNumber
                 options.environment = SentryDeviceInfo.sentryEnvironment
                 options.debug = false
                 options.tracesSampleRate = 0.1
