@@ -292,6 +292,16 @@ export function getApp(id: string): OAuthAppRow | undefined {
   return db.select().from(oauthApps).where(eq(oauthApps.id, id)).get();
 }
 
+/** Read an app client_secret from secure storage. */
+export async function getAppClientSecret(
+  appOrId: OAuthAppRow | string,
+): Promise<string | undefined> {
+  const app =
+    typeof appOrId === "string" ? getApp(appOrId) : appOrId;
+  if (!app) return undefined;
+  return getSecureKeyAsync(app.clientSecretCredentialPath);
+}
+
 /** Look up an app by (provider_key, client_id). */
 export function getAppByProviderAndClientId(
   providerKey: string,

@@ -23,8 +23,8 @@ import { getLogger } from "../util/logger.js";
 import { getConversationsDir } from "../util/platform.js";
 import {
   getAttachmentContent,
-  getFilePathForAttachment,
   getAttachmentMetadataForMessage,
+  getFilePathForAttachment,
 } from "./attachments-store.js";
 import { getMessageById } from "./conversation-crud.js";
 

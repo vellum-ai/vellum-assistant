@@ -11,13 +11,13 @@ import {
   deleteApp,
   disconnectOAuthProvider,
   getApp,
+  getAppClientSecret,
   getConnection,
   getProvider,
   listApps,
   listConnections,
   upsertApp,
 } from "../../oauth/oauth-store.js";
-import { getSecureKeyAsync } from "../../security/secure-keys.js";
 import { httpError } from "../http-errors.js";
 import type { RouteDefinition } from "../http-router.js";
 
@@ -213,9 +213,7 @@ export function oauthAppsRouteDefinitions(): RouteDefinition[] {
           // No body or invalid JSON — use defaults
         }
 
-        const clientSecret = await getSecureKeyAsync(
-          app.clientSecretCredentialPath,
-        );
+        const clientSecret = await getAppClientSecret(app);
 
         const result = await orchestrateOAuthConnect({
           service: app.providerKey,
