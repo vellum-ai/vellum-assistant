@@ -443,36 +443,31 @@ struct AgentPanelContent: View {
 
     @ViewBuilder
     private func installedSkillDetailView(_ skill: SkillInfo) -> some View {
-        VStack(alignment: .leading, spacing: VSpacing.sm) {
-            // Back button above the main container
-            VButton(
-                label: "Back",
-                iconOnly: VIcon.chevronLeft.rawValue,
-                style: .ghost,
-                tooltip: "Back to Skills"
-            ) {
-                withAnimation(VAnimation.standard) {
-                    selectedInstalledSkillId = nil
+        VStack(alignment: .leading, spacing: VSpacing.md) {
+            // Header row: back button + icon + title/description + tags + uninstall
+            HStack(alignment: .center, spacing: VSpacing.md) {
+                VButton(
+                    label: "Back",
+                    iconOnly: VIcon.chevronLeft.rawValue,
+                    style: .ghost,
+                    tooltip: "Back to Skills"
+                ) {
+                    withAnimation(VAnimation.standard) {
+                        selectedInstalledSkillId = nil
+                    }
                 }
-            }
 
-            // Main detail container
-            VStack(alignment: .leading, spacing: 0) {
-                // Header section
-                VStack(alignment: .leading, spacing: VSpacing.sm) {
-                    // Title row: icon + name + badges + remove button
+                // Large skill icon (48x48)
+                detailSkillIcon(skill.emoji)
+
+                // Title + description stacked
+                VStack(alignment: .leading, spacing: VSpacing.xxs) {
+                    // Title line with tags
                     HStack(spacing: VSpacing.sm) {
-                        skillIcon(skill.emoji)
-
                         Text(skill.name)
                             .font(VFont.cardTitle)
                             .foregroundColor(VColor.contentDefault)
-
-                        if skill.updateAvailable {
-                            Text("UPDATE")
-                                .font(VFont.small)
-                                .foregroundColor(VColor.systemNegativeHover)
-                        }
+                            .lineLimit(1)
 
                         // Source badge
                         Text(sourceLabel(skill.source))
@@ -498,21 +493,28 @@ struct AgentPanelContent: View {
                                 )
                         }
 
+                        if skill.updateAvailable {
+                            Text("UPDATE")
+                                .font(VFont.small)
+                                .foregroundColor(VColor.systemNegativeHover)
+                        }
+
                         Spacer()
 
-                        if skill.source == "managed" {
-                            VButton(label: "Remove", icon: VIcon.trash.rawValue, style: .danger) {
+                        // Uninstall button for managed skills
+                        if skill.source == "managed" || skill.source == "clawhub" {
+                            VButton(label: "Uninstall", icon: VIcon.circleX.rawValue, style: .danger) {
                                 skillToDelete = skill
                             }
                         }
                     }
 
-                    // Description
+                    // Description on next line
                     if !skill.description.isEmpty {
                         Text(skill.description)
                             .font(VFont.body)
-                            .foregroundColor(VColor.contentDefault)
-                            .fixedSize(horizontal: false, vertical: true)
+                            .foregroundColor(VColor.contentSecondary)
+                            .lineLimit(2)
                     }
 
                     // Meta info
@@ -529,7 +531,6 @@ struct AgentPanelContent: View {
                             }
                         }
 
-                        // Source link for third-party skills
                         if let provenance = skill.provenance,
                            provenance.kind == "third-party",
                            let urlString = provenance.sourceUrl,
@@ -546,42 +547,50 @@ struct AgentPanelContent: View {
                         }
                     }
                 }
-                .padding(.top, VSpacing.lg)
-                .padding(.horizontal, VSpacing.lg)
-                .padding(.bottom, VSpacing.md)
+            }
 
-                Divider().background(VColor.borderBase)
+            // Two-pane file browser — matching workspace panel style
+            HStack(spacing: 0) {
+                // Left: file tree sidebar (matching WorkspaceTreeSidebar)
+                skillFilesSection
+                    .frame(width: 280, alignment: .topLeading)
+                    .frame(maxHeight: .infinity)
 
-                // Two-pane file browser section (edge-to-edge within container)
-                HStack(alignment: .top, spacing: 0) {
-                    // Left: file list
-                    skillFilesSection
-                        .frame(width: 280, alignment: .topLeading)
-                        .frame(maxHeight: .infinity)
-
-                    Divider().background(VColor.borderBase)
-
-                    // Right: file content viewer
+                // Right: file content viewer (matching WorkspaceFileViewer)
+                Group {
                     if let selectedPath = expandedFilePath,
                        let filesResponse = skillsManager.selectedSkillFiles,
                        let file = filesResponse.files.first(where: { $0.path == selectedPath }),
                        !file.isBinary,
                        let content = file.content {
-                        skillFileContentPane(file: file, content: content)
+                        FileContentView(
+                            fileName: file.path,
+                            mimeType: file.mimeType,
+                            content: .constant(content),
+                            viewMode: $skillFileViewMode
+                        )
+                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                        .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
+                        .background(
+                            RoundedRectangle(cornerRadius: VRadius.md)
+                                .fill(VColor.surfaceBase)
+                        )
+                        .overlay(
+                            RoundedRectangle(cornerRadius: VRadius.md)
+                                .strokeBorder(VColor.borderBase, lineWidth: 1)
+                        )
+                        .padding(.horizontal, VSpacing.md)
                     } else {
                         VEmptyState(
                             title: hasViewableFiles ? "Select a file to view" : "No viewable files",
                             icon: VIcon.fileText.rawValue
                         )
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
-                        .background(VColor.surfaceOverlay)
                     }
                 }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .background(VColor.surfaceOverlay)
             }
-            .frame(maxWidth: .infinity)
-            .background(VColor.surfaceBase)
-            .clipShape(RoundedRectangle(cornerRadius: VRadius.lg))
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .onAppear {
             skillsManager.fetchSkillFiles(skillId: skill.id)
@@ -673,15 +682,16 @@ struct AgentPanelContent: View {
     }
 
     @ViewBuilder
-    private func skillFileContentPane(file: SkillFileEntry, content: String) -> some View {
-        FileContentView(
-            fileName: file.path,
-            mimeType: file.mimeType,
-            content: .constant(content),
-            viewMode: $skillFileViewMode
-        )
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .background(VColor.surfaceOverlay)
+    private func detailSkillIcon(_ emoji: String?) -> some View {
+        if let emoji, !emoji.isEmpty {
+            Text(emoji)
+                .font(.system(size: 36))
+                .frame(width: 48, height: 48)
+        } else {
+            VIconView(.zap, size: 24)
+                .foregroundColor(VColor.contentTertiary)
+                .frame(width: 48, height: 48)
+        }
     }
 
     @ViewBuilder
