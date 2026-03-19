@@ -999,7 +999,6 @@ public final class SettingsStore: ObservableObject {
 
     func refreshEmbeddingConfig() {
         Task { @MainActor in
-            let settingsClient = SettingsClient()
             guard let config = await settingsClient.fetchEmbeddingConfig() else { return }
             self.embeddingProvider = config.provider
             self.embeddingModel = config.model
@@ -1017,12 +1016,14 @@ public final class SettingsStore: ObservableObject {
 
     func setEmbeddingProvider(_ provider: String, model: String?) {
         Task { @MainActor in
-            let settingsClient = SettingsClient()
             guard let config = await settingsClient.setEmbeddingConfig(provider: provider, model: model) else { return }
             self.embeddingProvider = config.provider
             self.embeddingModel = config.model
             self.embeddingActiveProvider = config.activeProvider
             self.embeddingActiveModel = config.activeModel
+            if let providers = config.availableProviders {
+                self.embeddingAvailableProviders = providers
+            }
             if let status = config.status {
                 self.embeddingEnabled = status.enabled
                 self.embeddingDegraded = status.degraded
