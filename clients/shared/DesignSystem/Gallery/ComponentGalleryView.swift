@@ -189,7 +189,7 @@ struct ComponentGalleryView: View {
                             expandedCategories.formUnion(expandable)
                         }
                     }) {
-                        VIconView(allExpanded ? .chevronUp : .chevronDown, size: 14)
+                        VIconView(allExpanded ? .chevronsDownUp : .chevronsUpDown, size: 14)
                             .foregroundColor(VColor.contentTertiary)
                     }
                     .buttonStyle(.plain)
