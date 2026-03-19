@@ -30,6 +30,7 @@ import {
   getConversationType,
   getMessages,
   purgePrivateConversations,
+  sweepStaleReducerJobs,
 } from "../memory/conversation-crud.js";
 import { resolveConversationId } from "../memory/conversation-key-store.js";
 import { initializeDb } from "../memory/db.js";
@@ -237,6 +238,24 @@ export async function runDaemon(): Promise<void> {
       log.info(
         { event: "startup_expired_stale_requests", expiredCount },
         `Expired ${expiredCount} stale canonical request(s) from previous process`,
+      );
+    }
+
+    // Sweep dirty conversations whose tail messages are already past the
+    // idle delay — they should have been reduced while the daemon was down.
+    // Enqueue immediate reducer jobs so the memory worker picks them up.
+    try {
+      const sweepCount = sweepStaleReducerJobs();
+      if (sweepCount > 0) {
+        log.info(
+          { sweepCount },
+          `Enqueued reducer jobs for ${sweepCount} stale dirty conversation(s)`,
+        );
+      }
+    } catch (err) {
+      log.warn(
+        { err },
+        "Startup sweep for stale reducer jobs failed — continuing startup",
       );
     }
 

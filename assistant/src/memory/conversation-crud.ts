@@ -1499,6 +1499,12 @@ export function deleteMessageById(messageId: string): DeletedMemoryIds {
  * message. Sets `memoryDirtyTailSinceMessageId` only when it is currently
  * null so the earliest unreduced boundary is preserved across multiple
  * messages — later messages must not clobber the original dirty marker.
+ *
+ * Also upserts a pending `reduce_conversation_memory` job scheduled at
+ * `now + idleDelayMs`. If a pending job for this conversation already exists,
+ * its `runAfter` is pushed forward (rescheduled) so the reducer waits for
+ * the full idle window after the *latest* message — avoiding premature runs
+ * while the user is still actively typing.
  */
 export function markConversationMemoryDirty(
   conversationId: string,
@@ -1514,6 +1520,93 @@ export function markConversationMemoryDirty(
       ),
     )
     .run();
+
+  // Schedule (or reschedule) a deferred reducer job for this conversation.
+  scheduleReducerJob(conversationId);
+}
+
+/**
+ * Upsert a pending `reduce_conversation_memory` job for the given
+ * conversation, scheduled `idleDelayMs` from now. If one already exists in
+ * pending state, its `runAfter` is pushed forward to restart the idle timer.
+ * This ensures exactly one pending reducer job per conversation — new
+ * messages reschedule rather than duplicate.
+ */
+export function scheduleReducerJob(
+  conversationId: string,
+  runAfter?: number,
+): void {
+  const config = getConfig();
+  const idleDelayMs = config.memory.simplified.reducer.idleDelayMs;
+  const scheduledAt = runAfter ?? Date.now() + idleDelayMs;
+
+  const existing = rawGet<{ id: string; status: string }>(
+    `SELECT id, status FROM memory_jobs
+     WHERE type = 'reduce_conversation_memory'
+       AND json_extract(payload, '$.conversationId') = ?
+       AND status = 'pending'
+     LIMIT 1`,
+    conversationId,
+  );
+
+  if (existing) {
+    // Reschedule: push runAfter forward so the idle timer resets.
+    rawRun(
+      `UPDATE memory_jobs SET run_after = ?, updated_at = ? WHERE id = ?`,
+      scheduledAt,
+      Date.now(),
+      existing.id,
+    );
+  } else {
+    enqueueMemoryJob(
+      "reduce_conversation_memory",
+      { conversationId },
+      scheduledAt,
+    );
+  }
+}
+
+/**
+ * Startup sweep: find conversations that are marked dirty and whose tail
+ * message is already older than the idle delay. For these conversations the
+ * reducer should have run but didn't (daemon was down). Enqueue immediate
+ * reducer jobs for each so they are processed on the next worker tick.
+ *
+ * Conversations whose tail is still within the idle window are skipped —
+ * the normal `markConversationMemoryDirty` path will schedule them when
+ * new messages arrive (or on the next conversation interaction).
+ *
+ * Returns the number of jobs enqueued.
+ */
+export function sweepStaleReducerJobs(): number {
+  const config = getConfig();
+  const idleDelayMs = config.memory.simplified.reducer.idleDelayMs;
+  const cutoff = Date.now() - idleDelayMs;
+
+  // Find dirty conversations whose latest message is older than the idle
+  // window AND that don't already have a pending reducer job.
+  const stale = rawAll<{ conversationId: string }>(
+    `SELECT c.id AS conversationId
+     FROM conversations c
+     WHERE c.memory_dirty_tail_since_message_id IS NOT NULL
+       AND NOT EXISTS (
+         SELECT 1 FROM memory_jobs mj
+         WHERE mj.type = 'reduce_conversation_memory'
+           AND json_extract(mj.payload, '$.conversationId') = c.id
+           AND mj.status IN ('pending', 'running')
+       )
+       AND (
+         SELECT MAX(m.created_at) FROM messages m
+         WHERE m.conversation_id = c.id
+       ) <= ?`,
+    cutoff,
+  );
+
+  for (const { conversationId } of stale) {
+    enqueueMemoryJob("reduce_conversation_memory", { conversationId });
+  }
+
+  return stale.length;
 }
 
 export function setConversationOriginChannelIfUnset(
