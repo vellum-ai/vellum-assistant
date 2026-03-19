@@ -349,7 +349,7 @@ export class VellumQdrantClient {
           },
           {
             key: "target_type",
-            match: { any: ["segment", "summary", "media"] },
+            match: { any: ["segment", "summary", "media", "chunk"] },
           },
         ],
       });
