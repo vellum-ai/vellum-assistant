@@ -113,7 +113,7 @@ function formatToolSchemas(
 export class SkillLoadTool implements Tool {
   name = "skill_load";
   description =
-    "Load full instructions for a skill. Works for both bundled skills (listed in the catalog) and workspace skills in ~/.vellum/workspace/skills.";
+    "Load full instructions for a skill. Works for both bundled skills (listed in the catalog) and custom workspace skills.";
   category = "skills";
   defaultRiskLevel = RiskLevel.Low;
 
