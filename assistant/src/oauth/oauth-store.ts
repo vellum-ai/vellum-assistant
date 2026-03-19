@@ -270,6 +270,14 @@ export async function upsertApp(
       if (!stored) {
         throw new Error("Failed to store client_secret in secure storage");
       }
+      // Bump updatedAt so the rollback guard in the new-row insertion path
+      // can detect that a concurrent caller has claimed this row. Without
+      // this, a concurrent inserter's rollback DELETE would still match on
+      // the original updatedAt and delete the row we just validated.
+      db.update(oauthApps)
+        .set({ updatedAt: Date.now() })
+        .where(eq(oauthApps.id, existingRow.id))
+        .run();
     }
     if (clientSecretCredentialPath) {
       db.update(oauthApps)
