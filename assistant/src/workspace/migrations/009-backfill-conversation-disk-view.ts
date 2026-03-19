@@ -54,8 +54,6 @@ export const backfillConversationDiskViewMigration: WorkspaceMigration = {
 
       // Create dir + meta.json (initConversationDir sets updatedAt = createdAt)
       initConversationDir(conv);
-      // Write the real updatedAt so the idempotency check works on re-run
-      updateMetaFile(conv);
 
       // Query all messages for this conversation and sync each to disk
       const convMessages = db
@@ -68,6 +66,11 @@ export const backfillConversationDiskViewMigration: WorkspaceMigration = {
       for (const msg of convMessages) {
         syncMessageToDisk(conv.id, msg.id, conv.createdAt);
       }
+
+      // Write the real updatedAt only AFTER all messages are synced so the
+      // idempotency check won't skip a conversation with incomplete messages
+      // if the migration is interrupted mid-loop.
+      updateMetaFile(conv);
 
       processed++;
       if (processed % 50 === 0) {
