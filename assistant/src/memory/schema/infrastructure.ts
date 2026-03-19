@@ -112,6 +112,7 @@ export const llmRequestLogs = sqliteTable(
     id: text("id").primaryKey(),
     conversationId: text("conversation_id").notNull(),
     messageId: text("message_id"),
+    provider: text("provider"),
     requestPayload: text("request_payload").notNull(),
     responsePayload: text("response_payload").notNull(),
     createdAt: integer("created_at").notNull(),

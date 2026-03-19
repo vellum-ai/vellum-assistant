@@ -125,6 +125,7 @@ export { migrateBackfillInlineAttachmentsToDisk } from "./180-backfill-inline-at
 export { migrateRenameThreadStartersCheckpoints } from "./181-rename-thread-starters-checkpoints.js";
 export { migrateOAuthProvidersDisplayMetadata } from "./182-oauth-providers-display-metadata.js";
 export { migrateConversationForkLineage } from "./183-add-conversation-fork-lineage.js";
+export { migrateLlmRequestLogProvider } from "./184-llm-request-log-provider.js";
 export {
   MIGRATION_REGISTRY,
   type MigrationRegistryEntry,

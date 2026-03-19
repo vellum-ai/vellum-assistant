@@ -81,6 +81,7 @@ import {
   migrateInviteCodeHashColumn,
   migrateInviteContactId,
   migrateLlmRequestLogMessageId,
+  migrateLlmRequestLogProvider,
   migrateMemoryItemSupersession,
   migrateMessagesFtsBackfill,
   migrateNormalizePhoneIdentities,
@@ -473,6 +474,9 @@ export function initializeDb(): void {
 
   // 82. Add message_id column to llm_request_logs for per-message LLM context lookup
   migrateLlmRequestLogMessageId(database);
+
+  // 82b. Add provider column to llm_request_logs for runtime provider lookup
+  migrateLlmRequestLogProvider(database);
 
   // 83. Backfill existing inline (base64-in-DB) attachments to on-disk storage
   migrateBackfillInlineAttachmentsToDisk(database);
