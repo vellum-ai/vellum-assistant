@@ -791,16 +791,12 @@ public final class SettingsStore: ObservableObject {
         let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
         APIKeyManager.setKey(trimmed, for: "elevenlabs")
-        removeDeletionTombstone(type: "api_key", name: "elevenlabs")
-        syncKeyToDaemon(provider: "elevenlabs", value: trimmed)
         hasElevenLabsKey = true
         maskedElevenLabsKey = Self.maskKey(trimmed)
     }
 
     func clearElevenLabsKey() {
         APIKeyManager.deleteKey(for: "elevenlabs")
-        addDeletionTombstone(type: "api_key", name: "elevenlabs")
-        deleteKeyFromDaemon(provider: "elevenlabs")
         hasElevenLabsKey = false
         maskedElevenLabsKey = ""
     }
