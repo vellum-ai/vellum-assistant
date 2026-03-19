@@ -104,7 +104,4 @@ struct InlineAppCreatedCard: View {
         }
     }
 }
-
-#if DEBUG
-#endif
 #endif

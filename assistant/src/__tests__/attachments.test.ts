@@ -1,6 +1,9 @@
 import { describe, expect, test } from "bun:test";
 
-import { attachmentsToContentBlocks } from "../agent/attachments.js";
+import {
+  attachmentsToContentBlocks,
+  enrichMessageWithSourcePaths,
+} from "../agent/attachments.js";
 import { createUserMessage } from "../agent/message-types.js";
 
 // ---------------------------------------------------------------------------
@@ -139,5 +142,116 @@ describe("createUserMessage with image attachments", () => {
     expect(imageBlock.source.data).toBe(base64);
     expect(imageBlock.source.media_type).toBe("image/jpeg");
     expect(imageBlock.source.type).toBe("base64");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// enrichMessageWithSourcePaths
+// ---------------------------------------------------------------------------
+
+describe("enrichMessageWithSourcePaths", () => {
+  test("appends a source path annotation for images with filePath", () => {
+    const attachments = [
+      {
+        filename: "photo.jpg",
+        mimeType: "image/jpeg",
+        data: "base64img",
+        filePath: "/Users/me/Desktop/photo.jpg",
+      },
+    ];
+    const original = createUserMessage("what is this?", attachments);
+    const enriched = enrichMessageWithSourcePaths(original, attachments);
+
+    expect(enriched).not.toBe(original);
+    // Original has text + image = 2 blocks; enriched adds 1 annotation = 3
+    expect(enriched.content).toHaveLength(3);
+    const annotation = enriched.content[2] as { type: "text"; text: string };
+    expect(annotation.type).toBe("text");
+    expect(annotation.text).toBe(
+      "[Attached image source: /Users/me/Desktop/photo.jpg]",
+    );
+  });
+
+  test("returns the original message (same reference) when no images have filePath", () => {
+    const attachments = [
+      {
+        filename: "photo.jpg",
+        mimeType: "image/jpeg",
+        data: "base64img",
+      },
+    ];
+    const original = createUserMessage("what is this?", attachments);
+    const result = enrichMessageWithSourcePaths(original, attachments);
+
+    expect(result).toBe(original);
+  });
+
+  test("skips non-image attachments with filePath", () => {
+    const attachments = [
+      {
+        filename: "doc.pdf",
+        mimeType: "application/pdf",
+        data: "pdfdata",
+        filePath: "/Users/me/Documents/doc.pdf",
+      },
+    ];
+    const original = createUserMessage("review this", attachments);
+    const result = enrichMessageWithSourcePaths(original, attachments);
+
+    // Non-image attachments are not annotated, so we get back the same ref
+    expect(result).toBe(original);
+  });
+
+  test("handles multiple images with file paths", () => {
+    const attachments = [
+      {
+        filename: "a.jpg",
+        mimeType: "image/jpeg",
+        data: "img1",
+        filePath: "/path/to/a.jpg",
+      },
+      {
+        filename: "b.png",
+        mimeType: "image/png",
+        data: "img2",
+        filePath: "/path/to/b.png",
+      },
+    ];
+    const original = createUserMessage("compare", attachments);
+    const enriched = enrichMessageWithSourcePaths(original, attachments);
+
+    expect(enriched).not.toBe(original);
+    // text + 2 images + 1 annotation = 4
+    expect(enriched.content).toHaveLength(4);
+    const annotation = enriched.content[3] as { type: "text"; text: string };
+    expect(annotation.type).toBe("text");
+    expect(annotation.text).toBe(
+      "[Attached image source: /path/to/a.jpg]\n[Attached image source: /path/to/b.png]",
+    );
+  });
+
+  test("only annotates images that have filePath, skips those without", () => {
+    const attachments = [
+      {
+        filename: "a.jpg",
+        mimeType: "image/jpeg",
+        data: "img1",
+        filePath: "/path/to/a.jpg",
+      },
+      {
+        filename: "b.png",
+        mimeType: "image/png",
+        data: "img2",
+        // no filePath — e.g. pasted screenshot
+      },
+    ];
+    const original = createUserMessage("compare", attachments);
+    const enriched = enrichMessageWithSourcePaths(original, attachments);
+
+    expect(enriched).not.toBe(original);
+    // text + 2 images + 1 annotation (only for a.jpg) = 4
+    expect(enriched.content).toHaveLength(4);
+    const annotation = enriched.content[3] as { type: "text"; text: string };
+    expect(annotation.text).toBe("[Attached image source: /path/to/a.jpg]");
   });
 });

@@ -102,13 +102,10 @@ mock.module("../daemon/handlers/config-slack-channel.js", () => ({
     slackChannelConfigCalls.push({ botToken, appToken });
 
     const { credentialKey } = await import("../security/credential-key.js");
-    const {
-      getSecureKeyAsync,
-      setSecureKeyAsync,
-    } = await import("../security/secure-keys.js");
-    const { upsertCredentialMetadata } = await import(
-      "../tools/credentials/metadata-store.js"
-    );
+    const { getSecureKeyAsync, setSecureKeyAsync } =
+      await import("../security/secure-keys.js");
+    const { upsertCredentialMetadata } =
+      await import("../tools/credentials/metadata-store.js");
 
     const hasExistingBotToken = !!(await getSecureKeyAsync(
       credentialKey("slack_channel", "bot_token"),
@@ -646,9 +643,7 @@ describe("credential_store tool — prompt action", () => {
     );
     expect(appResult.isError).toBe(false);
     expect(manualConnectionStore["slack_channel"]).toBeUndefined();
-    expect(slackChannelConfigCalls).toEqual([
-      { appToken: "xapp-test-token" },
-    ]);
+    expect(slackChannelConfigCalls).toEqual([{ appToken: "xapp-test-token" }]);
     expect(appResult.content).toContain("connection incomplete");
 
     const botResult = await credentialStoreTool.execute(

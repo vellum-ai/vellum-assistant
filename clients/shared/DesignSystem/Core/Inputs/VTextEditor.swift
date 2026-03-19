@@ -31,21 +31,3 @@ public struct VTextEditor: View {
             .vInputChrome(isFocused: isFocused)
     }
 }
-
-#if DEBUG
-
-private struct VTextEditorPreviewWrapper: View {
-    @State private var text = ""
-
-    var body: some View {
-        ZStack {
-            VColor.surfaceOverlay.ignoresSafeArea()
-            VStack(spacing: 16) {
-                VTextEditor(placeholder: "Write something...", text: $text)
-                VTextEditor(placeholder: "Short editor", text: $text, minHeight: 40, maxHeight: 80)
-            }
-            .padding()
-        }
-    }
-}
-#endif

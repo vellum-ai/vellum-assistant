@@ -15,7 +15,7 @@ public protocol ContactClientProtocol {
     func createContact(
         displayName: String,
         notes: String?,
-        channels: [DaemonClient.NewContactChannel]?
+        channels: [NewContactChannel]?
     ) async throws -> ContactPayload?
 
     func createInvite(
@@ -35,6 +35,19 @@ public protocol ContactClientProtocol {
     func fetchContact(contactId: String) async throws -> ContactPayload?
     func deleteContact(contactId: String) async throws -> Bool
     func updateContactChannel(channelId: String, status: String?, policy: String?, reason: String?) async throws -> ContactPayload?
+}
+
+/// A channel to attach when creating a new contact.
+public struct NewContactChannel: Codable {
+    public let type: String
+    public let address: String
+    public let isPrimary: Bool
+
+    public init(type: String, address: String, isPrimary: Bool = false) {
+        self.type = type
+        self.address = address
+        self.isPrimary = isPrimary
+    }
 }
 
 /// Gateway-backed implementation of ``ContactClientProtocol``.
@@ -106,7 +119,7 @@ public struct ContactClient: ContactClientProtocol {
     public func createContact(
         displayName: String,
         notes: String? = nil,
-        channels: [DaemonClient.NewContactChannel]? = nil
+        channels: [NewContactChannel]? = nil
     ) async throws -> ContactPayload? {
         var body: [String: Any] = ["displayName": displayName]
         if let notes { body["notes"] = notes }

@@ -1,4 +1,3 @@
-import os
 import SwiftUI
 import VellumAssistantShared
 
@@ -39,7 +38,7 @@ struct AssistantProgressView: View {
     var activeConfirmationRequestId: String? = nil  // For keyboard focus
 
     @Environment(\.suppressAutoScroll) private var suppressAutoScroll
-    @State private var isExpanded: Bool = MacOSClientFeatureFlagManager.shared.isEnabled("expand_completed_steps")
+    @State private var isExpanded: Bool = false
     @State private var startDate: Date = Date()
     @State private var processingStartDate: Date?
     @State private var isOverflowPopoverShown: Bool = false
@@ -115,6 +114,17 @@ struct AssistantProgressView: View {
     /// Whether any tool call in this group has an unresolved pending confirmation.
     private var hasPendingConfirmation: Bool {
         toolCalls.contains { $0.pendingConfirmation != nil }
+    }
+
+    /// Stable identifier for this progress group, derived from the first tool call's UUID.
+    /// Used in diagnostics to correlate auto-expand events to a specific step group.
+    private var groupId: String {
+        toolCalls.first?.id.uuidString ?? "no-tools"
+    }
+
+    /// Number of tool calls in this group that have completed.
+    private var completedToolCount: Int {
+        toolCalls.filter(\.isComplete).count
     }
 
     private var isActive: Bool {
@@ -202,9 +212,29 @@ struct AssistantProgressView: View {
         .background(VColor.surfaceOverlay)
         .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
         .onChange(of: phase) { _, newPhase in
+            let expandFlag = MacOSClientFeatureFlagManager.shared.isEnabled("expand_completed_steps")
+            ChatDiagnosticsStore.shared.record(ChatDiagnosticEvent(
+                kind: .progressCardTransition,
+                reason: "phase_change:\(newPhase) group=\(groupId) phase=\(newPhase) expand_flag=\(expandFlag) completed=\(completedToolCount)/\(toolCalls.count) denied=\(deniedCount) pending_confirm=\(hasPendingConfirmation) rehydrate=\(onRehydrate != nil)",
+                toolCallCount: toolCalls.count
+            ))
             if newPhase == .processing {
                 processingStartDate = Date()
                 startDate = Date()
+            }
+            // Auto-expand when a step group completes, if the flag is enabled
+            if (newPhase == .complete || newPhase == .denied),
+               !isExpanded,
+               MacOSClientFeatureFlagManager.shared.isEnabled("expand_completed_steps")
+            {
+                ChatDiagnosticsStore.shared.record(ChatDiagnosticEvent(
+                    kind: .progressCardTransition,
+                    reason: "auto_expand:completed_steps_flag group=\(groupId) phase=\(newPhase) expand_flag=true completed=\(completedToolCount)/\(toolCalls.count) pending_confirm=\(hasPendingConfirmation) rehydrate=\(onRehydrate != nil)",
+                    toolCallCount: toolCalls.count
+                ))
+                withAnimation(VAnimation.fast) {
+                    isExpanded = true
+                }
             }
         }
         .onChange(of: isExpanded) { _, expanded in
@@ -225,6 +255,11 @@ struct AssistantProgressView: View {
         }
         .onChange(of: hasPendingConfirmation) { _, pending in
             if pending && !isExpanded {
+                ChatDiagnosticsStore.shared.record(ChatDiagnosticEvent(
+                    kind: .progressCardTransition,
+                    reason: "auto_expand:pending_confirmation",
+                    toolCallCount: toolCalls.count
+                ))
                 withAnimation(VAnimation.fast) {
                     isExpanded = true
                 }
@@ -239,8 +274,28 @@ struct AssistantProgressView: View {
             if let earliest = toolCalls.compactMap(\.startedAt).min() {
                 startDate = earliest
             }
+            // Auto-expand completed step groups when the flag is enabled.
+            // Also triggers rehydration for stripped tool call data so
+            // expanded groups don't render with empty details.
+            if !isExpanded,
+               (phase == .complete || phase == .denied),
+               MacOSClientFeatureFlagManager.shared.isEnabled("expand_completed_steps")
+            {
+                ChatDiagnosticsStore.shared.record(ChatDiagnosticEvent(
+                    kind: .progressCardTransition,
+                    reason: "auto_expand:completed_steps_flag_on_appear group=\(groupId) phase=\(phase) expand_flag=true completed=\(completedToolCount)/\(toolCalls.count) pending_confirm=\(hasPendingConfirmation) rehydrate=\(onRehydrate != nil)",
+                    toolCallCount: toolCalls.count
+                ))
+                isExpanded = true
+                // Rehydration is handled by onChange(of: isExpanded) above.
+            }
             // Auto-expand when a pending confirmation exists on appear
             if hasPendingConfirmation && !isExpanded {
+                ChatDiagnosticsStore.shared.record(ChatDiagnosticEvent(
+                    kind: .progressCardTransition,
+                    reason: "auto_expand:pending_confirmation_on_appear",
+                    toolCallCount: toolCalls.count
+                ))
                 withAnimation(VAnimation.fast) {
                     isExpanded = true
                 }
@@ -260,6 +315,11 @@ struct AssistantProgressView: View {
             // Prevent collapsing while a confirmation is pending — the inline
             // bubble is the only visible approval UI when the standalone is suppressed.
             if isExpanded && hasPendingConfirmation { return }
+            ChatDiagnosticsStore.shared.record(ChatDiagnosticEvent(
+                kind: .progressCardTransition,
+                reason: "manual_toggle:\(isExpanded ? "collapse" : "expand")",
+                toolCallCount: toolCalls.count
+            ))
             suppressAutoScroll?()
             withAnimation(VAnimation.fast) {
                 isExpanded.toggle()
@@ -408,8 +468,6 @@ struct AssistantProgressView: View {
 
     @ViewBuilder
     private var expandedContent: some View {
-        let _ = os_signpost(.event, log: PerfSignposts.log, name: "assistantProgressExpandedContent",
-                            "toolCallCount=%d", toolCalls.count)
         VStack(alignment: .leading, spacing: 0) {
             ForEach(toolCalls) { toolCall in
                 if !toolCall.isComplete && toolCall.toolName == "claude_code"
@@ -502,7 +560,7 @@ private struct StepDetailRow: View {
     @State private var isHovered = false
     /// Cached formatted input — computed once on first expand.
     @State private var cachedInputFull: String?
-@Environment(\.displayScale) private var displayScale
+    @Environment(\.displayScale) private var displayScale
     @Environment(\.suppressAutoScroll) private var suppressAutoScroll
 
     /// Lazily resolved full input text.
@@ -643,6 +701,8 @@ private struct StepDetailRow: View {
                                 cachedInputFull = ToolCallData.formatAllToolInput(dict)
                             }
                         }
+                        // Trigger on-demand rehydration when expanding truncated content.
+                        onRehydrate?()
                     }
             }
         }
@@ -756,7 +816,7 @@ private struct StepDetailRow: View {
 
     // MARK: - Output Block
 
-    /// Reusable output block — shows full text with a copy button.
+    /// Reusable output block with a height-bounded ScrollView for long outputs.
     @ViewBuilder
     private func outputBlock(
         text: String?,
@@ -764,9 +824,17 @@ private struct StepDetailRow: View {
         copyText: String,
         copyLabel: String
     ) -> some View {
+        let lineCount = copyText.components(separatedBy: "\n").count
+
         ZStack(alignment: .topTrailing) {
             VStack(alignment: .leading, spacing: VSpacing.xs) {
-                if let attrText = attributedText {
+                if lineCount > 500 {
+                    // Long outputs get a height-bounded ScrollView
+                    ScrollView {
+                        outputTextView(text: text, attributedText: attributedText)
+                    }
+                    .frame(maxHeight: 400)
+                } else if let attrText = attributedText {
                     Text(attrText)
                         .font(VFont.monoSmall)
                         .frame(maxWidth: .infinity, alignment: .leading)
@@ -796,6 +864,26 @@ private struct StepDetailRow: View {
                 NSPasteboard.general.setString(copyText, forType: .string)
             }
             .padding(VSpacing.xs)
+        }
+    }
+
+    /// Text view used inside the ScrollView for long outputs.
+    @ViewBuilder
+    private func outputTextView(
+        text: String?,
+        attributedText: AttributedString?
+    ) -> some View {
+        if let attrText = attributedText {
+            Text(attrText)
+                .font(VFont.monoSmall)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .textSelection(.enabled)
+        } else if let plainText = text {
+            Text(plainText)
+                .font(VFont.monoSmall)
+                .foregroundColor(VColor.contentSecondary)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .textSelection(.enabled)
         }
     }
 
@@ -894,9 +982,9 @@ private struct AssistantProgressPulsingModifier: ViewModifier {
 
     func body(content: Content) -> some View {
         content
-            .opacity(isPulsing ? 0.4 : 1.0)
+            .opacity(isPulsing ? 0.6 : 1.0)
             .animation(
-                Animation.easeInOut(duration: 1.0).repeatForever(autoreverses: true),
+                Animation.easeInOut(duration: 1.8).repeatForever(autoreverses: true),
                 value: isPulsing
             )
             .onAppear { isPulsing = true }

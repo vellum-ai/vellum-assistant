@@ -294,6 +294,28 @@ describe("Permission Checker", () => {
         );
       });
 
+      test("git --no-pager log is low risk (boolean global flag before subcommand)", async () => {
+        expect(
+          await classifyRisk("bash", { command: "git --no-pager log" }),
+        ).toBe(RiskLevel.Low);
+      });
+
+      test("git -C /some/path status is low risk (value-taking flag before subcommand)", async () => {
+        expect(
+          await classifyRisk("bash", {
+            command: "git -C /some/path status",
+          }),
+        ).toBe(RiskLevel.Low);
+      });
+
+      test("git -c core.editor=vim diff is low risk (value-taking -c flag before subcommand)", async () => {
+        expect(
+          await classifyRisk("bash", {
+            command: "git -c core.editor=vim diff",
+          }),
+        ).toBe(RiskLevel.Low);
+      });
+
       test("echo is low risk", async () => {
         expect(await classifyRisk("bash", { command: "echo hello" })).toBe(
           RiskLevel.Low,
@@ -378,6 +400,38 @@ describe("Permission Checker", () => {
       test("git commit is medium risk", async () => {
         expect(
           await classifyRisk("bash", { command: 'git commit -m "msg"' }),
+        ).toBe(RiskLevel.Medium);
+      });
+
+      test("git -C status commit is medium risk (value-taking flag with dir named like a subcommand)", async () => {
+        expect(
+          await classifyRisk("bash", {
+            command: "git -C status commit",
+          }),
+        ).toBe(RiskLevel.Medium);
+      });
+
+      test("git -C /path push is medium risk (value-taking flag before mutating subcommand)", async () => {
+        expect(
+          await classifyRisk("bash", {
+            command: "git -C /path push",
+          }),
+        ).toBe(RiskLevel.Medium);
+      });
+
+      test("git --git-dir /path/to/.git push is medium risk", async () => {
+        expect(
+          await classifyRisk("bash", {
+            command: "git --git-dir /path/to/.git push",
+          }),
+        ).toBe(RiskLevel.Medium);
+      });
+
+      test("git --no-pager push is medium risk (boolean flag before mutating subcommand)", async () => {
+        expect(
+          await classifyRisk("bash", {
+            command: "git --no-pager push",
+          }),
         ).toBe(RiskLevel.Medium);
       });
 

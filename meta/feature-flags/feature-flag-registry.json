@@ -27,8 +27,8 @@
     },
     {
       "id": "custom-inference-provider",
-      "scope": "assistant",
-      "key": "feature_flags.custom-inference-provider.enabled",
+      "scope": "macos",
+      "key": "custom_inference_provider_enabled",
       "label": "Custom Inference Provider",
       "description": "Allow selecting a specific LLM provider and model for inference in Your Own mode",
       "defaultEnabled": false
@@ -258,6 +258,14 @@
       "defaultEnabled": false
     },
     {
+      "id": "settings-embedding-provider",
+      "scope": "assistant",
+      "key": "feature_flags.settings-embedding-provider.enabled",
+      "label": "Embedding Provider Settings",
+      "description": "Show the Embedding service card in Models & Services settings",
+      "defaultEnabled": false
+    },
+    {
       "id": "quick-input",
       "scope": "macos",
       "key": "quick_input_enabled",
@@ -271,6 +279,14 @@
       "key": "expand_completed_steps",
       "label": "Expand Completed Steps",
       "description": "Auto-expand completed tool call step groups instead of showing them collapsed",
+      "defaultEnabled": false
+    },
+    {
+      "id": "inline-skill-commands",
+      "scope": "assistant",
+      "key": "feature_flags.inline-skill-commands.enabled",
+      "label": "Inline Skill Command Expansion",
+      "description": "Enable secure inline skill command expansion via !`command` syntax, with version-pinned approval and sandboxed execution at skill load time",
       "defaultEnabled": false
     }
   ]

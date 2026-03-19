@@ -130,6 +130,7 @@ const ACTOR_ENDPOINTS: Array<{ endpoint: string; scopes: Scope[] }> = [
   { endpoint: "conversations", scopes: ["chat.read"] },
   { endpoint: "conversations:POST", scopes: ["chat.write"] },
   { endpoint: "conversations:DELETE", scopes: ["chat.write"] },
+  { endpoint: "conversations/fork", scopes: ["chat.write"] },
   { endpoint: "conversations/switch", scopes: ["chat.write"] },
   { endpoint: "conversations/name", scopes: ["chat.write"] },
   { endpoint: "conversations/cancel", scopes: ["chat.write"] },
@@ -343,6 +344,10 @@ const ACTOR_ENDPOINTS: Array<{ endpoint: string; scopes: Scope[] }> = [
   { endpoint: "model:PUT", scopes: ["settings.write"] },
   { endpoint: "model/image-gen", scopes: ["settings.write"] },
 
+  // Embedding config
+  { endpoint: "config/embeddings:GET", scopes: ["settings.read"] },
+  { endpoint: "config/embeddings:PUT", scopes: ["settings.write"] },
+
   // Conversation management
   { endpoint: "conversations/wipe", scopes: ["chat.write"] },
   { endpoint: "conversations/reorder", scopes: ["chat.write"] },
@@ -352,6 +357,7 @@ const ACTOR_ENDPOINTS: Array<{ endpoint: string; scopes: Scope[] }> = [
 
   // Message content
   { endpoint: "messages/content", scopes: ["chat.read"] },
+  { endpoint: "messages/llm-context", scopes: ["chat.read"] },
 
   // Queued message deletion
   { endpoint: "messages/queued", scopes: ["chat.write"] },
@@ -436,7 +442,14 @@ const ACTOR_ENDPOINTS: Array<{ endpoint: string; scopes: Scope[] }> = [
   { endpoint: "dictation", scopes: ["chat.write"] },
 
   // OAuth / integrations
-  { endpoint: "integrations/oauth/start", scopes: ["settings.write"] },
+  { endpoint: "oauth/start", scopes: ["settings.write"] },
+  { endpoint: "integrations/oauth/start", scopes: ["settings.write"] }, // legacy alias
+  { endpoint: "oauth/apps", scopes: ["settings.read"] },
+  { endpoint: "oauth/apps.create", scopes: ["settings.write"] },
+  { endpoint: "oauth/apps.delete", scopes: ["settings.write"] },
+  { endpoint: "oauth/apps/connections", scopes: ["settings.read"] },
+  { endpoint: "oauth/apps/connect", scopes: ["settings.write"] },
+  { endpoint: "oauth/connections", scopes: ["settings.write"] },
 
   // Ingress config
   { endpoint: "integrations/ingress/config:GET", scopes: ["settings.read"] },

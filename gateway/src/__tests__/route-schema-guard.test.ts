@@ -111,6 +111,9 @@ function regexToOpenApiPath(escaped: string): string | null {
     return `{param${paramIndex}}`;
   });
 
+  // Strip optional trailing slash (`/?`) — common in route regexes
+  path = path.replace(/\/\?$/, "");
+
   // If there are remaining regex constructs we can't convert, skip
   if (/[\\()\[\].*+?{}|^$]/.test(path.replace(/\{param\d+\}/g, ""))) {
     return null;

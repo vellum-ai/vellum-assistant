@@ -1,9 +1,16 @@
 /**
  * Device ID resolver.
  *
- * Reads or creates a stable per-device UUID stored in ~/.vellum/device.json.
- * The file is a JSON object (`{ "deviceId": "<uuid>" }`) extensible for
- * future per-device metadata.
+ * Reads or creates a stable per-device UUID stored in device.json under the
+ * Vellum config directory. The file is a JSON object (`{ "deviceId": "<uuid>" }`)
+ * extensible for future per-device metadata.
+ *
+ * Path resolution:
+ *   - Containerized (IS_CONTAINERIZED=true): uses BASE_DATA_DIR, which maps to a
+ *     persistent volume. Each container is effectively its own "device."
+ *   - Local (single or multi-instance): uses homedir() so all instances on the
+ *     same machine share a single device ID, even when BASE_DATA_DIR is set to
+ *     an instance-scoped directory.
  *
  * The value is cached in memory after the first successful read/write.
  * Falls back to a generated UUID if the file cannot be read or written.
@@ -14,6 +21,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
+import { getBaseDataDir, getIsContainerized } from "../config/env-registry.js";
 import { getLogger } from "./logger.js";
 
 const log = getLogger("device-id");
@@ -21,11 +29,26 @@ const log = getLogger("device-id");
 let cached: string | undefined;
 
 /**
+ * Resolve the base directory for device.json.
+ *
+ * In containerized environments, BASE_DATA_DIR points to a persistent volume
+ * and homedir() is ephemeral, so we must use BASE_DATA_DIR.
+ * In local environments (including multi-instance), homedir() is stable and
+ * shared across instances, giving a true per-machine device ID.
+ */
+export function getDeviceIdBaseDir(): string {
+  if (getIsContainerized()) {
+    return getBaseDataDir() || homedir();
+  }
+  return homedir();
+}
+
+/**
  * Get the stable device ID for this machine.
  *
  * Resolution order:
  *   1. Cached in-memory value (populated on first call)
- *   2. `deviceId` field from ~/.vellum/device.json
+ *   2. `deviceId` field from device.json
  *   3. Generate a new UUID, persist it to device.json, and return it
  *
  * On any read/write error the generated UUID is still cached so the
@@ -36,7 +59,7 @@ export function getDeviceId(): string {
     return cached;
   }
 
-  const vellumDir = join(homedir(), ".vellum");
+  const vellumDir = join(getDeviceIdBaseDir(), ".vellum");
   const filePath = join(vellumDir, "device.json");
   const generated = randomUUID();
 

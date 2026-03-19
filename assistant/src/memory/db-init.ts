@@ -37,6 +37,7 @@ import {
   migrateAssistantContactMetadata,
   migrateBackfillContactInteractionStats,
   migrateBackfillGuardianPrincipalId,
+  migrateBackfillInlineAttachmentsToDisk,
   migrateBackfillUsageCacheAccounting,
   migrateCallSessionInviteMetadata,
   migrateCallSessionMode,
@@ -50,6 +51,7 @@ import {
   migrateContactsAssistantId,
   migrateContactsNotesColumn,
   migrateContactsRolePrincipal,
+  migrateConversationForkLineage,
   migrateConversationsThreadTypeIndex,
   migrateCreateThreadStartersTable,
   migrateCreateTraceEventsTable,
@@ -78,11 +80,17 @@ import {
   migrateGuardianVerificationSessions,
   migrateInviteCodeHashColumn,
   migrateInviteContactId,
+  migrateLlmRequestLogMessageId,
+  migrateLlmRequestLogProvider,
+  migrateMemoryArchiveTables,
+  migrateMemoryBriefState,
   migrateMemoryItemSupersession,
+  migrateMemoryReducerCheckpoints,
   migrateMessagesFtsBackfill,
   migrateNormalizePhoneIdentities,
   migrateNotificationDeliveryThreadDecision,
   migrateOAuthAppsClientSecretPath,
+  migrateOAuthProvidersDisplayMetadata,
   migrateOAuthProvidersManagedServiceConfigKey,
   migrateOAuthProvidersPingUrl,
   migrateReminderRoutingIntent,
@@ -97,6 +105,7 @@ import {
   migrateRenameSequenceEnrollmentsThreadIdColumn,
   migrateRenameSequenceStepsReplyKey,
   migrateRenameSourceSessionIdColumn,
+  migrateRenameThreadStartersCheckpoints,
   migrateRenameThreadStartersTable,
   migrateRenameVerificationSessionIdColumn,
   migrateRenameVerificationTable,
@@ -448,6 +457,9 @@ export function initializeDb(): void {
   // 77. Rename thread_starters → conversation_starters table and indexes
   migrateRenameThreadStartersTable(database);
 
+  // 77b. Rename checkpoint keys from thread_starters: → conversation_starters: prefix
+  migrateRenameThreadStartersCheckpoints(database);
+
   // 78. Lifecycle events table for app_open / hatch telemetry
   createLifecycleEventsTable(database);
 
@@ -459,6 +471,30 @@ export function initializeDb(): void {
 
   // 81. Add managed_service_config_key column to oauth_providers
   migrateOAuthProvidersManagedServiceConfigKey(database);
+
+  // 81b. Add display metadata columns to oauth_providers (display_name, description, dashboard_url, etc.)
+  migrateOAuthProvidersDisplayMetadata(database);
+
+  // 82. Add message_id column to llm_request_logs for per-message LLM context lookup
+  migrateLlmRequestLogMessageId(database);
+
+  // 82b. Add provider column to llm_request_logs for runtime provider lookup
+  migrateLlmRequestLogProvider(database);
+
+  // 83. Backfill existing inline (base64-in-DB) attachments to on-disk storage
+  migrateBackfillInlineAttachmentsToDisk(database);
+
+  // 84. Add nullable conversation fork lineage columns and parent lookup index
+  migrateConversationForkLineage(database);
+
+  // 85. Memory brief state tables (time_contexts, open_loops) for simplified memory system
+  migrateMemoryBriefState(database);
+
+  // 86. Memory archive tables (observations, chunks, episodes) for simplified memory v1
+  migrateMemoryArchiveTables(database);
+
+  // 87. Add memory reducer checkpoint columns to conversations
+  migrateMemoryReducerCheckpoints(database);
 
   validateMigrationState(database);
 

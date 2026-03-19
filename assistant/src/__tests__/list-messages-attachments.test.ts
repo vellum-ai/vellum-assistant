@@ -190,3 +190,99 @@ describe("handleListMessages attachments", () => {
     expect(docAtt!.data).toBeUndefined();
   });
 });
+
+describe("handleListMessages no_response filtering", () => {
+  beforeEach(resetTables);
+
+  test("strips <no_response/> from assistant message content", async () => {
+    const conv = createConversation();
+    await addMessage(
+      conv.id,
+      "assistant",
+      JSON.stringify([{ type: "text", text: "<no_response/>" }]),
+    );
+
+    const response = handleListMessages(createTestUrl(conv.id), null);
+    const body = (await response.json()) as {
+      messages: { content: string; textSegments: string[] }[];
+    };
+
+    expect(body.messages).toHaveLength(1);
+    expect(body.messages[0].content).toBe("");
+    // textSegments is omitted from payload when empty
+    expect(body.messages[0].textSegments).toBeUndefined();
+  });
+
+  test("strips <no_response/> but keeps other text segments", async () => {
+    const conv = createConversation();
+    await addMessage(
+      conv.id,
+      "assistant",
+      JSON.stringify([
+        { type: "text", text: "<no_response/>" },
+        { type: "text", text: "Real reply." },
+      ]),
+    );
+
+    const response = handleListMessages(createTestUrl(conv.id), null);
+    const body = (await response.json()) as {
+      messages: { content: string; textSegments: string[] }[];
+    };
+
+    expect(body.messages).toHaveLength(1);
+    expect(body.messages[0].content).toBe("Real reply.");
+    expect(body.messages[0].textSegments).toEqual(["Real reply."]);
+  });
+
+  test("remaps contentOrder when <no_response/> segment is removed", async () => {
+    const conv = createConversation();
+    // Simulate: text("<no_response/>") -> tool_use -> tool_result -> text("Answer")
+    await addMessage(
+      conv.id,
+      "assistant",
+      JSON.stringify([
+        { type: "text", text: "<no_response/>" },
+        {
+          type: "tool_use",
+          id: "tu1",
+          name: "search",
+          input: { q: "test" },
+        },
+        { type: "tool_result", tool_use_id: "tu1", content: "result" },
+        { type: "text", text: "Answer" },
+      ]),
+    );
+
+    const response = handleListMessages(createTestUrl(conv.id), null);
+    const body = (await response.json()) as {
+      messages: {
+        content: string;
+        textSegments: string[];
+        contentOrder: string[];
+      }[];
+    };
+
+    expect(body.messages).toHaveLength(1);
+    expect(body.messages[0].textSegments).toEqual(["Answer"]);
+    // text:0 (no_response) should be removed, text:1 remapped to text:0
+    expect(body.messages[0].contentOrder).toContain("text:0");
+    expect(body.messages[0].contentOrder).not.toContain("text:1");
+  });
+
+  test("does not strip <no_response/> from user messages", async () => {
+    const conv = createConversation();
+    await addMessage(
+      conv.id,
+      "user",
+      JSON.stringify([{ type: "text", text: "What does <no_response/> do?" }]),
+    );
+
+    const response = handleListMessages(createTestUrl(conv.id), null);
+    const body = (await response.json()) as {
+      messages: { content: string }[];
+    };
+
+    expect(body.messages).toHaveLength(1);
+    expect(body.messages[0].content).toBe("What does <no_response/> do?");
+  });
+});

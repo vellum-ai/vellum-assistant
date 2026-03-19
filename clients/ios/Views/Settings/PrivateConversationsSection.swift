@@ -56,7 +56,7 @@ struct PrivateConversationsSection: View {
                 } header: {
                     Text("Private Conversations")
                 } footer: {
-                    Text("These conversations are not included in your regular chat history and are excluded from session restoration.")
+                    Text("These conversations are not included in your regular chat history and are excluded from conversation restoration.")
                 }
             }
 
@@ -126,7 +126,8 @@ struct PrivateConversationsSection: View {
     private func privateConversationChatView(for conversation: IOSConversation) -> some View {
         ConversationChatView(
             viewModel: store.viewModel(for: conversation.id),
-            conversationTitle: conversation.title
+            store: store,
+            conversation: conversation
         )
         .onAppear {
             store.loadHistoryIfNeeded(for: conversation.id)
@@ -168,12 +169,4 @@ struct PrivateConversationsSection: View {
         DateFormatting.relativeTimestamp(date)
     }
 }
-
-#if DEBUG
-#Preview {
-    NavigationStack {
-        PrivateConversationsSection(store: IOSConversationStore(daemonClient: MockDaemonClient()))
-    }
-}
-#endif
 #endif

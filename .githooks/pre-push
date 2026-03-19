@@ -103,14 +103,32 @@ if [ -z "$REMOTE_SHA" ]; then
     exit 0
 fi
 
-# Get all changed files (source files only, not deleted)
-CHANGED_FILES=$(git diff --name-only --diff-filter=ACMR "$REMOTE_SHA"..HEAD -- '*.ts' '*.tsx' '*.js' '*.jsx' '*.mjs' 2>/dev/null)
+# Get all changed files (source files only, not deleted).
+#
+# When the push range contains merge commits (e.g. after merging main into a
+# feature branch), a plain two-dot diff "REMOTE_SHA..HEAD" includes every file
+# from the merged branch — blocking pushes on unrelated drift. Detect this case
+# and diff against origin/main instead, so only the feature branch's own changes
+# are checked.
+DIFF_BASE="$REMOTE_SHA"
+if git rev-list --merges "$REMOTE_SHA"..HEAD 2>/dev/null | grep -q .; then
+    # The push range contains at least one merge commit. Use the merge-base of
+    # origin/main and HEAD as the diff base so we only see the feature branch's
+    # own changes.
+    _main_base=$(git merge-base origin/main HEAD 2>/dev/null || echo "")
+    if [ -n "$_main_base" ]; then
+        DIFF_BASE="$_main_base"
+        _debug_log "merge detected in push range — using origin/main merge-base: $DIFF_BASE"
+    fi
+fi
+
+CHANGED_FILES=$(git diff --name-only --diff-filter=ACMR "$DIFF_BASE"..HEAD -- '*.ts' '*.tsx' '*.js' '*.jsx' '*.mjs' 2>/dev/null)
 
 _changed_count=$(echo "$CHANGED_FILES" | grep -c . 2>/dev/null || echo 0)
 _debug_log "changed files: ${_changed_count}"
 
 # Get changed Swift files separately (not included in the TS/JS diff above)
-SWIFT_CHANGED_FILES=$(git diff --name-only --diff-filter=ACMR "$REMOTE_SHA"..HEAD -- 'clients/*.swift' 'clients/**/*.swift' 2>/dev/null)
+SWIFT_CHANGED_FILES=$(git diff --name-only --diff-filter=ACMR "$DIFF_BASE"..HEAD -- 'clients/*.swift' 'clients/**/*.swift' 2>/dev/null)
 _swift_count=$(echo "$SWIFT_CHANGED_FILES" | grep -c . 2>/dev/null || echo 0)
 _debug_log "changed Swift files: ${_swift_count}"
 
@@ -133,7 +151,10 @@ if [ -n "$SWIFT_CHANGED_FILES" ] && [ "$SKIP_SWIFT_BUILD" != "1" ]; then
         echo ""
         echo "🔍 Building clients/ (Swift)..."
         _debug_log "swift build start"
-        if ! (cd "${REPO_ROOT}/clients" && swift build --product vellum-assistant 2>&1); then
+        _repo_real="$(cd "$REPO_ROOT" && pwd -P)"
+        _cache_slug="$(printf '%s' "$_repo_real" | md5 -q 2>/dev/null || printf '%s' "$_repo_real" | md5sum | cut -d' ' -f1)"
+        _module_cache="/tmp/spm-module-cache/${_cache_slug}"
+        if ! (cd "${REPO_ROOT}/clients" && swift build --product vellum-assistant -Xswiftc -module-cache-path -Xswiftc "$_module_cache" 2>&1); then
             echo ""
             echo -e "${RED}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
             echo -e "${RED}Swift build errors in clients/ — push blocked${NC}"

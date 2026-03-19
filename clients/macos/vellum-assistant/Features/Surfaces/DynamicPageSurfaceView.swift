@@ -142,7 +142,11 @@ struct DynamicPageSurfaceView: NSViewRepresentable {
     }
 
     func makeCoordinator() -> Coordinator {
-        Coordinator(onAction: onAction, onDataRequest: onDataRequest, onPageChanged: onPageChanged, onSnapshotCaptured: onSnapshotCaptured, onLinkOpen: onLinkOpen, currentHTML: data.html, sandboxMode: sandboxMode)
+        let coordinator = Coordinator(onAction: onAction, onDataRequest: onDataRequest, onPageChanged: onPageChanged, onSnapshotCaptured: onSnapshotCaptured, onLinkOpen: onLinkOpen, currentHTML: data.html, sandboxMode: sandboxMode)
+        coordinator.surfaceId = data.appId ?? "ephemeral"
+        coordinator.appId = appId
+        coordinator.loadStartTime = CFAbsoluteTimeGetCurrent()
+        return coordinator
     }
 
     func makeNSView(context: Context) -> NSView {
@@ -437,9 +441,11 @@ struct DynamicPageSurfaceView: NSViewRepresentable {
         // isolated per app. Non-app surfaces get a shared fallback origin.
         if let appId = appId {
             // App-backed surface — serve from disk via scheme handler.
+            // Use dirName for filesystem paths (may differ from appId/UUID).
+            let localDir = data.dirName ?? appId
             // Multifile apps have a compiled dist/ directory; prefer it over root index.html.
             let appsDirectory = userAppsDirectory ?? VellumAppSchemeHandler.userAppsDirectory
-            let appDir = appsDirectory.appendingPathComponent(appId)
+            let appDir = appsDirectory.appendingPathComponent(localDir)
             let distIndex = appDir.appendingPathComponent("dist/index.html")
             let hasSrcDir = FileManager.default.fileExists(atPath: appDir.appendingPathComponent("src").path)
 
@@ -447,8 +453,8 @@ struct DynamicPageSurfaceView: NSViewRepresentable {
                 // Multifile app whose dist/ hasn't been compiled yet — show a
                 // "building" placeholder that auto-retries by navigating to the
                 // scheme URL (not reload, which would just re-render this inline HTML).
-                let distSchemeURL = "vellumapp://\(appId)/dist/index.html"
-                let origin = "vellumapp://\(appId)/"
+                let distSchemeURL = "vellumapp://\(localDir)/dist/index.html"
+                let origin = "vellumapp://\(localDir)/"
                 let buildingHTML = """
                 <!DOCTYPE html><html><head><meta charset="UTF-8">
                 <style>body{display:flex;align-items:center;justify-content:center;height:100vh;margin:0;
@@ -466,7 +472,7 @@ struct DynamicPageSurfaceView: NSViewRepresentable {
                 let entryPath = FileManager.default.fileExists(atPath: distIndex.path)
                     ? "dist/index.html"
                     : "index.html"
-                let schemeURL = URL(string: "vellumapp://\(appId)/\(entryPath)")!
+                let schemeURL = URL(string: "vellumapp://\(localDir)/\(entryPath)")!
                 webView.load(URLRequest(url: schemeURL))
             }
         } else {
@@ -529,6 +535,7 @@ struct DynamicPageSurfaceView: NSViewRepresentable {
         if let gen = data.reloadGeneration, gen != context.coordinator.lastReloadGeneration {
             context.coordinator.lastReloadGeneration = gen
             context.coordinator.hasCapturedSnapshot = false
+            context.coordinator.loadStartTime = CFAbsoluteTimeGetCurrent()
             // Stash any simultaneous status change for injection after reload completes
             if let status = data.status, status != context.coordinator.lastStatus {
                 context.coordinator.pendingStatus = status
@@ -542,6 +549,7 @@ struct DynamicPageSurfaceView: NSViewRepresentable {
             let previousHTML = context.coordinator.currentHTML
             context.coordinator.currentHTML = data.html
             context.coordinator.hasCapturedSnapshot = false
+            context.coordinator.loadStartTime = CFAbsoluteTimeGetCurrent()
             let origin = appId.map { "https://\($0).vellum.local/" } ?? "https://surface.vellum.local/"
 
             if previousHTML.isEmpty {
@@ -668,6 +676,21 @@ struct DynamicPageSurfaceView: NSViewRepresentable {
         var lastStatus: String?
         /// Status message to inject after the next page reload completes.
         var pendingStatus: String?
+
+        // MARK: - Timing diagnostics
+
+        /// Surface and app identifiers for diagnostic log lines.
+        var surfaceId: String?
+        var appId: String?
+        /// Monotonic timestamp (CFAbsoluteTimeGetCurrent) recorded when a page load begins.
+        var loadStartTime: CFAbsoluteTime = 0
+
+        /// Log a timing-trail phase with elapsed milliseconds since `loadStartTime`.
+        private func logPhase(_ phase: String) {
+            let elapsedMs = Int((CFAbsoluteTimeGetCurrent() - loadStartTime) * 1000)
+            log.info("[Timing] surface=\(self.surfaceId ?? "nil", privacy: .public) appId=\(self.appId ?? "nil", privacy: .public) page=\(self.currentPage, privacy: .public) phase=\(phase, privacy: .public) elapsed=\(elapsedMs)ms")
+        }
+
         init(
             onAction: @escaping (String, Any?) -> Void,
             onDataRequest: ((String, String, String?, [String: Any]?) -> Void)?,
@@ -901,11 +924,16 @@ struct DynamicPageSurfaceView: NSViewRepresentable {
 
         func captureSnapshotAfterMorph(generation: Int) {
             guard let onSnapshotCaptured else { return }
+            logPhase("captureSnapshotAfterMorph:start")
             hasCapturedSnapshot = false
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
                 guard let self, self.morphGeneration == generation else { return }
+                self.logPhase("captureSnapshotAfterMorph:takeSnapshot")
                 self.captureSnapshot { base64 in
-                    if let base64 { onSnapshotCaptured(base64) }
+                    if let base64 {
+                        self.logPhase("captureSnapshotAfterMorph:complete")
+                        onSnapshotCaptured(base64)
+                    }
                 }
             }
         }
@@ -954,6 +982,8 @@ struct DynamicPageSurfaceView: NSViewRepresentable {
         }
 
         func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+            logPhase("didFinish")
+
             // Restore scroll position if this load was a refinement update.
             if let scrollJSON = pendingScrollRestore {
                 pendingScrollRestore = nil
@@ -1046,9 +1076,12 @@ struct DynamicPageSurfaceView: NSViewRepresentable {
             // Capture a preview screenshot after the page has rendered (once per load).
             if !hasCapturedSnapshot, let onSnapshotCaptured {
                 hasCapturedSnapshot = true
+                logPhase("onSnapshotCaptured:scheduled")
                 DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { [weak self] in
+                    self?.logPhase("onSnapshotCaptured:takeSnapshot")
                     self?.captureSnapshot { base64 in
                         if let base64 {
+                            self?.logPhase("onSnapshotCaptured:complete")
                             onSnapshotCaptured(base64)
                         }
                     }

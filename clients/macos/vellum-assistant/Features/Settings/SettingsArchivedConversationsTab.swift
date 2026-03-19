@@ -69,5 +69,3 @@ private struct ArchivedConversationRow: View {
     }
 }
 
-// MARK: - Preview
-

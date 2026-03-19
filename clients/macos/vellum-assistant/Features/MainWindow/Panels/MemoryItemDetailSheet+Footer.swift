@@ -3,41 +3,6 @@ import VellumAssistantShared
 
 extension MemoryItemDetailSheet {
 
-    var footer: some View {
-        HStack {
-            if isEditing {
-                Button {
-                    isEditing = false
-                    errorMessage = nil
-                    editSubject = item.subject
-                    editStatement = item.statement
-                    editKind = item.kind
-                    editStatus = item.status
-                    editImportance = item.importance ?? 0.5
-                } label: {
-                    Text("Cancel")
-                        .font(VFont.bodyMedium)
-                        .foregroundColor(VColor.contentSecondary)
-                }
-                .buttonStyle(.plain)
-
-                Spacer()
-
-                VButton(
-                    label: isSaving ? "Saving..." : "Save",
-                    style: .primary,
-                    isDisabled: !isEditFormValid || isSaving
-                ) {
-                    save()
-                }
-            } else {
-                Spacer()
-            }
-        }
-        .padding(.horizontal, VSpacing.xl)
-        .padding(.vertical, VSpacing.lg)
-    }
-
     var isEditFormValid: Bool {
         !editSubject.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
         !editStatement.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty

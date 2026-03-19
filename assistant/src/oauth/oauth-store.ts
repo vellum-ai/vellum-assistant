@@ -45,7 +45,9 @@ export type OAuthConnectionRow = typeof oauthConnections.$inferSelect;
  * Seed well-known provider profiles into the database. Uses INSERT … ON
  * CONFLICT DO UPDATE so that implementation fields (authUrl, tokenUrl,
  * tokenEndpointAuthMethod, userinfoUrl, extraParams, callbackTransport,
- * pingUrl, managedServiceConfigKey) propagate to existing installations on every startup, while
+ * pingUrl, managedServiceConfigKey) and display metadata (displayName,
+ * description, dashboardUrl, clientIdPlaceholder, requiresClientSecret)
+ * propagate to existing installations on every startup, while
  * user-customizable fields (defaultScopes, scopePolicy, baseUrl) are
  * only written on the initial insert.
  */
@@ -63,6 +65,11 @@ export function seedProviders(
     extraParams?: Record<string, string>;
     callbackTransport?: string;
     managedServiceConfigKey?: string;
+    displayName?: string;
+    description?: string;
+    dashboardUrl?: string | null;
+    clientIdPlaceholder?: string | null;
+    requiresClientSecret?: boolean;
   }>,
 ): void {
   const db = getDb();
@@ -79,6 +86,11 @@ export function seedProviders(
     const extraParams = p.extraParams ? JSON.stringify(p.extraParams) : null;
     const callbackTransport = p.callbackTransport ?? null;
     const managedServiceConfigKey = p.managedServiceConfigKey ?? null;
+    const displayName = p.displayName ?? null;
+    const description = p.description ?? null;
+    const dashboardUrl = p.dashboardUrl ?? null;
+    const clientIdPlaceholder = p.clientIdPlaceholder ?? null;
+    const requiresClientSecret = p.requiresClientSecret !== false ? 1 : 0;
 
     db.insert(oauthProviders)
       .values({
@@ -94,6 +106,11 @@ export function seedProviders(
         callbackTransport,
         pingUrl,
         managedServiceConfigKey,
+        displayName,
+        description,
+        dashboardUrl,
+        clientIdPlaceholder,
+        requiresClientSecret,
         createdAt: now,
         updatedAt: now,
       })
@@ -108,6 +125,11 @@ export function seedProviders(
           callbackTransport,
           pingUrl,
           managedServiceConfigKey,
+          displayName,
+          description,
+          dashboardUrl,
+          clientIdPlaceholder,
+          requiresClientSecret,
           updatedAt: now,
         },
       })
@@ -148,6 +170,11 @@ export function registerProvider(params: {
   extraParams?: Record<string, string>;
   callbackTransport?: string;
   managedServiceConfigKey?: string;
+  displayName?: string;
+  description?: string;
+  dashboardUrl?: string;
+  clientIdPlaceholder?: string;
+  requiresClientSecret?: number;
 }): OAuthProviderRow {
   const db = getDb();
   const now = Date.now();
@@ -170,6 +197,11 @@ export function registerProvider(params: {
     callbackTransport: params.callbackTransport ?? null,
     pingUrl: params.pingUrl ?? null,
     managedServiceConfigKey: params.managedServiceConfigKey ?? null,
+    displayName: params.displayName ?? null,
+    description: params.description ?? null,
+    dashboardUrl: params.dashboardUrl ?? null,
+    clientIdPlaceholder: params.clientIdPlaceholder ?? null,
+    requiresClientSecret: params.requiresClientSecret ?? 1,
     createdAt: now,
     updatedAt: now,
   };
@@ -238,6 +270,16 @@ export async function upsertApp(
       if (!stored) {
         throw new Error("Failed to store client_secret in secure storage");
       }
+      // Bump updatedAt so the rollback guard in the new-row insertion path
+      // can detect that a concurrent caller has claimed this row. Without
+      // this, a concurrent inserter's rollback DELETE would still match on
+      // the original updatedAt and delete the row we just validated.
+      const newUpdatedAt = Date.now();
+      db.update(oauthApps)
+        .set({ updatedAt: newUpdatedAt })
+        .where(eq(oauthApps.id, existingRow.id))
+        .run();
+      return { ...existingRow, updatedAt: newUpdatedAt };
     }
     if (clientSecretCredentialPath) {
       db.update(oauthApps)
@@ -278,7 +320,14 @@ export async function upsertApp(
     if (!stored) {
       // Roll back the just-inserted row to avoid an orphaned app pointing
       // at a non-existent client_secret in secure storage.
-      db.delete(oauthApps).where(eq(oauthApps.id, id)).run();
+      //
+      // Guard: only delete if updatedAt still matches our insertion timestamp.
+      // A concurrent upsertApp call may have observed this row, successfully
+      // stored the secret, and updated the row — deleting it would orphan that
+      // caller's valid reference.
+      db.delete(oauthApps)
+        .where(and(eq(oauthApps.id, id), eq(oauthApps.updatedAt, now)))
+        .run();
       throw new Error("Failed to store client_secret in secure storage");
     }
   }
@@ -290,6 +339,15 @@ export async function upsertApp(
 export function getApp(id: string): OAuthAppRow | undefined {
   const db = getDb();
   return db.select().from(oauthApps).where(eq(oauthApps.id, id)).get();
+}
+
+/** Read an app client_secret from secure storage. */
+export async function getAppClientSecret(
+  appOrId: OAuthAppRow | string,
+): Promise<string | undefined> {
+  const app = typeof appOrId === "string" ? getApp(appOrId) : appOrId;
+  if (!app) return undefined;
+  return getSecureKeyAsync(app.clientSecretCredentialPath);
 }
 
 /** Look up an app by (provider_key, client_id). */

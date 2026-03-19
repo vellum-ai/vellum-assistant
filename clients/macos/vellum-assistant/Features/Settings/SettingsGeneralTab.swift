@@ -8,7 +8,7 @@ struct SettingsGeneralTab: View {
     var daemonClient: DaemonClient?
     var authManager: AuthManager
     var onClose: () -> Void
-    var showToast: ((String, ToastInfo.Style) -> Void)?
+    var showToast: (String, ToastInfo.Style) -> Void
     var onSignIn: (() -> Void)?
 
     @State private var showingPairingQR: Bool = false
@@ -101,12 +101,7 @@ struct SettingsGeneralTab: View {
                     isDisabled: authManager.isSubmitting
                 ) {
                     Task {
-                        if let showToast {
-                            await authManager.loginWithToast(showToast: showToast, onSuccess: { onSignIn?() })
-                        } else {
-                            await authManager.startWorkOSLogin()
-                            if authManager.isAuthenticated { onSignIn?() }
-                        }
+                        await authManager.loginWithToast(showToast: showToast, onSuccess: { onSignIn?() })
                     }
                 }
             }

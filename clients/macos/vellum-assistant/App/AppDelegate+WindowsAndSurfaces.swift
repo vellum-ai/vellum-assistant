@@ -71,6 +71,14 @@ extension AppDelegate {
             guard let self else { return }
             self.surfaceManager.dismissSurface(msg)
         }
+        daemonClient.onSurfaceComplete = { [weak self] msg in
+            guard let self else { return }
+            self.surfaceManager.dismissSurface(UiSurfaceDismissMessage(
+                type: "ui_surface_dismiss",
+                conversationId: msg.conversationId ?? "",
+                surfaceId: msg.surfaceId
+            ))
+        }
 
         // Reload webviews for surfaces whose app files changed (cross-conversation broadcast)
         daemonClient.onAppFilesChanged = { [weak self] appId in
@@ -210,10 +218,7 @@ extension AppDelegate {
             self?.secretPromptManager.showPrompt(msg)
         }
         secretPromptManager.onResponse = { requestId, value, delivery in
-            Task {
-                await InteractionClient().sendSecretResponse(requestId: requestId, value: value, delivery: delivery)
-            }
-            return true
+            await InteractionClient().sendSecretResponse(requestId: requestId, value: value, delivery: delivery)
         }
     }
 }
@@ -694,7 +699,14 @@ extension AppDelegate {
     public func showSettingsTab(_ tab: String) {
         // Don't gate on feature flags here — let SettingsPanel decide visibility
         // based on its own flag state when it processes pendingSettingsTab.
-        if let settingsTab = SettingsTab(rawValue: tab) {
+        // Use a switch to resolve legacy tab names (e.g. "Archived Threads")
+        // without gating on feature flags.
+        let settingsTab: SettingsTab?
+        switch tab {
+        case "Archived Threads": settingsTab = .archivedConversations
+        default: settingsTab = SettingsTab(rawValue: tab)
+        }
+        if let settingsTab {
             services.settingsStore.pendingSettingsTab = settingsTab
         }
         showSettingsWindow(nil)

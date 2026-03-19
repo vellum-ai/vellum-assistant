@@ -61,6 +61,7 @@ export async function semanticSearch(
         fetchLimit,
         ["item", "summary", "segment", "media"],
         excludedMessageIds,
+        scopeIds,
       ),
     );
   }
@@ -277,13 +278,13 @@ export async function semanticSearch(
  * Build a Qdrant filter for hybrid search. Mirrors the logic in
  * `searchWithFilter` but as a standalone object for the query API.
  *
- * Scope filtering: items and media store `memory_scope_id` on the Qdrant
- * point payload, so we can filter at the Qdrant level. Segments and
- * summaries rely on post-query DB filtering (same as dense-only search).
+ * Scope filtering: points with a `memory_scope_id` payload field are
+ * filtered at the Qdrant level. Legacy points without the field pass
+ * through and are caught by post-query DB filtering.
  */
 function buildHybridFilter(
   excludeMessageIds: string[],
-  _scopeIds?: string[],
+  scopeIds?: string[],
 ): Record<string, unknown> {
   const mustConditions: Array<Record<string, unknown>> = [
     {
@@ -306,6 +307,18 @@ function buildHybridFilter(
           key: "target_type",
           match: { any: ["segment", "summary", "media"] },
         },
+      ],
+    });
+  }
+
+  // Scope filtering: accept points whose memory_scope_id matches one of the
+  // allowed scopes, OR points that lack the field entirely (legacy data).
+  // Post-query DB filtering remains as defense-in-depth for legacy points.
+  if (scopeIds && scopeIds.length > 0) {
+    mustConditions.push({
+      should: [
+        { key: "memory_scope_id", match: { any: scopeIds } },
+        { is_empty: { key: "memory_scope_id" } },
       ],
     });
   }

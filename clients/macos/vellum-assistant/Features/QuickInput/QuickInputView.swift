@@ -16,7 +16,6 @@ struct QuickInputView: View {
     let onRemoveAttachment: (() -> Void)?
     let onAllowScreenRecording: (() -> Void)?
     let onMicrophoneToggle: (() -> Void)?
-    let onNotificationToggle: (() -> Void)?
     let recentConversations: [QuickInputConversation]
     let attachedImage: NSImage?
     let showScreenPermissionPrompt: Bool
@@ -35,7 +34,6 @@ struct QuickInputView: View {
         onRemoveAttachment: (() -> Void)? = nil,
         onAllowScreenRecording: (() -> Void)? = nil,
         onMicrophoneToggle: (() -> Void)? = nil,
-        onNotificationToggle: (() -> Void)? = nil,
         recentConversations: [QuickInputConversation] = [],
         attachedImage: NSImage? = nil,
         showScreenPermissionPrompt: Bool = false
@@ -48,7 +46,6 @@ struct QuickInputView: View {
         self.onRemoveAttachment = onRemoveAttachment
         self.onAllowScreenRecording = onAllowScreenRecording
         self.onMicrophoneToggle = onMicrophoneToggle
-        self.onNotificationToggle = onNotificationToggle
         self.recentConversations = recentConversations
         self.attachedImage = attachedImage
         self.showScreenPermissionPrompt = showScreenPermissionPrompt
@@ -144,15 +141,6 @@ struct QuickInputView: View {
                 .menuStyle(.borderlessButton)
                 .menuIndicator(.hidden)
                 .fixedSize()
-
-                // Notification toggle
-                Button(action: { onNotificationToggle?() }) {
-                    VIconView(.bell, size: 14)
-                        .foregroundColor(textModel.notifyOnComplete ? VColor.contentSecondary : VColor.contentTertiary)
-                        .frame(width: 32, height: 32)
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel(textModel.notifyOnComplete ? "Notifications on" : "Notifications off")
 
                 // Screenshot button
                 if attachedImage == nil {

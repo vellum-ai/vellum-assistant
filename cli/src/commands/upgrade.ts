@@ -7,6 +7,7 @@ import {
 } from "../lib/assistant-config";
 import type { AssistantEntry } from "../lib/assistant-config";
 import {
+  captureImageRefs,
   DOCKERHUB_IMAGES,
   DOCKER_READY_TIMEOUT_MS,
   GATEWAY_INTERNAL_PORT,
@@ -212,17 +213,33 @@ async function upgradeDocker(
     `🔄 Upgrading Docker assistant '${instanceName}' to ${versionTag}...\n`,
   );
 
-  console.log("📦 Pulling new Docker images...");
-  await exec("docker", ["pull", imageTags.assistant]);
-  await exec("docker", ["pull", imageTags.gateway]);
-  await exec("docker", ["pull", imageTags["credential-executor"]]);
-  console.log("✅ Docker images pulled\n");
+  // Capture rollback state from existing containers BEFORE pulling new
+  // images or stopping anything.  captureImageRefs uses the immutable
+  // image digest ({{.Image}}), but capturing first keeps the intent
+  // explicit and avoids relying on container-inspect ordering subtleties.
+  console.log("📸 Capturing current image references for rollback...");
+  const previousImageRefs = await captureImageRefs(res);
+  if (previousImageRefs) {
+    console.log(
+      `   Captured refs for ${Object.keys(previousImageRefs).length} service(s)\n`,
+    );
+  } else {
+    console.log(
+      "   Could not capture all container refs (fresh install or partial deployment)\n",
+    );
+  }
 
   console.log("💾 Capturing existing container environment...");
   const capturedEnv = await captureContainerEnv(res.assistantContainer);
   console.log(
     `   Captured ${Object.keys(capturedEnv).length} env var(s) from ${res.assistantContainer}\n`,
   );
+
+  console.log("📦 Pulling new Docker images...");
+  await exec("docker", ["pull", imageTags.assistant]);
+  await exec("docker", ["pull", imageTags.gateway]);
+  await exec("docker", ["pull", imageTags["credential-executor"]]);
+  console.log("✅ Docker images pulled\n");
 
   console.log("🛑 Stopping existing containers...");
   await stopContainers(res);
@@ -281,10 +298,54 @@ async function upgradeDocker(
       `\n✅ Docker assistant '${instanceName}' upgraded to ${versionTag}.`,
     );
   } else {
-    console.log(
-      `\n⚠️  Containers are running but the assistant did not become ready within the timeout.`,
-    );
-    console.log(`   Check logs with: docker logs -f ${res.assistantContainer}`);
+    console.error(`\n❌ Containers failed to become ready within the timeout.`);
+
+    if (previousImageRefs) {
+      console.log(`\n🔄 Rolling back to previous images...`);
+      try {
+        await stopContainers(res);
+
+        await startContainers(
+          {
+            extraAssistantEnv,
+            gatewayPort,
+            imageTags: previousImageRefs,
+            instanceName,
+            res,
+          },
+          (msg) => console.log(msg),
+        );
+
+        const rollbackReady = await waitForReady(entry.runtimeUrl);
+        if (rollbackReady) {
+          console.log(
+            `\n⚠️  Rolled back to previous version. Upgrade to ${versionTag} failed.`,
+          );
+        } else {
+          console.error(
+            `\n❌ Rollback also failed. Manual intervention required.`,
+          );
+          console.log(
+            `   Check logs with: docker logs -f ${res.assistantContainer}`,
+          );
+        }
+      } catch (rollbackErr) {
+        console.error(
+          `\n❌ Rollback failed: ${rollbackErr instanceof Error ? rollbackErr.message : String(rollbackErr)}`,
+        );
+        console.error(`   Manual intervention required.`);
+        console.log(
+          `   Check logs with: docker logs -f ${res.assistantContainer}`,
+        );
+      }
+    } else {
+      console.log(`   No previous images available for rollback.`);
+      console.log(
+        `   Check logs with: docker logs -f ${res.assistantContainer}`,
+      );
+    }
+
+    process.exit(1);
   }
 }
 

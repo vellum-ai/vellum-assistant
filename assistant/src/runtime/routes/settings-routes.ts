@@ -645,6 +645,20 @@ export function settingsRouteDefinitions(): RouteDefinition[] {
 
     // OAuth connect
     {
+      endpoint: "oauth/start",
+      method: "POST",
+      policyKey: "oauth/start",
+      handler: async ({ req }) => {
+        const body = (await req.json()) as {
+          service?: string;
+          requestedScopes?: string[];
+        };
+        return handleOAuthConnectStart(body);
+      },
+    },
+    // Legacy alias for oauth/start (kept for backwards compatibility with
+    // older clients and platform proxy routes)
+    {
       endpoint: "integrations/oauth/start",
       method: "POST",
       policyKey: "integrations/oauth/start",

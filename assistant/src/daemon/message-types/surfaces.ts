@@ -100,6 +100,8 @@ export interface DynamicPageSurfaceData {
   width?: number;
   height?: number;
   appId?: string;
+  /** Filesystem directory name for this app (may differ from `appId`). */
+  dirName?: string;
   reloadGeneration?: number;
   status?: string;
   preview?: DynamicPagePreview;

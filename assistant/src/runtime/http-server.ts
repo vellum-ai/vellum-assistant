@@ -36,6 +36,7 @@ import {
 import type { ServerMessage } from "../daemon/message-protocol.js";
 import { PairingStore } from "../daemon/pairing-store.js";
 import {
+  type AttentionState,
   type Confidence,
   getAttentionStateByConversationIds,
   markConversationUnread,
@@ -43,6 +44,8 @@ import {
   type SignalType,
 } from "../memory/conversation-attention-store.js";
 import {
+  type ConversationRow,
+  forkConversation as forkConversationInStore,
   getConversation,
   getDisplayMetaForConversations,
 } from "../memory/conversation-crud.js";
@@ -51,6 +54,7 @@ import {
   countConversations,
   listConversations,
 } from "../memory/conversation-queries.js";
+import type { ExternalConversationBinding } from "../memory/external-conversation-store.js";
 import * as externalConversationStore from "../memory/external-conversation-store.js";
 import {
   consumeCallback,
@@ -122,7 +126,10 @@ import {
   contactRouteDefinitions,
 } from "./routes/contact-routes.js";
 import { conversationAttentionRouteDefinitions } from "./routes/conversation-attention-routes.js";
-import { conversationManagementRouteDefinitions } from "./routes/conversation-management-routes.js";
+import {
+  type ConversationManagementDeps,
+  conversationManagementRouteDefinitions,
+} from "./routes/conversation-management-routes.js";
 import { conversationQueryRouteDefinitions } from "./routes/conversation-query-routes.js";
 import { conversationRouteDefinitions } from "./routes/conversation-routes.js";
 import { conversationStarterRouteDefinitions } from "./routes/conversation-starter-routes.js";
@@ -147,6 +154,7 @@ import { inviteRouteDefinitions } from "./routes/invite-routes.js";
 import { logExportRouteDefinitions } from "./routes/log-export-routes.js";
 import { memoryItemRouteDefinitions } from "./routes/memory-item-routes.js";
 import { migrationRouteDefinitions } from "./routes/migration-routes.js";
+import { oauthAppsRouteDefinitions } from "./routes/oauth-apps.js";
 import type { PairingHandlerContext } from "./routes/pairing-routes.js";
 import {
   handlePairingRequest,
@@ -713,6 +721,175 @@ export class RuntimeHttpServer {
     });
   }
 
+  private buildAssistantAttention(attentionState: AttentionState | undefined):
+    | {
+        hasUnseenLatestAssistantMessage: boolean;
+        latestAssistantMessageAt?: number;
+        lastSeenAssistantMessageAt?: number;
+        lastSeenConfidence?: Confidence;
+        lastSeenSignalType?: SignalType;
+      }
+    | undefined {
+    if (!attentionState) return undefined;
+
+    return {
+      hasUnseenLatestAssistantMessage:
+        attentionState.latestAssistantMessageAt != null &&
+        (attentionState.lastSeenAssistantMessageAt == null ||
+          attentionState.lastSeenAssistantMessageAt <
+            attentionState.latestAssistantMessageAt),
+      ...(attentionState.latestAssistantMessageAt != null
+        ? {
+            latestAssistantMessageAt: attentionState.latestAssistantMessageAt,
+          }
+        : {}),
+      ...(attentionState.lastSeenAssistantMessageAt != null
+        ? {
+            lastSeenAssistantMessageAt:
+              attentionState.lastSeenAssistantMessageAt,
+          }
+        : {}),
+      ...(attentionState.lastSeenConfidence != null
+        ? { lastSeenConfidence: attentionState.lastSeenConfidence }
+        : {}),
+      ...(attentionState.lastSeenSignalType != null
+        ? { lastSeenSignalType: attentionState.lastSeenSignalType }
+        : {}),
+    };
+  }
+
+  private buildForkParent(
+    conversation: ConversationRow,
+    parentCache: Map<string, ConversationRow | null>,
+  ): { conversationId: string; messageId: string; title: string } | undefined {
+    const parentConversationId = conversation.forkParentConversationId;
+    const parentMessageId = conversation.forkParentMessageId;
+    if (!parentConversationId || !parentMessageId) return undefined;
+
+    let parentConversation: ConversationRow | null | undefined =
+      parentCache.get(parentConversationId);
+    if (parentConversation === undefined) {
+      parentConversation = getConversation(parentConversationId);
+      parentCache.set(parentConversationId, parentConversation);
+    }
+    if (
+      !parentConversation ||
+      parentConversation.conversationType === "private"
+    ) {
+      return undefined;
+    }
+
+    return {
+      conversationId: parentConversationId,
+      messageId: parentMessageId,
+      title: parentConversation.title ?? "Untitled",
+    };
+  }
+
+  private serializeConversationSummary(params: {
+    conversation: ConversationRow;
+    binding?: ExternalConversationBinding | null;
+    attentionState?: AttentionState;
+    displayMeta?: { displayOrder: number | null; isPinned: boolean };
+    parentCache: Map<string, ConversationRow | null>;
+  }) {
+    const { conversation, binding, attentionState, displayMeta, parentCache } =
+      params;
+    const originChannel = parseChannelId(conversation.originChannel);
+    const assistantAttention = this.buildAssistantAttention(attentionState);
+    const forkParent = this.buildForkParent(conversation, parentCache);
+
+    return {
+      id: conversation.id,
+      title: conversation.title ?? "Untitled",
+      createdAt: conversation.createdAt,
+      updatedAt: conversation.updatedAt,
+      conversationType:
+        conversation.conversationType === "private" ? "private" : "standard",
+      source: conversation.source ?? "user",
+      ...(conversation.scheduleJobId
+        ? { scheduleJobId: conversation.scheduleJobId }
+        : {}),
+      ...(binding
+        ? {
+            channelBinding: {
+              sourceChannel: binding.sourceChannel,
+              externalChatId: binding.externalChatId,
+              externalUserId: binding.externalUserId,
+              displayName: binding.displayName,
+              username: binding.username,
+            },
+          }
+        : {}),
+      ...(originChannel ? { conversationOriginChannel: originChannel } : {}),
+      ...(assistantAttention ? { assistantAttention } : {}),
+      ...(displayMeta?.isPinned
+        ? {
+            isPinned: true as const,
+            displayOrder: displayMeta.displayOrder,
+          }
+        : displayMeta?.displayOrder != null
+          ? {
+              displayOrder: displayMeta.displayOrder,
+            }
+          : {}),
+      ...(forkParent ? { forkParent } : {}),
+    };
+  }
+
+  private buildConversationDetailResponse(conversationId: string) {
+    const conversation = getConversation(conversationId);
+    if (!conversation) {
+      return null;
+    }
+
+    const bindings = externalConversationStore.getBindingsForConversations([
+      conversation.id,
+    ]);
+    const attentionStates = getAttentionStateByConversationIds([
+      conversation.id,
+    ]);
+    const displayMeta = getDisplayMetaForConversations([conversation.id]);
+    const parentCache = new Map<string, ConversationRow | null>();
+
+    return {
+      conversation: this.serializeConversationSummary({
+        conversation,
+        binding: bindings.get(conversation.id),
+        attentionState: attentionStates.get(conversation.id),
+        displayMeta: displayMeta.get(conversation.id),
+        parentCache,
+      }),
+    };
+  }
+
+  private getConversationManagementRouteDeps(): ConversationManagementDeps | null {
+    if (!this.conversationManagementDeps) {
+      return null;
+    }
+
+    return {
+      ...this.conversationManagementDeps,
+      forkConversation:
+        this.conversationManagementDeps.forkConversation ??
+        (async ({ conversationId, throughMessageId }) => {
+          const forkedConversation = forkConversationInStore({
+            conversationId,
+            throughMessageId,
+          });
+          const detail = this.buildConversationDetailResponse(
+            forkedConversation.id,
+          );
+          if (!detail) {
+            throw new Error(
+              `Forked conversation ${forkedConversation.id} could not be loaded`,
+            );
+          }
+          return detail.conversation;
+        }),
+    };
+  }
+
   // ---------------------------------------------------------------------------
   // Declarative route table
   // ---------------------------------------------------------------------------
@@ -728,6 +905,8 @@ export class RuntimeHttpServer {
    */
   private buildRouteTable(): RouteDefinition[] {
     const assistantId = DAEMON_INTERNAL_ASSISTANT_ID;
+    const conversationManagementDeps =
+      this.getConversationManagementRouteDeps();
 
     return [
       ...pairingRouteDefinitions({
@@ -823,84 +1002,25 @@ export class RuntimeHttpServer {
             );
           const attentionStates =
             getAttentionStateByConversationIds(conversationIds);
+          const parentCache = new Map<string, ConversationRow | null>();
           return Response.json({
-            conversations: conversations.map((c) => {
-              const binding = bindings.get(c.id);
-              const originChannel = parseChannelId(c.originChannel);
-              const attn = attentionStates.get(c.id);
-              const assistantAttention = attn
-                ? {
-                    hasUnseenLatestAssistantMessage:
-                      attn.latestAssistantMessageAt != null &&
-                      (attn.lastSeenAssistantMessageAt == null ||
-                        attn.lastSeenAssistantMessageAt <
-                          attn.latestAssistantMessageAt),
-                    ...(attn.latestAssistantMessageAt != null
-                      ? {
-                          latestAssistantMessageAt:
-                            attn.latestAssistantMessageAt,
-                        }
-                      : {}),
-                    ...(attn.lastSeenAssistantMessageAt != null
-                      ? {
-                          lastSeenAssistantMessageAt:
-                            attn.lastSeenAssistantMessageAt,
-                        }
-                      : {}),
-                    ...(attn.lastSeenConfidence != null
-                      ? { lastSeenConfidence: attn.lastSeenConfidence }
-                      : {}),
-                    ...(attn.lastSeenSignalType != null
-                      ? { lastSeenSignalType: attn.lastSeenSignalType }
-                      : {}),
-                  }
-                : undefined;
-              return {
-                id: c.id,
-                title: c.title ?? "Untitled",
-                createdAt: c.createdAt,
-                updatedAt: c.updatedAt,
-                conversationType:
-                  c.conversationType === "private" ? "private" : "standard",
-                source: c.source ?? "user",
-                ...(c.scheduleJobId ? { scheduleJobId: c.scheduleJobId } : {}),
-                ...(binding
-                  ? {
-                      channelBinding: {
-                        sourceChannel: binding.sourceChannel,
-                        externalChatId: binding.externalChatId,
-                        externalUserId: binding.externalUserId,
-                        displayName: binding.displayName,
-                        username: binding.username,
-                      },
-                    }
-                  : {}),
-                ...(originChannel
-                  ? { conversationOriginChannel: originChannel }
-                  : {}),
-                ...(assistantAttention ? { assistantAttention } : {}),
-                ...(displayMeta.get(c.id)?.isPinned
-                  ? {
-                      isPinned: true,
-                      displayOrder: displayMeta.get(c.id)!.displayOrder,
-                    }
-                  : displayMeta.get(c.id)?.displayOrder != null
-                    ? {
-                        displayOrder: displayMeta.get(c.id)!.displayOrder,
-                      }
-                    : {}),
-              };
-            }),
+            conversations: conversations.map((conversation) =>
+              this.serializeConversationSummary({
+                conversation,
+                binding: bindings.get(conversation.id),
+                attentionState: attentionStates.get(conversation.id),
+                displayMeta: displayMeta.get(conversation.id),
+                parentCache,
+              }),
+            ),
             hasMore: offset + conversations.length < totalCount,
           });
         },
       },
       ...conversationAttentionRouteDefinitions(),
 
-      ...(this.conversationManagementDeps
-        ? conversationManagementRouteDefinitions(
-            this.conversationManagementDeps,
-          )
+      ...(conversationManagementDeps
+        ? conversationManagementRouteDefinitions(conversationManagementDeps)
         : []),
 
       {
@@ -990,81 +1110,15 @@ export class RuntimeHttpServer {
         endpoint: "conversations/:id",
         method: "GET",
         handler: ({ params }) => {
-          const conversation = getConversation(params.id);
-          if (!conversation) {
+          const detail = this.buildConversationDetailResponse(params.id);
+          if (!detail) {
             return httpError(
               "NOT_FOUND",
               `Conversation ${params.id} not found`,
               404,
             );
           }
-          const bindings =
-            externalConversationStore.getBindingsForConversations([
-              conversation.id,
-            ]);
-          const attentionStates = getAttentionStateByConversationIds([
-            conversation.id,
-          ]);
-          const binding = bindings.get(conversation.id);
-          const originChannel = parseChannelId(conversation.originChannel);
-          const attn = attentionStates.get(conversation.id);
-          const assistantAttention = attn
-            ? {
-                hasUnseenLatestAssistantMessage:
-                  attn.latestAssistantMessageAt != null &&
-                  (attn.lastSeenAssistantMessageAt == null ||
-                    attn.lastSeenAssistantMessageAt <
-                      attn.latestAssistantMessageAt),
-                ...(attn.latestAssistantMessageAt != null
-                  ? {
-                      latestAssistantMessageAt: attn.latestAssistantMessageAt,
-                    }
-                  : {}),
-                ...(attn.lastSeenAssistantMessageAt != null
-                  ? {
-                      lastSeenAssistantMessageAt:
-                        attn.lastSeenAssistantMessageAt,
-                    }
-                  : {}),
-                ...(attn.lastSeenConfidence != null
-                  ? { lastSeenConfidence: attn.lastSeenConfidence }
-                  : {}),
-                ...(attn.lastSeenSignalType != null
-                  ? { lastSeenSignalType: attn.lastSeenSignalType }
-                  : {}),
-              }
-            : undefined;
-          return Response.json({
-            conversation: {
-              id: conversation.id,
-              title: conversation.title ?? "Untitled",
-              createdAt: conversation.createdAt,
-              updatedAt: conversation.updatedAt,
-              conversationType:
-                conversation.conversationType === "private"
-                  ? "private"
-                  : "standard",
-              source: conversation.source ?? "user",
-              ...(conversation.scheduleJobId
-                ? { scheduleJobId: conversation.scheduleJobId }
-                : {}),
-              ...(binding
-                ? {
-                    channelBinding: {
-                      sourceChannel: binding.sourceChannel,
-                      externalChatId: binding.externalChatId,
-                      externalUserId: binding.externalUserId,
-                      displayName: binding.displayName,
-                      username: binding.username,
-                    },
-                  }
-                : {}),
-              ...(originChannel
-                ? { conversationOriginChannel: originChannel }
-                : {}),
-              ...(assistantAttention ? { assistantAttention } : {}),
-            },
-          });
+          return Response.json(detail);
         },
       },
 
@@ -1110,6 +1164,7 @@ export class RuntimeHttpServer {
       ...slackShareRouteDefinitions(),
       ...twilioRouteDefinitions(),
       ...channelReadinessRouteDefinitions(),
+      ...oauthAppsRouteDefinitions(),
       ...attachmentRouteDefinitions(),
 
       ...(this.getWatchDeps

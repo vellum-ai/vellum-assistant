@@ -12,10 +12,12 @@ struct ImageGenerationServiceCard: View {
     @ObservedObject var store: SettingsStore
     var authManager: AuthManager
     @Binding var apiKeyText: String
-    var showToast: ((String, ToastInfo.Style) -> Void)?
+    var showToast: (String, ToastInfo.Style) -> Void
 
     /// Local draft of the mode selection — only persisted on Save.
     @State private var draftMode: String = "your-own"
+    /// Local draft of the model selection — only persisted on Save.
+    @State private var draftModel: String = ""
     /// Snapshot of the model at card appear — used to detect model-only changes.
     @State private var initialModel: String = ""
 
@@ -35,7 +37,7 @@ struct ImageGenerationServiceCard: View {
         }
         let modeChanged = draftMode != store.imageGenMode
         let hasNewKey = !apiKeyText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-        let modelChanged = store.selectedImageGenModel != initialModel
+        let modelChanged = draftModel != initialModel
         return modeChanged || hasNewKey || modelChanged
     }
 
@@ -52,6 +54,7 @@ struct ImageGenerationServiceCard: View {
                 apiKeyText = ""
             },
             showReset: draftMode == "your-own" && isConnected,
+            hideButtons: draftMode == "managed" && !isLoggedIn,
             managedContent: {
                 if isLoggedIn {
                     modelPicker
@@ -85,11 +88,17 @@ struct ImageGenerationServiceCard: View {
         )
         .onAppear {
             draftMode = store.imageGenMode
+            draftModel = store.selectedImageGenModel
             initialModel = store.selectedImageGenModel
         }
         .onChange(of: store.imageGenMode) { _, newValue in
             // Sync draft when external changes arrive (e.g. daemon reload)
             draftMode = newValue
+        }
+        .onChange(of: store.selectedImageGenModel) { _, newValue in
+            // Sync draft & baseline when external changes arrive (e.g. daemon model info refresh)
+            draftModel = newValue
+            initialModel = newValue
         }
     }
 
@@ -106,11 +115,7 @@ struct ImageGenerationServiceCard: View {
                 isDisabled: authManager.isSubmitting
             ) {
                 Task {
-                    if let showToast {
-                        await authManager.loginWithToast(showToast: showToast)
-                    } else {
-                        await authManager.startWorkOSLogin()
-                    }
+                    await authManager.loginWithToast(showToast: showToast)
                 }
             }
         }
@@ -125,15 +130,11 @@ struct ImageGenerationServiceCard: View {
                 .foregroundColor(VColor.contentSecondary)
             VDropdown(
                 placeholder: "Select a model\u{2026}",
-                selection: Binding(
-                    get: { store.selectedImageGenModel },
-                    set: { store.selectedImageGenModel = $0 }
-                ),
+                selection: $draftModel,
                 options: SettingsStore.availableImageGenModels.map { model in
                     (label: SettingsStore.imageGenModelDisplayNames[model] ?? model, value: model)
                 }
             )
-            .frame(width: 400)
         }
     }
 
@@ -153,7 +154,7 @@ struct ImageGenerationServiceCard: View {
         }
 
         // Persist model selection
-        store.setImageGenModel(store.selectedImageGenModel)
-        initialModel = store.selectedImageGenModel
+        store.setImageGenModel(draftModel)
+        initialModel = draftModel
     }
 }

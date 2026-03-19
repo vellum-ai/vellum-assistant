@@ -1,4 +1,17 @@
-import { and, asc, count, eq, inArray, isNull, sql } from "drizzle-orm";
+import { mkdirSync, rmSync } from "node:fs";
+
+import {
+  and,
+  asc,
+  count,
+  desc,
+  eq,
+  gt,
+  inArray,
+  isNull,
+  lte,
+  sql,
+} from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 import { z } from "zod";
 
@@ -7,10 +20,24 @@ import { parseChannelId, parseInterfaceId } from "../channels/types.js";
 import { CHANNEL_IDS, INTERFACE_IDS, isChannelId } from "../channels/types.js";
 import { getConfig } from "../config/loader.js";
 import type { TrustContext } from "../daemon/conversation-runtime-assembly.js";
+import { UserError } from "../util/errors.js";
 import { getLogger } from "../util/logger.js";
+import { getConversationsDir } from "../util/platform.js";
 import { createRowMapper } from "../util/row-mapper.js";
-import { deleteOrphanAttachments } from "./attachments-store.js";
-import { projectAssistantMessage } from "./conversation-attention-store.js";
+import {
+  deleteOrphanAttachments,
+  linkAttachmentToMessage,
+} from "./attachments-store.js";
+import {
+  projectAssistantMessage,
+  seedForkedConversationAttention,
+} from "./conversation-attention-store.js";
+import {
+  initConversationDir,
+  removeConversationDir,
+  syncMessageToDisk,
+  updateMetaFile,
+} from "./conversation-disk-view.js";
 import { ensureDisplayOrderMigration } from "./conversation-display-order-migration.js";
 import { getDb, rawAll, rawExec, rawGet, rawRun } from "./db.js";
 import { indexMessageNow } from "./indexer.js";
@@ -47,6 +74,9 @@ const subagentNotificationSchema = z.object({
   conversationId: z.string().optional(),
 });
 
+export const PRIVATE_CONVERSATION_FORK_ERROR =
+  "Private conversations cannot be forked";
+
 export const messageMetadataSchema = z
   .object({
     userMessageChannel: channelIdSchema.optional(),
@@ -67,10 +97,41 @@ export const messageMetadataSchema = z
     provenanceGuardianExternalUserId: z.string().optional(),
     provenanceRequesterIdentifier: z.string().optional(),
     automated: z.boolean().optional(),
+    forkSourceMessageId: z.string().optional(),
+    /** Image source paths from desktop attachments, keyed by filename. */
+    imageSourcePaths: z.record(z.string(), z.string()).optional(),
   })
   .passthrough();
 
 export type MessageMetadata = z.infer<typeof messageMetadataSchema>;
+
+function cloneForkMessageMetadata(
+  metadata: string | null,
+  sourceMessageId: string,
+): string {
+  if (!metadata) {
+    return JSON.stringify({ forkSourceMessageId: sourceMessageId });
+  }
+
+  try {
+    const parsed = JSON.parse(metadata);
+    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+      const sourceRecord = parsed as Record<string, unknown>;
+      const forkSourceMessageId =
+        typeof sourceRecord.forkSourceMessageId === "string"
+          ? sourceRecord.forkSourceMessageId
+          : sourceMessageId;
+      return JSON.stringify({
+        ...sourceRecord,
+        forkSourceMessageId,
+      });
+    }
+  } catch {
+    // Fall through to source-only metadata.
+  }
+
+  return JSON.stringify({ forkSourceMessageId: sourceMessageId });
+}
 
 /**
  * Extract provenance metadata fields from a TrustContext.
@@ -106,8 +167,13 @@ export interface ConversationRow {
   memoryScopeId: string;
   originChannel: string | null;
   originInterface: string | null;
+  forkParentConversationId: string | null;
+  forkParentMessageId: string | null;
   isAutoTitle: number;
   scheduleJobId: string | null;
+  memoryReducedThroughMessageId: string | null;
+  memoryDirtyTailSinceMessageId: string | null;
+  memoryLastReducedAt: number | null;
 }
 
 export const parseConversation = createRowMapper<
@@ -129,8 +195,13 @@ export const parseConversation = createRowMapper<
   memoryScopeId: "memoryScopeId",
   originChannel: "originChannel",
   originInterface: "originInterface",
+  forkParentConversationId: "forkParentConversationId",
+  forkParentMessageId: "forkParentMessageId",
   isAutoTitle: "isAutoTitle",
   scheduleJobId: "scheduleJobId",
+  memoryReducedThroughMessageId: "memoryReducedThroughMessageId",
+  memoryDirtyTailSinceMessageId: "memoryDirtyTailSinceMessageId",
+  memoryLastReducedAt: "memoryLastReducedAt",
 });
 
 export interface MessageRow {
@@ -232,6 +303,8 @@ export function createConversation(
     }
   }
 
+  initConversationDir({ ...conversation, originChannel: null });
+
   return conversation;
 }
 
@@ -258,6 +331,213 @@ export function getConversationMemoryScopeId(conversationId: string): string {
   return conv?.memoryScopeId ?? "default";
 }
 
+export function forkConversation(params: {
+  conversationId: string;
+  throughMessageId?: string;
+}): ConversationRow {
+  const { conversationId, throughMessageId } = params;
+  const db = getDb();
+  const sourceConversation = getConversation(conversationId);
+
+  if (!sourceConversation) {
+    throw new UserError(`Conversation ${conversationId} not found`);
+  }
+  if (sourceConversation.conversationType === "private") {
+    throw new UserError(PRIVATE_CONVERSATION_FORK_ERROR);
+  }
+
+  const sourceMessages = getMessages(conversationId);
+
+  if (sourceMessages.length === 0) {
+    throw new UserError(
+      `Conversation ${conversationId} has no persisted messages to fork`,
+    );
+  }
+
+  const copyBoundaryIndex =
+    throughMessageId == null
+      ? sourceMessages.length - 1
+      : sourceMessages.findIndex((message) => message.id === throughMessageId);
+
+  if (throughMessageId != null && copyBoundaryIndex === -1) {
+    throw new UserError(
+      `Message ${throughMessageId} does not belong to conversation ${conversationId}`,
+    );
+  }
+
+  const visibleWindowStartIndex = Math.max(
+    0,
+    Math.min(
+      sourceConversation.contextCompactedMessageCount,
+      sourceMessages.length,
+    ),
+  );
+  const preserveSourceCompactionState =
+    copyBoundaryIndex >= visibleWindowStartIndex;
+
+  const messagesToCopy =
+    copyBoundaryIndex >= 0
+      ? sourceMessages.slice(0, copyBoundaryIndex + 1)
+      : ([] as MessageRow[]);
+  const forkParentMessageId = messagesToCopy.at(-1)?.id ?? null;
+  const forkTitle = `${sourceConversation.title ?? "Untitled"} (Fork)`;
+
+  // Collect disk-sync work to run after the transaction commits.
+  const diskSyncQueue: Array<{
+    conversationId: string;
+    messageId: string;
+    createdAt: number;
+  }> = [];
+
+  // Wrap all DB mutations in a single transaction so a mid-flight failure
+  // rolls back cleanly instead of leaving a partial fork. Helper functions
+  // (linkAttachmentToMessage, relinkAttachments, seedForkedConversationAttention)
+  // use the same underlying bun:sqlite connection, so their writes participate
+  // in this transaction automatically.
+  const forkedConversation = db.transaction(() => {
+    const fc = createConversation({
+      title: forkTitle,
+      conversationType: "standard",
+    });
+
+    db.update(conversations)
+      .set({
+        forkParentConversationId: sourceConversation.id,
+        forkParentMessageId,
+        contextSummary: preserveSourceCompactionState
+          ? sourceConversation.contextSummary
+          : null,
+        contextCompactedMessageCount: preserveSourceCompactionState
+          ? sourceConversation.contextCompactedMessageCount
+          : 0,
+        contextCompactedAt: preserveSourceCompactionState
+          ? sourceConversation.contextCompactedAt
+          : null,
+      })
+      .where(eq(conversations.id, fc.id))
+      .run();
+
+    const forkedMessageIds = new Map<string, string>();
+    let latestForkedAssistant: {
+      messageId: string;
+      messageAt: number;
+    } | null = null;
+
+    for (const message of messagesToCopy) {
+      const forkedMessageId = uuid();
+      db.insert(messages)
+        .values({
+          id: forkedMessageId,
+          conversationId: fc.id,
+          role: message.role,
+          content: message.content,
+          createdAt: message.createdAt,
+          metadata: cloneForkMessageMetadata(message.metadata, message.id),
+        })
+        .run();
+      forkedMessageIds.set(message.id, forkedMessageId);
+
+      if (message.role === "assistant") {
+        latestForkedAssistant = {
+          messageId: forkedMessageId,
+          messageAt: message.createdAt,
+        };
+      }
+    }
+
+    const attachmentIdMap = new Map<string, string>();
+    for (const message of messagesToCopy) {
+      const forkedMessageId = forkedMessageIds.get(message.id);
+      if (!forkedMessageId) continue;
+
+      const attachmentLinks = db
+        .select({
+          attachmentId: messageAttachments.attachmentId,
+          position: messageAttachments.position,
+        })
+        .from(messageAttachments)
+        .where(eq(messageAttachments.messageId, message.id))
+        .orderBy(messageAttachments.position)
+        .all();
+      const uncachedAttachmentLinks = attachmentLinks.filter(
+        (link) => !attachmentIdMap.has(link.attachmentId),
+      );
+      const stagingMessageId =
+        uncachedAttachmentLinks.length > 0 ? uuid() : null;
+
+      if (stagingMessageId) {
+        db.insert(messages)
+          .values({
+            id: stagingMessageId,
+            conversationId: fc.id,
+            role: message.role,
+            content: "",
+            createdAt: message.createdAt,
+            metadata: null,
+          })
+          .run();
+      }
+
+      for (const link of attachmentLinks) {
+        const cachedAttachmentId = attachmentIdMap.get(link.attachmentId);
+        if (cachedAttachmentId) {
+          db.insert(messageAttachments)
+            .values({
+              id: uuid(),
+              messageId: forkedMessageId,
+              attachmentId: cachedAttachmentId,
+              position: link.position,
+              createdAt: Date.now(),
+            })
+            .run();
+          continue;
+        }
+
+        const scopedAttachmentId = linkAttachmentToMessage(
+          stagingMessageId ?? forkedMessageId,
+          link.attachmentId,
+          link.position,
+        );
+        attachmentIdMap.set(link.attachmentId, scopedAttachmentId);
+      }
+
+      if (stagingMessageId) {
+        relinkAttachments([stagingMessageId], forkedMessageId);
+        db.delete(messages).where(eq(messages.id, stagingMessageId)).run();
+      }
+
+      diskSyncQueue.push({
+        conversationId: fc.id,
+        messageId: forkedMessageId,
+        createdAt: fc.createdAt,
+      });
+    }
+
+    seedForkedConversationAttention({
+      conversationId: fc.id,
+      latestAssistantMessageId: latestForkedAssistant?.messageId ?? null,
+      latestAssistantMessageAt: latestForkedAssistant?.messageAt ?? null,
+    });
+
+    return fc;
+  });
+
+  // Disk-view sync runs after commit — file I/O is idempotent and
+  // conversation deletion cleans up orphaned directories.
+  for (const entry of diskSyncQueue) {
+    syncMessageToDisk(entry.conversationId, entry.messageId, entry.createdAt);
+  }
+
+  const persistedFork = getConversation(forkedConversation.id);
+  if (!persistedFork) {
+    throw new Error(
+      `Failed to load forked conversation ${forkedConversation.id} after creation`,
+    );
+  }
+
+  return persistedFork;
+}
+
 /**
  * Delete a conversation and all its messages, cleaning up orphaned memory
  * artifacts (items, embeddings). Returns segment and orphaned item IDs so
@@ -266,6 +546,11 @@ export function getConversationMemoryScopeId(conversationId: string): string {
 export function deleteConversation(id: string): DeletedMemoryIds {
   const db = getDb();
   const result: DeletedMemoryIds = { segmentIds: [], orphanedItemIds: [] };
+
+  // Capture createdAt before the transaction deletes the row — needed to
+  // resolve the conversation's disk-view directory path after deletion.
+  const convBeforeDelete = getConversation(id);
+  const createdAtForDiskCleanup = convBeforeDelete?.createdAt;
 
   db.transaction((tx) => {
     // Collect all message IDs for this conversation.
@@ -356,6 +641,11 @@ export function deleteConversation(id: string): DeletedMemoryIds {
 
     tx.delete(conversations).where(eq(conversations.id, id)).run();
   });
+
+  // Remove the conversation's disk-view directory after the DB transaction
+  if (createdAtForDiskCleanup != null) {
+    removeConversationDir(id, createdAtForDiskCleanup);
+  }
 
   return result;
 }
@@ -759,6 +1049,12 @@ export function updateConversationTitle(
   const set: Record<string, unknown> = { title, updatedAt: Date.now() };
   if (isAutoTitle !== undefined) set.isAutoTitle = isAutoTitle;
   db.update(conversations).set(set).where(eq(conversations.id, id)).run();
+
+  // Update disk view meta.json with the new title
+  const conv = getConversation(id);
+  if (conv) {
+    updateMetaFile(conv);
+  }
 }
 
 export function updateConversationUsage(
@@ -862,6 +1158,14 @@ export function clearAll(): { conversations: number; messages: number } {
     rawExec(
       `CREATE TRIGGER IF NOT EXISTS messages_fts_au AFTER UPDATE ON messages BEGIN DELETE FROM messages_fts WHERE message_id = old.id; INSERT INTO messages_fts(message_id, content) VALUES (new.id, new.content); END`,
     );
+  }
+
+  // Clear the disk-view conversations directory and recreate it empty
+  try {
+    rmSync(getConversationsDir(), { recursive: true, force: true });
+    mkdirSync(getConversationsDir(), { recursive: true });
+  } catch (err) {
+    log.warn({ err }, "clearAll: failed to reset conversations directory");
   }
 
   return { conversations: convCount, messages: msgCount };
@@ -1231,4 +1535,171 @@ export function getDisplayMetaForConversations(
     });
   }
   return result;
+}
+
+// ── Turn boundary resolution ─────────────────────────────────────────
+
+/**
+ * Returns `true` if a message is a tool-result user message — i.e. its
+ * role is "user" and its content is a JSON array where every block has
+ * `type === "tool_result"`. These synthetic user messages are injected
+ * between assistant messages within a single agent turn and should NOT
+ * be treated as turn boundaries.
+ */
+function isToolResultMessage(role: string, content: string): boolean {
+  if (role !== "user") return false;
+  try {
+    const parsed = JSON.parse(content);
+    if (!Array.isArray(parsed) || parsed.length === 0) return false;
+    return parsed.every(
+      (block: unknown) =>
+        block != null &&
+        typeof block === "object" &&
+        (block as Record<string, unknown>).type === "tool_result",
+    );
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Resolve all assistant message IDs that belong to the same agent turn
+ * as the given `messageId`. A "turn" is bounded by:
+ *   - The start of the conversation, or
+ *   - A user message whose content is NOT a tool_result array.
+ *
+ * Within a multi-step agent loop, the pattern is:
+ *   user msg → assistant A1 → user (tool_result) → assistant A2 → ...
+ * All assistant messages from A1 through the queried message (and beyond,
+ * up to the next real user message) are part of the same turn.
+ *
+ * Returns `[messageId]` as a fallback if the message is not found,
+ * preserving backward compatibility for callers.
+ */
+export function getAssistantMessageIdsInTurn(messageId: string): string[] {
+  const db = getDb();
+
+  // Look up the target message to get its conversationId and createdAt.
+  const target = getMessageById(messageId);
+  if (!target) return [messageId];
+
+  // Walk backward from the target message to find the turn boundary.
+  // Limit to 50 rows — sufficient for even aggressive tool-use loops.
+  const backwardRows = db
+    .select({
+      id: messages.id,
+      role: messages.role,
+      content: messages.content,
+      createdAt: messages.createdAt,
+    })
+    .from(messages)
+    .where(
+      and(
+        eq(messages.conversationId, target.conversationId),
+        lte(messages.createdAt, target.createdAt),
+      ),
+    )
+    .orderBy(desc(messages.createdAt))
+    .limit(50)
+    .all();
+
+  const assistantIds: string[] = [];
+  let boundaryCreatedAt: number | null = null;
+
+  for (const row of backwardRows) {
+    if (row.role === "assistant") {
+      assistantIds.push(row.id);
+    } else if (row.role === "user") {
+      if (isToolResultMessage(row.role, row.content)) {
+        // Tool-result user message — still within the same turn, continue.
+        continue;
+      }
+      // Real user message — this is the turn boundary.
+      boundaryCreatedAt = row.createdAt;
+      break;
+    }
+  }
+
+  // Walk forward from the target to collect any later assistant messages
+  // still within the same turn (e.g. when querying an intermediate
+  // message like A1 in a multi-step turn A1 → tool_result → A2).
+  const forwardRows = db
+    .select({
+      id: messages.id,
+      role: messages.role,
+      content: messages.content,
+      createdAt: messages.createdAt,
+    })
+    .from(messages)
+    .where(
+      and(
+        eq(messages.conversationId, target.conversationId),
+        gt(messages.createdAt, target.createdAt),
+      ),
+    )
+    .orderBy(asc(messages.createdAt))
+    .limit(50)
+    .all();
+
+  for (const row of forwardRows) {
+    if (row.role === "assistant") {
+      if (!assistantIds.includes(row.id)) {
+        assistantIds.push(row.id);
+      }
+    } else if (row.role === "user") {
+      if (isToolResultMessage(row.role, row.content)) {
+        // Tool-result user message — still within the same turn.
+        continue;
+      }
+      // Real user message — end of the turn.
+      break;
+    }
+  }
+
+  // Also query forward from the backward-walk boundary to pick up any
+  // assistant messages between the boundary and the target that may have
+  // been missed (e.g. due to the 50-row limit in the backward walk).
+  if (boundaryCreatedAt != null) {
+    const gapRows = db
+      .select({
+        id: messages.id,
+        role: messages.role,
+        createdAt: messages.createdAt,
+      })
+      .from(messages)
+      .where(
+        and(
+          eq(messages.conversationId, target.conversationId),
+          gt(messages.createdAt, boundaryCreatedAt),
+          lte(messages.createdAt, target.createdAt),
+        ),
+      )
+      .orderBy(asc(messages.createdAt))
+      .all();
+
+    for (const row of gapRows) {
+      if (row.role === "assistant" && !assistantIds.includes(row.id)) {
+        assistantIds.push(row.id);
+      }
+    }
+  }
+
+  // Sort by createdAt to ensure stable ordering.
+  // Re-fetch createdAt for all collected IDs so the sort is accurate.
+  if (assistantIds.length <= 1) return assistantIds;
+
+  const idSet = new Set(assistantIds);
+  const sorted = db
+    .select({ id: messages.id, createdAt: messages.createdAt })
+    .from(messages)
+    .where(
+      and(
+        eq(messages.conversationId, target.conversationId),
+        inArray(messages.id, [...idSet]),
+      ),
+    )
+    .orderBy(asc(messages.createdAt))
+    .all();
+
+  return sorted.map((r) => r.id);
 }

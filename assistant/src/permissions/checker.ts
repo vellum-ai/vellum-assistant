@@ -2,12 +2,15 @@ import { createHash } from "node:crypto";
 import { homedir } from "node:os";
 import { dirname, resolve } from "node:path";
 
+import { isAssistantFeatureFlagEnabled } from "../config/assistant-feature-flags.js";
 import { getConfig } from "../config/loader.js";
-import { resolveSkillSelector } from "../config/skills.js";
+import { loadSkillCatalog, resolveSkillSelector } from "../config/skills.js";
+import { indexCatalogById } from "../skills/include-graph.js";
 import {
   isSkillSourcePath,
   normalizeFilePath,
 } from "../skills/path-classifier.js";
+import { computeTransitiveSkillVersionHash } from "../skills/transitive-version-hash.js";
 import { computeSkillVersionHash } from "../skills/version-hash.js";
 import type { ManifestOverride } from "../tools/execution-target.js";
 import {
@@ -144,6 +147,7 @@ const LOW_RISK_PROGRAMS = new Set([
   "du",
   "df",
   "assistant",
+  "vellum",
 ]);
 
 // High-risk shell programs / patterns
@@ -197,6 +201,32 @@ const LOW_RISK_GIT_SUBCOMMANDS = new Set([
   "reflog",
 ]);
 
+// Mutating assistant/vellum CLI subcommands that should be escalated to Medium
+// risk. Most assistant/vellum subcommands are read-only and stay Low risk.
+// This mirrors the git subcommand pattern — only known mutating operations
+// get escalated.
+const MEDIUM_RISK_CLI_SUBCOMMANDS = new Set([
+  "credentials",
+  "config",
+  "bash",
+  "trust",
+  "autonomy",
+  "contacts",
+  "mcp",
+  "keys",
+  "wake",
+  "sleep",
+  "hatch",
+  "retire",
+  "clean",
+  "setup",
+  "upgrade",
+  "recover",
+  "login",
+  "use",
+  "pair",
+]);
+
 // Commands that wrap another program — the real program appears as the first
 // non-flag argument.  When one of these is the segment program we look through
 // its args to find the effective program (e.g. `env curl …` → curl).
@@ -219,15 +249,40 @@ const WRAPPER_PROGRAMS = new Set([
 // value of -u) as the wrapped program instead of `echo`.
 const ENV_VALUE_FLAGS = new Set(["-u", "--unset", "-C", "--chdir"]);
 
+// `git` global flags that consume the next positional argument as their value.
+// Without this, `git -C status commit` would incorrectly identify `status`
+// (the directory path) as the subcommand instead of `commit`.
+const GIT_VALUE_FLAGS = new Set([
+  "-C",
+  "-c",
+  "--git-dir",
+  "--work-tree",
+  "--namespace",
+  "--super-prefix",
+  "--config-env",
+]);
+
 /**
- * Return the first non-flag argument from an argument list.
- * Flags are arguments that start with `-`.  This is used to skip global
- * options (e.g. `--verbose`, `-h`) when extracting the subcommand from
- * CLIs like `git`, `vellum`, and `assistant`.
+ * Return the first non-flag argument from an argument list, optionally
+ * skipping value-taking flags.  Flags are arguments that start with `-`.
+ * This is used to skip global options (e.g. `--verbose`, `-h`, `-C <path>`)
+ * when extracting the subcommand from CLIs like `git`, `vellum`, and
+ * `assistant`.
+ *
+ * When `valueFlags` is provided, any flag in that set causes the next
+ * argument to be skipped as well (it is the flag's value, not a positional).
  */
-function firstPositionalArg(args: string[]): string | undefined {
-  for (const arg of args) {
-    if (!arg.startsWith("-")) return arg;
+function firstPositionalArg(
+  args: string[],
+  valueFlags?: Set<string>,
+): string | undefined {
+  for (let i = 0; i < args.length; i++) {
+    const arg = args[i];
+    if (arg.startsWith("-")) {
+      if (valueFlags?.has(arg)) i++; // skip the next arg (the flag's value)
+      continue;
+    }
+    return arg;
   }
   return undefined;
 }
@@ -297,6 +352,34 @@ function resolveSkillIdAndHash(
     return { id: resolved.skill.id, versionHash: hash };
   } catch {
     return { id: resolved.skill.id };
+  }
+}
+
+/**
+ * Check whether a skill (by id) has parsed inline command expansions.
+ * Returns false when the skill is not found in the catalog.
+ */
+function hasInlineExpansions(skillId: string): boolean {
+  const catalog = loadSkillCatalog();
+  const skill = catalog.find((s) => s.id === skillId);
+  return (
+    skill?.inlineCommandExpansions != null &&
+    skill.inlineCommandExpansions.length > 0
+  );
+}
+
+/**
+ * Compute the transitive version hash for a skill, returning `undefined`
+ * when computation fails (missing includes, cycle, etc.). The permission
+ * layer falls back to the any-version candidate in that case.
+ */
+function computeTransitiveHashSafe(skillId: string): string | undefined {
+  try {
+    const catalog = loadSkillCatalog();
+    const index = indexCatalogById(catalog);
+    return computeTransitiveSkillVersionHash(skillId, index);
+  } catch {
+    return undefined;
   }
 }
 
@@ -381,13 +464,39 @@ async function buildCommandCandidates(
       targets.push("");
     } else {
       const resolved = resolveSkillIdAndHash(rawSelector);
-      if (resolved && resolved.versionHash) {
-        // Version-specific candidate lets rules pin to an exact skill version
-        targets.push(`${resolved.id}@${resolved.versionHash}`);
+
+      // When the resolved skill contains inline command expansions and the
+      // feature flag is on, emit skill_load_dynamic: candidates so the
+      // higher-priority default ask rule catches them instead of falling
+      // through to the permissive skill_load:* allow rule.
+      const config = getConfig();
+      const inlineEnabled = isAssistantFeatureFlagEnabled(
+        "feature_flags.inline-skill-commands.enabled",
+        config,
+      );
+
+      if (resolved && inlineEnabled && hasInlineExpansions(resolved.id)) {
+        const transitiveHash = computeTransitiveHashSafe(resolved.id);
+        if (transitiveHash) {
+          targets.push(`skill_load_dynamic:${resolved.id}@${transitiveHash}`);
+        }
+        targets.push(`skill_load_dynamic:${resolved.id}`);
+        // Don't fall through to skill_load:* — dynamic skills use their own
+        // candidate namespace so the default ask rule applies.
+      } else {
+        if (resolved && resolved.versionHash) {
+          // Version-specific candidate lets rules pin to an exact skill version
+          targets.push(`${resolved.id}@${resolved.versionHash}`);
+        }
+        targets.push(rawSelector);
       }
-      targets.push(rawSelector);
     }
-    return [...new Set(targets)].map((target) => `${toolName}:${target}`);
+
+    // Dynamic candidates use skill_load_dynamic: prefix; normal ones use skill_load:
+    return [...new Set(targets)].map((target) => {
+      if (target.startsWith("skill_load_dynamic:")) return target;
+      return `${toolName}:${target}`;
+    });
   }
 
   if (
@@ -652,13 +761,24 @@ async function classifyRiskUncached(
       }
 
       if (prog === "git") {
-        const subcommand = firstPositionalArg(seg.args);
+        const subcommand = firstPositionalArg(seg.args, GIT_VALUE_FLAGS);
         if (subcommand && LOW_RISK_GIT_SUBCOMMANDS.has(subcommand)) {
           // Stay at current risk
           continue;
         }
         // Non-read-only git commands are medium
         maxRisk = RiskLevel.Medium;
+        continue;
+      }
+
+      if (prog === "vellum" || prog === "assistant") {
+        const subcommand = firstPositionalArg(seg.args);
+        if (subcommand && MEDIUM_RISK_CLI_SUBCOMMANDS.has(subcommand)) {
+          // Known mutating subcommands are medium
+          maxRisk = RiskLevel.Medium;
+          continue;
+        }
+        // Read-only / unknown subcommands stay at current risk
         continue;
       }
 
@@ -1021,6 +1141,32 @@ function skillLoadAllowlistStrategy(
 
   if (rawSelector) {
     const resolved = resolveSkillIdAndHash(rawSelector);
+
+    // Check whether this is a dynamic (inline-command) skill load
+    const config = getConfig();
+    const inlineEnabled = isAssistantFeatureFlagEnabled(
+      "feature_flags.inline-skill-commands.enabled",
+      config,
+    );
+
+    if (resolved && inlineEnabled && hasInlineExpansions(resolved.id)) {
+      const transitiveHash = computeTransitiveHashSafe(resolved.id);
+      const options: AllowlistOption[] = [];
+      if (transitiveHash) {
+        options.push({
+          label: `${resolved.id}@${transitiveHash}`,
+          description: "This exact version (pinned)",
+          pattern: `skill_load_dynamic:${resolved.id}@${transitiveHash}`,
+        });
+      }
+      options.push({
+        label: resolved.id,
+        description: "This skill (any version)",
+        pattern: `skill_load_dynamic:${resolved.id}`,
+      });
+      return options;
+    }
+
     if (resolved && resolved.versionHash) {
       return [
         {

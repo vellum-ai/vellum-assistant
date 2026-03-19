@@ -36,8 +36,3 @@ public struct TypingIndicatorView: View {
         }
     }
 }
-
-// MARK: - Preview
-
-#if DEBUG
-#endif

@@ -30,6 +30,7 @@ function buildMockContext(
     lastSurfaceAction: new Map(),
     surfaceState: new Map(),
     surfaceUndoStacks: new Map(),
+    accumulatedSurfaceState: new Map(),
     surfaceActionRequestIds: new Set(),
     currentTurnSurfaces: [],
     hostCuProxy,

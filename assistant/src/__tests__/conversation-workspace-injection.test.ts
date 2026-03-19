@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 import type { AgentEvent } from "../agent/loop.js";
+import { getConversationDirName } from "../memory/conversation-disk-view.js";
 import type { Message, ProviderResponse } from "../providers/types.js";
 
 // ---------------------------------------------------------------------------
@@ -115,6 +116,7 @@ mock.module("../memory/conversation-crud.js", () => ({
   getMessages: () => [],
   getConversation: () => ({
     id: "conv-1",
+    createdAt: Date.parse("2026-03-19T12:00:00.000Z"),
     contextSummary: null,
     contextCompactedMessageCount: 0,
     contextCompactedAt: null,
@@ -277,6 +279,13 @@ function messageText(message: Message): string {
     .join("\n");
 }
 
+const conversationDirName = getConversationDirName(
+  "conv-1",
+  Date.parse("2026-03-19T12:00:00.000Z"),
+);
+const conversationPath = `conversations/${conversationDirName}/`;
+const conversationAttachmentsPath = `${conversationPath}attachments/`;
+
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
@@ -312,6 +321,8 @@ describe("Conversation workspace injection", () => {
     const runtimeUser = runCalls[0][runCalls[0].length - 1];
     const text = messageText(runtimeUser);
     expect(text).toContain("Root: /tmp");
+    expect(text).toContain(`Current conversation folder: ${conversationPath}`);
+    expect(text).toContain(`Attachment files: ${conversationAttachmentsPath}`);
   });
 
   test("workspace context is prepended before user text", async () => {

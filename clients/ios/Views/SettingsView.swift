@@ -177,9 +177,6 @@ struct AccountSection: View {
                 Button("Log Out", role: .destructive) {
                     Task {
                         await authManager.logout()
-                        // Clear any stale error from a failed logout HTTP request so it
-                        // doesn't appear inline next to the login button on iOS.
-                        authManager.errorMessage = nil
                     }
                 }
             } else {
@@ -212,11 +209,5 @@ extension Bundle {
     var appVersion: String {
         infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.0"
     }
-}
-
-#Preview {
-    let client = DaemonClient(config: .fromUserDefaults())
-    SettingsView(authManager: AuthManager(), navigateToConnect: .constant(false), conversationStore: IOSConversationStore(daemonClient: client))
-        .environmentObject(ClientProvider(client: client))
 }
 #endif

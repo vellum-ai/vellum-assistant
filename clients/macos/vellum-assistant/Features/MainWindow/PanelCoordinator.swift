@@ -94,6 +94,9 @@ extension MainWindowView {
                     windowState.selection = nil
                 },
                 daemonClient: daemonClient,
+                store: settingsStore,
+                conversationManager: conversationManager,
+                showToast: { msg, style in windowState.showToast(message: msg, style: style) },
                 initialTab: windowState.pendingMemoryId != nil ? "Memories" : nil,
                 pendingMemoryId: $windowState.pendingMemoryId
             )
@@ -373,13 +376,18 @@ extension MainWindowView {
             let conversationStartersEnabled = assistantFeatureFlagStore.isEnabled(
                 Self.conversationStartersFeatureFlagKey
             )
+            let showInspectButton = assistantFeatureFlagStore.isEnabled(
+                "feature_flags.settings-developer-nav.enabled"
+            )
             ActiveChatViewWrapper(
                 viewModel: viewModel,
                 windowState: windowState,
                 conversationStartersEnabled: conversationStartersEnabled,
+                showInspectButton: showInspectButton,
                 daemonClient: daemonClient,
                 ambientAgent: ambientAgent,
                 settingsStore: settingsStore,
+                conversationManager: conversationManager,
                 onMicrophoneToggle: onMicrophoneToggle,
                 isTemporaryChat: activeConversation?.kind == .private,
                 voiceModeManager: voiceModeManager,
@@ -467,6 +475,9 @@ extension MainWindowView {
                     windowState.dismissOverlay()
                 },
                 daemonClient: daemonClient,
+                store: settingsStore,
+                conversationManager: conversationManager,
+                showToast: { msg, style in windowState.showToast(message: msg, style: style) },
                 initialTab: windowState.pendingMemoryId != nil ? "Memories" : nil,
                 pendingMemoryId: $windowState.pendingMemoryId
             )
@@ -572,9 +583,11 @@ struct ActiveChatViewWrapper: View {
     @ObservedObject var viewModel: ChatViewModel
     @ObservedObject var windowState: MainWindowState
     let conversationStartersEnabled: Bool
+    var showInspectButton: Bool = false
     let daemonClient: DaemonClient
     @ObservedObject var ambientAgent: AmbientAgent
     @ObservedObject var settingsStore: SettingsStore
+    let conversationManager: ConversationManager
     let onMicrophoneToggle: () -> Void
     var isTemporaryChat: Bool = false
     var voiceModeManager: VoiceModeManager? = nil
@@ -586,6 +599,8 @@ struct ActiveChatViewWrapper: View {
     @Binding var anchorMessageId: UUID?
     @Binding var highlightedMessageId: UUID?
 
+    @State private var inspectorMessageId: String? = nil
+
     /// Reads the persisted bootstrap state so the chat view can suppress
     /// the empty state during first-launch bootstrap.
     @AppStorage("bootstrapState") private var bootstrapStateRaw: String = "complete"
@@ -593,6 +608,26 @@ struct ActiveChatViewWrapper: View {
     private var isBootstrapTimedOut: Bool { bootstrapStateRaw == "timedOut" }
 
     var body: some View {
+        ZStack {
+            chatContent
+                .environment(\.cmdEnterToSend, settingsStore.cmdEnterToSend)
+                .disabled(inspectorMessageId != nil)
+
+            if let messageId = inspectorMessageId {
+                MessageInspectorView(
+                    messageId: messageId,
+                    onBack: dismissInspector
+                )
+                .transition(.move(edge: .trailing).combined(with: .opacity))
+            }
+        }
+        .animation(VAnimation.standard, value: inspectorMessageId)
+        .onChange(of: conversationId) { _, _ in
+            inspectorMessageId = nil
+        }
+    }
+
+    private var chatContent: some View {
         ChatView(
             messages: viewModel.messages,
             inputText: Binding(
@@ -629,11 +664,11 @@ struct ActiveChatViewWrapper: View {
             },
             onPaste: { viewModel.addAttachmentFromPasteboard() },
             onMicrophoneToggle: onMicrophoneToggle,
-            onModelPickerSelect: { messageId, modelId in
-                settingsStore.setModel(modelId)
-            },
+            onDropStarted: { viewModel.attachmentManager.beginExternalLoad() },
+            onDropEnded: { viewModel.attachmentManager.endExternalLoad() },
             selectedModel: settingsStore.selectedModel,
             configuredProviders: settingsStore.configuredProviders,
+            providerCatalog: settingsStore.providerCatalog,
             assistantActivityPhase: viewModel.assistantActivityPhase,
             assistantActivityAnchor: viewModel.assistantActivityAnchor,
             assistantActivityReason: viewModel.assistantActivityReason,
@@ -661,6 +696,15 @@ struct ActiveChatViewWrapper: View {
                     }
                 }
             },
+            onForkFromMessage: { [conversationManager] daemonMessageId in
+                Task { @MainActor in
+                    await conversationManager.forkConversation(throughDaemonMessageId: daemonMessageId)
+                }
+            },
+            showInspectButton: showInspectButton,
+            onInspectMessage: { daemonMessageId in
+                presentInspector(for: daemonMessageId)
+            },
             mediaEmbedSettings: MediaEmbedResolverSettings(
                 enabled: settingsStore.mediaEmbedsEnabled,
                 enabledSince: settingsStore.mediaEmbedsEnabledSince,
@@ -683,8 +727,8 @@ struct ActiveChatViewWrapper: View {
             onRetryFailedMessage: { messageId in
                 viewModel.retryFailedMessage(id: messageId)
             },
-            onRetryConversationError: {
-                viewModel.retryAfterConversationError()
+            onRetryConversationError: { messageId in
+                viewModel.retryAfterConversationError(messageId: messageId)
             },
             subagentDetailStore: viewModel.subagentDetailStore,
             resolveHttpPort: daemonClient.httpPortResolver,
@@ -707,6 +751,7 @@ struct ActiveChatViewWrapper: View {
                 viewModel?.inputText = starter.prompt
             },
             onFetchConversationStarters: { [weak viewModel] in viewModel?.fetchConversationStarters() },
+            isInteractionEnabled: inspectorMessageId == nil,
             anchorMessageId: $anchorMessageId,
             highlightedMessageId: $highlightedMessageId,
             btwResponse: viewModel.btwResponse,
@@ -728,7 +773,19 @@ struct ActiveChatViewWrapper: View {
                 AppDelegate.shared?.showLogReportWindow(reason: .connectionIssue)
             }
         )
-        .environment(\.cmdEnterToSend, settingsStore.cmdEnterToSend)
+    }
+
+    private func presentInspector(for messageId: String?) {
+        guard let messageId else { return }
+        withAnimation(VAnimation.standard) {
+            inspectorMessageId = messageId
+        }
+    }
+
+    private func dismissInspector() {
+        withAnimation(VAnimation.standard) {
+            inspectorMessageId = nil
+        }
     }
 }
 

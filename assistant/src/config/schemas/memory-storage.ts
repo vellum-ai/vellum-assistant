@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-const VALID_MEMORY_EMBEDDING_PROVIDERS = [
+export const VALID_MEMORY_EMBEDDING_PROVIDERS = [
   "auto",
   "local",
   "openai",

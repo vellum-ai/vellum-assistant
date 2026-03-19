@@ -180,8 +180,3 @@ public struct InlineTaskProgressWidget: View {
         }
     }
 }
-
-// MARK: - Preview
-
-#if DEBUG
-#endif

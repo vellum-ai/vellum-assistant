@@ -100,6 +100,7 @@ final class ChatMediaEmbedBaselineTests: XCTestCase {
         viewModel.handleServerMessage(.assistantTextDelta(
             AssistantTextDeltaMessage(text: "Here is a video: \(url)")
         ))
+        viewModel.flushStreamingBuffer()
 
         XCTAssertEqual(viewModel.messages.count, 1)
         let msg = viewModel.messages[0]
@@ -119,6 +120,7 @@ final class ChatMediaEmbedBaselineTests: XCTestCase {
         viewModel.handleServerMessage(.assistantTextDelta(
             AssistantTextDeltaMessage(text: "Check this video: \(url)")
         ))
+        viewModel.flushStreamingBuffer()
 
         XCTAssertEqual(viewModel.messages.count, 1)
         let msg = viewModel.messages[0]
@@ -134,6 +136,7 @@ final class ChatMediaEmbedBaselineTests: XCTestCase {
         viewModel.handleServerMessage(.assistantTextDelta(
             AssistantTextDeltaMessage(text: "Recording: \(url)")
         ))
+        viewModel.flushStreamingBuffer()
 
         XCTAssertEqual(viewModel.messages.count, 1)
         let msg = viewModel.messages[0]
@@ -149,6 +152,7 @@ final class ChatMediaEmbedBaselineTests: XCTestCase {
         viewModel.handleServerMessage(.assistantTextDelta(
             AssistantTextDeltaMessage(text: "Here's the chart: \(url)")
         ))
+        viewModel.flushStreamingBuffer()
 
         XCTAssertEqual(viewModel.messages.count, 1)
         let msg = viewModel.messages[0]
@@ -172,6 +176,7 @@ final class ChatMediaEmbedBaselineTests: XCTestCase {
         viewModel.handleServerMessage(.assistantTextDelta(
             AssistantTextDeltaMessage(text: text)
         ))
+        viewModel.flushStreamingBuffer()
 
         XCTAssertEqual(viewModel.messages.count, 1)
         let msg = viewModel.messages[0]

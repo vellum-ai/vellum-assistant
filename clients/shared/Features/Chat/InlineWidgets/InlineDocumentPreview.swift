@@ -43,6 +43,3 @@ public struct InlineDocumentPreview: View {
         .accessibilityAddTraits(.isButton)
     }
 }
-
-#if DEBUG
-#endif

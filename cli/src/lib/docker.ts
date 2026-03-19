@@ -570,6 +570,54 @@ export async function stopContainers(
 }
 
 /**
+ * Capture the current image references for running service containers.
+ * Returns a complete record of service → immutable image ID (sha256 digest)
+ * for all three services. Uses `{{.Image}}` rather than `{{.Config.Image}}`
+ * so rollback targets the exact image that was running, even if the tag has
+ * since been retagged to a different image.
+ *
+ * Returns null if any container could not be inspected (e.g. fresh install
+ * or partial deployment).
+ */
+export async function captureImageRefs(
+  res: ReturnType<typeof dockerResourceNames>,
+): Promise<Record<ServiceName, string> | null> {
+  const containerForService: Record<ServiceName, string> = {
+    assistant: res.assistantContainer,
+    "credential-executor": res.cesContainer,
+    gateway: res.gatewayContainer,
+  };
+
+  const refs: Partial<Record<ServiceName, string>> = {};
+
+  for (const [service, container] of Object.entries(containerForService)) {
+    try {
+      const imageRef = (
+        await execOutput("docker", [
+          "inspect",
+          "--format",
+          "{{.Image}}",
+          container,
+        ])
+      ).trim();
+      if (imageRef) {
+        refs[service as ServiceName] = imageRef;
+      }
+    } catch {
+      // Container doesn't exist or can't be inspected — skip
+    }
+  }
+
+  const allServices: ServiceName[] = [
+    "assistant",
+    "credential-executor",
+    "gateway",
+  ];
+  const hasAll = allServices.every((s) => s in refs);
+  return hasAll ? (refs as Record<ServiceName, string>) : null;
+}
+
+/**
  * Determine which services are affected by a changed file path relative
  * to the repository root.
  */

@@ -23,7 +23,7 @@ struct APIKeyStepView: View {
             .padding(.bottom, VSpacing.md)
 
         Text("Where do you want your assistant to run?")
-            .font(.system(size: 16))
+            .font(VFont.buttonLarge)
             .foregroundColor(VColor.contentSecondary)
             .opacity(showTitle ? 1 : 0)
             .offset(y: showTitle ? 0 : 8)
@@ -69,7 +69,12 @@ struct APIKeyStepView: View {
     // MARK: - Hosting Cards
 
     private var availableHostingModes: [OnboardingState.HostingMode] {
-        var modes: [OnboardingState.HostingMode] = [.local, .docker, .vellumCloud]
+        var modes: [OnboardingState.HostingMode] = [.local, .vellumCloud]
+        // In dev mode, local already uses Docker under the hood, so hide the
+        // separate Docker card to reduce confusion.
+        if !DevModeManager.shared.isDevMode {
+            modes.insert(.docker, at: 1)
+        }
         if userHostedEnabled {
             modes.append(contentsOf: [.aws, .gcp, .customHardware])
         }
@@ -90,10 +95,13 @@ struct APIKeyStepView: View {
     private var hostingCards: some View {
         VStack(spacing: VSpacing.sm) {
             ForEach(availableHostingModes, id: \.rawValue) { mode in
+                let subtitle = (DevModeManager.shared.isDevMode && mode == .local)
+                    ? OnboardingState.HostingMode.docker.subtitle
+                    : mode.subtitle
                 hostingCard(
                     icon: iconForMode(mode),
                     title: mode.displayName,
-                    subtitle: mode.subtitle,
+                    subtitle: subtitle,
                     mode: mode,
                     chipLabel: chipLabel(for: mode)
                 )
@@ -204,10 +212,17 @@ struct APIKeyStepView: View {
     private func handleContinue() {
         guard canContinue else { return }
 
-        state.cloudProvider = state.selectedHostingMode.rawValue
+        // In dev mode, "Local" uses Docker under the hood for sandboxed execution.
+        if DevModeManager.shared.isDevMode && state.selectedHostingMode == .local {
+            state.cloudProvider = OnboardingState.HostingMode.docker.rawValue
+        } else {
+            state.cloudProvider = state.selectedHostingMode.rawValue
+        }
 
         if isAuthenticated {
             // Authenticated user selecting Local: skip API key, advance to consent step
+            state.selectedProvider = "anthropic"
+            state.selectedModel = "claude-opus-4-6"
             saveModelToConfig("claude-opus-4-6")
             state.skippedAPIKeyEntry = true
             state.advance(by: 2)

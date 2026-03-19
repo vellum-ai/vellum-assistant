@@ -106,13 +106,19 @@ export const watcherEvents = sqliteTable("watcher_events", {
   createdAt: integer("created_at").notNull(),
 });
 
-export const llmRequestLogs = sqliteTable("llm_request_logs", {
-  id: text("id").primaryKey(),
-  conversationId: text("conversation_id").notNull(),
-  requestPayload: text("request_payload").notNull(),
-  responsePayload: text("response_payload").notNull(),
-  createdAt: integer("created_at").notNull(),
-});
+export const llmRequestLogs = sqliteTable(
+  "llm_request_logs",
+  {
+    id: text("id").primaryKey(),
+    conversationId: text("conversation_id").notNull(),
+    messageId: text("message_id"),
+    provider: text("provider"),
+    requestPayload: text("request_payload").notNull(),
+    responsePayload: text("response_payload").notNull(),
+    createdAt: integer("created_at").notNull(),
+  },
+  (table) => [index("idx_llm_request_logs_message_id").on(table.messageId)],
+);
 
 export const llmUsageEvents = sqliteTable(
   "llm_usage_events",

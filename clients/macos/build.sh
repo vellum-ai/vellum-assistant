@@ -59,8 +59,15 @@ swift_with_retry() {
         if [ "$_pch_cleaned" -eq 0 ] && grep -q "PCH was compiled with module cache path" "$_stderr_log" 2>/dev/null; then
             echo "warning: stale module cache detected, cleaning and retrying..."
             find -L "$SCRIPT_DIR/../.build" -type d -name "ModuleCache" -exec rm -rf {} + 2>/dev/null || true
+            [ -d "$SPM_MODULE_CACHE" ] && rm -rf "$SPM_MODULE_CACHE"
             _pch_cleaned=1
             continue
+        fi
+        # Signal 5 (SIGTRAP) is a non-transient crash (e.g. WebKit
+        # teardown in headless CI). Retrying won't help — let the
+        # caller handle it.
+        if grep -q "unexpected signal code 5" "$_stderr_log" 2>/dev/null; then
+            return "$_cmd_exit"
         fi
         if [ "$attempt" -ge "$max_attempts" ]; then
             echo "ERROR: swift command failed after $max_attempts attempts: $*"
@@ -87,6 +94,14 @@ export DEVELOPER_DIR
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 cd "$SCRIPT_DIR"
+
+# Derive a per-repo module cache path so parallel worktrees (which share
+# the same .build directory via symlink) don't race on PCH files.
+# Uses a hash of the repo root's real path to produce a short, stable slug.
+_repo_root="$(cd "$SCRIPT_DIR/../.." && pwd -P)"
+_cache_slug="$(printf '%s' "$_repo_root" | md5 -q 2>/dev/null || printf '%s' "$_repo_root" | md5sum | cut -d' ' -f1)"
+SPM_MODULE_CACHE="/tmp/spm-module-cache/${_cache_slug}"
+MODULE_CACHE_FLAGS="-Xswiftc -module-cache-path -Xswiftc $SPM_MODULE_CACHE"
 
 BUNDLE_ID="com.vellum.vellum-assistant"
 APP_NAME="vellum-assistant"
@@ -311,33 +326,39 @@ case "$CMD" in
         else
             SWIFT_TEST_ARGS=("${CMD_ARGS[@]}")
         fi
+        # Capture output to a temp file instead of a bash variable so that
+        # embedded null bytes (e.g. from crash diagnostics) don't truncate
+        # the content — bash variables silently drop everything after NUL.
+        TEST_OUTPUT_FILE=$(mktemp)
         set +e
-        TEST_OUTPUT=$(swift_with_retry swift test "${SWIFT_TEST_ARGS[@]}" 2>&1)
+        swift_with_retry swift test $MODULE_CACHE_FLAGS "${SWIFT_TEST_ARGS[@]}" > "$TEST_OUTPUT_FILE" 2>&1
         TEST_EXIT=$?
         set -e
-        echo "$TEST_OUTPUT"
+        cat "$TEST_OUTPUT_FILE"
 
         if [ $TEST_EXIT -eq 0 ]; then
+            rm -f "$TEST_OUTPUT_FILE"
             exit 0
         fi
 
         # swift test may exit non-zero due to a WebKit SIGTRAP (signal 5) in
         # headless CI even when every test assertion passes.  Tolerate that
         # specific case so flaky WebKit process cleanup doesn't fail the build.
-        # Use grep with here-strings instead of piping from echo to avoid
-        # broken-pipe errors (SIGPIPE) when pipefail is set and the test
-        # output is very large — grep -q exits early, killing echo mid-write.
-        if grep -q "unexpected signal code 5" <<< "$TEST_OUTPUT" && \
-           ! grep -qE "with [1-9][0-9]* failure" <<< "$TEST_OUTPUT"; then
+        # Grep against the file directly (not a bash variable or here-string)
+        # to avoid null-byte truncation issues.
+        if grep -q "unexpected signal code 5" "$TEST_OUTPUT_FILE" && \
+           ! grep -qE "with [1-9][0-9]* failure" "$TEST_OUTPUT_FILE"; then
             echo "warning: swift test exited with signal code 5 (WebKit headless crash) but all test assertions passed."
+            rm -f "$TEST_OUTPUT_FILE"
             exit 0
         fi
 
+        rm -f "$TEST_OUTPUT_FILE"
         exit $TEST_EXIT
         ;;
     lint)
         echo "Linting (strict concurrency)..."
-        swift_with_retry swift build --product "$APP_NAME" -Xswiftc -strict-concurrency=complete
+        swift_with_retry swift build --product "$APP_NAME" -Xswiftc -strict-concurrency=complete $MODULE_CACHE_FLAGS
         echo "Lint passed."
         exit 0
         ;;
@@ -345,6 +366,7 @@ case "$CMD" in
         echo "Cleaning..."
         rm -rf "$SCRIPT_DIR/dist" "$SCRIPT_DIR/../.build"
         rm -rf "$SCRIPT_DIR/daemon-bin" "$SCRIPT_DIR/assistant-bin" "$SCRIPT_DIR/cli-bin" "$SCRIPT_DIR/gateway-bin"
+        rm -rf "$SPM_MODULE_CACHE"
         echo "Done."
         exit 0
         ;;
@@ -402,7 +424,7 @@ else
     echo "Building ($CONFIG)..."
     # Only build the macOS product — the shared Package.swift also contains an iOS
     # target that cannot compile on macOS (UIKit), so we must scope the build.
-    SWIFT_FLAGS="$SWIFT_FLAGS --product $APP_NAME"
+    SWIFT_FLAGS="$SWIFT_FLAGS --product $APP_NAME $MODULE_CACHE_FLAGS"
     # Get bin path first (fast, doesn't rebuild)
     BIN_PATH=$(swift build $SWIFT_FLAGS --show-bin-path)
 

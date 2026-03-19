@@ -38,6 +38,41 @@ struct TokensGallerySection: View {
                 }
             }
 
+            VCard {
+                VStack(alignment: .leading, spacing: VSpacing.lg) {
+                    Text("Syntax Colors")
+                        .font(VFont.headline)
+                        .foregroundColor(VColor.contentDefault)
+
+                    let syntaxTokens: [(String, Color)] = [
+                        ("syntaxString", VColor.syntaxString),
+                        ("syntaxNumber", VColor.syntaxNumber),
+                        ("syntaxKeyword", VColor.syntaxKeyword),
+                        ("syntaxComment", VColor.syntaxComment),
+                        ("syntaxType", VColor.syntaxType),
+                        ("syntaxProperty", VColor.syntaxProperty),
+                        ("syntaxLink", VColor.syntaxLink),
+                    ]
+
+                    LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: VSpacing.md), count: 3), spacing: VSpacing.md) {
+                        ForEach(syntaxTokens, id: \.0) { name, color in
+                            VStack(spacing: VSpacing.xs) {
+                                RoundedRectangle(cornerRadius: VRadius.sm)
+                                    .fill(color)
+                                    .frame(height: 40)
+                                    .overlay(
+                                        RoundedRectangle(cornerRadius: VRadius.sm)
+                                            .stroke(VColor.borderBase, lineWidth: 1)
+                                    )
+                                Text(name)
+                                    .font(VFont.caption)
+                                    .foregroundColor(VColor.contentSecondary)
+                            }
+                        }
+                    }
+                }
+            }
+
             Divider().background(VColor.borderBase).padding(.vertical, VSpacing.md)
 
             // MARK: - Typography
@@ -60,6 +95,7 @@ struct TokensGallerySection: View {
                     typographySample("mono", font: VFont.mono)
                     typographySample("monoSmall", font: VFont.monoSmall)
                     typographySample("display", font: VFont.display)
+                    typographySample("modalTitle", font: VFont.modalTitle)
                     typographySample("cardTitle", font: VFont.cardTitle)
                     typographySample("inviteCode", font: VFont.inviteCode)
                 }

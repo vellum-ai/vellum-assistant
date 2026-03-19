@@ -29,7 +29,7 @@ public struct ChatErrorBanner: View {
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
-        .background(VColor.surfaceBase, in: RoundedRectangle(cornerRadius: 8))
+        .background(VColor.surfaceOverlay, in: RoundedRectangle(cornerRadius: 8))
         .padding(.horizontal)
     }
 }

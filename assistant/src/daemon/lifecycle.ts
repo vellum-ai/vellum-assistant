@@ -142,7 +142,6 @@ export async function runDaemon(): Promise<void> {
     await initLogfire();
 
     ensureDataDir();
-    await runWorkspaceMigrations(getWorkspaceDir(), WORKSPACE_MIGRATIONS);
 
     // Load (or generate + persist) the auth signing key so tokens survive
     // daemon restarts. Must happen after ensureDataDir() creates the
@@ -150,14 +149,16 @@ export async function runDaemon(): Promise<void> {
     const signingKey = loadOrCreateSigningKey();
     initAuthSigningKey(signingKey);
 
-    log.info("Daemon startup: migrations complete");
-
     seedInterfaceFiles();
 
     log.info("Daemon startup: installing templates and initializing DB");
     installTemplates();
     ensurePromptFiles();
 
+    // DB must be initialized before workspace migrations because some
+    // workspace migrations (e.g. 009-backfill-conversation-disk-view)
+    // depend on DB migrations having run (e.g. the inline-attachment-to-disk
+    // backfill that populates attachment filePaths).
     initializeDb();
     // Seed well-known OAuth provider configurations (insert-if-not-exists)
     seedOAuthProviders();
@@ -173,6 +174,9 @@ export async function runDaemon(): Promise<void> {
       );
     }
     log.info("Daemon startup: DB initialized");
+
+    await runWorkspaceMigrations(getWorkspaceDir(), WORKSPACE_MIGRATIONS);
+    log.info("Daemon startup: workspace migrations complete");
 
     // Purge private (temporary) conversations from the previous daemon run.
     // These are ephemeral by design and should not survive daemon restarts.
@@ -210,17 +214,21 @@ export async function runDaemon(): Promise<void> {
       }
     }
 
-    // Expire pending interaction-bound canonical guardian requests left over
-    // from before this process started.  Their in-memory pending-interaction
-    // session references are gone, so they can never be completed.  Only
-    // interaction-bound kinds (tool_approval, pending_question) are expired;
-    // persistent kinds (access_request, tool_grant_request) remain valid
-    // across restarts.
+    // Expire stale pending canonical guardian requests left over from before
+    // this process started.  Two categories are cleaned up:
+    //
+    // 1. Interaction-bound kinds (tool_approval, pending_question) — their
+    //    in-memory pending-interaction session references are gone, so they
+    //    can never be completed.
+    // 2. Any pending request whose expiresAt has already passed — persistent
+    //    kinds (access_request, tool_grant_request) that expired while the
+    //    daemon was stopped are transitioned so dedup logic doesn't return
+    //    stale rows.
     const expiredCount = expireAllPendingCanonicalRequests();
     if (expiredCount > 0) {
       log.info(
         { event: "startup_expired_stale_requests", expiredCount },
-        `Expired ${expiredCount} stale interaction-bound canonical request(s) from previous process`,
+        `Expired ${expiredCount} stale canonical request(s) from previous process`,
       );
     }
 
@@ -329,56 +337,74 @@ export async function runDaemon(): Promise<void> {
     await server.start();
     log.info("Daemon startup: DaemonServer started");
 
-    // Initialize Qdrant vector store — non-fatal so the daemon stays up without it
-    // Prefer QDRANT_HTTP_PORT (locally-spawned Qdrant on a specific port) over
-    // QDRANT_URL (external Qdrant instance) so the CLI can set the port without
-    // triggering QdrantManager's external mode which skips local process spawn.
-    const qdrantHttpPort = getQdrantHttpPortEnv();
-    const qdrantUrl = qdrantHttpPort
-      ? `http://127.0.0.1:${qdrantHttpPort}`
-      : getQdrantUrlEnv() || config.memory.qdrant.url;
-    log.info({ qdrantUrl }, "Daemon startup: initializing Qdrant");
-    const qdrantManager = new QdrantManager({ url: qdrantUrl });
-    try {
-      await qdrantManager.start();
-      const embeddingSelection = await selectEmbeddingBackend(config);
-      const embeddingModel = embeddingSelection.backend
-        ? `${embeddingSelection.backend.provider}:${embeddingSelection.backend.model}:sparse-v${SPARSE_EMBEDDING_VERSION}`
-        : undefined;
-      const qdrantClient = initQdrantClient({
-        url: qdrantUrl,
-        collection: config.memory.qdrant.collection,
-        vectorSize: config.memory.qdrant.vectorSize,
-        onDisk: config.memory.qdrant.onDisk,
-        quantization: config.memory.qdrant.quantization,
-        embeddingModel,
-      });
+    // Mutable refs for Qdrant and memory worker so background init can assign
+    // them and the shutdown handler always sees the latest value.
+    const bgRefs: {
+      qdrantManager: QdrantManager | null;
+      memoryWorker: { stop(): void } | null;
+    } = { qdrantManager: null, memoryWorker: null };
 
-      // Eagerly ensure the collection exists so we detect migrations
-      // (unnamed→named vectors, dimension/model changes) at startup.
-      // If a destructive migration occurred, enqueue a rebuild_index job
-      // to re-embed all memory items from the SQLite cache.
-      const { migrated } = await qdrantClient.ensureCollection();
-      if (migrated) {
-        enqueueMemoryJob("rebuild_index", {});
-        log.info("Qdrant collection was migrated — enqueued rebuild_index job");
+    // Initialize Qdrant vector store and memory worker in the background so the
+    // RuntimeHttpServer can start accepting requests without waiting for Qdrant.
+    async function initializeQdrantAndMemory(): Promise<void> {
+      // Prefer QDRANT_HTTP_PORT (locally-spawned Qdrant on a specific port) over
+      // QDRANT_URL (external Qdrant instance) so the CLI can set the port without
+      // triggering QdrantManager's external mode which skips local process spawn.
+      const qdrantHttpPort = getQdrantHttpPortEnv();
+      const qdrantUrl = qdrantHttpPort
+        ? `http://127.0.0.1:${qdrantHttpPort}`
+        : getQdrantUrlEnv() || config.memory.qdrant.url;
+      log.info({ qdrantUrl }, "Daemon startup: initializing Qdrant");
+      const manager = new QdrantManager({ url: qdrantUrl });
+      bgRefs.qdrantManager = manager;
+      try {
+        await manager.start();
+        const embeddingSelection = await selectEmbeddingBackend(config);
+        const embeddingModel = embeddingSelection.backend
+          ? `${embeddingSelection.backend.provider}:${embeddingSelection.backend.model}:sparse-v${SPARSE_EMBEDDING_VERSION}`
+          : undefined;
+        const qdrantClient = initQdrantClient({
+          url: qdrantUrl,
+          collection: config.memory.qdrant.collection,
+          vectorSize: config.memory.qdrant.vectorSize,
+          onDisk: config.memory.qdrant.onDisk,
+          quantization: config.memory.qdrant.quantization,
+          embeddingModel,
+        });
+
+        // Eagerly ensure the collection exists so we detect migrations
+        // (unnamed→named vectors, dimension/model changes) at startup.
+        // If a destructive migration occurred, enqueue a rebuild_index job
+        // to re-embed all memory items from the SQLite cache.
+        const { migrated } = await qdrantClient.ensureCollection();
+        if (migrated) {
+          enqueueMemoryJob("rebuild_index", {});
+          log.info(
+            "Qdrant collection was migrated — enqueued rebuild_index job",
+          );
+        }
+
+        log.info("Qdrant vector store initialized");
+      } catch (err) {
+        log.warn(
+          { err },
+          "Qdrant failed to start — memory features will be unavailable",
+        );
       }
 
-      log.info("Qdrant vector store initialized");
-    } catch (err) {
-      log.warn(
-        { err },
-        "Qdrant failed to start — memory features will be unavailable",
+      log.info("Daemon startup: starting memory worker");
+      bgRefs.memoryWorker = startMemoryJobsWorker();
+
+      // Seed capability memories for first-party catalog skills so the memory
+      // pipeline can surface relevant skills via semantic search.
+      void seedCatalogSkillMemories().catch((err) =>
+        log.warn({ err }, "Catalog skill memory seeding failed — continuing"),
       );
     }
 
-    log.info("Daemon startup: starting memory worker");
-    const memoryWorker = startMemoryJobsWorker();
-
-    // Seed capability memories for first-party catalog skills so the memory
-    // pipeline can surface relevant skills via semantic search.
-    void seedCatalogSkillMemories().catch((err) =>
-      log.warn({ err }, "Catalog skill memory seeding failed — continuing"),
+    // Fire-and-forget: Qdrant init runs concurrently with the rest of startup
+    void initializeQdrantAndMemory().catch((err) =>
+      log.warn({ err }, "Background Qdrant init failed"),
     );
 
     registerWatcherProviders();
@@ -459,7 +485,7 @@ export async function runDaemon(): Promise<void> {
             title: notification.title,
             body: notification.body,
           },
-          dedupeKey: `watcher:notification:${Date.now()}`,
+          dedupeKey: `watcher:notification:${crypto.randomUUID()}`,
         });
       },
       (params) => {
@@ -477,7 +503,7 @@ export async function runDaemon(): Promise<void> {
             title: params.title,
             body: params.body,
           },
-          dedupeKey: `watcher:escalation:${Date.now()}`,
+          dedupeKey: `watcher:escalation:${crypto.randomUUID()}`,
         });
       },
       (info) => {
@@ -532,13 +558,22 @@ export async function runDaemon(): Promise<void> {
         getOrCreateConversation: (conversationId) =>
           server.getConversationForMessages(conversationId),
         assistantEventHub,
-        resolveAttachments: (attachmentIds) =>
-          attachmentsStore.getAttachmentsByIds(attachmentIds).map((a) => ({
+        resolveAttachments: (attachmentIds) => {
+          const resolved = attachmentsStore.getAttachmentsByIds(attachmentIds, {
+            hydrateFileData: true,
+          });
+          const sourcePaths =
+            attachmentsStore.getSourcePathsForAttachments(attachmentIds);
+          return resolved.map((a) => ({
             id: a.id,
             filename: a.originalFilename,
             mimeType: a.mimeType,
             data: a.dataBase64,
-          })),
+            ...(sourcePaths.has(a.id)
+              ? { filePath: sourcePaths.get(a.id) }
+              : {}),
+          }));
+        },
       },
       findConversation: (conversationId) =>
         server.findConversation(conversationId),
@@ -623,13 +658,20 @@ export async function runDaemon(): Promise<void> {
     setVoiceBridgeDeps({
       getOrCreateConversation: (conversationId, _transport) =>
         server.getConversationForMessages(conversationId),
-      resolveAttachments: (attachmentIds) =>
-        attachmentsStore.getAttachmentsByIds(attachmentIds).map((a) => ({
+      resolveAttachments: (attachmentIds) => {
+        const resolved = attachmentsStore.getAttachmentsByIds(attachmentIds, {
+          hydrateFileData: true,
+        });
+        const sourcePaths =
+          attachmentsStore.getSourcePathsForAttachments(attachmentIds);
+        return resolved.map((a) => ({
           id: a.id,
           filename: a.originalFilename,
           mimeType: a.mimeType,
           data: a.dataBase64,
-        })),
+          ...(sourcePaths.has(a.id) ? { filePath: sourcePaths.get(a.id) } : {}),
+        }));
+      },
       deriveDefaultStrictSideEffects: (conversationId) => {
         const conversationType = getConversationType(conversationId);
         return conversationType === "private";
@@ -881,8 +923,8 @@ export async function runDaemon(): Promise<void> {
       hookManager,
       runtimeHttp,
       scheduler,
-      memoryWorker,
-      qdrantManager,
+      getMemoryWorker: () => bgRefs.memoryWorker,
+      getQdrantManager: () => bgRefs.qdrantManager,
       mcpManager,
       telemetryReporter,
       cleanupPidFile,

@@ -50,6 +50,7 @@ import { createTelegramControlPlaneProxyHandler } from "./http/routes/telegram-c
 import { createContactsControlPlaneProxyHandler } from "./http/routes/contacts-control-plane-proxy.js";
 import { createTwilioControlPlaneProxyHandler } from "./http/routes/twilio-control-plane-proxy.js";
 import { createSlackControlPlaneProxyHandler } from "./http/routes/slack-control-plane-proxy.js";
+import { createOAuthAppsProxyHandler } from "./http/routes/oauth-apps-proxy.js";
 import { createChannelReadinessProxyHandler } from "./http/routes/channel-readiness-proxy.js";
 import { createRuntimeHealthProxyHandler } from "./http/routes/runtime-health-proxy.js";
 import { createBrainGraphProxyHandler } from "./http/routes/brain-graph-proxy.js";
@@ -266,6 +267,7 @@ async function main() {
     createContactsControlPlaneProxyHandler(config);
   const twilioControlPlaneProxy = createTwilioControlPlaneProxyHandler(config);
   const slackControlPlaneProxy = createSlackControlPlaneProxyHandler(config);
+  const oauthAppsProxy = createOAuthAppsProxyHandler(config);
   const channelReadinessProxy = createChannelReadinessProxyHandler(config);
   const runtimeHealthProxy = createRuntimeHealthProxyHandler(config);
   const brainGraphProxy = createBrainGraphProxyHandler(config);
@@ -647,6 +649,46 @@ async function main() {
       method: "POST",
       auth: "edge",
       handler: (req) => slackControlPlaneProxy.handleShareToSlack(req),
+    },
+
+    // ── OAuth apps ──
+    {
+      path: "/v1/oauth/apps",
+      method: "GET",
+      auth: "edge",
+      handler: (req) => oauthAppsProxy.handleListApps(req),
+    },
+    {
+      path: "/v1/oauth/apps",
+      method: "POST",
+      auth: "edge",
+      handler: (req) => oauthAppsProxy.handleCreateApp(req),
+    },
+    {
+      path: /^\/v1\/oauth\/apps\/([^/]+)\/?$/,
+      method: "DELETE",
+      auth: "edge",
+      handler: (req, params) => oauthAppsProxy.handleDeleteApp(req, params[0]),
+    },
+    {
+      path: /^\/v1\/oauth\/apps\/([^/]+)\/connections\/?$/,
+      method: "GET",
+      auth: "edge",
+      handler: (req, params) =>
+        oauthAppsProxy.handleListConnections(req, params[0]),
+    },
+    {
+      path: /^\/v1\/oauth\/connections\/([^/]+)\/?$/,
+      method: "DELETE",
+      auth: "edge",
+      handler: (req, params) =>
+        oauthAppsProxy.handleDeleteConnection(req, params[0]),
+    },
+    {
+      path: /^\/v1\/oauth\/apps\/([^/]+)\/connect\/?$/,
+      method: "POST",
+      auth: "edge",
+      handler: (req, params) => oauthAppsProxy.handleConnect(req, params[0]),
     },
 
     // ── Channel readiness ──

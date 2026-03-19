@@ -11,6 +11,14 @@ struct ConversationHeaderPresentation {
     let isPrivateConversation: Bool
     let canCopy: Bool
     let isPinned: Bool
+    let showsForkConversationAction: Bool
+    let forkParentTitle: String?
+    let forkParentConversationId: String?
+    let forkParentMessageId: String?
+
+    var showsForkParentLink: Bool {
+        forkParentConversationId != nil
+    }
 
     init(activeConversation: ConversationModel?, activeViewModel: ChatViewModel?, isConversationVisible: Bool) {
         guard isConversationVisible, let conversation = activeConversation else {
@@ -20,6 +28,10 @@ struct ConversationHeaderPresentation {
             self.isPrivateConversation = false
             self.canCopy = false
             self.isPinned = false
+            self.showsForkConversationAction = false
+            self.forkParentTitle = nil
+            self.forkParentConversationId = nil
+            self.forkParentMessageId = nil
             return
         }
 
@@ -38,5 +50,21 @@ struct ConversationHeaderPresentation {
 
         // Can copy when there's non-empty content
         self.canCopy = hasUserMessage
+        let latestPersistedTipDaemonMessageId = activeViewModel?.messages.last(where: {
+            $0.daemonMessageId != nil && !$0.isStreaming && !$0.isHidden
+        })?.daemonMessageId
+        self.showsForkConversationAction =
+            conversation.conversationId != nil
+            && !isPrivateConversation
+            && latestPersistedTipDaemonMessageId != nil
+        if isPrivateConversation {
+            self.forkParentTitle = nil
+            self.forkParentConversationId = nil
+            self.forkParentMessageId = nil
+        } else {
+            self.forkParentTitle = conversation.forkParent?.title
+            self.forkParentConversationId = conversation.forkParent?.conversationId
+            self.forkParentMessageId = conversation.forkParent?.messageId
+        }
     }
 }

@@ -299,7 +299,9 @@ describe("export data population", () => {
     const archiveData = new Uint8Array(await res.arrayBuffer());
     const entries = parseTarEntries(archiveData);
 
-    const dbEntry = entries.find((e) => e.name === "workspace/data/db/assistant.db");
+    const dbEntry = entries.find(
+      (e) => e.name === "workspace/data/db/assistant.db",
+    );
     expect(dbEntry).toBeDefined();
     expect(dbEntry!.data.length).toBe(SQLITE_HEADER.length);
     // Verify the exported data matches the test fixture exactly

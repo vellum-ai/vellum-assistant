@@ -1691,14 +1691,16 @@ public struct GenerationHandoff: Codable, Sendable {
     public let requestId: String?
     public let queuedCount: Int
     public let attachments: [UserMessageAttachment]?
+    public let attachmentWarnings: [String]?
     public let messageId: String?
 
-    public init(type: String, conversationId: String, requestId: String? = nil, queuedCount: Int, attachments: [UserMessageAttachment]? = nil, messageId: String? = nil) {
+    public init(type: String, conversationId: String, requestId: String? = nil, queuedCount: Int, attachments: [UserMessageAttachment]? = nil, attachmentWarnings: [String]? = nil, messageId: String? = nil) {
         self.type = type
         self.conversationId = conversationId
         self.requestId = requestId
         self.queuedCount = queuedCount
         self.attachments = attachments
+        self.attachmentWarnings = attachmentWarnings
         self.messageId = messageId
     }
 }
@@ -2545,12 +2547,14 @@ public struct MessageComplete: Codable, Sendable {
     public let type: String
     public let conversationId: String?
     public let attachments: [UserMessageAttachment]?
+    public let attachmentWarnings: [String]?
     public let messageId: String?
 
-    public init(type: String, conversationId: String? = nil, attachments: [UserMessageAttachment]? = nil, messageId: String? = nil) {
+    public init(type: String, conversationId: String? = nil, attachments: [UserMessageAttachment]? = nil, attachmentWarnings: [String]? = nil, messageId: String? = nil) {
         self.type = type
         self.conversationId = conversationId
         self.attachments = attachments
+        self.attachmentWarnings = attachmentWarnings
         self.messageId = messageId
     }
 }
@@ -2671,19 +2675,39 @@ public struct CatalogModel: Codable, Sendable {
     }
 }
 
+public struct ProviderCatalogEntry: Codable, Sendable {
+    public let id: String
+    public let displayName: String
+    public let models: [CatalogModel]
+    public let defaultModel: String
+    public let apiKeyUrl: String?
+    public let apiKeyPlaceholder: String?
+
+    public init(id: String, displayName: String, models: [CatalogModel], defaultModel: String, apiKeyUrl: String? = nil, apiKeyPlaceholder: String? = nil) {
+        self.id = id
+        self.displayName = displayName
+        self.models = models
+        self.defaultModel = defaultModel
+        self.apiKeyUrl = apiKeyUrl
+        self.apiKeyPlaceholder = apiKeyPlaceholder
+    }
+}
+
 public struct ModelInfo: Codable, Sendable {
     public let type: String
     public let model: String
     public let provider: String
     public let configuredProviders: [String]?
     public let availableModels: [CatalogModel]?
+    public let allProviders: [ProviderCatalogEntry]?
 
-    public init(type: String, model: String, provider: String, configuredProviders: [String]? = nil, availableModels: [CatalogModel]? = nil) {
+    public init(type: String, model: String, provider: String, configuredProviders: [String]? = nil, availableModels: [CatalogModel]? = nil, allProviders: [ProviderCatalogEntry]? = nil) {
         self.type = type
         self.model = model
         self.provider = provider
         self.configuredProviders = configuredProviders
         self.availableModels = availableModels
+        self.allProviders = allProviders
     }
 }
 
@@ -2749,6 +2773,49 @@ public struct NotificationIntentResult: Codable, Sendable {
         self.success = success
         self.errorMessage = errorMessage
         self.errorCode = errorCode
+    }
+}
+
+/// Broadcast to connected clients when a service group update is about to begin.
+///
+/// Wire format uses camelCase keys (matching the daemon TypeScript definition
+/// in `assistant/src/daemon/message-types/upgrades.ts`). The `JSONDecoder` in
+/// `HTTPDaemonClient` uses default key decoding (no `.convertFromSnakeCase`),
+/// so property names here must match the camelCase wire keys exactly.
+public struct ServiceGroupUpdateStarting: Codable, Sendable {
+    public let type: String
+    /// The version being upgraded to.
+    public let targetVersion: String
+    /// Estimated seconds of downtime.
+    public let expectedDowntimeSeconds: Double
+
+    public init(type: String, targetVersion: String, expectedDowntimeSeconds: Double) {
+        self.type = type
+        self.targetVersion = targetVersion
+        self.expectedDowntimeSeconds = expectedDowntimeSeconds
+    }
+}
+
+/// Broadcast to connected clients when a service group update has completed.
+///
+/// Wire format uses camelCase keys (matching the daemon TypeScript definition
+/// in `assistant/src/daemon/message-types/upgrades.ts`). The `JSONDecoder` in
+/// `HTTPDaemonClient` uses default key decoding (no `.convertFromSnakeCase`),
+/// so property names here must match the camelCase wire keys exactly.
+public struct ServiceGroupUpdateComplete: Codable, Sendable {
+    public let type: String
+    /// The version that was installed (may differ from target if rolled back).
+    public let installedVersion: String
+    /// Whether the update succeeded or rolled back.
+    public let success: Bool
+    /// If rolled back, the version reverted to.
+    public let rolledBackToVersion: String?
+
+    public init(type: String, installedVersion: String, success: Bool, rolledBackToVersion: String? = nil) {
+        self.type = type
+        self.installedVersion = installedVersion
+        self.success = success
+        self.rolledBackToVersion = rolledBackToVersion
     }
 }
 
@@ -3353,6 +3420,18 @@ public struct ConversationInfo: Codable, Sendable {
     }
 }
 
+public struct ConversationForkParent: Codable, Sendable {
+    public let conversationId: String
+    public let messageId: String
+    public let title: String
+
+    public init(conversationId: String, messageId: String, title: String) {
+        self.conversationId = conversationId
+        self.messageId = messageId
+        self.title = title
+    }
+}
+
 public struct ConversationListRequest: Codable, Sendable {
     public let type: String
     /// Number of conversations to skip (for pagination). Defaults to 0.
@@ -3396,8 +3475,9 @@ public struct ConversationListResponseItem: Codable, Sendable {
     public let assistantAttention: AssistantAttention?
     public let displayOrder: Double?
     public let isPinned: Bool?
+    public let forkParent: ConversationForkParent?
 
-    public init(id: String, title: String, createdAt: Int? = nil, updatedAt: Int, conversationType: String? = nil, source: String? = nil, scheduleJobId: String? = nil, channelBinding: ChannelBinding? = nil, conversationOriginChannel: String? = nil, conversationOriginInterface: String? = nil, assistantAttention: AssistantAttention? = nil, displayOrder: Double? = nil, isPinned: Bool? = nil) {
+    public init(id: String, title: String, createdAt: Int? = nil, updatedAt: Int, conversationType: String? = nil, source: String? = nil, scheduleJobId: String? = nil, channelBinding: ChannelBinding? = nil, conversationOriginChannel: String? = nil, conversationOriginInterface: String? = nil, assistantAttention: AssistantAttention? = nil, displayOrder: Double? = nil, isPinned: Bool? = nil, forkParent: ConversationForkParent? = nil) {
         self.id = id
         self.title = title
         self.createdAt = createdAt
@@ -3411,6 +3491,7 @@ public struct ConversationListResponseItem: Codable, Sendable {
         self.assistantAttention = assistantAttention
         self.displayOrder = displayOrder
         self.isPinned = isPinned
+        self.forkParent = forkParent
     }
 }
 
@@ -4838,6 +4919,8 @@ public struct UserMessageAttachment: Codable, Sendable {
     public let filename: String
     public let mimeType: String
     public let data: String
+    /// Origin of the attachment on the daemon side, when known.
+    public let sourceType: String?
     public let extractedText: String?
     /// Original file size in bytes. Present when data was omitted from history_response to reduce payload size.
     public let sizeBytes: Int?
@@ -4848,11 +4931,12 @@ public struct UserMessageAttachment: Codable, Sendable {
     /// True when the attachment is file-backed and clients should hydrate via the /content endpoint.
     public let fileBacked: Bool?
 
-    public init(id: String? = nil, filename: String, mimeType: String, data: String, extractedText: String? = nil, sizeBytes: Int? = nil, thumbnailData: String? = nil, filePath: String? = nil, fileBacked: Bool? = nil) {
+    public init(id: String? = nil, filename: String, mimeType: String, data: String, sourceType: String? = nil, extractedText: String? = nil, sizeBytes: Int? = nil, thumbnailData: String? = nil, filePath: String? = nil, fileBacked: Bool? = nil) {
         self.id = id
         self.filename = filename
         self.mimeType = mimeType
         self.data = data
+        self.sourceType = sourceType
         self.extractedText = extractedText
         self.sizeBytes = sizeBytes
         self.thumbnailData = thumbnailData

@@ -10,11 +10,8 @@
 
 import { compileApp } from "../../bundler/app-compiler.js";
 import { generateAppIcon } from "../../media/app-icon-generator.js";
-import type {
-  AppDefinition,
-  EditEngineResult,
-} from "../../memory/app-store.js";
-import { getAppsDir, isMultifileApp } from "../../memory/app-store.js";
+import type { AppDefinition } from "../../memory/app-store.js";
+import { getAppDirPath } from "../../memory/app-store.js";
 
 // ---------------------------------------------------------------------------
 // Shared result type
@@ -35,9 +32,6 @@ export interface ExecutorResult {
 export interface AppStoreReader {
   getApp(id: string): AppDefinition | null;
   listApps(): AppDefinition[];
-  queryAppRecords(appId: string): unknown[];
-  listAppFiles(appId: string): string[];
-  readAppFile(appId: string, path: string): string;
 }
 
 export interface AppStoreWriter {
@@ -61,13 +55,6 @@ export interface AppStoreWriter {
   ): AppDefinition;
   deleteApp(id: string): void;
   writeAppFile(appId: string, path: string, content: string): void;
-  editAppFile(
-    appId: string,
-    path: string,
-    oldString: string,
-    newString: string,
-    replaceAll?: boolean,
-  ): EditEngineResult;
 }
 
 export type AppStore = AppStoreReader & AppStoreWriter;
@@ -80,28 +67,6 @@ export type ProxyResolver = (
   toolName: string,
   input: Record<string, unknown>,
 ) => Promise<ExecutorResult>;
-
-// ---------------------------------------------------------------------------
-// Path resolution - multifile apps default to src/ for file operations
-// ---------------------------------------------------------------------------
-
-/**
- * For multifile (formatVersion 2) apps, prepend `src/` to paths that don't
- * already target a known top-level directory (src/, dist/, records/).
- * Legacy apps pass through unchanged.
- */
-export function resolveAppFilePath(app: AppDefinition, path: string): string {
-  if (!isMultifileApp(app)) return path;
-  const normalized = path.replace(/\\/g, "/").replace(/^\.\//, "");
-  if (
-    normalized.startsWith("src/") ||
-    normalized.startsWith("dist/") ||
-    normalized.startsWith("records/")
-  ) {
-    return normalized;
-  }
-  return `src/${normalized}`;
-}
 
 // ---------------------------------------------------------------------------
 // app_create
@@ -222,8 +187,7 @@ render(<App />, document.getElementById('app')!);
     store.writeAppFile(app.id, "src/main.tsx", mainTsx);
 
     // Compile src/ → dist/
-    const { join } = await import("node:path");
-    const appDir = join(getAppsDir(), app.id);
+    const appDir = getAppDirPath(app.id);
     const compileResult = await compileApp(appDir);
     if (!compileResult.ok) {
       return {
@@ -287,72 +251,6 @@ render(<App />, document.getElementById('app')!);
 }
 
 // ---------------------------------------------------------------------------
-// app_list
-// ---------------------------------------------------------------------------
-
-export function executeAppList(store: AppStoreReader): ExecutorResult {
-  const apps = store.listApps().map((a) => ({
-    id: a.id,
-    name: a.name,
-    description: a.description,
-    updatedAt: a.updatedAt,
-  }));
-  return { content: JSON.stringify(apps), isError: false };
-}
-
-// ---------------------------------------------------------------------------
-// app_query
-// ---------------------------------------------------------------------------
-
-export interface AppQueryInput {
-  app_id: string;
-}
-
-export function executeAppQuery(
-  input: AppQueryInput,
-  store: AppStoreReader,
-): ExecutorResult {
-  const records = store.queryAppRecords(input.app_id);
-  return { content: JSON.stringify(records), isError: false };
-}
-
-// ---------------------------------------------------------------------------
-// app_update
-// ---------------------------------------------------------------------------
-
-export interface AppUpdateInput {
-  app_id: string;
-  name?: string;
-  description?: string;
-  schema_json?: string;
-  html?: string;
-  pages?: Record<string, string>;
-}
-
-export function executeAppUpdate(
-  input: AppUpdateInput,
-  store: AppStore,
-): ExecutorResult {
-  const updates: Partial<
-    Pick<
-      AppDefinition,
-      "name" | "description" | "schemaJson" | "htmlDefinition" | "pages"
-    >
-  > = {};
-  if (typeof input.name === "string") updates.name = input.name;
-  if (typeof input.description === "string")
-    updates.description = input.description;
-  if (typeof input.schema_json === "string")
-    updates.schemaJson = input.schema_json;
-  if (typeof input.html === "string") updates.htmlDefinition = input.html;
-  if (input.pages && typeof input.pages === "object")
-    updates.pages = input.pages;
-
-  const app = store.updateApp(input.app_id, updates);
-  return { content: JSON.stringify(app), isError: false };
-}
-
-// ---------------------------------------------------------------------------
 // app_delete
 // ---------------------------------------------------------------------------
 
@@ -372,131 +270,15 @@ export function executeAppDelete(
 }
 
 // ---------------------------------------------------------------------------
-// app_file_list
+// app_refresh
 // ---------------------------------------------------------------------------
 
-export interface AppFileListInput {
+export interface AppRefreshInput {
   app_id: string;
 }
 
-export function executeAppFileList(
-  input: AppFileListInput,
-  store: AppStoreReader,
-): ExecutorResult {
-  const files = store.listAppFiles(input.app_id);
-  const app = store.getApp(input.app_id);
-
-  if (app && isMultifileApp(app)) {
-    // Separate build output paths from source paths without mutating the
-    // file path strings - consumers need clean paths for subsequent tool calls.
-    const buildOutputPaths = files.filter((f) =>
-      f.replace(/\\/g, "/").startsWith("dist/"),
-    );
-    return {
-      content: JSON.stringify({
-        files,
-        buildOutput: buildOutputPaths,
-      }),
-      isError: false,
-    };
-  }
-
-  return { content: JSON.stringify(files), isError: false };
-}
-
-// ---------------------------------------------------------------------------
-// app_file_read
-// ---------------------------------------------------------------------------
-
-export interface AppFileReadInput {
-  app_id: string;
-  path: string;
-  offset?: number;
-  limit?: number;
-}
-
-export function executeAppFileRead(
-  input: AppFileReadInput,
-  store: AppStoreReader,
-): ExecutorResult {
-  const offset = input.offset ?? 1;
-  const limit = input.limit;
-
-  const app = store.getApp(input.app_id);
-  const resolvedPath = app ? resolveAppFilePath(app, input.path) : input.path;
-  const raw = store.readAppFile(input.app_id, resolvedPath);
-  const allLines = raw.split("\n");
-  const startIndex = Math.max(0, offset - 1);
-  const sliced =
-    limit != null
-      ? allLines.slice(startIndex, startIndex + limit)
-      : allLines.slice(startIndex);
-
-  const formatted = sliced
-    .map((line, i) => {
-      const lineNum = startIndex + i + 1;
-      return `${String(lineNum).padStart(6)}\t${line}`;
-    })
-    .join("\n");
-
-  return { content: formatted, isError: false };
-}
-
-// ---------------------------------------------------------------------------
-// app_file_edit
-// ---------------------------------------------------------------------------
-
-export interface AppFileEditInput {
-  app_id: string;
-  path: string;
-  old_string: string;
-  new_string: string;
-  replace_all?: boolean;
-  status?: string;
-}
-
-export function executeAppFileEdit(
-  input: AppFileEditInput,
-  store: AppStore,
-): ExecutorResult {
-  if (!input.old_string) {
-    return {
-      content: JSON.stringify({ error: "old_string must not be empty" }),
-      isError: true,
-    };
-  }
-
-  const app = store.getApp(input.app_id);
-  const resolvedPath = app ? resolveAppFilePath(app, input.path) : input.path;
-
-  const replaceAll = input.replace_all ?? false;
-  const result = store.editAppFile(
-    input.app_id,
-    resolvedPath,
-    input.old_string,
-    input.new_string,
-    replaceAll,
-  );
-  return {
-    content: JSON.stringify(result),
-    isError: false,
-    status: input.status,
-  };
-}
-
-// ---------------------------------------------------------------------------
-// app_file_write
-// ---------------------------------------------------------------------------
-
-export interface AppFileWriteInput {
-  app_id: string;
-  path: string;
-  content: string;
-  status?: string;
-}
-
-export function executeAppFileWrite(
-  input: AppFileWriteInput,
+export function executeAppRefresh(
+  input: AppRefreshInput,
   store: AppStore,
 ): ExecutorResult {
   const app = store.getApp(input.app_id);
@@ -507,12 +289,16 @@ export function executeAppFileWrite(
     };
   }
 
-  const resolvedPath = resolveAppFilePath(app, input.path);
-  store.writeAppFile(input.app_id, resolvedPath, input.content);
+  // Empty update bumps updatedAt timestamp, triggering recompilation and
+  // surface refresh on the client side.
+  const updated = store.updateApp(input.app_id, {});
   return {
-    content: JSON.stringify({ written: true, path: resolvedPath }),
+    content: JSON.stringify({
+      refreshed: true,
+      appId: updated.id,
+      name: updated.name,
+    }),
     isError: false,
-    status: input.status,
   };
 }
 
@@ -541,9 +327,8 @@ export async function executeAppGenerateIcon(
   // destroying an existing icon if generation fails.
   const { existsSync, renameSync, unlinkSync } = await import("node:fs");
   const { join } = await import("node:path");
-  const { getAppsDir } = await import("../../memory/app-store.js");
-  const iconPath = join(getAppsDir(), input.app_id, "icon.png");
-  const tempPath = join(getAppsDir(), input.app_id, "icon.tmp.png");
+  const iconPath = join(getAppDirPath(input.app_id), "icon.png");
+  const tempPath = join(getAppDirPath(input.app_id), "icon.tmp.png");
 
   // Temporarily move existing icon aside so generateAppIcon doesn't skip
   if (existsSync(iconPath)) {

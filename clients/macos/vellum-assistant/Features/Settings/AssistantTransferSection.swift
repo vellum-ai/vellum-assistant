@@ -171,7 +171,7 @@ struct AssistantTransferSection: View {
             currentStep = "Cleaning up..."
             let localName = assistant.assistantId
             do {
-                try await AppDelegate.shared?.assistantCli.retire(name: localName)
+                try await AppDelegate.shared?.vellumCli.retire(name: localName)
             } catch {
                 log.error("[transfer] Failed to retire local assistant \(localName, privacy: .public): \(error.localizedDescription, privacy: .public)")
             }
@@ -254,11 +254,11 @@ struct AssistantTransferSection: View {
             currentStep = "Preparing local assistant..."
             var localAssistant = LockfileAssistant.loadAll().first(where: { !$0.isRemote && !$0.isManaged })
             if localAssistant == nil {
-                try await AppDelegate.shared?.assistantCli.hatch()
+                try await AppDelegate.shared?.vellumCli.hatch()
                 localAssistant = LockfileAssistant.loadAll().first(where: { !$0.isRemote && !$0.isManaged })
             } else {
                 // Existing local assistant may be sleeping — wake it before health check
-                try await AppDelegate.shared?.assistantCli.wake(name: localAssistant!.assistantId)
+                try await AppDelegate.shared?.vellumCli.wake(name: localAssistant!.assistantId)
             }
             guard let resolvedLocal = localAssistant else {
                 throw TransferError.localAssistantNotFound

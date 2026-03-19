@@ -221,7 +221,6 @@ import os
     private nonisolated static func restartSentryInline() {
         guard !SentrySDK.isEnabled else { return }
         let sendDiagnostics = UserDefaults.standard.object(forKey: "sendDiagnostics") as? Bool
-            ?? UserDefaults.standard.object(forKey: "collectUsageData") as? Bool
             ?? true
         guard sendDiagnostics else { return }
         let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "unknown"
@@ -256,7 +255,6 @@ extension MetricKitManager: MXMetricManagerSubscriber {
 
             // Only send to Sentry if sendDiagnostics is enabled.
             let sendDiagnostics = UserDefaults.standard.object(forKey: "sendDiagnostics") as? Bool
-                ?? UserDefaults.standard.object(forKey: "collectUsageData") as? Bool
                 ?? true
             guard sendDiagnostics else { continue }
 

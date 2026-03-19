@@ -4,6 +4,7 @@ import {
   saveRawConfig,
   setNestedValue,
 } from "../../../../config/loader.js";
+import { VALID_CONVERSATION_TIMEOUTS } from "../../../../config/schemas/elevenlabs.js";
 import { normalizeActivationKey } from "../../../../daemon/handlers/config-voice.js";
 import type {
   ToolContext,
@@ -29,7 +30,7 @@ type VoiceSettingName = keyof typeof VOICE_SETTINGS;
 
 const VALID_SETTINGS = Object.keys(VOICE_SETTINGS) as VoiceSettingName[];
 
-const VALID_TIMEOUTS = [5, 10, 15, 30, 60];
+const VALID_TIMEOUTS: readonly number[] = VALID_CONVERSATION_TIMEOUTS;
 
 const FRIENDLY_NAMES: Record<VoiceSettingName, string> = {
   activation_key: "PTT activation key",

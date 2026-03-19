@@ -8,7 +8,7 @@ private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.
 /// Registers a domain dispatcher that translates conversation-related message
 /// types into HTTP API calls. Handles:
 ///   conversation_switch, conversation_rename, conversations_clear, cancel, undo,
-///   regenerate, model_get, model_set, image_gen_model_set,
+///   model_get, model_set, image_gen_model_set,
 ///   conversation_search, message_content_request, delete_queued_message
 extension HTTPTransport {
 
@@ -30,9 +30,6 @@ extension HTTPTransport {
                 return true
             } else if let msg = message as? UndoRequest {
                 Task { await self.undoLastMessage(conversationId: msg.conversationId) }
-                return true
-            } else if let msg = message as? RegenerateMessage {
-                Task { await self.regenerateLastResponse(conversationId: msg.conversationId) }
                 return true
             } else if message is ModelGetRequestMessage || message is ModelSetRequestMessage {
                 // Handled by SettingsClient via GatewayHTTPClient.

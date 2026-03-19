@@ -63,6 +63,8 @@ struct MainWindowView: View {
     /// Mirrors `AppDelegate.daemonStartupError` so SwiftUI re-renders the
     /// daemon loading overlay when a structured error arrives or is cleared.
     @State private var daemonStartupError: DaemonStartupError?
+    /// Whether the main window is in native macOS fullscreen (traffic lights hidden).
+    @State private var isInFullscreen: Bool = false
 
     init(conversationManager: ConversationManager, appListManager: AppListManager, zoomManager: ZoomManager, traceStore: TraceStore, usageDashboardStore: UsageDashboardStore, daemonClient: DaemonClient, surfaceManager: SurfaceManager, ambientAgent: AmbientAgent, settingsStore: SettingsStore, authManager: AuthManager, windowState: MainWindowState, documentManager: DocumentManager, onMicrophoneToggle: @escaping () -> Void = {}, voiceModeManager: VoiceModeManager, updateManager: UpdateManager, onSendWakeUp: (() -> Void)? = nil) {
         self.conversationManager = conversationManager
@@ -93,10 +95,10 @@ struct MainWindowView: View {
     // MARK: - Layout Constants
 
     /// Leading padding to account for macOS traffic light buttons (red/yellow/green).
-    /// Note: This is a fixed value that may not be accurate for all window styles or
-    /// if Apple changes the traffic light spacing. Dynamic measurement would be better
-    /// but requires complex window geometry inspection.
-    let trafficLightPadding: CGFloat = 78
+    /// In native fullscreen the traffic lights are hidden, so we use standard padding.
+    var trafficLightPadding: CGFloat {
+        isInFullscreen ? VSpacing.lg : 78
+    }
 
     func toggleVoiceMode() {
         if voiceModeManager.state != .off {
@@ -222,6 +224,17 @@ struct MainWindowView: View {
               let conversation = conversationManager.activeConversation else { return }
         sidebar.renamingConversationId = id
         sidebar.renameText = conversation.title
+    }
+
+    func openForkParentConversation() {
+        guard let parentConversationId = conversationHeaderPresentation.forkParentConversationId else { return }
+        let sourceMessageId = conversationHeaderPresentation.forkParentMessageId
+        Task {
+            _ = await conversationManager.openForkParentConversation(
+                conversationId: parentConversationId,
+                sourceMessageId: sourceMessageId
+            )
+        }
     }
 
     var body: some View {
@@ -419,6 +432,14 @@ struct MainWindowView: View {
                 ConversationTitleActionsControl(
                     presentation: conversationHeaderPresentation,
                     onCopy: { copyActiveConversationToClipboard(); dismissConversationDrawer() },
+                    onForkConversation: {
+                        Task {
+                            await conversationManager.forkActiveConversation()
+                            await MainActor.run {
+                                dismissConversationDrawer()
+                            }
+                        }
+                    },
                     onPin: {
                         guard let id = conversationManager.activeConversationId else { return }
                         conversationManager.pinConversation(id: id)
@@ -435,6 +456,7 @@ struct MainWindowView: View {
                         dismissConversationDrawer()
                     },
                     onRename: { startRenameActiveConversation(); dismissConversationDrawer() },
+                    onOpenForkParent: { openForkParentConversation() },
                     showDrawer: $showConversationActionsDrawer
                 )
                 .background(GeometryReader { proxy in
@@ -490,459 +512,560 @@ struct MainWindowView: View {
 
     /// Core layout extracted to break up type-checker complexity.
     private var coreLayoutView: some View {
+        applyWorkspaceNotificationModifiers(
+            to: applyConversationSelectionModifiers(
+                to: applyLifecycleModifiers(
+                    to: coreLayoutDecoratedView
+                )
+            )
+        )
+        // Hover->pending-deletion invariant is now owned by
+        // SidebarInteractionState.setConversationHover(conversationId:hovering:)
+    }
+
+    private var coreLayoutGeometryView: some View {
         GeometryReader { geometry in
-            Group {
-                VStack(spacing: 0) {
-                    topBarView
+            coreLayoutContent(geometry: geometry)
+        }
+    }
 
-                    // Main container: sidebar + content with uniform padding
-                    HStack(spacing: 16) {
-                        if !isSettingsOpen {
-                            sidebarView
-                                .animation(VAnimation.panel, value: sidebarExpanded)
-                        }
+    private var coreLayoutDecoratedView: some View {
+        coreLayoutGeometryView
+            .frame(minWidth: 800, minHeight: 600)
+            .overlay(alignment: .top) { zoomIndicatorOverlay }
+            .animation(VAnimation.fast, value: zoomManager.showZoomIndicator)
+            .overlay(alignment: .top) { coreLayoutErrorOverlay }
+            .overlay(alignment: .bottom) { windowToastOverlay }
+            .animation(VAnimation.standard, value: windowState.toastInfo != nil)
+            .overlay { JITPermissionView(manager: jitPermissionManager) }
+    }
 
-                        chatContentView(geometry: geometry)
-                            .clipShape(RoundedRectangle(cornerRadius: VRadius.xl))
-                            .animation(VAnimation.panel, value: sidebarExpanded)
-                            .overlay {
-                                daemonLoadingOverlayIfNeeded
-                            }
+    @ViewBuilder
+    private var zoomIndicatorOverlay: some View {
+        if zoomManager.showZoomIndicator {
+            ZoomIndicatorView(percentage: zoomManager.zoomPercentage)
+                .transition(.move(edge: .top).combined(with: .opacity))
+                .padding(.top, 40)
+                .shadow(color: VColor.auxBlack.opacity(0.15), radius: 8, y: 2)
+        }
+    }
+
+    @ViewBuilder
+    private var coreLayoutErrorOverlay: some View {
+        Group {
+            if let viewModel = conversationManager.activeViewModel {
+                ErrorToastOverlay(
+                    errorManager: viewModel.errorManager,
+                    hasAPIKey: windowState.hasAPIKey,
+                    needsInferenceApiKey: windowState.needsInferenceApiKey,
+                    onOpenModelsAndServices: {
+                        settingsStore.pendingSettingsTab = .modelsAndServices
+                        windowState.selection = .panel(.settings)
+                    },
+                    onRetryConversationError: { viewModel.retryAfterConversationError() },
+                    onCopyDebugInfo: { viewModel.copyConversationErrorDebugDetails() },
+                    onDismissConversationError: { viewModel.dismissConversationError() },
+                    onSendAnyway: { viewModel.sendAnyway() },
+                    onRetryLastMessage: { viewModel.retryLastMessage() },
+                    onDismissError: { viewModel.dismissError() }
+                )
+            } else if windowState.needsInferenceApiKey {
+                ChatConversationErrorToast(
+                    message: "Add an API key to start chatting.",
+                    icon: .keyRound,
+                    accentColor: VColor.systemMidStrong,
+                    actionLabel: "Open Settings",
+                    onAction: {
+                        settingsStore.pendingSettingsTab = .modelsAndServices
+                        windowState.selection = .panel(.settings)
                     }
-                    .padding(16)
-                }
-                .coordinateSpace(name: "coreLayout")
-                .overlay {
-                    // Click-outside-to-dismiss background for preferences drawer
-                    if sidebar.showPreferencesDrawer {
-                        Color.clear
-                            .contentShape(Rectangle())
-                            .onTapGesture {
-                                withAnimation(VAnimation.snappy) {
-                                    sidebar.showPreferencesDrawer = false
-                                }
-                            }
-                    }
-                }
-                .overlay {
-                    // Click-outside-to-dismiss background for conversation actions drawer
-                    if showConversationActionsDrawer {
-                        Color.clear
-                            .contentShape(Rectangle())
-                            .onTapGesture { dismissConversationDrawer() }
-                    }
-                }
-                .overlay(alignment: .topLeading) {
-                    if showConversationActionsDrawer {
-                        let presentation = conversationHeaderPresentation
-                        ConversationActionsDrawer(
-                            presentation: presentation,
-                            onCopy: { copyActiveConversationToClipboard(); dismissConversationDrawer() },
-                            onPin: {
-                                guard let id = conversationManager.activeConversationId else { return }
-                                conversationManager.pinConversation(id: id)
-                                dismissConversationDrawer()
-                            },
-                            onUnpin: {
-                                guard let id = conversationManager.activeConversationId else { return }
-                                conversationManager.unpinConversation(id: id)
-                                dismissConversationDrawer()
-                            },
-                            onArchive: {
-                                guard let id = conversationManager.activeConversationId else { return }
-                                conversationManager.archiveConversation(id: id)
-                                dismissConversationDrawer()
-                            },
-                            onRename: { startRenameActiveConversation(); dismissConversationDrawer() }
-                        )
-                        .offset(x: conversationTitleFrame.minX, y: conversationTitleFrame.maxY)
-                        .zIndex(10)
-                    }
-                }
-                .overlay(alignment: .bottomLeading) {
-                    // Preferences drawer rendered at top level so it floats above all content
-                    if sidebar.showPreferencesDrawer {
-                        let drawerWidth = sidebarExpandedWidth - VSpacing.sm * 2
-                        let bottomPad: CGFloat = 16 + (sidebarExpanded ? VSpacing.md : VSpacing.sm)
-                        // Position above the PreferencesRow: clear the row height + divider + gap
-                        let dividerHeight: CGFloat = 1 + SidebarLayoutMetrics.dividerVerticalPadding * 2
-                        let drawerY = bottomPad + SidebarLayoutMetrics.rowMinHeight + dividerHeight + VSpacing.xs
-                        DrawerMenuView(
-                            authManager: authManager,
-                            onSettings: {
-                                sidebar.showPreferencesDrawer = false
-                                windowState.selection = .panel(.settings)
-                            },
-                            onUsage: {
-                                sidebar.showPreferencesDrawer = false
-                                windowState.selection = .panel(.usageDashboard)
-                            },
-                            onDebug: {
-                                sidebar.showPreferencesDrawer = false
-                                windowState.selection = .panel(.debug)
-                            },
-                            onLogOut: {
-                                sidebar.showPreferencesDrawer = false
-                                AppDelegate.shared?.performLogout()
-                            },
-                            onSignIn: {
-                                sidebar.showPreferencesDrawer = false
-                                Task {
-                                    await authManager.loginWithToast(showToast: { msg, style in
-                                        windowState.showToast(message: msg, style: style)
-                                    })
-                                }
-                            },
-                            onOpenBilling: {
-                                sidebar.showPreferencesDrawer = false
-                                settingsStore.pendingSettingsTab = .billing
-                                windowState.selection = .panel(.settings)
-                            }
-                        )
-                        .frame(width: drawerWidth)
-                        .offset(x: 16 + VSpacing.sm, y: -drawerY)
-                        .zIndex(10)
-                        .transition(.scale(scale: 0.96, anchor: .bottom).combined(with: .opacity))
-                    }
-                }
-                .overlay {
-                    if showConversationSwitcher {
-                        Color.clear
-                            .contentShape(Rectangle())
-                            .onTapGesture {
-                                showConversationSwitcher = false
-                            }
-                    }
-                }
-                .overlay(alignment: .topLeading) {
-                    if showConversationSwitcher {
-                        ConversationSwitcherDrawer(
-                            regularConversations: regularConversations,
-                            activeConversationId: conversationManager.activeConversationId,
-                            conversationManager: conversationManager,
-                            windowState: windowState,
-                            sidebar: sidebar,
-                            selectConversation: { selectConversation($0) },
-                            onDismiss: { showConversationSwitcher = false }
-                        )
-                        .frame(width: sidebarExpandedWidth - VSpacing.sm * 2)
-                        .offset(
-                            x: 16 + sidebarCollapsedWidth - VSpacing.xs,
-                            y: conversationSwitcherTriggerFrame.minY
-                        )
-                        .zIndex(10)
-                        .transition(.opacity)
-                        .onChange(of: conversationManager.activeConversationId) { _, _ in
-                            showConversationSwitcher = false
-                        }
-                        .onChange(of: sidebarExpanded) { _, expanded in
-                            if expanded { showConversationSwitcher = false }
-                        }
+                )
+                .containerRelativeFrame(.horizontal) { width, _ in width * 0.7 }
+                .padding(.top, VSpacing.sm)
+                .animation(VAnimation.fast, value: windowState.needsInferenceApiKey)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .center)
+    }
+
+    @ViewBuilder
+    private var windowToastOverlay: some View {
+        if let toast = windowState.toastInfo {
+            VToast(
+                message: toast.message,
+                style: toast.style == .success ? .success : toast.style == .warning ? .warning : .error,
+                copyableDetail: toast.copyableDetail,
+                primaryAction: toast.primaryAction,
+                onDismiss: { windowState.dismissToast() }
+            )
+            .padding(.horizontal, VSpacing.xl)
+            .padding(.bottom, VSpacing.xl)
+            .transition(.move(edge: .bottom).combined(with: .opacity))
+        }
+    }
+
+    private func applyLifecycleModifiers<Content: View>(to content: Content) -> some View {
+        content
+            .onAppear { handleCoreLayoutAppear() }
+            .task { await observeDaemonStartupErrors() }
+            .onDisappear { handleCoreLayoutDisappear() }
+            .onReceive(NotificationCenter.default.publisher(for: .apiKeyManagerDidChange)) { _ in
+                refreshWindowAPIStatus(isConnected: daemonClient.isConnected, isAuthenticated: authManager.isAuthenticated)
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .inferenceConfigDidChange)) { _ in
+                windowState.refreshInferenceApiKeyStatus()
+            }
+            .onReceive(daemonClient.$isConnected) { connected in
+                handleDaemonConnectionChange(connected)
+            }
+            .onChange(of: authManager.isAuthenticated) { _, isAuthenticated in
+                refreshWindowAPIStatus(isConnected: daemonClient.isConnected, isAuthenticated: isAuthenticated)
+            }
+            .onChange(of: conversationManager.conversations.isEmpty) { _, isEmpty in
+                if !isEmpty && showDaemonLoading {
+                    withAnimation(VAnimation.standard) {
+                        showDaemonLoading = false
                     }
                 }
             }
+            .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+                conversationManager.markActiveConversationSeenIfNeeded()
+            }
+            .onReceive(NotificationCenter.default.publisher(for: NSWindow.willEnterFullScreenNotification)) { notification in
+                guard notification.object is TitleBarZoomableWindow else { return }
+                isInFullscreen = true
+            }
+            .onReceive(NotificationCenter.default.publisher(for: NSWindow.willExitFullScreenNotification)) { notification in
+                guard notification.object is TitleBarZoomableWindow else { return }
+                isInFullscreen = false
+            }
+    }
+
+    private func applyConversationSelectionModifiers<Content: View>(to content: Content) -> some View {
+        content
+            .onChange(of: selectedConversationId) { _, newId in
+                if let newId {
+                    conversationManager.selectConversation(id: newId)
+                }
+            }
+            .onChange(of: conversationManager.activeConversationId) { oldId, newId in
+                handleActiveConversationIdChange(oldId: oldId, newId: newId)
+            }
+    }
+
+    private func applyWorkspaceNotificationModifiers<Content: View>(to content: Content) -> some View {
+        content
+            .onReceive(NotificationCenter.default.publisher(for: .openDynamicWorkspace)) { notification in
+                handleOpenDynamicWorkspace(notification)
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .shareAppCloud)) { notification in
+                guard let appId = notification.userInfo?["appId"] as? String else { return }
+                bundleAndShare(appId: appId)
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .pinApp)) { notification in
+                handlePinAppNotification(notification, isPinned: true)
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .unpinApp)) { notification in
+                handlePinAppNotification(notification, isPinned: false)
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .queryAppPinState)) { notification in
+                handleQueryAppPinState(notification)
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .openDocumentEditor)) { notification in
+                handleOpenDocumentEditor(notification)
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .updateDynamicWorkspace)) { notification in
+                if let updated = notification.userInfo?["surface"] as? Surface,
+                   updated.id == windowState.activeDynamicSurface?.surfaceId {
+                    windowState.activeDynamicParsedSurface = updated
+                }
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .requestAppPreview)) { notification in
+                handleRequestAppPreview(notification)
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .dismissDynamicWorkspace)) { notification in
+                handleDismissDynamicWorkspace(notification)
+            }
+    }
+
+    private func handleCoreLayoutAppear() {
+        // Sync fullscreen state for windows restored into fullscreen by macOS state restoration.
+        if let window = NSApp.windows.first(where: { $0 is TitleBarZoomableWindow }) {
+            isInFullscreen = window.styleMask.contains(.fullScreen)
+        }
+        // Reset stale chat-dock state for users upgrading from older versions.
+        // Without this, isAppChatOpen could remain persisted as true with
+        // no UI to disable it, leaving panels stuck in split mode.
+        isAppChatOpen = false
+        refreshWindowAPIStatus(isConnected: daemonClient.isConnected, isAuthenticated: authManager.isAuthenticated)
+        selectedConversationId = conversationManager.activeConversationId
+        if let activeId = conversationManager.activeConversationId {
+            windowState.persistentConversationId = activeId
+        }
+        daemonClient.startSSE()
+        daemonStartupError = AppDelegate.shared?.daemonStartupError
+    }
+
+    private func observeDaemonStartupErrors() async {
+        guard let appDelegate = AppDelegate.shared else { return }
+        for await error in appDelegate.$daemonStartupError.values {
+            daemonStartupError = error
+        }
+    }
+
+    private func handleCoreLayoutDisappear() {
+        sharing.errorDismissTask?.cancel()
+        sharing.errorDismissTask = nil
+        sharing.credentialPollTimer?.invalidate()
+        sharing.credentialPollTimer = nil
+        sharing.pendingPublish = nil
+        daemonClient.stopSSE()
+    }
+
+    private func refreshWindowAPIStatus(isConnected: Bool, isAuthenticated: Bool) {
+        windowState.refreshAPIKeyStatus(isConnected: isConnected, isAuthenticated: isAuthenticated)
+        windowState.refreshInferenceApiKeyStatus()
+    }
+
+    private func handleDaemonConnectionChange(_ connected: Bool) {
+        refreshWindowAPIStatus(isConnected: connected, isAuthenticated: authManager.isAuthenticated)
+
+        // Fallback for fresh users with 0 conversations: dismiss skeleton after a
+        // short delay once the daemon is connected. Only applies during initial load.
+        guard connected, showDaemonLoading else { return }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+            guard showDaemonLoading else { return }
+            withAnimation(VAnimation.standard) {
+                showDaemonLoading = false
+            }
+        }
+    }
+
+    private func handleActiveConversationIdChange(oldId: UUID?, newId: UUID?) {
+        // Sync activeConversationId changes back to selectedConversationId to keep sidebar selection in sync
+        selectedConversationId = newId
+        // Always sync persistentConversationId so the sidebar highlights the
+        // correct conversation — even when an overlay (.panel, .app) is active.
+        // Without this, archiving the active conversation while viewing a panel
+        // leaves persistentConversationId pointing at the archived (invisible) conversation
+        // and the sidebar shows no active highlight.
+        // Clear it when entering draft mode (nil) so no conversation appears active.
+        windowState.persistentConversationId = newId
+        if case .panel(.intelligence) = windowState.selection {
+            windowState.selection = nil
+        }
+        windowState.selectedSubagentId = nil
+        if let oldId {
+            conversationManager.clearActiveSurface(conversationId: oldId)
+        }
+        conversationManager.activeViewModel?.activeSurfaceId = windowState.isDynamicExpanded ? windowState.activeDynamicSurface?.surfaceId : nil
+        conversationManager.activeViewModel?.isChatDockedToSide = windowState.isDynamicExpanded && windowState.isChatDockOpen
+        conversationManager.activeViewModel?.consumeDeepLinkIfNeeded()
+    }
+
+    private func handleOpenDynamicWorkspace(_ notification: Notification) {
+        if let msg = notification.userInfo?["surfaceMessage"] as? UiSurfaceShowMessage {
+            // Full message from daemon live event (AppDelegate path)
+            windowState.activeDynamicSurface = msg
+            windowState.activeDynamicParsedSurface = Surface.from(msg)
+            if let path = notification.userInfo?["userAppsDirectoryPath"] as? String, !path.isEmpty {
+                windowState.activeDynamicUserAppsDirectory = URL(fileURLWithPath: path, isDirectory: true)
+            } else {
+                let env = daemonClient.config.instanceDir.map { ["BASE_DATA_DIR": $0] }
+                windowState.activeDynamicUserAppsDirectory = VellumAppSchemeHandler.resolveUserAppsDirectory(environment: env)
+            }
+            if let surface = windowState.activeDynamicParsedSurface,
+               case .dynamicPage(let dpData) = surface.data,
+               let appId = dpData.appId {
+                windowState.selection = .app(appId)
+            } else {
+                windowState.selection = .app(msg.surfaceId)
+            }
+        } else if let ref = notification.userInfo?["surfaceRef"] as? SurfaceRef {
+            // Lightweight ref from inline surface click — the daemon will
+            // send a fresh ui_surface_show via SSE with the full payload.
+            let reopenId = ref.appId ?? ref.surfaceId
+            windowState.selection = .app(reopenId)
+            let env = daemonClient.config.instanceDir.map { ["BASE_DATA_DIR": $0] }
+            windowState.activeDynamicUserAppsDirectory = VellumAppSchemeHandler.resolveUserAppsDirectory(environment: env)
+            Task { await AppsClient.openAppAndDispatchSurface(id: reopenId, daemonClient: daemonClient) }
+        }
+    }
+
+    private func handlePinAppNotification(_ notification: Notification, isPinned: Bool) {
+        guard let appId = notification.userInfo?["appId"] as? String else { return }
+        if isPinned {
+            appListManager.pinApp(id: appId)
+        } else {
+            appListManager.unpinApp(id: appId)
+        }
+        NotificationCenter.default.post(
+            name: Notification.Name("MainWindow.appPinStateChanged"),
+            object: nil,
+            userInfo: ["appId": appId, "isPinned": isPinned]
+        )
+    }
+
+    private func handleQueryAppPinState(_ notification: Notification) {
+        guard let appId = notification.userInfo?["appId"] as? String else { return }
+        let pinned = appListManager.apps.first(where: { $0.id == appId })?.isPinned ?? false
+        NotificationCenter.default.post(
+            name: Notification.Name("MainWindow.appPinStateChanged"),
+            object: nil,
+            userInfo: ["appId": appId, "isPinned": pinned]
+        )
+    }
+
+    private func handleOpenDocumentEditor(_ notification: Notification) {
+        guard let surfaceId = notification.userInfo?["documentSurfaceId"] as? String else { return }
+        if documentManager.hasActiveDocument && documentManager.surfaceId == surfaceId {
+            windowState.selection = .panel(.documentEditor)
+            return
+        }
+
+        Task {
+            guard let response = await DocumentClient().fetchDocument(surfaceId: surfaceId) else { return }
+            guard response.success else {
+                windowState.showToast(
+                    message: "Failed to load document\(response.error.map { ": \($0)" } ?? "")",
+                    style: .error
+                )
+                return
+            }
+            documentManager.createDocument(
+                surfaceId: response.surfaceId,
+                conversationId: response.conversationId,
+                title: response.title,
+                initialContent: response.content
+            )
+            windowState.selection = .panel(.documentEditor)
+        }
+    }
+
+    private func handleRequestAppPreview(_ notification: Notification) {
+        guard let appId = notification.userInfo?["appId"] as? String else { return }
+        let html = notification.userInfo?["html"] as? String
+        Task { @MainActor in
+            let response = await AppsClient().fetchAppPreview(appId: appId)
+            if let base64 = response?.preview, !base64.isEmpty {
+                NotificationCenter.default.post(
+                    name: .appPreviewImageCaptured,
+                    object: nil,
+                    userInfo: ["appId": appId, "previewImage": base64]
+                )
+            } else if let html,
+                      let base64 = await OffscreenPreviewCapture.capture(html: html) {
+                _ = await AppsClient().updateAppPreview(appId: appId, preview: base64)
+                NotificationCenter.default.post(
+                    name: .appPreviewImageCaptured,
+                    object: nil,
+                    userInfo: ["appId": appId, "previewImage": base64]
+                )
+            }
+        }
+    }
+
+    private func handleDismissDynamicWorkspace(_ notification: Notification) {
+        if let surfaceId = notification.userInfo?["surfaceId"] as? String {
+            if windowState.activeDynamicSurface?.surfaceId == surfaceId {
+                sharing.showSharePicker = false
+                windowState.closeDynamicPanel()
+            }
+            return
+        }
+
+        if case .app = windowState.selection {
+            sharing.showSharePicker = false
+            windowState.closeDynamicPanel()
+        } else if case .appEditing = windowState.selection {
+            sharing.showSharePicker = false
+            windowState.closeDynamicPanel()
+        }
+    }
+
+    @ViewBuilder
+    private func coreLayoutContent(geometry: GeometryProxy) -> some View {
+        coreLayoutBase(geometry: geometry)
+            .overlay { preferencesDismissLayer }
+            .overlay { conversationActionsDismissLayer }
+            .overlay(alignment: .topLeading) { conversationActionsDrawerLayer }
+            .overlay(alignment: .bottomLeading) { preferencesDrawerLayer }
+            .overlay { conversationSwitcherDismissLayer }
+            .overlay(alignment: .topLeading) { conversationSwitcherDrawerLayer }
             .ignoresSafeArea(edges: .top)
             .background(VColor.surfaceBase.ignoresSafeArea())
             .frame(width: geometry.size.width / zoomManager.zoomLevel,
                    height: geometry.size.height / zoomManager.zoomLevel)
             .scaleEffect(zoomManager.zoomLevel, anchor: .topLeading)
-            .frame(width: geometry.size.width, height: geometry.size.height,
-                   alignment: .topLeading)
-        }
-        .frame(minWidth: 800, minHeight: 600)
-        .overlay(alignment: .top) {
-            if zoomManager.showZoomIndicator {
-                ZoomIndicatorView(percentage: zoomManager.zoomPercentage)
-                    .transition(.move(edge: .top).combined(with: .opacity))
-                    .padding(.top, 40)
-                    .shadow(color: VColor.auxBlack.opacity(0.15), radius: 8, y: 2)
-            }
-        }
-        .animation(VAnimation.fast, value: zoomManager.showZoomIndicator)
-        .overlay(alignment: .top) {
-            Group {
-                if let viewModel = conversationManager.activeViewModel {
-                    ErrorToastOverlay(
-                        errorManager: viewModel.errorManager,
-                        hasAPIKey: windowState.hasAPIKey,
-                        onOpenSettings: { windowState.selection = .panel(.settings) },
-                        onRetryConversationError: { viewModel.retryAfterConversationError() },
-                        onCopyDebugInfo: { viewModel.copyConversationErrorDebugDetails() },
-                        onDismissConversationError: { viewModel.dismissConversationError() },
-                        onSendAnyway: { viewModel.sendAnyway() },
-                        onRetryLastMessage: { viewModel.retryLastMessage() },
-                        onDismissError: { viewModel.dismissError() }
-                    )
-                } else if !windowState.hasAPIKey {
-                    ChatConversationErrorToast(
-                        message: "API key not set. Add one in Settings to start chatting.",
-                        icon: .keyRound,
-                        accentColor: VColor.systemMidStrong,
-                        actionLabel: "Open Settings",
-                        onAction: { windowState.selection = .panel(.settings) }
-                    )
-                    .containerRelativeFrame(.horizontal) { width, _ in width * 0.7 }
-                    .padding(.top, VSpacing.sm)
-                    .animation(VAnimation.fast, value: windowState.hasAPIKey)
-                }
-            }
-            .frame(maxWidth: .infinity, alignment: .center)
-        }
-        .overlay(alignment: .bottom) {
-            if let toast = windowState.toastInfo {
-                VToast(
-                    message: toast.message,
-                    style: toast.style == .success ? .success : toast.style == .warning ? .warning : .error,
-                    copyableDetail: toast.copyableDetail,
-                    primaryAction: toast.primaryAction,
-                    onDismiss: { windowState.dismissToast() }
-                )
-                .padding(.horizontal, VSpacing.xl)
-                .padding(.bottom, VSpacing.xl)
-                .transition(.move(edge: .bottom).combined(with: .opacity))
-            }
-        }
-        .animation(VAnimation.standard, value: windowState.toastInfo != nil)
-        .overlay {
-            JITPermissionView(manager: jitPermissionManager)
-        }
-        .onAppear {
-            // Reset stale chat-dock state for users upgrading from older versions.
-            // Without this, isAppChatOpen could remain persisted as true with
-            // no UI to disable it, leaving panels stuck in split mode.
-            isAppChatOpen = false
-            windowState.refreshAPIKeyStatus(isConnected: daemonClient.isConnected, isAuthenticated: authManager.isAuthenticated)
-            selectedConversationId = conversationManager.activeConversationId
-            // Initialize persistent conversation tracking on launch
-            if let activeId = conversationManager.activeConversationId {
-                windowState.persistentConversationId = activeId
-            }
-            daemonClient.startSSE()
-            // Sync initial daemon startup error state
-            daemonStartupError = AppDelegate.shared?.daemonStartupError
-        }
-        .task {
-            guard let appDelegate = AppDelegate.shared else { return }
-            for await error in appDelegate.$daemonStartupError.values {
-                daemonStartupError = error
-            }
-        }
-        .onDisappear {
-            sharing.errorDismissTask?.cancel()
-            sharing.errorDismissTask = nil
-            sharing.credentialPollTimer?.invalidate()
-            sharing.credentialPollTimer = nil
-            sharing.pendingPublish = nil
-            if let handler = sharing.previousVercelHandler {
-                daemonClient.onVercelApiConfigResponse = handler
-                sharing.previousVercelHandler = nil
-            }
-            daemonClient.stopSSE()
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .apiKeyManagerDidChange)) { _ in
-            windowState.refreshAPIKeyStatus(isConnected: daemonClient.isConnected, isAuthenticated: authManager.isAuthenticated)
-        }
-        .onReceive(daemonClient.$isConnected) { connected in
-            windowState.refreshAPIKeyStatus(isConnected: connected, isAuthenticated: authManager.isAuthenticated)
+            .frame(width: geometry.size.width, height: geometry.size.height, alignment: .topLeading)
+    }
 
-            // Fallback for fresh users with 0 conversations: dismiss skeleton after a
-            // short delay once the daemon is connected. Only applies during initial load.
-            guard connected, showDaemonLoading else { return }
-            DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
-                guard showDaemonLoading else { return }
-                withAnimation(VAnimation.standard) {
-                    showDaemonLoading = false
+    @ViewBuilder
+    private func coreLayoutBase(geometry: GeometryProxy) -> some View {
+        VStack(spacing: 0) {
+            topBarView
+
+            // Main container: sidebar + content with uniform padding
+            HStack(spacing: 16) {
+                if !isSettingsOpen {
+                    sidebarView
+                        .animation(VAnimation.panel, value: sidebarExpanded)
                 }
-            }
-        }
-        .onChange(of: authManager.isAuthenticated) { _, isAuthenticated in
-            windowState.refreshAPIKeyStatus(isConnected: daemonClient.isConnected, isAuthenticated: isAuthenticated)
-        }
-        .onChange(of: conversationManager.conversations.isEmpty) { _, isEmpty in
-            // Dismiss skeleton when conversations arrive from daemon
-            if !isEmpty && showDaemonLoading {
-                withAnimation(VAnimation.standard) {
-                    showDaemonLoading = false
-                }
-            }
-        }
-        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
-            conversationManager.markActiveConversationSeenIfNeeded()
-        }
-        .onChange(of: selectedConversationId) { _, newId in
-            if let newId = newId {
-                conversationManager.selectConversation(id: newId)
-            }
-        }
-        .onChange(of: conversationManager.activeConversationId) { oldId, newId in
-            // Sync activeConversationId changes back to selectedConversationId to keep sidebar selection in sync
-            selectedConversationId = newId
-            // Always sync persistentConversationId so the sidebar highlights the
-            // correct conversation — even when an overlay (.panel, .app) is active.
-            // Without this, archiving the active conversation while viewing a panel
-            // leaves persistentConversationId pointing at the archived (invisible) conversation
-            // and the sidebar shows no active highlight.
-            // Clear it when entering draft mode (nil) so no conversation appears active.
-            windowState.persistentConversationId = newId
-            if case .panel(.intelligence) = windowState.selection {
-                windowState.selection = nil
-            }
-            // Clear subagent detail panel on conversation switch
-            windowState.selectedSubagentId = nil
-            // Clear stale activeSurfaceId on the old conversation and sync the new one
-            if let oldId {
-                conversationManager.clearActiveSurface(conversationId: oldId)
-            }
-            conversationManager.activeViewModel?.activeSurfaceId = windowState.isDynamicExpanded ? windowState.activeDynamicSurface?.surfaceId : nil
-            conversationManager.activeViewModel?.isChatDockedToSide = windowState.isDynamicExpanded && windowState.isChatDockOpen
-            // Consume any buffered deep-link message now that a conversation is active.
-            // Mirrors the iOS pattern (ChatTabView.onAppear, ConversationListView.onAppear)
-            // where consumeDeepLinkIfNeeded() is called when the view model becomes
-            // visible. Without this, deep links arriving before the window/conversation is
-            // fully initialized are silently dropped on macOS.
-            conversationManager.activeViewModel?.consumeDeepLinkIfNeeded()
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .openDynamicWorkspace)) { notification in
-            if let msg = notification.userInfo?["surfaceMessage"] as? UiSurfaceShowMessage {
-                // Full message from daemon live event (AppDelegate path)
-                windowState.activeDynamicSurface = msg
-                windowState.activeDynamicParsedSurface = Surface.from(msg)
-                if let path = notification.userInfo?["userAppsDirectoryPath"] as? String, !path.isEmpty {
-                    windowState.activeDynamicUserAppsDirectory = URL(fileURLWithPath: path, isDirectory: true)
-                } else {
-                    let env = daemonClient.config.instanceDir.map { ["BASE_DATA_DIR": $0] }
-                    windowState.activeDynamicUserAppsDirectory = VellumAppSchemeHandler.resolveUserAppsDirectory(environment: env)
-                }
-                // Determine the app ID from the surface if available
-                if let surface = windowState.activeDynamicParsedSurface,
-                   case .dynamicPage(let dpData) = surface.data,
-                   let appId = dpData.appId {
-                    // Open in view-only mode; user can enter edit mode
-                    // via the Edit button in the toolbar.
-                    windowState.selection = .app(appId)
-                } else {
-                    windowState.selection = .app(msg.surfaceId)
-                }
-            } else if let ref = notification.userInfo?["surfaceRef"] as? SurfaceRef {
-                // Lightweight ref from inline surface click — the daemon will
-                // send a fresh ui_surface_show via SSE with the full payload.
-                // Use the real appId for the app_open_request when available,
-                // because surfaceId is a daemon-generated identifier
-                // (e.g. "app-open-<uuid>") that doesn't match any real app.
-                let reopenId = ref.appId ?? ref.surfaceId
-                windowState.selection = .app(reopenId)
-                let env = daemonClient.config.instanceDir.map { ["BASE_DATA_DIR": $0] }
-                windowState.activeDynamicUserAppsDirectory = VellumAppSchemeHandler.resolveUserAppsDirectory(environment: env)
-                Task { await AppsClient.openAppAndDispatchSurface(id: reopenId, daemonClient: daemonClient) }
-            }
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .shareAppCloud)) { notification in
-            guard let appId = notification.userInfo?["appId"] as? String else { return }
-            bundleAndShare(appId: appId)
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .pinApp)) { notification in
-            guard let appId = notification.userInfo?["appId"] as? String else { return }
-            appListManager.pinApp(id: appId)
-            NotificationCenter.default.post(
-                name: Notification.Name("MainWindow.appPinStateChanged"),
-                object: nil,
-                userInfo: ["appId": appId, "isPinned": true]
-            )
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .unpinApp)) { notification in
-            guard let appId = notification.userInfo?["appId"] as? String else { return }
-            appListManager.unpinApp(id: appId)
-            NotificationCenter.default.post(
-                name: Notification.Name("MainWindow.appPinStateChanged"),
-                object: nil,
-                userInfo: ["appId": appId, "isPinned": false]
-            )
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .queryAppPinState)) { notification in
-            guard let appId = notification.userInfo?["appId"] as? String else { return }
-            let pinned = appListManager.apps.first(where: { $0.id == appId })?.isPinned ?? false
-            NotificationCenter.default.post(
-                name: Notification.Name("MainWindow.appPinStateChanged"),
-                object: nil,
-                userInfo: ["appId": appId, "isPinned": pinned]
-            )
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .openDocumentEditor)) { notification in
-            guard let surfaceId = notification.userInfo?["documentSurfaceId"] as? String else { return }
-            if documentManager.hasActiveDocument && documentManager.surfaceId == surfaceId {
-                // Document already in memory — just show the panel
-                windowState.selection = .panel(.documentEditor)
-            } else {
-                Task {
-                    guard let response = await DocumentClient().fetchDocument(surfaceId: surfaceId) else { return }
-                    guard response.success else {
-                        windowState.showToast(
-                            message: "Failed to load document\(response.error.map { ": \($0)" } ?? "")",
-                            style: .error
-                        )
-                        return
+
+                chatContentView(geometry: geometry)
+                    .clipShape(RoundedRectangle(cornerRadius: VRadius.xl))
+                    .animation(VAnimation.panel, value: sidebarExpanded)
+                    .overlay {
+                        daemonLoadingOverlayIfNeeded
                     }
-                    documentManager.createDocument(
-                        surfaceId: response.surfaceId,
-                        conversationId: response.conversationId,
-                        title: response.title,
-                        initialContent: response.content
-                    )
-                    windowState.selection = .panel(.documentEditor)
-                }
             }
+            .padding(16)
         }
-        .onReceive(NotificationCenter.default.publisher(for: .updateDynamicWorkspace)) { notification in
-            if let updated = notification.userInfo?["surface"] as? Surface,
-               updated.id == windowState.activeDynamicSurface?.surfaceId {
-                windowState.activeDynamicParsedSurface = updated
-            }
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .requestAppPreview)) { notification in
-            guard let appId = notification.userInfo?["appId"] as? String else { return }
-            let html = notification.userInfo?["html"] as? String
-            Task { @MainActor in
-                let response = await AppsClient().fetchAppPreview(appId: appId)
-                if let base64 = response?.preview, !base64.isEmpty {
-                    NotificationCenter.default.post(
-                        name: .appPreviewImageCaptured,
-                        object: nil,
-                        userInfo: ["appId": appId, "previewImage": base64]
-                    )
-                } else if let html = html {
-                    // No stored preview — capture one via offscreen WKWebView
-                    if let base64 = await OffscreenPreviewCapture.capture(html: html) {
-                        _ = await AppsClient().updateAppPreview(appId: appId, preview: base64)
-                        NotificationCenter.default.post(
-                            name: .appPreviewImageCaptured,
-                            object: nil,
-                            userInfo: ["appId": appId, "previewImage": base64]
-                        )
+        .coordinateSpace(name: "coreLayout")
+    }
+
+    @ViewBuilder
+    private var preferencesDismissLayer: some View {
+        if sidebar.showPreferencesDrawer {
+            Color.clear
+                .contentShape(Rectangle())
+                .onTapGesture {
+                    withAnimation(VAnimation.snappy) {
+                        sidebar.showPreferencesDrawer = false
                     }
                 }
+        }
+    }
+
+    @ViewBuilder
+    private var conversationActionsDismissLayer: some View {
+        if showConversationActionsDrawer {
+            Color.clear
+                .contentShape(Rectangle())
+                .onTapGesture { dismissConversationDrawer() }
+        }
+    }
+
+    @ViewBuilder
+    private var conversationActionsDrawerLayer: some View {
+        if showConversationActionsDrawer {
+            ConversationActionsDrawer(
+                presentation: conversationHeaderPresentation,
+                onCopy: { copyActiveConversationToClipboard(); dismissConversationDrawer() },
+                onForkConversation: {
+                    Task {
+                        await conversationManager.forkActiveConversation()
+                        await MainActor.run {
+                            dismissConversationDrawer()
+                        }
+                    }
+                },
+                onPin: {
+                    guard let id = conversationManager.activeConversationId else { return }
+                    conversationManager.pinConversation(id: id)
+                    dismissConversationDrawer()
+                },
+                onUnpin: {
+                    guard let id = conversationManager.activeConversationId else { return }
+                    conversationManager.unpinConversation(id: id)
+                    dismissConversationDrawer()
+                },
+                onArchive: {
+                    guard let id = conversationManager.activeConversationId else { return }
+                    conversationManager.archiveConversation(id: id)
+                    dismissConversationDrawer()
+                },
+                onRename: { startRenameActiveConversation(); dismissConversationDrawer() }
+            )
+            .offset(x: conversationTitleFrame.minX, y: conversationTitleFrame.maxY)
+            .zIndex(10)
+        }
+    }
+
+    @ViewBuilder
+    private var preferencesDrawerLayer: some View {
+        if sidebar.showPreferencesDrawer {
+            let drawerWidth = sidebarExpandedWidth - VSpacing.sm * 2
+            let bottomPad: CGFloat = 16 + (sidebarExpanded ? VSpacing.md : VSpacing.sm)
+            // Position above the PreferencesRow: clear the row height + divider + gap
+            let dividerHeight: CGFloat = 1 + SidebarLayoutMetrics.dividerVerticalPadding * 2
+            let drawerY = bottomPad + SidebarLayoutMetrics.rowMinHeight + dividerHeight + VSpacing.xs
+            DrawerMenuView(
+                authManager: authManager,
+                onSettings: {
+                    sidebar.showPreferencesDrawer = false
+                    windowState.selection = .panel(.settings)
+                },
+                onUsage: {
+                    sidebar.showPreferencesDrawer = false
+                    windowState.selection = .panel(.usageDashboard)
+                },
+                onDebug: {
+                    sidebar.showPreferencesDrawer = false
+                    windowState.selection = .panel(.debug)
+                },
+                onLogOut: {
+                    sidebar.showPreferencesDrawer = false
+                    AppDelegate.shared?.performLogout()
+                },
+                onSignIn: {
+                    sidebar.showPreferencesDrawer = false
+                    Task {
+                        await authManager.loginWithToast(showToast: { msg, style in
+                            windowState.showToast(message: msg, style: style)
+                        })
+                    }
+                },
+                onOpenBilling: {
+                    sidebar.showPreferencesDrawer = false
+                    settingsStore.pendingSettingsTab = .billing
+                    windowState.selection = .panel(.settings)
+                }
+            )
+            .frame(width: drawerWidth)
+            .offset(x: 16 + VSpacing.sm, y: -drawerY)
+            .zIndex(10)
+            .transition(.scale(scale: 0.96, anchor: .bottom).combined(with: .opacity))
+        }
+    }
+
+    @ViewBuilder
+    private var conversationSwitcherDismissLayer: some View {
+        if showConversationSwitcher {
+            Color.clear
+                .contentShape(Rectangle())
+                .onTapGesture {
+                    showConversationSwitcher = false
+                }
+        }
+    }
+
+    @ViewBuilder
+    private var conversationSwitcherDrawerLayer: some View {
+        if showConversationSwitcher {
+            ConversationSwitcherDrawer(
+                regularConversations: regularConversations,
+                activeConversationId: conversationManager.activeConversationId,
+                conversationManager: conversationManager,
+                windowState: windowState,
+                sidebar: sidebar,
+                selectConversation: { selectConversation($0) },
+                onDismiss: { showConversationSwitcher = false }
+            )
+            .frame(width: sidebarExpandedWidth - VSpacing.sm * 2)
+            .offset(
+                x: 16 + sidebarCollapsedWidth - VSpacing.xs,
+                y: conversationSwitcherTriggerFrame.minY
+            )
+            .zIndex(10)
+            .transition(.opacity)
+            .onChange(of: conversationManager.activeConversationId) { _, _ in
+                showConversationSwitcher = false
+            }
+            .onChange(of: sidebarExpanded) { _, expanded in
+                if expanded { showConversationSwitcher = false }
             }
         }
-        .onReceive(NotificationCenter.default.publisher(for: .dismissDynamicWorkspace)) { notification in
-            // If a specific surfaceId was dismissed, only clear if it matches.
-            if let surfaceId = notification.userInfo?["surfaceId"] as? String {
-                if windowState.activeDynamicSurface?.surfaceId == surfaceId {
-                    sharing.showSharePicker = false
-                    windowState.closeDynamicPanel()
-                }
-            } else {
-                // Bulk dismiss (dismissAll) — only clear if currently showing an app workspace.
-                // Avoid kicking the user out of unrelated panels (Settings, Agent, etc.).
-                if case .app = windowState.selection {
-                    sharing.showSharePicker = false
-                    windowState.closeDynamicPanel()
-                } else if case .appEditing = windowState.selection {
-                    sharing.showSharePicker = false
-                    windowState.closeDynamicPanel()
-                }
-            }
-        }
-        // Hover→pending-deletion invariant is now owned by
-        // SidebarInteractionState.setConversationHover(conversationId:hovering:)
     }
 
     /// Restart the daemon process without re-hatching a new assistant.
@@ -952,21 +1075,29 @@ struct MainWindowView: View {
         Task {
             let assistantName = UserDefaults.standard.string(forKey: "connectedAssistantId")
             guard let appDelegate = AppDelegate.shared else { return }
-            appDelegate.assistantCli.stop(name: assistantName)
+            appDelegate.vellumCli.stop(name: assistantName)
             do {
-                try await appDelegate.assistantCli.hatch(
+                try await appDelegate.vellumCli.hatch(
                     name: assistantName,
                     daemonOnly: true,
                     restart: true
                 )
-            } catch let error as AssistantCli.CLIError {
-                if case .daemonStartupFailed(let startupError) = error {
-                    appDelegate.daemonStartupError = startupError
-                    daemonStartupError = startupError
-                    MetricKitManager.reportDaemonStartupFailure(startupError)
+            } catch let error as VellumCli.CLIError {
+                let startupError: DaemonStartupError
+                if case .daemonStartupFailed(let parsed) = error {
+                    startupError = parsed
+                } else {
+                    startupError = DaemonStartupError(category: "UNKNOWN", message: error.localizedDescription, detail: nil)
                 }
+                appDelegate.daemonStartupError = startupError
+                daemonStartupError = startupError
+                MetricKitManager.reportDaemonStartupFailure(startupError)
                 return
             } catch {
+                let startupError = DaemonStartupError(category: "UNKNOWN", message: error.localizedDescription, detail: nil)
+                appDelegate.daemonStartupError = startupError
+                daemonStartupError = startupError
+                MetricKitManager.reportDaemonStartupFailure(startupError)
                 return
             }
             // Reconnect the daemon client after a successful restart
@@ -990,7 +1121,8 @@ struct MainWindowView: View {
 private struct ErrorToastOverlay: View {
     @ObservedObject var errorManager: ChatErrorManager
     let hasAPIKey: Bool
-    let onOpenSettings: () -> Void
+    let needsInferenceApiKey: Bool
+    let onOpenModelsAndServices: () -> Void
     let onRetryConversationError: () -> Void
     let onCopyDebugInfo: () -> Void
     let onDismissConversationError: () -> Void
@@ -1000,13 +1132,13 @@ private struct ErrorToastOverlay: View {
 
     var body: some View {
         VStack(alignment: .center, spacing: VSpacing.xs) {
-            if !hasAPIKey {
+            if needsInferenceApiKey {
                 ChatConversationErrorToast(
-                    message: "API key not set. Add one in Settings to start chatting.",
+                    message: "Add an API key to start chatting.",
                     icon: .keyRound,
                     accentColor: VColor.systemMidStrong,
                     actionLabel: "Open Settings",
-                    onAction: onOpenSettings
+                    onAction: onOpenModelsAndServices
                 )
                 .containerRelativeFrame(.horizontal) { width, _ in width * 0.7 }
             }
@@ -1033,7 +1165,7 @@ private struct ErrorToastOverlay: View {
             }
         }
         .padding(.top, VSpacing.sm)
-        .animation(VAnimation.fast, value: hasAPIKey)
+        .animation(VAnimation.fast, value: needsInferenceApiKey)
         .animation(VAnimation.fast, value: errorManager.conversationError != nil)
         .animation(VAnimation.fast, value: errorManager.errorText != nil)
     }

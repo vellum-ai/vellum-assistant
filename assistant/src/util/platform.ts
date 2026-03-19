@@ -366,6 +366,24 @@ export function getWorkspaceDir(): string {
   return join(getRootDir(), "workspace");
 }
 
+/**
+ * Returns a display-friendly workspace path for embedding in agent-facing text
+ * (skill bodies, tool descriptions). Replaces the home directory prefix with `~`
+ * so paths stay concise and portable across machines.
+ *
+ * Examples:
+ *   /Users/sidd/.vellum/workspace → ~/.vellum/workspace
+ *   /data/.vellum/workspace       → /data/.vellum/workspace
+ */
+export function getWorkspaceDirDisplay(): string {
+  const abs = getWorkspaceDir();
+  const home = homedir();
+  if (abs.startsWith(home + "/") || abs === home) {
+    return "~" + abs.slice(home.length);
+  }
+  return abs;
+}
+
 /** Returns ~/.vellum/workspace/config.json */
 export function getWorkspaceConfigPath(): string {
   return join(getWorkspaceDir(), "config.json");
@@ -379,6 +397,11 @@ export function getWorkspaceSkillsDir(): string {
 /** Returns ~/.vellum/workspace/hooks */
 export function getWorkspaceHooksDir(): string {
   return join(getWorkspaceDir(), "hooks");
+}
+
+/** Returns ~/.vellum/workspace/conversations */
+export function getConversationsDir(): string {
+  return join(getWorkspaceDir(), "conversations");
 }
 
 /** Returns the workspace path for a prompt file (e.g. IDENTITY.md, SOUL.md, USER.md). */
@@ -399,6 +422,7 @@ export function ensureDataDir(): void {
     join(root, "hooks"),
     join(workspace, "skills"),
     join(workspace, "embedding-models"),
+    join(workspace, "conversations"),
     // Data sub-dirs under workspace
     wsData,
     join(wsData, "db"),

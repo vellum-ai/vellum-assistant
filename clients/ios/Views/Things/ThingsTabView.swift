@@ -68,9 +68,4 @@ struct ThingsDisconnectedView: View {
         }
     }
 }
-
-#Preview {
-    ThingsDisconnectedView()
-        .environmentObject(ClientProvider(client: DaemonClient(config: .default)))
-}
 #endif

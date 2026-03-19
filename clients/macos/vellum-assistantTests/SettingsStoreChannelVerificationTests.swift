@@ -6,7 +6,6 @@ import XCTest
 final class SettingsStoreChannelVerificationTests: XCTestCase {
 
     private var daemonClient: DaemonClient!
-    private var sentMessages: [Any] = []
     private var mockSettingsClient: MockSettingsClient!
     private var store: SettingsStore!
     private let connectedAssistantIdDefaultsKey = "connectedAssistantId"
@@ -15,14 +14,10 @@ final class SettingsStoreChannelVerificationTests: XCTestCase {
 
     override func setUp() {
         super.setUp()
-        sentMessages = []
         previousConnectedAssistantId = UserDefaults.standard.string(forKey: connectedAssistantIdDefaultsKey)
         UserDefaults.standard.set(testAssistantId, forKey: connectedAssistantIdDefaultsKey)
         daemonClient = DaemonClient()
         daemonClient.isConnected = true
-        daemonClient.sendOverride = { [weak self] message in
-            self?.sentMessages.append(message)
-        }
         mockSettingsClient = MockSettingsClient()
         store = SettingsStore(daemonClient: daemonClient, settingsClient: mockSettingsClient)
     }
@@ -31,7 +26,6 @@ final class SettingsStoreChannelVerificationTests: XCTestCase {
         store = nil
         daemonClient = nil
         mockSettingsClient = nil
-        sentMessages = []
         if let previousConnectedAssistantId {
             UserDefaults.standard.set(previousConnectedAssistantId, forKey: connectedAssistantIdDefaultsKey)
         } else {
@@ -82,15 +76,20 @@ final class SettingsStoreChannelVerificationTests: XCTestCase {
         XCTAssertTrue(store.telegramVerificationInProgress)
         XCTAssertNil(store.telegramVerificationError)
 
-        let verificationMessages = sentMessages.compactMap { $0 as? ChannelVerificationSessionRequestMessage }
-        let sessionMessages = verificationMessages.filter { $0.action == "create_session" && $0.channel == "telegram" }
-        XCTAssertEqual(sessionMessages.count, 1)
+        let predicate = NSPredicate { _, _ in
+            self.mockSettingsClient.sendChannelVerificationSessionCalls.contains { $0.action == "create_session" && $0.channel == "telegram" }
+        }
+        let expectation = XCTNSPredicateExpectation(predicate: predicate, object: nil)
+        wait(for: [expectation], timeout: 2.0)
+
+        let sessionCalls = mockSettingsClient.sendChannelVerificationSessionCalls.filter { $0.action == "create_session" && $0.channel == "telegram" }
+        XCTAssertEqual(sessionCalls.count, 1)
     }
 
     // MARK: - Successful status response
 
     func testSuccessfulStatusResponseUpdatesTelegramVerificationState() {
-        daemonClient.onChannelVerificationSessionResponse?(ChannelVerificationSessionResponseMessage(
+        store.applyChannelVerificationResponse(ChannelVerificationSessionResponseMessage(
             type: "channel_verification_session_response",
             success: true,
             secret: nil,
@@ -118,7 +117,7 @@ final class SettingsStoreChannelVerificationTests: XCTestCase {
     func testSuccessfulSessionResponseProvidesInstruction() {
         store.telegramVerificationInProgress = true
 
-        daemonClient.onChannelVerificationSessionResponse?(ChannelVerificationSessionResponseMessage(
+        store.applyChannelVerificationResponse(ChannelVerificationSessionResponseMessage(
             type: "channel_verification_session_response",
             success: true,
             secret: "abc123",
@@ -144,7 +143,7 @@ final class SettingsStoreChannelVerificationTests: XCTestCase {
     func testUnverifiedStatusResponseDoesNotClearExistingTelegramInstruction() {
         store.telegramVerificationInstruction = "Send code abc123 on Telegram"
 
-        daemonClient.onChannelVerificationSessionResponse?(ChannelVerificationSessionResponseMessage(
+        store.applyChannelVerificationResponse(ChannelVerificationSessionResponseMessage(
             type: "channel_verification_session_response",
             success: true,
             secret: nil,
@@ -164,7 +163,7 @@ final class SettingsStoreChannelVerificationTests: XCTestCase {
     func testVerifiedStatusResponseClearsExistingTelegramInstruction() {
         store.telegramVerificationInstruction = "Send code abc123 on Telegram"
 
-        daemonClient.onChannelVerificationSessionResponse?(ChannelVerificationSessionResponseMessage(
+        store.applyChannelVerificationResponse(ChannelVerificationSessionResponseMessage(
             type: "channel_verification_session_response",
             success: true,
             secret: nil,
@@ -186,7 +185,7 @@ final class SettingsStoreChannelVerificationTests: XCTestCase {
     func testFailedResponseSetsTelegramError() {
         store.telegramVerificationInProgress = true
 
-        daemonClient.onChannelVerificationSessionResponse?(ChannelVerificationSessionResponseMessage(
+        store.applyChannelVerificationResponse(ChannelVerificationSessionResponseMessage(
             type: "channel_verification_session_response",
             success: false,
             secret: nil,
@@ -210,7 +209,7 @@ final class SettingsStoreChannelVerificationTests: XCTestCase {
     // MARK: - Unknown channel is silently ignored
 
     func testResponseForUnknownChannelIsIgnored() {
-        daemonClient.onChannelVerificationSessionResponse?(ChannelVerificationSessionResponseMessage(
+        store.applyChannelVerificationResponse(ChannelVerificationSessionResponseMessage(
             type: "channel_verification_session_response",
             success: true,
             secret: nil,
@@ -229,7 +228,7 @@ final class SettingsStoreChannelVerificationTests: XCTestCase {
     }
 
     func testResponseWithNilChannelAndNoPendingStateIsIgnored() {
-        daemonClient.onChannelVerificationSessionResponse?(ChannelVerificationSessionResponseMessage(
+        store.applyChannelVerificationResponse(ChannelVerificationSessionResponseMessage(
             type: "channel_verification_session_response",
             success: true,
             secret: nil,
@@ -247,10 +246,7 @@ final class SettingsStoreChannelVerificationTests: XCTestCase {
     }
 
     func testResponseWithNilChannelUsesPendingVerificationChannel() {
-        store.startChannelVerification(channel: "telegram")
-        XCTAssertTrue(store.telegramVerificationInProgress)
-
-        daemonClient.onChannelVerificationSessionResponse?(ChannelVerificationSessionResponseMessage(
+        mockSettingsClient.sendChannelVerificationSessionResponse = ChannelVerificationSessionResponseMessage(
             type: "channel_verification_session_response",
             success: true,
             secret: "abc123",
@@ -261,7 +257,10 @@ final class SettingsStoreChannelVerificationTests: XCTestCase {
             assistantId: "self",
             guardianDeliveryChatId: nil,
             error: nil
-        ))
+        )
+
+        store.startChannelVerification(channel: "telegram")
+        XCTAssertTrue(store.telegramVerificationInProgress)
 
         let predicate = NSPredicate { _, _ in !self.store.telegramVerificationInProgress }
         let expectation = XCTNSPredicateExpectation(predicate: predicate, object: nil)
@@ -274,18 +273,7 @@ final class SettingsStoreChannelVerificationTests: XCTestCase {
 
     func testSessionResponseStartsVerificationStatusPolling() {
         let pollingMock = MockSettingsClient()
-        let pollingStore = SettingsStore(
-            daemonClient: daemonClient,
-            settingsClient: pollingMock,
-            verificationStatusPollInterval: 0.05,
-            verificationStatusPollWindow: 2.0
-        )
-        pollingStore.startChannelVerification(channel: "telegram")
-
-        let statusCountBefore = pollingMock.fetchChannelVerificationStatusCalls
-            .filter { $0 == "telegram" }.count
-
-        daemonClient.onChannelVerificationSessionResponse?(ChannelVerificationSessionResponseMessage(
+        pollingMock.sendChannelVerificationSessionResponse = ChannelVerificationSessionResponseMessage(
             type: "channel_verification_session_response",
             success: true,
             secret: "poll-me",
@@ -296,7 +284,18 @@ final class SettingsStoreChannelVerificationTests: XCTestCase {
             assistantId: testAssistantId,
             guardianDeliveryChatId: nil,
             error: nil
-        ))
+        )
+        let pollingStore = SettingsStore(
+            daemonClient: daemonClient,
+            settingsClient: pollingMock,
+            verificationStatusPollInterval: 0.05,
+            verificationStatusPollWindow: 2.0
+        )
+
+        let statusCountBefore = pollingMock.fetchChannelVerificationStatusCalls
+            .filter { $0 == "telegram" }.count
+
+        pollingStore.startChannelVerification(channel: "telegram")
 
         let predicate = NSPredicate { _, _ in
             let statusCountAfter = pollingMock.fetchChannelVerificationStatusCalls
@@ -309,15 +308,7 @@ final class SettingsStoreChannelVerificationTests: XCTestCase {
 
     func testVerifiedResponseStopsVerificationStatusPolling() {
         let pollingMock = MockSettingsClient()
-        let pollingStore = SettingsStore(
-            daemonClient: daemonClient,
-            settingsClient: pollingMock,
-            verificationStatusPollInterval: 0.05,
-            verificationStatusPollWindow: 2.0
-        )
-        pollingStore.startChannelVerification(channel: "telegram")
-
-        daemonClient.onChannelVerificationSessionResponse?(ChannelVerificationSessionResponseMessage(
+        pollingMock.sendChannelVerificationSessionResponse = ChannelVerificationSessionResponseMessage(
             type: "channel_verification_session_response",
             success: true,
             secret: "poll-me",
@@ -328,7 +319,14 @@ final class SettingsStoreChannelVerificationTests: XCTestCase {
             assistantId: testAssistantId,
             guardianDeliveryChatId: nil,
             error: nil
-        ))
+        )
+        let pollingStore = SettingsStore(
+            daemonClient: daemonClient,
+            settingsClient: pollingMock,
+            verificationStatusPollInterval: 0.05,
+            verificationStatusPollWindow: 2.0
+        )
+        pollingStore.startChannelVerification(channel: "telegram")
 
         let pollingStartedPredicate = NSPredicate { _, _ in
             let statusCount = pollingMock.fetchChannelVerificationStatusCalls
@@ -338,7 +336,7 @@ final class SettingsStoreChannelVerificationTests: XCTestCase {
         let pollingStartedExpectation = XCTNSPredicateExpectation(predicate: pollingStartedPredicate, object: nil)
         wait(for: [pollingStartedExpectation], timeout: 2.0)
 
-        daemonClient.onChannelVerificationSessionResponse?(ChannelVerificationSessionResponseMessage(
+        pollingStore.applyChannelVerificationResponse(ChannelVerificationSessionResponseMessage(
             type: "channel_verification_session_response",
             success: true,
             secret: nil,
@@ -371,15 +369,16 @@ final class SettingsStoreChannelVerificationTests: XCTestCase {
     // MARK: - revokeChannelVerification
 
     func testRevokeChannelVerificationSendsRevokeAction() {
-        let verificationMessagesBefore = sentMessages.compactMap { $0 as? ChannelVerificationSessionRequestMessage }
-        let revokeCountBefore = verificationMessagesBefore.filter { $0.action == "revoke" }.count
-        XCTAssertEqual(revokeCountBefore, 0)
-
         store.revokeChannelVerification(channel: "telegram")
 
-        let verificationMessages = sentMessages.compactMap { $0 as? ChannelVerificationSessionRequestMessage }
-        let revokeMessages = verificationMessages.filter { $0.action == "revoke" && $0.channel == "telegram" }
-        XCTAssertEqual(revokeMessages.count, 1)
+        let predicate = NSPredicate { _, _ in
+            self.mockSettingsClient.sendChannelVerificationSessionCalls.contains { $0.action == "revoke" && $0.channel == "telegram" }
+        }
+        let expectation = XCTNSPredicateExpectation(predicate: predicate, object: nil)
+        wait(for: [expectation], timeout: 2.0)
+
+        let revokeCalls = mockSettingsClient.sendChannelVerificationSessionCalls.filter { $0.action == "revoke" && $0.channel == "telegram" }
+        XCTAssertEqual(revokeCalls.count, 1)
     }
 
     // MARK: - No daemon client doesn't crash
@@ -401,7 +400,7 @@ final class SettingsStoreChannelVerificationTests: XCTestCase {
     func testSuccessfulResponseClearsPreviousError() {
         store.telegramVerificationError = "old error"
 
-        daemonClient.onChannelVerificationSessionResponse?(ChannelVerificationSessionResponseMessage(
+        store.applyChannelVerificationResponse(ChannelVerificationSessionResponseMessage(
             type: "channel_verification_session_response",
             success: true,
             secret: nil,
@@ -435,14 +434,17 @@ final class SettingsStoreChannelVerificationTests: XCTestCase {
     // MARK: - Unknown channel in startChannelVerification is no-op
 
     func testStartVerificationWithUnknownChannelIsNoOp() {
-        let messageCountBefore = sentMessages.compactMap { $0 as? ChannelVerificationSessionRequestMessage }
-            .filter { $0.action == "create_session" }.count
+        let callCountBefore = mockSettingsClient.sendChannelVerificationSessionCalls.count
 
         store.startChannelVerification(channel: "discord")
 
-        let messageCountAfter = sentMessages.compactMap { $0 as? ChannelVerificationSessionRequestMessage }
-            .filter { $0.action == "create_session" }.count
-        XCTAssertEqual(messageCountAfter, messageCountBefore)
+        // Give a brief window for any async task to fire (it shouldn't)
+        let settle = expectation(description: "settle")
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { settle.fulfill() }
+        wait(for: [settle], timeout: 1.0)
+
+        let callCountAfter = mockSettingsClient.sendChannelVerificationSessionCalls.count
+        XCTAssertEqual(callCountAfter, callCountBefore)
     }
 
     // MARK: - Init sends status requests for all channels
@@ -461,25 +463,7 @@ final class SettingsStoreChannelVerificationTests: XCTestCase {
     }
 
     func testStatusPollResponseDoesNotClearVerificationSessionPending() {
-        store.startChannelVerification(channel: "telegram")
-        XCTAssertTrue(store.telegramVerificationInProgress)
-
-        // Simulate a status poll response (no secret, no instruction, not bound)
-        daemonClient.onChannelVerificationSessionResponse?(ChannelVerificationSessionResponseMessage(
-            type: "channel_verification_session_response",
-            success: true,
-            secret: nil,
-            instruction: nil,
-            bound: false,
-            guardianExternalUserId: nil,
-            channel: "telegram",
-            assistantId: testAssistantId,
-            guardianDeliveryChatId: nil,
-            error: nil
-        ))
-
-        // A session response (with secret+instruction) should still clear the pending state
-        daemonClient.onChannelVerificationSessionResponse?(ChannelVerificationSessionResponseMessage(
+        mockSettingsClient.sendChannelVerificationSessionResponse = ChannelVerificationSessionResponseMessage(
             type: "channel_verification_session_response",
             success: true,
             secret: "abc123",
@@ -490,7 +474,14 @@ final class SettingsStoreChannelVerificationTests: XCTestCase {
             assistantId: testAssistantId,
             guardianDeliveryChatId: nil,
             error: nil
-        ))
+        )
+
+        store.startChannelVerification(channel: "telegram")
+        XCTAssertTrue(store.telegramVerificationInProgress)
+
+        let predicate = NSPredicate { _, _ in !self.store.telegramVerificationInProgress }
+        let expectation = XCTNSPredicateExpectation(predicate: predicate, object: nil)
+        wait(for: [expectation], timeout: 2.0)
 
         XCTAssertEqual(store.telegramVerificationInstruction, "Send code abc123 on Telegram")
         XCTAssertFalse(store.telegramVerificationInProgress)
@@ -509,9 +500,9 @@ final class SettingsStoreChannelVerificationTests: XCTestCase {
     // MARK: - Timeout clears instruction
 
     func testTimeoutClearsTelegramInstruction() {
-        sentMessages.removeAll()
         let shortTimeoutStore = SettingsStore(
             daemonClient: daemonClient,
+            settingsClient: mockSettingsClient,
             verificationSessionTimeoutDuration: 0.15,
             verificationStatusPollInterval: 0.05,
             verificationStatusPollWindow: 2.0
@@ -520,7 +511,7 @@ final class SettingsStoreChannelVerificationTests: XCTestCase {
         shortTimeoutStore.startChannelVerification(channel: "telegram")
 
         // Manually set instruction to simulate a previous session's stale text
-        // that persists when a new session times out before the daemon responds.
+        // that persists when a new session times out before the server responds.
         shortTimeoutStore.telegramVerificationInstruction = "Send code stale on Telegram"
 
         // Wait for the timeout to fire
@@ -538,9 +529,9 @@ final class SettingsStoreChannelVerificationTests: XCTestCase {
 
     func testResponseForChannelADoesNotCancelTimeoutForChannelB() {
         // Use a short timeout so the test completes quickly
-        sentMessages.removeAll()
         let shortTimeoutStore = SettingsStore(
             daemonClient: daemonClient,
+            settingsClient: mockSettingsClient,
             verificationSessionTimeoutDuration: 0.3,
             verificationStatusPollInterval: 0.05,
             verificationStatusPollWindow: 2.0
@@ -551,7 +542,7 @@ final class SettingsStoreChannelVerificationTests: XCTestCase {
         XCTAssertTrue(shortTimeoutStore.voiceVerificationInProgress)
 
         // A telegram response arrives — this must NOT cancel the voice timeout
-        daemonClient.onChannelVerificationSessionResponse?(ChannelVerificationSessionResponseMessage(
+        store.applyChannelVerificationResponse(ChannelVerificationSessionResponseMessage(
             type: "channel_verification_session_response",
             success: true,
             secret: nil,
@@ -586,13 +577,18 @@ final class SettingsStoreChannelVerificationTests: XCTestCase {
         XCTAssertTrue(store.voiceVerificationInProgress)
         XCTAssertNil(store.voiceVerificationError)
 
-        let verificationMessages = sentMessages.compactMap { $0 as? ChannelVerificationSessionRequestMessage }
-        let sessionMessages = verificationMessages.filter { $0.action == "create_session" && $0.channel == "phone" }
-        XCTAssertEqual(sessionMessages.count, 1)
+        let predicate = NSPredicate { _, _ in
+            self.mockSettingsClient.sendChannelVerificationSessionCalls.contains { $0.action == "create_session" && $0.channel == "phone" }
+        }
+        let expectation = XCTNSPredicateExpectation(predicate: predicate, object: nil)
+        wait(for: [expectation], timeout: 2.0)
+
+        let sessionCalls = mockSettingsClient.sendChannelVerificationSessionCalls.filter { $0.action == "create_session" && $0.channel == "phone" }
+        XCTAssertEqual(sessionCalls.count, 1)
     }
 
     func testSuccessfulStatusResponseUpdatesVoiceVerificationState() {
-        daemonClient.onChannelVerificationSessionResponse?(ChannelVerificationSessionResponseMessage(
+        store.applyChannelVerificationResponse(ChannelVerificationSessionResponseMessage(
             type: "channel_verification_session_response",
             success: true,
             secret: nil,
@@ -618,7 +614,7 @@ final class SettingsStoreChannelVerificationTests: XCTestCase {
     func testFailedResponseSetsVoiceError() {
         store.voiceVerificationInProgress = true
 
-        daemonClient.onChannelVerificationSessionResponse?(ChannelVerificationSessionResponseMessage(
+        store.applyChannelVerificationResponse(ChannelVerificationSessionResponseMessage(
             type: "channel_verification_session_response",
             success: false,
             secret: nil,
@@ -642,9 +638,14 @@ final class SettingsStoreChannelVerificationTests: XCTestCase {
     func testRevokeVoiceVerificationSendsRevokeAction() {
         store.revokeChannelVerification(channel: "phone")
 
-        let verificationMessages = sentMessages.compactMap { $0 as? ChannelVerificationSessionRequestMessage }
-        let revokeMessages = verificationMessages.filter { $0.action == "revoke" && $0.channel == "phone" }
-        XCTAssertEqual(revokeMessages.count, 1)
+        let predicate = NSPredicate { _, _ in
+            self.mockSettingsClient.sendChannelVerificationSessionCalls.contains { $0.action == "revoke" && $0.channel == "phone" }
+        }
+        let expectation = XCTNSPredicateExpectation(predicate: predicate, object: nil)
+        wait(for: [expectation], timeout: 2.0)
+
+        let revokeCalls = mockSettingsClient.sendChannelVerificationSessionCalls.filter { $0.action == "revoke" && $0.channel == "phone" }
+        XCTAssertEqual(revokeCalls.count, 1)
     }
 
     func testRevokeVoiceVerificationClearsInstruction() {
@@ -656,9 +657,9 @@ final class SettingsStoreChannelVerificationTests: XCTestCase {
     }
 
     func testTimeoutClearsVoiceInstruction() {
-        sentMessages.removeAll()
         let shortTimeoutStore = SettingsStore(
             daemonClient: daemonClient,
+            settingsClient: mockSettingsClient,
             verificationSessionTimeoutDuration: 0.15,
             verificationStatusPollInterval: 0.05,
             verificationStatusPollWindow: 2.0
@@ -679,7 +680,7 @@ final class SettingsStoreChannelVerificationTests: XCTestCase {
     }
 
     func testVoiceResponseDoesNotAffectTelegramState() {
-        daemonClient.onChannelVerificationSessionResponse?(ChannelVerificationSessionResponseMessage(
+        store.applyChannelVerificationResponse(ChannelVerificationSessionResponseMessage(
             type: "channel_verification_session_response",
             success: true,
             secret: nil,
@@ -706,10 +707,15 @@ final class SettingsStoreChannelVerificationTests: XCTestCase {
     func testStartOutboundTelegramVerificationSendsCorrectMessage() {
         store.startOutboundVerification(channel: "telegram", destination: "@guardian_user")
 
-        let verificationMessages = sentMessages.compactMap { $0 as? ChannelVerificationSessionRequestMessage }
-        let outboundMessages = verificationMessages.filter { $0.action == "create_session" && $0.channel == "telegram" }
-        XCTAssertEqual(outboundMessages.count, 1)
-        XCTAssertEqual(outboundMessages.first?.destination, "@guardian_user")
+        let predicate = NSPredicate { _, _ in
+            self.mockSettingsClient.sendChannelVerificationSessionCalls.contains { $0.action == "create_session" && $0.channel == "telegram" }
+        }
+        let expectation = XCTNSPredicateExpectation(predicate: predicate, object: nil)
+        wait(for: [expectation], timeout: 2.0)
+
+        let outboundCalls = mockSettingsClient.sendChannelVerificationSessionCalls.filter { $0.action == "create_session" && $0.channel == "telegram" }
+        XCTAssertEqual(outboundCalls.count, 1)
+        XCTAssertEqual(outboundCalls.first?.destination, "@guardian_user")
         XCTAssertTrue(store.telegramVerificationInProgress)
     }
 
@@ -720,7 +726,7 @@ final class SettingsStoreChannelVerificationTests: XCTestCase {
 
         let expiresMs = Int(Date().addingTimeInterval(600).timeIntervalSince1970 * 1000)
 
-        daemonClient.onChannelVerificationSessionResponse?(ChannelVerificationSessionResponseMessage(
+        store.applyChannelVerificationResponse(ChannelVerificationSessionResponseMessage(
             type: "channel_verification_session_response",
             success: true,
             channel: "telegram",

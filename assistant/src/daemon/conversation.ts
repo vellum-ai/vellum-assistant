@@ -81,7 +81,6 @@ import type {
   ChannelCapabilities,
   TrustContext,
 } from "./conversation-runtime-assembly.js";
-import { messagesContainAttachments } from "./conversation-runtime-assembly.js";
 import type { SkillProjectionCache } from "./conversation-skill-tools.js";
 import {
   createSurfaceMutex,
@@ -95,7 +94,6 @@ import {
   createToolExecutor,
 } from "./conversation-tool-setup.js";
 import { refreshWorkspaceTopLevelContextIfNeeded as refreshWorkspaceImpl } from "./conversation-workspace.js";
-import type { ModelSetContext } from "./handlers/config-model.js";
 import { HostBashProxy } from "./host-bash-proxy.js";
 import type { CuObservationResult } from "./host-cu-proxy.js";
 import { HostCuProxy } from "./host-cu-proxy.js";
@@ -165,7 +163,6 @@ export class Conversation {
   /** @internal */ contextCompactedAt: number | null = null;
   /** @internal */ currentRequestId?: string;
   /** @internal */ hasNoClient = false;
-  /** @internal */ hasAttachments = false;
   /** @internal */ headlessLock = false;
   /** @internal */ taskRunId?: string;
   /** @internal */ callSessionId?: string;
@@ -178,7 +175,6 @@ export class Conversation {
   /** @internal */ currentPage?: string;
   /** @internal */ channelCapabilities?: ChannelCapabilities;
   /** @internal */ trustContext?: TrustContext;
-  /** @internal */ modelSetContext?: ModelSetContext;
   /** @internal */ authContext?: AuthContext;
   /** @internal */ loadedHistoryTrustClass?: TrustClass;
   /** @internal */ voiceCallControlPrompt?: string;
@@ -199,9 +195,24 @@ export class Conversation {
   >();
   /** @internal */ surfaceState = new Map<
     string,
-    { surfaceType: SurfaceType; data: SurfaceData; title?: string }
+    {
+      surfaceType: SurfaceType;
+      data: SurfaceData;
+      title?: string;
+      actions?: Array<{
+        id: string;
+        label: string;
+        style?: string;
+        data?: Record<string, unknown>;
+      }>;
+    }
   >();
   /** @internal */ surfaceUndoStacks = new Map<string, string[]>();
+  /** @internal */ accumulatedSurfaceState = new Map<
+    string,
+    Record<string, unknown>
+  >();
+  /** @internal */ broadcastToAllClients?: (msg: ServerMessage) => void;
   /** @internal */ withSurface = createSurfaceMutex();
   /** @internal */ currentTurnSurfaces: Array<{
     surfaceId: string;
@@ -248,6 +259,7 @@ export class Conversation {
     this.provider = provider;
     this.workingDir = workingDir;
     this.sendToClient = sendToClient;
+    this.broadcastToAllClients = broadcastToAllClients;
     this.memoryPolicy = memoryPolicy
       ? { ...memoryPolicy }
       : { ...DEFAULT_MEMORY_POLICY };
@@ -381,13 +393,41 @@ export class Conversation {
 
   async loadFromDb(): Promise<void> {
     await loadFromDbImpl(this);
-    // Scan loaded history for attachment content blocks so that asset
-    // tools are available when resuming a conversation that already had
-    // attachments. One-way: once true it stays true for the conversation.
-    // Also picks up the hasAttachments flag set by loadFromDbImpl which
-    // scans compacted (sliced-off) messages that aren't in this.messages.
-    if (!this.hasAttachments && messagesContainAttachments(this.messages)) {
-      this.hasAttachments = true;
+    this.restoreSurfaceStateFromHistory();
+  }
+
+  /**
+   * Scan loaded conversation history for ui_surface content blocks and
+   * populate surfaceState so that findConversationBySurfaceId works for
+   * surfaces restored from history (e.g. after daemon restart).
+   *
+   * Only scans live (non-compacted) messages in this.messages — not all DB
+   * rows — because surface IDs are not globally unique and restoring stale
+   * compacted surfaces would let findConversationBySurfaceId route actions
+   * to the wrong conversation.
+   */
+  private restoreSurfaceStateFromHistory(): void {
+    this.surfaceState.clear();
+    for (const msg of this.messages) {
+      if (!Array.isArray(msg.content)) continue;
+      for (const block of msg.content) {
+        const b = block as unknown as Record<string, unknown>;
+        if (b.type === "ui_surface" && typeof b.surfaceId === "string") {
+          this.surfaceState.set(b.surfaceId, {
+            surfaceType: (b.surfaceType ?? "dynamic_page") as SurfaceType,
+            data: (b.data ?? {}) as SurfaceData,
+            title: b.title as string | undefined,
+            actions: Array.isArray(b.actions)
+              ? (b.actions as Array<{
+                  id: string;
+                  label: string;
+                  style?: string;
+                  data?: Record<string, unknown>;
+                }>)
+              : undefined,
+          });
+        }
+      }
     }
   }
 
@@ -883,11 +923,6 @@ export class Conversation {
   ): Promise<string> {
     if (!this.processing) {
       await this.ensureActorScopedHistory();
-    }
-    // One-way flag: once an attachment arrives, asset tools stay available
-    // for the remainder of the conversation.
-    if (!this.hasAttachments && attachments.length > 0) {
-      this.hasAttachments = true;
     }
     return persistUserMessageImpl(
       this,

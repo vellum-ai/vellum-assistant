@@ -34,6 +34,7 @@ final class WorkspaceBrowserState {
     var pendingHiddenFilesToggle: Bool?
     var showingDirtyAlert: Bool = false
     var viewMode: FileViewMode = .source
+    var isActivelyEditing: Bool = false
     var showHiddenFiles: Bool = UserDefaults.standard.bool(forKey: "showHiddenFiles")
     var hiddenFilesToggleRequestId: UInt64 = 0
 
@@ -46,27 +47,65 @@ final class WorkspaceBrowserState {
     func loadFile(path targetPath: String, using workspaceClient: any WorkspaceClientProtocol) async {
         selectedFilePath = targetPath
         let ext = (targetPath as NSString).pathExtension.lowercased()
-        if ext == "md" || ext == "markdown" {
+        let prefersSource = UserDefaults.standard.string(forKey: "fileViewerPreferredMode") == "source"
+        if prefersSource {
+            viewMode = .source
+        } else if ext == "md" || ext == "markdown" {
             viewMode = .preview
+        } else if ext == "json" {
+            viewMode = .tree
         } else {
             viewMode = .source
         }
         isLoadingFile = true
         selectedFileDetail = nil
         isDirty = false
+        isActivelyEditing = false
         editableContent = ""
         fileLoadTask?.cancel()
         let task = Task {
             let detail = await workspaceClient.fetchWorkspaceFile(path: targetPath, showHidden: showHiddenFiles)
             guard !Task.isCancelled, selectedFilePath == targetPath else { return }
-            selectedFileDetail = detail
-            editableContent = detail?.content ?? ""
-            originalContent = detail?.content ?? ""
+            let raw = detail?.content ?? ""
+            let isJSON = ext == "json"
+                || detail?.mimeType.lowercased().hasPrefix("application/json") == true
+            let content = isJSON ? Self.prettyPrintJSON(raw) : raw
+            if isJSON, !prefersSource, viewMode != .tree {
+                viewMode = .tree
+            }
+            editableContent = content
+            originalContent = content
             isDirty = false
             isSaving = false
+
+            // Sync view mode using MIME type from the response, respecting
+            // the user's saved preference that was already applied above.
+            if let detail {
+                let modes = availableViewModes(for: detail.name, mimeType: detail.mimeType)
+                if !modes.contains(viewMode) {
+                    viewMode = modes.first ?? .source
+                }
+            }
+
+            // Set selectedFileDetail before clearing isLoadingFile so the
+            // view transitions directly from the loading spinner to file
+            // content, never briefly falling through to the empty state.
+            selectedFileDetail = detail
             isLoadingFile = false
         }
         fileLoadTask = task
+    }
+
+    /// Returns a pretty-printed version of `text`, falling back to the
+    /// original string on any JSON parse error.
+    private static func prettyPrintJSON(_ text: String) -> String {
+        guard let data = text.data(using: .utf8),
+              let json = try? JSONSerialization.jsonObject(with: data, options: .fragmentsAllowed),
+              let pretty = try? JSONSerialization.data(withJSONObject: json, options: [.prettyPrinted, .withoutEscapingSlashes]),
+              let result = String(data: pretty, encoding: .utf8) else {
+            return text
+        }
+        return result
     }
 }
 
@@ -727,7 +766,9 @@ private struct WorkspaceFileViewer: View {
                     showReadOnlyBadge: readOnly,
                     onTextChange: { newValue in
                         state.isDirty = newValue != state.originalContent
-                    }
+                    },
+                    isActivelyEditing: $state.isActivelyEditing,
+                    fileIdentity: detail.path
                 )
             } else {
                 FileContentHeaderBar(
@@ -747,38 +788,51 @@ private struct WorkspaceFileViewer: View {
                 }
             }
 
-            if isText && !readOnly && state.isDirty {
-                Divider().background(VColor.borderBase)
-                HStack {
-                    Spacer()
-                    HStack(spacing: VSpacing.xs) {
-                        VButton(
-                            label: "Discard",
-                            style: .ghost,
-                            size: .compact,
-                            isDisabled: state.isSaving
-                        ) {
-                            state.editableContent = state.originalContent
-                            state.isDirty = false
-                        }
-                        if state.isSaving {
-                            VBusyIndicator(size: 8)
-                        }
-                        VButton(
-                            label: "Save",
-                            style: .primary,
-                            size: .compact,
-                            isDisabled: state.isSaving
-                        ) {
-                            Task { await saveFile(path: detail.path) }
-                        }
-                        .keyboardShortcut("s", modifiers: .command)
-                    }
-                }
-                .padding(.horizontal, VSpacing.md)
-                .padding(.vertical, VSpacing.sm)
-                .background(VColor.surfaceOverlay)
+            if isText && !readOnly && state.isActivelyEditing {
+                editFooter(filePath: detail.path)
             }
+        }
+    }
+
+    /// Save/Discard footer shown at the bottom of the file viewer during editing.
+    private func editFooter(filePath: String) -> some View {
+        VStack(spacing: 0) {
+            Divider().background(VColor.borderBase)
+            HStack {
+                Spacer()
+                HStack(spacing: VSpacing.xs) {
+                    VButton(
+                        label: "Discard",
+                        style: .ghost,
+                        size: .compact,
+                        isDisabled: state.isSaving
+                    ) {
+                        state.editableContent = state.originalContent
+                        state.isDirty = false
+                        state.isActivelyEditing = false
+                    }
+                    if state.isSaving {
+                        VBusyIndicator(size: 8)
+                    }
+                    VButton(
+                        label: "Save",
+                        style: .primary,
+                        size: .compact,
+                        isDisabled: state.isSaving || !state.isDirty
+                    ) {
+                        Task {
+                            await saveFile(path: filePath)
+                            if !state.isDirty {
+                                state.isActivelyEditing = false
+                            }
+                        }
+                    }
+                    .keyboardShortcut("s", modifiers: .command)
+                }
+            }
+            .padding(.horizontal, VSpacing.md)
+            .padding(.vertical, VSpacing.sm)
+            .background(VColor.surfaceOverlay)
         }
     }
 
@@ -932,7 +986,10 @@ private struct AuthenticatedImageView: View {
                   let deviceId = daemonClient.recoveryDeviceId else {
                 return nil
             }
-            let success = await daemonClient.bootstrapActorToken(platform: platform, deviceId: deviceId)
+            let success = await GuardianClient().bootstrapActorToken(
+                platform: platform,
+                deviceId: deviceId
+            )
             guard success else { return nil }
             var retryRequest = URLRequest(url: url)
             if let freshToken = ActorTokenManager.getToken(), !freshToken.isEmpty {
@@ -1041,7 +1098,10 @@ private struct WorkspaceVideoPlayer: View {
                   let deviceId = daemonClient.recoveryDeviceId else {
                 return nil
             }
-            let success = await daemonClient.bootstrapActorToken(platform: platform, deviceId: deviceId)
+            let success = await GuardianClient().bootstrapActorToken(
+                platform: platform,
+                deviceId: deviceId
+            )
             guard success else { return nil }
             var retryRequest = URLRequest(url: url)
             if let freshToken = ActorTokenManager.getToken(), !freshToken.isEmpty {

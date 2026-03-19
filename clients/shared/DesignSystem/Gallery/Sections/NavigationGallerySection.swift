@@ -4,6 +4,7 @@ import SwiftUI
 struct NavigationGallerySection: View {
     @State private var segmentSelection = 0
     @State private var pillSelection = "active"
+    @State private var compactPillSelection = "preview"
     @State private var selectedTab = 0
 
     private let segmentItems = ["All", "Active", "Archived", "Drafts"]
@@ -89,7 +90,7 @@ struct NavigationGallerySection: View {
                             (label: "Preview", tag: "preview"),
                             (label: "Source", tag: "source"),
                         ],
-                        selection: $pillSelection,
+                        selection: $compactPillSelection,
                         style: .pill,
                         size: .compact
                     )

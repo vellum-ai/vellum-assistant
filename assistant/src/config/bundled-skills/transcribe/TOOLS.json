@@ -3,7 +3,7 @@
   "tools": [
     {
       "name": "transcribe_media",
-      "description": "Transcribe an audio or video file using Whisper. Provide either a file_path to a local file or an attachment_id for an uploaded attachment. Set mode to 'api' (OpenAI cloud) or 'local' (whisper.cpp on-device). Ask the user which mode they prefer before calling.",
+      "description": "Transcribe an audio or video file using Whisper. Provide a file_path to the media file. Set mode to 'api' (OpenAI cloud) or 'local' (whisper.cpp on-device). Ask the user which mode they prefer before calling.",
       "category": "transcribe",
       "risk": "low",
       "input_schema": {
@@ -12,10 +12,6 @@
           "file_path": {
             "type": "string",
             "description": "Absolute path to a local audio or video file to transcribe"
-          },
-          "attachment_id": {
-            "type": "string",
-            "description": "The ID of an attached audio or video file to transcribe"
           },
           "mode": {
             "type": "string",
@@ -27,7 +23,7 @@
             "description": "Brief non-technical explanation of why this tool is being called"
           }
         },
-        "required": ["mode"]
+        "required": ["mode", "file_path"]
       },
       "executor": "tools/transcribe-media.ts",
       "execution_target": "host"

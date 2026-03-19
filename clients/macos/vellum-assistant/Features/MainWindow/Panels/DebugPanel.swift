@@ -210,7 +210,3 @@ struct DebugPanel: View {
     }
 
 }
-
-#Preview {
-    DebugPanel(traceStore: TraceStore(), daemonClient: DaemonClient(), activeSessionId: nil, onClose: {})
-}

@@ -8,27 +8,21 @@ import Combine
 private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "ConversationManager")
 // Legacy UserDefaults key preserved from the session-to-conversation rename.
 private let archivedConversationsKey = "archivedSessionIds"
+// Intermediate builds may have written under this key before the compat fix.
+private let archivedConversationsNewKey = "archivedConversationIds"
 
 // MARK: - Conversation Client Protocol
 
-/// Abstraction for fetching individual conversations, decoupled from DaemonClient.
+/// Abstraction for direct conversation mutations, decoupled from DaemonClient.
 @MainActor
 protocol ConversationClientProtocol {
-    func fetchConversationById(_ conversationId: String) async -> ConversationsListResponse.Conversation?
     func deleteConversation(_ conversationId: String) async
 }
 
-/// Fetches conversation data via GatewayHTTPClient.
+/// Gateway-backed conversation mutation client.
 @MainActor
 struct ConversationClient: ConversationClientProtocol {
     nonisolated init() {}
-
-    func fetchConversationById(_ conversationId: String) async -> ConversationsListResponse.Conversation? {
-        let result: (SingleConversationResponse?, GatewayHTTPClient.Response)? = try? await GatewayHTTPClient.get(
-            path: "assistants/{assistantId}/conversations/\(conversationId)", timeout: 10
-        )
-        return result?.0?.conversation
-    }
 
     func deleteConversation(_ conversationId: String) async {
         let response = try? await GatewayHTTPClient.delete(
@@ -115,6 +109,8 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
     private var vmAccessOrder: [UUID] = []
     private let daemonClient: DaemonClient
     private let conversationClient: ConversationClientProtocol
+    private let conversationForkClient: any ConversationForkClientProtocol
+    private let conversationDetailClient: any ConversationDetailClientProtocol
     private let conversationRestorer: ConversationRestorer
     /// Queued renames for conversations that don't yet have a conversationId.
     /// Flushed in backfillConversationId when the daemon assigns a conversation ID.
@@ -148,7 +144,9 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
     @Published var pendingAnchorMessageId: UUID?
     /// Message ID to visually highlight after an anchor scroll completes.
     /// Set by MessageListView when it scrolls to the anchor, cleared after the flash animation.
-    @Published var highlightedMessageId: UUID?
+    /// Not @Published — this is a transient visual effect only consumed by MessageListView via
+    /// a direct Binding, so it does not need to fire objectWillChange on the entire subscriber tree.
+    var highlightedMessageId: UUID?
     /// Tracks which conversation the pending anchor belongs to so stale anchors are
     /// cleared automatically when the user switches to a different conversation.
     private var pendingAnchorConversationId: UUID?
@@ -156,6 +154,10 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
     private var pendingSeenConversationIds: [String] = []
     /// Task that auto-commits deferred seen signals after the undo window.
     private var pendingSeenSignalTask: Task<Void, Never>?
+    /// Daemon conversation IDs that need a notification catch-up (history fetch)
+    /// once the associated ChatViewModel finishes its current send/think cycle.
+    /// Populated when a notification_intent arrives while the VM is busy.
+    private var pendingNotificationCatchUpIds: Set<String> = []
     /// Local seen/unread toggles should survive a stale daemon conversation-list
     /// replay until the daemon either acknowledges them or reports a newer reply.
     private var pendingAttentionOverrides: [String: PendingAttentionOverride] = [:]
@@ -241,10 +243,18 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
         }
     }
 
-    init(daemonClient: DaemonClient, conversationClient: ConversationClientProtocol = ConversationClient(), isFirstLaunch: Bool = false) {
+    init(
+        daemonClient: DaemonClient,
+        conversationClient: ConversationClientProtocol = ConversationClient(),
+        conversationForkClient: any ConversationForkClientProtocol = ConversationForkClient(),
+        conversationDetailClient: any ConversationDetailClientProtocol = ConversationDetailClient(),
+        isFirstLaunch: Bool = false
+    ) {
         Self.migrateStorageKeysIfNeeded()
         self.daemonClient = daemonClient
         self.conversationClient = conversationClient
+        self.conversationForkClient = conversationForkClient
+        self.conversationDetailClient = conversationDetailClient
         self.conversationRestorer = ConversationRestorer(daemonClient: daemonClient)
         // On first launch (post-onboarding), skip conversation restoration — there are
         // no meaningful prior conversations. Allow activeConversationId writes immediately so
@@ -259,6 +269,58 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
         daemonClient.onConversationIdResolved = { [weak self] localId, serverId in
             self?.resolveConversationId(from: localId, to: serverId)
         }
+    }
+
+    private static let privateConversationForkErrorText =
+        "Forking is unavailable in private conversations."
+
+    func forkActiveConversation() async {
+        guard let conversation = activeConversation else {
+            activeViewModel?.errorText = "Send a message before forking this conversation."
+            return
+        }
+        guard conversation.kind != .private else {
+            activeViewModel?.errorText = Self.privateConversationForkErrorText
+            return
+        }
+        guard let daemonMessageId = latestPersistedTipDaemonMessageId(for: conversation.id) else {
+            activeViewModel?.errorText = "Send a message before forking this conversation."
+            return
+        }
+
+        await forkConversation(throughDaemonMessageId: daemonMessageId)
+    }
+
+    func forkConversation(throughDaemonMessageId daemonMessageId: String?) async {
+        guard let sourceConversation = activeConversation,
+              let sourceConversationId = sourceConversation.conversationId else {
+            activeViewModel?.errorText = "Send a message before forking this conversation."
+            return
+        }
+
+        activeViewModel?.errorText = nil
+
+        guard let forkedConversation = await conversationForkClient.forkConversation(
+            conversationId: sourceConversationId,
+            throughMessageId: daemonMessageId
+        ) else {
+            activeViewModel?.errorText = "Failed to fork conversation."
+            return
+        }
+
+        let resolvedConversation = await resolveConversationSummary(for: forkedConversation)
+        guard let localConversationId = upsertConversation(from: resolvedConversation, isArchived: false) else {
+            activeViewModel?.errorText = "Failed to open forked conversation."
+            return
+        }
+
+        selectConversation(id: localConversationId)
+    }
+
+    private func latestPersistedTipDaemonMessageId(for conversationLocalId: UUID) -> String? {
+        chatViewModels[conversationLocalId]?.messages.last(where: {
+            $0.daemonMessageId != nil && !$0.isStreaming && !$0.isHidden
+        })?.daemonMessageId
     }
 
     func createConversation() {
@@ -465,8 +527,10 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
     }
 
     /// Shared creation path for conversations spawned by background processes
-    /// (schedules, task runs, notifications). All background conversations start
-    /// with the unread badge set, ensuring the user sees new activity.
+    /// (schedules, task runs, notifications). The unread badge is NOT set at
+    /// creation time — it is deferred until an actual assistant message arrives
+    /// via `subscribeToAssistantActivity`, preventing false unread dots when the
+    /// background process fails before generating a reply.
     ///
     /// - Parameters:
     ///   - conversationId: Daemon conversation ID to bind.
@@ -492,8 +556,6 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
         var conversation = ConversationModel(title: title, conversationId: conversationId)
         if let source { conversation.source = source }
         if let scheduleJobId { conversation.scheduleJobId = scheduleJobId }
-        conversation.hasUnseenLatestAssistantMessage = true
-
         let viewModel = makeViewModel()
         viewModel.conversationId = conversationId
         if markHistoryLoaded {
@@ -716,40 +778,24 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
         for conversation in recentConversations {
             // If a local conversation already exists, merge server pin/order metadata.
             if let existingIdx = conversations.firstIndex(where: { $0.conversationId == conversation.id }) {
-                let isPinned = conversation.isPinned ?? false
-                var conv = conversations[existingIdx]
-                conv.isPinned = isPinned
-                conv.pinnedOrder = isPinned ? (conversation.displayOrder.map { Int($0) } ?? nextPinnedOrder) : nil
-                conv.displayOrder = conversation.displayOrder.map { Int($0) }
-                conversations[existingIdx] = conv
+                conversations[existingIdx] = conversationModel(
+                    from: conversation,
+                    localId: conversations[existingIdx].id,
+                    createdAt: conversations[existingIdx].createdAt,
+                    isArchived: conversations[existingIdx].isArchived,
+                    fallbackPinnedOrder: nextPinnedOrder
+                )
                 mergeAssistantAttention(from: conversation, intoConversationAt: existingIdx)
-                if isPinned && conversation.displayOrder == nil { nextPinnedOrder += 1 }
+                if conversation.isPinned == true && conversation.displayOrder == nil { nextPinnedOrder += 1 }
                 continue
             }
 
-            let isPinned = conversation.isPinned ?? false
-            let effectiveCreatedAt = conversation.createdAt ?? conversation.updatedAt
-            let conversationModel = ConversationModel(
-                title: conversation.title,
-                createdAt: Date(timeIntervalSince1970: TimeInterval(effectiveCreatedAt) / 1000.0),
-                conversationId: conversation.id,
+            let conversationModel = conversationModel(
+                from: conversation,
                 isArchived: isConversationArchived(conversation.id),
-                isPinned: isPinned,
-                pinnedOrder: isPinned ? (conversation.displayOrder.map { Int($0) } ?? nextPinnedOrder) : nil,
-                displayOrder: conversation.displayOrder.map { Int($0) },
-                lastInteractedAt: Date(timeIntervalSince1970: TimeInterval(conversation.updatedAt) / 1000.0),
-                kind: conversation.conversationType == "private" ? .private : .standard,
-                source: conversation.source,
-                scheduleJobId: conversation.scheduleJobId,
-                hasUnseenLatestAssistantMessage: conversation.assistantAttention?.hasUnseenLatestAssistantMessage ?? false,
-                latestAssistantMessageAt: conversation.assistantAttention?.latestAssistantMessageAt.map {
-                    Date(timeIntervalSince1970: TimeInterval($0) / 1000.0)
-                },
-                lastSeenAssistantMessageAt: conversation.assistantAttention?.lastSeenAssistantMessageAt.map {
-                    Date(timeIntervalSince1970: TimeInterval($0) / 1000.0)
-                }
+                fallbackPinnedOrder: nextPinnedOrder
             )
-            if isPinned && conversation.displayOrder == nil { nextPinnedOrder += 1 }
+            if conversation.isPinned == true && conversation.displayOrder == nil { nextPinnedOrder += 1 }
             // VM creation is lazy — getOrCreateViewModel() will instantiate
             // when the conversation is first accessed (e.g. selected by the user).
             conversations.append(conversationModel)
@@ -811,22 +857,84 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
         return true
     }
 
+    @discardableResult
+    func openForkParentConversation(conversationId: String, sourceMessageId: String?) async -> Bool {
+        if let existingConversation = conversations.first(where: { $0.conversationId == conversationId }) {
+            guard existingConversation.kind != .private else { return false }
+            selectConversation(id: existingConversation.id)
+            if existingConversation.isArchived {
+                unarchiveConversation(id: existingConversation.id)
+            }
+            applyPendingAnchorMessageIfPossible(
+                localConversationId: activeConversationId,
+                daemonMessageId: sourceMessageId
+            )
+            return true
+        }
+
+        guard let conversation = await conversationDetailClient.fetchConversation(conversationId: conversationId) else {
+            return false
+        }
+
+        if let existingConversation = conversations.first(where: { $0.conversationId == conversationId }) {
+            guard existingConversation.kind != .private else { return false }
+            selectConversation(id: existingConversation.id)
+            if existingConversation.isArchived {
+                unarchiveConversation(id: existingConversation.id)
+            }
+            applyPendingAnchorMessageIfPossible(
+                localConversationId: activeConversationId,
+                daemonMessageId: sourceMessageId
+            )
+            return true
+        }
+
+        guard conversation.conversationType != "private" else { return false }
+
+        if isConversationArchived(conversation.id) {
+            var archived = archivedConversationIds
+            archived.remove(conversation.id)
+            archivedConversationIds = archived
+        }
+
+        guard let localConversationId = upsertConversation(from: conversation, isArchived: false) else {
+            return false
+        }
+
+        selectConversation(id: localConversationId)
+        applyPendingAnchorMessageIfPossible(
+            localConversationId: localConversationId,
+            daemonMessageId: sourceMessageId
+        )
+        return true
+    }
+
     /// Select a conversation by conversation ID, fetching it on-demand from the server if not locally available.
     /// Returns `true` if the conversation was found (or fetched) and selected, `false` on failure.
+    /// If the conversation is archived, it is automatically unarchived since the caller
+    /// explicitly navigated to it (e.g. via command palette search).
     func selectConversationByConversationIdAsync(_ conversationId: String) async -> Bool {
         // Fast path: already loaded locally
         if selectConversationByConversationId(conversationId) {
+            // Unarchive if needed — the user explicitly navigated to this conversation,
+            // so it should appear in the sidebar alongside being selected.
+            if let match = conversations.first(where: { $0.conversationId == conversationId }), match.isArchived {
+                unarchiveConversation(id: match.id)
+            }
             return true
         }
 
         // Slow path: fetch the conversation via the gateway and insert it locally
-        guard let conversation = await conversationClient.fetchConversationById(conversationId) else {
+        guard let conversation = await conversationDetailClient.fetchConversation(conversationId: conversationId) else {
             return false
         }
 
         // Re-check after await — another code path (e.g. SSE conversation-list response)
         // may have inserted this conversation while we were waiting on the network.
         if selectConversationByConversationId(conversationId) {
+            if let match = conversations.first(where: { $0.conversationId == conversationId }), match.isArchived {
+                unarchiveConversation(id: match.id)
+            }
             return true
         }
 
@@ -835,31 +943,65 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
             return false
         }
 
-        let effectiveCreatedAt = conversation.createdAt ?? conversation.updatedAt
-        let conversationModel = ConversationModel(
-            title: conversation.title,
-            createdAt: Date(timeIntervalSince1970: TimeInterval(effectiveCreatedAt) / 1000.0),
-            conversationId: conversation.id,
-            isArchived: isConversationArchived(conversation.id),
-            isPinned: conversation.isPinned ?? false,
-            pinnedOrder: (conversation.isPinned ?? false) ? conversation.displayOrder.map { Int($0) } : nil,
-            displayOrder: conversation.displayOrder.map { Int($0) },
-            lastInteractedAt: Date(timeIntervalSince1970: TimeInterval(conversation.updatedAt) / 1000.0),
-            kind: .standard,
-            source: conversation.source,
-            scheduleJobId: conversation.scheduleJobId,
-            hasUnseenLatestAssistantMessage: conversation.assistantAttention?.hasUnseenLatestAssistantMessage ?? false,
-            latestAssistantMessageAt: conversation.assistantAttention?.latestAssistantMessageAt.map {
-                Date(timeIntervalSince1970: TimeInterval($0) / 1000.0)
-            },
-            lastSeenAssistantMessageAt: conversation.assistantAttention?.lastSeenAssistantMessageAt.map {
-                Date(timeIntervalSince1970: TimeInterval($0) / 1000.0)
-            }
-        )
+        // The user explicitly navigated to this conversation, so clear its archived
+        // state. Without this, the conversation would be selected (chat view renders)
+        // but invisible in the sidebar because visibleConversations filters out archived items.
+        if isConversationArchived(conversation.id) {
+            var archived = archivedConversationIds
+            archived.remove(conversation.id)
+            archivedConversationIds = archived
+        }
 
+        guard let localConversationId = upsertConversation(
+            from: conversation,
+            isArchived: false
+        ) else {
+            return false
+        }
+
+        selectConversation(id: localConversationId)
+        return true
+    }
+
+    private func resolveConversationSummary(for fallback: ConversationListResponseItem) async -> ConversationListResponseItem {
+        guard let detail = await conversationDetailClient.fetchConversation(conversationId: fallback.id) else {
+            return fallback
+        }
+        return detail
+    }
+
+    @discardableResult
+    private func upsertConversation(from item: ConversationListResponseItem, isArchived: Bool) -> UUID? {
+        guard item.conversationType != "private",
+              item.channelBinding?.sourceChannel == nil else { return nil }
+
+        if !isArchived && isConversationArchived(item.id) {
+            var archived = archivedConversationIds
+            archived.remove(item.id)
+            archivedConversationIds = archived
+        }
+
+        if let existingIdx = conversations.firstIndex(where: { $0.conversationId == item.id }) {
+            let existingConversation = conversations[existingIdx]
+            conversations[existingIdx] = conversationModel(
+                from: item,
+                localId: existingConversation.id,
+                createdAt: existingConversation.createdAt,
+                isArchived: isArchived,
+                fallbackPinnedOrder: existingConversation.pinnedOrder
+            )
+            mergeAssistantAttention(from: item, intoConversationAt: existingIdx)
+            if let viewModel = chatViewModels[existingConversation.id] {
+                viewModel.conversationId = item.id
+                viewModel.ensureMessageLoopStarted()
+            }
+            return existingConversation.id
+        }
+
+        let conversationModel = conversationModel(from: item, isArchived: isArchived)
         let viewModel = makeViewModel()
-        viewModel.conversationId = conversation.id
-        // Leave isHistoryLoaded false so history is fetched when the conversation activates
+        viewModel.conversationId = item.id
+        // Leave isHistoryLoaded false so history is fetched when the conversation activates.
         viewModel.startMessageLoop()
 
         conversations.insert(conversationModel, at: 0)
@@ -869,9 +1011,47 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
         subscribeToInteractionState(for: conversationModel.id, viewModel: viewModel)
         touchVMAccessOrder(conversationModel.id)
         evictStaleCachedViewModels()
+        return conversationModel.id
+    }
 
-        selectConversation(id: conversationModel.id)
-        return true
+    private func conversationModel(
+        from item: ConversationListResponseItem,
+        localId: UUID = UUID(),
+        createdAt: Date? = nil,
+        isArchived: Bool,
+        fallbackPinnedOrder: Int? = nil
+    ) -> ConversationModel {
+        let effectiveCreatedAtMillis = item.createdAt ?? item.updatedAt
+        let isPinned = item.isPinned ?? false
+        return ConversationModel(
+            id: localId,
+            title: item.title,
+            createdAt: createdAt ?? Date(timeIntervalSince1970: TimeInterval(effectiveCreatedAtMillis) / 1000.0),
+            conversationId: item.id,
+            isArchived: isArchived,
+            isPinned: isPinned,
+            pinnedOrder: isPinned ? (item.displayOrder.map { Int($0) } ?? fallbackPinnedOrder) : nil,
+            displayOrder: item.displayOrder.map { Int($0) },
+            lastInteractedAt: Date(timeIntervalSince1970: TimeInterval(item.updatedAt) / 1000.0),
+            kind: item.conversationType == "private" ? .private : .standard,
+            source: item.source,
+            scheduleJobId: item.scheduleJobId,
+            hasUnseenLatestAssistantMessage: item.assistantAttention?.hasUnseenLatestAssistantMessage ?? false,
+            latestAssistantMessageAt: item.assistantAttention?.latestAssistantMessageAt.map {
+                Date(timeIntervalSince1970: TimeInterval($0) / 1000.0)
+            },
+            lastSeenAssistantMessageAt: item.assistantAttention?.lastSeenAssistantMessageAt.map {
+                Date(timeIntervalSince1970: TimeInterval($0) / 1000.0)
+            },
+            forkParent: item.forkParent
+        )
+    }
+
+    private func applyPendingAnchorMessageIfPossible(localConversationId: UUID?, daemonMessageId: String?) {
+        guard let localConversationId,
+              let daemonMessageId,
+              let messageId = UUID(uuidString: daemonMessageId) else { return }
+        setPendingAnchorMessage(conversationId: localConversationId, messageId: messageId)
     }
 
     // MARK: - Render Cache Management
@@ -1212,6 +1392,11 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
             guard let self, let viewModel else { return false }
             return self.isLatestToolUseRecipient(viewModel)
         }
+        viewModel.shouldCreateInlineErrorMessage = { error in
+            // Credits-exhausted errors use the dedicated CreditsExhaustedBanner
+            // instead of the generic InlineChatErrorAlert
+            !error.isCreditsExhausted
+        }
         viewModel.onInlineConfirmationResponse = { [weak self] requestId, decision in
             // The decision was already sent to the daemon by ChatViewModel.
             // Forward to the app layer so it can dismiss the native notification
@@ -1264,6 +1449,11 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
             guard let self, let viewModel else { return }
             if let localId = self.chatViewModels.first(where: { $0.value === viewModel })?.key {
                 self.updateLastInteracted(conversationId: localId)
+            }
+        }
+        viewModel.onFork = { [weak self] in
+            Task { @MainActor [weak self] in
+                await self?.forkActiveConversation()
             }
         }
         viewModel.onReconnectHistoryNeeded = { [weak self] conversationId in
@@ -1362,33 +1552,52 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
     }
 
     /// Handle a `notification_intent` that targets a conversation the client already
-    /// knows about (reuse case). Two effects:
+    /// knows about (reuse case). Three effects:
     ///
     /// 1. **Unseen badge** — marks the conversation as having unseen content (if it's
     ///    not the active conversation). Does NOT send a signal to the daemon because
     ///    the server already advanced the attention cursor via `projectAssistantMessage`.
+    ///    Also removes the conversation from `pendingSeenConversationIds` so a
+    ///    concurrent mark-all-seen undo window doesn't re-send a stale seen signal.
     ///
-    /// 2. **Message visibility** — triggers a reconnect-style history fetch so the
+    /// 2. **Recency** — updates `lastInteractedAt` so the conversation sorts to the
+    ///    top of the sidebar, matching the contract for incoming messages.
+    ///
+    /// 3. **Message visibility** — triggers a reconnect-style history fetch so the
     ///    notification seed message appears in the chat view. Only fires when a
     ///    ViewModel exists and is idle (not mid-response), to avoid disrupting
-    ///    active streaming. For inactive conversations without a ViewModel, the
-    ///    message will load normally when the user opens the conversation.
+    ///    active streaming. When the VM is busy, the daemon conversation ID is queued
+    ///    in `pendingNotificationCatchUpIds` and drained when the VM becomes idle
+    ///    (via `subscribeToBusyState`). For inactive conversations without a ViewModel,
+    ///    the message will load normally when the user opens the conversation.
     func handleNotificationIntentForExistingConversation(daemonConversationId: String) {
         guard let idx = conversations.firstIndex(where: { $0.conversationId == daemonConversationId }) else { return }
         let localId = conversations[idx].id
+
+        // Always update recency so the conversation surfaces in the sidebar.
+        conversations[idx].lastInteractedAt = Date()
 
         if localId != activeConversationId {
             // Background conversation: mark unseen. Message loads on activation.
             conversations[idx].hasUnseenLatestAssistantMessage = true
             conversations[idx].latestAssistantMessageAt = Date()
+
+            // Prevent a concurrent mark-all-seen undo window from sending a
+            // stale seen signal that would conflict with the server's
+            // notification-driven unseen state.
+            pendingSeenConversationIds.removeAll { $0 == daemonConversationId }
         }
 
         // Trigger history catch-up so the new message appears in the chat view.
         // Guard: only when a ViewModel exists and is idle — triggering populateFromHistory
         // mid-stream would discard the in-flight streaming buffer (line 2709 of ChatViewModel).
         if let vm = chatViewModels[localId], !vm.isThinking, !vm.isSending {
+            pendingNotificationCatchUpIds.remove(daemonConversationId)
             vm.prepareForNotificationCatchUp()
             conversationRestorer.requestReconnectHistory(conversationId: daemonConversationId)
+        } else if chatViewModels[localId] != nil {
+            // VM exists but is busy — queue for retry when it becomes idle.
+            pendingNotificationCatchUpIds.insert(daemonConversationId)
         }
     }
 
@@ -1804,10 +2013,20 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
 
     private var archivedConversationIds: Set<String> {
         get {
-            Set(UserDefaults.standard.stringArray(forKey: archivedConversationsKey) ?? [])
+            let legacy = Set(UserDefaults.standard.stringArray(forKey: archivedConversationsKey) ?? [])
+            let newer = Set(UserDefaults.standard.stringArray(forKey: archivedConversationsNewKey) ?? [])
+            let merged = legacy.union(newer)
+            // Migrate: consolidate into the canonical key and remove the intermediate key.
+            if !newer.isEmpty {
+                UserDefaults.standard.set(Array(merged), forKey: archivedConversationsKey)
+                UserDefaults.standard.removeObject(forKey: archivedConversationsNewKey)
+            }
+            return merged
         }
         set {
             UserDefaults.standard.set(Array(newValue), forKey: archivedConversationsKey)
+            // Clean up the intermediate key if it exists.
+            UserDefaults.standard.removeObject(forKey: archivedConversationsNewKey)
         }
     }
 
@@ -1876,11 +2095,22 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
                 self.busyConversationIds.insert(conversationId)
             } else {
                 self.busyConversationIds.remove(conversationId)
+                self.drainPendingNotificationCatchUp(for: conversationId)
             }
         }
         .store(in: &subs)
 
         busyStateCancellables[conversationId] = subs
+    }
+
+    /// If `conversationId` has a queued notification catch-up, trigger it now
+    /// that the VM is idle.
+    private func drainPendingNotificationCatchUp(for conversationId: UUID) {
+        guard let daemonId = conversations.first(where: { $0.id == conversationId })?.conversationId,
+              pendingNotificationCatchUpIds.remove(daemonId) != nil,
+              let vm = chatViewModels[conversationId] else { return }
+        vm.prepareForNotificationCatchUp()
+        conversationRestorer.requestReconnectHistory(conversationId: daemonId)
     }
 
     /// Subscribe to assistant activity for a conversation.

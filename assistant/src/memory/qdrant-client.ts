@@ -326,6 +326,7 @@ export class VellumQdrantClient {
     limit: number,
     targetTypes: Array<"segment" | "item" | "summary" | "media">,
     excludeMessageIds?: string[],
+    scopeIds?: string[],
   ): Promise<QdrantSearchResult[]> {
     const mustConditions: Array<Record<string, unknown>> = [
       {
@@ -348,6 +349,18 @@ export class VellumQdrantClient {
             key: "target_type",
             match: { any: ["segment", "summary", "media"] },
           },
+        ],
+      });
+    }
+
+    // Scope filtering: accept points whose memory_scope_id matches one of the
+    // allowed scopes, OR points that lack the field entirely (legacy data).
+    // Post-query DB filtering remains as defense-in-depth for legacy points.
+    if (scopeIds && scopeIds.length > 0) {
+      mustConditions.push({
+        should: [
+          { key: "memory_scope_id", match: { any: scopeIds } },
+          { is_empty: { key: "memory_scope_id" } },
         ],
       });
     }
@@ -559,6 +572,10 @@ export class VellumQdrantClient {
       }),
       this.client.createPayloadIndex(this.collection, {
         field_name: "modality",
+        field_schema: "keyword",
+      }),
+      this.client.createPayloadIndex(this.collection, {
+        field_name: "memory_scope_id",
         field_schema: "keyword",
       }),
     ]);

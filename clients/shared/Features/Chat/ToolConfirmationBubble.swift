@@ -365,13 +365,22 @@ public struct ToolConfirmationBubble: View {
 
             if showDiff, let diffInfo = confirmation.diff {
                 let computedDiff = confirmation.unifiedDiffPreview ?? ""
-                let diffBody = computedDiff.isEmpty ? diffInfo.newContent : computedDiff
                 VStack(alignment: .leading, spacing: VSpacing.xs) {
                     Text(diffInfo.filePath)
                         .font(VFont.monoSmall)
                         .foregroundColor(VColor.contentTertiary)
 
-                    codePreviewBlock(diffBody, maxHeight: 260)
+                    if computedDiff.isEmpty {
+                        codePreviewBlock(diffInfo.newContent, maxHeight: 260)
+                    } else {
+                        VDiffView(computedDiff, maxHeight: 260)
+                            .padding(VSpacing.sm)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .background(
+                                RoundedRectangle(cornerRadius: VRadius.sm)
+                                    .fill(VColor.surfaceOverlay)
+                            )
+                    }
                 }
                 .textSelection(.enabled)
                 .transition(.opacity.combined(with: .move(edge: .top)))
@@ -487,6 +496,15 @@ public struct ToolConfirmationBubble: View {
                                 onTemporaryAllow?(confirmation.requestId, "allow_conversation")
                             }
                         }
+                    }
+                }
+
+                // Show hint when preference-changing options are available.
+                // Hidden when "Always allow" is the only secondary option
+                // since it creates a persistent rule, not a default preference.
+                if hasAllow10m || hasAllowConversation || primary != "allow_once" {
+                    Section {
+                        Text("Your selection becomes the default action (except \u{201C}Always allow\u{201D})")
                     }
                 }
             }
@@ -675,6 +693,3 @@ public struct ToolConfirmationBubble: View {
     }
 
 }
-
-#if DEBUG
-#endif

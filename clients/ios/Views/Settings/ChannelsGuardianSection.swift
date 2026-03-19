@@ -190,13 +190,4 @@ struct ChannelsGuardianSection: View {
             .clipShape(Capsule())
     }
 }
-
-#Preview {
-    let client = DaemonClient(config: .fromUserDefaults())
-    let contactsStore = ContactsStore(daemonClient: client)
-    let trustStore = ChannelTrustStore(daemonClient: client, contactsStore: contactsStore)
-    NavigationStack {
-        ChannelsGuardianSection(channelTrustStore: trustStore, contactsStore: contactsStore)
-    }
-}
 #endif

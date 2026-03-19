@@ -133,10 +133,4 @@ private struct AddDomainSheet: View {
         }
     }
 }
-
-#Preview {
-    NavigationStack {
-        MediaEmbedSettingsSection()
-    }
-}
 #endif

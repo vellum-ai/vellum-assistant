@@ -118,10 +118,4 @@ struct PrivacySection: View {
         }
     }
 }
-
-#Preview {
-    NavigationStack {
-        PrivacySection()
-    }
-}
 #endif

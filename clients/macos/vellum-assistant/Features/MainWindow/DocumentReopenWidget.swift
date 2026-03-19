@@ -70,6 +70,3 @@ struct DocumentReopenWidget: View {
         }
     }
 }
-
-#if DEBUG
-#endif

@@ -116,7 +116,7 @@ describe("Runtime attachment metadata", () => {
     );
 
     // Upload and link an attachment using "self" as the assistantId
-    const stored = uploadAttachment("chart.png", "image/png", "iVBOR");
+    const stored = uploadAttachment("chart.png", "image/png", "iVBORw==");
     linkAttachmentToMessage(assistantMsg.id, stored.id, 0);
 
     const res = await fetch(
@@ -181,7 +181,11 @@ describe("Runtime attachment metadata", () => {
   });
 
   test("GET /attachments/:id returns attachment with payload", async () => {
-    const stored = uploadAttachment("report.pdf", "application/pdf", "JVBER");
+    const stored = uploadAttachment(
+      "report.pdf",
+      "application/pdf",
+      "JVBERA==",
+    );
 
     const res = await fetch(
       `http://127.0.0.1:${port}/v1/attachments/${stored.id}`,
@@ -201,7 +205,7 @@ describe("Runtime attachment metadata", () => {
     expect(body.filename).toBe("report.pdf");
     expect(body.mimeType).toBe("application/pdf");
     expect(body.kind).toBe("document");
-    expect(body.data).toBe("JVBER");
+    expect(body.data).toBe("JVBERA==");
     expect(body.sizeBytes).toBeGreaterThan(0);
   });
 

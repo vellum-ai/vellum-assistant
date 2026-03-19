@@ -1779,14 +1779,9 @@ describe("bundled skill: claude-code", () => {
 
 const APP_BUILDER_TOOL_NAMES = [
   "app_create",
-  "app_list",
-  "app_query",
-  "app_update",
   "app_delete",
-  "app_file_list",
-  "app_file_read",
-  "app_file_edit",
-  "app_file_write",
+  "app_generate_icon",
+  "app_refresh",
 ] as const;
 
 describe("bundled skill: app-builder", () => {
@@ -1803,7 +1798,7 @@ describe("bundled skill: app-builder", () => {
     sessionState = new Map<string, string>();
   });
 
-  test("app-builder skill activation registers all 9 canonical non-proxy tools in allowedToolNames", () => {
+  test("app-builder skill activation registers all 4 canonical non-proxy tools in allowedToolNames", () => {
     mockCatalog = [
       makeSkill("app-builder", "/path/to/bundled-skills/app-builder"),
     ];
@@ -1862,7 +1857,7 @@ describe("bundled skill: app-builder", () => {
 
     const tools = mockRegisteredTools.get("app-builder");
     expect(tools).toBeDefined();
-    expect(tools!.length).toBe(9);
+    expect(tools!.length).toBe(4);
 
     // All tools should have skill origin metadata
     for (const tool of tools!) {

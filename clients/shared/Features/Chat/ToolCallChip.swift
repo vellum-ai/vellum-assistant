@@ -17,8 +17,11 @@ public struct ToolCallChip: View {
     /// Cached formatted input — computed once on first expand to avoid re-running
     /// `formatAllToolInput` on every SwiftUI render pass.
     @State private var cachedInputFull: String?
+    /// Cached line count for the result text — avoids O(n) `components(separatedBy:)`
+    /// array allocation on every SwiftUI render pass when the chip is expanded.
+    @State private var cachedResultLineCount: Int?
 
-/// Parse a `<command_exit code="N" />` tag from the result string and return the exit code.
+    /// Parse a `<command_exit code="N" />` tag from the result string and return the exit code.
     static func parseExitCode(from result: String) -> Int? {
         // Match <command_exit code="N" /> where N is an integer
         guard let codeRange = result.range(of: #"<command_exit code="(\d+)" />"#, options: .regularExpression) else {
@@ -30,6 +33,23 @@ public struct ToolCallChip: View {
             return nil
         }
         return Int(matched[numRange])
+    }
+
+    /// Count lines in a string without allocating an intermediate array.
+    static func countLines(in text: String) -> Int {
+        var count = 1
+        for byte in text.utf8 where byte == UInt8(ascii: "\n") {
+            count += 1
+        }
+        return count
+    }
+
+    /// Whether the tool produces diff-formatted output that benefits from line-level highlighting.
+    static func isFileEditTool(_ name: String) -> Bool {
+        switch name {
+        case "file_edit", "host_file_edit", "app_file_edit": return true
+        default: return false
+        }
     }
 
     /// Human-readable explanation for common exit codes.
@@ -206,12 +226,26 @@ public struct ToolCallChip: View {
                                         .foregroundColor(VColor.contentSecondary)
                                 }
                             } else {
-                                Text(result)
-                                .font(VFont.monoSmall)
-                                .foregroundColor(VColor.contentSecondary)
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                                .textSelection(.enabled)
-                                .fixedSize(horizontal: false, vertical: true)
+                                let lineCount = cachedResultLineCount ?? Self.countLines(in: result)
+                                if Self.isFileEditTool(toolCall.toolName) {
+                                    VDiffView(result, maxHeight: lineCount > 500 ? 400 : nil)
+                                } else if lineCount > 500 {
+                                    ScrollView {
+                                        Text(result)
+                                            .font(VFont.monoSmall)
+                                            .foregroundColor(VColor.contentSecondary)
+                                            .frame(maxWidth: .infinity, alignment: .leading)
+                                            .textSelection(.enabled)
+                                    }
+                                    .frame(maxHeight: 400)
+                                } else {
+                                    Text(result)
+                                        .font(VFont.monoSmall)
+                                        .foregroundColor(VColor.contentSecondary)
+                                        .frame(maxWidth: .infinity, alignment: .leading)
+                                        .textSelection(.enabled)
+                                        .fixedSize(horizontal: false, vertical: true)
+                                }
                             }
                         }
                         .padding(.horizontal, VSpacing.sm)
@@ -229,6 +263,12 @@ public struct ToolCallChip: View {
                             cachedInputFull = ToolCallData.formatAllToolInput(dict)
                         }
                     }
+                    // Cache the result line count so subsequent renders are O(1).
+                    if cachedResultLineCount == nil, let result = toolCall.result {
+                        cachedResultLineCount = Self.countLines(in: result)
+                    }
+                    // Trigger on-demand rehydration when expanding truncated content.
+                    onRehydrate?()
                 }
             }
         }
@@ -249,11 +289,16 @@ public struct ToolCallChip: View {
             // `resolvedInputFull` returns the formatted input on the very first
             // render of the expanded section — avoiding a visible flash/pop-in
             // for lazy-loaded history tool calls where `.onAppear` fires too late.
-            if newValue, cachedInputFull == nil {
-                if let dict = toolCall.inputRawDict {
-                    cachedInputFull = ToolCallData.formatAllToolInput(dict)
-                } else if !toolCall.inputFull.isEmpty {
-                    cachedInputFull = toolCall.inputFull
+            if newValue {
+                if cachedInputFull == nil {
+                    if let dict = toolCall.inputRawDict {
+                        cachedInputFull = ToolCallData.formatAllToolInput(dict)
+                    } else if !toolCall.inputFull.isEmpty {
+                        cachedInputFull = toolCall.inputFull
+                    }
+                }
+                if cachedResultLineCount == nil, let result = toolCall.result {
+                    cachedResultLineCount = Self.countLines(in: result)
                 }
             }
         }
@@ -262,10 +307,12 @@ public struct ToolCallChip: View {
             // the fresh (rehydrated) value instead of the stale truncated one.
             cachedInputFull = nil
         }
+        .onChange(of: toolCall.result) {
+            if isExpanded, let result = toolCall.result {
+                cachedResultLineCount = Self.countLines(in: result)
+            } else {
+                cachedResultLineCount = nil
+            }
+        }
     }
 }
-
-// MARK: - Preview
-
-#if DEBUG
-#endif

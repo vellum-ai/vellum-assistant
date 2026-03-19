@@ -18,6 +18,7 @@ extension Notification.Name {
     static let requestAppPreview = Notification.Name("MainWindow.requestAppPreview")
     static let assistantFeatureFlagDidChange = Notification.Name("assistantFeatureFlagDidChange")
     static let localBootstrapCompleted = Notification.Name("localBootstrapCompleted")
+    static let inferenceConfigDidChange = Notification.Name("SettingsStore.inferenceConfigDidChange")
 }
 
 /// Manages API keys using CredentialStorage (Keychain in Release, file-based
@@ -34,9 +35,8 @@ enum APIKeyManager {
         #endif
     }()
 
-    /// All provider identifiers whose API keys should be synced to the daemon.
-    /// Every call site that iterates over syncable providers must use this list
-    /// to keep key sync, hasAnyKey checks, and reconnect flows consistent.
+    /// Provider identifiers whose API keys are synced to the daemon as
+    /// `type: "api_key"`.
     static let allSyncableProviders = [
         "anthropic",
         "brave",
@@ -44,6 +44,7 @@ enum APIKeyManager {
         "fireworks",
         "gemini",
         "openai",
+        "openrouter",
         "perplexity",
     ]
 
@@ -63,16 +64,25 @@ enum APIKeyManager {
     /// value in credential storage.
     static func migrateFromUserDefaults() {
         for provider in allSyncableProviders {
-            let udKey = udPrefix + provider
-            if let udValue = UserDefaults.standard.string(forKey: udKey),
-               !udValue.isEmpty,
-               storage.get(account: udKey) == nil {
-                _ = storage.set(account: udKey, value: udValue)
-            }
-            // Always remove from UserDefaults regardless — keys should not
-            // remain in the plaintext plist after migration.
-            UserDefaults.standard.removeObject(forKey: udKey)
+            migrateProviderFromUserDefaults(provider)
         }
+    }
+
+    /// Migrate a single provider's key from UserDefaults to credential storage.
+    private static func migrateProviderFromUserDefaults(_ provider: String) {
+        let udKey = udPrefix + provider
+        if let udValue = UserDefaults.standard.string(forKey: udKey),
+           !udValue.isEmpty,
+           storage.get(account: udKey) == nil {
+            // Only remove from UserDefaults if the credential store
+            // write succeeds. A transient Keychain/file failure should
+            // not destroy the user's only copy of the key.
+            guard storage.set(account: udKey, value: udValue) else { return }
+        }
+        // Safe to remove: either the key was successfully migrated,
+        // the credential store already had a value, or UserDefaults
+        // had no value to preserve.
+        UserDefaults.standard.removeObject(forKey: udKey)
     }
 
     // MARK: - Generic provider access

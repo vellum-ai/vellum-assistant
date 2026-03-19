@@ -178,6 +178,12 @@ export interface AssistantAttention {
   lastSeenSignalType?: string;
 }
 
+export interface ConversationForkParent {
+  conversationId: string;
+  messageId: string;
+  title: string;
+}
+
 export interface ConversationListResponse {
   type: "conversation_list_response";
   conversations: Array<{
@@ -194,6 +200,7 @@ export interface ConversationListResponse {
     assistantAttention?: AssistantAttention;
     displayOrder?: number;
     isPinned?: boolean;
+    forkParent?: ConversationForkParent;
   }>;
   /** Whether more conversations exist beyond the returned page. */
   hasMore?: boolean;
@@ -232,6 +239,7 @@ export interface GenerationHandoff {
   requestId?: string;
   queuedCount: number;
   attachments?: UserMessageAttachment[];
+  attachmentWarnings?: string[];
   /** Database ID of the persisted assistant message, if any. */
   messageId?: string;
 }
@@ -242,6 +250,14 @@ export interface ModelInfo {
   provider: string;
   configuredProviders?: string[];
   availableModels?: Array<{ id: string; displayName: string }>;
+  allProviders?: Array<{
+    id: string;
+    displayName: string;
+    models: Array<{ id: string; displayName: string }>;
+    defaultModel: string;
+    apiKeyUrl?: string;
+    apiKeyPlaceholder?: string;
+  }>;
 }
 
 export interface HistoryResponseToolCall {
