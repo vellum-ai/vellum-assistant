@@ -71,6 +71,14 @@ extension AppDelegate {
             guard let self else { return }
             self.surfaceManager.dismissSurface(msg)
         }
+        daemonClient.onSurfaceComplete = { [weak self] msg in
+            guard let self else { return }
+            self.surfaceManager.dismissSurface(UiSurfaceDismissMessage(
+                type: "ui_surface_dismiss",
+                conversationId: msg.conversationId ?? "",
+                surfaceId: msg.surfaceId
+            ))
+        }
 
         // Reload webviews for surfaces whose app files changed (cross-conversation broadcast)
         daemonClient.onAppFilesChanged = { [weak self] appId in
