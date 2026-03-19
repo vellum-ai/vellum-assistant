@@ -134,6 +134,24 @@ enum GalleryPage: Hashable {
 struct ComponentGalleryView: View {
     @State private var selectedPage: GalleryPage? = .overview(.buttons)
     @State private var searchText: String = ""
+    @State private var expandedCategories: Set<ComponentGalleryCategory> = []
+
+    private var isSearching: Bool {
+        !searchText.trimmingCharacters(in: .whitespaces).isEmpty
+    }
+
+    private func isExpanded(_ category: ComponentGalleryCategory) -> Binding<Bool> {
+        Binding(
+            get: { isSearching || expandedCategories.contains(category) },
+            set: { newValue in
+                if newValue {
+                    expandedCategories.insert(category)
+                } else {
+                    expandedCategories.remove(category)
+                }
+            }
+        )
+    }
 
     private var filteredCategories: [(category: ComponentGalleryCategory, components: [(id: String, title: String)])] {
         let query = searchText.lowercased().trimmingCharacters(in: .whitespaces)
@@ -165,7 +183,7 @@ struct ComponentGalleryView: View {
                             Label { Text(item.category.rawValue) } icon: { VIconView(item.category.vIcon, size: 14) }
                                 .tag(GalleryPage.overview(item.category))
                         } else {
-                            DisclosureGroup {
+                            DisclosureGroup(isExpanded: isExpanded(item.category)) {
                                 Text("Overview")
                                     .tag(GalleryPage.overview(item.category))
                                 ForEach(item.components, id: \.id) { component in
