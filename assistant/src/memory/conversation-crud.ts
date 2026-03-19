@@ -1,6 +1,17 @@
 import { mkdirSync, rmSync } from "node:fs";
 
-import { and, asc, count, eq, inArray, isNull, sql } from "drizzle-orm";
+import {
+  and,
+  asc,
+  count,
+  desc,
+  eq,
+  gt,
+  inArray,
+  isNull,
+  lte,
+  sql,
+} from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 import { z } from "zod";
 
@@ -1492,4 +1503,171 @@ export function getDisplayMetaForConversations(
     });
   }
   return result;
+}
+
+// ── Turn boundary resolution ─────────────────────────────────────────
+
+/**
+ * Returns `true` if a message is a tool-result user message — i.e. its
+ * role is "user" and its content is a JSON array where every block has
+ * `type === "tool_result"`. These synthetic user messages are injected
+ * between assistant messages within a single agent turn and should NOT
+ * be treated as turn boundaries.
+ */
+function isToolResultMessage(role: string, content: string): boolean {
+  if (role !== "user") return false;
+  try {
+    const parsed = JSON.parse(content);
+    if (!Array.isArray(parsed) || parsed.length === 0) return false;
+    return parsed.every(
+      (block: unknown) =>
+        block != null &&
+        typeof block === "object" &&
+        (block as Record<string, unknown>).type === "tool_result",
+    );
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Resolve all assistant message IDs that belong to the same agent turn
+ * as the given `messageId`. A "turn" is bounded by:
+ *   - The start of the conversation, or
+ *   - A user message whose content is NOT a tool_result array.
+ *
+ * Within a multi-step agent loop, the pattern is:
+ *   user msg → assistant A1 → user (tool_result) → assistant A2 → ...
+ * All assistant messages from A1 through the queried message (and beyond,
+ * up to the next real user message) are part of the same turn.
+ *
+ * Returns `[messageId]` as a fallback if the message is not found,
+ * preserving backward compatibility for callers.
+ */
+export function getAssistantMessageIdsInTurn(messageId: string): string[] {
+  const db = getDb();
+
+  // Look up the target message to get its conversationId and createdAt.
+  const target = getMessageById(messageId);
+  if (!target) return [messageId];
+
+  // Walk backward from the target message to find the turn boundary.
+  // Limit to 50 rows — sufficient for even aggressive tool-use loops.
+  const backwardRows = db
+    .select({
+      id: messages.id,
+      role: messages.role,
+      content: messages.content,
+      createdAt: messages.createdAt,
+    })
+    .from(messages)
+    .where(
+      and(
+        eq(messages.conversationId, target.conversationId),
+        lte(messages.createdAt, target.createdAt),
+      ),
+    )
+    .orderBy(desc(messages.createdAt))
+    .limit(50)
+    .all();
+
+  const assistantIds: string[] = [];
+  let boundaryCreatedAt: number | null = null;
+
+  for (const row of backwardRows) {
+    if (row.role === "assistant") {
+      assistantIds.push(row.id);
+    } else if (row.role === "user") {
+      if (isToolResultMessage(row.role, row.content)) {
+        // Tool-result user message — still within the same turn, continue.
+        continue;
+      }
+      // Real user message — this is the turn boundary.
+      boundaryCreatedAt = row.createdAt;
+      break;
+    }
+  }
+
+  // Walk forward from the target to collect any later assistant messages
+  // still within the same turn (e.g. when querying an intermediate
+  // message like A1 in a multi-step turn A1 → tool_result → A2).
+  const forwardRows = db
+    .select({
+      id: messages.id,
+      role: messages.role,
+      content: messages.content,
+      createdAt: messages.createdAt,
+    })
+    .from(messages)
+    .where(
+      and(
+        eq(messages.conversationId, target.conversationId),
+        gt(messages.createdAt, target.createdAt),
+      ),
+    )
+    .orderBy(asc(messages.createdAt))
+    .limit(50)
+    .all();
+
+  for (const row of forwardRows) {
+    if (row.role === "assistant") {
+      if (!assistantIds.includes(row.id)) {
+        assistantIds.push(row.id);
+      }
+    } else if (row.role === "user") {
+      if (isToolResultMessage(row.role, row.content)) {
+        // Tool-result user message — still within the same turn.
+        continue;
+      }
+      // Real user message — end of the turn.
+      break;
+    }
+  }
+
+  // Also query forward from the backward-walk boundary to pick up any
+  // assistant messages between the boundary and the target that may have
+  // been missed (e.g. due to the 50-row limit in the backward walk).
+  if (boundaryCreatedAt != null) {
+    const gapRows = db
+      .select({
+        id: messages.id,
+        role: messages.role,
+        createdAt: messages.createdAt,
+      })
+      .from(messages)
+      .where(
+        and(
+          eq(messages.conversationId, target.conversationId),
+          gt(messages.createdAt, boundaryCreatedAt),
+          lte(messages.createdAt, target.createdAt),
+        ),
+      )
+      .orderBy(asc(messages.createdAt))
+      .all();
+
+    for (const row of gapRows) {
+      if (row.role === "assistant" && !assistantIds.includes(row.id)) {
+        assistantIds.push(row.id);
+      }
+    }
+  }
+
+  // Sort by createdAt to ensure stable ordering.
+  // Re-fetch createdAt for all collected IDs so the sort is accurate.
+  if (assistantIds.length <= 1) return assistantIds;
+
+  const idSet = new Set(assistantIds);
+  const sorted = db
+    .select({ id: messages.id, createdAt: messages.createdAt })
+    .from(messages)
+    .where(
+      and(
+        eq(messages.conversationId, target.conversationId),
+        inArray(messages.id, [...idSet]),
+      ),
+    )
+    .orderBy(asc(messages.createdAt))
+    .all();
+
+  return sorted.map((r) => r.id);
 }
