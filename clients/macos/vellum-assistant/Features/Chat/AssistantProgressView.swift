@@ -502,7 +502,7 @@ private struct StepDetailRow: View {
     @State private var isHovered = false
     /// Cached formatted input — computed once on first expand.
     @State private var cachedInputFull: String?
-@Environment(\.displayScale) private var displayScale
+    @Environment(\.displayScale) private var displayScale
     @Environment(\.suppressAutoScroll) private var suppressAutoScroll
 
     /// Lazily resolved full input text.
@@ -643,6 +643,8 @@ private struct StepDetailRow: View {
                                 cachedInputFull = ToolCallData.formatAllToolInput(dict)
                             }
                         }
+                        // Trigger on-demand rehydration when expanding truncated content.
+                        onRehydrate?()
                     }
             }
         }
@@ -756,7 +758,7 @@ private struct StepDetailRow: View {
 
     // MARK: - Output Block
 
-    /// Reusable output block — shows full text with a copy button.
+    /// Reusable output block with a height-bounded ScrollView for long outputs.
     @ViewBuilder
     private func outputBlock(
         text: String?,
@@ -764,9 +766,17 @@ private struct StepDetailRow: View {
         copyText: String,
         copyLabel: String
     ) -> some View {
+        let lineCount = copyText.components(separatedBy: "\n").count
+
         ZStack(alignment: .topTrailing) {
             VStack(alignment: .leading, spacing: VSpacing.xs) {
-                if let attrText = attributedText {
+                if lineCount > 500 {
+                    // Long outputs get a height-bounded ScrollView
+                    ScrollView {
+                        outputTextView(text: text, attributedText: attributedText)
+                    }
+                    .frame(maxHeight: 400)
+                } else if let attrText = attributedText {
                     Text(attrText)
                         .font(VFont.monoSmall)
                         .frame(maxWidth: .infinity, alignment: .leading)
@@ -796,6 +806,26 @@ private struct StepDetailRow: View {
                 NSPasteboard.general.setString(copyText, forType: .string)
             }
             .padding(VSpacing.xs)
+        }
+    }
+
+    /// Text view used inside the ScrollView for long outputs.
+    @ViewBuilder
+    private func outputTextView(
+        text: String?,
+        attributedText: AttributedString?
+    ) -> some View {
+        if let attrText = attributedText {
+            Text(attrText)
+                .font(VFont.monoSmall)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .textSelection(.enabled)
+        } else if let plainText = text {
+            Text(plainText)
+                .font(VFont.monoSmall)
+                .foregroundColor(VColor.contentSecondary)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .textSelection(.enabled)
         }
     }
 
