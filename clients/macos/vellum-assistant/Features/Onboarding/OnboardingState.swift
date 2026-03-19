@@ -160,7 +160,10 @@ final class OnboardingState {
         // Reset ToS acceptance so the user must re-accept on re-hatch
         UserDefaults.standard.set(false, forKey: "tosAccepted")
 
-        // Clear stored API key so the user starts fresh
+        // Clear API key for whichever provider was selected during onboarding
+        if selectedProvider != "anthropic" {
+            APIKeyManager.deleteKey(for: selectedProvider)
+        }
         APIKeyManager.deleteKey(for: "anthropic")
 
         selectedProvider = "anthropic"

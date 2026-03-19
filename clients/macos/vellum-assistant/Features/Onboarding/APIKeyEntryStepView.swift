@@ -10,7 +10,6 @@ struct APIKeyEntryStepView: View {
     @State private var isEditing = false
     @State private var showTitle = false
     @State private var showContent = false
-    @State private var selectedProvider: String = "anthropic"
     @State private var selectedModel: String = "claude-opus-4-6"
     @FocusState private var keyFieldFocused: Bool
 
@@ -62,15 +61,15 @@ struct APIKeyEntryStepView: View {
     // MARK: - Provider Helpers
 
     private var currentProviderEntry: ProviderCatalogEntry? {
-        providerCatalog.first { $0.id == selectedProvider }
+        providerCatalog.first { $0.id == state.selectedProvider }
     }
 
     private var providerDisplayName: String {
-        currentProviderEntry?.displayName ?? selectedProvider
+        currentProviderEntry?.displayName ?? state.selectedProvider
     }
 
     private var providerRequiresKey: Bool {
-        selectedProvider != "ollama"
+        state.selectedProvider != "ollama"
     }
 
     // MARK: - Body
@@ -148,7 +147,7 @@ struct APIKeyEntryStepView: View {
         .offset(y: showContent ? 0 : 12)
         .onAppear {
             if isCustomProviderEnabled {
-                if let existingKey = APIKeyManager.getKey(for: selectedProvider) {
+                if let existingKey = APIKeyManager.getKey(for: state.selectedProvider) {
                     apiKey = existingKey
                     hasExistingKey = true
                 }
@@ -168,7 +167,7 @@ struct APIKeyEntryStepView: View {
                 keyFieldFocused = true
             }
         }
-        .onChange(of: selectedProvider) { _, newProvider in
+        .onChange(of: state.selectedProvider) { _, newProvider in
             if let entry = providerCatalog.first(where: { $0.id == newProvider }) {
                 selectedModel = entry.defaultModel
             }
@@ -183,7 +182,7 @@ struct APIKeyEntryStepView: View {
             Text("Provider")
                 .font(VFont.inputLabel)
                 .foregroundColor(VColor.contentSecondary)
-            Picker("", selection: $selectedProvider) {
+            Picker("", selection: $state.selectedProvider) {
                 ForEach(providerCatalog, id: \.id) { entry in
                     Text(entry.displayName).tag(entry.id)
                 }
@@ -236,7 +235,7 @@ struct APIKeyEntryStepView: View {
             } else {
                 SecureField(
                     isCustomProviderEnabled
-                        ? (selectedProvider == "anthropic" ? "sk-ant-\u{2026}" : "Enter your \(providerDisplayName) API key")
+                        ? (state.selectedProvider == "anthropic" ? "sk-ant-\u{2026}" : "Enter your \(providerDisplayName) API key")
                         : "sk-ant-\u{2026}",
                     text: $apiKey
                 )
@@ -280,14 +279,14 @@ struct APIKeyEntryStepView: View {
             let trimmed = apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !providerRequiresKey || !trimmed.isEmpty else { return }
             if providerRequiresKey {
-                APIKeyManager.setKey(trimmed, for: selectedProvider)
+                APIKeyManager.setKey(trimmed, for: state.selectedProvider)
             }
             WorkspaceConfigIO.initializeServiceDefaults(defaultMode: "your-own")
             // Persist provider + model
             let existingConfig = WorkspaceConfigIO.read()
             var services = existingConfig["services"] as? [String: Any] ?? [:]
             var inference = services["inference"] as? [String: Any] ?? [:]
-            inference["provider"] = selectedProvider
+            inference["provider"] = state.selectedProvider
             inference["model"] = selectedModel
             services["inference"] = inference
             try? WorkspaceConfigIO.merge(["services": services])
