@@ -809,7 +809,12 @@ struct ScrollWheelDetector: NSViewRepresentable {
         let now = ProcessInfo.processInfo.systemUptime
         let convId = conversationId?.uuidString ?? "none"
         let winId = nsView.window.map { String($0.windowNumber) } ?? "pending"
-        registry.update(detectorId: coordinator.detectorId, timestamp: now)
+        registry.update(
+            detectorId: coordinator.detectorId,
+            timestamp: now,
+            conversationId: convId,
+            windowId: winId
+        )
 
         let activeCount = registry.activeCount
         let hasDuplicate = registry.hasDuplicates(conversationId: convId, windowId: winId)

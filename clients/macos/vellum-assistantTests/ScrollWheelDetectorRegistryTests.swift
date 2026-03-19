@@ -101,6 +101,88 @@ final class ScrollWheelDetectorRegistryTests: XCTestCase {
         XCTAssertEqual(entry?.installedAt, 1000.0, "installedAt should not change on update")
     }
 
+    func testUpdateChangesConversationId() {
+        registry.register(
+            detectorId: "det-1",
+            conversationId: "conv-a",
+            windowId: "win-1",
+            timestamp: 1000.0
+        )
+
+        registry.update(detectorId: "det-1", timestamp: 2000.0, conversationId: "conv-b")
+
+        let entry = registry.snapshot().first
+        XCTAssertEqual(entry?.conversationId, "conv-b")
+        XCTAssertEqual(entry?.windowId, "win-1", "windowId should not change when only conversationId is passed")
+        XCTAssertEqual(entry?.lastUpdatedAt, 2000.0)
+    }
+
+    func testUpdateChangesWindowId() {
+        registry.register(
+            detectorId: "det-1",
+            conversationId: "conv-a",
+            windowId: "win-1",
+            timestamp: 1000.0
+        )
+
+        registry.update(detectorId: "det-1", timestamp: 2000.0, windowId: "win-2")
+
+        let entry = registry.snapshot().first
+        XCTAssertEqual(entry?.conversationId, "conv-a", "conversationId should not change when only windowId is passed")
+        XCTAssertEqual(entry?.windowId, "win-2")
+    }
+
+    func testUpdateChangesConversationAndWindowTogether() {
+        registry.register(
+            detectorId: "det-1",
+            conversationId: "conv-a",
+            windowId: "win-1",
+            timestamp: 1000.0
+        )
+
+        registry.update(detectorId: "det-1", timestamp: 2000.0, conversationId: "conv-b", windowId: "win-2")
+
+        let entry = registry.snapshot().first
+        XCTAssertEqual(entry?.conversationId, "conv-b")
+        XCTAssertEqual(entry?.windowId, "win-2")
+        XCTAssertEqual(entry?.lastUpdatedAt, 2000.0)
+        XCTAssertEqual(entry?.installedAt, 1000.0, "installedAt should not change on update")
+    }
+
+    func testUpdateConversationFixesStaleDuplicateDetection() {
+        // Simulate two detectors both initially on conv-a/win-1 (a duplicate).
+        registry.register(detectorId: "det-1", conversationId: "conv-a", windowId: "win-1", timestamp: 1000.0)
+        registry.register(detectorId: "det-2", conversationId: "conv-a", windowId: "win-1", timestamp: 1001.0)
+
+        XCTAssertTrue(registry.hasDuplicates(conversationId: "conv-a", windowId: "win-1"),
+                       "Should detect duplicates before conversation switch")
+
+        // Conversation switch: det-1 moves to conv-b.
+        registry.update(detectorId: "det-1", timestamp: 2000.0, conversationId: "conv-b", windowId: "win-1")
+
+        XCTAssertFalse(registry.hasDuplicates(conversationId: "conv-a", windowId: "win-1"),
+                        "After det-1 moves to conv-b, conv-a/win-1 should have no duplicates")
+        XCTAssertFalse(registry.hasDuplicates(conversationId: "conv-b", windowId: "win-1"),
+                        "conv-b/win-1 should have only one detector")
+    }
+
+    func testUpdateWithNilConversationAndWindowPreservesExisting() {
+        registry.register(
+            detectorId: "det-1",
+            conversationId: "conv-a",
+            windowId: "win-1",
+            timestamp: 1000.0
+        )
+
+        // Update with neither conversationId nor windowId — should only update timestamp.
+        registry.update(detectorId: "det-1", timestamp: 2000.0)
+
+        let entry = registry.snapshot().first
+        XCTAssertEqual(entry?.conversationId, "conv-a")
+        XCTAssertEqual(entry?.windowId, "win-1")
+        XCTAssertEqual(entry?.lastUpdatedAt, 2000.0)
+    }
+
     func testUpdateUnknownIdIsNoOp() {
         registry.register(
             detectorId: "det-1",
