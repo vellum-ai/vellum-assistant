@@ -4,6 +4,7 @@ import { join } from "path";
 
 import {
   DAEMON_INTERNAL_ASSISTANT_ID,
+  DEFAULT_CES_PORT,
   DEFAULT_DAEMON_PORT,
   DEFAULT_GATEWAY_PORT,
   DEFAULT_QDRANT_PORT,
@@ -29,6 +30,8 @@ export interface LocalInstanceResources {
   gatewayPort: number;
   /** HTTP port for the Qdrant vector store */
   qdrantPort: number;
+  /** HTTP port for the CES (Claude Extension Server) */
+  cesPort: number;
   /** Absolute path to the daemon PID file */
   pidFile: string;
   [key: string]: unknown;
@@ -166,6 +169,7 @@ export function migrateLegacyEntry(raw: Record<string, unknown>): boolean {
       daemonPort: DEFAULT_DAEMON_PORT,
       gatewayPort,
       qdrantPort: DEFAULT_QDRANT_PORT,
+      cesPort: DEFAULT_CES_PORT,
       pidFile: join(instanceDir, ".vellum", "vellum.pid"),
     };
     mutated = true;
@@ -196,6 +200,10 @@ export function migrateLegacyEntry(raw: Record<string, unknown>): boolean {
     }
     if (typeof res.qdrantPort !== "number") {
       res.qdrantPort = DEFAULT_QDRANT_PORT;
+      mutated = true;
+    }
+    if (typeof res.cesPort !== "number") {
+      res.cesPort = DEFAULT_CES_PORT;
       mutated = true;
     }
     if (typeof res.pidFile !== "string") {
@@ -373,6 +381,7 @@ export async function allocateLocalResources(
       daemonPort: DEFAULT_DAEMON_PORT,
       gatewayPort: DEFAULT_GATEWAY_PORT,
       qdrantPort: DEFAULT_QDRANT_PORT,
+      cesPort: DEFAULT_CES_PORT,
       pidFile: join(vellumDir, "vellum.pid"),
     };
   }
@@ -423,6 +432,7 @@ export async function allocateLocalResources(
     daemonPort,
     gatewayPort,
     qdrantPort,
+    cesPort: DEFAULT_CES_PORT,
     pidFile: join(instanceDir, ".vellum", "vellum.pid"),
   };
 }
