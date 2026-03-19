@@ -256,6 +256,7 @@ public struct ToolConfirmationBubble: View {
             .clipped()
         }
         .padding(VSpacing.md)
+        .frame(maxWidth: .infinity, alignment: .leading)
         .background(
             GeometryReader { geo in
                 RoundedRectangle(cornerRadius: VRadius.md)
