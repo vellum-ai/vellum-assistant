@@ -105,7 +105,7 @@ struct UsageDashboardPanel: View {
     // MARK: - Totals Section
 
     @ViewBuilder
-    private func totalsSection(store: UsageDashboardStore) -> some View {
+    func totalsSection(store: UsageDashboardStore) -> some View {
         SettingsCard(title: "Totals") {
             switch store.totalsState {
             case .idle, .loading:
@@ -141,7 +141,7 @@ struct UsageDashboardPanel: View {
     // MARK: - Daily Trend Section
 
     @ViewBuilder
-    private func dailySection(store: UsageDashboardStore) -> some View {
+    func dailySection(store: UsageDashboardStore) -> some View {
         SettingsCard(title: "Daily Trend") {
             switch store.dailyState {
             case .idle, .loading:
@@ -241,7 +241,7 @@ struct UsageDashboardPanel: View {
     // MARK: - Breakdown Section
 
     @ViewBuilder
-    private func breakdownSection(store: UsageDashboardStore) -> some View {
+    func breakdownSection(store: UsageDashboardStore) -> some View {
         SettingsCard(title: "Breakdown") {
             groupByPicker(store: store)
 
