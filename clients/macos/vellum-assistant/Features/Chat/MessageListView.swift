@@ -1517,7 +1517,7 @@ private struct MessageCellView: View, Equatable {
                 onTemporaryAllow: onTemporaryAllow,
                 activeConfirmationRequestId: activePendingRequestId,
                 onRetryFailedMessage: onRetryFailedMessage,
-                onRetryConversationError: message.isError && index == displayMessages.count - 1 ? onRetryConversationError : nil,
+                onRetryConversationError: message.isError ? onRetryConversationError : nil,
                 isLatestAssistantMessage: message.role == .assistant && message.id == latestAssistantId,
                 isProcessingAfterTools: canInlineProcessing && message.id == latestAssistantId,
                 processingStatusText: canInlineProcessing && message.id == latestAssistantId ? assistantStatusText : nil,
