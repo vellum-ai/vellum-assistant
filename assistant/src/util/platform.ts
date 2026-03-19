@@ -8,7 +8,7 @@ import {
 import { homedir } from "node:os";
 import { join } from "node:path";
 
-import { getBaseDataDir } from "../config/env-registry.js";
+import { getBaseDataDir, getIsContainerized } from "../config/env-registry.js";
 
 export function isMacOS(): boolean {
   return process.platform === "darwin";
@@ -422,13 +422,15 @@ export function ensureDataDir(): void {
   const root = getRootDir();
   const workspace = getWorkspaceDir();
   const wsData = join(workspace, "data");
+  const containerized = getIsContainerized();
   const dirs = [
     // Root-level dirs (runtime / protected)
     root,
     join(root, "protected"),
     // Workspace dirs
     workspace,
-    join(root, "hooks"),
+    // Hooks are a local-only concept — skip in containerized mode
+    ...(containerized ? [] : [join(root, "hooks")]),
     join(workspace, "skills"),
     join(workspace, "embedding-models"),
     join(workspace, "conversations"),

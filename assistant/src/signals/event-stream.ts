@@ -24,6 +24,7 @@ import {
 } from "node:fs";
 import { join } from "node:path";
 
+import { getIsContainerized } from "../config/env-registry.js";
 import type { AssistantEvent } from "../runtime/assistant-event.js";
 import { getSignalsDir } from "../util/platform.js";
 
@@ -86,6 +87,8 @@ export function appendEventToStream(
   conversationId: string,
   event: AssistantEvent,
 ): void {
+  if (getIsContainerized()) return;
+
   const dirs = getSubscriberDirs(conversationId);
   if (dirs.length === 0) return;
 
@@ -130,6 +133,10 @@ export function watchEventStream(
   conversationId: string,
   callback: (event: AssistantEvent) => void,
 ): EventStreamWatcher {
+  if (getIsContainerized()) {
+    return { dispose() {} };
+  }
+
   const parentDir = eventsDir();
   mkdirSync(parentDir, { recursive: true });
   const subDir = join(parentDir, `${conversationId}.${process.pid}`);
