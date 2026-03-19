@@ -133,25 +133,47 @@ enum GalleryPage: Hashable {
 
 struct ComponentGalleryView: View {
     @State private var selectedPage: GalleryPage? = .overview(.buttons)
+    @State private var searchText: String = ""
+
+    private var filteredCategories: [(category: ComponentGalleryCategory, components: [(id: String, title: String)])] {
+        let query = searchText.lowercased().trimmingCharacters(in: .whitespaces)
+        if query.isEmpty {
+            return ComponentGalleryCategory.allCases.map { ($0, $0.components) }
+        }
+        return ComponentGalleryCategory.allCases.compactMap { category in
+            let matchingComponents = category.components.filter { $0.title.lowercased().contains(query) }
+            let categoryMatches = category.rawValue.lowercased().contains(query)
+            if categoryMatches {
+                return (category, category.components)
+            } else if !matchingComponents.isEmpty {
+                return (category, matchingComponents)
+            }
+            return nil
+        }
+    }
 
     var body: some View {
         NavigationSplitView {
             VStack(spacing: 0) {
+                VSearchBar(placeholder: "Filter components...", text: $searchText)
+                    .padding(.horizontal, VSpacing.sm)
+                    .padding(.vertical, VSpacing.xs)
+
                 List(selection: $selectedPage) {
-                    ForEach(ComponentGalleryCategory.allCases) { category in
-                        if category.components.isEmpty {
-                            Label { Text(category.rawValue) } icon: { VIconView(category.vIcon, size: 14) }
-                                .tag(GalleryPage.overview(category))
+                    ForEach(filteredCategories, id: \.category) { item in
+                        if item.components.isEmpty {
+                            Label { Text(item.category.rawValue) } icon: { VIconView(item.category.vIcon, size: 14) }
+                                .tag(GalleryPage.overview(item.category))
                         } else {
                             DisclosureGroup {
-                                Label { Text("Overview") } icon: { VIconView(.layers, size: 14) }
-                                    .tag(GalleryPage.overview(category))
-                                ForEach(category.components, id: \.id) { component in
+                                Text("Overview")
+                                    .tag(GalleryPage.overview(item.category))
+                                ForEach(item.components, id: \.id) { component in
                                     Text(component.title)
-                                        .tag(GalleryPage.component(category, component.id))
+                                        .tag(GalleryPage.component(item.category, component.id))
                                 }
                             } label: {
-                                Label { Text(category.rawValue) } icon: { VIconView(category.vIcon, size: 14) }
+                                Label { Text(item.category.rawValue) } icon: { VIconView(item.category.vIcon, size: 14) }
                             }
                         }
                     }
