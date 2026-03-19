@@ -45,7 +45,20 @@ export function oauthAppsRouteDefinitions(): RouteDefinition[] {
           (row) => row.providerKey === providerKey,
         );
 
+        const providerRow = getProvider(providerKey);
+        const provider = providerRow
+          ? {
+              provider_key: providerRow.providerKey,
+              display_name: providerRow.displayName ?? null,
+              description: providerRow.description ?? null,
+              dashboard_url: providerRow.dashboardUrl ?? null,
+              client_id_placeholder: providerRow.clientIdPlaceholder ?? null,
+              requires_client_secret: providerRow.requiresClientSecret ?? 1,
+            }
+          : null;
+
         return Response.json({
+          provider,
           apps: filtered.map((row) => ({
             id: row.id,
             provider_key: row.providerKey,
