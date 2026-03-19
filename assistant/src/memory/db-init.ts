@@ -82,6 +82,7 @@ import {
   migrateInviteContactId,
   migrateLlmRequestLogMessageId,
   migrateLlmRequestLogProvider,
+  migrateMemoryBriefState,
   migrateMemoryItemSupersession,
   migrateMessagesFtsBackfill,
   migrateNormalizePhoneIdentities,
@@ -483,6 +484,9 @@ export function initializeDb(): void {
 
   // 84. Add nullable conversation fork lineage columns and parent lookup index
   migrateConversationForkLineage(database);
+
+  // 85. Memory brief state tables (time_contexts, open_loops) for simplified memory system
+  migrateMemoryBriefState(database);
 
   validateMigrationState(database);
 
