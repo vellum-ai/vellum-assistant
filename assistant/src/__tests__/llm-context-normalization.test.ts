@@ -8,6 +8,8 @@ describe("normalizeLlmContextPayloads", () => {
       createdAt: 1_742_400_000_000,
       requestPayload: {
         model: "gpt-4.1",
+        temperature: 0.2,
+        tool_choice: "auto",
         messages: [
           { role: "system", content: "Be concise." },
           {
@@ -102,7 +104,37 @@ describe("normalizeLlmContextPayloads", () => {
       {
         kind: "tool_definitions",
         label: "Available tools",
-        text: "web_search, get_weather",
+        data: {
+          tools: [
+            {
+              type: "function",
+              function: {
+                name: "web_search",
+                description: "Search the web",
+                parameters: { type: "object" },
+              },
+            },
+            {
+              type: "function",
+              function: {
+                name: "get_weather",
+                description: "Read forecast data",
+                parameters: { type: "object" },
+              },
+            },
+          ],
+        },
+        language: "json",
+      },
+      {
+        kind: "settings",
+        label: "Request settings",
+        data: {
+          model: "gpt-4.1",
+          temperature: 0.2,
+          tool_choice: "auto",
+        },
+        language: "json",
       },
     ]);
     expect(normalized.responseSections).toEqual([
@@ -136,6 +168,9 @@ describe("normalizeLlmContextPayloads", () => {
       createdAt: 1_742_400_000_001,
       requestPayload: {
         model: "claude-sonnet",
+        max_tokens: 1_024,
+        temperature: 0.1,
+        tool_choice: { type: "auto" },
         system: [
           {
             type: "text",
@@ -235,7 +270,27 @@ describe("normalizeLlmContextPayloads", () => {
       {
         kind: "tool_definitions",
         label: "Available tools",
-        text: "web_search",
+        data: {
+          tools: [
+            {
+              name: "web_search",
+              description: "Search the web",
+              input_schema: { type: "object" },
+            },
+          ],
+        },
+        language: "json",
+      },
+      {
+        kind: "settings",
+        label: "Request settings",
+        data: {
+          model: "claude-sonnet",
+          max_tokens: 1_024,
+          temperature: 0.1,
+          tool_choice: { type: "auto" },
+        },
+        language: "json",
       },
     ]);
     expect(normalized.responseSections).toEqual([
@@ -387,6 +442,8 @@ describe("normalizeLlmContextPayloads", () => {
         ],
         config: {
           systemInstruction: "Answer briefly.",
+          temperature: 0.4,
+          responseMimeType: "application/json",
           tools: [
             {
               functionDeclarations: [
@@ -466,7 +523,29 @@ describe("normalizeLlmContextPayloads", () => {
       {
         kind: "tool_definitions",
         label: "Available tools",
-        text: "read_file, search_notes",
+        data: {
+          tools: [
+            {
+              functionDeclarations: [
+                { name: "read_file", description: "Read a file" },
+                { name: "search_notes", description: "Search notes" },
+              ],
+            },
+          ],
+        },
+        language: "json",
+      },
+      {
+        kind: "settings",
+        label: "Generation config",
+        data: {
+          model: "gemini-3-flash",
+          config: {
+            temperature: 0.4,
+            responseMimeType: "application/json",
+          },
+        },
+        language: "json",
       },
     ]);
     expect(normalized.responseSections).toEqual([

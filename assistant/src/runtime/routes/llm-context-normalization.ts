@@ -24,6 +24,7 @@ export interface LlmContextSection {
   kind:
     | "system"
     | "message"
+    | "settings"
     | "tool_definitions"
     | "tool_use"
     | "tool_result"
@@ -34,6 +35,7 @@ export interface LlmContextSection {
   text?: string;
   toolName?: string;
   data?: unknown;
+  language?: string;
 }
 
 export interface LlmContextNormalizationResult {
@@ -114,8 +116,16 @@ function normalizeOpenAiPayloads(
     requestSections.push({
       kind: "tool_definitions",
       label: "Available tools",
-      text: requestToolNames.join(", "),
+      data: {
+        tools: asRecordArray(request.tools) ?? request.tools,
+      },
+      language: "json",
     });
+  }
+
+  const requestSettings = omitRecordKeys(request, ["messages", "tools"]);
+  if (hasMeaningfulRequestSettings(requestSettings)) {
+    requestSections.push(structuredJsonSection("settings", "Request settings", requestSettings));
   }
 
   const firstChoice = choices[0];
@@ -196,8 +206,16 @@ function normalizeAnthropicPayloads(
     requestSections.push({
       kind: "tool_definitions",
       label: "Available tools",
-      text: requestToolNames.join(", "),
+      data: {
+        tools: asRecordArray(request.tools) ?? request.tools,
+      },
+      language: "json",
     });
+  }
+
+  const requestSettings = omitRecordKeys(request, ["system", "messages", "tools"]);
+  if (hasMeaningfulRequestSettings(requestSettings)) {
+    requestSections.push(structuredJsonSection("settings", "Request settings", requestSettings));
   }
 
   const responseSections = anthropicContentSections(content, "Assistant response");
@@ -266,8 +284,18 @@ function normalizeGeminiPayloads(
     requestSections.push({
       kind: "tool_definitions",
       label: "Available tools",
-      text: requestToolNames.join(", "),
+      data: {
+        tools: asRecordArray(config?.tools) ?? config?.tools,
+      },
+      language: "json",
     });
+  }
+
+  const requestSettings = buildGeminiRequestSettings(request, config);
+  if (hasMeaningfulRequestSettings(requestSettings)) {
+    requestSections.push(
+      structuredJsonSection("settings", "Generation config", requestSettings),
+    );
   }
 
   const responseSections: LlmContextSection[] = [];
@@ -643,6 +671,65 @@ function buildMessageLabel(role: string, index: number): string {
     return "System prompt";
   }
   return `${capitalizedRole} message ${index}`;
+}
+
+function buildGeminiRequestSettings(
+  request: Record<string, unknown>,
+  config: Record<string, unknown> | null,
+): Record<string, unknown> | undefined {
+  const topLevelSettings = omitRecordKeys(request, ["contents", "config"]);
+  const configSettings = omitRecordKeys(config, ["systemInstruction", "tools"]);
+
+  if (!topLevelSettings && !configSettings) {
+    return undefined;
+  }
+
+  return {
+    ...(topLevelSettings ?? {}),
+    ...(configSettings ? { config: configSettings } : {}),
+  };
+}
+
+function structuredJsonSection(
+  kind: LlmContextSection["kind"],
+  label: string,
+  data: unknown,
+): LlmContextSection {
+  return {
+    kind,
+    label,
+    data,
+    language: "json",
+  };
+}
+
+function hasMeaningfulRequestSettings(
+  settings: Record<string, unknown> | undefined,
+): settings is Record<string, unknown> {
+  if (!settings) {
+    return false;
+  }
+
+  const keys = Object.keys(settings);
+  return !(keys.length === 1 && keys[0] === "model");
+}
+
+function omitRecordKeys(
+  record: Record<string, unknown> | null,
+  omittedKeys: string[],
+): Record<string, unknown> | undefined {
+  if (!record) {
+    return undefined;
+  }
+
+  const filteredEntries = Object.entries(record).filter(
+    ([key, value]) => !omittedKeys.includes(key) && value !== undefined,
+  );
+  if (filteredEntries.length === 0) {
+    return undefined;
+  }
+
+  return Object.fromEntries(filteredEntries);
 }
 
 function previewStructuredValue(value: unknown): string | undefined {
