@@ -5,6 +5,8 @@ struct LayoutGallerySection: View {
     @State private var showPanel = true
     @State private var panelWidth: Double = 280
     @State private var pinnedTabSelection: Int = 0
+    @State private var adaptiveDropdownValue: String = "a"
+    @State private var adaptiveContainerWidth: Double = 500
 
     var body: some View {
         VStack(alignment: .leading, spacing: VSpacing.xxl) {
@@ -97,42 +99,34 @@ struct LayoutGallerySection: View {
             // MARK: - VAdaptiveStack
             GallerySectionHeader(
                 title: "VAdaptiveStack",
-                description: "Arranges content horizontally when space allows, falling back to vertical stacking. Uses ViewThatFits to pick the best layout for the available width."
+                description: "Arranges content horizontally when space allows, falling back to vertical stacking. Uses ViewThatFits to pick the best layout for the available width. Use this instead of a raw HStack when content should gracefully reflow at narrow widths."
             )
 
             VCard {
                 VStack(alignment: .leading, spacing: VSpacing.xl) {
-                    Text("Wide container (horizontal)")
-                        .font(VFont.caption)
-                        .foregroundColor(VColor.contentSecondary)
-
-                    VAdaptiveStack {
-                        Text("Label")
-                            .font(VFont.body)
-                            .foregroundColor(VColor.contentDefault)
-                            .padding(VSpacing.sm)
-                            .background(VColor.surfaceActive)
-                            .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
-                        VButton(label: "Action", style: .primary) {}
+                    VStack(alignment: .leading, spacing: VSpacing.xs) {
+                        Text("Container Width: \(Int(adaptiveContainerWidth))pt")
+                            .font(VFont.caption)
+                            .foregroundColor(VColor.contentSecondary)
+                        Slider(value: $adaptiveContainerWidth, in: 150...600, step: 10)
+                            .frame(maxWidth: 300)
                     }
-                    .frame(maxWidth: .infinity, alignment: .leading)
 
                     Divider().background(VColor.borderBase)
 
-                    Text("Narrow container (vertical fallback)")
-                        .font(VFont.caption)
-                        .foregroundColor(VColor.contentSecondary)
-
-                    VAdaptiveStack {
-                        Text("Label")
-                            .font(VFont.body)
-                            .foregroundColor(VColor.contentDefault)
-                            .padding(VSpacing.sm)
-                            .background(VColor.surfaceActive)
-                            .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
-                        VButton(label: "Action", style: .primary) {}
+                    VAdaptiveStack(horizontalAlignment: .bottom) {
+                        VDropdown(
+                            placeholder: "Select a model...",
+                            selection: $adaptiveDropdownValue,
+                            options: [
+                                (label: "Claude 3.5 Sonnet", value: "a"),
+                                (label: "GPT-4o", value: "b"),
+                                (label: "Gemini Pro", value: "c"),
+                            ]
+                        )
+                        VButton(label: "Save", style: .primary) {}
                     }
-                    .frame(width: 120, alignment: .leading)
+                    .frame(width: adaptiveContainerWidth, alignment: .leading)
                 }
             }
 
