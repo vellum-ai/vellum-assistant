@@ -606,21 +606,23 @@ struct ActiveChatViewWrapper: View {
     private var isBootstrapTimedOut: Bool { bootstrapStateRaw == "timedOut" }
 
     var body: some View {
-        chatContent
-            .environment(\.cmdEnterToSend, settingsStore.cmdEnterToSend)
-            .overlay {
-                if let messageId = inspectorMessageId {
-                    MessageInspectorView(
-                        messageId: messageId,
-                        onBack: dismissInspector
-                    )
-                    .transition(.move(edge: .trailing).combined(with: .opacity))
-                }
+        ZStack {
+            chatContent
+                .environment(\.cmdEnterToSend, settingsStore.cmdEnterToSend)
+                .disabled(inspectorMessageId != nil)
+
+            if let messageId = inspectorMessageId {
+                MessageInspectorView(
+                    messageId: messageId,
+                    onBack: dismissInspector
+                )
+                .transition(.move(edge: .trailing).combined(with: .opacity))
             }
-            .animation(VAnimation.standard, value: inspectorMessageId)
-            .onChange(of: conversationId) { _, _ in
-                inspectorMessageId = nil
-            }
+        }
+        .animation(VAnimation.standard, value: inspectorMessageId)
+        .onChange(of: conversationId) { _, _ in
+            inspectorMessageId = nil
+        }
     }
 
     private var chatContent: some View {
@@ -761,6 +763,7 @@ struct ActiveChatViewWrapper: View {
             loadPreviousMessagePage: { await viewModel.loadPreviousMessagePage() },
             isBootstrapping: isBootstrapping,
             isBootstrapTimedOut: isBootstrapTimedOut,
+            isInteractionEnabled: inspectorMessageId == nil,
             onBootstrapSendLogs: {
                 AppDelegate.shared?.showLogReportWindow(reason: .connectionIssue)
             }

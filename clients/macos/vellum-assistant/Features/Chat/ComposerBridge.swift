@@ -33,6 +33,7 @@ extension EnvironmentValues {
 struct ComposerFocusBridge: NSViewRepresentable {
     let isFocused: Bool
     let cmdEnterToSend: Bool
+    let isInteractionEnabled: Bool
     let onImagePaste: () -> Void
     let onSend: () -> Void
     let onRedirectKeystroke: (String) -> Void
@@ -54,8 +55,12 @@ struct ComposerFocusBridge: NSViewRepresentable {
 
         // Register a typing-redirect handler so keystrokes auto-focus the composer.
         let coordinator = context.coordinator
-        window.composerRedirectHandler = { chars in
-            coordinator.parent.onRedirectKeystroke(chars)
+        if isInteractionEnabled {
+            window.composerRedirectHandler = { chars in
+                coordinator.parent.onRedirectKeystroke(chars)
+            }
+        } else {
+            window.composerRedirectHandler = nil
         }
 
         // Walk up from the bridge view to find the composer container —
@@ -107,7 +112,7 @@ struct ComposerFocusBridge: NSViewRepresentable {
 
         func setupEventMonitor() {
             eventMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
-                guard let self, self.parent.isFocused else { return event }
+                guard let self, self.parent.isFocused, self.parent.isInteractionEnabled else { return event }
 
                 let modifiers = event.modifierFlags.intersection([.shift, .command, .control, .option])
 
@@ -179,4 +184,3 @@ struct ComposerFocusBridge: NSViewRepresentable {
         }
     }
 }
-
