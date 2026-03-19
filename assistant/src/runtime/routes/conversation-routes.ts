@@ -81,6 +81,9 @@ import {
 
 const log = getLogger("conversation-routes");
 
+/** Matches the `<no_response/>` sentinel used by channel delivery suppression. */
+const NO_RESPONSE_INLINE_RE = /<no_response\s*\/?>/g;
+
 const SUGGESTION_CACHE_MAX = 100;
 
 function collectCanonicalGuardianRequestHintIds(
@@ -363,13 +366,21 @@ export function handleListMessages(
       content = msg.content;
     }
     const rendered = renderHistoryContent(content);
+    // Strip <no_response/> markers so web/API clients never see the raw
+    // sentinel that the delivery layer uses to suppress channel output.
+    const filteredSegments = rendered.textSegments
+      ?.map((s) => s.replace(NO_RESPONSE_INLINE_RE, "").trim())
+      .filter((s) => s.length > 0);
+    const filteredText = rendered.text
+      .replace(NO_RESPONSE_INLINE_RE, "")
+      .trim();
     return {
       role: msg.role,
-      text: rendered.text,
+      text: filteredText,
       timestamp: msg.createdAt,
       toolCalls: rendered.toolCalls,
       toolCallsBeforeText: rendered.toolCallsBeforeText,
-      textSegments: rendered.textSegments,
+      textSegments: filteredSegments,
       contentOrder: rendered.contentOrder,
       surfaces: rendered.surfaces,
       id: msg.id,

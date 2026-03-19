@@ -190,3 +190,47 @@ describe("handleListMessages attachments", () => {
     expect(docAtt!.data).toBeUndefined();
   });
 });
+
+describe("handleListMessages no_response filtering", () => {
+  beforeEach(resetTables);
+
+  test("strips <no_response/> from assistant message content", async () => {
+    const conv = createConversation();
+    await addMessage(
+      conv.id,
+      "assistant",
+      JSON.stringify([{ type: "text", text: "<no_response/>" }]),
+    );
+
+    const response = handleListMessages(createTestUrl(conv.id), null);
+    const body = (await response.json()) as {
+      messages: { content: string; textSegments: string[] }[];
+    };
+
+    expect(body.messages).toHaveLength(1);
+    expect(body.messages[0].content).toBe("");
+    // textSegments is omitted from payload when empty
+    expect(body.messages[0].textSegments).toBeUndefined();
+  });
+
+  test("strips <no_response/> but keeps other text segments", async () => {
+    const conv = createConversation();
+    await addMessage(
+      conv.id,
+      "assistant",
+      JSON.stringify([
+        { type: "text", text: "<no_response/>" },
+        { type: "text", text: "Real reply." },
+      ]),
+    );
+
+    const response = handleListMessages(createTestUrl(conv.id), null);
+    const body = (await response.json()) as {
+      messages: { content: string; textSegments: string[] }[];
+    };
+
+    expect(body.messages).toHaveLength(1);
+    expect(body.messages[0].content).toBe("Real reply.");
+    expect(body.messages[0].textSegments).toEqual(["Real reply."]);
+  });
+});
