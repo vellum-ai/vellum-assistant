@@ -514,7 +514,7 @@ export function forkConversation(params: {
     });
 
     return fc;
-  })();
+  });
 
   // Disk-view sync runs after commit — file I/O is idempotent and
   // conversation deletion cleans up orphaned directories.
