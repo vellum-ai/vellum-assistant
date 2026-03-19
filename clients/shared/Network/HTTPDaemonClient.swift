@@ -319,15 +319,6 @@ public final class HTTPTransport {
 
         // Attachments
         case uploadAttachment
-
-        // Host Bash Proxy
-        case hostBashResult
-
-        // Host File Proxy
-        case hostFileResult
-
-        // Host CU Proxy
-        case hostCuResult
     }
 
     /// Build a URL for the given endpoint using the current route mode.
@@ -383,15 +374,6 @@ public final class HTTPTransport {
         // Attachments
         case .uploadAttachment:
             return ("/v1/attachments", nil)
-        // Host Bash Proxy
-        case .hostBashResult:
-            return ("/v1/host-bash-result", nil)
-        // Host File Proxy
-        case .hostFileResult:
-            return ("/v1/host-file-result", nil)
-        // Host CU Proxy
-        case .hostCuResult:
-            return ("/v1/host-cu-result", nil)
         }
     }
 
@@ -429,15 +411,6 @@ public final class HTTPTransport {
         // Attachments
         case .uploadAttachment:
             return ("\(prefix)/attachments/", nil)
-        // Host Bash Proxy
-        case .hostBashResult:
-            return ("\(prefix)/host-bash-result/", nil)
-        // Host File Proxy
-        case .hostFileResult:
-            return ("\(prefix)/host-file-result/", nil)
-        // Host CU Proxy
-        case .hostCuResult:
-            return ("\(prefix)/host-cu-result/", nil)
         }
     }
 
