@@ -429,14 +429,14 @@ extension AppDelegate {
                     if !needsLockfileEntry && !gatewayHealthy {
                         log.info("Gateway unhealthy — attempting separate restart")
                         do {
-                            try await assistantCli.hatch(name: assistantName, daemonOnly: false)
+                            try await vellumCli.hatch(name: assistantName, daemonOnly: false)
                         } catch {
                             log.warning("Gateway restart failed — recovering daemon: \(error)")
                             // The full hatch may have torn down the daemon during
                             // cleanup; re-hatch daemon-only so the user isn't left
                             // with nothing.
                             do {
-                                try await assistantCli.hatch(name: assistantName, daemonOnly: true)
+                                try await vellumCli.hatch(name: assistantName, daemonOnly: true)
                             } catch {
                                 log.error("Daemon recovery after gateway failure also failed: \(error)")
                             }
