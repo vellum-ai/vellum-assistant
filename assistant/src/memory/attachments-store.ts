@@ -312,21 +312,6 @@ export function getSourcePathsForAttachments(
 }
 
 /**
- * Returns the subset of `attachmentIds` that are file-backed.
- *
- * Since all attachments are now stored on disk, this simply returns a
- * Set containing every input ID — no database query is needed.
- *
- * @deprecated All attachments are file-backed. Callers should assume
- * `fileBacked: true` unconditionally and avoid calling this function.
- */
-export function getFileBackedAttachmentIds(
-  attachmentIds: string[],
-): Set<string> {
-  return new Set(attachmentIds);
-}
-
-/**
  * Return the raw binary content for an attachment by reading from its
  * on-disk file path.
  *

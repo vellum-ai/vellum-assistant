@@ -389,13 +389,7 @@ export function handleListMessages(
       // generate thumbnails for inline display on history restore.
       const linked = attachmentsStore.getAttachmentMetadataForMessage(m.id);
       if (linked.length > 0) {
-        // Batch-fetch file-backed status for all attachments in one query
-        // instead of issuing a separate query per attachment.
-        const fileBackedIds = attachmentsStore.getFileBackedAttachmentIds(
-          linked.map((a) => a.id),
-        );
         msgAttachments = linked.map((a) => {
-          const isFileBacked = fileBackedIds.has(a.id);
           if (a.mimeType.startsWith("image/")) {
             const full = attachmentsStore.getAttachmentById(a.id);
             return {
@@ -408,7 +402,7 @@ export function handleListMessages(
               ...(a.thumbnailBase64
                 ? { thumbnailData: a.thumbnailBase64 }
                 : {}),
-              ...(isFileBacked ? { fileBacked: true } : {}),
+              fileBacked: true,
             };
           }
           return {
@@ -418,7 +412,7 @@ export function handleListMessages(
             sizeBytes: a.sizeBytes,
             kind: a.kind,
             ...(a.thumbnailBase64 ? { thumbnailData: a.thumbnailBase64 } : {}),
-            ...(isFileBacked ? { fileBacked: true } : {}),
+            fileBacked: true,
           };
         });
       }
