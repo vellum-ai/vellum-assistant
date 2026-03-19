@@ -18,6 +18,14 @@ export function migrateRenameVerificationTable(database: DrizzleDb): void {
       .get();
     if (!oldTableExists) return;
 
+    // If the new table already exists, the rename would collide — skip
+    const newTableExists = raw
+      .query(
+        `SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'channel_verification_sessions'`,
+      )
+      .get();
+    if (newTableExists) return;
+
     // Rename the physical table
     raw.exec(
       /*sql*/ `ALTER TABLE channel_guardian_verification_challenges RENAME TO channel_verification_sessions`,
