@@ -286,6 +286,7 @@ export function dockerResourceNames(instanceName: string) {
     gatewayContainer: `${instanceName}-gateway`,
     network: `${instanceName}-net`,
     socketVolume: `${instanceName}-socket`,
+    workspaceVolume: `${instanceName}-workspace`,
   };
 }
 
@@ -335,7 +336,7 @@ export async function retireDocker(name: string): Promise<void> {
   } catch {
     // network may not exist
   }
-  for (const vol of [res.dataVolume, res.socketVolume]) {
+  for (const vol of [res.dataVolume, res.socketVolume, res.workspaceVolume]) {
     try {
       await exec("docker", ["volume", "rm", vol]);
     } catch {
@@ -472,11 +473,15 @@ export function serviceDockerRunArgs(opts: {
         "-v",
         `${res.dataVolume}:/data`,
         "-v",
+        `${res.workspaceVolume}:/workspace`,
+        "-v",
         `${res.socketVolume}:/run/ces-bootstrap`,
         "-e",
         `VELLUM_ASSISTANT_NAME=${instanceName}`,
         "-e",
         "RUNTIME_HTTP_HOST=0.0.0.0",
+        "-e",
+        "WORKSPACE_DIR=/workspace",
       ];
       for (const envVar of [
         ...Object.values(PROVIDER_ENV_VAR_NAMES),
@@ -505,8 +510,12 @@ export function serviceDockerRunArgs(opts: {
       `${gatewayPort}:${GATEWAY_INTERNAL_PORT}`,
       "-v",
       `${res.dataVolume}:/data`,
+      "-v",
+      `${res.workspaceVolume}:/workspace`,
       "-e",
       "BASE_DATA_DIR=/data",
+      "-e",
+      "WORKSPACE_DIR=/workspace",
       "-e",
       `GATEWAY_PORT=${GATEWAY_INTERNAL_PORT}`,
       "-e",
@@ -527,8 +536,12 @@ export function serviceDockerRunArgs(opts: {
       `${res.socketVolume}:/run/ces-bootstrap`,
       "-v",
       `${res.dataVolume}:/data:ro`,
+      "-v",
+      `${res.workspaceVolume}:/workspace:ro`,
       "-e",
       "CES_MODE=managed",
+      "-e",
+      "WORKSPACE_DIR=/workspace",
       "-e",
       "CES_BOOTSTRAP_SOCKET_DIR=/run/ces-bootstrap",
       "-e",
@@ -872,6 +885,7 @@ export async function hatchDocker(
     await exec("docker", ["network", "create", res.network]);
     await exec("docker", ["volume", "create", res.dataVolume]);
     await exec("docker", ["volume", "create", res.socketVolume]);
+    await exec("docker", ["volume", "create", res.workspaceVolume]);
 
     await startContainers({ gatewayPort, imageTags, instanceName, res }, log);
 
