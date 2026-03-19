@@ -42,7 +42,7 @@ struct ChatBubble: View {
     /// Status text from the assistant activity state, forwarded for inline display.
     var processingStatusText: String?
     @State private var isHovered = false
-    /// Stores async-parsed segments for large messages (>2000 chars) that missed the
+    /// Stores async-parsed segments for large messages (>500 chars) that missed the
     /// synchronous cache. Keyed by text content so multiple segments can be in flight.
     @State var asyncSegments: [String: [MarkdownSegment]] = [:]
 
@@ -513,8 +513,10 @@ struct ChatBubble: View {
     }
 
     /// Length threshold above which a segment cache miss triggers async parsing
-    /// instead of blocking the main thread.
-    static let asyncParseThreshold = 2000
+    /// instead of blocking the main thread. Set to 500 so that most assistant
+    /// messages (routinely 1000+ chars) are parsed off the main thread on cache
+    /// miss, reducing scroll jank from synchronous markdown parsing.
+    static let asyncParseThreshold = 500
 
     // MARK: - LRU Caches
     //
