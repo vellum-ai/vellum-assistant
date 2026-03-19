@@ -43,7 +43,7 @@ func applyConversationSelectionRequest(
 }
 
 func shouldShowCurrentTipForkAction(for conversation: IOSConversation) -> Bool {
-    conversation.conversationId != nil
+    conversation.conversationId != nil && !conversation.isPrivate
 }
 
 @MainActor
@@ -60,11 +60,28 @@ func makeCurrentTipForkToolbarAction(
 }
 
 @MainActor
+func makeConversationForkFromMessageAction(
+    store: IOSConversationStore,
+    conversation: IOSConversation
+) -> ((String) -> Void)? {
+    guard conversation.conversationId != nil, !conversation.isPrivate else { return nil }
+    return makeOnForkFromMessageAction(
+        conversationLocalId: conversation.id,
+        forkConversationFromMessage: { conversationLocalId, daemonMessageId in
+            await store.forkConversation(
+                conversationLocalId: conversationLocalId,
+                throughDaemonMessageId: daemonMessageId
+            )
+        }
+    )
+}
+
+@MainActor
 func makeOpenForkParentAction(
     store: IOSConversationStore,
     conversation: IOSConversation
 ) -> (() -> Void)? {
-    guard conversation.forkParent != nil else { return nil }
+    guard conversation.forkParent != nil, !conversation.isPrivate else { return nil }
     return {
         Task { @MainActor in
             _ = await store.openForkParent(of: conversation.id)
@@ -724,14 +741,9 @@ struct ConversationChatView: View {
                 onPendingAnchorHandled: { requestId in
                     store.consumePendingAnchorRequest(id: requestId)
                 },
-                onForkFromMessage: conversation.conversationId == nil ? nil : makeOnForkFromMessageAction(
-                    conversationLocalId: conversation.id,
-                    forkConversationFromMessage: { conversationLocalId, daemonMessageId in
-                        await store.forkConversation(
-                            conversationLocalId: conversationLocalId,
-                            throughDaemonMessageId: daemonMessageId
-                        )
-                    }
+                onForkFromMessage: makeConversationForkFromMessageAction(
+                    store: store,
+                    conversation: conversation
                 )
             )
         }

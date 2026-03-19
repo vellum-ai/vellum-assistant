@@ -99,6 +99,46 @@ final class ConversationForkIOSTests: XCTestCase {
         XCTAssertNil(restored.forkParent)
     }
 
+    func testConversationListRefreshClearsStaleForkParentFromCachedConversation() {
+        let (userDefaults, suiteName) = makeUserDefaults()
+        defer { clear(userDefaults, suiteName: suiteName) }
+
+        let daemonClient = DaemonClient()
+        let store = IOSConversationStore(
+            daemonClient: daemonClient,
+            connectedModeOverride: true,
+            userDefaults: userDefaults
+        )
+        store.isLoadingInitialConversations = false
+
+        let cachedConversation = IOSConversation(
+            title: "Cached thread",
+            conversationId: "conv-thread",
+            forkParent: ConversationForkParent(
+                conversationId: "conv-parent",
+                messageId: "msg-parent",
+                title: "Parent thread"
+            )
+        )
+        store.conversations = [cachedConversation]
+
+        let response = makeConversationListResponse(
+            conversations: [
+                ConversationListResponseItem(
+                    id: "conv-thread",
+                    title: "Cached thread",
+                    createdAt: 1_700_000_000,
+                    updatedAt: 1_700_000_100,
+                    conversationType: "standard"
+                )
+            ]
+        )
+        daemonClient.onConversationListResponse?(response)
+
+        let refreshed = store.conversations.first(where: { $0.conversationId == "conv-thread" })
+        XCTAssertNil(refreshed?.forkParent)
+    }
+
     func testExactForkCommandInterceptsCurrentPersistedTipWithoutAppendingUserBubble() async throws {
         let (userDefaults, suiteName) = makeUserDefaults()
         defer { clear(userDefaults, suiteName: suiteName) }
@@ -218,6 +258,44 @@ final class ConversationForkIOSTests: XCTestCase {
                 title: "Parent thread"
             )
         )
+    }
+
+    private func makeConversationListResponse(
+        conversations: [ConversationListResponseItem],
+        hasMore: Bool? = nil
+    ) -> ConversationListResponseMessage {
+        var payload: [String: Any] = [
+            "type": "conversation_list_response",
+            "conversations": conversations.map { item in
+                var dict: [String: Any] = [
+                    "id": item.id,
+                    "title": item.title,
+                    "updatedAt": item.updatedAt,
+                ]
+                if let createdAt = item.createdAt {
+                    dict["createdAt"] = createdAt
+                }
+                if let conversationType = item.conversationType {
+                    dict["conversationType"] = conversationType
+                }
+                if let forkParent = item.forkParent {
+                    var forkParentDict: [String: Any] = [
+                        "conversationId": forkParent.conversationId,
+                        "messageId": forkParent.messageId
+                    ]
+                    if let title = forkParent.title {
+                        forkParentDict["title"] = title
+                    }
+                    dict["forkParent"] = forkParentDict
+                }
+                return dict
+            }
+        ]
+        if let hasMore {
+            payload["hasMore"] = hasMore
+        }
+        let data = try! JSONSerialization.data(withJSONObject: payload)
+        return try! JSONDecoder().decode(ConversationListResponseMessage.self, from: data)
     }
 }
 

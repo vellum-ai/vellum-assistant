@@ -837,9 +837,11 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
 
     @discardableResult
     func openForkParentConversation(conversationId: String, sourceMessageId: String?) async -> Bool {
-        if selectConversationByConversationId(conversationId) {
-            if let match = conversations.first(where: { $0.conversationId == conversationId }), match.isArchived {
-                unarchiveConversation(id: match.id)
+        if let existingConversation = conversations.first(where: { $0.conversationId == conversationId }) {
+            guard existingConversation.kind != .private else { return false }
+            selectConversation(id: existingConversation.id)
+            if existingConversation.isArchived {
+                unarchiveConversation(id: existingConversation.id)
             }
             applyPendingAnchorMessageIfPossible(
                 localConversationId: activeConversationId,
@@ -852,9 +854,11 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
             return false
         }
 
-        if selectConversationByConversationId(conversationId) {
-            if let match = conversations.first(where: { $0.conversationId == conversationId }), match.isArchived {
-                unarchiveConversation(id: match.id)
+        if let existingConversation = conversations.first(where: { $0.conversationId == conversationId }) {
+            guard existingConversation.kind != .private else { return false }
+            selectConversation(id: existingConversation.id)
+            if existingConversation.isArchived {
+                unarchiveConversation(id: existingConversation.id)
             }
             applyPendingAnchorMessageIfPossible(
                 localConversationId: activeConversationId,
@@ -862,6 +866,8 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
             )
             return true
         }
+
+        guard conversation.conversationType != "private" else { return false }
 
         if isConversationArchived(conversation.id) {
             var archived = archivedConversationIds
@@ -939,25 +945,7 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
         guard let detail = await conversationDetailClient.fetchConversation(conversationId: fallback.id) else {
             return fallback
         }
-        guard detail.forkParent == nil, let fallbackForkParent = fallback.forkParent else {
-            return detail
-        }
-        return ConversationListResponseItem(
-            id: detail.id,
-            title: detail.title,
-            createdAt: detail.createdAt,
-            updatedAt: detail.updatedAt,
-            conversationType: detail.conversationType,
-            source: detail.source,
-            scheduleJobId: detail.scheduleJobId,
-            channelBinding: detail.channelBinding,
-            conversationOriginChannel: detail.conversationOriginChannel,
-            conversationOriginInterface: detail.conversationOriginInterface,
-            assistantAttention: detail.assistantAttention,
-            displayOrder: detail.displayOrder,
-            isPinned: detail.isPinned,
-            forkParent: fallbackForkParent
-        )
+        return detail
     }
 
     @discardableResult
@@ -978,8 +966,7 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
                 localId: existingConversation.id,
                 createdAt: existingConversation.createdAt,
                 isArchived: isArchived,
-                fallbackPinnedOrder: existingConversation.pinnedOrder,
-                fallbackForkParent: existingConversation.forkParent
+                fallbackPinnedOrder: existingConversation.pinnedOrder
             )
             mergeAssistantAttention(from: item, intoConversationAt: existingIdx)
             if let viewModel = chatViewModels[existingConversation.id] {
@@ -1010,8 +997,7 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
         localId: UUID = UUID(),
         createdAt: Date? = nil,
         isArchived: Bool,
-        fallbackPinnedOrder: Int? = nil,
-        fallbackForkParent: ConversationForkParent? = nil
+        fallbackPinnedOrder: Int? = nil
     ) -> ConversationModel {
         let effectiveCreatedAtMillis = item.createdAt ?? item.updatedAt
         let isPinned = item.isPinned ?? false
@@ -1035,7 +1021,7 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
             lastSeenAssistantMessageAt: item.assistantAttention?.lastSeenAssistantMessageAt.map {
                 Date(timeIntervalSince1970: TimeInterval($0) / 1000.0)
             },
-            forkParent: item.forkParent ?? fallbackForkParent
+            forkParent: item.forkParent
         )
     }
 

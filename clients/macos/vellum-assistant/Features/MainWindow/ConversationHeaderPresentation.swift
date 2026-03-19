@@ -51,8 +51,14 @@ struct ConversationHeaderPresentation {
         // Can copy when there's non-empty content
         self.canCopy = hasUserMessage
         self.showsForkConversationAction = conversation.conversationId != nil && !isPrivateConversation
-        self.forkParentTitle = conversation.forkParent?.title
-        self.forkParentConversationId = conversation.forkParent?.conversationId
-        self.forkParentMessageId = conversation.forkParent?.messageId
+        if isPrivateConversation {
+            self.forkParentTitle = nil
+            self.forkParentConversationId = nil
+            self.forkParentMessageId = nil
+        } else {
+            self.forkParentTitle = conversation.forkParent?.title
+            self.forkParentConversationId = conversation.forkParent?.conversationId
+            self.forkParentMessageId = conversation.forkParent?.messageId
+        }
     }
 }

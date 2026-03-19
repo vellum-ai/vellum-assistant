@@ -64,6 +64,29 @@ final class ConversationHeaderPresentationTests: XCTestCase {
         XCTAssertFalse(p.showsForkConversationAction)
     }
 
+    func testPrivateConversationSuppressesForkParentMetadata() {
+        let conversation = ConversationModel(
+            title: "Private Chat",
+            conversationId: "session-private",
+            kind: .private,
+            forkParent: ConversationForkParent(
+                conversationId: "session-parent",
+                messageId: "msg-parent",
+                title: "Original"
+            )
+        )
+        let p = ConversationHeaderPresentation(
+            activeConversation: conversation,
+            activeViewModel: nil,
+            isConversationVisible: true
+        )
+
+        XCTAssertFalse(p.showsForkParentLink)
+        XCTAssertNil(p.forkParentTitle)
+        XCTAssertNil(p.forkParentConversationId)
+        XCTAssertNil(p.forkParentMessageId)
+    }
+
     // MARK: - Not started (no conversationId, no messages)
 
     func testUnstartedConversationDoesNotShowActions() {

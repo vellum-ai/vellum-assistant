@@ -170,6 +170,29 @@ final class ConversationManagerForkTests: XCTestCase {
         XCTAssertTrue(conversationManager.conversations.isEmpty)
     }
 
+    func testOpenForkParentConversationRefusesPrivateParents() async {
+        let privateConversation = ConversationModel(
+            title: "Private",
+            conversationId: "conv-private",
+            kind: .private,
+            forkParent: ConversationForkParent(
+                conversationId: "conv-parent",
+                messageId: "msg-parent",
+                title: "Parent"
+            )
+        )
+        conversationManager.conversations = [privateConversation]
+
+        let opened = await conversationManager.openForkParentConversation(
+            conversationId: "conv-private",
+            sourceMessageId: "msg-parent"
+        )
+
+        XCTAssertFalse(opened)
+        XCTAssertNil(conversationManager.activeConversationId)
+        XCTAssertTrue(detailClient.fetchedConversationIds.isEmpty)
+    }
+
     @discardableResult
     private func makePersistedConversation(title: String, conversationId: String) -> ConversationModel {
         let conversation = ConversationModel(title: title, conversationId: conversationId)

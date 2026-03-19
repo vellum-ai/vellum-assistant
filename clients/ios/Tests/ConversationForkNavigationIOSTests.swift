@@ -176,6 +176,33 @@ final class ConversationForkNavigationIOSTests: XCTestCase {
         XCTAssertEqual(forkClient.requests.first?.throughMessageId, "msg-tip")
     }
 
+    func testForkActionsAreHiddenForPrivateConversations() {
+        let privateConversation = IOSConversation(
+            title: "Private",
+            conversationId: "conv-private",
+            isPrivate: true,
+            forkParent: ConversationForkParent(
+                conversationId: "conv-parent",
+                messageId: "msg-parent",
+                title: "Parent thread"
+            )
+        )
+
+        XCTAssertFalse(shouldShowCurrentTipForkAction(for: privateConversation))
+        XCTAssertNil(
+            makeCurrentTipForkToolbarAction(
+                store: IOSConversationStore(daemonClient: MockDaemonClient(), connectedModeOverride: true),
+                conversation: privateConversation
+            )
+        )
+        XCTAssertNil(
+            makeOpenForkParentAction(
+                store: IOSConversationStore(daemonClient: MockDaemonClient(), connectedModeOverride: true),
+                conversation: privateConversation
+            )
+        )
+    }
+
     private func makeUserDefaults() -> (UserDefaults, String) {
         let suiteName = "ConversationForkNavigationIOSTests.\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suiteName)!

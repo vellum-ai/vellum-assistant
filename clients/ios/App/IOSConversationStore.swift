@@ -249,7 +249,7 @@ class IOSConversationStore: ObservableObject {
     private func mergeConversationMetadata(from restored: IOSConversation, into conversation: inout IOSConversation) {
         conversation.conversationId = restored.conversationId ?? conversation.conversationId
         conversation.scheduleJobId = restored.scheduleJobId ?? conversation.scheduleJobId
-        conversation.forkParent = restored.forkParent ?? conversation.forkParent
+        conversation.forkParent = restored.forkParent
         let hasLocalPinEdit = conversation.conversationId.map { locallyEditedPinConversationIds.contains($0) } ?? false
         if !hasLocalPinEdit {
             conversation.isPinned = restored.isPinned
@@ -675,10 +675,6 @@ class IOSConversationStore: ObservableObject {
 
                 var merged: [IOSConversation] = []
                 for var restored in restoredConversations {
-                    if let conversationId = restored.conversationId,
-                       let cachedConversation = conversations.first(where: { $0.conversationId == conversationId }) {
-                        restored.forkParent = restored.forkParent ?? cachedConversation.forkParent
-                    }
                     if let local = localOverrides[restored.conversationId ?? ""] {
                         let sid = restored.conversationId ?? ""
                         let useLocalPin = locallyEditedPinConversationIds.contains(sid)
@@ -1223,17 +1219,19 @@ class IOSConversationStore: ObservableObject {
     func openForkParent(of conversationLocalId: UUID) async -> UUID? {
         guard isConnectedMode,
               let conversation = conversations.first(where: { $0.id == conversationLocalId }),
+              !conversation.isPrivate,
               let forkParent = conversation.forkParent else {
             return nil
         }
 
         let parentLocalId: UUID
         if let existingIndex = existingConversationIndex(forConversationId: forkParent.conversationId) {
+            guard !conversations[existingIndex].isPrivate else { return nil }
             parentLocalId = conversations[existingIndex].id
         } else {
             guard let parentConversation = await conversationDetailClient.fetchConversation(
                 conversationId: forkParent.conversationId
-            ) else {
+            ), parentConversation.conversationType != "private" else {
                 return nil
             }
             parentLocalId = upsertConversationListItem(parentConversation)

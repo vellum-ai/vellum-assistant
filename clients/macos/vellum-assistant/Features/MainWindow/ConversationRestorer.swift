@@ -209,8 +209,7 @@ final class ConversationRestorer {
                 delegate.conversations[existingIdx].isPinned = isPinned
                 delegate.conversations[existingIdx].pinnedOrder = isPinned ? (session.displayOrder.map { Int($0) } ?? pinnedCount) : nil
                 delegate.conversations[existingIdx].displayOrder = session.displayOrder.map { Int($0) }
-                delegate.conversations[existingIdx].forkParent =
-                    session.forkParent ?? delegate.conversations[existingIdx].forkParent
+                delegate.conversations[existingIdx].forkParent = session.forkParent
                 delegate.mergeAssistantAttention(from: session, intoConversationAt: existingIdx)
                 if isPinned && session.displayOrder == nil { pinnedCount += 1 }
                 continue
