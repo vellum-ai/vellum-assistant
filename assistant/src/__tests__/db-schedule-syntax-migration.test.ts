@@ -41,6 +41,7 @@ describe("schedule_syntax column migration", () => {
         routing_intent TEXT NOT NULL DEFAULT 'all_channels',
         routing_hints_json TEXT NOT NULL DEFAULT '{}',
         status TEXT NOT NULL DEFAULT 'active',
+        quiet INTEGER NOT NULL DEFAULT 0,
         created_at INTEGER NOT NULL,
         updated_at INTEGER NOT NULL
       )
@@ -96,6 +97,7 @@ describe("schedule_syntax column migration", () => {
         routing_intent TEXT NOT NULL DEFAULT 'all_channels',
         routing_hints_json TEXT NOT NULL DEFAULT '{}',
         status TEXT NOT NULL DEFAULT 'active',
+        quiet INTEGER NOT NULL DEFAULT 0,
         created_at INTEGER NOT NULL,
         updated_at INTEGER NOT NULL
       )
@@ -145,6 +147,7 @@ describe("schedule_syntax column migration", () => {
         routing_intent TEXT NOT NULL DEFAULT 'all_channels',
         routing_hints_json TEXT NOT NULL DEFAULT '{}',
         status TEXT NOT NULL DEFAULT 'active',
+        quiet INTEGER NOT NULL DEFAULT 0,
         created_at INTEGER NOT NULL,
         updated_at INTEGER NOT NULL
       )
