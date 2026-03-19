@@ -1,6 +1,9 @@
+import os
 import SwiftUI
 import VellumAssistantShared
 import UniformTypeIdentifiers
+
+private let log = Logger(subsystem: "com.vellum.vellum-assistant", category: "ChatView")
 
 struct ChatView: View {
     let messages: [ChatMessage]
@@ -693,10 +696,16 @@ struct ScrollWheelDetector: NSViewRepresentable {
                 if let scrollView = coordinator.findEnclosingScrollView() {
                     let clipHeight = scrollView.contentView.bounds.height
                     let docHeight = scrollView.documentView?.frame.height ?? 0
-                    if docHeight > clipHeight {
+                    let isScrollable = docHeight > clipHeight
+                    os_signpost(.event, log: PerfSignposts.log, name: "scrollWheelUntether",
+                                "deltaY=%.1f isScrollable=%d clipH=%.0f docH=%.0f",
+                                event.scrollingDeltaY, isScrollable ? 1 : 0, clipHeight, docHeight)
+                    if isScrollable {
                         coordinator.onScrollUp?()
                     }
                 } else {
+                    os_signpost(.event, log: PerfSignposts.log, name: "scrollWheelUntether",
+                                "deltaY=%.1f scrollViewNotFound=1", event.scrollingDeltaY)
                     coordinator.onScrollUp?()
                 }
             } else if event.scrollingDeltaY < -1 {
@@ -707,7 +716,12 @@ struct ScrollWheelDetector: NSViewRepresentable {
                     if let scrollView = coordinator.findEnclosingScrollView() {
                         let clipBounds = scrollView.contentView.bounds
                         let docHeight = scrollView.documentView?.frame.height ?? 0
-                        if docHeight - clipBounds.maxY < 20 {
+                        let distanceFromBottom = docHeight - clipBounds.maxY
+                        let isScrollable = docHeight > clipBounds.height
+                        if distanceFromBottom < 20 {
+                            os_signpost(.event, log: PerfSignposts.log, name: "scrollWheelRetether",
+                                        "distFromBottom=%.1f isScrollable=%d",
+                                        distanceFromBottom, isScrollable ? 1 : 0)
                             coordinator.onScrollToBottom?()
                         }
                     }
