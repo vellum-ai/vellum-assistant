@@ -213,6 +213,9 @@ struct MessageListView: View {
     @State private var isAvatarVisible: Bool = false
     @State private var avatarDisplayY: CGFloat = .infinity
     @State private var avatarSmoothingTask: Task<Void, Never>?
+    /// Debounced task for transcript snapshot updates, coalescing rapid scroll
+    /// events into a single snapshot capture per 150ms window.
+    @State private var snapshotDebounceTask: Task<Void, Never>?
     @State private var hasPlayedTailEntryAnimation = false
     /// Non-reactive scroll tracking state (dead-zone guards, smoothing).
     /// Stored on a class so mutations never trigger body re-evaluations.
@@ -692,13 +695,34 @@ struct MessageListView: View {
         }
     }
 
+    /// Schedules a debounced transcript snapshot capture. Coalesces rapid scroll
+    /// events into a single snapshot per 150ms window, avoiding O(n) tool-call
+    /// scans on every scroll tick.
+    private func scheduleTranscriptSnapshot() {
+        snapshotDebounceTask?.cancel()
+        snapshotDebounceTask = Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(150))
+            guard !Task.isCancelled else { return }
+            updateTranscriptSnapshot()
+        }
+    }
+
     /// Captures a point-in-time transcript snapshot into `ChatDiagnosticsStore`.
-    /// Called from scroll-geometry preference handlers so that `DebugStateWriter`
+    /// Called via `scheduleTranscriptSnapshot()` so that `DebugStateWriter`
     /// and `HangContextWriter` always have recent transcript state available.
     private func updateTranscriptSnapshot() {
         guard let convId = conversationId else { return }
         let msgs = messages
         let totalToolCalls = msgs.reduce(0) { $0 + $1.toolCalls.count }
+
+        // Clamp non-finite geometry to nil so JSONEncoder doesn't reject the
+        // snapshot during DebugStateWriter / HangContextWriter serialization.
+        // scrollViewportHeight and lastTailAnchorY start as .infinity before
+        // their preference callbacks run.
+        let clampedAnchorMinY = anchorTracker.lastMinY.isFinite ? Double(anchorTracker.lastMinY) : nil
+        let clampedTailAnchorY = scrollTracking.lastTailAnchorY.isFinite ? Double(scrollTracking.lastTailAnchorY) : nil
+        let clampedViewportHeight = scrollViewportHeight.isFinite ? Double(scrollViewportHeight) : nil
+
         ChatDiagnosticsStore.shared.updateSnapshot(ChatTranscriptSnapshot(
             conversationId: convId.uuidString,
             capturedAt: Date(),
@@ -706,18 +730,18 @@ struct MessageListView: View {
             toolCallCount: totalToolCalls,
             isPinnedToBottom: isNearBottom,
             isUserScrolling: hasReceivedScrollEvent,
-            scrollOffsetY: Double(anchorTracker.lastMinY),
+            scrollOffsetY: clampedAnchorMinY,
             contentHeight: nil,
-            viewportHeight: Double(scrollViewportHeight),
+            viewportHeight: clampedViewportHeight,
             isNearBottom: isNearBottom,
             hasReceivedScrollEvent: hasReceivedScrollEvent,
             isPaginationInFlight: isPaginationInFlight,
             suppressionReason: isSuppressingBottomScroll ? "bottomScrollSuppressed" : nil,
             anchorMessageId: anchorMessageId?.uuidString,
             highlightedMessageId: highlightedMessageId?.uuidString,
-            anchorMinY: Double(anchorTracker.lastMinY),
-            tailAnchorY: Double(scrollTracking.lastTailAnchorY),
-            scrollViewportHeight: Double(scrollViewportHeight),
+            anchorMinY: clampedAnchorMinY,
+            tailAnchorY: clampedTailAnchorY,
+            scrollViewportHeight: clampedViewportHeight,
             containerWidth: Double(containerWidth)
         ))
     }
@@ -1069,7 +1093,7 @@ struct MessageListView: View {
                 recordScrollLoopEvent(.anchorPreferenceChange)
                 anchorTracker.update(minY: minY, viewportHeight: scrollViewportHeight)
                 if !hasFreshAnchorMeasurement { hasFreshAnchorMeasurement = true }
-                updateTranscriptSnapshot()
+                scheduleTranscriptSnapshot()
                 // Geometry tracking only — no per-frame scrollTo calls here.
                 // All bottom-follow work is handled by the ChatBottomPinCoordinator
                 // via bounded staged retries, not inline on every anchor change.
