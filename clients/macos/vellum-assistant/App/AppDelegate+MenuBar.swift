@@ -23,7 +23,7 @@ extension AppDelegate {
         // Set saved position to right side of menu bar (visible area, right of notch)
         UserDefaults.standard.set(1200, forKey: "NSStatusItem Preferred Position VellumMenuBar")
 
-        statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
+        statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         statusItem.autosaveName = "VellumMenuBar"
         statusItem.isVisible = true
         if let button = statusItem.button {
