@@ -20,7 +20,8 @@ import { eq } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 
 import { getLogger } from "../util/logger.js";
-import { getConversationsDir, getWorkspaceDir } from "../util/platform.js";
+import { getWorkspaceDir } from "../util/platform.js";
+import { getConversationAttachmentsDirPath } from "./conversation-directories.js";
 import { getDb, rawAll, rawGet, rawRun } from "./db.js";
 import { attachments, messageAttachments } from "./schema.js";
 
@@ -51,25 +52,6 @@ function formatBytes(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-}
-
-function getConversationDirName(
-  conversationId: string,
-  createdAtMs: number,
-): string {
-  const isoDate = new Date(createdAtMs).toISOString().replace(/:/g, "-");
-  return `${conversationId}_${isoDate}`;
-}
-
-function getConversationAttachmentsDirPath(
-  conversationId: string,
-  createdAtMs: number,
-): string {
-  return join(
-    getConversationsDir(),
-    getConversationDirName(conversationId, createdAtMs),
-    "attachments",
-  );
 }
 
 function resolveUniqueFilename(dir: string, filename: string): string {
