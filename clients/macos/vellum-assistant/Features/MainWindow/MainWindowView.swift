@@ -486,10 +486,6 @@ struct MainWindowView: View {
                 .transition(.opacity.combined(with: .scale(scale: 0.9)))
                 .animation(VAnimation.fast, value: updateManager.isUpdateAvailable)
             }
-            PTTKeyIndicator {
-                settingsStore.pendingSettingsTab = .voice
-                windowState.selection = .panel(.settings)
-            }
             if windowState.isConversationVisible {
                 // Temporary chat toggle — always visible on private conversations (so users can exit temp chat),
                 // only visible on normal conversations when no messages exist yet

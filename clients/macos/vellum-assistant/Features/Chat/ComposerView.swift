@@ -77,7 +77,6 @@ struct ComposerView: View {
     @State private var avatarSeed: String = "default"
     /// Snapshot of inputText captured when dictation starts, used to restore on cancel.
     @State private var preDictationText: String = ""
-    @State private var showVoiceModeHover: Bool = false
     /// Live amplitude from VoiceInputManager, bypassing ChatViewModel's 100ms coalescing.
     @State private var liveAmplitude: Float = 0
 
@@ -363,10 +362,6 @@ struct ComposerView: View {
         }
     }
 
-    /// Gap between a ghost button and a filled (primary/contrast) button — uses the standard
-    /// small spacing token for consistent spacing across the composer action bar.
-    private let composerFilledGap: CGFloat = VSpacing.sm
-
     /// Bottom action bar: paperclip on the left, send/mic/stop on the right.
     @ViewBuilder
     private var composerActionBar: some View {
@@ -396,17 +391,18 @@ struct ComposerView: View {
                     iconSize: composerActionButtonSize,
                     action: onStop
                 )
-            } else if canSend {
-                VButton(
-                    label: "Send message",
-                    iconOnly: VIcon.arrowUp.rawValue,
-                    style: .primary,
-                    iconSize: composerActionButtonSize
-                ) {
-                    composerFocus = true
-                    onSend()
-                }
             } else if inputText.isEmpty && !hasPendingConfirmation {
+                // Live voice button
+                VButton(
+                    label: "Voice mode",
+                    iconOnly: VIcon.audioWaveform.rawValue,
+                    style: .ghost,
+                    iconSize: composerActionButtonSize,
+                    action: { onVoiceModeToggle?() }
+                )
+                .disabled(!hasAPIKey)
+
+                // Dictate button
                 VButton(
                     label: "Dictate",
                     iconOnly: VIcon.mic.rawValue,
@@ -416,22 +412,26 @@ struct ComposerView: View {
                 )
                 .disabled(!hasAPIKey)
 
-                Spacer().frame(width: composerFilledGap)
+                // Send button (always visible, disabled when empty)
                 VButton(
-                    label: "Voice mode",
-                    iconOnly: VIcon.audioWaveform.rawValue,
-                    style: .contrast,
-                    iconSize: composerActionButtonSize,
-                    action: { onVoiceModeToggle?() }
-                )
-                .disabled(!hasAPIKey)
-                .popover(isPresented: $showVoiceModeHover, arrowEdge: .top) {
-                    Text("Live voice conversation (not dictation)")
-                        .font(VFont.caption)
-                        .padding(VSpacing.sm)
+                    label: "Send message",
+                    iconOnly: VIcon.arrowUp.rawValue,
+                    style: .primary,
+                    isDisabled: !canSend,
+                    iconSize: composerActionButtonSize
+                ) {
+                    composerFocus = true
+                    onSend()
                 }
-                .onHover { hovering in
-                    showVoiceModeHover = hovering
+            } else if canSend {
+                VButton(
+                    label: "Send message",
+                    iconOnly: VIcon.arrowUp.rawValue,
+                    style: .primary,
+                    iconSize: composerActionButtonSize
+                ) {
+                    composerFocus = true
+                    onSend()
                 }
             } else {
                 VButton(
