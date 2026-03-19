@@ -145,10 +145,13 @@ struct ComposerView: View {
             }
         }
         .onChange(of: isInteractionEnabled) { _, enabled in
-            guard !enabled else { return }
-            composerFocus = false
-            showSlashMenu = false
-            suppressSlashReopen = false
+            if enabled {
+                composerFocus = true
+            } else {
+                composerFocus = false
+                showSlashMenu = false
+                suppressSlashReopen = false
+            }
         }
     }
 
