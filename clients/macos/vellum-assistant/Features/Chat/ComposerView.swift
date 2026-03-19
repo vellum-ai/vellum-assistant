@@ -318,6 +318,7 @@ struct ComposerView: View {
         } else if canSend {
             sendPath = "normalSend"
             onSend()
+            SoundManager.shared.play(.messageSent)
         } else if hasPendingConfirmation
                     && inputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             sendPath = "pendingConfirmationApproval"
