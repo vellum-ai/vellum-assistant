@@ -40,7 +40,7 @@ clients/
 │   │   ├── Things/            # Apps, shared apps, and documents views
 │   │   └── Settings/          # Decomposed settings sections (Integrations, TrustRules, Models, Privacy, etc.)
 │   ├── Tests/                 # iOS integration tests
-│   └── Resources/             # Assets, Info.plist, background.png
+│   └── Resources/             # Assets, Info.plist
 └── chrome-extension/          # Chrome browser extension
 ```
 
