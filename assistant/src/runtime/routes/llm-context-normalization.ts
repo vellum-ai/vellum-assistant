@@ -58,14 +58,20 @@ export function normalizeLlmContextPayloads(
     normalizeOpenAiRequestPayload(input.requestPayload),
     normalizeAnthropicRequestPayload(input.requestPayload),
     normalizeGeminiRequestPayload(input.requestPayload),
-  ].filter((candidate): candidate is NormalizedPayloadCandidate => Boolean(candidate));
+  ].filter((candidate): candidate is NormalizedPayloadCandidate =>
+    Boolean(candidate),
+  );
   const responseCandidates = [
     normalizeOpenAiResponsePayload(input.responsePayload),
     normalizeAnthropicResponsePayload(input.responsePayload),
     normalizeGeminiResponsePayload(input.responsePayload),
-  ].filter((candidate): candidate is NormalizedPayloadCandidate => Boolean(candidate));
+  ].filter((candidate): candidate is NormalizedPayloadCandidate =>
+    Boolean(candidate),
+  );
 
-  const requestProviders = new Set(requestCandidates.map((candidate) => candidate.provider));
+  const requestProviders = new Set(
+    requestCandidates.map((candidate) => candidate.provider),
+  );
   const responseProviders = new Set(
     responseCandidates.map((candidate) => candidate.provider),
   );
@@ -79,30 +85,12 @@ export function normalizeLlmContextPayloads(
 
   if (sharedProviders.length === 1) {
     const provider = sharedProviders[0] as LlmContextSummary["provider"];
-    const requestCandidate = requestCandidates.find(
-      (candidate) => candidate.provider === provider,
+    return mergeNormalizedCandidates(
+      requestCandidates.find((candidate) => candidate.provider === provider) ??
+        undefined,
+      responseCandidates.find((candidate) => candidate.provider === provider) ??
+        undefined,
     );
-    const responseCandidate = responseCandidates.find(
-      (candidate) => candidate.provider === provider,
-    );
-
-    const requestSections = [
-      ...(requestCandidate?.requestSections ?? []),
-      ...(responseCandidate?.requestSections ?? []),
-    ];
-    const responseSections = [
-      ...(requestCandidate?.responseSections ?? []),
-      ...(responseCandidate?.responseSections ?? []),
-    ];
-
-    return {
-      summary: mergeSummaryFragments(
-        requestCandidate?.summary,
-        responseCandidate?.summary,
-      ),
-      requestSections: requestSections.length > 0 ? requestSections : undefined,
-      responseSections: responseSections.length > 0 ? responseSections : undefined,
-    };
   }
 
   if (requestCandidates.length === 1 && responseCandidates.length === 0) {
@@ -110,7 +98,13 @@ export function normalizeLlmContextPayloads(
   }
 
   if (responseCandidates.length === 1 && requestCandidates.length === 0) {
-    return responseCandidates[0] as LlmContextNormalizationResult;
+    const responseCandidate =
+      responseCandidates[0] as NormalizedPayloadCandidate;
+    const requestCandidate = normalizeCompatibleRequestPayload(
+      input.requestPayload,
+      responseCandidate.provider,
+    );
+    return mergeNormalizedCandidates(requestCandidate, responseCandidate);
   }
 
   return {};
@@ -118,6 +112,7 @@ export function normalizeLlmContextPayloads(
 
 function normalizeOpenAiRequestPayload(
   requestPayload: unknown,
+  allowPlainText = false,
 ): NormalizedPayloadCandidate | null {
   const request = asRecord(requestPayload);
   if (!request) {
@@ -136,7 +131,7 @@ function normalizeOpenAiRequestPayload(
     (request.parallel_tool_calls !== undefined &&
       typeof request.parallel_tool_calls === "boolean") ||
     messages.some((message) => Boolean(asRecordArray(message.tool_calls)));
-  if (!hasOpenAiSignal) {
+  if (!allowPlainText && !hasOpenAiSignal) {
     return null;
   }
 
@@ -146,7 +141,12 @@ function normalizeOpenAiRequestPayload(
     const messageText = extractOpenAiContentText(message.content);
     if (messageText !== undefined) {
       requestSections.push({
-        kind: role === "system" ? "system" : role === "tool" ? "tool_result" : "message",
+        kind:
+          role === "system"
+            ? "system"
+            : role === "tool"
+              ? "tool_result"
+              : "message",
         label: buildMessageLabel(role, index + 1),
         role,
         text: messageText,
@@ -174,7 +174,9 @@ function normalizeOpenAiRequestPayload(
 
   const requestSettings = omitRecordKeys(request, ["messages", "tools"]);
   if (hasMeaningfulRequestSettings(requestSettings)) {
-    requestSections.push(structuredJsonSection("settings", "Request settings", requestSettings));
+    requestSections.push(
+      structuredJsonSection("settings", "Request settings", requestSettings),
+    );
   }
 
   return {
@@ -247,18 +249,24 @@ function normalizeOpenAiResponsePayload(
       requestMessageCount: undefined,
       requestToolCount: undefined,
       responseMessageCount:
-        responseText !== undefined || responseToolSections.length > 0 ? 1 : undefined,
+        responseText !== undefined || responseToolSections.length > 0
+          ? 1
+          : undefined,
       responseToolCallCount:
-        responseToolSections.length > 0 ? responseToolSections.length : undefined,
+        responseToolSections.length > 0
+          ? responseToolSections.length
+          : undefined,
       responsePreview: responseText ? truncateText(responseText) : undefined,
       toolCallNames: toolCallNames.length > 0 ? toolCallNames : undefined,
     },
-    responseSections: responseSections.length > 0 ? responseSections : undefined,
+    responseSections:
+      responseSections.length > 0 ? responseSections : undefined,
   };
 }
 
 function normalizeAnthropicRequestPayload(
   requestPayload: unknown,
+  allowPlainText = false,
 ): NormalizedPayloadCandidate | null {
   const request = asRecord(requestPayload);
   if (!request) {
@@ -288,7 +296,7 @@ function normalizeAnthropicRequestPayload(
     requestToolNames.length > 0 ||
     Boolean(asRecord(request.tool_choice)) ||
     hasAnthropicContentSignal;
-  if (!hasAnthropicSignal) {
+  if (!allowPlainText && !hasAnthropicSignal) {
     return null;
   }
 
@@ -316,9 +324,15 @@ function normalizeAnthropicRequestPayload(
     });
   }
 
-  const requestSettings = omitRecordKeys(request, ["system", "messages", "tools"]);
+  const requestSettings = omitRecordKeys(request, [
+    "system",
+    "messages",
+    "tools",
+  ]);
   if (hasMeaningfulRequestSettings(requestSettings)) {
-    requestSections.push(structuredJsonSection("settings", "Request settings", requestSettings));
+    requestSections.push(
+      structuredJsonSection("settings", "Request settings", requestSettings),
+    );
   }
 
   return {
@@ -355,10 +369,15 @@ function normalizeAnthropicResponsePayload(
     return null;
   }
 
-  const responseSections = anthropicContentSections(content, "Assistant response");
+  const responseSections = anthropicContentSections(
+    content,
+    "Assistant response",
+  );
   const responseText = collectAnthropicText(content);
   const responseToolNames = content
-    .map((block) => (asString(block.type) === "tool_use" ? asString(block.name) : undefined))
+    .map((block) =>
+      asString(block.type) === "tool_use" ? asString(block.name) : undefined,
+    )
     .filter((name): name is string => typeof name === "string");
 
   const usage = asRecord(response.usage);
@@ -375,13 +394,17 @@ function normalizeAnthropicResponsePayload(
       requestMessageCount: undefined,
       requestToolCount: undefined,
       responseMessageCount:
-        responseText !== undefined || responseToolNames.length > 0 ? 1 : undefined,
+        responseText !== undefined || responseToolNames.length > 0
+          ? 1
+          : undefined,
       responseToolCallCount:
         responseToolNames.length > 0 ? responseToolNames.length : undefined,
       responsePreview: responseText ? truncateText(responseText) : undefined,
-      toolCallNames: responseToolNames.length > 0 ? responseToolNames : undefined,
+      toolCallNames:
+        responseToolNames.length > 0 ? responseToolNames : undefined,
     },
-    responseSections: responseSections.length > 0 ? responseSections : undefined,
+    responseSections:
+      responseSections.length > 0 ? responseSections : undefined,
   };
 }
 
@@ -400,7 +423,9 @@ function normalizeGeminiRequestPayload(
 
   const requestSections: LlmContextSection[] = [];
   const config = asRecord(request.config);
-  const systemText = extractGeminiSystemInstructionText(config?.systemInstruction);
+  const systemText = extractGeminiSystemInstructionText(
+    config?.systemInstruction,
+  );
   if (systemText !== undefined) {
     requestSections.push({
       kind: "system",
@@ -510,7 +535,8 @@ function normalizeGeminiResponsePayload(
       responsePreview: responseText ? truncateText(responseText) : undefined,
       toolCallNames: toolCallNames.length > 0 ? toolCallNames : undefined,
     },
-    responseSections: responseSections.length > 0 ? responseSections : undefined,
+    responseSections:
+      responseSections.length > 0 ? responseSections : undefined,
   };
 }
 
@@ -566,6 +592,10 @@ function anthropicMessageSections(
         label: `${label} tool result`,
         role,
         toolName: asString(block.name) ?? asString(block.tool_use_id),
+        data:
+          type === "web_search_tool_result"
+            ? sanitizeAnthropicWebSearchToolResultData(block)
+            : undefined,
         text: collectAnthropicToolResultText(block),
       });
     }
@@ -605,7 +635,8 @@ function geminiContentSections(
 
     const inlineData = asRecord(part.inlineData);
     if (inlineData) {
-      const mimeType = asString(inlineData.mimeType) ?? "application/octet-stream";
+      const mimeType =
+        asString(inlineData.mimeType) ?? "application/octet-stream";
       textParts.push(`[inline data: ${mimeType}]`);
       continue;
     }
@@ -696,7 +727,8 @@ function extractGeminiToolNames(tools: unknown): string[] {
   const toolGroups = asRecordArray(tools) ?? [];
   const names: string[] = [];
   for (const toolGroup of toolGroups) {
-    for (const declaration of asRecordArray(toolGroup.functionDeclarations) ?? []) {
+    for (const declaration of asRecordArray(toolGroup.functionDeclarations) ??
+      []) {
       const name = asString(declaration.name);
       if (name) {
         names.push(name);
@@ -756,7 +788,9 @@ function extractAnthropicSystemText(system: unknown): string | undefined {
   return joinTextParts(textParts);
 }
 
-function extractGeminiSystemInstructionText(systemInstruction: unknown): string | undefined {
+function extractGeminiSystemInstructionText(
+  systemInstruction: unknown,
+): string | undefined {
   if (typeof systemInstruction === "string") {
     return hasMeaningfulText(systemInstruction) ? systemInstruction : undefined;
   }
@@ -834,6 +868,35 @@ function collectAnthropicToolResultText(
     return "[Web search results]";
   }
   return collectAnthropicText(block.content);
+}
+
+function sanitizeAnthropicWebSearchToolResultData(
+  block: Record<string, unknown>,
+): unknown {
+  return sanitizeAnthropicStructuredValue(block);
+}
+
+function sanitizeAnthropicStructuredValue(value: unknown): unknown {
+  if (Array.isArray(value)) {
+    return value.map((entry) => sanitizeAnthropicStructuredValue(entry));
+  }
+
+  const record = asRecord(value);
+  if (!record) {
+    return value;
+  }
+
+  return Object.fromEntries(
+    Object.entries(record)
+      .filter(
+        ([key, entryValue]) =>
+          key !== "encrypted_content" && entryValue !== undefined,
+      )
+      .map(([key, entryValue]) => [
+        key,
+        sanitizeAnthropicStructuredValue(entryValue),
+      ]),
+  );
 }
 
 function buildMessageLabel(role: string, index: number): string {
@@ -982,6 +1045,48 @@ function mergeSummaryFragments(
   return summary;
 }
 
+function mergeNormalizedCandidates(
+  requestCandidate: NormalizedPayloadCandidate | null | undefined,
+  responseCandidate: NormalizedPayloadCandidate | null | undefined,
+): LlmContextNormalizationResult {
+  if (!requestCandidate && !responseCandidate) {
+    return {};
+  }
+
+  const requestSections = [
+    ...(requestCandidate?.requestSections ?? []),
+    ...(responseCandidate?.requestSections ?? []),
+  ];
+  const responseSections = [
+    ...(requestCandidate?.responseSections ?? []),
+    ...(responseCandidate?.responseSections ?? []),
+  ];
+
+  return {
+    summary: mergeSummaryFragments(
+      requestCandidate?.summary,
+      responseCandidate?.summary,
+    ),
+    requestSections: requestSections.length > 0 ? requestSections : undefined,
+    responseSections:
+      responseSections.length > 0 ? responseSections : undefined,
+  };
+}
+
+function normalizeCompatibleRequestPayload(
+  requestPayload: unknown,
+  provider: LlmContextSummary["provider"],
+): NormalizedPayloadCandidate | null {
+  switch (provider) {
+    case "openai":
+      return normalizeOpenAiRequestPayload(requestPayload, true);
+    case "anthropic":
+      return normalizeAnthropicRequestPayload(requestPayload, true);
+    case "gemini":
+      return normalizeGeminiRequestPayload(requestPayload);
+  }
+}
+
 function asRecord(value: unknown): Record<string, unknown> | null {
   if (typeof value !== "object" || value == null || Array.isArray(value)) {
     return null;
@@ -1004,5 +1109,7 @@ function asString(value: unknown): string | undefined {
 }
 
 function asNumber(value: unknown): number | undefined {
-  return typeof value === "number" && Number.isFinite(value) ? value : undefined;
+  return typeof value === "number" && Number.isFinite(value)
+    ? value
+    : undefined;
 }
