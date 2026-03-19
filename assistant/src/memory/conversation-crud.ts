@@ -1536,8 +1536,7 @@ export function scheduleReducerJob(
   conversationId: string,
   runAfter?: number,
 ): void {
-  const config = getConfig();
-  const idleDelayMs = config.memory.simplified.reducer.idleDelayMs;
+  const idleDelayMs = getReducerIdleDelayMs();
   const scheduledAt = runAfter ?? Date.now() + idleDelayMs;
 
   const existing = rawGet<{ id: string; status: string }>(
@@ -1579,8 +1578,7 @@ export function scheduleReducerJob(
  * Returns the number of jobs enqueued.
  */
 export function sweepStaleReducerJobs(): number {
-  const config = getConfig();
-  const idleDelayMs = config.memory.simplified.reducer.idleDelayMs;
+  const idleDelayMs = getReducerIdleDelayMs();
   const cutoff = Date.now() - idleDelayMs;
 
   // Find dirty conversations whose latest message is older than the idle
@@ -1607,6 +1605,21 @@ export function sweepStaleReducerJobs(): number {
   }
 
   return stale.length;
+}
+
+function getReducerIdleDelayMs(): number {
+  // Some test suites mock getConfig() with partial objects; fall back to the
+  // schema default so reducer scheduling stays stable outside full config load.
+  const config = getConfig() as {
+    memory?: {
+      simplified?: {
+        reducer?: {
+          idleDelayMs?: number;
+        };
+      };
+    };
+  };
+  return config.memory?.simplified?.reducer?.idleDelayMs ?? 30_000;
 }
 
 export function setConversationOriginChannelIfUnset(
