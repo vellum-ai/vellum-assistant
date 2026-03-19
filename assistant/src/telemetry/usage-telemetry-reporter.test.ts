@@ -97,6 +97,7 @@ mock.module("../version.js", () => ({
 // Production import (after mocks)
 // ---------------------------------------------------------------------------
 
+import { DAEMON_INTERNAL_ASSISTANT_ID } from "../runtime/assistant-scope.js";
 import type { UsageEvent } from "../usage/types.js";
 import { UsageTelemetryReporter } from "./usage-telemetry-reporter.js";
 
@@ -434,7 +435,7 @@ describe("UsageTelemetryReporter", () => {
     expect(body.user_id).toBeUndefined();
   });
 
-  test("assistant_id falls back to 'self' when getExternalAssistantId returns undefined", async () => {
+  test("assistant_id falls back to DAEMON_INTERNAL_ASSISTANT_ID when getExternalAssistantId returns undefined", async () => {
     mockGetExternalAssistantId.mockReturnValue(undefined);
     const events = [makeUsageEvent()];
     mockQueryUnreportedUsageEvents.mockReturnValue(events);
@@ -450,7 +451,7 @@ describe("UsageTelemetryReporter", () => {
       (mockFetch.mock.calls[0] as [string, RequestInit])[1].body as string,
     );
     expect(body.installation_id).toBe("test-device-id");
-    expect(body.assistant_id).toBe("self");
+    expect(body.assistant_id).toBe(DAEMON_INTERNAL_ASSISTANT_ID);
   });
 
   test("turn events are included in the events array with type discriminator", async () => {

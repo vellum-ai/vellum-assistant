@@ -31,6 +31,7 @@ import {
   createActorTokenRecord,
   revokeByDeviceBinding as revokeActorTokensByDevice,
 } from "../actor-token-store.js";
+import { DAEMON_INTERNAL_ASSISTANT_ID } from "../assistant-scope.js";
 import { getExternalAssistantId } from "./external-assistant-id.js";
 import { CURRENT_POLICY_EPOCH } from "./policy.js";
 import { hashToken, mintToken } from "./token-service.js";
@@ -107,7 +108,8 @@ function mintAccessToken(guardianPrincipalId: string): {
   expiresAt: number;
   issuedAt: number;
 } {
-  const externalAssistantId = getExternalAssistantId() ?? "self";
+  const externalAssistantId =
+    getExternalAssistantId() ?? DAEMON_INTERNAL_ASSISTANT_ID;
   const sub = `actor:${externalAssistantId}:${guardianPrincipalId}`;
 
   const token = mintToken({
