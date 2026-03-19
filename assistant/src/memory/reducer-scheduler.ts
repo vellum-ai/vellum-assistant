@@ -16,7 +16,7 @@
  * If no eligible dirty conversation exists, the function returns immediately.
  */
 
-import { and, asc, eq, gte, isNotNull, ne } from "drizzle-orm";
+import { and, asc, desc, eq, gte, isNotNull, ne } from "drizzle-orm";
 
 import { getLogger } from "../util/logger.js";
 import { type ConversationRow, getConversation } from "./conversation-crud.js";
@@ -58,7 +58,7 @@ export function findMostRecentDirtyConversation(
         ne(conversations.id, excludeConversationId),
       ),
     )
-    .orderBy(conversations.updatedAt)
+    .orderBy(desc(conversations.updatedAt))
     .limit(1)
     .get();
 

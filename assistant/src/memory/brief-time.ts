@@ -4,7 +4,7 @@
  * schedule jobs, sorts them by urgency bucket, and caps the output.
  */
 
-import { and, gte, lte } from "drizzle-orm";
+import { and, eq, gte, lte } from "drizzle-orm";
 
 import { getDueSoonSchedules } from "../schedule/schedule-store.js";
 import type { BriefEntry } from "./brief-formatting.js";
@@ -69,18 +69,19 @@ function collectTimeContexts(
   now: number,
   out: Candidate[],
 ): void {
-  // Active time contexts: activeFrom <= now AND activeUntil >= now
+  // Active time contexts: scopeId match AND activeFrom <= now AND activeUntil >= now
+  // Uses idx_time_contexts_scope_active_until composite index
   const rows = db
     .select()
     .from(timeContexts)
     .where(
       and(
+        eq(timeContexts.scopeId, scopeId),
         lte(timeContexts.activeFrom, now),
         gte(timeContexts.activeUntil, now),
       ),
     )
-    .all()
-    .filter((r) => r.scopeId === scopeId);
+    .all();
 
   for (const row of rows) {
     const remaining = row.activeUntil - now;

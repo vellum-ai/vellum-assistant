@@ -14,8 +14,10 @@
  *   5. Calls `runReducer` with the assembled input.
  *   6. Applies the result transactionally via `applyReducerResult`.
  *
- * If the reducer fails or returns an empty result, the checkpoint is NOT
- * advanced — the dirty tail stays in place so the next run retries.
+ * If the reducer fails or returns the {@link EMPTY_REDUCER_RESULT} sentinel
+ * (unparseable output), the checkpoint is NOT advanced — the dirty tail stays
+ * in place so the next run retries. A valid-but-empty model response (e.g.
+ * `{}`) returns a normal empty result that advances the checkpoint normally.
  */
 
 import { and, asc, eq, gte } from "drizzle-orm";

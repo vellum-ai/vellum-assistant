@@ -207,16 +207,40 @@ export async function runDaemon(): Promise<void> {
           targetId: summaryId,
         });
       }
+      for (const obsId of deletedMemory.deletedObservationIds) {
+        enqueueMemoryJob("delete_qdrant_vectors", {
+          targetType: "observation",
+          targetId: obsId,
+        });
+      }
+      for (const chunkId of deletedMemory.deletedChunkIds) {
+        enqueueMemoryJob("delete_qdrant_vectors", {
+          targetType: "chunk",
+          targetId: chunkId,
+        });
+      }
+      for (const episodeId of deletedMemory.deletedEpisodeIds) {
+        enqueueMemoryJob("delete_qdrant_vectors", {
+          targetType: "episode",
+          targetId: episodeId,
+        });
+      }
       if (
         deletedMemory.segmentIds.length > 0 ||
         deletedMemory.orphanedItemIds.length > 0 ||
-        deletedMemory.deletedSummaryIds.length > 0
+        deletedMemory.deletedSummaryIds.length > 0 ||
+        deletedMemory.deletedObservationIds.length > 0 ||
+        deletedMemory.deletedChunkIds.length > 0 ||
+        deletedMemory.deletedEpisodeIds.length > 0
       ) {
         log.info(
           {
             segments: deletedMemory.segmentIds.length,
             orphanedItems: deletedMemory.orphanedItemIds.length,
             deletedSummaries: deletedMemory.deletedSummaryIds.length,
+            deletedObservations: deletedMemory.deletedObservationIds.length,
+            deletedChunks: deletedMemory.deletedChunkIds.length,
+            deletedEpisodes: deletedMemory.deletedEpisodeIds.length,
           },
           "Enqueued Qdrant vector cleanup jobs for purged private conversations",
         );
