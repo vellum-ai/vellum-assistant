@@ -13,19 +13,23 @@ public struct VDropdown<T: Hashable>: View {
     public var emptyValue: T? = nil
     /// The maximum width of the dropdown. Defaults to 400.
     public var maxWidth: CGFloat = 400
+    /// Optional leading icon displayed before the label text.
+    public var icon: VIcon? = nil
 
     public init(
         placeholder: String,
         selection: Binding<T>,
         options: [(label: String, value: T)],
         emptyValue: T? = nil,
-        maxWidth: CGFloat = 400
+        maxWidth: CGFloat = 400,
+        icon: VIcon? = nil
     ) {
         self.placeholder = placeholder
         self._selection = selection
         self.options = options
         self.emptyValue = emptyValue
         self.maxWidth = maxWidth
+        self.icon = icon
     }
 
     private var selectedLabel: String? {
@@ -46,16 +50,23 @@ public struct VDropdown<T: Hashable>: View {
             .labelsHidden()
         } label: {
             HStack(spacing: VSpacing.md) {
-                Group {
-                    if let label = selectedLabel {
-                        Text(label)
-                            .foregroundColor(VColor.contentDefault)
-                    } else {
-                        Text(placeholder)
+                HStack(spacing: VSpacing.sm) {
+                    if let icon = icon {
+                        VIconView(icon, size: 13)
                             .foregroundColor(VColor.contentTertiary)
                     }
+
+                    Group {
+                        if let label = selectedLabel {
+                            Text(label)
+                                .foregroundColor(VColor.contentDefault)
+                        } else {
+                            Text(placeholder)
+                                .foregroundColor(VColor.contentTertiary)
+                        }
+                    }
+                    .font(VFont.body)
                 }
-                .font(VFont.body)
                 .frame(maxWidth: .infinity, alignment: .leading)
 
                 VIconView(.chevronDown, size: 13)
