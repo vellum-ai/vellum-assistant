@@ -38,7 +38,7 @@ The avatar system supports two modes:
 Files are stored in ~/.vellum/workspace/data/avatar/:
   character-traits.json   Current trait selection (bodyShape, eyeStyle, color)
   avatar-image.png        Rendered PNG of the character
-  character-ascii.txt     ASCII art representation of the character
+  character-ascii.txt     ASCII art representation (best-effort; may not be written)
 
 Examples:
   $ assistant avatar character update --body-shape blob --eye-style curious --color green
@@ -141,8 +141,8 @@ Examples:
     .addHelpText(
       "after",
       `
-Sets the three character traits and regenerates all avatar files (PNG image,
-ASCII art, and traits JSON). Each trait value must be a valid ID from the
+Sets the three character traits and regenerates avatar files (PNG image,
+traits JSON, and optionally ASCII art). Each trait value must be a valid ID from the
 component set — use "assistant avatar character components" to list valid IDs.
 
 The --body-shape flag sets the character silhouette. Valid values:
@@ -154,8 +154,9 @@ The --eye-style flag sets the eye expression. Valid values:
 The --color flag sets the body fill color. Valid values:
   green, orange, pink, purple, teal, yellow
 
-On success, writes three files to ~/.vellum/workspace/data/avatar/:
-  character-traits.json, avatar-image.png, character-ascii.txt
+On success, writes character-traits.json and avatar-image.png to
+~/.vellum/workspace/data/avatar/. character-ascii.txt is written on a
+best-effort basis and may be skipped if ASCII rendering fails.
 
 Examples:
   $ assistant avatar character update --body-shape blob --eye-style curious --color green
