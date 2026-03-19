@@ -46,11 +46,12 @@ struct MemoryItemRow: View {
                             .accessibilityLabel("Delete memory")
                     }
 
+                    // Description — fixed 2-line height for uniform cards
                     Text(item.statement)
-                        .font(VFont.body)
-                        .foregroundColor(VColor.contentTertiary)
-                        .lineLimit(1)
-                        .multilineTextAlignment(.leading)
+                        .font(VFont.caption)
+                        .foregroundColor(VColor.contentSecondary)
+                        .lineLimit(2)
+                        .frame(maxWidth: .infinity, minHeight: 28, alignment: .topLeading)
                 }
             }
             .padding(VSpacing.lg)
@@ -79,10 +80,12 @@ struct MemoryItemRow: View {
             VIconView(icon, size: 20)
                 .foregroundColor(kind.color)
                 .frame(width: 40, height: 40)
+                .accessibilityHidden(true)
         } else {
             VIconView(.brain, size: 20)
                 .foregroundColor(VColor.contentTertiary)
                 .frame(width: 40, height: 40)
+                .accessibilityHidden(true)
         }
     }
 
