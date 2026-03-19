@@ -29,7 +29,7 @@ Config is stored in `config.json` in the workspace directory. Use the CLI to int
 - **Set a value**: `assistant config set <key> <value>`
 - **Search config**: `assistant config list --search <query>`
 
-## Reference Files
+## When to Consult References
 
 Consult these reference files for detailed knowledge on specific topics. Read the relevant file before answering questions in that domain.
 
