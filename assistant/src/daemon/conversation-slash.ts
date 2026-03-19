@@ -42,6 +42,21 @@ export interface SlashContext {
   estimatedCost: number;
 }
 
+// ── Deprecated model-switching shortcuts ─────────────────────────────
+
+/**
+ * Former provider shortcut commands that switched models. These are now
+ * removed — model switching lives in Settings. We reject them explicitly
+ * so they don't fall through to the LLM as passthrough text.
+ */
+const DEPRECATED_MODEL_SHORTCUTS = new Set([
+  "opus",
+  "sonnet",
+  "haiku",
+  "grok-beta",
+  "grok-multi",
+]);
+
 // ── /models command ──────────────────────────────────────────────────
 
 async function resolveModelList(): Promise<SlashResolution> {
@@ -117,7 +132,7 @@ export async function resolveSlash(
   content: string,
   context?: SlashContext,
 ): Promise<SlashResolution> {
-  // Handle deprecated /model command — direct users to Settings
+  // Handle deprecated model-switching commands — direct users to Settings
   const trimmed = content.trim();
   if (
     trimmed === "/model" ||
@@ -127,6 +142,18 @@ export async function resolveSlash(
       kind: "unknown",
       message:
         "The `/model` command has been removed. Use **Settings → Models & Services** to change your model and provider.",
+    };
+  }
+
+  // Reject deprecated provider shortcut commands (/opus, /sonnet, /haiku, etc.)
+  const shortcutMatch = trimmed.match(/^\/([a-z0-9-]+)(\s|$)/i);
+  if (
+    shortcutMatch &&
+    DEPRECATED_MODEL_SHORTCUTS.has(shortcutMatch[1].toLowerCase())
+  ) {
+    return {
+      kind: "unknown",
+      message: `The \`/${shortcutMatch[1]}\` shortcut has been removed. Use **Settings → Models & Services** to change your model and provider.`,
     };
   }
 
