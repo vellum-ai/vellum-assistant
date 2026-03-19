@@ -152,7 +152,20 @@ public final class HTTPTransport {
 
     /// Set by the owning DaemonClient when a planned service group update
     /// is in progress. Accelerates health check polling for faster reconnection.
+    /// Use `setUpdateInProgress(_:)` to restart the health-check loop when
+    /// the flag transitions to `true`, avoiding a stale 15s sleep.
     var isUpdateInProgress: Bool = false
+
+    /// Update the in-progress flag and restart the health-check loop when
+    /// transitioning to `true`. This avoids waiting out a stale 15s sleep
+    /// before the accelerated 2s polling kicks in.
+    func setUpdateInProgress(_ value: Bool) {
+        let wasInProgress = isUpdateInProgress
+        isUpdateInProgress = value
+        if value && !wasInProgress && healthCheckTask != nil {
+            startHealthCheckLoop()
+        }
+    }
 
     /// Current reconnect backoff delay in seconds (for SSE).
     private var sseReconnectDelay: TimeInterval = 1.0
@@ -682,6 +695,12 @@ public final class HTTPTransport {
                 throw HTTPTransportError.healthCheckFailed
             }
             log.info("Health check passed for \(self.baseURL, privacy: .public)")
+            // When the daemon comes back during a planned update, reset the
+            // SSE reconnect backoff so the event stream reconnects quickly
+            // instead of waiting up to 30s of exponential backoff.
+            if isUpdateInProgress {
+                sseReconnectDelay = 1.0
+            }
             setConnected(true)
         } catch let error as HTTPTransportError {
             setConnected(false)

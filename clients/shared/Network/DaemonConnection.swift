@@ -91,6 +91,13 @@ extension DaemonClient {
 
         self.httpTransport = transport
 
+        // Propagate update-in-progress state to the new transport so
+        // accelerated health-check polling survives transport recreation
+        // (e.g. auto-wake reconnect during a planned update).
+        if isUpdateInProgress {
+            transport.isUpdateInProgress = true
+        }
+
         do {
             try await transport.connect()
             isAuthenticated = true  // HTTP transport uses bearer token, no additional auth needed
@@ -180,7 +187,7 @@ extension DaemonClient {
                 isUpdateInProgress = false
                 updateTargetVersion = nil
                 updateExpiresAt = nil
-                httpTransport?.isUpdateInProgress = false
+                httpTransport?.setUpdateInProgress(false)
             } else {
                 log.info("auto-wake: skipping — planned service group update in progress")
                 return
