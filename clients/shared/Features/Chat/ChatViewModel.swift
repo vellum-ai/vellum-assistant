@@ -622,8 +622,12 @@ public final class ChatViewModel: ObservableObject {
 
     /// Recompute and cache the displayedMessages from the current messages array.
     /// Call this after any mutation to messages.
+    ///
+    /// Uses the shared `ChatVisibleMessageFilter` so that `displayedMessages` and the
+    /// macOS message list apply identical visibility rules — this keeps scroll-anchor
+    /// math stable across pagination boundaries.
     private func updateDisplayedMessages() {
-        displayedMessages = messages.filter { !$0.isSubagentNotification && !$0.isHidden }
+        displayedMessages = ChatVisibleMessageFilter.visibleMessages(from: messages)
     }
 
     // MARK: - Daemon History Pagination
@@ -942,7 +946,7 @@ public final class ChatViewModel: ObservableObject {
         messageManager.$messages
             .throttle(for: .milliseconds(100), scheduler: RunLoop.main, latest: true)
             .sink { [weak self] newMessages in
-                self?.displayedMessages = newMessages.filter { !$0.isSubagentNotification && !$0.isHidden }
+                self?.displayedMessages = ChatVisibleMessageFilter.visibleMessages(from: newMessages)
             }
             .store(in: &cancellables)
 
