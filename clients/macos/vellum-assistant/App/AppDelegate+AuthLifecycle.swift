@@ -463,6 +463,10 @@ extension AppDelegate {
         if !isCurrentAssistantManaged {
             ensureActorCredentials()
         }
+        // Reset before provisioning so a stale flag from a previous
+        // bootstrap cycle doesn't cause awaitLocalBootstrapCompleted
+        // to skip the wait. Mirrors the reset in proceedToApp().
+        localBootstrapDidComplete = false
         ensureLocalAssistantApiKey()
 
         // 6. Sync locally-stored API keys to the new daemon. The daemon may
