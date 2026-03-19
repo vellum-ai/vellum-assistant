@@ -124,9 +124,6 @@ public enum WorkspaceConfigIO {
     /// Google OAuth mode is user-selected and must survive app restarts.
     static let initOnlyServiceKeys = ["google-oauth"]
 
-    /// All known service keys (union of forcible + init-only).
-    static let serviceKeys: [String] = forcibleServiceKeys + initOnlyServiceKeys
-
     /// Sets the service mode for services that don't already have one configured.
     /// Called during onboarding (BYOK → "your-own") and managed-proxy bootstrap (→ "managed").
     /// Existing user-chosen modes are preserved so that app restarts don't reset preferences.
