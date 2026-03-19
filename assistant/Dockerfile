@@ -92,7 +92,7 @@ ENV LD_LIBRARY_PATH="/data/usr/lib:/data/usr/lib/x86_64-linux-gnu:/data/usr/lib/
 # Ensure the CES bootstrap socket volume is writable by the non-root CES user.
 RUN mkdir -p /run/ces-bootstrap && chmod 777 /run/ces-bootstrap
 
-USER root
+USER assistant
 
 EXPOSE 3001
 
