@@ -73,6 +73,10 @@ extension EnvironmentValues {
     /// while the main thread is busy servicing layout — causing an infinite
     /// scrollTo ↔ layout loop that freezes the app.
     var expansionPinStartTime: CFAbsoluteTime = 0
+    /// Non-reactive avatar anchor Y position. Only used for threshold
+    /// comparisons and visibility boundary detection — never read during
+    /// body evaluation for rendering, so mutations do not trigger re-renders.
+    var avatarTargetY: CGFloat = .infinity
 }
 
 struct MessageListView: View {
@@ -212,7 +216,7 @@ struct MessageListView: View {
     /// restore began. Ensures anchorTracker.isVisible reflects real geometry
     /// rather than the manual reset applied on conversation switch.
     @State private var hasFreshAnchorMeasurement: Bool = false
-    @State private var avatarTargetY: CGFloat = .infinity
+    @State private var isAvatarVisible: Bool = false
     @State private var avatarDisplayY: CGFloat = .infinity
     @State private var avatarSmoothingTask: Task<Void, Never>?
     @State private var hasPlayedTailEntryAnimation = false
@@ -348,10 +352,7 @@ struct MessageListView: View {
         // Intentionally show the avatar under the latest rendered conversation tail
         // (user or assistant content), not only after the first assistant bubble.
         guard !visibleMessages.isEmpty else { return false }
-        return ConversationAvatarFollower.shouldShow(
-            anchorY: avatarTargetY,
-            viewportHeight: scrollViewportHeight
-        )
+        return isAvatarVisible
     }
 
     private var shouldPlayTailEntryAnimation: Bool {
@@ -378,12 +379,20 @@ struct MessageListView: View {
     }
 
     private func updateAvatarFollower(anchorY: CGFloat) {
+        // Compute visibility once and update @State only on boundary crossings.
+        let nowVisible = anchorY.isFinite
+            && ConversationAvatarFollower.shouldShow(anchorY: anchorY, viewportHeight: scrollViewportHeight)
+        if isAvatarVisible != nowVisible {
+            isAvatarVisible = nowVisible
+        }
+
+        // Update non-reactive tracking position (no body re-evaluation).
         if ConversationAvatarFollower.shouldUpdateTarget(
-            previousAnchorY: avatarTargetY,
+            previousAnchorY: scrollTracking.avatarTargetY,
             newAnchorY: anchorY,
             viewportHeight: scrollViewportHeight
         ) {
-            avatarTargetY = anchorY
+            scrollTracking.avatarTargetY = anchorY
         }
 
         guard anchorY.isFinite else {
@@ -398,10 +407,6 @@ struct MessageListView: View {
         // Skip position tracking when the avatar is off-screen. The avatar
         // overlay is hidden via shouldShowConversationTailAvatar, so updating
         // avatarDisplayY for an invisible element just wastes layout passes.
-        let nowVisible = ConversationAvatarFollower.shouldShow(
-            anchorY: anchorY,
-            viewportHeight: scrollViewportHeight
-        )
         guard nowVisible else {
             avatarSmoothingTask?.cancel()
             avatarSmoothingTask = nil
@@ -527,7 +532,8 @@ struct MessageListView: View {
         // onAppear calls restoreScrollToBottom without resetting avatar state).
         avatarSmoothingTask?.cancel()
         avatarSmoothingTask = nil
-        avatarTargetY = .infinity
+        scrollTracking.avatarTargetY = .infinity
+        isAvatarVisible = false
         avatarDisplayY = .infinity
         scrollTracking.pendingAvatarY = nil
         scrollTracking.avatarLastAppliedAt = nil
@@ -869,12 +875,17 @@ struct MessageListView: View {
                         scrollDebounceTask = nil
                         scrollRestoreTask?.cancel()
                         scrollRestoreTask = nil
+                        expandSuppressionTask?.cancel()
+                        expandSuppressionTask = nil
+                        scrollTracking.isPinningDuringExpansion = false
+                        isSuppressingBottomScroll = false
                         isNearBottom = false
                         hasReceivedScrollEvent = true
                     },
                     onScrollToBottom: {
                         scrollRestoreTask?.cancel()
                         scrollRestoreTask = nil
+                        isSuppressingBottomScroll = false
                         isNearBottom = true
                         hasReceivedScrollEvent = true
                     }
@@ -1054,7 +1065,7 @@ struct MessageListView: View {
             }
             .onChange(of: shouldCoalesceAvatarUpdates) {
                 if !shouldCoalesceAvatarUpdates {
-                    updateAvatarFollower(anchorY: scrollTracking.pendingAvatarY ?? avatarTargetY)
+                    updateAvatarFollower(anchorY: scrollTracking.pendingAvatarY ?? scrollTracking.avatarTargetY)
                 }
             }
             .onChange(of: streamingScrollTrigger) {
@@ -1226,7 +1237,7 @@ struct MessageListView: View {
                 }
                 isConversationContentHovered = false
                 hasPlayedTailEntryAnimation = false
-                // Avatar state (avatarTargetY, avatarDisplayY, scrollTracking)
+                // Avatar state (scrollTracking.avatarTargetY, avatarDisplayY, scrollTracking)
                 // is reset inside
                 // restoreScrollToBottom so the reset is shared with onAppear.
                 restoreScrollToBottom(proxy: proxy)
