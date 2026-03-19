@@ -238,6 +238,15 @@ export function getInterfacesDir(): string {
 }
 
 /**
+ * Returns the sounds directory (~/.vellum/workspace/data/sounds).
+ * Custom sound files and sound configuration live here. Sound files
+ * can be large, so this directory is excluded from diagnostic exports.
+ */
+export function getSoundsDir(): string {
+  return join(getWorkspaceDir(), "data", "sounds");
+}
+
+/**
  * Returns the TCP port the daemon should listen on for iOS clients.
  * Hardcoded default: 8765.
  */
@@ -432,6 +441,7 @@ export function ensureDataDir(): void {
     join(wsData, "memory", "knowledge"),
     join(wsData, "apps"),
     join(wsData, "interfaces"),
+    join(wsData, "sounds"),
   ];
   for (const dir of dirs) {
     if (!existsSync(dir)) {
