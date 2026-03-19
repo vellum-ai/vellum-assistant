@@ -549,14 +549,17 @@ struct AgentPanelContent: View {
                 }
             }
 
-            // Two-pane file browser — matching workspace panel style
+            // Two-pane file browser — identical to WorkspacePanel layout
             HStack(spacing: 0) {
-                // Left: file tree sidebar (matching WorkspaceTreeSidebar)
+                // Left: file tree sidebar (matches WorkspaceTreeSidebar)
                 skillFilesSection
                     .frame(width: 280, alignment: .topLeading)
                     .frame(maxHeight: .infinity)
 
-                // Right: file content viewer (matching WorkspaceFileViewer)
+                // Separator (workspace uses 6pt resize handle; we use a 1pt divider)
+                Divider()
+
+                // Right: file content viewer (matches WorkspaceFileViewer)
                 Group {
                     if let selectedPath = expandedFilePath,
                        let filesResponse = skillsManager.selectedSkillFiles,
@@ -569,7 +572,6 @@ struct AgentPanelContent: View {
                             content: .constant(content),
                             viewMode: $skillFileViewMode
                         )
-                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
                         .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
                         .background(
                             RoundedRectangle(cornerRadius: VRadius.md)
@@ -585,9 +587,9 @@ struct AgentPanelContent: View {
                             title: hasViewableFiles ? "Select a file to view" : "No viewable files",
                             icon: VIcon.fileText.rawValue
                         )
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
                     }
                 }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .background(VColor.surfaceOverlay)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -714,6 +716,7 @@ struct AgentPanelContent: View {
         if skillsManager.isLoadingSkillFiles || skillsManager.skillFilesError != nil ||
             (skillsManager.selectedSkillFiles != nil && !skillsManager.selectedSkillFiles!.files.isEmpty) {
             VStack(alignment: .leading, spacing: 0) {
+                // Header — matches WorkspaceTreeSidebar header
                 HStack {
                     Text("Files")
                         .font(VFont.headline)
@@ -725,25 +728,27 @@ struct AgentPanelContent: View {
 
                 Divider().background(VColor.borderBase)
 
+                // Content — matches WorkspaceTreeSidebar content
                 VStack(spacing: 0) {
                     if skillsManager.isLoadingSkillFiles {
-                        HStack {
+                        VStack {
                             Spacer()
                             ProgressView()
-                                .controlSize(.small)
+                                .frame(maxWidth: .infinity)
                             Spacer()
                         }
-                        .padding(.vertical, VSpacing.md)
                     } else if let error = skillsManager.skillFilesError {
                         Text(error)
                             .font(VFont.caption)
                             .foregroundColor(VColor.systemNegativeStrong)
+                            .padding(VSpacing.md)
                     } else if let filesResponse = skillsManager.selectedSkillFiles, !filesResponse.files.isEmpty {
                         ScrollView(.vertical) {
                             SkillFileTreeView(
                                 files: filesResponse.files,
                                 selectedFilePath: $expandedFilePath
                             )
+                            .padding(.vertical, VSpacing.xs)
                         }
                     }
                 }
