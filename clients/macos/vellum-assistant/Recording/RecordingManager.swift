@@ -43,6 +43,7 @@ final class RecordingManager: ObservableObject {
 
     private let recorder = ScreenRecorder()
     private weak var daemonClient: DaemonClient?
+    private let computerUseClient: any ComputerUseClientProtocol = ComputerUseClient()
 
     /// Callback invoked when source validation fails with `.noMatchingDisplay`
     /// or `.noMatchingWindow` and `promptForSource` was set. The caller
@@ -310,11 +311,6 @@ final class RecordingManager: ObservableObject {
         durationMs: Int? = nil,
         error: String? = nil
     ) {
-        guard let client = daemonClient else {
-            log.warning("No daemon client — cannot send recording status")
-            return
-        }
-
         let message = RecordingStatus(
             type: "recording_status",
             conversationId: sessionId,
@@ -326,10 +322,11 @@ final class RecordingManager: ObservableObject {
             operationToken: operationToken
         )
 
-        do {
-            try client.send(message)
-        } catch {
-            log.error("Failed to send recording status: \(error.localizedDescription)")
+        Task {
+            let success = await computerUseClient.sendRecordingStatus(message)
+            if !success {
+                log.error("Failed to send recording status")
+            }
         }
     }
 }

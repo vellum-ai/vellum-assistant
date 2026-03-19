@@ -321,11 +321,6 @@ public final class HTTPTransport {
         // Subagents
         case subagentMessage(id: String)
         case model
-        // Computer Use
-        case cuWatch
-
-        // Recordings
-        case recordingStatus
 
         // Settings
         case settingsVoice
@@ -426,12 +421,6 @@ public final class HTTPTransport {
             return ("/v1/subagents/\(encoded)/message", nil)
         case .model:
             return ("/v1/model", nil)
-        // Computer Use
-        case .cuWatch:
-            return ("/v1/computer-use/watch", nil)
-        // Recordings
-        case .recordingStatus:
-            return ("/v1/recordings/status", nil)
         // Settings
         case .settingsVoice:
             return ("/v1/settings/voice", nil)
@@ -516,12 +505,6 @@ public final class HTTPTransport {
             return ("\(prefix)/subagents/\(encoded)/message/", nil)
         case .model:
             return ("\(prefix)/model/", nil)
-        // Computer Use
-        case .cuWatch:
-            return ("\(prefix)/computer-use/watch/", nil)
-        // Recordings
-        case .recordingStatus:
-            return ("\(prefix)/recordings/status/", nil)
         // Settings
         case .settingsVoice:
             return ("\(prefix)/settings/voice/", nil)

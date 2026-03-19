@@ -69,6 +69,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
     var zoomManager: ZoomManager { services.zoomManager }
 
     let conversationListClient: any ConversationListClientProtocol = ConversationListClient()
+    let computerUseClient: any ComputerUseClientProtocol = ComputerUseClient()
     let toolConfirmationNotificationService = ToolConfirmationNotificationService()
     lazy var recordingManager: RecordingManager = RecordingManager(daemonClient: daemonClient)
     var recordingPickerWindow: RecordingSourcePickerWindow?
