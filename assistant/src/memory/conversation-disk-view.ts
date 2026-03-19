@@ -20,12 +20,17 @@ import {
 import { basename, dirname, extname, join } from "node:path";
 
 import { getLogger } from "../util/logger.js";
-import { getConversationsDir } from "../util/platform.js";
 import {
   getAttachmentContent,
   getAttachmentMetadataForMessage,
   getFilePathForAttachment,
 } from "./attachments-store.js";
+import {
+  getConversationDirName,
+  getConversationDirPath,
+  getLegacyConversationDirPath,
+  getResolvedConversationDirPath,
+} from "./conversation-directories.js";
 import { getMessageById } from "./conversation-crud.js";
 
 const log = getLogger("conversation-disk-view");
@@ -34,61 +39,11 @@ const log = getLogger("conversation-disk-view");
 // Directory helpers
 // ---------------------------------------------------------------------------
 
-function getConversationDirTimestamp(createdAtMs: number): string {
-  return new Date(createdAtMs).toISOString().replace(/:/g, "-");
-}
-
-function getLegacyConversationDirName(
-  id: string,
-  createdAtMs: number,
-): string {
-  return `${id}_${getConversationDirTimestamp(createdAtMs)}`;
-}
-
-/**
- * Build a filesystem-safe directory name for a conversation.
- * Format: `{isoDate}_{id}` where colons in the ISO date are replaced with
- * hyphens so the name is valid on all platforms (Windows forbids colons).
- */
-export function getConversationDirName(
-  id: string,
-  createdAtMs: number,
-): string {
-  return `${getConversationDirTimestamp(createdAtMs)}_${id}`;
-}
-
-/**
- * Return the absolute path to a conversation's disk-view directory.
- */
-export function getConversationDirPath(
-  id: string,
-  createdAtMs: number,
-): string {
-  return join(getConversationsDir(), getConversationDirName(id, createdAtMs));
-}
-
-function getLegacyConversationDirPath(
-  id: string,
-  createdAtMs: number,
-): string {
-  return join(
-    getConversationsDir(),
-    getLegacyConversationDirName(id, createdAtMs),
-  );
-}
-
-export function getResolvedConversationDirPath(
-  id: string,
-  createdAtMs: number,
-): string {
-  const dirPath = getConversationDirPath(id, createdAtMs);
-  if (existsSync(dirPath)) return dirPath;
-
-  const legacyDirPath = getLegacyConversationDirPath(id, createdAtMs);
-  if (existsSync(legacyDirPath)) return legacyDirPath;
-
-  return dirPath;
-}
+export {
+  getConversationDirName,
+  getConversationDirPath,
+  getResolvedConversationDirPath,
+};
 
 function ensureConversationDirPath(
   id: string,

@@ -1,4 +1,4 @@
-import { existsSync, mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
@@ -16,6 +16,7 @@ mock.module("../util/platform.js", () => ({
   ensureDataDir: () => {},
   getRootDir: () => testDir,
   getWorkspaceDir: () => join(testDir, "workspace"),
+  getConversationsDir: () => join(testDir, "workspace", "conversations"),
 }));
 
 mock.module("../util/logger.js", () => ({
@@ -51,6 +52,7 @@ import {
   uploadAttachment,
   validateAttachmentUpload,
 } from "../memory/attachments-store.js";
+import { getConversationDirPath } from "../memory/conversation-disk-view.js";
 import { addMessage, createConversation } from "../memory/conversation-crud.js";
 import { getDb, initializeDb, rawGet, rawRun, resetDb } from "../memory/db.js";
 
@@ -71,6 +73,22 @@ function resetTables() {
   db.run("DELETE FROM attachments");
   db.run("DELETE FROM messages");
   db.run("DELETE FROM conversations");
+}
+
+function getConversationTimestamp(createdAt: number): string {
+  return new Date(createdAt).toISOString().replace(/:/g, "-");
+}
+
+function getLegacyConversationDirPath(
+  conversationId: string,
+  createdAt: number,
+): string {
+  return join(
+    testDir,
+    "workspace",
+    "conversations",
+    `${conversationId}_${getConversationTimestamp(createdAt)}`,
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -411,6 +429,42 @@ describe("linkAttachmentToMessage + getAttachmentsForMessage", () => {
     expect(linked[0].originalFilename).toBe("chart.png");
     expect(linked[0].dataBase64).toBe("iVBORw0K");
     expect(getFilePathForAttachment(stored.id)).toContain("/conversations/");
+  });
+
+  test("uses timestamp-first conversation directory and does not recreate a legacy sibling", async () => {
+    const conv = createConversation();
+    const msg = await addMessage(conv.id, "assistant", "Disk view repaired");
+    const canonicalDir = getConversationDirPath(conv.id, conv.createdAt);
+    const legacyDir = getLegacyConversationDirPath(conv.id, conv.createdAt);
+    rmSync(legacyDir, { recursive: true, force: true });
+
+    const stored = uploadAttachment("repaired.png", "image/png", "iVBORw0K");
+    linkAttachmentToMessage(msg.id, stored.id, 0);
+
+    const filePath = getFilePathForAttachment(stored.id);
+    expect(filePath).not.toBeNull();
+    expect(filePath!).toContain(join(canonicalDir, "attachments"));
+    expect(existsSync(filePath!)).toBe(true);
+    expect(existsSync(legacyDir)).toBe(false);
+  });
+
+  test("reuses an existing legacy conversation directory when timestamp-first is absent", async () => {
+    const conv = createConversation();
+    const msg = await addMessage(conv.id, "assistant", "Legacy path");
+    const canonicalDir = getConversationDirPath(conv.id, conv.createdAt);
+    const legacyDir = getLegacyConversationDirPath(conv.id, conv.createdAt);
+
+    rmSync(canonicalDir, { recursive: true, force: true });
+    mkdirSync(legacyDir, { recursive: true });
+
+    const stored = uploadAttachment("legacy.png", "image/png", "iVBORw0K");
+    linkAttachmentToMessage(msg.id, stored.id, 0);
+
+    const filePath = getFilePathForAttachment(stored.id);
+    expect(filePath).not.toBeNull();
+    expect(filePath!).toContain(join(legacyDir, "attachments"));
+    expect(existsSync(filePath!)).toBe(true);
+    expect(existsSync(canonicalDir)).toBe(false);
   });
 
   test("returns attachments in position order", async () => {
