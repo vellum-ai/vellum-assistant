@@ -517,7 +517,7 @@ describe("Memory Recall Quality", () => {
     test("superseded memory items do not appear in recall via recency", async () => {
       const db = getDb();
       const now = 1_700_000_200_000;
-      insertConversation(db, "conv-contra", now);
+      insertConversation(db, "conv-contra", now, 1);
 
       // New preference (active, supersedes the old one)
       insertMessage(
@@ -574,7 +574,7 @@ describe("Memory Recall Quality", () => {
     test("only active items are included in recall (superseded excluded)", async () => {
       const db = getDb();
       const now = 1_700_000_250_000;
-      insertConversation(db, "conv-entity-status", now);
+      insertConversation(db, "conv-entity-status", now, 1);
 
       insertMessage(
         db,
