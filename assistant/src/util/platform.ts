@@ -366,6 +366,24 @@ export function getWorkspaceDir(): string {
   return join(getRootDir(), "workspace");
 }
 
+/**
+ * Returns a display-friendly workspace path for embedding in agent-facing text
+ * (skill bodies, tool descriptions). Replaces the home directory prefix with `~`
+ * so paths stay concise and portable across machines.
+ *
+ * Examples:
+ *   /Users/sidd/.vellum/workspace → ~/.vellum/workspace
+ *   /data/.vellum/workspace       → /data/.vellum/workspace
+ */
+export function getWorkspaceDirDisplay(): string {
+  const abs = getWorkspaceDir();
+  const home = homedir();
+  if (abs.startsWith(home)) {
+    return "~" + abs.slice(home.length);
+  }
+  return abs;
+}
+
 /** Returns ~/.vellum/workspace/config.json */
 export function getWorkspaceConfigPath(): string {
   return join(getWorkspaceDir(), "config.json");
