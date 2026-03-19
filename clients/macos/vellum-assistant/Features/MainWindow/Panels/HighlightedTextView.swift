@@ -1,11 +1,16 @@
 import SwiftUI
 import VellumAssistantShared
 
+#if os(macOS)
+import AppKit
+#endif
+
 /// A code viewer with line numbers, horizontal scrolling, and syntax highlighting.
 ///
-/// Read-only mode uses pure SwiftUI (Text with syntax highlighting). Editable mode
-/// uses a custom NSTextView wrapper (CodeTextView) for precise textContainerInset
-/// control, ensuring line numbers stay aligned with text content.
+/// Read-only mode delegates to `VCodeView` from the design system, which wraps
+/// a non-editable `NSTextView` for native macOS text selection and copy.
+/// Editable mode uses `CodeTextView` (also `NSViewRepresentable`) for precise
+/// textContainerInset control so the line-number gutter stays aligned.
 struct HighlightedTextView: View {
     @Binding var text: String
     let language: SyntaxLanguage
@@ -16,6 +21,9 @@ struct HighlightedTextView: View {
     @State private var searchQuery = ""
     @State private var currentMatchIndex = 0
     @State private var isActivelyEditing = false
+    @State private var highlightVersion: UInt64 = 0
+    @State private var contentReady = false
+    @State private var cachedLineCount: Int = 1
 
     private static let editorBackground = VColor.surfaceOverlay
     private static let gutterBackground = VColor.surfaceBase
@@ -24,22 +32,43 @@ struct HighlightedTextView: View {
     /// Total number of search matches in the text.
     private var searchMatchCount: Int {
         guard !searchQuery.isEmpty else { return 0 }
-        return findMatchRanges().count
+        return VCodeView.findMatchRanges(in: text, query: searchQuery).count
     }
+
+    /// Approximate width of a single digit in the gutter font.
+    private static let gutterDigitWidth: CGFloat = 8
+    /// Horizontal padding (leading + trailing) inside the gutter.
+    private static let gutterPadding: CGFloat = 16
 
     var body: some View {
         Group {
-            if isEditable {
-                if isActivelyEditing {
-                    editableView
+            if contentReady {
+                if isEditable {
+                    if isActivelyEditing {
+                        editableView
+                    } else {
+                        readOnlyView
+                            .onTapGesture {
+                                isActivelyEditing = true
+                            }
+                    }
                 } else {
                     readOnlyView
-                        .onTapGesture {
-                            isActivelyEditing = true
-                        }
                 }
             } else {
-                readOnlyView
+                Color.clear
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .background(Self.editorBackground)
+            }
+        }
+        .task {
+            cachedLineCount = VCodeView.countLines(in: text)
+            contentReady = true
+        }
+        .onChange(of: isActivelyEditing) { _, editing in
+            if !editing {
+                highlightVersion &+= 1
+                cachedLineCount = VCodeView.countLines(in: text)
             }
         }
         .onChange(of: language) { _, _ in
@@ -53,13 +82,12 @@ struct HighlightedTextView: View {
     /// (NSViewRepresentable) instead of SwiftUI's TextEditor to control
     /// textContainerInset precisely, ensuring the gutter stays aligned.
     private var editableView: some View {
-        let lines = text.components(separatedBy: "\n")
-        let lineCount = lines.count
+        let lineCount = cachedLineCount
         let gutterWidth = gutterWidth(for: lineCount)
 
         return VStack(spacing: 0) {
             if isSearchVisible {
-                SourceSearchBar(
+                VCodeSearchBar(
                     searchQuery: $searchQuery,
                     currentMatchIndex: $currentMatchIndex,
                     matchCount: searchMatchCount,
@@ -100,6 +128,7 @@ struct HighlightedTextView: View {
             return .handled
         }
         .onChange(of: text) { _, _ in
+            cachedLineCount = VCodeView.countLines(in: text)
             let count = searchMatchCount
             if count == 0 {
                 currentMatchIndex = 0
@@ -111,111 +140,23 @@ struct HighlightedTextView: View {
 
     // MARK: - Read-Only Mode
 
-    /// Syntax-highlighted text for the read-only view, with search match highlighting.
-    private var highlightedText: AttributedString {
-        var result = SyntaxTheme.highlight(text, language: language)
-
-        guard !searchQuery.isEmpty else { return result }
-
-        let matchRanges = findMatchRanges()
-        for (index, range) in matchRanges.enumerated() {
-            guard let lowerBound = AttributedString.Index(range.lowerBound, within: result),
-                  let upperBound = AttributedString.Index(range.upperBound, within: result) else {
-                continue
-            }
-
-            let attrRange = lowerBound..<upperBound
-            if index == currentMatchIndex {
-                result[attrRange].backgroundColor = VColor.primaryBase.opacity(0.3)
-            } else {
-                result[attrRange].backgroundColor = VColor.systemMidWeak
-            }
-        }
-
-        return result
-    }
-
-    /// Read-only view with line numbers and horizontal scrolling.
+    /// Read-only view using `VCodeView` from the design system. Passes
+    /// `SyntaxTheme.highlightNS` as the pluggable syntax highlighter.
     private var readOnlyView: some View {
-        let lines = text.components(separatedBy: "\n")
-        let lineCount = lines.count
-        let gutterWidth = gutterWidth(for: lineCount)
-
-        return VStack(spacing: 0) {
-            if isSearchVisible {
-                SourceSearchBar(
-                    searchQuery: $searchQuery,
-                    currentMatchIndex: $currentMatchIndex,
-                    matchCount: searchMatchCount,
-                    onDismiss: dismissSearch
-                )
-            }
-
-            GeometryReader { geometry in
-                ScrollView([.vertical]) {
-                    HStack(alignment: .top, spacing: 0) {
-                        // Line number gutter — scrolls vertically, pinned horizontally
-                        lineNumberGutter(lineCount: lineCount, width: gutterWidth)
-
-                        // Text content — scrolls both directions
-                        ScrollView(.horizontal, showsIndicators: true) {
-                            Group {
-                                if isEditable {
-                                    Text(highlightedText)
-                                        .textSelection(.disabled)
-                                } else {
-                                    Text(highlightedText)
-                                        .textSelection(.enabled)
-                                }
-                            }
-                            .fixedSize(horizontal: true, vertical: false)
-                            .padding(.vertical, VSpacing.sm)
-                            .padding(.horizontal, VSpacing.md)
-                        }
-                        .frame(minWidth: geometry.size.width - gutterWidth)
-                    }
-                    .frame(minHeight: geometry.size.height, alignment: .topLeading)
-                }
-                .background(Self.editorBackground)
-            }
-        }
-        .onKeyPress("f", phases: .down) { press in
-            guard press.modifiers == .command else { return .ignored }
-            isSearchVisible = true
-            return .handled
-        }
-        .onKeyPress(.escape) {
-            guard isSearchVisible else { return .ignored }
-            dismissSearch()
-            return .handled
-        }
+        VCodeView(
+            text: text,
+            highlighter: { text, paragraphStyle in
+                SyntaxTheme.highlightNS(text, language: language, paragraphStyle: paragraphStyle)
+            },
+            highlightVersion: highlightVersion
+        )
         .onChange(of: text) { _, _ in
-            let count = searchMatchCount
-            if count == 0 {
-                currentMatchIndex = 0
-            } else if currentMatchIndex >= count {
-                currentMatchIndex = max(0, count - 1)
-            }
+            highlightVersion &+= 1
+            cachedLineCount = VCodeView.countLines(in: text)
         }
     }
 
     // MARK: - Search
-
-    /// Finds all case-insensitive occurrences of `searchQuery` in `text`.
-    private func findMatchRanges() -> [Range<String.Index>] {
-        guard !searchQuery.isEmpty else { return [] }
-
-        var ranges: [Range<String.Index>] = []
-        var searchStart = text.startIndex
-
-        while searchStart < text.endIndex,
-              let range = text.range(of: searchQuery, options: .caseInsensitive, range: searchStart..<text.endIndex) {
-            ranges.append(range)
-            searchStart = range.upperBound
-        }
-
-        return ranges
-    }
 
     private func dismissSearch() {
         isSearchVisible = false
@@ -225,12 +166,12 @@ struct HighlightedTextView: View {
     // MARK: - Line Numbers
 
     private func lineNumberGutter(lineCount: Int, width: CGFloat) -> some View {
-        VStack(alignment: .trailing, spacing: 0) {
+        LazyVStack(alignment: .trailing, spacing: 0) {
             ForEach(1...max(1, lineCount), id: \.self) { num in
                 Text("\(num)")
                     .font(VFont.monoSmall)
                     .foregroundStyle(Self.gutterTextColor)
-                    .frame(height: Self.lineHeight)
+                    .frame(height: VCodeView.lineHeight)
             }
         }
         .padding(.top, VSpacing.sm)
@@ -240,96 +181,10 @@ struct HighlightedTextView: View {
         .background(Self.gutterBackground)
     }
 
-    /// Line height for the text content font, derived from NSLayoutManager so the
-    /// gutter matches the actual line spacing NSTextView uses (which rounds each
-    /// metric component individually rather than ceiling the sum).
-    private static let lineHeight: CGFloat = {
-        let nsFont = NSFont(name: "DMMono-Regular", size: 13)
-            ?? NSFont.monospacedSystemFont(ofSize: 13, weight: .regular)
-        let layoutManager = NSLayoutManager()
-        return layoutManager.defaultLineHeight(for: nsFont)
-    }()
 
     private func gutterWidth(for lineCount: Int) -> CGFloat {
         let digitCount = max(3, "\(lineCount)".count)
-        return CGFloat(digitCount * 8 + 16)
-    }
-}
-
-// MARK: - Source Search Bar
-
-/// Search bar for the file viewer source view. Displays match count, prev/next navigation,
-/// and a close button.
-private struct SourceSearchBar: View {
-    @Binding var searchQuery: String
-    @Binding var currentMatchIndex: Int
-    let matchCount: Int
-    let onDismiss: () -> Void
-
-    @FocusState private var isFocused: Bool
-
-    var body: some View {
-        VStack(spacing: 0) {
-            HStack(spacing: VSpacing.sm) {
-                VIconView(.search, size: 12)
-                    .foregroundColor(VColor.contentTertiary)
-
-                TextField("Search...", text: $searchQuery)
-                    .textFieldStyle(.plain)
-                    .font(VFont.mono)
-                    .foregroundColor(VColor.contentDefault)
-                    .focused($isFocused)
-                    .onSubmit { goToNextMatch() }
-
-                if !searchQuery.isEmpty {
-                    Text(matchCount > 0 ? "\(currentMatchIndex + 1) of \(matchCount)" : "No results")
-                        .font(VFont.caption)
-                        .foregroundColor(VColor.contentTertiary)
-                        .fixedSize()
-
-                    Button(action: goToPreviousMatch) {
-                        VIconView(.chevronUp, size: 12)
-                            .foregroundColor(matchCount > 0 ? VColor.contentDefault : VColor.contentTertiary)
-                    }
-                    .buttonStyle(.plain)
-                    .disabled(matchCount == 0)
-                    .accessibilityLabel("Previous match")
-
-                    Button(action: goToNextMatch) {
-                        VIconView(.chevronDown, size: 12)
-                            .foregroundColor(matchCount > 0 ? VColor.contentDefault : VColor.contentTertiary)
-                    }
-                    .buttonStyle(.plain)
-                    .disabled(matchCount == 0)
-                    .accessibilityLabel("Next match")
-                }
-
-                Button(action: onDismiss) {
-                    VIconView(.x, size: 12)
-                        .foregroundColor(VColor.contentTertiary)
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel("Close search")
-            }
-            .padding(VSpacing.sm)
-            .background(VColor.surfaceOverlay)
-
-            Divider()
-        }
-        .onAppear { isFocused = true }
-        .onChange(of: searchQuery) { _, _ in
-            currentMatchIndex = 0
-        }
-    }
-
-    private func goToPreviousMatch() {
-        guard matchCount > 0 else { return }
-        currentMatchIndex = currentMatchIndex > 0 ? currentMatchIndex - 1 : matchCount - 1
-    }
-
-    private func goToNextMatch() {
-        guard matchCount > 0 else { return }
-        currentMatchIndex = currentMatchIndex < matchCount - 1 ? currentMatchIndex + 1 : 0
+        return CGFloat(digitCount) * Self.gutterDigitWidth + Self.gutterPadding
     }
 }
 
@@ -345,7 +200,7 @@ private struct CodeTextView: NSViewRepresentable {
     var onEscape: (() -> Void)?
     var onCommandF: (() -> Void)?
 
-    func makeNSView(context: Context) -> HorizontalOnlyScrollView {
+    func makeNSView(context: Context) -> VCodeHorizontalScrollView {
         // TextKit 1 stack — matches the gutter's NSLayoutManager.defaultLineHeight computation
         let textStorage = NSTextStorage()
         let layoutManager = NSLayoutManager()
@@ -374,16 +229,7 @@ private struct CodeTextView: NSViewRepresentable {
         )
         textView.autoresizingMask = [.width]
 
-        // Font — DMMono-Regular 13pt with ss05 stylistic set (conventional "f")
-        let baseFont = NSFont(name: "DMMono-Regular", size: 13)
-            ?? NSFont.monospacedSystemFont(ofSize: 13, weight: .regular)
-        let descriptor = baseFont.fontDescriptor.addingAttributes([
-            .featureSettings: [[
-                NSFontDescriptor.FeatureKey.typeIdentifier: kStylisticAlternativesType,
-                NSFontDescriptor.FeatureKey.selectorIdentifier: kStylisticAltFiveOnSelector,
-            ]]
-        ])
-        textView.font = NSFont(descriptor: descriptor, size: 13) ?? baseFont
+        textView.font = VFont.nsMono
         textView.textColor = NSColor(VColor.contentDefault)
         textView.backgroundColor = .clear
         textView.drawsBackground = false
@@ -408,7 +254,7 @@ private struct CodeTextView: NSViewRepresentable {
         textView.onCommandF = onCommandF
         textView.string = text
 
-        let scrollView = HorizontalOnlyScrollView()
+        let scrollView = VCodeHorizontalScrollView()
         scrollView.documentView = textView
         scrollView.hasVerticalScroller = false
         scrollView.hasHorizontalScroller = true
@@ -419,7 +265,7 @@ private struct CodeTextView: NSViewRepresentable {
         return scrollView
     }
 
-    func updateNSView(_ scrollView: HorizontalOnlyScrollView, context: Context) {
+    func updateNSView(_ scrollView: VCodeHorizontalScrollView, context: Context) {
         context.coordinator.parent = self
         guard let textView = scrollView.documentView as? CodeNSTextView else { return }
         if textView.string != text {
@@ -442,7 +288,7 @@ private struct CodeTextView: NSViewRepresentable {
 
     func sizeThatFits(
         _ proposal: ProposedViewSize,
-        nsView: HorizontalOnlyScrollView,
+        nsView: VCodeHorizontalScrollView,
         context: Context
     ) -> CGSize? {
         guard let textView = nsView.documentView as? CodeNSTextView,
@@ -489,17 +335,5 @@ private class CodeNSTextView: NSTextView {
             return
         }
         super.keyDown(with: event)
-    }
-}
-
-/// NSScrollView that only handles horizontal scrolling, forwarding vertical
-/// scroll events to the parent responder chain (SwiftUI's vertical ScrollView).
-private class HorizontalOnlyScrollView: NSScrollView {
-    override func scrollWheel(with event: NSEvent) {
-        if abs(event.scrollingDeltaX) > abs(event.scrollingDeltaY) {
-            super.scrollWheel(with: event)
-        } else {
-            nextResponder?.scrollWheel(with: event)
-        }
     }
 }
