@@ -17,6 +17,10 @@ struct MemoryItemRow: View {
                             .foregroundColor(VColor.contentDefault)
 
                         kindTag
+
+                        if let scopeLabel = item.scopeLabel {
+                            VBadge(label: scopeLabel, icon: .lock, tone: .neutral, emphasis: .subtle, shape: .rounded)
+                        }
                     }
 
                     Text(item.statement)
