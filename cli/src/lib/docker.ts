@@ -567,8 +567,6 @@ export function serviceDockerRunArgs(opts: {
       "-v",
       `${res.socketVolume}:/run/ces-bootstrap`,
       "-v",
-      `${res.dataVolume}:/data:ro`,
-      "-v",
       `${res.workspaceVolume}:/workspace:ro`,
       "-v",
       `${res.cesSecurityVolume}:/ces-security`,
@@ -578,8 +576,6 @@ export function serviceDockerRunArgs(opts: {
       "WORKSPACE_DIR=/workspace",
       "-e",
       "CES_BOOTSTRAP_SOCKET_DIR=/run/ces-bootstrap",
-      "-e",
-      "CES_ASSISTANT_DATA_MOUNT=/data",
       "-e",
       "CREDENTIAL_SECURITY_DIR=/ces-security",
       ...(cesServiceToken
