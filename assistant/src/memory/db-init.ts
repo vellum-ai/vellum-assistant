@@ -49,6 +49,7 @@ import {
   migrateContactChannelsAccessFields,
   migrateContactChannelsTypeChatIdIndex,
   migrateContactsAssistantId,
+  migrateConversationForkLineage,
   migrateContactsNotesColumn,
   migrateContactsRolePrincipal,
   migrateConversationsThreadTypeIndex,
@@ -475,6 +476,9 @@ export function initializeDb(): void {
 
   // 83. Backfill existing inline (base64-in-DB) attachments to on-disk storage
   migrateBackfillInlineAttachmentsToDisk(database);
+
+  // 84. Add nullable conversation fork lineage columns and parent lookup index
+  migrateConversationForkLineage(database);
 
   validateMigrationState(database);
 
