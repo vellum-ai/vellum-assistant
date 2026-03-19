@@ -735,12 +735,16 @@ struct MessageListView: View {
     /// (duplicate request within an active session), or start a new bounded
     /// retry session. Anchor-message jumps and pagination restoration bypass
     /// this helper entirely — they are higher-priority flows.
+    /// Sentinel UUID used for pin requests before the daemon assigns a real
+    /// conversation ID. Lets bootstrap-window requests coalesce normally.
+    private static let bootstrapConversationId = UUID(uuidString: "00000000-0000-0000-0000-000000000000")!
+
     private func requestBottomPin(
         reason: BottomPinRequestReason,
         proxy: ScrollViewProxy,
         animated: Bool = false
     ) {
-        guard let convId = conversationId else { return }
+        let convId = conversationId ?? Self.bootstrapConversationId
         bottomPinCoordinator.requestPin(
             reason: reason,
             conversationId: convId,
