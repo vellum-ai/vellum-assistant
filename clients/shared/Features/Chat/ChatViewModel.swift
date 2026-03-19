@@ -313,6 +313,11 @@ public final class ChatViewModel: ObservableObject {
         get { messageManager.configuredProviders }
         set { messageManager.configuredProviders = newValue }
     }
+    /// Full provider catalog from daemon, updated via `model_info` messages.
+    public var providerCatalog: [ProviderCatalogEntry] {
+        get { messageManager.providerCatalog }
+        set { messageManager.providerCatalog = newValue }
+    }
 
     // MARK: - Forwarding properties — ChatAttachmentManager
 
@@ -1146,6 +1151,9 @@ public final class ChatViewModel: ObservableObject {
                 if let providers = info?.configuredProviders {
                     self.configuredProviders = Set(providers)
                 }
+                if let allProviders = info?.allProviders, !allProviders.isEmpty {
+                    self.providerCatalog = allProviders
+                }
             }
         }
 
@@ -1713,6 +1721,9 @@ public final class ChatViewModel: ObservableObject {
             }
             if let providers = info?.configuredProviders {
                 self.configuredProviders = Set(providers)
+            }
+            if let allProviders = info?.allProviders, !allProviders.isEmpty {
+                self.providerCatalog = allProviders
             }
         }
     }
@@ -2837,6 +2848,9 @@ public final class ChatViewModel: ObservableObject {
                 }
                 if let providers = info?.configuredProviders {
                     self.configuredProviders = Set(providers)
+                }
+                if let allProviders = info?.allProviders, !allProviders.isEmpty {
+                    self.providerCatalog = allProviders
                 }
             }
         }

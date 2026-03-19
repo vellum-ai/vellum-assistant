@@ -26,6 +26,7 @@ struct ChatView: View {
     var selectedModel: String = ""
     var catalogModels: [(id: String, name: String)] = []
     var configuredProviders: Set<String> = []
+    var providerCatalog: [ProviderCatalogEntry] = []
     let assistantActivityPhase: String
     let assistantActivityAnchor: String
     let assistantActivityReason: String?
@@ -226,6 +227,7 @@ struct ChatView: View {
                             selectedModel: selectedModel,
                             catalogModels: catalogModels,
                             configuredProviders: configuredProviders,
+                            providerCatalog: providerCatalog,
                             activeSubagents: activeSubagents,
                             dismissedDocumentSurfaceIds: dismissedDocumentSurfaceIds,
                             onConfirmationAllow: onConfirmationAllow,

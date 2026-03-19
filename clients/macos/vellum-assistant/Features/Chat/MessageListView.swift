@@ -81,6 +81,7 @@ struct MessageListView: View {
     let selectedModel: String
     let catalogModels: [(id: String, name: String)]
     let configuredProviders: Set<String>
+    let providerCatalog: [ProviderCatalogEntry]
     let activeSubagents: [SubagentInfo]
     let dismissedDocumentSurfaceIds: Set<String>
     let onConfirmationAllow: (String) -> Void
@@ -731,7 +732,8 @@ struct MessageListView: View {
                             subagentDetailStore: subagentDetailStore,
                             selectedModel: selectedModel,
                             catalogModels: catalogModels,
-                            configuredProviders: configuredProviders
+                            configuredProviders: configuredProviders,
+                            providerCatalog: providerCatalog
                         )
                         .equatable()
                     }
@@ -1311,6 +1313,8 @@ private struct MessageCellView: View, Equatable {
             && lhs.catalogModels.count == rhs.catalogModels.count
             && zip(lhs.catalogModels, rhs.catalogModels).allSatisfy({ $0.id == $1.id && $0.name == $1.name })
             && lhs.configuredProviders == rhs.configuredProviders
+            && lhs.providerCatalog.count == rhs.providerCatalog.count
+            && zip(lhs.providerCatalog, rhs.providerCatalog).allSatisfy({ $0.id == $1.id && $0.models.count == $1.models.count })
     }
 
     let message: ChatMessage
@@ -1354,6 +1358,7 @@ private struct MessageCellView: View, Equatable {
     let selectedModel: String
     let catalogModels: [(id: String, name: String)]
     let configuredProviders: Set<String>
+    let providerCatalog: [ProviderCatalogEntry]
 
     @AppStorage("hasEverSentMessage") private var hasEverSentMessage: Bool = false
 
@@ -1368,7 +1373,7 @@ private struct MessageCellView: View, Equatable {
     }
 
     private func modelListView(for msg: ChatMessage) -> some View {
-        ModelListBubble(currentModel: selectedModel, configuredProviders: configuredProviders)
+        ModelListBubble(currentModel: selectedModel, configuredProviders: configuredProviders, providerCatalog: providerCatalog)
     }
 
     @ViewBuilder

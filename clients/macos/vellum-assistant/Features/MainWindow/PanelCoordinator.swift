@@ -648,6 +648,7 @@ struct ActiveChatViewWrapper: View {
             selectedModel: settingsStore.selectedModel,
             catalogModels: settingsStore.dynamicProviderModels("anthropic").map { (id: $0.id, name: $0.displayName) },
             configuredProviders: settingsStore.configuredProviders,
+            providerCatalog: settingsStore.providerCatalog,
             assistantActivityPhase: viewModel.assistantActivityPhase,
             assistantActivityAnchor: viewModel.assistantActivityAnchor,
             assistantActivityReason: viewModel.assistantActivityReason,

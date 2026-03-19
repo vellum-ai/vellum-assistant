@@ -1979,6 +1979,9 @@ extension ChatViewModel {
             if let providers = msg.configuredProviders {
                 configuredProviders = Set(providers)
             }
+            if let allProviders = msg.allProviders, !allProviders.isEmpty {
+                providerCatalog = allProviders
+            }
 
         case .memoryStatus(let status):
             // Log degradation state so developers can diagnose memory issues
