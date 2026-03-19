@@ -265,10 +265,10 @@ extension ChatViewModel {
     }
 
     /// Extract a code preview from accumulated tool input JSON.
-    /// Shows the HTML code as it streams during app_create/app_refresh.
+    /// Shows the HTML code as it streams during app_create/app_refresh/app_update.
     static func extractCodePreview(from accumulatedJson: String, toolName: String) -> String? {
         guard !accumulatedJson.isEmpty else { return nil }
-        let isAppTool = toolName == "app_create" || toolName == "app_refresh"
+        let isAppTool = toolName == "app_create" || toolName == "app_refresh" || toolName == "app_update"
         guard isAppTool else { return nil }
 
         // Find the html JSON string value by locating the opening quote
@@ -1309,12 +1309,12 @@ extension ChatViewModel {
             isThinking = false
             // Extract building status for app tools
             let buildingStatus: String? = {
-                let appTools: Set<String> = ["app_create", "app_refresh"]
+                let appTools: Set<String> = ["app_create", "app_refresh", "app_update"]
                 guard appTools.contains(msg.toolName) else { return nil }
                 if let status = msg.input["status"]?.value as? String, !status.isEmpty {
                     return status
                 }
-                // app_create/app_refresh rely on friendlyRunningLabel + progressive label cycling
+                // app_create/app_refresh/app_update rely on friendlyRunningLabel + progressive label cycling
                 return nil
             }()
             // Upsert by toolUseId: if a preview chip already exists for this tool, update it
