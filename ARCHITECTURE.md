@@ -273,10 +273,8 @@ subgraph "Text Q&A Session"
             PROXY_APPROVAL["ApprovalCallback<br/>→ PermissionPrompter"]
         end
 
-        subgraph "Asset Tools"
-            ASSET_SEARCH["asset_search<br/>cross-conversation metadata query"]
-            ASSET_MATERIALIZE["asset_materialize<br/>decode + write to sandbox"]
-            VISIBILITY_POLICY["MediaVisibilityPolicy<br/>private conversation gate"]
+        subgraph "Conversation Disk View"
+            DISK_VIEW["conversation-disk-view.ts<br/>init, sync, remove, flatten"]
         end
 
     end
@@ -475,13 +473,9 @@ subgraph "Text Q&A Session"
     SESSION_MGR -->|"CES RPC<br/>(stdio/socket)"| CES_PROCESS
     CES_PROCESS -->|"credential<br/>materialization"| CES_GRANTS
 
-    %% Asset tools data flow
-    SESSION_MGR -->|"tool_use"| ASSET_SEARCH
-    SESSION_MGR -->|"tool_use"| ASSET_MATERIALIZE
-    ASSET_SEARCH --> DB_ATTACH
-    ASSET_SEARCH --> VISIBILITY_POLICY
-    ASSET_MATERIALIZE --> DB_ATTACH
-    ASSET_MATERIALIZE --> VISIBILITY_POLICY
+    %% Conversation disk view data flow
+    CONV_STORE -->|"init / update / remove"| DISK_VIEW
+    SESSION_MGR -->|"syncMessageToDisk"| DISK_VIEW
 
     %% Local storage
     APP_SUPPORT --- SESSION_LOGS

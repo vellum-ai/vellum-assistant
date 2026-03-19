@@ -4,6 +4,7 @@
 import { existsSync, readdirSync, statSync } from "node:fs";
 import { join, relative } from "node:path";
 
+import { enrichMessageWithSourcePaths } from "../../agent/attachments.js";
 import {
   createAssistantMessage,
   createUserMessage,
@@ -21,7 +22,6 @@ import {
   isModelSlashCommand,
 } from "../../daemon/conversation-process.js";
 import {
-  isProviderShortcut,
   resolveSlash,
   type SlashContext,
 } from "../../daemon/conversation-slash.js";
@@ -38,6 +38,7 @@ import * as attachmentsStore from "../../memory/attachments-store.js";
 import {
   createCanonicalGuardianRequest,
   generateCanonicalRequestCode,
+  listCanonicalGuardianRequests,
   listPendingRequestsByConversationScope,
   resolveCanonicalGuardianRequest,
 } from "../../memory/canonical-guardian-store.js";
@@ -110,17 +111,28 @@ function collectCanonicalGuardianRequestHintIds(
  * confirmation directly without syncing canonical status). This sweep
  * catches those stragglers so they don't get falsely matched by the
  * guardian reply router on subsequent messages.
+ *
+ * Only expires requests *sourced from* (not merely delivered to) this
+ * conversation. Delivered requests may still have live pending interactions
+ * in their source conversation. Additionally skips requests that still
+ * have a live in-memory pending interaction.
+ *
+ * Uses `listCanonicalGuardianRequests` (not `listPendingRequestsByConversationScope`)
+ * so that time-expired requests (past their `expiresAt`) are also caught
+ * instead of being silently filtered out.
  */
-function expireOrphanedCanonicalRequests(
-  conversationId: string,
-  sourceChannel: string,
-): void {
-  const orphaned = listPendingRequestsByConversationScope(
+function expireOrphanedCanonicalRequests(conversationId: string): void {
+  const sourceScoped = listCanonicalGuardianRequests({
     conversationId,
-    sourceChannel,
-  ).filter((r) => r.kind === "tool_approval");
+    status: "pending",
+    kind: "tool_approval",
+  });
 
-  for (const req of orphaned) {
+  for (const req of sourceScoped) {
+    // Skip requests that still have a live in-memory pending interaction —
+    // they are not orphaned.
+    if (pendingInteractions.get(req.id)) continue;
+
     resolveCanonicalGuardianRequest(req.id, "pending", {
       status: "expired",
     });
@@ -137,6 +149,7 @@ async function tryConsumeCanonicalGuardianReply(params: {
     filename: string;
     mimeType: string;
     data: string;
+    filePath?: string;
   }>;
   conversation: import("../../daemon/conversation.js").Conversation;
   onEvent: (msg: ServerMessage) => void;
@@ -217,19 +230,33 @@ async function tryConsumeCanonicalGuardianReply(params: {
   // is not re-processed as a new user turn.
   let messageId: string | undefined;
   try {
+    const guardianImageSourcePaths: Record<string, string> = {};
+    for (let i = 0; i < attachments.length; i++) {
+      const a = attachments[i];
+      if (a.filePath && a.mimeType.toLowerCase().startsWith("image/")) {
+        guardianImageSourcePaths[`${i}:${a.filename}`] = a.filePath;
+      }
+    }
     const channelMeta = {
       userMessageChannel: sourceChannel,
       assistantMessageChannel: sourceChannel,
       userMessageInterface: sourceInterface,
       assistantMessageInterface: sourceInterface,
       provenanceTrustClass: "guardian" as const,
+      ...(Object.keys(guardianImageSourcePaths).length > 0
+        ? { imageSourcePaths: guardianImageSourcePaths }
+        : {}),
     };
 
-    const userMessage = createUserMessage(content, attachments);
+    const cleanUserMessage = createUserMessage(content, attachments);
+    const llmUserMessage = enrichMessageWithSourcePaths(
+      cleanUserMessage,
+      attachments,
+    );
     const persistedUser = await addMessage(
       conversationId,
       "user",
-      JSON.stringify(userMessage.content),
+      JSON.stringify(cleanUserMessage.content),
       channelMeta,
     );
     messageId = persistedUser.id;
@@ -249,7 +276,7 @@ async function tryConsumeCanonicalGuardianReply(params: {
 
     // Avoid mutating in-memory history / emitting stream deltas while a run is active.
     if (!conversation.isProcessing()) {
-      conversation.getMessages().push(userMessage, assistantMessage);
+      conversation.getMessages().push(llmUserMessage, assistantMessage);
       onEvent({
         type: "assistant_text_delta",
         text: replyText,
@@ -361,15 +388,11 @@ export function handleListMessages(
       // generate thumbnails for inline display on history restore.
       const linked = attachmentsStore.getAttachmentMetadataForMessage(m.id);
       if (linked.length > 0) {
-        // Batch-fetch file-backed status for all attachments in one query
-        // instead of issuing a separate query per attachment.
-        const fileBackedIds = attachmentsStore.getFileBackedAttachmentIds(
-          linked.map((a) => a.id),
-        );
         msgAttachments = linked.map((a) => {
-          const isFileBacked = fileBackedIds.has(a.id);
           if (a.mimeType.startsWith("image/")) {
-            const full = attachmentsStore.getAttachmentById(a.id);
+            const full = attachmentsStore.getAttachmentById(a.id, {
+              hydrateFileData: true,
+            });
             return {
               id: a.id,
               filename: a.originalFilename,
@@ -380,7 +403,7 @@ export function handleListMessages(
               ...(a.thumbnailBase64
                 ? { thumbnailData: a.thumbnailBase64 }
                 : {}),
-              ...(isFileBacked ? { fileBacked: true } : {}),
+              fileBacked: true,
             };
           }
           return {
@@ -390,7 +413,7 @@ export function handleListMessages(
             sizeBytes: a.sizeBytes,
             kind: a.kind,
             ...(a.thumbnailBase64 ? { thumbnailData: a.thumbnailBase64 } : {}),
-            ...(isFileBacked ? { fileBacked: true } : {}),
+            fileBacked: true,
           };
         });
       }
@@ -978,7 +1001,7 @@ export async function handleSendMessage(
 
     // Expire any orphaned canonical requests that survived without a
     // matching in-memory pending interaction (e.g. prompter timeouts).
-    expireOrphanedCanonicalRequests(mapping.conversationId, sourceChannel);
+    expireOrphanedCanonicalRequests(mapping.conversationId);
 
     return Response.json(
       { accepted: true, queued: true, conversationId: mapping.conversationId },
@@ -1018,7 +1041,7 @@ export async function handleSendMessage(
 
   // Expire any orphaned canonical requests that survived without a
   // matching in-memory pending interaction (e.g. prompter timeouts).
-  expireOrphanedCanonicalRequests(mapping.conversationId, sourceChannel);
+  expireOrphanedCanonicalRequests(mapping.conversationId);
 
   // Conversation is idle — persist and fire agent loop immediately
   conversation.setTurnChannelContext({
@@ -1051,6 +1074,13 @@ export async function handleSendMessage(
     let cleanupDeferred = false;
     try {
       const provenance = provenanceFromTrustContext(conversation.trustContext);
+      const imageSourcePaths: Record<string, string> = {};
+      for (let i = 0; i < attachments.length; i++) {
+        const a = attachments[i];
+        if (a.filePath && a.mimeType.toLowerCase().startsWith("image/")) {
+          imageSourcePaths[`${i}:${a.filename}`] = a.filePath;
+        }
+      }
       const channelMeta = {
         ...provenance,
         userMessageChannel: sourceChannel,
@@ -1058,15 +1088,19 @@ export async function handleSendMessage(
         userMessageInterface: sourceInterface,
         assistantMessageInterface: sourceInterface,
         ...(body.automated === true ? { automated: true } : {}),
+        ...(Object.keys(imageSourcePaths).length > 0
+          ? { imageSourcePaths }
+          : {}),
       };
-      const userMsg = createUserMessage(rawContent, attachments);
+      const cleanMsg = createUserMessage(rawContent, attachments);
+      const llmMsg = enrichMessageWithSourcePaths(cleanMsg, attachments);
       const persisted = await addMessage(
         mapping.conversationId,
         "user",
-        JSON.stringify(userMsg.content),
+        JSON.stringify(cleanMsg.content),
         channelMeta,
       );
-      conversation.getMessages().push(userMsg);
+      conversation.getMessages().push(llmMsg);
 
       const assistantMsg = createAssistantMessage(slashResult.message);
       await addMessage(
@@ -1088,10 +1122,9 @@ export async function handleSendMessage(
 
       // Snapshot model info now so the deferred callback cannot observe
       // a config change from a concurrent request.
-      const modelInfoEvent =
-        isModelSlashCommand(rawContent) || isProviderShortcut(rawContent)
-          ? await buildModelInfoEvent()
-          : null;
+      const modelInfoEvent = isModelSlashCommand(rawContent)
+        ? await buildModelInfoEvent()
+        : null;
 
       const response = Response.json(
         {

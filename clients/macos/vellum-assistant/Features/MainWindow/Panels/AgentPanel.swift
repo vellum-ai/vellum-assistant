@@ -13,10 +13,11 @@ struct AgentPanelContent: View {
     @StateObject private var skillsManager: SkillsManager
     @State private var selectedInstalledSkillId: String?
     @State private var skillToDelete: SkillInfo?
-    @State private var selectedCategory: SkillCategory?
+    @State private var selectedCategories: Set<SkillCategory> = []
     @State private var globalSkillSearchQuery = ""
     @State private var expandedFilePath: String?
     @State private var skillFileViewMode: FileViewMode = .source
+    @State private var showFilterPopover = false
 
     init(onInvokeSkill: ((SkillInfo) -> Void)? = nil, onSkillsChanged: (() -> Void)? = nil, daemonClient: DaemonClient) {
         self.onInvokeSkill = onInvokeSkill
@@ -30,11 +31,30 @@ struct AgentPanelContent: View {
     }
 
     /// Whether any files in the selected skill are viewable (non-binary with content).
+    /// Defaults to `true` when file metadata hasn't loaded yet so the empty state
+    /// shows the neutral "Select a file to view" instead of the misleading
+    /// "No viewable files" during loading.
     private var hasViewableFiles: Bool {
-        skillsManager.selectedSkillFiles?.files.contains { !$0.isBinary && $0.content != nil } ?? false
+        guard let files = skillsManager.selectedSkillFiles else { return true }
+        return files.files.contains { !$0.isBinary && $0.content != nil }
     }
 
     private var hasActiveSearch: Bool { !normalizedSkillQuery.isEmpty }
+
+    private var allCategoriesSelected: Bool {
+        selectedCategories.isEmpty || selectedCategories.count == SkillCategory.allCases.count
+    }
+
+    /// Dynamic subtitle for the category-filtered empty state.
+    private var categoryEmptySubtitle: String {
+        let sorted = selectedCategories.sorted { $0.displayName < $1.displayName }
+        if sorted.count <= 2 {
+            let names = sorted.map(\.displayName).joined(separator: " or ")
+            return "No installed skills match \(names)"
+        } else {
+            return "No installed skills in \(sorted.count) selected categories"
+        }
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -51,9 +71,14 @@ struct AgentPanelContent: View {
             }
         }
         .onChange(of: globalSkillSearchQuery) {
-            // Clear stale selections when search filters them out
             if let selectedId = selectedInstalledSkillId,
-               !filteredUserSkills.contains(where: { $0.id == selectedId }) {
+               !categoryFilteredSkills.contains(where: { $0.id == selectedId }) {
+                selectedInstalledSkillId = nil
+            }
+        }
+        .onChange(of: selectedCategories) {
+            if let selectedId = selectedInstalledSkillId,
+               !categoryFilteredSkills.contains(where: { $0.id == selectedId }) {
                 selectedInstalledSkillId = nil
             }
         }
@@ -73,12 +98,10 @@ struct AgentPanelContent: View {
 
     // MARK: - Skills Tab
 
-    /// Skills to show in the Skills tab.
     private var userSkills: [SkillInfo] {
         skillsManager.skills
     }
 
-    /// Installed skills filtered by the global search query.
     private var filteredUserSkills: [SkillInfo] {
         guard hasActiveSearch else { return userSkills }
         let query = normalizedSkillQuery
@@ -90,43 +113,137 @@ struct AgentPanelContent: View {
         }
     }
 
-    /// Installed skills further filtered by the selected category.
+    /// Installed skills further filtered by selected categories, sorted with installed first then alphabetically.
     private var categoryFilteredSkills: [SkillInfo] {
-        guard let category = selectedCategory else { return filteredUserSkills }
-        return filteredUserSkills.filter { inferCategory($0) == category }
-    }
-
-    /// Count of installed skills per category (based on search-filtered list).
-    private func skillCount(for category: SkillCategory) -> Int {
-        filteredUserSkills.filter { inferCategory($0) == category }.count
-    }
-
-    // MARK: - Category Sidebar
-
-    @ViewBuilder
-    private var categorySidebar: some View {
-        VStack(alignment: .leading, spacing: VSpacing.xxs) {
-            SidebarPrimaryRow(
-                icon: VIcon.layoutGrid.rawValue,
-                label: "All",
-                isActive: selectedCategory == nil
-            ) {
-                withAnimation(VAnimation.fast) { selectedCategory = nil }
+        let filtered: [SkillInfo]
+        if allCategoriesSelected {
+            filtered = filteredUserSkills
+        } else {
+            filtered = filteredUserSkills.filter { skill in
+                selectedCategories.contains(inferCategory(skill))
             }
+        }
+        return filtered.sorted { a, b in
+            let aInstalled = (a.source == "managed" || a.source == "clawhub")
+            let bInstalled = (b.source == "managed" || b.source == "clawhub")
+            if aInstalled != bInstalled { return aInstalled }
+            return a.name.localizedCaseInsensitiveCompare(b.name) == .orderedAscending
+        }
+    }
 
-            ForEach(SkillCategory.allCases, id: \.rawValue) { category in
-                SidebarPrimaryRow(
-                    icon: category.icon.rawValue,
-                    label: category.displayName,
-                    isActive: selectedCategory == category
-                ) {
-                    withAnimation(VAnimation.fast) { selectedCategory = category }
+    // MARK: - Category Filter Dropdown
+
+    /// Categories sorted alphabetically by display name.
+    private var sortedCategories: [SkillCategory] {
+        SkillCategory.allCases.sorted { $0.displayName < $1.displayName }
+    }
+
+    private func categoryBinding(for category: SkillCategory) -> Binding<Bool> {
+        Binding(
+            get: { selectedCategories.contains(category) },
+            set: { isOn in
+                withAnimation(VAnimation.fast) {
+                    if isOn { selectedCategories.insert(category) }
+                    else { selectedCategories.remove(category) }
                 }
             }
+        )
+    }
 
-            Spacer()
+    private var filterLabel: String {
+        if allCategoriesSelected {
+            return "All"
         }
-        .frame(width: 180)
+        let sorted = selectedCategories.sorted { $0.displayName < $1.displayName }
+        if sorted.count <= 2 {
+            return sorted.map(\.displayName).joined(separator: ", ")
+        }
+        return "\(sorted.count) categories"
+    }
+
+    @ViewBuilder
+    private var categoryFilterDropdown: some View {
+        Button {
+            showFilterPopover.toggle()
+        } label: {
+            HStack(spacing: VSpacing.md) {
+                HStack(spacing: VSpacing.sm) {
+                    VIconView(.filter, size: 13)
+                        .foregroundColor(VColor.contentTertiary)
+                    Text(filterLabel)
+                        .foregroundColor(VColor.contentDefault)
+                }
+                .font(VFont.body)
+                .frame(maxWidth: .infinity, alignment: .leading)
+
+                VIconView(.chevronDown, size: 13)
+                    .foregroundColor(VColor.contentTertiary)
+                    .accessibilityHidden(true)
+            }
+            .padding(.horizontal, VSpacing.md)
+            .padding(.vertical, VSpacing.xs)
+            .frame(height: 32)
+            .vInputChrome()
+        }
+        .buttonStyle(.plain)
+        .frame(width: 200)
+        .popover(isPresented: $showFilterPopover, arrowEdge: .bottom) {
+            VStack(alignment: .leading, spacing: 0) {
+                Button {
+                    withAnimation(VAnimation.fast) {
+                        selectedCategories.removeAll()
+                    }
+                } label: {
+                    HStack(spacing: VSpacing.sm) {
+                        VIconView(.layoutGrid, size: 14)
+                            .foregroundColor(VColor.contentDefault)
+                            .frame(width: 20)
+                        Text("All")
+                            .font(VFont.body)
+                            .foregroundColor(VColor.contentDefault)
+                        Spacer()
+                    }
+                    .padding(.horizontal, VSpacing.md)
+                    .padding(.vertical, VSpacing.sm)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+
+                Divider().padding(.horizontal, VSpacing.sm)
+
+                ForEach(sortedCategories, id: \.rawValue) { category in
+                    Button {
+                        withAnimation(VAnimation.fast) {
+                            if selectedCategories.contains(category) {
+                                selectedCategories.remove(category)
+                            } else {
+                                selectedCategories.insert(category)
+                            }
+                        }
+                    } label: {
+                        HStack(spacing: VSpacing.sm) {
+                            VIconView(category.icon, size: 14)
+                                .foregroundColor(VColor.contentDefault)
+                                .frame(width: 20)
+                            Text(category.displayName)
+                                .font(VFont.body)
+                                .foregroundColor(VColor.contentDefault)
+                            Spacer()
+                            if selectedCategories.contains(category) {
+                                VIconView(.check, size: 12)
+                                    .foregroundColor(VColor.primaryBase)
+                            }
+                        }
+                        .padding(.horizontal, VSpacing.md)
+                        .padding(.vertical, VSpacing.sm)
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            .padding(.vertical, VSpacing.sm)
+            .frame(width: 220)
+        }
     }
 
     // MARK: - Skills Content
@@ -164,108 +281,138 @@ struct AgentPanelContent: View {
             }
             .padding(.vertical, VSpacing.sm)
         } else {
-            HStack(alignment: .top, spacing: VSpacing.lg) {
-                categorySidebar
-
-                VStack(spacing: VSpacing.md) {
+            VStack(spacing: VSpacing.md) {
+                HStack(spacing: VSpacing.sm) {
                     VSearchBar(placeholder: "Search skills", text: $globalSkillSearchQuery)
+                    categoryFilterDropdown
+                }
 
-                    if filteredUserSkills.isEmpty {
-                        VEmptyState(
-                            title: "No matches",
-                            subtitle: "No installed skills matched \"\(globalSkillSearchQuery)\"",
-                            icon: VIcon.search.rawValue
-                        )
-                        .frame(minHeight: 100)
-                    } else if categoryFilteredSkills.isEmpty {
-                        VEmptyState(
-                            title: "No skills in this category",
-                            subtitle: selectedCategory.map { "No installed skills matched \($0.displayName)" } ?? "",
-                            icon: "tray"
-                        )
-                        .frame(minHeight: 100)
-                    } else {
-                        ScrollView {
-                            VStack(spacing: VSpacing.md) {
-                                ForEach(categoryFilteredSkills) { skill in
-                                    skillCard(skill)
-                                }
+                if categoryFilteredSkills.isEmpty {
+                    VEmptyState(
+                        title: "No skills in selected categories",
+                        subtitle: categoryEmptySubtitle,
+                        icon: "tray"
+                    )
+                    .frame(minHeight: 100)
+                } else {
+                    ScrollView {
+                        LazyVGrid(
+                            columns: [
+                                GridItem(.flexible(), spacing: VSpacing.md),
+                                GridItem(.flexible(), spacing: VSpacing.md)
+                            ],
+                            spacing: VSpacing.md
+                        ) {
+                            ForEach(categoryFilteredSkills) { skill in
+                                skillCard(skill)
                             }
                         }
                     }
                 }
-                .frame(maxWidth: .infinity)
             }
         }
     }
 
     private func skillCard(_ skill: SkillInfo) -> some View {
-        return VStack(alignment: .leading, spacing: 0) {
-            // Top row: icon + info + remove button
-            HStack(alignment: .top, spacing: VSpacing.md) {
-                skillIcon(skill.emoji)
-
-                VStack(alignment: .leading, spacing: VSpacing.xs) {
-                    Text(skill.name)
-                        .font(VFont.bodyBold)
-                        .foregroundColor(VColor.contentDefault)
-
-                    Text(skill.description)
-                        .font(VFont.caption)
-                        .foregroundColor(VColor.contentTertiary)
-                        .lineLimit(2)
-
-                    VSkillTypePill(source: skill.source)
-                        .padding(.top, VSpacing.sm)
-                }
-
-                Spacer(minLength: VSpacing.lg)
-
-                // Remove button
-                Button {
-                    skillToDelete = skill
-                } label: {
-                    Text("Remove")
-                        .font(VFont.caption)
-                        .foregroundColor(VColor.systemNegativeStrong)
-                        .padding(.horizontal, VSpacing.md)
-                        .padding(.vertical, VSpacing.xs)
-                        .background(
-                            RoundedRectangle(cornerRadius: VRadius.md)
-                                .strokeBorder(VColor.systemNegativeStrong, lineWidth: 1)
-                        )
-                }
-                .buttonStyle(.plain)
+        SkillCardButton(skill: skill) {
+            withAnimation(VAnimation.fast) {
+                selectedInstalledSkillId = skill.id
             }
+        } onDelete: {
+            skillToDelete = skill
+        }
+    }
 
-            // Details navigation
-            HStack {
-                Spacer()
-                VButton(
-                    label: "Details",
-                    rightIcon: VIcon.chevronRight.rawValue,
-                    style: .outlined
-                ) {
-                    withAnimation(VAnimation.fast) {
-                        selectedInstalledSkillId = skill.id
+    // MARK: - Skill Card
+
+    private struct SkillCardButton: View {
+        let skill: SkillInfo
+        let onSelect: () -> Void
+        let onDelete: () -> Void
+        @State private var isHovered = false
+
+        private var isRemovable: Bool {
+            skill.source == "managed" || skill.source == "clawhub"
+        }
+
+        var body: some View {
+            Button(action: onSelect) {
+                HStack(alignment: .center, spacing: VSpacing.lg) {
+                    // Icon — centered vertically, large
+                    skillIcon(skill.emoji)
+
+                    // Text content
+                    VStack(alignment: .leading, spacing: VSpacing.sm) {
+                        // Header: name + tag + trash on same line
+                        HStack(spacing: VSpacing.sm) {
+                            Text(skill.name)
+                                .font(VFont.bodyBold)
+                                .foregroundColor(VColor.contentDefault)
+                                .lineLimit(1)
+                                .truncationMode(.tail)
+
+                            Spacer()
+
+                            VSkillTypePill(source: skill.source)
+
+                            if isRemovable {
+                                VButton(
+                                    label: "Delete",
+                                    iconOnly: VIcon.trash.rawValue,
+                                    style: .dangerGhost,
+                                    tooltip: "Uninstall skill"
+                                ) {
+                                    onDelete()
+                                }
+                            }
+                        }
+
+                        // Description — fixed 2-line height for uniform cards
+                        Text(skill.description)
+                            .font(VFont.caption)
+                            .foregroundColor(VColor.contentSecondary)
+                            .lineLimit(2)
+                            .frame(maxWidth: .infinity, minHeight: 28, alignment: .topLeading)
                     }
                 }
+                .padding(VSpacing.lg)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(isHovered ? VColor.surfaceActive : Color.clear)
+                .overlay(
+                    RoundedRectangle(cornerRadius: VRadius.xl)
+                        .stroke(VColor.borderDisabled, lineWidth: 2)
+                )
+                .clipShape(RoundedRectangle(cornerRadius: VRadius.xl))
+                .contentShape(Rectangle())
             }
-            .padding(.top, VSpacing.xs)
+            .buttonStyle(.plain)
+            .pointerCursor()
+            .onHover { isHovered = $0 }
+            .contextMenu {
+                Button("Remove", role: .destructive, action: onDelete)
+            }
         }
-        .padding(.horizontal, VSpacing.lg)
-        .padding(.vertical, VSpacing.md)
-        .contentShape(Rectangle())
-        .vCard(radius: VRadius.lg, background: VColor.surfaceOverlay)
+
+        @ViewBuilder
+        private func skillIcon(_ emoji: String?) -> some View {
+            if let emoji, !emoji.isEmpty {
+                Text(emoji)
+                    .font(.system(size: 32))
+                    .frame(width: 40, height: 40)
+            } else {
+                VIconView(.zap, size: 20)
+                    .foregroundColor(VColor.contentTertiary)
+                    .frame(width: 40, height: 40)
+            }
+        }
     }
 
     // MARK: - Installed Skill Detail View
 
     @ViewBuilder
     private func installedSkillDetailView(_ skill: SkillInfo) -> some View {
-        VStack(alignment: .leading, spacing: VSpacing.sm) {
-
-            // Title row with back button
+        VStack(alignment: .leading, spacing: VSpacing.md) {
+            // Title row: back + icon + name + tag + delete
             HStack(spacing: VSpacing.sm) {
                 VButton(
                     label: "Back",
@@ -278,11 +425,21 @@ struct AgentPanelContent: View {
                     }
                 }
 
-                skillIcon(skill.emoji)
+                // Small inline icon
+                if let emoji = skill.emoji, !emoji.isEmpty {
+                    Text(emoji)
+                        .font(.system(size: 16))
+                        .frame(width: 20, height: 20)
+                } else {
+                    VIconView(.zap, size: 12)
+                        .foregroundColor(VColor.contentTertiary)
+                        .frame(width: 20, height: 20)
+                }
 
                 Text(skill.name)
                     .font(VFont.cardTitle)
                     .foregroundColor(VColor.contentDefault)
+                    .lineLimit(1)
 
                 if skill.updateAvailable {
                     Text("UPDATE")
@@ -290,34 +447,17 @@ struct AgentPanelContent: View {
                         .foregroundColor(VColor.systemNegativeHover)
                 }
 
-                // Source badge
-                Text(sourceLabel(skill.source))
-                    .font(VFont.small)
-                    .foregroundColor(sourceBadgeColor(skill.source))
-                    .padding(.horizontal, VSpacing.sm)
-                    .padding(.vertical, 2)
-                    .background(
-                        Capsule()
-                            .fill(sourceBadgeColor(skill.source).opacity(0.15))
-                    )
-
-                // Provenance badge
-                if let label = provenanceLabel(skill) {
-                    Text(label)
-                        .font(VFont.small)
-                        .foregroundColor(provenanceBadgeColor(skill))
-                        .padding(.horizontal, VSpacing.sm)
-                        .padding(.vertical, 2)
-                        .background(
-                            Capsule()
-                                .fill(provenanceBadgeColor(skill).opacity(0.15))
-                        )
-                }
-
                 Spacer()
 
-                if skill.source == "managed" {
-                    VButton(label: "Remove", icon: VIcon.trash.rawValue, style: .danger) {
+                VSkillTypePill(source: skill.source)
+
+                if skill.source == "managed" || skill.source == "clawhub" {
+                    VButton(
+                        label: "Delete",
+                        iconOnly: VIcon.trash.rawValue,
+                        style: .dangerGhost,
+                        tooltip: "Uninstall skill"
+                    ) {
                         skillToDelete = skill
                     }
                 }
@@ -327,7 +467,7 @@ struct AgentPanelContent: View {
             if !skill.description.isEmpty {
                 Text(skill.description)
                     .font(VFont.body)
-                    .foregroundColor(VColor.contentDefault)
+                    .foregroundColor(VColor.contentSecondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
 
@@ -345,7 +485,6 @@ struct AgentPanelContent: View {
                     }
                 }
 
-                // Source link for third-party skills
                 if let provenance = skill.provenance,
                    provenance.kind == "third-party",
                    let urlString = provenance.sourceUrl,
@@ -362,42 +501,51 @@ struct AgentPanelContent: View {
                 }
             }
 
-            // Two-pane content: file list + file content viewer
-            HStack(alignment: .top, spacing: VSpacing.md) {
-                // Left: file list (always fixed width)
+            // Two-pane file browser — two rounded cards side by side (matching workspace)
+            HStack(alignment: .top, spacing: VSpacing.xl) {
+                // Left: file tree sidebar — rounded card with background
                 skillFilesSection
                     .frame(width: 280, alignment: .topLeading)
                     .frame(maxHeight: .infinity)
+                    .background(
+                        RoundedRectangle(cornerRadius: VRadius.lg)
+                            .fill(VColor.surfaceBase)
+                    )
+                    .clipShape(RoundedRectangle(cornerRadius: VRadius.lg))
 
-                // Right: file content viewer (always visible)
-                if let selectedPath = expandedFilePath,
-                   let filesResponse = skillsManager.selectedSkillFiles,
-                   let file = filesResponse.files.first(where: { $0.path == selectedPath }),
-                   !file.isBinary,
-                   let content = file.content {
-                    skillFileContentPane(file: file, content: content)
-                } else {
-                    // Empty state when no file is selected or all files are binary
-                    VEmptyState(
-                        title: hasViewableFiles ? "Select a file to view" : "No viewable files",
-                        icon: VIcon.fileText.rawValue
-                    )
-                    .background(VColor.surfaceOverlay)
-                    .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
-                    .overlay(
-                        RoundedRectangle(cornerRadius: VRadius.md)
-                            .stroke(VColor.borderBase, lineWidth: 1)
-                    )
+                // Right: file content viewer — rounded card with background
+                Group {
+                    if let selectedPath = expandedFilePath,
+                       let filesResponse = skillsManager.selectedSkillFiles,
+                       let file = filesResponse.files.first(where: { $0.path == selectedPath }),
+                       !file.isBinary,
+                       let content = file.content {
+                        FileContentView(
+                            fileName: file.path,
+                            mimeType: file.mimeType,
+                            content: .constant(content),
+                            viewMode: $skillFileViewMode
+                        )
+                    } else {
+                        VEmptyState(
+                            title: hasViewableFiles ? "Select a file to view" : "No viewable files",
+                            icon: VIcon.fileText.rawValue
+                        )
+                    }
                 }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .background(
+                    RoundedRectangle(cornerRadius: VRadius.lg)
+                        .fill(VColor.surfaceBase)
+                )
+                .clipShape(RoundedRectangle(cornerRadius: VRadius.lg))
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-
         }
         .onAppear {
             skillsManager.fetchSkillFiles(skillId: skill.id)
         }
         .onChange(of: skillsManager.selectedSkillFiles?.files.map(\.path)) {
-            // Auto-select SKILL.md (or the first text file) when files load
             if expandedFilePath == nil, let files = skillsManager.selectedSkillFiles?.files {
                 let skillMd = files.first { $0.path == "SKILL.md" && !$0.isBinary && $0.content != nil }
                 let firstText = files.first { !$0.isBinary && $0.content != nil }
@@ -409,7 +557,6 @@ struct AgentPanelContent: View {
             }
         }
         .onChange(of: expandedFilePath) {
-            // Reset view mode when the user selects a different file
             if let selectedPath = expandedFilePath,
                let filesResponse = skillsManager.selectedSkillFiles,
                let file = filesResponse.files.first(where: { $0.path == selectedPath }) {
@@ -485,23 +632,6 @@ struct AgentPanelContent: View {
     }
 
     @ViewBuilder
-    private func skillFileContentPane(file: SkillFileEntry, content: String) -> some View {
-        FileContentView(
-            fileName: file.path,
-            mimeType: file.mimeType,
-            content: .constant(content),
-            viewMode: $skillFileViewMode
-        )
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .background(VColor.surfaceOverlay)
-        .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
-        .overlay(
-            RoundedRectangle(cornerRadius: VRadius.md)
-                .stroke(VColor.borderBase, lineWidth: 1)
-        )
-    }
-
-    @ViewBuilder
     private func skillIcon(_ emoji: String?) -> some View {
         if let emoji, !emoji.isEmpty {
             Text(emoji)
@@ -521,7 +651,7 @@ struct AgentPanelContent: View {
         if skillsManager.isLoadingSkillFiles || skillsManager.skillFilesError != nil ||
             (skillsManager.selectedSkillFiles != nil && !skillsManager.selectedSkillFiles!.files.isEmpty) {
             VStack(alignment: .leading, spacing: 0) {
-                // Header
+                // Header — height matches FileContentHeaderBar (36pt)
                 HStack {
                     Text("Files")
                         .font(VFont.headline)
@@ -529,37 +659,36 @@ struct AgentPanelContent: View {
                     Spacer()
                 }
                 .padding(.horizontal, VSpacing.md)
-                .padding(.vertical, VSpacing.sm)
+                .frame(height: 36)
 
                 Divider().background(VColor.borderBase)
 
-                // Content (loading, error, or tree)
+                // Content — matches WorkspaceTreeSidebar content
                 VStack(spacing: 0) {
                     if skillsManager.isLoadingSkillFiles {
-                        HStack {
+                        VStack {
                             Spacer()
                             ProgressView()
-                                .controlSize(.small)
+                                .frame(maxWidth: .infinity)
                             Spacer()
                         }
-                        .padding(.vertical, VSpacing.md)
                     } else if let error = skillsManager.skillFilesError {
                         Text(error)
                             .font(VFont.caption)
                             .foregroundColor(VColor.systemNegativeStrong)
+                            .padding(VSpacing.md)
                     } else if let filesResponse = skillsManager.selectedSkillFiles, !filesResponse.files.isEmpty {
                         ScrollView(.vertical) {
                             SkillFileTreeView(
                                 files: filesResponse.files,
                                 selectedFilePath: $expandedFilePath
                             )
+                            .padding(.vertical, VSpacing.xs)
                         }
                     }
                 }
                 .frame(maxHeight: .infinity, alignment: .topLeading)
             }
-            .background(VColor.surfaceBase)
-            .clipShape(RoundedRectangle(cornerRadius: VRadius.lg))
         }
     }
 

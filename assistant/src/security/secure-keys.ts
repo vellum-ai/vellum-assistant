@@ -194,6 +194,27 @@ export async function getProviderKeyAsync(
 }
 
 // ---------------------------------------------------------------------------
+// Masked provider key — for safe display in client UIs
+// ---------------------------------------------------------------------------
+
+/**
+ * Retrieve a provider API key and return a masked version suitable for
+ * display. Shows the first 10 characters and last 4, with `...` in between,
+ * always hiding at least 3 characters. Returns `null` if no key is stored.
+ */
+export async function getMaskedProviderKey(
+  provider: string,
+): Promise<string | null> {
+  const key = await getProviderKeyAsync(provider);
+  if (!key || key.length === 0) return null;
+  const minHidden = 3;
+  const maxVisible = Math.max(1, key.length - minHidden);
+  const prefixLen = Math.min(10, maxVisible);
+  const suffixLen = Math.min(4, Math.max(0, maxVisible - prefixLen));
+  return `${key.slice(0, prefixLen)}...${suffixLen > 0 ? key.slice(-suffixLen) : ""}`;
+}
+
+// ---------------------------------------------------------------------------
 // Test helpers
 // ---------------------------------------------------------------------------
 

@@ -313,6 +313,16 @@ public final class ChatViewModel: ObservableObject {
         get { messageManager.configuredProviders }
         set { messageManager.configuredProviders = newValue }
     }
+    /// Full provider catalog from daemon, updated via `model_info` messages.
+    public var providerCatalog: [ProviderCatalogEntry] {
+        get { messageManager.providerCatalog }
+        set { messageManager.providerCatalog = newValue }
+    }
+    /// Masked API keys per provider from daemon (e.g. "sk-ant-api...Ab1x"), updated via `model_info` messages.
+    public var providerMaskedKeys: [String: String] {
+        get { messageManager.providerMaskedKeys }
+        set { messageManager.providerMaskedKeys = newValue }
+    }
 
     // MARK: - Forwarding properties — ChatAttachmentManager
 
@@ -734,17 +744,23 @@ public final class ChatViewModel: ObservableObject {
 
     // MARK: - On-Demand Content Rehydration
 
+    /// Message IDs currently being rehydrated — prevents duplicate concurrent fetches.
+    private var rehydratingMessageIds: Set<UUID> = []
+
     /// Fetch full (untruncated) content for a message that was loaded with truncated
     /// text/tool results or had its heavy content stripped. No-ops if the message is
-    /// not found or doesn't need rehydration.
+    /// not found, doesn't need rehydration, or is already being fetched.
     public func rehydrateMessage(id: UUID) {
+        guard !rehydratingMessageIds.contains(id) else { return }
         guard let idx = messages.firstIndex(where: { $0.id == id }),
               messages[idx].wasTruncated || messages[idx].isContentStripped,
               let conversationId = conversationId,
               let daemonMessageId = messages[idx].daemonMessageId else { return }
         guard daemonClient.isConnected else { return }
+        rehydratingMessageIds.insert(id)
         Task { [weak self] in
             guard let self else { return }
+            defer { self.rehydratingMessageIds.remove(id) }
             if let response = await ConversationClient().fetchMessageContent(conversationId: conversationId, messageId: daemonMessageId) {
                 self.handleMessageContentResponse(response)
             }
@@ -799,6 +815,7 @@ public final class ChatViewModel: ObservableObject {
                 }
                 if let result = fullTC.result {
                     messages[idx].toolCalls[tcIdx].result = result
+                    messages[idx].toolCalls[tcIdx].resultLength = result.count
                 }
                 if let input = fullTC.input {
                     let formatted = ToolCallData.formatAllToolInput(input)
@@ -1139,6 +1156,12 @@ public final class ChatViewModel: ObservableObject {
                 if let providers = info?.configuredProviders {
                     self.configuredProviders = Set(providers)
                 }
+                if let allProviders = info?.allProviders, !allProviders.isEmpty {
+                    self.providerCatalog = allProviders
+                }
+                if let maskedKeys = info?.maskedKeys {
+                    self.providerMaskedKeys = maskedKeys
+                }
             }
         }
 
@@ -1165,7 +1188,7 @@ public final class ChatViewModel: ObservableObject {
                 pendingUserMessageDisplayText = rawText
                 pendingUserMessageAutomated = hidden
                 pendingUserAttachments = attachments.isEmpty ? nil : attachments.map {
-                    UserMessageAttachment(filename: $0.filename, mimeType: $0.mimeType, data: $0.data, extractedText: nil)
+                    UserMessageAttachment(filename: $0.filename, mimeType: $0.mimeType, data: $0.data, extractedText: nil, filePath: $0.filePath)
                 }
                 isThinking = true
                 var userMsg = ChatMessage(role: .user, text: rawText, status: .sent, skillInvocation: pendingSkillInvocation, attachments: attachments)
@@ -1246,7 +1269,7 @@ public final class ChatViewModel: ObservableObject {
         flushCoalescedPublish()
 
         let messageAttachments: [UserMessageAttachment]? = attachments.isEmpty ? nil : attachments.map {
-            UserMessageAttachment(filename: $0.filename, mimeType: $0.mimeType, data: $0.data, extractedText: nil)
+            UserMessageAttachment(filename: $0.filename, mimeType: $0.mimeType, data: $0.data, extractedText: nil, filePath: $0.filePath)
         }
 
         // Track the user text for this turn so assistantTextDelta can tag the
@@ -1707,6 +1730,12 @@ public final class ChatViewModel: ObservableObject {
             if let providers = info?.configuredProviders {
                 self.configuredProviders = Set(providers)
             }
+            if let allProviders = info?.allProviders, !allProviders.isEmpty {
+                self.providerCatalog = allProviders
+            }
+            if let maskedKeys = info?.maskedKeys {
+                self.providerMaskedKeys = maskedKeys
+            }
         }
     }
 
@@ -2132,15 +2161,20 @@ public final class ChatViewModel: ObservableObject {
 
     /// Dismiss the typed conversation error state. Clears both the typed error
     /// and any corresponding `errorText` so the UI can return to normal.
-    /// Also removes the most recent inline error message from the message list.
+    /// Removes the most recent inline error message only if one was created.
     public func dismissConversationError() {
         conversationError = nil
         errorText = nil
-        errorManager.isConversationErrorDisplayedInline = false
-        // Remove only the most recent inline error card (not all historical ones).
-        if let lastErrorIndex = messages.lastIndex(where: { $0.isError }) {
+        // Only remove the inline error card if the current error actually
+        // produced one. When shouldCreateInlineErrorMessage returned false
+        // (e.g. credits-exhausted on macOS), no card was appended, so
+        // removing the last .isError message would delete an unrelated
+        // historical error card.
+        if errorManager.isConversationErrorDisplayedInline,
+           let lastErrorIndex = messages.lastIndex(where: { $0.isError }) {
             messages.remove(at: lastErrorIndex)
         }
+        errorManager.isConversationErrorDisplayedInline = false
     }
 
     /// Copy conversation error details to the clipboard for debugging.
@@ -2167,7 +2201,23 @@ public final class ChatViewModel: ObservableObject {
     /// Retry the last message after a conversation error, if the error is retryable.
     /// The error may live on the view model (toast path) or on the last inline error
     /// message (inline card path, where `conversationError` was already cleared).
-    public func retryAfterConversationError() {
+    ///
+    /// When `messageId` is provided (inline card path), the method validates that no
+    /// successful messages follow the target error — preventing the retry button on
+    /// an older error card from regenerating a newer, perfectly good response.
+    public func retryAfterConversationError(messageId: UUID? = nil) {
+        // When a specific message triggered the retry, validate that it is still
+        // at the tail of the conversation so the retry targets the correct turn.
+        if let messageId {
+            guard let targetIndex = messages.firstIndex(where: { $0.id == messageId }) else { return }
+            let target = messages[targetIndex]
+            guard target.isError else { return }
+            // Bail if any non-error messages follow — the conversation has moved on.
+            let hasSuccessfulFollowup = messages.suffix(from: messages.index(after: targetIndex))
+                .contains(where: { !$0.isError })
+            if hasSuccessfulFollowup { return }
+        }
+
         let error = conversationError ?? messages.last(where: { $0.isError })?.conversationError
         guard let error, error.isRetryable else { return }
         guard conversationId != nil else { return }
@@ -2799,17 +2849,14 @@ public final class ChatViewModel: ObservableObject {
             activeSubagents.append(info)
         }
 
-        // Tag assistant messages that follow "/model" or "/models" user messages
-        // so the client renders the picker/table UI instead of plain text.
+        // Tag assistant messages that follow "/models" user messages
+        // so the client renders the table UI instead of plain text.
         var hasModelCommand = false
         for i in chatMessages.indices {
             guard chatMessages[i].role == .user,
                   i + 1 < chatMessages.count && chatMessages[i + 1].role == .assistant else { continue }
             let userText = chatMessages[i].text.trimmingCharacters(in: .whitespacesAndNewlines)
-            if userText == "/model" {
-                chatMessages[i + 1].modelPicker = ModelPickerData()
-                hasModelCommand = true
-            } else if userText == "/models" {
+            if userText == "/models" {
                 chatMessages[i + 1].modelList = ModelListData()
                 hasModelCommand = true
             } else if userText == "/commands" {
@@ -2825,6 +2872,12 @@ public final class ChatViewModel: ObservableObject {
                 }
                 if let providers = info?.configuredProviders {
                     self.configuredProviders = Set(providers)
+                }
+                if let allProviders = info?.allProviders, !allProviders.isEmpty {
+                    self.providerCatalog = allProviders
+                }
+                if let maskedKeys = info?.maskedKeys {
+                    self.providerMaskedKeys = maskedKeys
                 }
             }
         }

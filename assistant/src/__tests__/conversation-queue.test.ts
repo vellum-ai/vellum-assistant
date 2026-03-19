@@ -36,6 +36,8 @@ mock.module("../util/logger.js", () => ({
 
 mock.module("../util/platform.js", () => ({
   getDataDir: () => "/tmp",
+  getWorkspaceDir: () => "/tmp/workspace",
+  getConversationsDir: () => "/tmp/workspace/conversations",
 }));
 
 mock.module("../memory/guardian-action-store.js", () => ({
@@ -156,14 +158,43 @@ mock.module("../memory/conversation-queries.js", () => ({
 }));
 
 let linkAttachmentShouldThrow = false;
+let mockAttachmentIdCounter = 0;
 
 mock.module("../memory/attachments-store.js", () => ({
+  AttachmentUploadError: class AttachmentUploadError extends Error {},
   uploadAttachment: () => ({ id: `att-${Date.now()}` }),
   linkAttachmentToMessage: () => {
     if (linkAttachmentShouldThrow) {
       throw new Error("Simulated linkAttachmentToMessage failure");
     }
   },
+  attachInlineAttachmentToMessage: (
+    _messageId: string,
+    _position: number,
+    filename: string,
+    mimeType: string,
+    dataBase64: string,
+  ) => {
+    if (linkAttachmentShouldThrow) {
+      throw new Error("Simulated linkAttachmentToMessage failure");
+    }
+
+    return {
+      id: `att-inline-${++mockAttachmentIdCounter}`,
+      originalFilename: filename,
+      mimeType,
+      sizeBytes: Buffer.from(dataBase64, "base64").byteLength,
+      kind: mimeType.startsWith("image/")
+        ? "image"
+        : mimeType.startsWith("video/")
+          ? "video"
+          : "file",
+      thumbnailBase64: null,
+      createdAt: Date.now(),
+    };
+  },
+  getFilePathForAttachment: () => null,
+  setAttachmentThumbnail: () => {},
 }));
 
 mock.module("../memory/retriever.js", () => ({
@@ -1419,12 +1450,14 @@ describe("Conversation host attachment directives", () => {
         ),
       ).toBe(true);
 
+      // Attachment warnings are no longer emitted as assistant_text_delta events
+      // (see 9d39e70ae). They are only stored on ctx.lastAttachmentWarnings.
       const warningDelta = events.find(
         (e) =>
           e.type === "assistant_text_delta" &&
           e.text.includes("Attachment warning:"),
       );
-      expect(warningDelta).toBeDefined();
+      expect(warningDelta).toBeUndefined();
       const completion = events.find((e) => e.type === "message_complete");
       expect(completion).toBeDefined();
     } finally {

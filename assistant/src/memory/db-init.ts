@@ -37,6 +37,7 @@ import {
   migrateAssistantContactMetadata,
   migrateBackfillContactInteractionStats,
   migrateBackfillGuardianPrincipalId,
+  migrateBackfillInlineAttachmentsToDisk,
   migrateBackfillUsageCacheAccounting,
   migrateCallSessionInviteMetadata,
   migrateCallSessionMode,
@@ -78,6 +79,7 @@ import {
   migrateGuardianVerificationSessions,
   migrateInviteCodeHashColumn,
   migrateInviteContactId,
+  migrateLlmRequestLogMessageId,
   migrateMemoryItemSupersession,
   migrateMessagesFtsBackfill,
   migrateNormalizePhoneIdentities,
@@ -459,6 +461,12 @@ export function initializeDb(): void {
 
   // 81. Add managed_service_config_key column to oauth_providers
   migrateOAuthProvidersManagedServiceConfigKey(database);
+
+  // 82. Add message_id column to llm_request_logs for per-message LLM context lookup
+  migrateLlmRequestLogMessageId(database);
+
+  // 83. Backfill existing inline (base64-in-DB) attachments to on-disk storage
+  migrateBackfillInlineAttachmentsToDisk(database);
 
   validateMigrationState(database);
 

@@ -228,6 +228,12 @@ export const MIGRATION_REGISTRY: MigrationRegistryEntry[] = [
     description:
       "Remove deleted capability-card rows, jobs, checkpoints, and category state",
   },
+  {
+    key: "migration_backfill_inline_attachments_v1",
+    version: 34,
+    description:
+      "Backfill existing inline base64 attachments to on-disk storage and clear dataBase64",
+  },
 ];
 
 export interface MigrationValidationResult {

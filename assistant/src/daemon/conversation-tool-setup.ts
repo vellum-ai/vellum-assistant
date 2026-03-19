@@ -560,8 +560,6 @@ export interface SkillProjectionContext {
   };
   /** True when no client is connected (HTTP-only). */
   readonly hasNoClient?: boolean;
-  /** True when the conversation has user-uploaded attachments. */
-  hasAttachments?: boolean;
 }
 
 // ── Conditional tool sets ────────────────────────────────────────────
@@ -573,7 +571,6 @@ const HOST_TOOL_NAMES = new Set([
   "host_file_edit",
   "host_bash",
 ]);
-const ASSET_TOOL_NAMES = new Set(["asset_search", "asset_materialize"]);
 const CLIENT_CAPABILITY_TOOL_NAMES = new Set(["app_open"]);
 const PLATFORM_TOOL_NAMES = new Set(["request_system_permission"]);
 
@@ -596,9 +593,6 @@ export function isToolActiveForContext(
     // to approve execution and the guardian auto-approve path would allow
     // unchecked host command execution on the daemon host.
     return !ctx.hasNoClient;
-  }
-  if (ASSET_TOOL_NAMES.has(name)) {
-    return ctx.hasAttachments ?? false;
   }
   if (CLIENT_CAPABILITY_TOOL_NAMES.has(name)) {
     return !ctx.hasNoClient;

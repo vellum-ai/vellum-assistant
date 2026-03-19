@@ -70,12 +70,29 @@ describe("injectActivityField", () => {
     expect("activity" in props0).toBe(false);
   });
 
-  test("skips tools that already have activity in properties", () => {
+  test("preserves existing activity property but ensures it is required", () => {
     const defs = [
       makeDef("my_tool", {
         type: "object",
         properties: { activity: { type: "number" } },
         required: [],
+      }),
+    ];
+    const result = injectActivityField(defs);
+    const schema = result[0].input_schema as Record<string, unknown>;
+    const props = schema.properties as Record<string, unknown>;
+    // Original activity type preserved
+    expect(props.activity).toEqual({ type: "number" });
+    // activity must be in required even though it was already in properties
+    expect(schema.required).toEqual(["activity"]);
+  });
+
+  test("skips tools that already have activity in both properties and required", () => {
+    const defs = [
+      makeDef("my_tool", {
+        type: "object",
+        properties: { activity: { type: "number" } },
+        required: ["activity"],
       }),
     ];
     const result = injectActivityField(defs);
@@ -125,7 +142,7 @@ describe("injectActivityField", () => {
     expect(Object.is(result[0], defs[0])).toBe(true);
   });
 
-  test("skips tools with activity defined inside allOf member (composite schema)", () => {
+  test("does not inject activity property into allOf composite schema but ensures it is required", () => {
     const defs = [
       makeDef("my_tool", {
         type: "object",
@@ -139,17 +156,84 @@ describe("injectActivityField", () => {
       }),
     ];
     const result = injectActivityField(defs);
-    // Should be the exact same object reference (no injection)
-    expect(Object.is(result[0], defs[0])).toBe(true);
     const schema = result[0].input_schema as Record<string, unknown>;
     const props = schema.properties as Record<string, unknown>;
-    // Top-level properties should NOT have activity injected
+    // Top-level properties should NOT have activity injected (it's in allOf)
     expect("activity" in props).toBe(false);
+    // But activity must still be in required
+    expect(schema.required).toEqual(["activity"]);
+  });
+
+  test("skips allOf composite schema where activity is already required", () => {
+    const defs = [
+      makeDef("my_tool", {
+        type: "object",
+        properties: { foo: { type: "string" } },
+        allOf: [
+          {
+            properties: { activity: { type: "string" } },
+          },
+        ],
+        required: ["activity"],
+      }),
+    ];
+    const result = injectActivityField(defs);
+    // Should be the exact same object reference (no change needed)
+    expect(Object.is(result[0], defs[0])).toBe(true);
   });
 
   test("handles empty definitions array", () => {
     const result = injectActivityField([]);
     expect(result).toEqual([]);
+  });
+
+  test("every tool with object schema has activity in required after injection", () => {
+    // Regression test: if a tool defines `activity` in its properties but
+    // omits it from `required`, injectActivityField() skips that tool
+    // (because schemaDefinesProperty returns true), leaving `activity`
+    // optional. This test catches that scenario.
+    const defs = [
+      // Normal tool without activity — should get it injected
+      makeDef("tool_a", {
+        type: "object",
+        properties: { foo: { type: "string" } },
+        required: ["foo"],
+      }),
+      // BUG SCENARIO: tool defines activity in properties but NOT in required
+      makeDef("tool_b", {
+        type: "object",
+        properties: {
+          bar: { type: "string" },
+          activity: { type: "string", description: "custom activity" },
+        },
+        required: ["bar"],
+      }),
+      // Tool that correctly defines activity in both properties AND required
+      makeDef("tool_c", {
+        type: "object",
+        properties: {
+          baz: { type: "number" },
+          activity: { type: "string", description: "custom activity" },
+        },
+        required: ["baz", "activity"],
+      }),
+      // Non-object schema — should be left alone
+      makeDef("tool_d", { type: "string" }),
+      // Object schema without properties — should be left alone
+      makeDef("tool_e", { type: "object" }),
+    ];
+
+    const result = injectActivityField(defs);
+
+    for (const def of result) {
+      const schema = def.input_schema as Record<string, unknown>;
+      if (schema.type !== "object" || !schema.properties) continue;
+
+      const required = schema.required;
+      expect(Array.isArray(required) && required.includes("activity")).toBe(
+        true,
+      );
+    }
   });
 });
 

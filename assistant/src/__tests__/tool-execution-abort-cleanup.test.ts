@@ -79,6 +79,7 @@ mock.module("../util/platform.js", () => ({
   getRootDir: () => "/tmp",
   getDataDir: () => "/tmp",
   getWorkspaceDir: () => "/tmp/workspace",
+  getConversationsDir: () => "/tmp/workspace/conversations",
   getDbPath: () => "/tmp/assistant.db",
   ensureDataDir: () => {},
 }));

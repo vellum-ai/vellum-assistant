@@ -42,7 +42,9 @@ extension AppDelegate {
                 object: nil,
                 queue: .main
             ) { [weak self] _ in
-                self?.updateMenuBarIcon()
+                MainActor.assumeIsolated {
+                    self?.updateMenuBarIcon()
+                }
             }
         }
     }

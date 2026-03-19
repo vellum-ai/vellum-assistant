@@ -16,8 +16,8 @@ export const backfillInstallationIdMigration: WorkspaceMigration = {
     "Backfill installationId into lockfile from SQLite checkpoint and clean up stale row",
   run(_workspaceDir: string): void {
     // a. Read existing installation ID from SQLite, or generate a new one.
-    //    On fresh installs the memory_checkpoints table may not exist yet
-    //    (workspace migrations run before initializeDb), so treat errors as null.
+    //    On fresh installs the memory_checkpoints table may not exist yet,
+    //    so treat errors as null.
     let existingId: string | null = null;
     try {
       existingId = getMemoryCheckpoint("telemetry:installation_id");

@@ -6,7 +6,6 @@ import { getBaseDataDir, getIsContainerized } from "../config/env-registry.js";
 import { getConfig } from "../config/loader.js";
 import { skillFlagKey } from "../config/skill-state.js";
 import { loadSkillCatalog, type SkillSummary } from "../config/skills.js";
-import { countConversations } from "../memory/conversation-queries.js";
 import { listConnections } from "../oauth/oauth-store.js";
 import { resolveBundledDir } from "../util/bundled-asset.js";
 import { getLogger } from "../util/logger.js";
@@ -144,21 +143,7 @@ export function buildSystemPrompt(options?: BuildSystemPromptOptions): string {
   const bootstrap = readPromptFile(bootstrapPath);
   const updates = readPromptFile(updatesPath);
 
-  // Only include BOOTSTRAP.md when there are zero existing conversations
-  // (truly first-time user).  Once the user has any conversation history,
-  // bootstrap is suppressed so it doesn't re-trigger on new threads — even
-  // if the user skipped or ignored onboarding.
-  let includeBootstrap = !!bootstrap && !options?.excludeBootstrap;
-  if (includeBootstrap) {
-    try {
-      if (countConversations() > 0) {
-        includeBootstrap = false;
-      }
-    } catch {
-      // DB not ready yet (e.g. during early startup) — fall back to
-      // including bootstrap if the file exists.
-    }
-  }
+  const includeBootstrap = !!bootstrap && !options?.excludeBootstrap;
 
   // Template prompt files contain placeholder fields and meta-instructions
   // meant for the assistant to fill in during onboarding.  When included

@@ -5,10 +5,10 @@ import { seedProviders } from "./oauth-store.js";
  *
  * These values are upserted into the `oauth_providers` SQLite table on
  * every startup. Only Vellum implementation fields (authUrl, tokenUrl,
- * tokenEndpointAuthMethod, extraParams, callbackTransport, pingUrl,
- * managedServiceConfigKey) are
+ * tokenEndpointAuthMethod, userinfoUrl, extraParams, callbackTransport,
+ * pingUrl, managedServiceConfigKey) are
  * overwritten on subsequent startups — user-customizable
- * fields (defaultScopes, scopePolicy, userinfoUrl, baseUrl) are only
+ * fields (defaultScopes, scopePolicy, baseUrl) are only
  * written on initial insert and preserved across restarts.
  *
  * Code-side behavioral fields (identityVerifier, injectionTemplates,

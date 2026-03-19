@@ -64,6 +64,11 @@ describe("/schema route", () => {
     expect(body.paths["/v1/integrations/telegram/config"]).toBeDefined();
     expect(body.paths["/v1/integrations/telegram/commands"]).toBeDefined();
     expect(body.paths["/v1/integrations/telegram/setup"]).toBeDefined();
+    expect(body.paths["/v1/oauth/apps"]).toBeDefined();
+    expect(body.paths["/v1/oauth/apps/{appId}"]).toBeDefined();
+    expect(body.paths["/v1/oauth/apps/{appId}/connections"]).toBeDefined();
+    expect(body.paths["/v1/oauth/connections/{connectionId}"]).toBeDefined();
+    expect(body.paths["/v1/oauth/apps/{appId}/connect"]).toBeDefined();
     expect(body.paths["/v1/contacts"]).toBeDefined();
     expect(body.paths["/v1/contacts/merge"]).toBeDefined();
     expect(body.paths["/v1/contact-channels/{contactChannelId}"]).toBeDefined();

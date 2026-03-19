@@ -278,7 +278,14 @@ export async function upsertApp(
     if (!stored) {
       // Roll back the just-inserted row to avoid an orphaned app pointing
       // at a non-existent client_secret in secure storage.
-      db.delete(oauthApps).where(eq(oauthApps.id, id)).run();
+      //
+      // Guard: only delete if updatedAt still matches our insertion timestamp.
+      // A concurrent upsertApp call may have observed this row, successfully
+      // stored the secret, and updated the row — deleting it would orphan that
+      // caller's valid reference.
+      db.delete(oauthApps)
+        .where(and(eq(oauthApps.id, id), eq(oauthApps.updatedAt, now)))
+        .run();
       throw new Error("Failed to store client_secret in secure storage");
     }
   }
@@ -290,6 +297,16 @@ export async function upsertApp(
 export function getApp(id: string): OAuthAppRow | undefined {
   const db = getDb();
   return db.select().from(oauthApps).where(eq(oauthApps.id, id)).get();
+}
+
+/** Read an app client_secret from secure storage. */
+export async function getAppClientSecret(
+  appOrId: OAuthAppRow | string,
+): Promise<string | undefined> {
+  const app =
+    typeof appOrId === "string" ? getApp(appOrId) : appOrId;
+  if (!app) return undefined;
+  return getSecureKeyAsync(app.clientSecretCredentialPath);
 }
 
 /** Look up an app by (provider_key, client_id). */

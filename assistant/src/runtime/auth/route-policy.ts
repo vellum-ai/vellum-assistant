@@ -351,6 +351,7 @@ const ACTOR_ENDPOINTS: Array<{ endpoint: string; scopes: Scope[] }> = [
 
   // Message content
   { endpoint: "messages/content", scopes: ["chat.read"] },
+  { endpoint: "messages/llm-context", scopes: ["chat.read"] },
 
   // Queued message deletion
   { endpoint: "messages/queued", scopes: ["chat.write"] },
@@ -435,7 +436,13 @@ const ACTOR_ENDPOINTS: Array<{ endpoint: string; scopes: Scope[] }> = [
   { endpoint: "dictation", scopes: ["chat.write"] },
 
   // OAuth / integrations
-  { endpoint: "integrations/oauth/start", scopes: ["settings.write"] },
+  { endpoint: "oauth/start", scopes: ["settings.write"] },
+  { endpoint: "oauth/apps", scopes: ["settings.read"] },
+  { endpoint: "oauth/apps.create", scopes: ["settings.write"] },
+  { endpoint: "oauth/apps.delete", scopes: ["settings.write"] },
+  { endpoint: "oauth/apps/connections", scopes: ["settings.read"] },
+  { endpoint: "oauth/apps/connect", scopes: ["settings.write"] },
+  { endpoint: "oauth/connections", scopes: ["settings.write"] },
 
   // Ingress config
   { endpoint: "integrations/ingress/config:GET", scopes: ["settings.read"] },

@@ -295,21 +295,28 @@ function syncChannels(
       .get();
 
     if (existing) {
+      // Preserve guardian blocks: if the channel is blocked, do not overwrite
+      // its status/policy — mirrors the guard in the cross-contact reassignment
+      // path so a blocked channel cannot be unblocked via a same-contact sync.
+      const isBlocked = existing.status === "blocked";
+
       const updateSet: Record<string, unknown> = {};
       if (ch.isPrimary !== undefined) updateSet.isPrimary = ch.isPrimary;
       if (ch.externalUserId !== undefined)
         updateSet.externalUserId = ch.externalUserId;
       if (ch.externalChatId !== undefined)
         updateSet.externalChatId = ch.externalChatId;
-      if (ch.status !== undefined) updateSet.status = ch.status;
-      if (ch.policy !== undefined) updateSet.policy = ch.policy;
+      if (!isBlocked) {
+        if (ch.status !== undefined) updateSet.status = ch.status;
+        if (ch.policy !== undefined) updateSet.policy = ch.policy;
+        if (ch.revokedReason !== undefined)
+          updateSet.revokedReason = ch.revokedReason;
+        if (ch.blockedReason !== undefined)
+          updateSet.blockedReason = ch.blockedReason;
+      }
       if (ch.verifiedAt !== undefined) updateSet.verifiedAt = ch.verifiedAt;
       if (ch.verifiedVia !== undefined) updateSet.verifiedVia = ch.verifiedVia;
       if (ch.inviteId !== undefined) updateSet.inviteId = ch.inviteId;
-      if (ch.revokedReason !== undefined)
-        updateSet.revokedReason = ch.revokedReason;
-      if (ch.blockedReason !== undefined)
-        updateSet.blockedReason = ch.blockedReason;
 
       if (Object.keys(updateSet).length > 0) {
         updateSet.updatedAt = now;

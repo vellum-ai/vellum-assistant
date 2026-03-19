@@ -426,7 +426,7 @@ struct AssistantChannelsDetailView: View {
 
                     // Inline disconnect X button
                     if let channelKey {
-                        VButton(label: "Disconnect", iconOnly: VIcon.x.rawValue, style: .danger, isDisabled: isDisconnectDisabled, tooltip: "Disconnect") {
+                        VButton(label: "Disconnect", style: .danger, isDisabled: isDisconnectDisabled) {
                             onDisconnect?(channelKey)
                         }
                     }

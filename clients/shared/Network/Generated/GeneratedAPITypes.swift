@@ -2671,19 +2671,39 @@ public struct CatalogModel: Codable, Sendable {
     }
 }
 
+public struct ProviderCatalogEntry: Codable, Sendable {
+    public let id: String
+    public let displayName: String
+    public let models: [CatalogModel]
+    public let defaultModel: String
+    public let apiKeyUrl: String?
+
+    public init(id: String, displayName: String, models: [CatalogModel], defaultModel: String, apiKeyUrl: String? = nil) {
+        self.id = id
+        self.displayName = displayName
+        self.models = models
+        self.defaultModel = defaultModel
+        self.apiKeyUrl = apiKeyUrl
+    }
+}
+
 public struct ModelInfo: Codable, Sendable {
     public let type: String
     public let model: String
     public let provider: String
     public let configuredProviders: [String]?
     public let availableModels: [CatalogModel]?
+    public let allProviders: [ProviderCatalogEntry]?
+    public let maskedKeys: [String: String]?
 
-    public init(type: String, model: String, provider: String, configuredProviders: [String]? = nil, availableModels: [CatalogModel]? = nil) {
+    public init(type: String, model: String, provider: String, configuredProviders: [String]? = nil, availableModels: [CatalogModel]? = nil, allProviders: [ProviderCatalogEntry]? = nil, maskedKeys: [String: String]? = nil) {
         self.type = type
         self.model = model
         self.provider = provider
         self.configuredProviders = configuredProviders
         self.availableModels = availableModels
+        self.allProviders = allProviders
+        self.maskedKeys = maskedKeys
     }
 }
 
@@ -2749,6 +2769,39 @@ public struct NotificationIntentResult: Codable, Sendable {
         self.success = success
         self.errorMessage = errorMessage
         self.errorCode = errorCode
+    }
+}
+
+/// Broadcast to connected clients when a service group update is about to begin.
+public struct ServiceGroupUpdateStarting: Codable, Sendable {
+    public let type: String
+    /// The version being upgraded to.
+    public let targetVersion: String
+    /// Estimated seconds of downtime.
+    public let expectedDowntimeSeconds: Double
+
+    public init(type: String, targetVersion: String, expectedDowntimeSeconds: Double) {
+        self.type = type
+        self.targetVersion = targetVersion
+        self.expectedDowntimeSeconds = expectedDowntimeSeconds
+    }
+}
+
+/// Broadcast to connected clients when a service group update has completed.
+public struct ServiceGroupUpdateComplete: Codable, Sendable {
+    public let type: String
+    /// The version that was installed (may differ from target if rolled back).
+    public let installedVersion: String
+    /// Whether the update succeeded or rolled back.
+    public let success: Bool
+    /// If rolled back, the version reverted to.
+    public let rolledBackToVersion: String?
+
+    public init(type: String, installedVersion: String, success: Bool, rolledBackToVersion: String? = nil) {
+        self.type = type
+        self.installedVersion = installedVersion
+        self.success = success
+        self.rolledBackToVersion = rolledBackToVersion
     }
 }
 

@@ -81,7 +81,6 @@ import type {
   ChannelCapabilities,
   TrustContext,
 } from "./conversation-runtime-assembly.js";
-import { messagesContainAttachments } from "./conversation-runtime-assembly.js";
 import type { SkillProjectionCache } from "./conversation-skill-tools.js";
 import {
   createSurfaceMutex,
@@ -95,7 +94,6 @@ import {
   createToolExecutor,
 } from "./conversation-tool-setup.js";
 import { refreshWorkspaceTopLevelContextIfNeeded as refreshWorkspaceImpl } from "./conversation-workspace.js";
-import type { ModelSetContext } from "./handlers/config-model.js";
 import { HostBashProxy } from "./host-bash-proxy.js";
 import type { CuObservationResult } from "./host-cu-proxy.js";
 import { HostCuProxy } from "./host-cu-proxy.js";
@@ -165,7 +163,6 @@ export class Conversation {
   /** @internal */ contextCompactedAt: number | null = null;
   /** @internal */ currentRequestId?: string;
   /** @internal */ hasNoClient = false;
-  /** @internal */ hasAttachments = false;
   /** @internal */ headlessLock = false;
   /** @internal */ taskRunId?: string;
   /** @internal */ callSessionId?: string;
@@ -178,7 +175,6 @@ export class Conversation {
   /** @internal */ currentPage?: string;
   /** @internal */ channelCapabilities?: ChannelCapabilities;
   /** @internal */ trustContext?: TrustContext;
-  /** @internal */ modelSetContext?: ModelSetContext;
   /** @internal */ authContext?: AuthContext;
   /** @internal */ loadedHistoryTrustClass?: TrustClass;
   /** @internal */ voiceCallControlPrompt?: string;
@@ -381,14 +377,6 @@ export class Conversation {
 
   async loadFromDb(): Promise<void> {
     await loadFromDbImpl(this);
-    // Scan loaded history for attachment content blocks so that asset
-    // tools are available when resuming a conversation that already had
-    // attachments. One-way: once true it stays true for the conversation.
-    // Also picks up the hasAttachments flag set by loadFromDbImpl which
-    // scans compacted (sliced-off) messages that aren't in this.messages.
-    if (!this.hasAttachments && messagesContainAttachments(this.messages)) {
-      this.hasAttachments = true;
-    }
   }
 
   async ensureActorScopedHistory(): Promise<void> {
@@ -883,11 +871,6 @@ export class Conversation {
   ): Promise<string> {
     if (!this.processing) {
       await this.ensureActorScopedHistory();
-    }
-    // One-way flag: once an attachment arrives, asset tools stay available
-    // for the remainder of the conversation.
-    if (!this.hasAttachments && attachments.length > 0) {
-      this.hasAttachments = true;
     }
     return persistUserMessageImpl(
       this,

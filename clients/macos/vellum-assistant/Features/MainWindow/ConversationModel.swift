@@ -10,7 +10,7 @@ struct ConversationModel: Identifiable, Hashable {
     var title: String
     let createdAt: Date
     /// Daemon conversation ID for restored conversations. Nil for new, unsaved conversations.
-    /// Mutable so it can be backfilled when the daemon assigns a conversation to a new conversation.
+    /// Mutable so it can be backfilled when the daemon assigns a session ID to a new conversation.
     var conversationId: String?
     var isArchived: Bool
     var isPinned: Bool

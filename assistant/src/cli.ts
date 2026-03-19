@@ -17,10 +17,6 @@ import {
   updateDaemonText,
   updateStatusText,
 } from "./cli/main-screen.jsx";
-import { loadRawConfig, saveRawConfig } from "./config/loader.js";
-import { setServiceField } from "./config/raw-config-utils.js";
-import { MODEL_TO_PROVIDER } from "./daemon/conversation-slash.js";
-import { getModelInfo } from "./daemon/handlers/config-model.js";
 import { renderHistoryContent } from "./daemon/handlers/shared.js";
 import type {
   ConfirmationRequest,
@@ -1133,37 +1129,9 @@ export async function startCli(): Promise<void> {
     }
 
     if (content === "/model" || content.startsWith("/model ")) {
-      const modelArg = content.slice("/model".length).trim();
-      if (modelArg) {
-        try {
-          const raw = loadRawConfig();
-          const provider = MODEL_TO_PROVIDER[modelArg];
-          setServiceField(raw, "inference", "model", modelArg);
-          if (provider) setServiceField(raw, "inference", "provider", provider);
-          saveRawConfig(raw);
-          const existingProvider = (
-            raw.services as Record<string, Record<string, unknown>>
-          )?.inference?.provider as string | undefined;
-          process.stdout.write(
-            `\n  Model: ${modelArg} (${provider ?? existingProvider})\n\n`,
-          );
-        } catch {
-          process.stdout.write("[Failed to set model]\n");
-        }
-      } else {
-        getModelInfo()
-          .then((info) => {
-            process.stdout.write(
-              `\n  Model: ${info.model} (${info.provider})\n\n`,
-            );
-            prompt();
-          })
-          .catch(() => {
-            process.stdout.write("[Failed to get model info]\n");
-            prompt();
-          });
-        return;
-      }
+      process.stdout.write(
+        "\n  The /model command has been removed. Use Settings to change your model and provider.\n\n",
+      );
       prompt();
       return;
     }
@@ -1300,7 +1268,6 @@ export async function startCli(): Promise<void> {
         "  /conversations    Switch between conversations\n",
       );
       process.stdout.write("  /clear            Clear the screen\n");
-      process.stdout.write("  /model [name]     Show or change the model\n");
       process.stdout.write("  /history          Show conversation history\n");
       process.stdout.write(
         "  /undo             Remove last message exchange\n",

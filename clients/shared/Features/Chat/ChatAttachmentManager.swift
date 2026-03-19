@@ -236,7 +236,8 @@ public final class ChatAttachmentManager: ObservableObject {
                 data: base64,
                 thumbnailData: thumbnail,
                 dataLength: base64.count,
-                thumbnailImage: thumbnailImage
+                thumbnailImage: thumbnailImage,
+                filePath: url.path
             )
             return .success(attachment)
         }.value
