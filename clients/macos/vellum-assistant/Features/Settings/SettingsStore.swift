@@ -671,7 +671,9 @@ public final class SettingsStore: ObservableObject {
         guard !trimmed.isEmpty else { return }
         braveKeySaveError = nil
         APIKeyManager.setKey(trimmed, for: "brave")
-        removeDeletionTombstone(type: "api_key", name: "brave")
+        // Remove any stale deletion tombstone eagerly — the user's intent is to
+        // save a new key, so any prior clear is superseded.
+        let hadTombstone = removeDeletionTombstone(type: "api_key", name: "brave")
         hasBraveKey = true
         maskedBraveKey = Self.maskKey(trimmed)
         Task {
@@ -684,6 +686,11 @@ public final class SettingsStore: ObservableObject {
                     APIKeyManager.deleteKey(for: "brave")
                     hasBraveKey = false
                     maskedBraveKey = ""
+                    // Restore the deletion tombstone if one existed before we
+                    // removed it, so pending offline clears are not lost.
+                    if hadTombstone {
+                        addDeletionTombstone(type: "api_key", name: "brave")
+                    }
                 }
             }
         }
@@ -703,7 +710,9 @@ public final class SettingsStore: ObservableObject {
         guard !trimmed.isEmpty else { return }
         perplexityKeySaveError = nil
         APIKeyManager.setKey(trimmed, for: "perplexity")
-        removeDeletionTombstone(type: "api_key", name: "perplexity")
+        // Remove any stale deletion tombstone eagerly — the user's intent is to
+        // save a new key, so any prior clear is superseded.
+        let hadTombstone = removeDeletionTombstone(type: "api_key", name: "perplexity")
         hasPerplexityKey = true
         maskedPerplexityKey = Self.maskKey(trimmed)
         Task {
@@ -716,6 +725,11 @@ public final class SettingsStore: ObservableObject {
                     APIKeyManager.deleteKey(for: "perplexity")
                     hasPerplexityKey = false
                     maskedPerplexityKey = ""
+                    // Restore the deletion tombstone if one existed before we
+                    // removed it, so pending offline clears are not lost.
+                    if hadTombstone {
+                        addDeletionTombstone(type: "api_key", name: "perplexity")
+                    }
                 }
             }
         }
@@ -735,7 +749,9 @@ public final class SettingsStore: ObservableObject {
         guard !trimmed.isEmpty else { return }
         imageGenKeySaveError = nil
         APIKeyManager.setKey(trimmed, for: "gemini")
-        removeDeletionTombstone(type: "api_key", name: "gemini")
+        // Remove any stale deletion tombstone eagerly — the user's intent is to
+        // save a new key, so any prior clear is superseded.
+        let hadTombstone = removeDeletionTombstone(type: "api_key", name: "gemini")
         hasImageGenKey = true
         maskedImageGenKey = Self.maskKey(trimmed)
         Task {
@@ -748,6 +764,11 @@ public final class SettingsStore: ObservableObject {
                     APIKeyManager.deleteKey(for: "gemini")
                     hasImageGenKey = false
                     maskedImageGenKey = ""
+                    // Restore the deletion tombstone if one existed before we
+                    // removed it, so pending offline clears are not lost.
+                    if hadTombstone {
+                        addDeletionTombstone(type: "api_key", name: "gemini")
+                    }
                 }
             }
         }
