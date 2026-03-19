@@ -162,6 +162,7 @@ struct MessageListView: View {
     /// Guards the pagination sentinel against re-entry during the brief window
     /// between Task launch and the first `await` (before isLoadingMoreMessages is set).
     @State private var isPaginationInFlight: Bool = false
+    @State private var paginationTask: Task<Void, Never>?
     /// Suppresses bottom auto-scroll for the ~32ms layout window after pagination
     /// restores scroll position, preventing a jump back to the bottom.
     @State private var isSuppressingBottomScroll: Bool = false
@@ -627,8 +628,11 @@ struct MessageListView: View {
         let anchorId = visibleMessages.first?.id
         os_signpost(.event, log: PerfSignposts.log, name: "paginationSentinelFired")
         log.debug("[pagination] fired — anchorId: \(String(describing: anchorId))")
-        Task {
-            defer { isPaginationInFlight = false }
+        paginationTask = Task {
+            defer {
+                isPaginationInFlight = false
+                paginationTask = nil
+            }
             let hadMore = await loadPreviousMessagePage?() ?? false
             log.debug("[pagination] loadPreviousMessagePage returned hadMore=\(hadMore)")
             if hadMore, let id = anchorId {
@@ -640,6 +644,10 @@ struct MessageListView: View {
                 // 100ms gives video embed cards (which animate height over 0.25s) enough
                 // time to settle so the scroll restoration lands at the right position.
                 try? await Task.sleep(nanoseconds: 100_000_000)
+                guard !Task.isCancelled else {
+                    isSuppressingBottomScroll = false
+                    return
+                }
                 os_signpost(.event, log: PerfSignposts.log, name: "scrollToRequested", "target=paginationAnchor")
                 recordScrollLoopEvent(.scrollToRequested)
                 proxy.scrollTo(id, anchor: .top)
@@ -1199,6 +1207,8 @@ struct MessageListView: View {
                 expandSuppressionTask = nil
                 scrollRestoreTask?.cancel()
                 scrollRestoreTask = nil
+                paginationTask?.cancel()
+                paginationTask = nil
                 avatarSmoothingTask?.cancel()
                 avatarSmoothingTask = nil
                 highlightDismissTask?.cancel()
@@ -1363,6 +1373,8 @@ struct MessageListView: View {
                 expandSuppressionTask = nil
                 avatarSmoothingTask?.cancel()
                 avatarSmoothingTask = nil
+                paginationTask?.cancel()
+                paginationTask = nil
                 isPaginationInFlight = false
                 wasPaginationTriggerInRange = false
                 isSuppressingBottomScroll = false
