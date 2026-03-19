@@ -10,8 +10,9 @@ export const PROVIDER_MODEL_CATALOG: Record<string, CatalogModel[]> = {
     { id: "claude-haiku-4-5-20251001", displayName: "Claude Haiku 4.5" },
   ],
   openai: [
-    { id: "gpt-5.2", displayName: "GPT-5.2" },
     { id: "gpt-5.4", displayName: "GPT-5.4" },
+    { id: "gpt-5.2", displayName: "GPT-5.2" },
+    { id: "gpt-5.4-mini", displayName: "GPT-5.4 Mini" },
     { id: "gpt-5.4-nano", displayName: "GPT-5.4 Nano" },
   ],
   gemini: [

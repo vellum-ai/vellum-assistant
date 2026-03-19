@@ -397,10 +397,11 @@ public final class SettingsStore: ObservableObject {
                 CatalogModel(id: "claude-haiku-4-5-20251001", displayName: "Claude Haiku 4.5"),
             ], defaultModel: "claude-opus-4-6"),
             ProviderCatalogEntry(id: "openai", displayName: "OpenAI", models: [
-                CatalogModel(id: "gpt-5.2", displayName: "GPT-5.2"),
                 CatalogModel(id: "gpt-5.4", displayName: "GPT-5.4"),
+                CatalogModel(id: "gpt-5.2", displayName: "GPT-5.2"),
+                CatalogModel(id: "gpt-5.4-mini", displayName: "GPT-5.4 Mini"),
                 CatalogModel(id: "gpt-5.4-nano", displayName: "GPT-5.4 Nano"),
-            ], defaultModel: "gpt-5.2"),
+            ], defaultModel: "gpt-5.4"),
             ProviderCatalogEntry(id: "gemini", displayName: "Google Gemini", models: [
                 CatalogModel(id: "gemini-3-flash", displayName: "Gemini 3 Flash"),
                 CatalogModel(id: "gemini-3-pro", displayName: "Gemini 3 Pro"),
