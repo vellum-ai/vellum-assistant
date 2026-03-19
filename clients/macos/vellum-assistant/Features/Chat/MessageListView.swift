@@ -598,12 +598,17 @@ struct MessageListView: View {
             // Stage 2: ~9 frames — catches slower layout/materialization.
             try? await Task.sleep(nanoseconds: 150_000_000)
             guard !Task.isCancelled else { return }
+            // Only retry when the anchor genuinely drifted off-screen.
+            // `geometryUnavailable` means layout hasn't measured yet —
+            // the coordinator will pick up the next finite preference update
+            // instead of spinning retries on missing geometry.
+            let restoreOutcome = MessageListBottomAnchorPolicy.verify(
+                anchorMinY: anchorTracker.lastMinY,
+                viewportHeight: scrollViewportHeight
+            )
             if anchorMessageId == nil
                 && !hasReceivedScrollEvent
-                && MessageListBottomAnchorPolicy.needsRepin(
-                    anchorMinY: anchorTracker.lastMinY,
-                    viewportHeight: scrollViewportHeight
-                )
+                && restoreOutcome == .needsRepin
             {
                 os_signpost(.event, log: PerfSignposts.log, name: "scrollRestoreStage", "stage=2 action=retry")
                 requestBottomPin(reason: .initialRestore, proxy: proxy)
@@ -811,10 +816,14 @@ struct MessageListView: View {
                 proxy.scrollTo("scroll-bottom-anchor", anchor: .bottom)
             }
             // Check if the pin succeeded (anchor within viewport).
-            return !MessageListBottomAnchorPolicy.needsRepin(
+            // Use `verify()` so that `geometryUnavailable` returns false
+            // (wait for the next finite preference update) instead of being
+            // treated as an immediate failed pin that triggers retry churn.
+            let outcome = MessageListBottomAnchorPolicy.verify(
                 anchorMinY: anchorTracker.lastMinY,
                 viewportHeight: scrollViewportHeight
             )
+            return outcome == .anchored
         }
         bottomPinCoordinator.onFollowStateChanged = { isFollowing in
             isNearBottom = isFollowing
@@ -1374,10 +1383,14 @@ struct MessageListView: View {
                             // If the task was cancelled during the sleep (user scrolled up), do not fire trailing-edge scroll.
                             guard !Task.isCancelled else { return }
                             if isNearBottom && !isSuppressingBottomScroll {
-                                if MessageListBottomAnchorPolicy.needsRepin(
+                                // Only fire trailing-edge repin for genuinely off-screen
+                                // anchors. Transient missing geometry (geometryUnavailable)
+                                // waits for the next finite preference update.
+                                let trailingOutcome = MessageListBottomAnchorPolicy.verify(
                                     anchorMinY: anchorTracker.lastMinY,
                                     viewportHeight: scrollViewportHeight
-                                ) {
+                                )
+                                if trailingOutcome == .needsRepin {
                                     requestBottomPin(
                                         reason: .streaming,
                                         proxy: proxy,
@@ -1468,10 +1481,13 @@ struct MessageListView: View {
                         // Pin to bottom without animation to avoid visual bounce.
                         // Skip when an anchor is pending (deep-link / notification)
                         // to avoid yanking the viewport away from the target message.
-                        if MessageListBottomAnchorPolicy.needsRepin(
+                        // Only repin for genuinely off-screen anchors — transient
+                        // missing geometry waits for the next finite preference update.
+                        let resizeOutcome = MessageListBottomAnchorPolicy.verify(
                             anchorMinY: anchorTracker.lastMinY,
                             viewportHeight: scrollViewportHeight
-                        ) {
+                        )
+                        if resizeOutcome == .needsRepin {
                             requestBottomPin(reason: .resize, proxy: proxy)
                         }
                     }
