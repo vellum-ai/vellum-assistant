@@ -984,9 +984,14 @@ struct SettingsDeveloperTab: View {
         )
         return HStack {
             VStack(alignment: .leading, spacing: VSpacing.xs) {
-                Text(flag.label)
-                    .font(VFont.body)
-                    .foregroundColor(VColor.contentSecondary)
+                HStack(spacing: VSpacing.xs) {
+                    Text(flag.label)
+                        .font(VFont.body)
+                        .foregroundColor(VColor.contentSecondary)
+                    VBadge(label: flag.scope == .assistant ? "Assistant" : "macOS",
+                           tone: flag.scope == .assistant ? .accent : .neutral,
+                           emphasis: .subtle)
+                }
                 if !flag.description.isEmpty {
                     Text(flag.description)
                         .font(VFont.caption)
