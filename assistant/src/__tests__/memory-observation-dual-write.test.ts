@@ -171,7 +171,7 @@ describe("memory observation dual-write from addMessage", () => {
       );
     });
 
-    test("creates a chunk with embed_observation job for text message", async () => {
+    test("creates a chunk with embed_chunk job for text message", async () => {
       const conv = createConversation("test-conv");
       await addMessage(conv.id, "user", "My favorite language is TypeScript");
 
@@ -182,11 +182,11 @@ describe("memory observation dual-write from addMessage", () => {
       expect(chunk).toBeDefined();
       expect(chunk!.content).toBe("My favorite language is TypeScript");
 
-      const embedJobs = getJobsByType("embed_observation");
+      const embedJobs = getJobsByType("embed_chunk");
       expect(embedJobs.length).toBeGreaterThanOrEqual(1);
       const matchingJob = embedJobs.find((j) => {
         const payload = JSON.parse(j.payload);
-        return payload.observationId === observations[0].id;
+        return payload.chunkId === chunk!.id;
       });
       expect(matchingJob).toBeDefined();
     });

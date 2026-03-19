@@ -3207,8 +3207,9 @@ describe("Memory regressions", () => {
       .filter((j) => JSON.parse(j.payload).messageId === "msg-untrusted-gate");
     expect(extractJobs.length).toBe(0);
 
-    // enqueuedJobs should reflect: embed jobs + summary (1), no extract (0)
-    const expectedJobs = result.indexedSegments + 1; // embed per segment + summary
+    // enqueuedJobs reflects legacy embed_segment + archive embed_chunk per
+    // segment, plus the summary job, with extract_items gated off.
+    const expectedJobs = result.indexedSegments * 2 + 1;
     expect(result.enqueuedJobs).toBe(expectedJobs);
   });
 
@@ -3389,8 +3390,9 @@ describe("Memory regressions", () => {
       .filter((j) => JSON.parse(j.payload).messageId === "msg-unverified-gate");
     expect(extractJobs.length).toBe(0);
 
-    // enqueuedJobs should reflect: embed jobs + summary (1), no extract (0)
-    const expectedJobs = result.indexedSegments + 1; // embed per segment + summary
+    // enqueuedJobs reflects legacy embed_segment + archive embed_chunk per
+    // segment, plus the summary job, with extract_items gated off.
+    const expectedJobs = result.indexedSegments * 2 + 1;
     expect(result.enqueuedJobs).toBe(expectedJobs);
   });
 

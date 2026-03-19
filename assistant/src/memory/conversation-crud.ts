@@ -24,7 +24,6 @@ import { UserError } from "../util/errors.js";
 import { getLogger } from "../util/logger.js";
 import { getConversationsDir } from "../util/platform.js";
 import { createRowMapper } from "../util/row-mapper.js";
-import { insertObservation } from "./archive-store.js";
 import {
   deleteOrphanAttachments,
   linkAttachmentToMessage,
@@ -43,10 +42,6 @@ import { ensureDisplayOrderMigration } from "./conversation-display-order-migrat
 import { getDb, rawAll, rawExec, rawGet, rawRun } from "./db.js";
 import { indexMessageNow } from "./indexer.js";
 import { enqueueMemoryJob } from "./jobs-store.js";
-import {
-  extractMediaBlockMeta,
-  extractTextFromStoredMessageContent,
-} from "./message-content.js";
 import {
   channelInboundEvents,
   conversations,
@@ -1080,37 +1075,6 @@ export async function addMessage(
       log.warn(
         { err, conversationId, messageId: message.id },
         "Failed to index message for memory",
-      );
-    }
-  }
-
-  // ── Archive observation dual-write ─────────────────────────────────
-  // Create a memory_observations row for every persisted message alongside
-  // the legacy indexer. Reuses the same text/media extraction helpers the
-  // indexer uses so the observation content matches what gets segmented.
-  if (!opts?.skipIndexing) {
-    try {
-      const scopeId = getConversationMemoryScopeId(conversationId);
-      const text = extractTextFromStoredMessageContent(content);
-      const hasMedia = extractMediaBlockMeta(content).length > 0;
-      const hasSearchableContent = text.length > 0 || hasMedia;
-
-      if (hasSearchableContent) {
-        const observationContent = text.length > 0 ? text : content;
-        const modality = hasMedia ? "multimodal" : "text";
-        insertObservation({
-          conversationId,
-          messageId,
-          role,
-          content: observationContent,
-          scopeId,
-          modality,
-        });
-      }
-    } catch (err) {
-      log.warn(
-        { err, conversationId, messageId },
-        "Failed to dual-write archive observation",
       );
     }
   }

@@ -54,7 +54,12 @@ export async function indexMessageNow(
     input.provenanceTrustClass === undefined;
 
   const text = extractTextFromStoredMessageContent(input.content);
-  if (text.length === 0) {
+  const hasText = text.length > 0;
+  const candidateMediaMeta = extractMediaBlockMeta(input.content).filter(
+    (b) => b.type === "image",
+  );
+  const hasMedia = candidateMediaMeta.length > 0;
+  if (!hasText && !hasMedia) {
     enqueueMemoryJob("build_conversation_summary", {
       conversationId: input.conversationId,
     });
@@ -63,11 +68,13 @@ export async function indexMessageNow(
 
   const db = getDb();
   const now = Date.now();
-  const segments = segmentText(
-    text,
-    config.segmentation.targetTokens,
-    config.segmentation.overlapTokens,
-  );
+  const segments = hasText
+    ? segmentText(
+        text,
+        config.segmentation.targetTokens,
+        config.segmentation.overlapTokens,
+      )
+    : [];
   const shouldExtract =
     input.role === "user" ||
     (input.role === "assistant" && config.extraction.extractFromAssistant);
@@ -77,9 +84,6 @@ export async function indexMessageNow(
   // overhead for messages on non-multimodal backends.
   // selectedBackendSupportsMultimodal requires async key resolution, so we
   // skip it entirely for text-only messages.
-  const candidateMediaMeta = extractMediaBlockMeta(input.content).filter(
-    (b) => b.type === "image",
-  );
   const mediaBlocks =
     candidateMediaMeta.length > 0 &&
     (await selectedBackendSupportsMultimodal(getConfig()))
@@ -150,8 +154,8 @@ export async function indexMessageNow(
         conversationId: input.conversationId,
         messageId: input.messageId,
         role: input.role,
-        content: text,
-        modality: "text",
+        content: hasText ? text : input.content,
+        modality: hasMedia ? "multimodal" : "text",
         source: null,
         createdAt: input.createdAt,
       })
