@@ -2676,12 +2676,14 @@ public struct ProviderCatalogEntry: Codable, Sendable {
     public let displayName: String
     public let models: [CatalogModel]
     public let defaultModel: String
+    public let apiKeyUrl: String?
 
-    public init(id: String, displayName: String, models: [CatalogModel], defaultModel: String) {
+    public init(id: String, displayName: String, models: [CatalogModel], defaultModel: String, apiKeyUrl: String? = nil) {
         self.id = id
         self.displayName = displayName
         self.models = models
         self.defaultModel = defaultModel
+        self.apiKeyUrl = apiKeyUrl
     }
 }
 
