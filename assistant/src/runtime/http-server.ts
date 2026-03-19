@@ -127,8 +127,8 @@ import {
 } from "./routes/contact-routes.js";
 import { conversationAttentionRouteDefinitions } from "./routes/conversation-attention-routes.js";
 import {
-  conversationManagementRouteDefinitions,
   type ConversationManagementDeps,
+  conversationManagementRouteDefinitions,
 } from "./routes/conversation-management-routes.js";
 import { conversationQueryRouteDefinitions } from "./routes/conversation-query-routes.js";
 import { conversationRouteDefinitions } from "./routes/conversation-routes.js";
