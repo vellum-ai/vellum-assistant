@@ -134,7 +134,6 @@ struct ComponentGalleryView: View {
     @State private var selectedPage: GalleryPage? = .overview(.buttons)
     @State private var searchText: String = ""
     @State private var expandedCategories: Set<ComponentGalleryCategory> = [.buttons]
-    @State private var hoveredPage: GalleryPage?
 
     private var isSearching: Bool {
         !searchText.trimmingCharacters(in: .whitespaces).isEmpty
@@ -145,19 +144,18 @@ struct ComponentGalleryView: View {
         return expandable.allSatisfy { expandedCategories.contains($0) }
     }
 
-    private func isCategoryExpanded(_ category: ComponentGalleryCategory) -> Bool {
-        isSearching || expandedCategories.contains(category)
-    }
-
-    private func toggleCategory(_ category: ComponentGalleryCategory) {
-        guard !isSearching else { return }
-        withAnimation(VAnimation.fast) {
-            if expandedCategories.contains(category) {
-                expandedCategories.remove(category)
-            } else {
-                expandedCategories.insert(category)
+    private func expansionBinding(for category: ComponentGalleryCategory) -> Binding<Bool> {
+        Binding(
+            get: { isSearching || expandedCategories.contains(category) },
+            set: { newValue in
+                guard !isSearching else { return }
+                if newValue {
+                    expandedCategories.insert(category)
+                } else {
+                    expandedCategories.remove(category)
+                }
             }
-        }
+        )
     }
 
     private var filteredCategories: [(category: ComponentGalleryCategory, components: [(id: String, title: String)])] {
@@ -245,87 +243,32 @@ struct ComponentGalleryView: View {
 
     @ViewBuilder
     private func sidebarCategory(_ category: ComponentGalleryCategory, components: [(id: String, title: String)]) -> some View {
-        VStack(spacing: 0) {
-            // Category header
-            Button {
-                toggleCategory(category)
-            } label: {
-                HStack(spacing: VSpacing.xs) {
-                    VIconView(category.vIcon, size: 14)
-                        .foregroundColor(VColor.contentTertiary)
-                        .frame(width: 20)
-                    Text(category.rawValue)
-                        .font(VFont.bodyBold)
-                        .foregroundColor(VColor.contentDefault)
-                        .lineLimit(1)
-                    Spacer()
-                    if !components.isEmpty {
-                        VIconView(.chevronRight, size: 10)
-                            .foregroundColor(VColor.contentTertiary)
-                            .rotationEffect(.degrees(isCategoryExpanded(category) ? 90 : 0))
-                            .animation(VAnimation.fast, value: isCategoryExpanded(category))
-                    }
-                }
-                .padding(.vertical, VSpacing.xs)
-                .padding(.horizontal, VSpacing.xs)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .pointerCursor()
-            .accessibilityLabel(category.rawValue)
-            .accessibilityValue(isCategoryExpanded(category) ? "expanded" : "collapsed")
-            .accessibilityHint(components.isEmpty ? "" : "Double-tap to \(isCategoryExpanded(category) ? "collapse" : "expand")")
-
-            // Expanded children
-            if isCategoryExpanded(category) && !components.isEmpty {
-                VStack(spacing: 0) {
+        VDisclosureSection(
+            title: category.rawValue,
+            icon: category.vIcon.rawValue,
+            isExpanded: expansionBinding(for: category)
+        ) {
+            VStack(spacing: 0) {
+                sidebarRow(label: "Overview", page: .overview(category))
+                ForEach(components, id: \.id) { component in
                     sidebarRow(
-                        label: "Overview",
-                        page: .overview(category),
-                        indented: true
+                        label: component.title,
+                        page: .component(category, component.id)
                     )
-                    ForEach(components, id: \.id) { component in
-                        sidebarRow(
-                            label: component.title,
-                            page: .component(category, component.id),
-                            indented: true
-                        )
-                    }
                 }
-                .transition(.opacity.combined(with: .move(edge: .top)))
             }
         }
     }
 
-    private func sidebarRow(label: String, page: GalleryPage, indented: Bool = false) -> some View {
+    private func sidebarRow(label: String, page: GalleryPage) -> some View {
         let isSelected = selectedPage == page
-        let isHovered = hoveredPage == page
 
-        return Button {
-            selectedPage = page
-        } label: {
+        return VListRow(isSelected: isSelected, onTap: { selectedPage = page }) {
             Text(label)
                 .font(VFont.body)
                 .foregroundColor(isSelected ? VColor.contentEmphasized : VColor.contentDefault)
                 .lineLimit(1)
                 .truncationMode(.tail)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.vertical, VSpacing.xs)
-                .padding(.leading, indented ? VSpacing.xl : VSpacing.xs)
-                .padding(.trailing, VSpacing.xs)
-                .background(
-                    isSelected ? VColor.surfaceActive :
-                    isHovered ? VColor.surfaceBase :
-                    Color.clear
-                )
-                .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
-                .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .pointerCursor()
-        .onHover { hovering in
-            hoveredPage = hovering ? page : nil
         }
         .accessibilityLabel(label)
     }

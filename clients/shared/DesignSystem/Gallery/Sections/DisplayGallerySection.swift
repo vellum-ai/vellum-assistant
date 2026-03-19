@@ -168,7 +168,7 @@ struct DisplayGallerySection: View {
                 // MARK: - VListRow
                 GallerySectionHeader(
                     title: "VListRow",
-                    description: "List item with hover highlight and optional tap action."
+                    description: "List item with hover highlight, optional tap action, and selection state."
                 )
 
                 VCard(padding: 0) {
@@ -188,6 +188,20 @@ struct DisplayGallerySection: View {
 
                         Divider().background(VColor.borderBase)
 
+                        VListRow(isSelected: true, onTap: {}) {
+                            HStack {
+                                VIconView(.folder, size: 14)
+                                    .foregroundColor(VColor.primaryBase)
+                                Text("Selected row")
+                                    .font(VFont.body)
+                                    .foregroundColor(VColor.contentEmphasized)
+                                Spacer()
+                                VBadge(style: .count(3))
+                            }
+                        }
+
+                        Divider().background(VColor.borderBase)
+
                         VListRow(onTap: {}) {
                             HStack {
                                 VIconView(.folder, size: 14)
@@ -196,7 +210,6 @@ struct DisplayGallerySection: View {
                                     .font(VFont.body)
                                     .foregroundColor(VColor.contentDefault)
                                 Spacer()
-                                VBadge(style: .count(3))
                             }
                         }
 
