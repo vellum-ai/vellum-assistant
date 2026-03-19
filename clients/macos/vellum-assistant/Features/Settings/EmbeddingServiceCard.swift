@@ -155,7 +155,16 @@ struct EmbeddingServiceCard: View {
                 .foregroundColor(VColor.contentSecondary)
             VDropdown(
                 placeholder: "Select a provider\u{2026}",
-                selection: $draftProvider,
+                selection: Binding(
+                    get: { draftProvider },
+                    set: { newValue in
+                        if newValue != draftProvider {
+                            draftModel = ""
+                            apiKeyText = ""
+                        }
+                        draftProvider = newValue
+                    }
+                ),
                 options: providerOptions
             )
         }

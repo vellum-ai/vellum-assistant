@@ -3,7 +3,10 @@ import {
   loadRawConfig,
   saveRawConfig,
 } from "../../config/loader.js";
-import { setMemoryEmbeddingField } from "../../config/raw-config-utils.js";
+import {
+  deleteMemoryEmbeddingField,
+  setMemoryEmbeddingField,
+} from "../../config/raw-config-utils.js";
 import { VALID_MEMORY_EMBEDDING_PROVIDERS } from "../../config/schemas/memory-storage.js";
 import {
   clearEmbeddingBackendCache,
@@ -118,7 +121,12 @@ export async function setEmbeddingConfig(
   if (model !== undefined) {
     const fieldName = PROVIDER_MODEL_FIELD[provider];
     if (fieldName) {
-      setMemoryEmbeddingField(raw, fieldName, model);
+      if (model === "") {
+        // Empty string means "clear override — use schema default"
+        deleteMemoryEmbeddingField(raw, fieldName);
+      } else {
+        setMemoryEmbeddingField(raw, fieldName, model);
+      }
     }
   }
 
