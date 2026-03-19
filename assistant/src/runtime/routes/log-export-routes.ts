@@ -444,6 +444,7 @@ const WORKSPACE_SKIP_DIRS = new Set([
   "embedding-models",
   "data/qdrant",
   "data/attachments",
+  "conversations",
 ]);
 
 /** Files at the workspace root to skip (already covered by sanitized fields). */
