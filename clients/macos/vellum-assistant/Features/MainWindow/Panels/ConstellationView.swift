@@ -825,6 +825,31 @@ struct ConstellationView: View {
         )
     }
 
+    /// Zooms in and centers the viewport on a specific node.
+    /// If already zoomed in close to the target level, zooms back out to fit all.
+    private func zoomToNode(_ nodeId: String, viewSize: CGSize) {
+        let targetZoom: CGFloat = 1.8
+        let nodePos = effectivePosition(forId: nodeId)
+        let center = CGPoint(x: viewSize.width / 2, y: viewSize.height / 2)
+
+        // If already zoomed in near this level, toggle back to fit-all
+        if zoomScale >= targetZoom * 0.85 {
+            fitAll(viewSize: viewSize)
+            return
+        }
+
+        // Pan so the node ends up at the viewport center
+        let contentOffsetX = nodePos.x - center.x
+        let contentOffsetY = nodePos.y - center.y
+
+        withAnimation(.spring(response: 0.45, dampingFraction: 0.8)) {
+            zoomScale = targetZoom
+            baseZoomScale = targetZoom
+            panOffset = CGSize(width: -contentOffsetX * targetZoom, height: -contentOffsetY * targetZoom)
+            dragOffset = .zero
+        }
+    }
+
     /// Computes zoom and pan to fit all nodes in the viewport with padding.
     private func fitAll(viewSize: CGSize) {
         let center = CGPoint(x: viewSize.width / 2, y: viewSize.height / 2)
@@ -1136,6 +1161,7 @@ struct ConstellationView: View {
 
                 case .category(let category):
                     CategoryNodeView(category: category, size: categoryNodeSize)
+                        .onTapGesture(count: 2) { zoomToNode(nodeId, viewSize: size) }
                         .position(effPos)
                         .gesture(nodeDragGesture(nodeId: nodeId))
                         .scaleEffect(phase.categoriesVisible ? 1 : 0.3)
@@ -1148,6 +1174,7 @@ struct ConstellationView: View {
 
                 case .subCategory(let label, let emoji, let category):
                     SubCategoryNodeView(label: label, emoji: emoji, category: category, size: subCatNodeSize)
+                        .onTapGesture(count: 2) { zoomToNode(nodeId, viewSize: size) }
                         .position(effPos)
                         .gesture(nodeDragGesture(nodeId: nodeId))
                         .scaleEffect(phase.subCategoriesVisible ? 1 : 0.3)
@@ -1178,6 +1205,7 @@ struct ConstellationView: View {
                                 }
                                 : nil
                     )
+                    .onTapGesture(count: 2) { zoomToNode(nodeId, viewSize: size) }
                     .position(effPos)
                     .gesture(nodeDragGesture(nodeId: nodeId))
                     .scaleEffect(phase.skillsVisible ? 1 : 0.4)
