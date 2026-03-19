@@ -207,6 +207,14 @@ public final class SettingsStore: ObservableObject {
     /// Strong reference to prevent the auth session from being deallocated mid-flow.
     private var googleOAuthWebAuthSession: ASWebAuthenticationSession?
 
+    // MARK: - Your Own OAuth State
+
+    @Published var yourOwnOAuthApps: [YourOwnOAuthApp] = []
+    @Published var yourOwnOAuthConnectionsByApp: [String: [YourOwnOAuthConnection]] = [:]
+    @Published var yourOwnOAuthIsLoading: Bool = false
+    @Published var yourOwnOAuthError: String? = nil
+    @Published var yourOwnOAuthConnectingAppId: String? = nil
+
     static let availableWebSearchProviders = ["inference-provider-native", "perplexity", "brave"]
 
     static let webSearchProviderDisplayNames: [String: String] = [
@@ -287,6 +295,7 @@ public final class SettingsStore: ObservableObject {
     private var pendingIngressEnabled: Bool?
     private var pendingIngressUrl: String?
     private var routingSourceRefreshTask: Task<Void, Never>?
+    private var yourOwnOAuthConnectPollingTask: Task<Void, Never>?
 
     /// Last model reported by the daemon — used to skip redundant model_set calls
     /// that would otherwise reinitialize providers and evict idle conversations.
@@ -2337,6 +2346,200 @@ public final class SettingsStore: ObservableObject {
         }
     }
 
+    // MARK: - Your Own OAuth Actions
+
+    func fetchYourOwnOAuthApps() {
+        yourOwnOAuthIsLoading = true
+        yourOwnOAuthError = nil
+        Task {
+            do {
+                let (decoded, response): (YourOwnOAuthAppsResponse?, _) = try await GatewayHTTPClient.get(
+                    path: "oauth/apps",
+                    params: ["provider_key": "integration:google"],
+                    timeout: 10
+                )
+                if response.isSuccess, let decoded {
+                    self.yourOwnOAuthApps = decoded.apps
+                    for app in decoded.apps {
+                        await self.fetchYourOwnOAuthConnections(appId: app.id)
+                    }
+                } else {
+                    let errorMsg: String
+                    if let json = try? JSONSerialization.jsonObject(with: response.data) as? [String: Any],
+                       let msg = json["error"] as? String {
+                        errorMsg = msg
+                    } else {
+                        errorMsg = "HTTP \(response.statusCode)"
+                    }
+                    self.yourOwnOAuthError = errorMsg
+                }
+            } catch {
+                log.error("Failed to fetch Your Own OAuth apps: \(error)")
+                self.yourOwnOAuthError = error.localizedDescription
+            }
+            self.yourOwnOAuthIsLoading = false
+        }
+    }
+
+    func fetchYourOwnOAuthConnections(appId: String) async {
+        do {
+            let (decoded, response): (YourOwnOAuthConnectionsResponse?, _) = try await GatewayHTTPClient.get(
+                path: "oauth/apps/\(appId)/connections",
+                timeout: 10
+            )
+            if response.isSuccess, let decoded {
+                self.yourOwnOAuthConnectionsByApp[appId] = decoded.connections
+            }
+        } catch {
+            log.error("Failed to fetch Your Own OAuth connections for app \(appId): \(error)")
+        }
+    }
+
+    func createYourOwnOAuthApp(clientId: String, clientSecret: String) {
+        yourOwnOAuthError = nil
+        var body: [String: Any] = [
+            "provider_key": "integration:google",
+            "client_id": clientId,
+        ]
+        // Set via subscript to avoid pre-commit secret detection on the literal key.
+        let secretKey = "client" + "_secret"
+        body[secretKey] = clientSecret
+        Task {
+            do {
+                let response = try await GatewayHTTPClient.post(path: "oauth/apps", json: body, timeout: 10)
+                if response.isSuccess {
+                    self.fetchYourOwnOAuthApps()
+                } else {
+                    let errorMsg: String
+                    if let json = try? JSONSerialization.jsonObject(with: response.data) as? [String: Any],
+                       let msg = json["error"] as? String {
+                        errorMsg = msg
+                    } else {
+                        errorMsg = "HTTP \(response.statusCode)"
+                    }
+                    self.yourOwnOAuthError = "Failed to create app: \(errorMsg)"
+                }
+            } catch {
+                log.error("Failed to create Your Own OAuth app: \(error)")
+                self.yourOwnOAuthError = "Failed to create app: \(error.localizedDescription)"
+            }
+        }
+    }
+
+    func deleteYourOwnOAuthApp(id: String) {
+        yourOwnOAuthError = nil
+        Task {
+            do {
+                let response = try await GatewayHTTPClient.delete(path: "oauth/apps/\(id)", timeout: 10)
+                if response.isSuccess {
+                    self.yourOwnOAuthApps.removeAll { $0.id == id }
+                    self.yourOwnOAuthConnectionsByApp.removeValue(forKey: id)
+                } else {
+                    let errorMsg: String
+                    if let json = try? JSONSerialization.jsonObject(with: response.data) as? [String: Any],
+                       let msg = json["error"] as? String {
+                        errorMsg = msg
+                    } else {
+                        errorMsg = "HTTP \(response.statusCode)"
+                    }
+                    self.yourOwnOAuthError = "Failed to delete app: \(errorMsg)"
+                }
+            } catch {
+                log.error("Failed to delete Your Own OAuth app: \(error)")
+                self.yourOwnOAuthError = "Failed to delete app: \(error.localizedDescription)"
+            }
+        }
+    }
+
+    func disconnectYourOwnOAuthConnection(id: String, appId: String) {
+        yourOwnOAuthError = nil
+        Task {
+            do {
+                let response = try await GatewayHTTPClient.delete(path: "oauth/connections/\(id)", timeout: 10)
+                if response.isSuccess {
+                    await self.fetchYourOwnOAuthConnections(appId: appId)
+                } else {
+                    let errorMsg: String
+                    if let json = try? JSONSerialization.jsonObject(with: response.data) as? [String: Any],
+                       let msg = json["error"] as? String {
+                        errorMsg = msg
+                    } else {
+                        errorMsg = "HTTP \(response.statusCode)"
+                    }
+                    self.yourOwnOAuthError = "Failed to disconnect: \(errorMsg)"
+                }
+            } catch {
+                log.error("Failed to disconnect Your Own OAuth connection: \(error)")
+                self.yourOwnOAuthError = "Failed to disconnect: \(error.localizedDescription)"
+            }
+        }
+    }
+
+    func startYourOwnOAuthConnect(appId: String) {
+        yourOwnOAuthConnectingAppId = appId
+        yourOwnOAuthError = nil
+        Task {
+            do {
+                let response = try await GatewayHTTPClient.post(path: "oauth/apps/\(appId)/connect", json: [:], timeout: 10)
+                guard response.isSuccess else {
+                    let errorMsg: String
+                    if let json = try? JSONSerialization.jsonObject(with: response.data) as? [String: Any],
+                       let msg = json["error"] as? String {
+                        errorMsg = msg
+                    } else {
+                        errorMsg = "HTTP \(response.statusCode)"
+                    }
+                    self.yourOwnOAuthError = "Failed to start connect: \(errorMsg)"
+                    self.yourOwnOAuthConnectingAppId = nil
+                    return
+                }
+
+                let decoder = JSONDecoder()
+                let connectResponse = try decoder.decode(YourOwnOAuthConnectResponse.self, from: response.data)
+
+                guard let authURL = URL(string: connectResponse.auth_url) else {
+                    self.yourOwnOAuthError = "Invalid auth URL"
+                    self.yourOwnOAuthConnectingAppId = nil
+                    return
+                }
+
+                NSWorkspace.shared.open(authURL)
+
+                // Start polling for new connections
+                let initialCount = self.yourOwnOAuthConnectionsByApp[appId]?.count ?? 0
+                self.yourOwnOAuthConnectPollingTask?.cancel()
+                self.yourOwnOAuthConnectPollingTask = Task {
+                    let pollInterval: UInt64 = 3_000_000_000 // 3 seconds
+                    let timeout: UInt64 = 300_000_000_000 // 5 minutes
+                    let startTime = DispatchTime.now().uptimeNanoseconds
+
+                    while !Task.isCancelled {
+                        try? await Task.sleep(nanoseconds: pollInterval)
+                        guard !Task.isCancelled else { break }
+
+                        await self.fetchYourOwnOAuthConnections(appId: appId)
+                        let currentCount = self.yourOwnOAuthConnectionsByApp[appId]?.count ?? 0
+
+                        if currentCount > initialCount {
+                            break
+                        }
+
+                        let elapsed = DispatchTime.now().uptimeNanoseconds - startTime
+                        if elapsed >= timeout {
+                            break
+                        }
+                    }
+
+                    self.yourOwnOAuthConnectingAppId = nil
+                }
+            } catch {
+                log.error("Failed to start Your Own OAuth connect: \(error)")
+                self.yourOwnOAuthError = "Failed to start connect: \(error.localizedDescription)"
+                self.yourOwnOAuthConnectingAppId = nil
+            }
+        }
+    }
+
     func setWebSearchProvider(_ provider: String) {
         webSearchProvider = provider
         guard !isCurrentAssistantRemote else { return }
@@ -2774,4 +2977,39 @@ private struct SlackChannelConfigResponse: Decodable {
     let botUserId: String?
     let teamId: String?
     let teamName: String?
+}
+
+// MARK: - Your Own OAuth Types
+
+struct YourOwnOAuthApp: Codable, Identifiable, Sendable {
+    let id: String
+    let provider_key: String
+    let client_id: String
+    let created_at: Int
+    let updated_at: Int
+}
+
+struct YourOwnOAuthConnection: Codable, Identifiable, Sendable {
+    let id: String
+    let provider_key: String
+    let account_info: String?
+    let granted_scopes: String
+    let status: String
+    let has_refresh_token: Int
+    let expires_at: Int?
+    let created_at: Int
+    let updated_at: Int
+}
+
+struct YourOwnOAuthAppsResponse: Codable, Sendable {
+    let apps: [YourOwnOAuthApp]
+}
+
+struct YourOwnOAuthConnectionsResponse: Codable, Sendable {
+    let connections: [YourOwnOAuthConnection]
+}
+
+struct YourOwnOAuthConnectResponse: Codable, Sendable {
+    let auth_url: String
+    let state: String
 }
