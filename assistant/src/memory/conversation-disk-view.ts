@@ -25,13 +25,13 @@ import {
   getAttachmentMetadataForMessage,
   getFilePathForAttachment,
 } from "./attachments-store.js";
+import { getMessageById } from "./conversation-crud.js";
 import {
   getConversationDirName,
   getConversationDirPath,
   getLegacyConversationDirPath,
   getResolvedConversationDirPath,
 } from "./conversation-directories.js";
-import { getMessageById } from "./conversation-crud.js";
 
 const log = getLogger("conversation-disk-view");
 

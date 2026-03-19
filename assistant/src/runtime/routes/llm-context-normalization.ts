@@ -58,12 +58,12 @@ export function normalizeLlmContextPayloads(
     normalizeOpenAiRequestPayload(input.requestPayload),
     normalizeAnthropicRequestPayload(input.requestPayload),
     normalizeGeminiRequestPayload(input.requestPayload),
-  ].filter((candidate): candidate is NormalizedPayloadCandidate => candidate !== null);
+  ].filter((candidate): candidate is NormalizedPayloadCandidate => Boolean(candidate));
   const responseCandidates = [
     normalizeOpenAiResponsePayload(input.responsePayload),
     normalizeAnthropicResponsePayload(input.responsePayload),
     normalizeGeminiResponsePayload(input.responsePayload),
-  ].filter((candidate): candidate is NormalizedPayloadCandidate => candidate !== null);
+  ].filter((candidate): candidate is NormalizedPayloadCandidate => Boolean(candidate));
 
   const requestProviders = new Set(requestCandidates.map((candidate) => candidate.provider));
   const responseProviders = new Set(
@@ -135,7 +135,7 @@ function normalizeOpenAiRequestPayload(
     asString(request.tool_choice) !== undefined ||
     (request.parallel_tool_calls !== undefined &&
       typeof request.parallel_tool_calls === "boolean") ||
-    messages.some((message) => asRecordArray(message.tool_calls) !== null);
+    messages.some((message) => Boolean(asRecordArray(message.tool_calls)));
   if (!hasOpenAiSignal) {
     return null;
   }
@@ -286,7 +286,7 @@ function normalizeAnthropicRequestPayload(
   const hasAnthropicSignal =
     request.system !== undefined ||
     requestToolNames.length > 0 ||
-    asRecord(request.tool_choice) !== null ||
+    Boolean(asRecord(request.tool_choice)) ||
     hasAnthropicContentSignal;
   if (!hasAnthropicSignal) {
     return null;

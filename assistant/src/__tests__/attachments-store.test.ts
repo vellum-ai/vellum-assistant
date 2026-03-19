@@ -52,8 +52,8 @@ import {
   uploadAttachment,
   validateAttachmentUpload,
 } from "../memory/attachments-store.js";
-import { getConversationDirPath } from "../memory/conversation-disk-view.js";
 import { addMessage, createConversation } from "../memory/conversation-crud.js";
+import { getConversationDirPath } from "../memory/conversation-disk-view.js";
 import { getDb, initializeDb, rawGet, rawRun, resetDb } from "../memory/db.js";
 
 initializeDb();
