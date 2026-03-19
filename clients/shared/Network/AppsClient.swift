@@ -29,6 +29,8 @@ public protocol AppsClientProtocol {
 /// REST shape returned by `/v1/apps/:id/open`.
 public struct AppOpenResult: Sendable {
     public let appId: String
+    /// Filesystem directory name for this app (may differ from `appId`).
+    public let dirName: String
     public let name: String
     public let html: String
 }
@@ -77,6 +79,7 @@ public struct AppsClient: AppsClientProtocol {
 
     private struct HTTPAppOpenResponse: Decodable {
         let appId: String
+        let dirName: String?
         let name: String
         let html: String
     }
@@ -134,7 +137,7 @@ public struct AppsClient: AppsClientProtocol {
                 return nil
             }
             let decoded = try JSONDecoder().decode(HTTPAppOpenResponse.self, from: response.data)
-            return AppOpenResult(appId: decoded.appId, name: decoded.name, html: decoded.html)
+            return AppOpenResult(appId: decoded.appId, dirName: decoded.dirName ?? decoded.appId, name: decoded.name, html: decoded.html)
         } catch {
             log.error("openApp error: \(error.localizedDescription)")
             return nil
@@ -151,7 +154,7 @@ public struct AppsClient: AppsClientProtocol {
             surfaceId: "app-open-\(result.appId)",
             surfaceType: "dynamic_page",
             title: result.name,
-            data: AnyCodable(["html": result.html, "appId": result.appId]),
+            data: AnyCodable(["html": result.html, "appId": result.appId, "dirName": result.dirName]),
             actions: nil,
             display: "panel",
             messageId: nil
