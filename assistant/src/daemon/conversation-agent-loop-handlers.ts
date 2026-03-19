@@ -15,11 +15,16 @@ import type {
 } from "../channels/types.js";
 import {
   addMessage,
+  getConversation,
   getMessageById,
   provenanceFromTrustContext,
   updateMessageContent,
 } from "../memory/conversation-crud.js";
-import { recordRequestLog } from "../memory/llm-request-log-store.js";
+import { syncMessageToDisk } from "../memory/conversation-disk-view.js";
+import {
+  backfillMessageIdOnLogs,
+  recordRequestLog,
+} from "../memory/llm-request-log-store.js";
 import type { ContentBlock, ImageContent } from "../providers/types.js";
 import type { DirectiveRequest } from "./assistant-attachments.js";
 import {
@@ -166,6 +171,12 @@ export function emitLlmCallStartedIfNeeded(
     },
   );
 }
+
+// ── Client Payload Size Caps ─────────────────────────────────────────
+// tool_input_delta streams accumulated JSON as tools run. For non-app
+// tools the client discards it (extractCodePreview only handles app tools),
+// so we skip forwarding entirely to avoid transport/decode overhead.
+const APP_TOOL_NAMES = new Set(["app_create", "app_update"]);
 
 // ── Friendly Tool Names ──────────────────────────────────────────────
 
@@ -385,6 +396,10 @@ export function handleInputJsonDelta(
   deps: EventHandlerDeps,
   event: Extract<AgentEvent, { type: "input_json_delta" }>,
 ): void {
+  // Only forward input deltas for app tools — the client only uses this
+  // stream for app_create/app_update code previews. Non-app tools would
+  // send large cumulative JSON on every delta with no benefit.
+  if (!APP_TOOL_NAMES.has(event.toolName)) return;
   deps.onEvent({
     type: "tool_input_delta",
     toolName: event.toolName,
@@ -627,12 +642,21 @@ export async function handleMessageComplete(
       assistantMessageInterface:
         deps.turnInterfaceContext.assistantMessageInterface,
     };
-    await addMessage(
+    const toolResultMsg = await addMessage(
       deps.ctx.conversationId,
       "user",
       JSON.stringify(toolResultBlocks),
       toolResultMetadata,
     );
+    // Sync tool-result user message to disk view
+    const convForToolResult = getConversation(deps.ctx.conversationId);
+    if (convForToolResult) {
+      syncMessageToDisk(
+        deps.ctx.conversationId,
+        toolResultMsg.id,
+        convForToolResult.createdAt,
+      );
+    }
     for (const id of state.pendingToolResults.keys()) {
       state.persistedToolUseIds.add(id);
     }
@@ -696,6 +720,18 @@ export async function handleMessageComplete(
     assistantChannelMetadata,
   );
   state.lastAssistantMessageId = assistantMsg.id;
+
+  // Backfill message_id on all LLM request logs from this turn.
+  // The agent loop is single-threaded per conversation, so all rows with
+  // message_id IS NULL belong to the current turn.
+  try {
+    backfillMessageIdOnLogs(deps.ctx.conversationId, assistantMsg.id);
+  } catch (err) {
+    deps.rlog.warn(
+      { err },
+      "Failed to backfill message_id on LLM request logs (non-fatal)",
+    );
+  }
 
   deps.ctx.currentTurnSurfaces = [];
 

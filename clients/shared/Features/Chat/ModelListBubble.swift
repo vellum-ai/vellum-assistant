@@ -9,42 +9,33 @@ public struct ModelListBubble: View {
     }
 
     struct ModelEntry: Identifiable {
-        let id: String // shortcut command
+        let id: String
         let displayName: String
         let isCurrent: Bool
     }
 
     let currentModel: String
     let configuredProviders: Set<String>
-
-    /// Anthropic model shortcuts, exposed for use by ModelPickerBubble on iOS.
-    public static let anthropicModels: [(cmd: String, model: String, display: String)] = [
-        ("opus", "claude-opus-4-6", "Claude Opus 4.6"),
-        ("sonnet", "claude-sonnet-4-6", "Claude Sonnet 4.6"),
-        ("haiku", "claude-haiku-4-5-20251001", "Claude Haiku 4.5"),
-    ]
-
-    private static let providerGroups: [(key: String, name: String, models: [(cmd: String, model: String, display: String)])] = [
-        ("anthropic", "Anthropic", anthropicModels),
-    ]
+    let providerCatalog: [ProviderCatalogEntry]
 
     private var groups: [ProviderGroup] {
-        Self.providerGroups.map { provider in
-            let hasKey = configuredProviders.contains(provider.key)
+        providerCatalog.map { provider in
+            let hasKey = configuredProviders.contains(provider.id)
             let entries = provider.models.map { m in
                 ModelEntry(
-                    id: m.cmd,
-                    displayName: m.display,
-                    isCurrent: currentModel == m.model
+                    id: m.id,
+                    displayName: m.displayName,
+                    isCurrent: currentModel == m.id
                 )
             }
-            return ProviderGroup(id: provider.key, name: provider.name, hasKey: hasKey, models: entries)
+            return ProviderGroup(id: provider.id, name: provider.displayName, hasKey: hasKey, models: entries)
         }
     }
 
-    public init(currentModel: String, configuredProviders: Set<String>) {
+    public init(currentModel: String, configuredProviders: Set<String>, providerCatalog: [ProviderCatalogEntry]) {
         self.currentModel = currentModel
         self.configuredProviders = configuredProviders
+        self.providerCatalog = providerCatalog
     }
 
     public var body: some View {
@@ -88,7 +79,7 @@ public struct ModelListBubble: View {
 
                         Spacer()
 
-                        Text("/\(model.id)")
+                        Text(model.id)
                             .font(VFont.monoSmall)
                             .foregroundColor(VColor.contentTertiary)
                     }

@@ -5,7 +5,11 @@ import {
   getActiveAssistant,
   loadLatestAssistant,
 } from "../lib/assistant-config";
-import { DAEMON_INTERNAL_ASSISTANT_ID, GATEWAY_PORT, type Species } from "../lib/constants";
+import {
+  DAEMON_INTERNAL_ASSISTANT_ID,
+  GATEWAY_PORT,
+  type Species,
+} from "../lib/constants";
 import { loadGuardianToken } from "../lib/guardian-token";
 import { getLocalLanIPv4, getMacLocalHostname } from "../lib/local";
 
@@ -84,7 +88,8 @@ function parseArgs(): ParsedArgs {
 
   let runtimeUrl = entry?.localUrl || entry?.runtimeUrl || FALLBACK_RUNTIME_URL;
   let assistantId = entry?.assistantId || DAEMON_INTERNAL_ASSISTANT_ID;
-  const bearerToken = loadGuardianToken(entry?.assistantId ?? "")?.accessToken ?? undefined;
+  const bearerToken =
+    loadGuardianToken(entry?.assistantId ?? "")?.accessToken ?? undefined;
   const species: Species = (entry?.species as Species) ?? "vellum";
 
   for (let i = 0; i < flagArgs.length; i++) {

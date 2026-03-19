@@ -220,7 +220,7 @@ public enum GatewayHTTPClient {
     /// Resolved connection metadata used for request construction and auth retry.
     private struct ConnectionInfo {
         let baseURL: String
-        let authHeader: (field: String, value: String)
+        let authHeader: (field: String, value: String)?
         /// The connected assistant's identifier, used to replace `{assistantId}`
         /// placeholders in request paths.
         let assistantId: String
@@ -247,17 +247,18 @@ public enum GatewayHTTPClient {
             let baseURL = assistant.runtimeUrl ?? AuthService.shared.baseURL
             return ConnectionInfo(baseURL: baseURL, authHeader: ("X-Session-Token", token), assistantId: assistant.assistantId, isManaged: true)
         } else {
-            guard let token = ActorTokenManager.getToken(), !token.isEmpty else {
-                throw ClientError.notAuthenticated
-            }
+            let token = ActorTokenManager.getToken()
+            let authHeader: (String, String)? = (token != nil && !token!.isEmpty)
+                ? ("Authorization", "Bearer \(token!)")
+                : nil
             if assistant.isRemote {
                 guard let runtimeUrl = assistant.runtimeUrl else {
                     throw ClientError.invalidURL
                 }
-                return ConnectionInfo(baseURL: runtimeUrl, authHeader: ("Authorization", "Bearer \(token)"), assistantId: assistant.assistantId, isManaged: false)
+                return ConnectionInfo(baseURL: runtimeUrl, authHeader: authHeader, assistantId: assistant.assistantId, isManaged: false)
             } else {
                 let port = assistant.gatewayPort ?? LockfilePaths.resolveGatewayPort(connectedAssistantId: assistant.assistantId)
-                return ConnectionInfo(baseURL: "http://127.0.0.1:\(port)", authHeader: ("Authorization", "Bearer \(token)"), assistantId: assistant.assistantId, isManaged: false)
+                return ConnectionInfo(baseURL: "http://127.0.0.1:\(port)", authHeader: authHeader, assistantId: assistant.assistantId, isManaged: false)
             }
         }
 
@@ -276,12 +277,13 @@ public enum GatewayHTTPClient {
         // QR-paired assistant: gateway URL with bearer token auth.
         if let gatewayBaseURL = UserDefaults.standard.string(forKey: "gateway_base_url"),
            !gatewayBaseURL.isEmpty {
-            guard let token = ActorTokenManager.getToken(), !token.isEmpty else {
-                throw ClientError.notAuthenticated
-            }
+            let token = ActorTokenManager.getToken()
+            let authHeader: (String, String)? = (token != nil && !token!.isEmpty)
+                ? ("Authorization", "Bearer \(token!)")
+                : nil
             // QR-paired assistants don't carry an assistant ID in UserDefaults;
             // use an empty string so `{assistantId}` placeholders resolve harmlessly.
-            return ConnectionInfo(baseURL: gatewayBaseURL, authHeader: ("Authorization", "Bearer \(token)"), assistantId: "", isManaged: false)
+            return ConnectionInfo(baseURL: gatewayBaseURL, authHeader: authHeader, assistantId: "", isManaged: false)
         }
 
         throw ClientError.noConnectedAssistant
@@ -373,7 +375,9 @@ public enum GatewayHTTPClient {
         request.httpMethod = method
         request.timeoutInterval = timeout
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.setValue(connection.authHeader.value, forHTTPHeaderField: connection.authHeader.field)
+        if let authHeader = connection.authHeader {
+            request.setValue(authHeader.value, forHTTPHeaderField: authHeader.field)
+        }
 
         if let orgId = UserDefaults.standard.string(forKey: "connectedOrganizationId"), !orgId.isEmpty {
             request.setValue(orgId, forHTTPHeaderField: "Vellum-Organization-Id")

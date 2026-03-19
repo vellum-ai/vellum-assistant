@@ -894,7 +894,10 @@ describe("partial failure scenarios", () => {
     const blockerWorkspace = join(testDir, "blocker-workspace");
     mkdirSync(blockerWorkspace, { recursive: true });
     // Create "data" as a regular file — mkdirSync("data/db") will fail
-    writeFileSync(join(blockerWorkspace, "data"), "I am a file, not a directory");
+    writeFileSync(
+      join(blockerWorkspace, "data"),
+      "I am a file, not a directory",
+    );
 
     const resolver = new DefaultPathResolver(undefined, blockerWorkspace);
     const result = commitImport({

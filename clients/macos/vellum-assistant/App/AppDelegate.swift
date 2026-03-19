@@ -108,6 +108,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
     var connectionStatusCancellable: AnyCancellable?
     var quickInputAttachmentCancellable: AnyCancellable?
     var conversationBadgeCancellable: AnyCancellable?
+    var avatarChangeObserver: NSObjectProtocol?
     var pulseTimer: Timer?
     var pulsePhase: CGFloat = 1.0
     var pulseDirection: CGFloat = -1.0
@@ -197,6 +198,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
         }
 
         Self.shared = self
+        MainThreadStallDetector.shared.start()
         metricKitManager = MetricKitManager()
 
         // Prevent macOS from automatically creating window tabs or restoring
@@ -448,6 +450,9 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
             NSEvent.removeMonitor(monitor)
         }
         if let observer = windowObserver {
+            NotificationCenter.default.removeObserver(observer)
+        }
+        if let observer = avatarChangeObserver {
             NotificationCenter.default.removeObserver(observer)
         }
         statusIconCancellable?.cancel()

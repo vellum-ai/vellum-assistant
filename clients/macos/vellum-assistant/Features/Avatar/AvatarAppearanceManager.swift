@@ -324,6 +324,7 @@ final class AvatarAppearanceManager {
             characterColor = nil
             cachedFallbackAvatar = nil
             cachedFullFallbackAvatar = nil
+            updateDockIcon()
             return
         }
         characterBodyShape = AvatarBodyShape(rawValue: components.bodyShape)
@@ -331,6 +332,7 @@ final class AvatarAppearanceManager {
         characterColor = AvatarColor(rawValue: components.color)
         cachedFallbackAvatar = nil
         cachedFullFallbackAvatar = nil
+        updateDockIcon()
     }
 
     // MARK: - File Watching
@@ -476,11 +478,22 @@ final class AvatarAppearanceManager {
 
     // MARK: - Dock Icon
 
+    /// Posted whenever the avatar changes so other components (e.g. menu bar icon) can update.
+    static let avatarDidChangeNotification = Notification.Name("AvatarAppearanceManager.avatarDidChange")
+
     /// Updates the application dock icon to match the current avatar.
-    /// When a custom avatar exists, renders it inside a macOS-style squircle mask.
-    /// When cleared, reverts to the default bundle icon.
+    /// Uses the custom avatar PNG when available, falls back to a character
+    /// avatar rendered from saved traits, then reverts to the default bundle icon.
     private func updateDockIcon() {
-        guard let avatar = customAvatarImage else {
+        NotificationCenter.default.post(name: Self.avatarDidChangeNotification, object: nil)
+
+        // Prefer custom avatar PNG, then character avatar from saved traits.
+        let avatar: NSImage
+        if let custom = customAvatarImage {
+            avatar = custom
+        } else if let body = characterBodyShape, let eyes = characterEyeStyle, let color = characterColor {
+            avatar = AvatarCompositor.render(bodyShape: body, eyeStyle: eyes, color: color, size: 512)
+        } else {
             NSApplication.shared.applicationIconImage = nil
             NSApp.dockTile.display()
             return

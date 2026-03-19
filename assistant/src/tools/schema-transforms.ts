@@ -30,7 +30,23 @@ export function injectActivityField(
 
     const properties = schema.properties as Record<string, unknown>;
     if (schemaDefinesProperty(schema, "activity")) {
-      return def;
+      // Activity is already defined in the schema. Make sure it's also
+      // in the `required` array — a tool that defines the property but
+      // forgets to mark it required would silently make activity optional.
+      const existingRequired = Array.isArray(schema.required)
+        ? schema.required
+        : [];
+      if (existingRequired.includes("activity")) {
+        return def; // already required, nothing to do
+      }
+      // Clone and add activity to required
+      return {
+        ...def,
+        input_schema: {
+          ...schema,
+          required: [...existingRequired, "activity"],
+        },
+      };
     }
 
     // Deep clone to avoid mutating shared refs

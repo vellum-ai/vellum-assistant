@@ -5,7 +5,9 @@ import {
 } from "../../config/loader.js";
 import { setServiceField } from "../../config/raw-config-utils.js";
 import { VALID_INFERENCE_PROVIDERS } from "../../config/schemas/services.js";
+import type { ProviderCatalogEntry } from "../../providers/model-catalog.js";
 import {
+  getFullProviderCatalog,
   isModelInCatalog,
   PROVIDER_MODEL_CATALOG,
 } from "../../providers/model-catalog.js";
@@ -15,7 +17,7 @@ import {
   isProviderAvailable,
 } from "../../providers/provider-availability.js";
 import { initializeProviders } from "../../providers/registry.js";
-import { MODEL_TO_PROVIDER } from "../conversation-slash.js";
+import { getMaskedProviderKey } from "../../security/secure-keys.js";
 import type {
   ImageGenModelSetRequest,
   ModelSetRequest,
@@ -26,6 +28,13 @@ import {
   log,
 } from "./shared.js";
 
+/** Reverse lookup: model ID → provider, derived from PROVIDER_MODEL_CATALOG. */
+export const MODEL_TO_PROVIDER: Record<string, string> = Object.fromEntries(
+  Object.entries(PROVIDER_MODEL_CATALOG).flatMap(([provider, models]) =>
+    models.map(({ id }) => [id, provider]),
+  ),
+);
+
 // ---------------------------------------------------------------------------
 // Shared business logic (transport-agnostic)
 // ---------------------------------------------------------------------------
@@ -35,17 +44,28 @@ export interface ModelInfo {
   provider: string;
   configuredProviders?: string[];
   availableModels?: Array<{ id: string; displayName: string }>;
+  allProviders?: ProviderCatalogEntry[];
+  maskedKeys?: Record<string, string>;
 }
 
 /** Return current model configuration. */
 export async function getModelInfo(): Promise<ModelInfo> {
   const config = getConfig();
   const provider = config.services.inference.provider;
+
+  const maskedKeys: Record<string, string> = {};
+  for (const p of VALID_INFERENCE_PROVIDERS) {
+    const masked = await getMaskedProviderKey(p);
+    if (masked) maskedKeys[p] = masked;
+  }
+
   return {
     model: config.services.inference.model,
     provider,
     configuredProviders: await getConfiguredProviders(),
     availableModels: PROVIDER_MODEL_CATALOG[provider],
+    allProviders: getFullProviderCatalog(),
+    maskedKeys,
   };
 }
 
@@ -158,13 +178,7 @@ export async function setModel(
 
   ctx.updateConfigFingerprint();
 
-  const newProvider = config.services.inference.provider;
-  return {
-    model: config.services.inference.model,
-    provider: newProvider,
-    configuredProviders: await getConfiguredProviders(),
-    availableModels: PROVIDER_MODEL_CATALOG[newProvider],
-  };
+  return await getModelInfo();
 }
 
 /**

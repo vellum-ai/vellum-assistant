@@ -1,34 +1,84 @@
 import AppKit
+import AVFoundation
+import Speech
 import SwiftUI
 import os
 import VellumAssistantShared
 
 private let log = Logger(subsystem: "com.vellum.vellum-assistant", category: "PermissionPrompt")
 
-/// Overlay shown when microphone or speech recognition permissions have been denied,
-/// directing the user to System Settings.
+/// Floating overlay for microphone / speech-recognition permission prompts.
+/// Supports two scenarios:
+///   - **First use**: explains *why* permission is needed before the native system dialog.
+///   - **Denied**: directs the user to System Settings after a previous denial.
 @MainActor
 final class PermissionPromptOverlay {
     private var panel: NSPanel?
 
-    /// Which permission(s) are currently denied.
+    enum Kind {
+        /// Pre-permission primer shown before the native system dialog.
+        case firstUse
+        /// Post-denial prompt directing to System Settings.
+        case denied(DeniedPermission)
+    }
+
     enum DeniedPermission {
         case microphone
         case speechRecognition
         case both
     }
 
-    /// Show the denied-permission overlay centered on screen.
-    func show(kind: DeniedPermission, keyName: String, onDismiss: @escaping () -> Void) {
+    /// Show the overlay. `onContinue` is called when the user taps the primary button.
+    func show(kind: Kind, onDismiss: @escaping () -> Void, onContinue: @escaping () -> Void) {
         dismiss()
 
-        let width: CGFloat = 360
-        let height: CGFloat = 200
+        let width: CGFloat = 320
 
-        let contentView = buildContentView(deniedPermission: kind, keyName: keyName, onDismiss: onDismiss)
+        let contentView: AnyView
+        switch kind {
+        case .firstUse:
+            contentView = AnyView(FirstUsePromptView(
+                onDismiss: { [weak self] in
+                    self?.dismiss()
+                    onDismiss()
+                },
+                onContinue: { [weak self] in
+                    self?.dismiss()
+                    onContinue()
+                }
+            ))
+        case .denied(let denied):
+            contentView = AnyView(DeniedPromptView(
+                deniedPermission: denied,
+                onDismiss: { [weak self] in
+                    self?.dismiss()
+                    onDismiss()
+                },
+                onOpenSettings: { [weak self] in
+                    self?.dismiss()
+                    // Call requestAccess to ensure the app registers with TCC
+                    // so it actually appears in System Settings.
+                    switch denied {
+                    case .microphone:
+                        AVCaptureDevice.requestAccess(for: .audio) { _ in }
+                        PermissionManager.openMicrophoneSettings()
+                    case .speechRecognition:
+                        SFSpeechRecognizer.requestAuthorization { _ in }
+                        PermissionManager.openSpeechRecognitionSettings()
+                    case .both:
+                        AVCaptureDevice.requestAccess(for: .audio) { _ in }
+                        SFSpeechRecognizer.requestAuthorization { _ in }
+                        PermissionManager.openMicrophoneSettings()
+                    }
+                    onDismiss()
+                }
+            ))
+        }
+
+        let hostingView = NSHostingView(rootView: contentView)
 
         let newPanel = NSPanel(
-            contentRect: NSRect(x: 0, y: 0, width: width, height: height),
+            contentRect: NSRect(x: 0, y: 0, width: width, height: 10),
             styleMask: [.borderless, .nonactivatingPanel],
             backing: .buffered,
             defer: false
@@ -38,176 +88,154 @@ final class PermissionPromptOverlay {
         newPanel.backgroundColor = .clear
         newPanel.isOpaque = false
         newPanel.hasShadow = true
-        newPanel.contentView = contentView
+        newPanel.contentView = hostingView
         newPanel.isMovableByWindowBackground = false
-        newPanel.appearance = NSAppearance(named: .darkAqua)
 
-        if let screen = NSScreen.main {
+        // Let SwiftUI size the panel, then position it.
+        hostingView.setFrameSize(hostingView.fittingSize)
+        let size = hostingView.fittingSize
+        newPanel.setContentSize(size)
+
+        // Center over the main app window, falling back to screen center.
+        let appWindow = NSApp.windows.first { $0 is TitleBarZoomableWindow && $0.isVisible }
+        if let anchor = appWindow {
+            let f = anchor.frame
+            newPanel.setFrameOrigin(NSPoint(x: f.midX - size.width / 2, y: f.midY - size.height / 2))
+        } else if let screen = NSScreen.main {
             let screenFrame = screen.visibleFrame
-            let x = screenFrame.midX - width / 2
-            let y = screenFrame.midY - height / 2 + 100
-            newPanel.setFrameOrigin(NSPoint(x: x, y: y))
+            newPanel.setFrameOrigin(NSPoint(x: screenFrame.midX - size.width / 2, y: screenFrame.midY - size.height / 2))
         }
 
         self.panel = newPanel
         newPanel.orderFront(nil)
 
-        log.info("Showing denied-permission overlay: \(String(describing: kind))")
+        log.info("Showing permission overlay: \(String(describing: kind))")
     }
 
     func dismiss() {
         panel?.orderOut(nil)
         panel = nil
     }
+}
 
-    // MARK: - Content Building
+// MARK: - First-Use Primer
 
-    private func buildContentView(
-        deniedPermission: DeniedPermission,
-        keyName: String,
-        onDismiss: @escaping () -> Void
-    ) -> NSView {
-        let container = PermissionOverlayBackground()
-        container.wantsLayer = true
+private struct FirstUsePromptView: View {
+    let onDismiss: () -> Void
+    let onContinue: () -> Void
 
-        let stack = NSStackView()
-        stack.orientation = .vertical
-        stack.alignment = .centerX
-        stack.spacing = VSpacing.md
-        stack.translatesAutoresizingMaskIntoConstraints = false
-        stack.edgeInsets = NSEdgeInsets(top: VSpacing.xl, left: VSpacing.xl, bottom: VSpacing.xl, right: VSpacing.xl)
+    private var assistantName: String {
+        AssistantDisplayName.resolve(IdentityInfo.load()?.name)
+    }
 
-        let title: String
-        let body: String
-        let openSettings: () -> Void
-        let vicon: VIcon
+    var body: some View {
+        VStack(spacing: 0) {
+            VStack(spacing: VSpacing.sm) {
+                VIconView(.mic, size: 20)
+                    .foregroundColor(VColor.primaryBase)
 
-        switch deniedPermission {
-        case .microphone:
-            title = "Microphone Access Required"
-            body = "Dictation requires microphone access. Grant access in System Settings."
-            vicon = .micOff
-            openSettings = { PermissionManager.openMicrophoneSettings() }
-        case .speechRecognition:
-            title = "Speech Recognition Required"
-            body = "Dictation requires speech recognition access. Grant access in System Settings."
-            vicon = .audioWaveform
-            openSettings = { PermissionManager.openSpeechRecognitionSettings() }
-        case .both:
-            title = "Permissions Required"
-            body = "Dictation requires microphone and speech recognition access. Grant access in System Settings."
-            vicon = .micOff
-            openSettings = {
-                NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy")!)
+                Text("Enable Speech Recognition")
+                    .font(VFont.modalTitle)
+                    .foregroundColor(VColor.contentDefault)
+
+                Text("So your words come out the way you meant them.")
+                    .font(VFont.body)
+                    .foregroundColor(VColor.contentSecondary)
+                    .multilineTextAlignment(.center)
+                    .fixedSize(horizontal: false, vertical: true)
             }
+            .padding(.horizontal, VSpacing.xl)
+            .padding(.top, VSpacing.xl)
+            .padding(.bottom, VSpacing.lg)
+
+            HStack(spacing: VSpacing.sm) {
+                VButton(label: "Not Now", style: .outlined, size: .compact) {
+                    onDismiss()
+                }
+                VButton(label: "Continue", style: .primary, size: .compact) {
+                    onContinue()
+                }
+            }
+            .padding(.horizontal, VSpacing.xl)
+            .padding(.bottom, VSpacing.lg)
         }
-
-        // Icon
-        let imageView = NSImageView()
-        if let img = vicon.nsImage(size: 32) {
-            imageView.image = img
-            imageView.contentTintColor = NSColor(VColor.systemNegativeHover)
-        }
-        imageView.widthAnchor.constraint(equalToConstant: 32).isActive = true
-        imageView.heightAnchor.constraint(equalToConstant: 32).isActive = true
-
-        // Title
-        let titleLabel = NSTextField(labelWithString: title)
-        titleLabel.font = NSFont.systemFont(ofSize: 14, weight: .semibold)
-        titleLabel.textColor = NSColor(VColor.contentDefault)
-        titleLabel.alignment = .center
-
-        // Body
-        let bodyLabel = NSTextField(wrappingLabelWithString: body)
-        bodyLabel.font = NSFont.systemFont(ofSize: 12)
-        bodyLabel.textColor = NSColor(VColor.contentSecondary)
-        bodyLabel.alignment = .center
-        bodyLabel.maximumNumberOfLines = 3
-        bodyLabel.preferredMaxLayoutWidth = 300
-
-        // Buttons
-        let buttonStack = NSStackView()
-        buttonStack.orientation = .horizontal
-        buttonStack.spacing = VSpacing.sm
-
-        let dismissButton = makeButton(title: "Dismiss", isPrimary: false) { [weak self] in
-            self?.dismiss()
-            onDismiss()
-        }
-        let settingsButton = makeButton(title: "Open System Settings", isPrimary: true) { [weak self] in
-            self?.dismiss()
-            openSettings()
-            onDismiss()
-        }
-
-        buttonStack.addArrangedSubview(dismissButton)
-        buttonStack.addArrangedSubview(settingsButton)
-
-        stack.addArrangedSubview(imageView)
-        stack.addArrangedSubview(titleLabel)
-        stack.addArrangedSubview(bodyLabel)
-        stack.addArrangedSubview(buttonStack)
-
-        container.addSubview(stack)
-        NSLayoutConstraint.activate([
-            stack.topAnchor.constraint(equalTo: container.topAnchor),
-            stack.bottomAnchor.constraint(equalTo: container.bottomAnchor),
-            stack.leadingAnchor.constraint(equalTo: container.leadingAnchor),
-            stack.trailingAnchor.constraint(equalTo: container.trailingAnchor),
-        ])
-
-        return container
-    }
-
-    private func makeButton(title: String, isPrimary: Bool, action: @escaping () -> Void) -> NSButton {
-        let button = OverlayActionButton(title: title, action: action)
-        button.isBordered = false
-        button.wantsLayer = true
-        button.font = NSFont.systemFont(ofSize: 12, weight: .medium)
-
-        if isPrimary {
-            button.contentTintColor = NSColor(VColor.auxWhite)
-            button.layer?.backgroundColor = NSColor(VColor.primaryBase).cgColor
-            button.layer?.cornerRadius = VRadius.md
-        } else {
-            button.contentTintColor = NSColor(VColor.contentSecondary)
-            button.layer?.backgroundColor = NSColor(VColor.surfaceBase).cgColor
-            button.layer?.cornerRadius = VRadius.md
-        }
-
-        let widthConstraint = button.widthAnchor.constraint(greaterThanOrEqualToConstant: 100)
-        let heightConstraint = button.heightAnchor.constraint(equalToConstant: 30)
-        NSLayoutConstraint.activate([widthConstraint, heightConstraint])
-
-        return button
+        .frame(width: 320)
+        .background(VColor.surfaceOverlay)
+        .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
+        .overlay(
+            RoundedRectangle(cornerRadius: VRadius.md)
+                .stroke(VColor.borderBase, lineWidth: 1)
+        )
     }
 }
 
-/// NSButton subclass that invokes a closure on click without requiring target/action boilerplate.
-private final class OverlayActionButton: NSButton {
-    private var onClick: (() -> Void)?
+// MARK: - Denied Prompt
 
-    convenience init(title: String, action: @escaping () -> Void) {
-        self.init(frame: .zero)
-        self.title = title
-        self.onClick = action
-        self.target = self
-        self.action = #selector(handleClick)
+private struct DeniedPromptView: View {
+    let deniedPermission: PermissionPromptOverlay.DeniedPermission
+    let onDismiss: () -> Void
+    let onOpenSettings: () -> Void
+
+    private var title: String {
+        switch deniedPermission {
+        case .microphone: "Microphone Access Required"
+        case .speechRecognition: "Speech Recognition Required"
+        case .both: "Permissions Required"
+        }
     }
 
-    @objc private func handleClick() {
-        onClick?()
+    private var subtitle: String {
+        switch deniedPermission {
+        case .microphone: "Dictation requires microphone access. Grant access in System Settings."
+        case .speechRecognition: "Dictation requires speech recognition access. Grant access in System Settings."
+        case .both: "Dictation requires microphone and speech recognition access. Grant access in System Settings."
+        }
     }
-}
 
-/// Rounded, semi-transparent background using design system tokens.
-private class PermissionOverlayBackground: NSView {
-    override var wantsUpdateLayer: Bool { true }
+    private var icon: VIcon {
+        switch deniedPermission {
+        case .microphone, .both: .micOff
+        case .speechRecognition: .audioWaveform
+        }
+    }
 
-    override func updateLayer() {
-        layer?.backgroundColor = NSColor(VColor.surfaceBase).withAlphaComponent(0.95).cgColor
-        layer?.cornerRadius = VRadius.lg
-        layer?.borderWidth = 1
-        layer?.borderColor = NSColor(VColor.borderBase).cgColor
+    var body: some View {
+        VStack(spacing: 0) {
+            VStack(spacing: VSpacing.sm) {
+                VIconView(icon, size: 20)
+                    .foregroundColor(VColor.systemNegativeStrong)
+
+                Text(title)
+                    .font(VFont.modalTitle)
+                    .foregroundColor(VColor.contentDefault)
+
+                Text(subtitle)
+                    .font(VFont.body)
+                    .foregroundColor(VColor.contentSecondary)
+                    .multilineTextAlignment(.center)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .padding(.horizontal, VSpacing.xl)
+            .padding(.top, VSpacing.xl)
+            .padding(.bottom, VSpacing.lg)
+
+            HStack(spacing: VSpacing.sm) {
+                VButton(label: "Dismiss", style: .outlined, size: .compact) {
+                    onDismiss()
+                }
+                VButton(label: "Open System Settings", style: .primary, size: .compact) {
+                    onOpenSettings()
+                }
+            }
+            .padding(.horizontal, VSpacing.xl)
+            .padding(.bottom, VSpacing.lg)
+        }
+        .frame(width: 320)
+        .background(VColor.surfaceOverlay)
+        .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
+        .overlay(
+            RoundedRectangle(cornerRadius: VRadius.md)
+                .stroke(VColor.borderBase, lineWidth: 1)
+        )
     }
 }

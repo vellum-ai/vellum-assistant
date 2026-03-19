@@ -43,6 +43,7 @@ import {
   updateConversationContextWindow,
   updateConversationTitle,
 } from "../memory/conversation-crud.js";
+import { syncMessageToDisk } from "../memory/conversation-disk-view.js";
 import {
   isReplaceableTitle,
   queueGenerateConversationTitle,
@@ -77,7 +78,6 @@ import {
 } from "./conversation-agent-loop-handlers.js";
 import {
   approveHostAttachmentRead,
-  formatAttachmentWarnings,
   resolveAssistantAttachments,
 } from "./conversation-attachments.js";
 import {
@@ -1182,6 +1182,7 @@ export async function runAgentLoopImpl(
         preRepairMessages = runMessages;
         preRunHistoryLength = runMessages.length;
         state.contextTooLargeDetected = false;
+        yieldedForBudget = false;
 
         updatedHistory = await ctx.agentLoop.run(
           runMessages,
@@ -1204,6 +1205,15 @@ export async function runAgentLoopImpl(
             "Post-convergence rerun still yielded at checkpoint — continuing reduction",
           );
           state.contextTooLargeDetected = true;
+
+          // Fold rerun progress into ctx.messages so the next reducer
+          // tier operates on up-to-date history instead of stale
+          // pre-rerun messages.
+          if (updatedHistory.length > preRunHistoryLength) {
+            ctx.messages = stripInjectedContext(updatedHistory);
+            preRepairMessages = updatedHistory;
+            preRunHistoryLength = updatedHistory.length;
+          }
         }
       }
 
@@ -1529,10 +1539,22 @@ export async function runAgentLoopImpl(
       conversationId: ctx.conversationId,
     });
 
+    const syncLastAssistantMessageToDisk = (): void => {
+      if (!state.lastAssistantMessageId) return;
+      const convForDisk = getConversation(ctx.conversationId);
+      if (!convForDisk) return;
+      syncMessageToDisk(
+        ctx.conversationId,
+        state.lastAssistantMessageId,
+        convForDisk.createdAt,
+      );
+    };
+
     // Fast-path: when the user cancelled, skip expensive post-loop work
     // (attachment resolution) and emit the cancellation event immediately
     // so the client can re-enable the UI without delay.
     if (abortController.signal.aborted) {
+      syncLastAssistantMessageToDisk();
       ctx.emitActivityState("idle", "generation_cancelled", "global", reqId);
       ctx.traceEmitter.emit(
         "generation_cancelled",
@@ -1568,17 +1590,7 @@ export async function runAgentLoopImpl(
 
       ctx.lastAssistantAttachments = assistantAttachments;
       ctx.lastAttachmentWarnings = attachmentResult.directiveWarnings;
-
-      const warningText = formatAttachmentWarnings(
-        attachmentResult.directiveWarnings,
-      );
-      if (warningText) {
-        onEvent({
-          type: "assistant_text_delta",
-          text: warningText,
-          conversationId: ctx.conversationId,
-        });
-      }
+      syncLastAssistantMessageToDisk();
 
       // Re-check: the user may have cancelled during attachment resolution
       if (abortController.signal.aborted) {

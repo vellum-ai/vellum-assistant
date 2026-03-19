@@ -8,11 +8,47 @@ let chatBackgroundImage: UIImage? = {
     return UIImage(contentsOfFile: url.path)
 }()
 
+/// Preference key that propagates the bottom anchor's Y position (in the
+/// scroll view's coordinate space) so the view can determine whether the
+/// user is near the bottom of the conversation.
+private struct BottomAnchorMinYKey: PreferenceKey {
+    static var defaultValue: CGFloat = .infinity
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = min(value, nextValue())
+    }
+}
+
+/// Preference key that captures the scroll view's viewport height from a
+/// background GeometryReader so anchor visibility can be computed.
+private struct ScrollViewportHeightKey: PreferenceKey {
+    static var defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = max(value, nextValue())
+    }
+}
+
 struct ChatContentView: View {
     @ObservedObject var viewModel: ChatViewModel
     @FocusState private var isInputFocused: Bool
     @Environment(\.colorScheme) private var colorScheme
     @State private var emptyStateVisible = false
+
+    /// Whether the bottom anchor is within or near the visible viewport.
+    /// When true, auto-scroll follows new content; when false, the user
+    /// has scrolled up and auto-scroll is suppressed.
+    @State private var isNearBottom: Bool = true
+    /// The scroll view's viewport height, used to determine anchor visibility.
+    @State private var scrollViewportHeight: CGFloat = .infinity
+    /// The last reported Y position of the bottom anchor in the scroll
+    /// view's coordinate space. Used to determine whether content actually
+    /// exceeds the viewport (so the "Scroll to latest" button is hidden
+    /// when all content fits on screen).
+    @State private var lastAnchorMinY: CGFloat = .infinity
+    /// Prevents stacking concurrent pagination loads. Gates the pagination
+    /// sentinel's onAppear so only one page load is in flight at a time.
+    @State private var isPaginationInFlight: Bool = false
+    /// Task for the staged scroll-to-bottom retry on conversation switch.
+    @State private var scrollRestoreTask: Task<Void, Never>?
 
     /// The slice of messages shown in the view, honoring the pagination window.
     private var visibleMessages: [ChatMessage] {
@@ -22,6 +58,30 @@ struct ChatContentView: View {
         // as new messages arrive, which would cause previously loaded history to vanish.
         guard viewModel.displayedMessageCount < all.count else { return all }
         return Array(all.suffix(viewModel.displayedMessageCount))
+    }
+
+    private var modelPickerModels: [(id: String, name: String)] {
+        if let currentProvider = viewModel.providerCatalog.first(where: { provider in
+            provider.models.contains(where: { $0.id == viewModel.selectedModel })
+        }) {
+            return currentProvider.models.map { model in
+                (id: model.id, name: model.displayName)
+            }
+        }
+
+        var seenModelIds = Set<String>()
+        let allCatalogModels = viewModel.providerCatalog.flatMap { provider in
+            provider.models.compactMap { model -> (id: String, name: String)? in
+                guard seenModelIds.insert(model.id).inserted else { return nil }
+                return (id: model.id, name: model.displayName)
+            }
+        }
+
+        if !allCatalogModels.isEmpty {
+            return allCatalogModels
+        }
+
+        return [(id: viewModel.selectedModel, name: viewModel.selectedModel)]
     }
 
     var body: some View {
@@ -89,35 +149,131 @@ struct ChatContentView: View {
 
                     typingIndicatorSection
 
-                    // Invisible anchor at the very bottom of all content
+                    // Invisible anchor at the very bottom of all content.
+                    // A GeometryReader reports its Y position so the view
+                    // can track whether the user is near the bottom.
                     Color.clear.frame(height: 1)
                         .id("scroll-bottom-anchor")
+                        .background {
+                            GeometryReader { geo in
+                                Color.clear.preference(
+                                    key: BottomAnchorMinYKey.self,
+                                    value: geo.frame(in: .named("chatScrollView")).minY
+                                )
+                            }
+                        }
                 }
                 .animation(VAnimation.standard, value: viewModel.messages.count)
                 .padding(VSpacing.lg)
             }
+            .coordinateSpace(name: "chatScrollView")
+            .defaultScrollAnchor(.bottom)
             .scrollDismissesKeyboard(.interactively)
+            .background {
+                GeometryReader { geo in
+                    Color.clear.preference(
+                        key: ScrollViewportHeightKey.self,
+                        value: geo.size.height
+                    )
+                }
+            }
+            .onPreferenceChange(ScrollViewportHeightKey.self) { height in
+                scrollViewportHeight = height
+            }
+            .onPreferenceChange(BottomAnchorMinYKey.self) { minY in
+                lastAnchorMinY = minY
+                // The anchor is "near bottom" when its top edge is within
+                // or just below the viewport. A 20pt tolerance avoids
+                // flickering at the exact boundary.
+                let newNearBottom = minY <= scrollViewportHeight + 20
+                if isNearBottom != newNearBottom {
+                    isNearBottom = newNearBottom
+                    if !newNearBottom {
+                        scrollRestoreTask?.cancel()
+                        scrollRestoreTask = nil
+                    }
+                }
+            }
             .onChange(of: viewModel.messages.count) { _, _ in
-                scrollToBottom(proxy: proxy, animated: true)
+                if isNearBottom && !viewModel.isLoadingMoreMessages {
+                    scrollToBottom(proxy: proxy, animated: true)
+                }
             }
             .onChange(of: viewModel.messages.last?.text) { _, _ in
                 // Scroll without animation during streaming to avoid jank.
-                // Only scroll when actively streaming to avoid overriding the animated
-                // scroll from new message additions (handled by count change above).
-                if viewModel.messages.last?.isStreaming == true {
+                // Only scroll when actively streaming and the user hasn't
+                // scrolled away.
+                if viewModel.messages.last?.isStreaming == true && isNearBottom {
                     scrollToBottom(proxy: proxy, animated: false)
                 }
             }
             .onChange(of: viewModel.isSending) { _, isSending in
                 if isSending {
+                    isNearBottom = true
                     withAnimation(.easeOut(duration: 0.3)) {
                         proxy.scrollTo("scroll-bottom-anchor", anchor: .bottom)
                     }
                 }
             }
             .onChange(of: viewModel.activeSubagents.count) { oldCount, newCount in
-                if newCount > oldCount {
+                if newCount > oldCount && isNearBottom {
                     scrollToBottom(proxy: proxy, animated: true)
+                }
+            }
+            .onChange(of: viewModel.conversationId) { _, _ in
+                // Reset scroll state when the conversation changes so the
+                // new conversation starts bottom-following correctly.
+                isNearBottom = true
+                isPaginationInFlight = false
+                scrollRestoreTask?.cancel()
+                scrollRestoreTask = Task { @MainActor in
+                    // Stage 0: immediate — covers the happy path where
+                    // layout is already ready.
+                    scrollToBottom(proxy: proxy, animated: false)
+
+                    // Stage 1: ~3 frames — handles most conversation switches.
+                    try? await Task.sleep(nanoseconds: 50_000_000)
+                    guard !Task.isCancelled else { return }
+                    scrollToBottom(proxy: proxy, animated: false)
+
+                    // Stage 2: catches slower async-loaded conversations.
+                    try? await Task.sleep(nanoseconds: 150_000_000)
+                    guard !Task.isCancelled else { return }
+                    scrollToBottom(proxy: proxy, animated: false)
+
+                    scrollRestoreTask = nil
+                }
+            }
+            .onDisappear {
+                scrollRestoreTask?.cancel()
+                scrollRestoreTask = nil
+            }
+            .overlay(alignment: .bottom) {
+                // Only show the button when the user has scrolled up AND
+                // the content actually exceeds the viewport. This prevents
+                // the pill from appearing in short conversations where all
+                // content fits on screen.
+                if !isNearBottom && lastAnchorMinY > scrollViewportHeight + 20 {
+                    Button(action: {
+                        isNearBottom = true
+                        withAnimation(VAnimation.standard) {
+                            proxy.scrollTo("scroll-bottom-anchor", anchor: .bottom)
+                        }
+                    }) {
+                        HStack(spacing: VSpacing.xs) {
+                            VIconView(.arrowDown, size: 10)
+                            Text("Scroll to latest")
+                                .font(VFont.monoSmall)
+                        }
+                        .padding(.horizontal, VSpacing.md)
+                        .padding(.vertical, VSpacing.sm)
+                        .background(.ultraThinMaterial)
+                        .clipShape(Capsule())
+                        .shadow(color: VColor.auxBlack.opacity(0.15), radius: 4, y: 2)
+                    }
+                    .padding(.bottom, VSpacing.sm)
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+                    .animation(VAnimation.standard, value: isNearBottom)
                 }
             }
         }
@@ -136,18 +292,21 @@ struct ChatContentView: View {
             }
             .padding(.vertical, VSpacing.sm)
             .id("page-loading-indicator")
-        } else if viewModel.hasMoreMessages {
+        } else if viewModel.hasMoreMessages && !isPaginationInFlight {
             // Invisible sentinel: fires when the user scrolls to the top,
             // triggering the next-older page of messages to be revealed.
             Color.clear
                 .frame(height: 1)
                 .id("page-load-trigger")
                 .onAppear {
+                    guard !isPaginationInFlight else { return }
+                    isPaginationInFlight = true
                     // Capture the current first-visible message ID before the
                     // pagination window expands so we can restore scroll position.
                     let anchorId = visibleMessages.first?.id
                     Task {
                         let hadMore = await viewModel.loadPreviousMessagePage()
+                        isPaginationInFlight = false
                         // Restore position to the message that was previously at
                         // the top so the content doesn't jump unexpectedly.
                         if hadMore, let id = anchorId {
@@ -164,7 +323,7 @@ struct ChatContentView: View {
     private func messageBubble(message: ChatMessage, index: Int, messages: [ChatMessage]) -> some View {
         if message.modelPicker != nil {
             ModelPickerBubble(
-                models: ModelListBubble.anthropicModels.map { (id: $0.model, name: $0.display) },
+                models: modelPickerModels,
                 selectedModelId: viewModel.selectedModel,
                 onSelect: { modelId in
                     viewModel.setModel(modelId)
@@ -176,12 +335,16 @@ struct ChatContentView: View {
                 removal: .opacity
             ))
         } else if message.modelList != nil {
-            ModelListBubble(currentModel: viewModel.selectedModel, configuredProviders: viewModel.configuredProviders)
-                .id(message.id)
-                .transition(.asymmetric(
-                    insertion: .move(edge: .bottom).combined(with: .opacity),
-                    removal: .opacity
-                ))
+            ModelListBubble(
+                currentModel: viewModel.selectedModel,
+                configuredProviders: viewModel.configuredProviders,
+                providerCatalog: viewModel.providerCatalog
+            )
+            .id(message.id)
+            .transition(.asymmetric(
+                insertion: .move(edge: .bottom).combined(with: .opacity),
+                removal: .opacity
+            ))
         } else if message.commandList != nil {
             CommandListBubble()
                 .id(message.id)

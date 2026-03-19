@@ -11,8 +11,6 @@ import {
   isCesSecureInstallEnabled,
   isCesToolsEnabled,
 } from "../credential-execution/feature-gates.js";
-import { assetMaterializeTool } from "./assets/materialize.js";
-import { assetSearchTool } from "./assets/search.js";
 import { makeAuthenticatedRequestTool } from "./credential-execution/make-authenticated-request.js";
 import { manageSecureCommandTool } from "./credential-execution/manage-secure-command-tool.js";
 import { runAuthenticatedCommandTool } from "./credential-execution/run-authenticated-command.js";
@@ -63,8 +61,6 @@ export const eagerModuleToolNames: string[] = [
   "skill_execute",
   "skill_load",
   "request_system_permission",
-  "asset_search",
-  "asset_materialize",
 ];
 
 // ── Explicit tool instances ─────────────────────────────────────────
@@ -85,8 +81,6 @@ export const explicitTools: Tool[] = [
   skillExecuteTool,
   skillLoadTool,
   requestSystemPermissionTool,
-  assetSearchTool,
-  assetMaterializeTool,
   // Always-explicit tools
   memoryManageTool,
   memoryRecallTool,

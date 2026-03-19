@@ -150,6 +150,10 @@ public final class HTTPTransport {
     /// Whether we should attempt to reconnect on disconnect.
     private var shouldReconnect = true
 
+    /// Set by the owning DaemonClient when a planned service group update
+    /// is in progress. Accelerates health check polling for faster reconnection.
+    var isUpdateInProgress: Bool = false
+
     /// Current reconnect backoff delay in seconds (for SSE).
     private var sseReconnectDelay: TimeInterval = 1.0
 
@@ -457,7 +461,7 @@ public final class HTTPTransport {
             return ("/v1/tools/simulate-permission", nil)
         // Integrations
         case .integrationsOAuthStart:
-            return ("/v1/integrations/oauth/start", nil)
+            return ("/v1/oauth/start", nil)
         case .integrationsVercelConfig:
             return ("/v1/integrations/vercel/config", nil)
         case .integrationsIngressConfig:
@@ -591,7 +595,7 @@ public final class HTTPTransport {
             return ("\(prefix)/tools/simulate-permission/", nil)
         // Integrations
         case .integrationsOAuthStart:
-            return ("\(prefix)/integrations/oauth/start/", nil)
+            return ("\(prefix)/oauth/start/", nil)
         case .integrationsVercelConfig:
             return ("\(prefix)/integrations/vercel/config/", nil)
         case .integrationsIngressConfig:
@@ -696,7 +700,8 @@ public final class HTTPTransport {
         healthCheckTask = Task { @MainActor [weak self] in
             while !Task.isCancelled {
                 do {
-                    try await Task.sleep(nanoseconds: UInt64((self?.healthCheckInterval ?? 15.0) * 1_000_000_000))
+                    let interval = (self?.isUpdateInProgress == true) ? 2.0 : (self?.healthCheckInterval ?? 15.0)
+                    try await Task.sleep(nanoseconds: UInt64(interval * 1_000_000_000))
                 } catch {
                     return
                 }
@@ -847,6 +852,14 @@ public final class HTTPTransport {
     }
 
     private func parseSSEData(_ data: String) {
+        let byteCount = data.utf8.count
+        let start = CFAbsoluteTimeGetCurrent()
+        defer {
+            let elapsed = CFAbsoluteTimeGetCurrent() - start
+            if elapsed > 0.05 || byteCount > 100_000 {
+                log.warning("Slow SSE event: \(String(format: "%.1f", elapsed * 1000))ms, \(byteCount) bytes")
+            }
+        }
         var jsonString = data
         // Remap server conversation IDs to client-local conversation IDs via O(1) dictionary lookup
         if let conversationId = extractJsonStringValue(from: jsonString, key: "conversationId"),
@@ -971,11 +984,14 @@ public final class HTTPTransport {
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         applyAuth(&request)
 
-        let body: [String: Any] = [
+        var body: [String: Any] = [
             "filename": attachment.filename,
             "mimeType": attachment.mimeType,
             "data": attachment.data
         ]
+        if let filePath = attachment.filePath {
+            body["filePath"] = filePath
+        }
 
         do {
             request.httpBody = try JSONSerialization.data(withJSONObject: body)
@@ -1124,8 +1140,7 @@ public final class HTTPTransport {
                     conversationId: conversationId,
                     code: .providerApi,
                     userMessage: message,
-                    retryable: false,
-                    failedMessageContent: content
+                    retryable: false
                 )))
             } else {
                 let errorBody = String(data: data, encoding: .utf8) ?? "unknown"

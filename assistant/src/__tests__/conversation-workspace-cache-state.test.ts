@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 import type { AgentEvent } from "../agent/loop.js";
+import { getConversationDirName } from "../memory/conversation-disk-view.js";
 import type { Message, ProviderResponse } from "../providers/types.js";
 
 // ---------------------------------------------------------------------------
@@ -79,6 +80,7 @@ mock.module("../memory/conversation-crud.js", () => ({
   getMessages: () => [],
   getConversation: () => ({
     id: "conv-1",
+    createdAt: Date.parse("2026-03-19T12:00:00.000Z"),
     contextSummary: null,
     contextCompactedMessageCount: 0,
     contextCompactedAt: null,
@@ -197,6 +199,13 @@ function makeConversation(): Conversation {
   );
 }
 
+const conversationDirName = getConversationDirName(
+  "conv-1",
+  Date.parse("2026-03-19T12:00:00.000Z"),
+);
+const conversationPath = `conversations/${conversationDirName}/`;
+const conversationAttachmentsPath = `${conversationPath}attachments/`;
+
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
@@ -223,6 +232,12 @@ describe("Conversation workspace cache state", () => {
     );
     expect(conversation.getWorkspaceTopLevelContext()!).toContain(
       "</workspace_top_level>",
+    );
+    expect(conversation.getWorkspaceTopLevelContext()!).toContain(
+      `Current conversation folder: ${conversationPath}`,
+    );
+    expect(conversation.getWorkspaceTopLevelContext()!).toContain(
+      `Attachment files: ${conversationAttachmentsPath}`,
     );
   });
 

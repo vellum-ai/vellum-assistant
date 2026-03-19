@@ -24,7 +24,9 @@ struct ChatView: View {
     let onMicrophoneToggle: () -> Void
     var onModelPickerSelect: ((UUID, String) -> Void)?
     var selectedModel: String = ""
+    var catalogModels: [(id: String, name: String)] = []
     var configuredProviders: Set<String> = []
+    var providerCatalog: [ProviderCatalogEntry] = []
     let assistantActivityPhase: String
     let assistantActivityAnchor: String
     let assistantActivityReason: String?
@@ -39,6 +41,8 @@ struct ChatView: View {
     let watchSession: WatchSession?
     let onStopWatch: () -> Void
     var onReportMessage: ((String?) -> Void)?
+    var showInspectButton: Bool = false
+    var onInspectMessage: ((String?) -> Void)?
     var mediaEmbedSettings: MediaEmbedResolverSettings?
     var isTemporaryChat: Bool = false
     var activeSubagents: [SubagentInfo] = []
@@ -51,7 +55,8 @@ struct ChatView: View {
     /// Called when the user taps "Retry" on a per-message send failure.
     var onRetryFailedMessage: ((UUID) -> Void)?
     /// Called when the user taps "Retry" on an inline conversation error.
-    var onRetryConversationError: (() -> Void)?
+    /// Receives the error message's ID so the handler can validate the retry target.
+    var onRetryConversationError: ((UUID) -> Void)?
     var subagentDetailStore: SubagentDetailStore
     /// Resolves the daemon HTTP port at call time so lazy-loaded video
     /// attachments always use the latest port after daemon restarts.
@@ -221,7 +226,9 @@ struct ChatView: View {
                             assistantActivityReason: assistantActivityReason,
                             assistantStatusText: assistantStatusText,
                             selectedModel: selectedModel,
+                            catalogModels: catalogModels,
                             configuredProviders: configuredProviders,
+                            providerCatalog: providerCatalog,
                             activeSubagents: activeSubagents,
                             dismissedDocumentSurfaceIds: dismissedDocumentSurfaceIds,
                             onConfirmationAllow: onConfirmationAllow,
@@ -232,6 +239,8 @@ struct ChatView: View {
                             onGuardianAction: onGuardianAction,
                             onDismissDocumentWidget: onDismissDocumentWidget,
                             onReportMessage: onReportMessage,
+                            showInspectButton: showInspectButton,
+                            onInspectMessage: onInspectMessage,
                             mediaEmbedSettings: mediaEmbedSettings,
                             resolveHttpPort: resolveHttpPort,
                             onModelPickerSelect: onModelPickerSelect,

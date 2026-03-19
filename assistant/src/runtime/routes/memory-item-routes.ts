@@ -37,6 +37,7 @@ type MemoryItemKind = (typeof VALID_KINDS)[number];
 const VALID_SORT_FIELDS = [
   "lastSeenAt",
   "importance",
+  "accessCount",
   "kind",
   "firstSeenAt",
 ] as const;
@@ -46,6 +47,7 @@ type SortField = (typeof VALID_SORT_FIELDS)[number];
 const SORT_COLUMN_MAP = {
   lastSeenAt: memoryItems.lastSeenAt,
   importance: memoryItems.importance,
+  accessCount: memoryItems.accessCount,
   kind: memoryItems.kind,
   firstSeenAt: memoryItems.firstSeenAt,
 } as const;
@@ -103,6 +105,8 @@ export function handleListMemoryItems(url: URL): Response {
 
   // Build WHERE conditions
   const conditions = [];
+  // Hide system-managed capability memories (skill announcements) from the UI
+  conditions.push(ne(memoryItems.kind, "capability"));
   if (statusParam && statusParam !== "all") {
     conditions.push(eq(memoryItems.status, statusParam));
   }

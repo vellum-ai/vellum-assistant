@@ -52,9 +52,15 @@ struct FileContentView: View {
     @Binding var isActivelyEditing: Bool
     @State private var isContentHovered = false
 
+    private func syncViewMode() {
+        let modes = availableViewModes(for: fileName, mimeType: mimeType)
+        if !modes.contains(viewMode) {
+            viewMode = modes.first ?? .source
+        }
+    }
+
     var body: some View {
         let modes = availableViewModes(for: fileName, mimeType: mimeType)
-        let effectiveMode = modes.contains(viewMode) ? viewMode : (modes.first ?? .source)
 
         VStack(alignment: .leading, spacing: 0) {
             FileContentHeaderBar(
@@ -81,7 +87,7 @@ struct FileContentView: View {
             Divider().background(VColor.borderBase)
 
             ZStack(alignment: .topTrailing) {
-                switch effectiveMode {
+                switch viewMode {
                 case .source:
                     HighlightedTextView(
                         text: isEditable ? $content : .constant(content),
@@ -102,7 +108,7 @@ struct FileContentView: View {
 
                 if isContentHovered && !isActivelyEditing {
                     HStack(spacing: VSpacing.xs) {
-                        if isEditable && effectiveMode == .source {
+                        if isEditable && viewMode == .source {
                             VButton(
                                 label: "Edit",
                                 iconOnly: VIcon.pencil.rawValue,
@@ -137,7 +143,10 @@ struct FileContentView: View {
         }
         .onChange(of: fileName) { _, _ in
             isActivelyEditing = false
+            syncViewMode()
         }
+        .onAppear { syncViewMode() }
+        .onChange(of: mimeType) { syncViewMode() }
     }
 }
 
