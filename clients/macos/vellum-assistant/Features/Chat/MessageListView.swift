@@ -887,7 +887,9 @@ struct MessageListView: View {
                 if !hasFreshAnchorMeasurement { hasFreshAnchorMeasurement = true }
                 // During content expansion while bottom-pinned, re-anchor to bottom
                 // on every frame so the viewport follows the growing content.
-                if scrollTracking.isPinningDuringExpansion {
+                // Gate on isNearBottom so that if the user scrolls away during
+                // the pinning window, we stop fighting their scroll.
+                if scrollTracking.isPinningDuringExpansion && isNearBottom {
                     proxy.scrollTo("scroll-bottom-anchor", anchor: .bottom)
                 }
                 os_signpost(.end, log: PerfSignposts.log, name: "anchorPreferenceChange")
