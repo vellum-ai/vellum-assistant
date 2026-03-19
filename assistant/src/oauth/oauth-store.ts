@@ -274,10 +274,12 @@ export async function upsertApp(
       // can detect that a concurrent caller has claimed this row. Without
       // this, a concurrent inserter's rollback DELETE would still match on
       // the original updatedAt and delete the row we just validated.
+      const newUpdatedAt = Date.now();
       db.update(oauthApps)
-        .set({ updatedAt: Date.now() })
+        .set({ updatedAt: newUpdatedAt })
         .where(eq(oauthApps.id, existingRow.id))
         .run();
+      return { ...existingRow, updatedAt: newUpdatedAt };
     }
     if (clientSecretCredentialPath) {
       db.update(oauthApps)
