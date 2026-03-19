@@ -378,20 +378,11 @@ struct MessageListView: View {
     }
 
     private func updateAvatarFollower(anchorY: CGFloat) {
-        // Only update @State when the visibility boundary is crossed, finitude
-        // changes, or the stored value drifts too far from reality. The relaxed
-        // threshold (20pt) keeps avatarTargetY fresh enough that the coalescing
-        // flush path (onChange of shouldCoalesceAvatarUpdates) won't see a large
-        // stale jump, while still avoiding the ~60 @State updates/sec that the
-        // original 1pt threshold caused during scroll.
-        let visibilityChanged: Bool = {
-            let wasVisible = avatarTargetY.isFinite
-                && ConversationAvatarFollower.shouldShow(anchorY: avatarTargetY, viewportHeight: scrollViewportHeight)
-            let nowVisible = anchorY.isFinite
-                && ConversationAvatarFollower.shouldShow(anchorY: anchorY, viewportHeight: scrollViewportHeight)
-            return wasVisible != nowVisible
-        }()
-        if visibilityChanged || abs(avatarTargetY - anchorY) > 20 || !avatarTargetY.isFinite != !anchorY.isFinite {
+        if ConversationAvatarFollower.shouldUpdateTarget(
+            previousAnchorY: avatarTargetY,
+            newAnchorY: anchorY,
+            viewportHeight: scrollViewportHeight
+        ) {
             avatarTargetY = anchorY
         }
 
@@ -408,7 +399,8 @@ struct MessageListView: View {
         // overlay is hidden via shouldShowConversationTailAvatar, so updating
         // avatarDisplayY for an invisible element just wastes layout passes.
         let nowVisible = ConversationAvatarFollower.shouldShow(
-            anchorY: anchorY, viewportHeight: scrollViewportHeight
+            anchorY: anchorY,
+            viewportHeight: scrollViewportHeight
         )
         guard nowVisible else {
             avatarSmoothingTask?.cancel()

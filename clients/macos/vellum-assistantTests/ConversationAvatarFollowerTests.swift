@@ -39,4 +39,45 @@ final class ConversationAvatarFollowerTests: XCTestCase {
 
         XCTAssertEqual(delay, 0, accuracy: 0.0001)
     }
+
+    func testHiddenAnchorMovementDoesNotUpdateTarget() {
+        XCTAssertFalse(
+            ConversationAvatarFollower.shouldUpdateTarget(
+                previousAnchorY: 700,
+                newAnchorY: 920,
+                viewportHeight: 500
+            )
+        )
+        XCTAssertFalse(
+            ConversationAvatarFollower.shouldUpdateTarget(
+                previousAnchorY: -80,
+                newAnchorY: -180,
+                viewportHeight: 500
+            )
+        )
+    }
+
+    func testVisibilityTransitionsStillUpdateTarget() {
+        XCTAssertTrue(
+            ConversationAvatarFollower.shouldUpdateTarget(
+                previousAnchorY: 700,
+                newAnchorY: 520,
+                viewportHeight: 500
+            )
+        )
+        XCTAssertTrue(
+            ConversationAvatarFollower.shouldUpdateTarget(
+                previousAnchorY: 520,
+                newAnchorY: 700,
+                viewportHeight: 500
+            )
+        )
+        XCTAssertTrue(
+            ConversationAvatarFollower.shouldUpdateTarget(
+                previousAnchorY: 100,
+                newAnchorY: 140,
+                viewportHeight: 500
+            )
+        )
+    }
 }
