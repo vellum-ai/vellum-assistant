@@ -747,7 +747,7 @@ private struct WorkspaceFileViewer: View {
                     mimeType: detail.mimeType,
                     content: $state.editableContent,
                     viewMode: $state.viewMode,
-                    isEditable: true,
+                    isEditable: !readOnly,
                     showReadOnlyBadge: readOnly,
                     onTextChange: { newValue in
                         state.isDirty = newValue != state.originalContent
@@ -771,7 +771,7 @@ private struct WorkspaceFileViewer: View {
                 }
             }
 
-            if isText && state.isDirty {
+            if isText && !readOnly && state.isDirty {
                 Divider().background(VColor.borderBase)
                 HStack {
                     Spacer()
