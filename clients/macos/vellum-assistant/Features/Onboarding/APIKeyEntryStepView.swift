@@ -268,6 +268,7 @@ struct APIKeyEntryStepView: View {
         if isCustomProviderEnabled {
             let trimmed = apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !providerRequiresKey || !trimmed.isEmpty else { return }
+            state.selectedModel = selectedModel
             if providerRequiresKey {
                 APIKeyManager.setKey(trimmed, for: state.selectedProvider)
             }
@@ -284,6 +285,8 @@ struct APIKeyEntryStepView: View {
         } else {
             let trimmed = apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !trimmed.isEmpty else { return }
+            state.selectedProvider = "anthropic"
+            state.selectedModel = "claude-opus-4-6"
             APIKeyManager.setKey(trimmed, for: "anthropic")
 
             // Force service modes to "your-own" — the user explicitly chose to
