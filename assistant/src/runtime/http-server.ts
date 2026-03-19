@@ -774,7 +774,12 @@ export class RuntimeHttpServer {
       parentConversation = getConversation(parentConversationId);
       parentCache.set(parentConversationId, parentConversation);
     }
-    if (!parentConversation) return undefined;
+    if (
+      !parentConversation ||
+      parentConversation.conversationType === "private"
+    ) {
+      return undefined;
+    }
 
     return {
       conversationId: parentConversationId,

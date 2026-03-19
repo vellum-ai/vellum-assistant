@@ -1,6 +1,7 @@
 import { and, eq, gte, isNull, lte } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 
+import { getMessageById, messageMetadataSchema } from "./conversation-crud.js";
 import { getDb } from "./db.js";
 import { llmRequestLogs } from "./schema.js";
 
@@ -74,17 +75,42 @@ export function getRequestLogsByMessageId(messageId: string): Array<{
   createdAt: number;
 }> {
   const db = getDb();
-  return db
-    .select({
-      id: llmRequestLogs.id,
-      conversationId: llmRequestLogs.conversationId,
-      messageId: llmRequestLogs.messageId,
-      requestPayload: llmRequestLogs.requestPayload,
-      responsePayload: llmRequestLogs.responsePayload,
-      createdAt: llmRequestLogs.createdAt,
-    })
-    .from(llmRequestLogs)
-    .where(eq(llmRequestLogs.messageId, messageId))
-    .orderBy(llmRequestLogs.createdAt)
-    .all();
+  const selectLogs = (targetMessageId: string) =>
+    db
+      .select({
+        id: llmRequestLogs.id,
+        conversationId: llmRequestLogs.conversationId,
+        messageId: llmRequestLogs.messageId,
+        requestPayload: llmRequestLogs.requestPayload,
+        responsePayload: llmRequestLogs.responsePayload,
+        createdAt: llmRequestLogs.createdAt,
+      })
+      .from(llmRequestLogs)
+      .where(eq(llmRequestLogs.messageId, targetMessageId))
+      .orderBy(llmRequestLogs.createdAt)
+      .all();
+
+  const exactLogs = selectLogs(messageId);
+  if (exactLogs.length > 0) {
+    return exactLogs;
+  }
+
+  const message = getMessageById(messageId);
+  if (!message?.metadata) {
+    return exactLogs;
+  }
+
+  try {
+    const parsed = messageMetadataSchema.safeParse(JSON.parse(message.metadata));
+    const sourceMessageId =
+      parsed.success && typeof parsed.data.forkSourceMessageId === "string"
+        ? parsed.data.forkSourceMessageId
+        : null;
+    if (!sourceMessageId || sourceMessageId === messageId) {
+      return exactLogs;
+    }
+    return selectLogs(sourceMessageId);
+  } catch {
+    return exactLogs;
+  }
 }
