@@ -574,6 +574,10 @@ export class VellumQdrantClient {
         field_name: "modality",
         field_schema: "keyword",
       }),
+      this.client.createPayloadIndex(this.collection, {
+        field_name: "memory_scope_id",
+        field_schema: "keyword",
+      }),
     ]);
   }
 
