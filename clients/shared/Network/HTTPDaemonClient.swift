@@ -968,6 +968,8 @@ public final class HTTPTransport {
     private func uploadAttachment(_ attachment: UserMessageAttachment, isRetry: Bool = false) async -> AttachmentUploadResult {
         guard let url = buildURL(for: .uploadAttachment) else { return .transientFailure }
 
+        log.info("[send-pipeline] attachment upload start — filename=\(attachment.filename, privacy: .public), mimeType=\(attachment.mimeType, privacy: .public)")
+
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
@@ -990,8 +992,10 @@ public final class HTTPTransport {
             if http.statusCode == 200 || http.statusCode == 201 {
                 let json = try JSONSerialization.jsonObject(with: data) as? [String: Any]
                 if let id = json?["id"] as? String {
+                    log.info("[send-pipeline] attachment upload success — id=\(id, privacy: .public)")
                     return .success(id: id)
                 }
+                log.error("[send-pipeline] attachment upload response missing id")
                 return .transientFailure
             } else if http.statusCode == 401 && !isRetry {
                 let refreshResult = await handleAuthenticationFailureAsync(responseData: data)
@@ -1005,17 +1009,20 @@ public final class HTTPTransport {
                     return .transientFailure
                 }
             } else {
-                log.error("Attachment upload failed (\(http.statusCode))")
+                log.error("[send-pipeline] attachment upload failed (\(http.statusCode))")
                 return .transientFailure
             }
         } catch {
-            log.error("Attachment upload error: \(error.localizedDescription)")
+            log.error("[send-pipeline] attachment upload error: \(error.localizedDescription)")
             return .transientFailure
         }
     }
 
     func sendMessage(content: String?, conversationId: String, attachments: [UserMessageAttachment]? = nil, uploadedAttachmentIds: [String]? = nil, automated: Bool? = nil, isRetry: Bool = false) async {
         locallyOwnedConversationIds.insert(conversationId)
+
+        let attachmentCount = attachments?.count ?? 0
+        log.info("[send-pipeline] sendMessage start — attachmentCount=\(attachmentCount), hasUploadedIds=\(uploadedAttachmentIds != nil), isRetry=\(isRetry)")
 
         // On retry, reuse already-uploaded attachment IDs to avoid duplicates
         var attachmentIds: [String] = uploadedAttachmentIds ?? []
@@ -1042,6 +1049,12 @@ public final class HTTPTransport {
                 }
             }
         }
+
+        if isRetry && !(uploadedAttachmentIds ?? []).isEmpty {
+            log.info("[send-pipeline] send retry reusing \(attachmentIds.count) previously uploaded attachment IDs")
+        }
+
+        log.info("[send-pipeline] message request start — uploadedAttachmentIds=\(attachmentIds.count)")
 
         guard let url = buildURL(for: .sendMessage) else { return }
 
