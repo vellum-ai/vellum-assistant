@@ -288,8 +288,8 @@ extension ChatBubble {
     ///
     /// After a history reload, `sourceType` is nil (not persisted in the DB), so
     /// we fall back to the old all-or-nothing approach: hide all image attachments
-    /// when the count matches the inline tool call count — this avoids duplicates
-    /// at the cost of hiding non-tool images (rare in practice).
+    /// when the count exactly matches the inline tool call count — this avoids
+    /// duplicates while preserving non-tool images when counts differ.
     func visibleAttachmentImages(_ images: [ChatAttachment]) -> [ChatAttachment] {
         guard shouldRenderToolProgressInline, inlineToolCallImageCount > 0 else {
             return images
@@ -299,7 +299,7 @@ extension ChatBubble {
         if !anyHasSourceType {
             // History reload: sourceType unavailable — fall back to hiding all
             // images when count matches to avoid duplicating inline tool previews.
-            return images.count <= inlineToolCallImageCount ? [] : images
+            return images.count == inlineToolCallImageCount ? [] : images
         }
 
         var remainingInlineToolImages = inlineToolCallImageCount
